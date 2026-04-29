@@ -1,85 +1,261 @@
-# ContentBlock Data Model - Reference
+# Document Chunker
 
-## The Block
+The chunker turns `.docx` files into ordered, citable `ContentBlock` objects, then optionally runs an LLM mapper that assigns normalized section labels.
 
-Every document gets broken into an ordered list of **ContentBlocks**. One block = one chunk of the document (a paragraph, a heading, or a table row). All blocks use the same schema.
+The pipeline has two explicit phases:
 
----
+1. **Parser**: deterministic `.docx` parsing. Produces blocks with source text, document order, heading context, and structural provenance.
+2. **Mapper**: LLM-driven section labeling. Adds `section_label` and `label_confidence` using a document-type config.
 
-## Fields
+The Streamlit app is a local inspector for this flow: upload a document, click **Parse Document**, review parser output, then optionally click **Run Mapper**.
 
-### Fixed Fields (single values, same shape for every block)
+## Files
 
-| Field | Type | What it is |
+| File | Purpose |
+|---|---|
+| `models.py` | Shared dataclasses: `ContentBlock` and `DocumentTypeConfig`; YAML config loader. |
+| `parser.py` | Deterministic Word parser. Walks XML body order so paragraphs and tables stay interleaved correctly. |
+| `mapper.py` | Prompt builder, Anthropic call, JSON validation, and label merge. |
+| `app.py` | Streamlit UI for inspecting parser output and optional mapper output. |
+| `configs/tpp_vaccine.yaml` | First mapper config: Vaccine TPP taxonomy, preamble, and disambiguation rules. |
+| `requirements.txt` | Runtime dependencies. |
+
+## Running The App
+
+From the repo root:
+
+```bash
+source .venv/bin/activate
+python -m pip install -r chunker/requirements.txt
+python -m streamlit run chunker/app.py
+```
+
+The UI sequence is intentional:
+
+1. Upload a `.docx`.
+2. Click **Parse Document** to create raw `ContentBlock`s.
+3. Review parser output.
+4. Enter an Anthropic API key and click **Run Mapper** if section labels are needed.
+5. Download JSON. Before mapping, mapper fields are `null`; after mapping, they are filled.
+
+## ContentBlock Schema
+
+Every document is broken into an ordered list of `ContentBlock`s. One block represents one chunk of the document: a heading, paragraph, or table row. All blocks use the same top-level schema.
+
+| Field | Type | Set by | What it is |
+|---|---|---|---|
+| `id` | string | Parser | Unique citation ID. Format: `"{doc_id}/b-{ordinal:04d}"`. |
+| `doc_id` | string | Parser | Source document identifier. |
+| `ordinal` | int | Parser | Position in document order, 0-indexed. |
+| `source_type` | string | Parser | One of `"heading"`, `"paragraph"`, or `"table_row"`. |
+| `content` | string | Parser | Verbatim block text. |
+| `heading_stack` | list of strings | Parser | Ancestor headings, outermost first. |
+| `structural_meta` | dict | Parser | Provenance fields. Shape varies by `source_type`. |
+| `style_hint` | dict | Parser | Formatting/source hints. Shape varies by origin. |
+| `section_label` | string or null | Mapper | Normalized section label. Null until mapper runs. |
+| `label_confidence` | string or null | Mapper | `"high"`, `"medium"`, or `"low"`. Null until mapper runs. |
+
+### `structural_meta`
+
+`structural_meta` answers: "Where did this block come from in the Word file?"
+
+| Block kind | Keys | Example |
 |---|---|---|
-| `id` | string | Unique identifier across all documents. Format: `"{doc_id}/b-{ordinal:04d}"`. Used for citations - when a tool points at a specific block, this is the reference. |
-| `doc_id` | string | Which document this block came from. Same for every block in a file. Used for filtering/grouping. |
-| `ordinal` | int | Position in document order (0, 1, 2...). Used to reconstruct the original sequence. |
-| `source_type` | string | What kind of Word element this was: `"heading"`, `"paragraph"`, or `"table_row"`. This is the key that tells you how to read the two composite fields below. |
-| `content` | string | The verbatim text. Never modified after parsing. Everything downstream reads this. |
-| `heading_stack` | list of strings | The ancestor headings above this block, outermost first. Like breadcrumbs. Example: `["1. Clinical Strategy", "1.2 Endpoints"]`. Built by the parser using a stack - when a new heading at level N appears, everything at level N or deeper gets popped and replaced. |
+| Heading | `paragraph_index`, `heading_level` | `{ "paragraph_index": 38, "heading_level": 1 }` |
+| Normal paragraph | `paragraph_index` | `{ "paragraph_index": 42 }` |
+| Single-cell table paragraph | `table_index`, `row_index` | `{ "table_index": 0, "row_index": 0 }` |
+| Single-column table paragraph | `table_index`, `row_index` | `{ "table_index": 0, "row_index": 2 }` |
+| Multi-column table row | `table_index`, `row_index`, `column_headers` | `{ "table_index": 2, "row_index": 1, "column_headers": ["Variable", "Minimum", "Optimistic"] }` |
 
-### Phase 2 Fields (null after parsing, filled by the mapper)
+Notes:
 
-| Field | Type | What it is |
+- `paragraph_index` increments for every `<w:p>` element walked, including skipped empty paragraphs.
+- `heading_level` is structural, so it lives only in `structural_meta`, not `style_hint`.
+- `table_index` is the 0-indexed table position in the document.
+- `row_index` is the row position within that table.
+- `column_headers` stores the first row of a multi-column table so each `table_row` block is self-contained.
+
+### `style_hint`
+
+`style_hint` answers: "What did this look like, or what parser path produced it?"
+
+| Origin | Keys | Example |
 |---|---|---|
-| `section_label` | string or null | The normalized section name assigned by the LLM. Example: `"Target Population"`, `"Clinical Endpoints"`. Null until the mapper runs. |
-| `label_confidence` | string or null | How confident the LLM was: `"high"`, `"medium"`, or `"low"`. Null until the mapper runs. |
+| Heading paragraph | `style_name`, `is_bold` | `{ "style_name": "Heading 1", "is_bold": false }` |
+| Normal paragraph | `style_name`, `is_bold` | `{ "style_name": "Normal", "is_bold": true }` |
+| Table row | `source` | `{ "source": "table_row" }` |
+| Single-column table paragraph | `source` | `{ "source": "single_column_table" }` |
+| Single-cell table paragraph | `source` | `{ "source": "single_cell_table" }` |
+| Header-only table paragraph | `source` | `{ "source": "table_headers" }` |
 
-### Composite Fields (dicts, contents vary by `source_type`)
+`is_bold` checks explicit run-level bold only. Bold inherited from a Word style may not appear here.
 
-These two fields are both dictionaries whose keys change depending on what kind of block it is. `source_type` tells you which shape to expect.
+## Parser Behavior
 
-#### `structural_meta` - "Where did this come from in the file?"
+The parser walks `doc.element.body` in XML order, not `doc.paragraphs`, so interspersed tables stay in the correct document sequence.
 
-Provenance and traceability. Lets you trace a block back to the exact spot in the source document.
+For paragraphs:
 
-| source_type | Keys | Example |
-|---|---|---|
-| `heading` | `paragraph_index`, `heading_level` | `{ "paragraph_index": 38, "heading_level": 1 }` |
-| `paragraph` | `paragraph_index` | `{ "paragraph_index": 42 }` |
-| `table_row` | `table_index`, `row_index`, `column_headers` | `{ "table_index": 2, "row_index": 0, "column_headers": ["Attribute", "Target", "Rationale"] }` |
+- Empty paragraphs are skipped, but still count toward `paragraph_index`.
+- Word styles starting with `"Heading"` become `source_type="heading"`.
+- Non-heading paragraphs become `source_type="paragraph"`.
+- The parser maintains a heading stack. When a heading at level `N` appears, headings at level `N` or deeper are popped and the new heading is pushed.
 
-- `paragraph_index` = which `<w:p>` XML element this was (counter increments for every paragraph the parser walks, even skipped ones)
-- `heading_level` = depth in Word's hierarchy (1 = top-level, 2 = subsection, etc.) - drives the heading_stack logic
-- `table_index` = which table in the document (0-indexed counter)
-- `row_index` = which data row within that table (0-indexed, excludes header row)
-- `column_headers` = the first row of the table, so each row block is self-contained and the cells have meaning
+For tables:
 
-#### `style_hint` - "What did it look like in Word?"
+- **Single-cell table**: flattened into one paragraph block with `style_hint.source="single_cell_table"`.
+- **Single-column table**: each non-empty row becomes one paragraph block with `style_hint.source="single_column_table"`.
+- **Multi-column table**: first row becomes `column_headers`; each subsequent non-empty row becomes one `table_row` block.
+- **Header-only multi-column table**: emitted as a paragraph block with headers joined by `" | "` and `style_hint.source="table_headers"`.
+- **Merged/repeated cells**: repeated values are preserved in the row output so each block remains self-contained.
 
-Formatting and visual presentation info. Not used by the mapper. Available for downstream tools if they care about formatting.
+## Table Reconstruction
 
-| source_type | Keys | Example |
-|---|---|---|
-| `heading` | `style_name`, `is_bold` | `{ "style_name": "Heading 1", "is_bold": false }` |
-| `paragraph` | `style_name`, `is_bold` | `{ "style_name": "Normal", "is_bold": true }` |
-| `table_row` | `source` | `{ "source": "table_row" }` |
-| paragraph (from single-column table) | `source` | `{ "source": "single_column_table" }` |
+Tables are not stored as nested table objects after chunking. They are represented as ordered blocks with enough metadata to group and interpret rows.
 
-- `style_name` = the Word style from the ribbon (e.g., "Heading 1", "Normal", "List Paragraph")
-- `is_bold` = whether any text run in the paragraph was explicitly bold (note: inherited bold from styles won't show here)
-- `source` = for table-derived blocks, records that the block originally came from a table
+To reconstruct a multi-column table view:
 
----
+1. Select blocks where `source_type == "table_row"`.
+2. Group by `structural_meta["table_index"]`.
+3. Sort each group by `structural_meta["row_index"]`.
+4. Use `structural_meta["column_headers"]` as the table columns.
+5. Use each block's `content` as a readable row summary, or parse from the `"Header: Value"` pairs if a display table is needed.
 
-## How the three `source_type` values work
+Example table row block:
 
-**`heading`** - A Word heading (Heading 1, Heading 2, etc.). Gets added to the heading_stack for all subsequent blocks. Has paragraph-based structural metadata and Word style info.
+```json
+{
+  "source_type": "table_row",
+  "content": "Variable: Indication, Minimum: Prevention of disease, Optimistic: Broader protection",
+  "structural_meta": {
+    "table_index": 2,
+    "row_index": 1,
+    "column_headers": ["Variable", "Minimum", "Optimistic"]
+  },
+  "style_hint": {
+    "source": "table_row"
+  }
+}
+```
 
-**`paragraph`** - Normal text content. Also includes single-column table rows and single-cell tables, which Word often uses for layout. These get flattened to paragraphs but their `style_hint.source` records the table origin.
+Single-column and single-cell tables are intentionally flattened to paragraph blocks because Word often uses them for layout. They can be grouped by `table_index`, but they are not treated as data tables.
 
-**`table_row`** - A data row from a multi-column table. The header row becomes `column_headers` in structural_meta, and each subsequent row becomes its own block. Content is formatted as `"Header1: Value1, Header2: Value2"`.
+## Mapper Config
 
----
+The mapper is driven by a `DocumentTypeConfig` loaded from YAML.
 
-## What the mapper uses
+Current config:
 
-The mapper (phase 2) only needs a few fields to do its job:
+```text
+configs/tpp_vaccine.yaml
+```
 
-- `source_type` - to know what kind of block it's labeling
-- `content` - the actual text
-- `heading_stack` - the primary structural signal for section assignment
-- `column_headers` (from `structural_meta`, table rows only) - to understand what table cells mean
+It defines:
 
-Everything else is for traceability, debugging, or downstream tools.
+- `type_key`: machine-readable config key.
+- `display_name`: UI label.
+- `section_taxonomy`: canonical labels the mapper should use.
+- `preamble`: document-type context injected into the system prompt.
+- `disambiguation`: rules for ambiguous blocks.
+- `allow_other`: whether `"Other: ..."` labels are allowed.
+
+The current TPP taxonomy includes:
+
+- `Introduction`
+- `Instructions for Use`
+- `Medical Need / Use Case`
+- `Executive Summary (Core Variables)`
+- `Additional Variables of Interest`
+- `Change Management`
+- `Document Metadata`
+
+`Document Metadata` is for page numbers, version stamps, template metadata, headers, footers, and formatting artifacts.
+
+## Mapper Prompt Format
+
+Prompt construction is split into two messages: a system prompt and a user message.
+
+### System Prompt
+
+The system prompt is assembled from:
+
+1. Base labeling instructions.
+2. The config `preamble`.
+3. The config taxonomy as a numbered list.
+4. The config disambiguation rules as bullets.
+5. Strict JSON output instructions.
+
+The output format requested from the LLM is:
+
+```json
+[
+  {"id": "doc-001/b-0000", "section_label": "Introduction", "confidence": "high"},
+  {"id": "doc-001/b-0001", "section_label": "Introduction", "confidence": "high"}
+]
+```
+
+Every input block ID must appear exactly once. `confidence` must be one of `"high"`, `"medium"`, or `"low"`.
+
+### User Message
+
+The user message is a compact ordered list of blocks.
+
+Paragraph block:
+
+```text
+[my-doc/b-0001 | paragraph | headings: "1. Clinical Strategy" > "1.2 Endpoints"]
+<content>The primary endpoint is...</content>
+```
+
+Table row block:
+
+```text
+[my-doc/b-0005 | table_row | headings: "Executive Summary" | cols: Variable, Minimum, Optimistic, Annotations]
+<content>Variable: Indication, Minimum: Vaccine is indicated for..., Optimistic: ..., Annotations: ...</content>
+```
+
+Heading block:
+
+```text
+[my-doc/b-0003 | heading | level: 1]
+<content>Executive Summary with Annotations</content>
+```
+
+The mapper primarily uses:
+
+- `source_type`
+- `content`
+- `heading_stack`
+- `structural_meta.column_headers` for table rows
+- the config taxonomy and disambiguation rules
+
+## Mapper Validation And Merge
+
+After the LLM returns JSON, `mapper.py`:
+
+1. Strips markdown fences if present.
+2. Parses the JSON response.
+3. Checks for missing, duplicate, and unknown block IDs.
+4. Checks whether labels are in the configured taxonomy, or match `"Other: ..."` when allowed.
+5. Checks confidence values.
+6. Merges labels back into the original `ContentBlock` objects.
+
+Failure behavior:
+
+- If the first LLM response is invalid JSON, the mapper retries once.
+- If the retry is also invalid JSON, all blocks are labeled `Unknown` with low confidence.
+- If some block IDs are missing from a valid response, only those missing blocks become `Unknown` with low confidence.
+- Invalid labels are kept but logged as warnings so review can continue.
+
+## API Key Handling
+
+The Streamlit app asks for the Anthropic API key in the sidebar. The key is passed from `app.py` to `label_blocks()` and then into `anthropic.Anthropic(api_key=api_key)`.
+
+The key is not stored by the app and should not be committed. Keep local secrets in ignored files such as `.env` if you add environment loading later.
+
+## Current Limitations
+
+- The app currently supports one uploaded document at a time.
+- The mapper sends all blocks in one request. For 200+ blocks, it logs a warning but still attempts the call.
+- No batching or cross-document comparison harness exists yet.
+- Table reconstruction is metadata-based; original Word table styling, merged-cell geometry, and exact grid layout are not preserved.

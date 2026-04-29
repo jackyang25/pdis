@@ -1,0 +1,51 @@
+type_key: tpp_vaccine
+display_name: "Vaccine Target Product Profile"
+
+section_taxonomy:
+  - "Introduction"
+  - "Instructions for Use"
+  - "Medical Need / Use Case"
+  - "Executive Summary (Core Variables)"
+  - "Additional Variables of Interest"
+  - "Change Management"
+  - "Document Metadata"
+
+preamble: >
+  This is a Vaccine Target Product Profile (TPP). TPPs define the desired
+  characteristics of a vaccine product using minimum and optimistic targets.
+  They typically follow this structure: an introduction explaining what TPPs are,
+  instructions for completing the template, a medical need and use case section
+  (often a single-column table with problem definition, target users, barriers,
+  and critical assumptions), an executive summary table with core variables
+  (indication, target population, efficacy, safety, dosing, COGS, etc.) in
+  minimum/optimistic/annotations columns, additional variables of interest in
+  the same table format, and a change management log tracking version history.
+
+  The executive summary and additional variables sections contain dense
+  multi-column tables where each row is a separate variable. Label all rows
+  within a table under the same section - do not split individual table rows
+  into different sections.
+
+disambiguation:
+  - >
+    Blocks about target population, efficacy, safety, dosing, presentation,
+    stability, COGS, and regulatory path that appear within the main TPP table
+    belong to "Executive Summary (Core Variables)", not their own sections.
+  - >
+    Blocks about special populations, companion diagnostics, procurement price,
+    and per-patient costs belong to "Additional Variables of Interest", even if
+    they overlap thematically with core variables.
+  - >
+    The medical need / use case section is often a single-column table in
+    the document. Blocks from this table should be labeled "Medical Need / Use Case"
+    even though their source_type may be "paragraph" (due to single-column
+    table flattening).
+  - >
+    Heading blocks should be labeled with the section they introduce,
+    not treated as a separate category.
+  - >
+    Blocks containing page numbers, version stamps, template metadata,
+    headers, footers, or formatting artifacts should be labeled
+    "Document Metadata", not forced into a content section.
+
+allow_other: true

@@ -14,13 +14,34 @@ except ImportError:  # pragma: no cover - supports running files directly
 logger = logging.getLogger(__name__)
 
 VALID_CONFIDENCES = {"high", "medium", "low"}
-MODEL_NAME = "claude-opus-4-7"
+ANTHROPIC_MODEL = "claude-opus-4-7"
+OPENAI_MODEL = "gpt-5.5"
+DEFAULT_PROVIDER_MODELS = {
+    "anthropic": ANTHROPIC_MODEL,
+    "openai": OPENAI_MODEL,
+}
+MAX_OUTPUT_TOKENS = 16000
+
+
+class MapperResponseError(ValueError):
+    """Raised when the mapper cannot produce a usable label response."""
+
+
+def default_model_for_provider(provider: str) -> str:
+    """Return the default model name for a supported LLM provider."""
+    normalized_provider = provider.lower()
+    try:
+        return DEFAULT_PROVIDER_MODELS[normalized_provider]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported LLM provider: {provider}") from exc
 
 
 def label_blocks(
     blocks: list[ContentBlock],
     config: DocumentTypeConfig,
     api_key: str,
+    provider: str = "anthropic",
+    model: str | None = None,
 ) -> list[ContentBlock]:
     """
     Phase 2: LLM-driven section labeling.
@@ -28,29 +49,32 @@ def label_blocks(
     Args:
         blocks: List of ContentBlock objects from the parser
         config: Document-type config with taxonomy and rules
-        api_key: Anthropic API key
+        api_key: Provider API key
+        provider: LLM provider, either "anthropic" or "openai"
+        model: Optional provider model override
 
     Returns:
         Same blocks with section_label and label_confidence filled in
     """
     if not api_key:
         raise ValueError("api_key is required")
+    _clear_labels(blocks)
     if len(blocks) >= 200:
         logger.warning("Labeling %s blocks at once may degrade results", len(blocks))
 
     system_prompt, user_message = build_prompts(blocks, config)
-    raw_response = _call_anthropic(api_key, system_prompt, user_message)
+    raw_response = _call_llm(provider, model, api_key, system_prompt, user_message)
 
     try:
         labels = _parse_label_response(raw_response)
     except ValueError:
         logger.warning("Mapper response was not valid JSON; retrying once")
-        raw_response = _call_anthropic(api_key, system_prompt, user_message)
+        raw_response = _call_llm(provider, model, api_key, system_prompt, user_message)
         try:
             labels = _parse_label_response(raw_response)
         except ValueError:
             logger.warning("Mapper response was still invalid after retry")
-            return _label_unknown(blocks)
+            raise MapperResponseError("Mapper response was invalid after retry")
 
     return _merge_labels(blocks, labels, config)
 
@@ -60,17 +84,62 @@ def build_prompts(
     config: DocumentTypeConfig,
 ) -> tuple[str, str]:
     """Build the system prompt and user message for section labeling."""
+    final_taxonomy = _final_taxonomy(config)
+    disambiguation = _final_disambiguation(config)
     system_prompt = "\n\n".join(
         [
             _base_system_prompt(),
             config.preamble.strip(),
-            _format_taxonomy(config.section_taxonomy),
-            _format_disambiguation(config.disambiguation),
-            _output_format_prompt(config.allow_other),
+            _format_taxonomy(final_taxonomy),
+            _format_disambiguation(disambiguation),
+            _output_format_prompt(),
         ]
     )
     user_message = "\n\n".join(_format_block(block) for block in blocks)
     return system_prompt, user_message
+
+
+def _final_taxonomy(config: DocumentTypeConfig) -> list[dict[str, str]]:
+    taxonomy = list(config.section_taxonomy)
+    if config.include_metadata_label:
+        taxonomy.append(
+            {
+                "name": "Document Metadata",
+                "description": (
+                    "Page numbers, version stamps, headers, footers, template "
+                    "metadata, and other formatting artifacts that are about "
+                    "the document itself, not the TPP content."
+                ),
+            }
+        )
+    if config.include_other_label:
+        taxonomy.append(
+            {
+                "name": "Other",
+                "description": (
+                    "Real content that does not fit any taxonomy section above. "
+                    "Use sparingly; prefer a taxonomy section when there's a "
+                    "reasonable fit."
+                ),
+            }
+        )
+    return taxonomy
+
+
+def _final_disambiguation(config: DocumentTypeConfig) -> list[str]:
+    disambiguation = list(config.disambiguation)
+    if config.include_metadata_label:
+        disambiguation.append(
+            "Blocks containing page numbers, version stamps, template metadata, "
+            "headers, footers, or formatting artifacts should be labeled "
+            "'Document Metadata', not forced into a content section."
+        )
+    if config.include_other_label:
+        disambiguation.append(
+            "If a block is real content but does not fit any taxonomy section, "
+            "label it 'Other'. Do not force-fit content into the wrong section."
+        )
+    return disambiguation
 
 
 def _base_system_prompt() -> str:
@@ -81,6 +150,10 @@ For each block, return its id and the section_label it belongs to.
 
 Rules:
 - Every block must receive exactly one section_label.
+- This is a classification task only. Do not provide medical advice,
+  clinical recommendations, safety assessment, or interpretation.
+- Do not evaluate, endorse, transform, or generate medical claims.
+  Only assign section labels to already-written source text.
 - Group adjacent blocks under the same label when they share a topic,
   even if a heading boundary falls between them.
 - Prefer semantic fit over literal heading text. A paragraph discussing
@@ -88,15 +161,16 @@ Rules:
   should still be labeled "Executive Summary (Core Variables)" if it
   appears within that table section.
 - Use the heading_stack as a strong signal but not the final word.
-- Do not invent section labels outside the provided taxonomy unless
-  you use the "Other: [description]" escape (only if allow_other is true)."""
+- Heading blocks should be labeled with the section they introduce,
+  not treated as a separate category.
+- Do not invent section labels outside the provided taxonomy."""
 
 
-def _format_taxonomy(section_taxonomy: list[str]) -> str:
-    lines = ["Section taxonomy (in expected document order):"]
+def _format_taxonomy(section_taxonomy: list[dict[str, str]]) -> str:
+    lines = ["Section taxonomy:"]
     lines.extend(
-        f"{index}. {section_label}"
-        for index, section_label in enumerate(section_taxonomy, start=1)
+        f'- "{section["name"]}" - {section["description"]}'
+        for section in section_taxonomy
     )
     return "\n".join(lines)
 
@@ -107,21 +181,16 @@ def _format_disambiguation(disambiguation: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _output_format_prompt(allow_other: bool) -> str:
-    other_rule = (
-        'or "Other: [description]" if allowed'
-        if allow_other
-        else "and Other labels are not allowed"
-    )
-    return f"""Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
+def _output_format_prompt() -> str:
+    return """Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
 Format:
 [
-  {{"id": "doc-001/b-0000", "section_label": "Introduction", "confidence": "high"}},
-  {{"id": "doc-001/b-0001", "section_label": "Introduction", "confidence": "high"}}
+  {"id": "doc-001/b-0000", "section_label": "Introduction", "confidence": "high"},
+  {"id": "doc-001/b-0001", "section_label": "Introduction", "confidence": "high"}
 ]
 
 Every block id from the input must appear exactly once in the output.
-Every section_label must be from the taxonomy above ({other_rule}).
+Every section_label must be an exact label from the taxonomy above.
 Confidence must be one of: "high", "medium", "low"."""
 
 
@@ -148,33 +217,127 @@ def _format_heading_stack(heading_stack: list[str]) -> str:
     return " > ".join(f'"{heading}"' for heading in heading_stack)
 
 
-def _call_anthropic(api_key: str, system_prompt: str, user_message: str) -> str:
-    import anthropic
+def _call_llm(
+    provider: str,
+    model: str | None,
+    api_key: str,
+    system_prompt: str,
+    user_message: str,
+) -> str:
+    normalized_provider = provider.lower()
+    resolved_model = model or default_model_for_provider(normalized_provider)
+    if normalized_provider == "anthropic":
+        return _call_anthropic(
+            api_key,
+            resolved_model,
+            system_prompt,
+            user_message,
+        )
+    if normalized_provider == "openai":
+        return _call_openai(
+            api_key,
+            resolved_model,
+            system_prompt,
+            user_message,
+        )
+    raise ValueError(f"Unsupported LLM provider: {provider}")
+
+
+def _call_anthropic(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_message: str,
+) -> str:
+    import anthropic  # type: ignore[reportMissingImports]
 
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
-        model=MODEL_NAME,
-        max_tokens=4096,
+        model=model,
+        max_tokens=MAX_OUTPUT_TOKENS,
         system=system_prompt,
         messages=[{"role": "user", "content": user_message}],
     )
     return _message_text(message)
 
 
+def _call_openai(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_message: str,
+) -> str:
+    from openai import OpenAI  # type: ignore[reportMissingImports]
+
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=model,
+        max_completion_tokens=MAX_OUTPUT_TOKENS,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+    )
+    return _openai_response_text(response)
+
+
+def _openai_response_text(response: Any) -> str:
+    choices = getattr(response, "choices", [])
+    if not choices:
+        logger.warning("OpenAI response had no choices")
+        return ""
+
+    message = getattr(choices[0], "message", None)
+    content = getattr(message, "content", "") if message is not None else ""
+    if not content:
+        logger.warning(
+            "OpenAI response had no text content. finish_reason=%s usage=%s",
+            getattr(choices[0], "finish_reason", None),
+            getattr(response, "usage", None),
+        )
+    return content or ""
+
+
 def _message_text(message: Any) -> str:
     parts = []
     for block in getattr(message, "content", []):
-        text = getattr(block, "text", None)
+        text = _content_block_text(block)
         if text:
             parts.append(text)
-    return "\n".join(parts)
+
+    message_text = "\n".join(parts)
+    if not message_text.strip():
+        logger.warning(
+            "Anthropic response had no text content. stop_reason=%s content_types=%s usage=%s",
+            getattr(message, "stop_reason", None),
+            _content_block_types(getattr(message, "content", [])),
+            getattr(message, "usage", None),
+        )
+    return message_text
+
+
+def _content_block_text(block: Any) -> str | None:
+    if isinstance(block, dict):
+        return block.get("text")
+    return getattr(block, "text", None)
+
+
+def _content_block_types(content_blocks: list[Any]) -> list[str]:
+    content_types = []
+    for block in content_blocks:
+        if isinstance(block, dict):
+            content_types.append(str(block.get("type", "unknown")))
+        else:
+            content_types.append(str(getattr(block, "type", type(block).__name__)))
+    return content_types
 
 
 def _parse_label_response(raw_response: str) -> list[dict[str, str]]:
-    response_text = _strip_markdown_fences(raw_response).strip()
+    response_text = _extract_json_array(_strip_markdown_fences(raw_response).strip())
     try:
         parsed = json.loads(response_text)
     except json.JSONDecodeError as exc:
+        logger.warning("Invalid mapper response preview: %s", _response_preview(raw_response))
         raise ValueError("Mapper response was not valid JSON") from exc
 
     if not isinstance(parsed, list):
@@ -201,12 +364,34 @@ def _strip_markdown_fences(raw_response: str) -> str:
     return raw_response
 
 
+def _extract_json_array(response_text: str) -> str:
+    decoder = json.JSONDecoder()
+    for start_index, char in enumerate(response_text):
+        if char != "[":
+            continue
+        try:
+            parsed, end_index = decoder.raw_decode(response_text[start_index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, list):
+            return response_text[start_index : start_index + end_index]
+    return response_text
+
+
+def _response_preview(raw_response: str, max_length: int = 500) -> str:
+    compact_response = " ".join(raw_response.split())
+    if len(compact_response) <= max_length:
+        return compact_response
+    return f"{compact_response[:max_length]}..."
+
+
 def _merge_labels(
     blocks: list[ContentBlock],
     labels: list[dict[str, str]],
     config: DocumentTypeConfig,
 ) -> list[ContentBlock]:
     block_ids = {block.id for block in blocks}
+    valid_section_labels = {section["name"] for section in _final_taxonomy(config)}
     labels_by_id: dict[str, dict[str, str]] = {}
     seen_ids: set[str] = set()
 
@@ -223,22 +408,27 @@ def _merge_labels(
 
     extra_ids = labels_by_id.keys() - block_ids
     if extra_ids:
-        logger.warning("Mapper response included %s unknown block ids", len(extra_ids))
+        logger.warning(
+            "Mapper response included %s unexpected block ids",
+            len(extra_ids),
+        )
 
     for block in blocks:
         label = labels_by_id.get(block.id)
         if label is None:
-            block.section_label = "Unknown"
-            block.label_confidence = "low"
+            _set_block_mapping_error(block)
             continue
 
         section_label = label["section_label"]
         confidence = label["confidence"]
-        if not _is_valid_section_label(section_label, config):
+        if section_label not in valid_section_labels:
             logger.warning("Invalid section label for %s: %s", block.id, section_label)
+            _set_block_mapping_error(block)
+            continue
         if confidence not in VALID_CONFIDENCES:
             logger.warning("Invalid confidence for %s: %s", block.id, confidence)
-            confidence = "low"
+            _set_block_mapping_error(block)
+            continue
 
         block.section_label = section_label
         block.label_confidence = confidence
@@ -246,17 +436,12 @@ def _merge_labels(
     return blocks
 
 
-def _label_unknown(blocks: list[ContentBlock]) -> list[ContentBlock]:
+def _clear_labels(blocks: list[ContentBlock]) -> None:
     for block in blocks:
-        block.section_label = "Unknown"
-        block.label_confidence = "low"
-    return blocks
+        block.section_label = None
+        block.label_confidence = None
 
 
-def _is_valid_section_label(
-    section_label: str,
-    config: DocumentTypeConfig,
-) -> bool:
-    if section_label in config.section_taxonomy:
-        return True
-    return config.allow_other and section_label.startswith("Other: ")
+def _set_block_mapping_error(block: ContentBlock) -> None:
+    block.section_label = "Mapping Error"
+    block.label_confidence = "low"

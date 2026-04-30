@@ -2,13 +2,23 @@ type_key: tpp_vaccine
 display_name: "Vaccine Target Product Profile"
 
 section_taxonomy:
-  - "Introduction"
-  - "Instructions for Use"
-  - "Medical Need / Use Case"
-  - "Executive Summary (Core Variables)"
-  - "Additional Variables of Interest"
-  - "Change Management"
-  - "Document Metadata"
+  - name: "Introduction"
+    description: "Background on what TPPs are and how they're used. Covers key characteristics (alignment tool, quantitative language, forward-looking, dynamic), the distinction between Intervention TPPs and Candidate TPPs, and the role of TPPs in portfolio decisions."
+
+  - name: "Instructions for Use"
+    description: "Guidance on completing the template. Explains the two main sections (Executive Summary, Additional Variables), the Minimum vs. Optimistic criteria framework, conventions for quantitative criteria, version numbering rules (V1.0 major, V1.1 minor), and Change Management practices."
+
+  - name: "Medical Need / Use Case"
+    description: "The use case section, typically structured as a single-column table. Contains Problem Definition, Target User Group, Intended Use Case Scenario, Barriers (regulatory + delivery), Medical Need / differentiation strategy, and Critical Assumptions used to develop the TPP."
+
+  - name: "Executive Summary (Core Variables)"
+    description: "The main TPP table with Variable / Minimum / Optimistic / Annotations columns. Each row is a core variable: Indication, Product, Target Population, Target Countries, Efficacy, Duration of Protection, Onset of Immunity, Indirect (Herd) Protection, Safety, Co-administration, Presentation, Dosing Schedule and Route of Administration, Vaccine Volume, Stability/Shelf Life, Product Registration Path, WHO Prequalification Date, Primary Target Delivery Channel, COGS, Manufacturing Capacities."
+
+  - name: "Additional Variables of Interest"
+    description: "Secondary table in the same Variable / Minimum / Optimistic / Annotations format. Variables not relevant to every TPP: Special Populations, Anticipated Safety Profile, Regimen Compliance Risks, Companion Diagnostic, Target Procurement Price, Total Per Patient Costs, Clinical Endpoint for Licensure."
+
+  - name: "Change Management"
+    description: "Version history table tracking changes between TPP versions. Columns: Version, Key Changes from Previous Version, Change Made By. Used to document the evolution of the TPP over time."
 
 preamble: >
   This is a Vaccine Target Product Profile (TPP). TPPs define the desired
@@ -40,12 +50,6 @@ disambiguation:
     the document. Blocks from this table should be labeled "Medical Need / Use Case"
     even though their source_type may be "paragraph" (due to single-column
     table flattening).
-  - >
-    Heading blocks should be labeled with the section they introduce,
-    not treated as a separate category.
-  - >
-    Blocks containing page numbers, version stamps, template metadata,
-    headers, footers, or formatting artifacts should be labeled
-    "Document Metadata", not forced into a content section.
 
-allow_other: true
+include_metadata_label: true
+include_other_label: true

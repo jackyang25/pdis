@@ -7,7 +7,7 @@ The pipeline has two explicit phases:
 1. **Parser**: deterministic `.docx` parsing. Produces blocks with source text, document order, heading context, and structural provenance.
 2. **Mapper**: LLM-driven section labeling. Adds `section_label` and `label_confidence` using a document-type config.
 
-The Streamlit app is a local inspector for this flow: upload a document, click **Parse Document**, review parser output, then optionally click **Run Mapper**.
+The Streamlit app is a local inspector for this flow. It has a single-document mode for deep inspection and a batch parser mode for comparing parser behavior across multiple TPP documents.
 
 ## Files
 
@@ -15,8 +15,8 @@ The Streamlit app is a local inspector for this flow: upload a document, click *
 |---|---|
 | `models.py` | Shared dataclasses: `ContentBlock` and `DocumentTypeConfig`; YAML config loader. |
 | `parser.py` | Deterministic Word parser. Walks XML body order so paragraphs and tables stay interleaved correctly. |
-| `mapper.py` | Prompt builder, Anthropic call, JSON validation, and label merge. |
-| `app.py` | Streamlit UI for inspecting parser output and optional mapper output. |
+| `mapper.py` | Prompt builder, provider-specific LLM calls, JSON validation, and label merge. |
+| `app.py` | Streamlit UI for single-document inspection and batch parser evaluation. |
 | `configs/tpp_vaccine.yaml` | First mapper config: Vaccine TPP taxonomy, preamble, and disambiguation rules. |
 | `requirements.txt` | Runtime dependencies. |
 
@@ -30,13 +30,30 @@ python -m pip install -r chunker/requirements.txt
 python -m streamlit run chunker/app.py
 ```
 
-The UI sequence is intentional:
+The app has two modes.
+
+### Single Document Inspector
+
+This mode is for inspecting one document deeply.
 
 1. Upload a `.docx`.
 2. Click **Parse Document** to create raw `ContentBlock`s.
 3. Review parser output.
-4. Enter an Anthropic API key and click **Run Mapper** if section labels are needed.
+4. Choose an LLM provider, enter that provider's API key, and click **Run Mapper** if section labels are needed.
 5. Download JSON. Before mapping, mapper fields are `null`; after mapping, they are filled.
+
+### Batch Parser Evaluation
+
+This mode is for comparing parser behavior across multiple TPP files and optionally mapping all parsed documents.
+
+1. Select **Batch Parser Evaluation** in the sidebar.
+2. Upload multiple `.docx` files.
+3. Click **Parse All Documents**.
+4. Review per-document metrics and block previews.
+5. Optionally choose an LLM provider, enter that provider's API key, and click **Run Mapper On Batch**.
+6. Download `batch_summary.csv` or `batch_blocks.json`.
+
+Parsing and mapping are both parallelized in batch mode. Mapper failures are isolated per document so one failed API call does not discard the rest of the batch.
 
 ## ContentBlock Schema
 
@@ -109,6 +126,48 @@ For tables:
 - **Header-only multi-column table**: emitted as a paragraph block with headers joined by `" | "` and `style_hint.source="table_headers"`.
 - **Merged/repeated cells**: repeated values are preserved in the row output so each block remains self-contained.
 
+## Batch Parser Evaluation
+
+Batch mode helps answer whether the parser and mapper perform consistently across clean, messy, and table-heavy TPPs.
+
+After parsing, the app reports:
+
+- `doc_id`
+- `file_name`
+- `total_blocks`
+- `heading_count`
+- `paragraph_count`
+- `table_row_count`
+- `single_column_table_blocks`
+- `single_cell_table_blocks`
+- `table_count`
+- `has_headings`
+- `has_tables`
+
+Use these metrics to spot parser problems before running the mapper. For example:
+
+- Very low `heading_count` may mean the document does not use Word heading styles.
+- Very low `table_row_count` on a table-heavy TPP may mean tables were formatted as single-column layout tables or unusual Word structures.
+- High `single_column_table_blocks` often means the document uses tables for layout rather than data tables.
+- `has_tables=false` on a TPP that visibly contains tables is a parser investigation target.
+
+Batch downloads:
+
+- `batch_summary.csv`: one row per document with parser metrics.
+- `batch_blocks.json`: all parsed blocks grouped by document, including metrics and full `ContentBlock` dictionaries.
+
+If **Run Mapper On Batch** is used, the app maps documents in parallel and adds label metrics to the summary:
+
+- `unlabeled_count`
+- `mapping_error_count`
+- `document_metadata_count`
+- `low_confidence_count`
+- `medium_confidence_count`
+- `high_confidence_count`
+- `average_confidence`
+
+Batch mapper errors are shown in a separate table. Documents that map successfully keep their labels; documents that fail keep their parsed blocks and include `mapper_error` in the combined JSON.
+
 ## Table Reconstruction
 
 Tables are not stored as nested table objects after chunking. They are represented as ordered blocks with enough metadata to group and interpret rows.
@@ -154,12 +213,13 @@ It defines:
 
 - `type_key`: machine-readable config key.
 - `display_name`: UI label.
-- `section_taxonomy`: canonical labels the mapper should use.
+- `section_taxonomy`: document-specific section definitions. Each entry has `name` and `description`.
 - `preamble`: document-type context injected into the system prompt.
 - `disambiguation`: rules for ambiguous blocks.
-- `allow_other`: whether `"Other: ..."` labels are allowed.
+- `include_metadata_label`: whether the engine injects `Document Metadata`.
+- `include_other_label`: whether the engine injects `Other`.
 
-The current TPP taxonomy includes:
+The current TPP document-specific taxonomy includes:
 
 - `Introduction`
 - `Instructions for Use`
@@ -167,9 +227,13 @@ The current TPP taxonomy includes:
 - `Executive Summary (Core Variables)`
 - `Additional Variables of Interest`
 - `Change Management`
-- `Document Metadata`
 
-`Document Metadata` is for page numbers, version stamps, template metadata, headers, footers, and formatting artifacts.
+The mapper engine appends universal labels when enabled:
+
+- `Document Metadata`: page numbers, version stamps, template metadata, headers, footers, and formatting artifacts.
+- `Other`: real content that does not fit any document-specific section.
+
+The mapper accepts `Other` only as an exact label. Free-text variants like `Other: Reviewer note` are not valid.
 
 ## Mapper Prompt Format
 
@@ -181,8 +245,8 @@ The system prompt is assembled from:
 
 1. Base labeling instructions.
 2. The config `preamble`.
-3. The config taxonomy as a numbered list.
-4. The config disambiguation rules as bullets.
+3. The final taxonomy as a definition list: document-specific labels plus descriptions, followed by enabled universal labels.
+4. The config disambiguation rules plus enabled standard universal-label rules.
 5. Strict JSON output instructions.
 
 The output format requested from the LLM is:
@@ -235,27 +299,31 @@ After the LLM returns JSON, `mapper.py`:
 
 1. Strips markdown fences if present.
 2. Parses the JSON response.
-3. Checks for missing, duplicate, and unknown block IDs.
-4. Checks whether labels are in the configured taxonomy, or match `"Other: ..."` when allowed.
+3. Checks for missing, duplicate, and unexpected block IDs.
+4. Checks whether labels are exact matches in the final taxonomy.
 5. Checks confidence values.
 6. Merges labels back into the original `ContentBlock` objects.
 
 Failure behavior:
 
 - If the first LLM response is invalid JSON, the mapper retries once.
-- If the retry is also invalid JSON, all blocks are labeled `Unknown` with low confidence.
-- If some block IDs are missing from a valid response, only those missing blocks become `Unknown` with low confidence.
-- Invalid labels are kept but logged as warnings so review can continue.
+- If the retry is also invalid JSON, the mapper raises `MapperResponseError` and the UI reports a document-level mapper failure.
+- If some block IDs are missing from a valid response, only those missing blocks become `Mapping Error` with low confidence.
+- Invalid labels or confidence values become `Mapping Error` with low confidence.
 
-## API Key Handling
+## LLM Provider Handling
 
-The Streamlit app asks for the Anthropic API key in the sidebar. The key is passed from `app.py` to `label_blocks()` and then into `anthropic.Anthropic(api_key=api_key)`.
+The Streamlit app lets you choose the mapper provider in the sidebar:
+
+- `anthropic`, default model `claude-opus-4-7`
+- `openai`, default model `gpt-5.5`
+
+The selected provider, model, and API key are passed from `app.py` to `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the final LLM call is provider-specific.
 
 The key is not stored by the app and should not be committed. Keep local secrets in ignored files such as `.env` if you add environment loading later.
 
 ## Current Limitations
 
-- The app currently supports one uploaded document at a time.
-- The mapper sends all blocks in one request. For 200+ blocks, it logs a warning but still attempts the call.
-- No batching or cross-document comparison harness exists yet.
+- The mapper sends all blocks for a document in one request. For 200+ blocks, it logs a warning but still attempts the call.
+- Intra-document mapper batching is not implemented yet.
 - Table reconstruction is metadata-based; original Word table styling, merged-cell geometry, and exact grid layout are not preserved.

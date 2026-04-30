@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Any
 
 
 @dataclass
@@ -12,8 +13,8 @@ class ContentBlock:
     source_type: str
     content: str
     heading_stack: list[str]
-    structural_meta: dict
-    style_hint: dict
+    structural_meta: dict[str, Any]
+    style_hint: dict[str, Any]
 
     # --- Reserved for Phase 2 (mapper) - always None after parsing ---
     section_label: str | None = None
@@ -24,10 +25,11 @@ class ContentBlock:
 class DocumentTypeConfig:
     type_key: str
     display_name: str
-    section_taxonomy: list[str]
+    section_taxonomy: list[dict[str, str]]
     preamble: str
     disambiguation: list[str]
-    allow_other: bool
+    include_metadata_label: bool = True
+    include_other_label: bool = True
 
 
 def blocks_to_dicts(blocks: list[ContentBlock]) -> list[dict]:
@@ -51,12 +53,19 @@ def load_config(config_path: str) -> DocumentTypeConfig:
         "section_taxonomy",
         "preamble",
         "disambiguation",
-        "allow_other",
     }
     missing_fields = required_fields - data.keys()
     if missing_fields:
         missing = ", ".join(sorted(missing_fields))
         raise ValueError(f"Config missing required fields: {missing}")
+
+    _validate_section_taxonomy(data["section_taxonomy"])
+    _validate_string_field(data, "type_key")
+    _validate_string_field(data, "display_name")
+    _validate_string_field(data, "preamble")
+    _validate_string_list(data["disambiguation"], "disambiguation")
+    _validate_bool_field(data, "include_metadata_label")
+    _validate_bool_field(data, "include_other_label")
 
     return DocumentTypeConfig(
         type_key=data["type_key"],
@@ -64,5 +73,45 @@ def load_config(config_path: str) -> DocumentTypeConfig:
         section_taxonomy=data["section_taxonomy"],
         preamble=data["preamble"],
         disambiguation=data["disambiguation"],
-        allow_other=data["allow_other"],
+        include_metadata_label=data.get("include_metadata_label", True),
+        include_other_label=data.get("include_other_label", True),
     )
+
+
+def _validate_section_taxonomy(section_taxonomy: list[dict[str, str]]) -> None:
+    if not isinstance(section_taxonomy, list):
+        raise ValueError("section_taxonomy must be a list")
+
+    for index, section in enumerate(section_taxonomy):
+        if not isinstance(section, dict):
+            raise ValueError(f"section_taxonomy[{index}] must be a mapping")
+        missing_fields = {"name", "description"} - section.keys()
+        if missing_fields:
+            missing = ", ".join(sorted(missing_fields))
+            raise ValueError(
+                f"section_taxonomy[{index}] missing required fields: {missing}"
+            )
+        _validate_string_field(section, "name", f"section_taxonomy[{index}]")
+        _validate_string_field(section, "description", f"section_taxonomy[{index}]")
+
+
+def _validate_string_field(
+    data: dict[str, Any],
+    field_name: str,
+    context: str = "Config",
+) -> None:
+    if not isinstance(data[field_name], str):
+        raise ValueError(f"{context} field '{field_name}' must be a string")
+
+
+def _validate_string_list(value: Any, field_name: str) -> None:
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name}[{index}] must be a string")
+
+
+def _validate_bool_field(data: dict[str, Any], field_name: str) -> None:
+    if field_name in data and not isinstance(data[field_name], bool):
+        raise ValueError(f"Config field '{field_name}' must be a boolean")

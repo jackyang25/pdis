@@ -318,7 +318,7 @@ The Streamlit app lets you choose the mapper provider in the sidebar:
 - `anthropic`, default model `claude-opus-4-7`
 - `openai`, default model `gpt-5.5`
 
-The selected provider, model, and API key are passed from `app.py` to `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the final LLM call is provider-specific.
+The selected provider, model, and API key are used by `app.py` to construct an LLM client, which is passed into `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the injected LLM client is provider-specific.
 
 The key is not stored by the app and should not be committed. Keep local secrets in ignored files such as `.env` if you add environment loading later.
 

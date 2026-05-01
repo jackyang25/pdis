@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import Protocol
 
 try:
-    from .llm_client import LLMClient, create_llm_client
     from .models import ContentBlock, DocumentTypeConfig
 except ImportError:  # pragma: no cover - supports running files directly
-    from llm_client import LLMClient, create_llm_client
     from models import ContentBlock, DocumentTypeConfig
 
 
@@ -22,42 +21,31 @@ class MapperResponseError(ValueError):
     """Raised when the mapper cannot produce a usable label response."""
 
 
+class LLMClientProtocol(Protocol):
+    def call(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int = MAX_OUTPUT_TOKENS,
+    ) -> str:
+        """Send a prompt to an LLM and return response text."""
+
+
 def label_blocks(
     blocks: list[ContentBlock],
     config: DocumentTypeConfig,
-    api_key: str,
-    provider: str = "anthropic",
-    model: str | None = None,
-) -> list[ContentBlock]:
-    """
-    Phase 2: LLM-driven section labeling.
-
-    Args:
-        blocks: List of ContentBlock objects from the parser
-        config: Document-type config with taxonomy and rules
-        api_key: Provider API key
-        provider: LLM provider, either "anthropic" or "openai"
-        model: Optional provider model override
-
-    Returns:
-        Same blocks with section_label and label_confidence filled in
-    """
-    return label_blocks_with_client(
-        blocks,
-        config,
-        create_llm_client(provider, api_key=api_key, model=model),
-    )
-
-
-def label_blocks_with_client(
-    blocks: list[ContentBlock],
-    config: DocumentTypeConfig,
-    llm_client: LLMClient,
+    llm_client: LLMClientProtocol,
 ) -> list[ContentBlock]:
     """
     Phase 2 section labeling using an injected LLM client.
 
-    This keeps mapper logic independent from provider-specific SDKs.
+    Args:
+        blocks: List of ContentBlock objects from the parser
+        config: Document-type config with taxonomy and rules
+        llm_client: Object with a call(system_prompt, user_message, max_tokens) method
+
+    Returns:
+        Same blocks with section_label and label_confidence filled in
     """
     _clear_labels(blocks)
     if len(blocks) >= 200:

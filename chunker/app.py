@@ -14,18 +14,23 @@ import streamlit as st
 
 try:
     from .llm_client import create_llm_client, default_model_for_provider
-    from .mapper import label_blocks_with_client
+    from .mapper import label_blocks
     from .models import ContentBlock, blocks_to_dicts, load_config
     from .parser import parse_document
 except ImportError:  # pragma: no cover - supports `streamlit run chunker/app.py`
     from llm_client import create_llm_client, default_model_for_provider
-    from mapper import label_blocks_with_client
+    from mapper import label_blocks
     from models import ContentBlock, blocks_to_dicts, load_config
     from parser import parse_document
 
 
 def main() -> None:
     st.set_page_config(page_title="Document Chunker - Block Inspector", layout="wide")
+    render()
+
+
+def render() -> None:
+    """Render the chunker UI inside a Streamlit app."""
     st.title("Document Chunker — Block Inspector")
 
     if "upload_counter" not in st.session_state:
@@ -83,7 +88,7 @@ def main() -> None:
                 try:
                     _clear_block_labels(blocks)
                     llm_client = create_llm_client(provider, api_key, model)
-                    blocks = label_blocks_with_client(blocks, config, llm_client)
+                    blocks = label_blocks(blocks, config, llm_client)
                     st.session_state["blocks"] = blocks
                 except Exception as exc:
                     st.session_state["blocks"] = blocks
@@ -226,7 +231,7 @@ def _map_batch_result(
         blocks = [ContentBlock(**block) for block in result["blocks"]]
         _clear_block_labels(blocks)
         llm_client = create_llm_client(provider, api_key, model)
-        labeled_blocks = label_blocks_with_client(blocks, config, llm_client)
+        labeled_blocks = label_blocks(blocks, config, llm_client)
         block_dicts = blocks_to_dicts(labeled_blocks)
         metrics = _batch_metrics(result["doc_id"], result["file_name"], block_dicts)
         metrics.update(_batch_label_metrics(block_dicts))

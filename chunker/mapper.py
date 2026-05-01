@@ -3,37 +3,23 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
 
 try:
+    from .llm_client import LLMClient, create_llm_client
     from .models import ContentBlock, DocumentTypeConfig
 except ImportError:  # pragma: no cover - supports running files directly
+    from llm_client import LLMClient, create_llm_client
     from models import ContentBlock, DocumentTypeConfig
 
 
 logger = logging.getLogger(__name__)
 
 VALID_CONFIDENCES = {"high", "medium", "low"}
-ANTHROPIC_MODEL = "claude-opus-4-7"
-OPENAI_MODEL = "gpt-5.5"
-DEFAULT_PROVIDER_MODELS = {
-    "anthropic": ANTHROPIC_MODEL,
-    "openai": OPENAI_MODEL,
-}
 MAX_OUTPUT_TOKENS = 16000
 
 
 class MapperResponseError(ValueError):
     """Raised when the mapper cannot produce a usable label response."""
-
-
-def default_model_for_provider(provider: str) -> str:
-    """Return the default model name for a supported LLM provider."""
-    normalized_provider = provider.lower()
-    try:
-        return DEFAULT_PROVIDER_MODELS[normalized_provider]
-    except KeyError as exc:
-        raise ValueError(f"Unsupported LLM provider: {provider}") from exc
 
 
 def label_blocks(
@@ -56,20 +42,39 @@ def label_blocks(
     Returns:
         Same blocks with section_label and label_confidence filled in
     """
-    if not api_key:
-        raise ValueError("api_key is required")
+    return label_blocks_with_client(
+        blocks,
+        config,
+        create_llm_client(provider, api_key=api_key, model=model),
+    )
+
+
+def label_blocks_with_client(
+    blocks: list[ContentBlock],
+    config: DocumentTypeConfig,
+    llm_client: LLMClient,
+) -> list[ContentBlock]:
+    """
+    Phase 2 section labeling using an injected LLM client.
+
+    This keeps mapper logic independent from provider-specific SDKs.
+    """
     _clear_labels(blocks)
     if len(blocks) >= 200:
         logger.warning("Labeling %s blocks at once may degrade results", len(blocks))
 
     system_prompt, user_message = build_prompts(blocks, config)
-    raw_response = _call_llm(provider, model, api_key, system_prompt, user_message)
+    raw_response = llm_client.call(system_prompt, user_message, max_tokens=MAX_OUTPUT_TOKENS)
 
     try:
         labels = _parse_label_response(raw_response)
     except ValueError:
         logger.warning("Mapper response was not valid JSON; retrying once")
-        raw_response = _call_llm(provider, model, api_key, system_prompt, user_message)
+        raw_response = llm_client.call(
+            system_prompt,
+            user_message,
+            max_tokens=MAX_OUTPUT_TOKENS,
+        )
         try:
             labels = _parse_label_response(raw_response)
         except ValueError:
@@ -215,121 +220,6 @@ def _format_heading_stack(heading_stack: list[str]) -> str:
     if not heading_stack:
         return "none"
     return " > ".join(f'"{heading}"' for heading in heading_stack)
-
-
-def _call_llm(
-    provider: str,
-    model: str | None,
-    api_key: str,
-    system_prompt: str,
-    user_message: str,
-) -> str:
-    normalized_provider = provider.lower()
-    resolved_model = model or default_model_for_provider(normalized_provider)
-    if normalized_provider == "anthropic":
-        return _call_anthropic(
-            api_key,
-            resolved_model,
-            system_prompt,
-            user_message,
-        )
-    if normalized_provider == "openai":
-        return _call_openai(
-            api_key,
-            resolved_model,
-            system_prompt,
-            user_message,
-        )
-    raise ValueError(f"Unsupported LLM provider: {provider}")
-
-
-def _call_anthropic(
-    api_key: str,
-    model: str,
-    system_prompt: str,
-    user_message: str,
-) -> str:
-    import anthropic  # type: ignore[reportMissingImports]
-
-    client = anthropic.Anthropic(api_key=api_key)
-    message = client.messages.create(
-        model=model,
-        max_tokens=MAX_OUTPUT_TOKENS,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}],
-    )
-    return _message_text(message)
-
-
-def _call_openai(
-    api_key: str,
-    model: str,
-    system_prompt: str,
-    user_message: str,
-) -> str:
-    from openai import OpenAI  # type: ignore[reportMissingImports]
-
-    client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        max_completion_tokens=MAX_OUTPUT_TOKENS,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
-    )
-    return _openai_response_text(response)
-
-
-def _openai_response_text(response: Any) -> str:
-    choices = getattr(response, "choices", [])
-    if not choices:
-        logger.warning("OpenAI response had no choices")
-        return ""
-
-    message = getattr(choices[0], "message", None)
-    content = getattr(message, "content", "") if message is not None else ""
-    if not content:
-        logger.warning(
-            "OpenAI response had no text content. finish_reason=%s usage=%s",
-            getattr(choices[0], "finish_reason", None),
-            getattr(response, "usage", None),
-        )
-    return content or ""
-
-
-def _message_text(message: Any) -> str:
-    parts = []
-    for block in getattr(message, "content", []):
-        text = _content_block_text(block)
-        if text:
-            parts.append(text)
-
-    message_text = "\n".join(parts)
-    if not message_text.strip():
-        logger.warning(
-            "Anthropic response had no text content. stop_reason=%s content_types=%s usage=%s",
-            getattr(message, "stop_reason", None),
-            _content_block_types(getattr(message, "content", [])),
-            getattr(message, "usage", None),
-        )
-    return message_text
-
-
-def _content_block_text(block: Any) -> str | None:
-    if isinstance(block, dict):
-        return block.get("text")
-    return getattr(block, "text", None)
-
-
-def _content_block_types(content_blocks: list[Any]) -> list[str]:
-    content_types = []
-    for block in content_blocks:
-        if isinstance(block, dict):
-            content_types.append(str(block.get("type", "unknown")))
-        else:
-            content_types.append(str(getattr(block, "type", type(block).__name__)))
-    return content_types
 
 
 def _parse_label_response(raw_response: str) -> list[dict[str, str]]:

@@ -38,7 +38,6 @@ def render() -> None:
     if "batch_upload_counter" not in st.session_state:
         st.session_state["batch_upload_counter"] = 0
 
-    st.sidebar.subheader("Workflow")
     mode = st.sidebar.selectbox(
         "Mode",
         ["Single Document Inspector", "Batch Parser Evaluation"],

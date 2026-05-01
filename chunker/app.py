@@ -32,15 +32,14 @@ def main() -> None:
 def render() -> None:
     """Render the chunker UI inside a Streamlit app."""
     st.title("Document Chunker — Block Inspector")
+    st.sidebar.header("Document Chunker")
 
     if "upload_counter" not in st.session_state:
         st.session_state["upload_counter"] = 0
     if "batch_upload_counter" not in st.session_state:
         st.session_state["batch_upload_counter"] = 0
 
-    if st.sidebar.button("Clear / Restart"):
-        _restart_document_session()
-
+    st.sidebar.subheader("Workflow")
     mode = st.sidebar.selectbox(
         "Mode",
         ["Single Document Inspector", "Batch Parser Evaluation"],
@@ -49,15 +48,19 @@ def render() -> None:
         _render_batch_mode()
         return
 
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload a .docx file",
-        type=["docx"],
-        key=f"docx_upload_{st.session_state['upload_counter']}",
-    )
     config_path = _config_path("tpp_vaccine.yaml")
     config = load_config(config_path)
     st.sidebar.selectbox("Document type", [config.display_name])
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload document",
+        type=["docx"],
+        key=f"docx_upload_{st.session_state['upload_counter']}",
+    )
+
     provider, model, api_key = _render_llm_controls("single")
+
+    if st.sidebar.button("Clear / Restart"):
+        _restart_document_session()
 
     if uploaded_file is None:
         _clear_document_state()
@@ -111,13 +114,18 @@ def _render_batch_mode() -> None:
     config_path = _config_path("tpp_vaccine.yaml")
     config = load_config(config_path)
     st.sidebar.selectbox("Document type", [config.display_name], key="batch_doc_type")
-    provider, model, api_key = _render_llm_controls("batch")
     uploaded_files = st.sidebar.file_uploader(
-        "Upload .docx files",
+        "Upload documents",
         type=["docx"],
         accept_multiple_files=True,
         key=f"batch_docx_upload_{st.session_state['batch_upload_counter']}",
     )
+
+    provider, model, api_key = _render_llm_controls("batch")
+
+    if st.sidebar.button("Clear / Restart", key="batch_clear_restart"):
+        _restart_document_session()
+
     if not uploaded_files:
         _clear_batch_state()
         st.info("Batch mode: upload multiple `.docx` files, then click Parse All Documents.")

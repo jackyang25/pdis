@@ -32,7 +32,6 @@ def main() -> None:
 def render() -> None:
     """Render the chunker UI inside a Streamlit app."""
     st.title("Document Chunker — Block Inspector")
-    st.sidebar.header("Document Chunker")
 
     if "upload_counter" not in st.session_state:
         st.session_state["upload_counter"] = 0

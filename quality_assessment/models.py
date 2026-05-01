@@ -1,0 +1,203 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Literal
+
+import yaml
+
+Grade = Literal["A", "B", "C", "D", "F", "N/A"]
+
+
+@dataclass
+class VariableGrade:
+    """Grade for a single variable inside Executive Summary or Additional Variables."""
+
+    variable_name: str
+    grade: Grade
+    issues: list[str]
+    recommendation: str
+    block_ids: list[str]
+
+
+@dataclass
+class SectionGrade:
+    """Grade for a top-level section."""
+
+    section_name: str
+    grade: Grade
+    is_present: bool
+    missing_variables: list[str] = field(default_factory=list)
+    issues: list[str] = field(default_factory=list)
+    recommendation: str = ""
+    variable_grades: list[VariableGrade] = field(default_factory=list)
+
+
+@dataclass
+class AssessmentResult:
+    """Full report card."""
+
+    doc_id: str
+    overall_grade: Grade
+    top_issues: list[str]
+    section_grades: list[SectionGrade]
+
+
+@dataclass
+class VariableSpec:
+    """Rubric expectations for one variable within a section."""
+
+    name: str
+    description: str
+
+
+@dataclass
+class SectionSpec:
+    """Rubric expectations for one section."""
+
+    name: str
+    description: str
+    weight: float
+    variables: list[VariableSpec] = field(default_factory=list)
+
+
+@dataclass
+class AssessmentConfig:
+    """All document-type-specific configuration for the assessor."""
+
+    type_key: str
+    display_name: str
+    chunker_config_path: str
+    sections: list[SectionSpec]
+
+
+def load_assessment_config(path: str) -> AssessmentConfig:
+    """Load an AssessmentConfig from YAML. Validates required fields."""
+    config_path = Path(path).expanduser().resolve()
+    with open(config_path, "r", encoding="utf-8") as config_file:
+        data = yaml.safe_load(config_file)
+
+    if not isinstance(data, dict):
+        raise ValueError("Assessment config file must contain a YAML mapping")
+
+    required_fields = {
+        "type_key",
+        "display_name",
+        "chunker_config_path",
+        "sections",
+    }
+    missing_fields = required_fields - data.keys()
+    if missing_fields:
+        missing = ", ".join(sorted(missing_fields))
+        raise ValueError(f"Assessment config missing required fields: {missing}")
+
+    _validate_string_field(data, "type_key")
+    _validate_string_field(data, "display_name")
+    _validate_string_field(data, "chunker_config_path")
+    sections = _parse_sections(data["sections"])
+
+    return AssessmentConfig(
+        type_key=data["type_key"],
+        display_name=data["display_name"],
+        chunker_config_path=str(_resolve_path(config_path, data["chunker_config_path"])),
+        sections=sections,
+    )
+
+
+def assessment_result_to_dict(result: AssessmentResult) -> dict[str, Any]:
+    """Convert an AssessmentResult to JSON-serializable dictionaries."""
+    return asdict(result)
+
+
+def _resolve_path(config_path: Path, raw_path: str) -> Path:
+    path = Path(raw_path).expanduser()
+    if path.is_absolute():
+        return path
+
+    config_dir = config_path.parent
+    package_root = config_dir.parent
+    candidates = [
+        config_dir / path,
+        package_root / path,
+        package_root.parent / path,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return candidates[1].resolve()
+
+
+def _validate_string_field(data: dict[str, Any], field_name: str) -> None:
+    if not isinstance(data[field_name], str) or not data[field_name].strip():
+        raise ValueError(f"Assessment config field '{field_name}' must be a string")
+
+
+def _parse_sections(value: Any) -> list[SectionSpec]:
+    if not isinstance(value, list):
+        raise ValueError("sections must be a list")
+
+    sections: list[SectionSpec] = []
+    seen_names: set[str] = set()
+    for index, section_data in enumerate(value):
+        if not isinstance(section_data, dict):
+            raise ValueError(f"sections[{index}] must be a mapping")
+        _validate_string_field(section_data, "name")
+        _validate_string_field(section_data, "description")
+        _validate_weight(section_data.get("weight"), f"sections[{index}].weight")
+
+        section_name = section_data["name"]
+        if section_name in seen_names:
+            raise ValueError(f"Duplicate section name: {section_name}")
+        seen_names.add(section_name)
+
+        sections.append(
+            SectionSpec(
+                name=section_name,
+                description=section_data["description"],
+                weight=float(section_data["weight"]),
+                variables=_parse_variables(section_data.get("variables", []), index),
+            )
+        )
+
+    if not sections:
+        raise ValueError("sections must contain at least one section")
+    return sections
+
+
+def _parse_variables(value: Any, section_index: int) -> list[VariableSpec]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"sections[{section_index}].variables must be a list")
+
+    variables: list[VariableSpec] = []
+    seen_names: set[str] = set()
+    for index, variable_data in enumerate(value):
+        if not isinstance(variable_data, dict):
+            raise ValueError(
+                f"sections[{section_index}].variables[{index}] must be a mapping"
+            )
+        _validate_string_field(variable_data, "name")
+        _validate_string_field(variable_data, "description")
+
+        variable_name = variable_data["name"]
+        if variable_name in seen_names:
+            raise ValueError(
+                f"Duplicate variable name in sections[{section_index}]: {variable_name}"
+            )
+        seen_names.add(variable_name)
+
+        variables.append(
+            VariableSpec(
+                name=variable_name,
+                description=variable_data["description"],
+            )
+        )
+    return variables
+
+
+def _validate_weight(value: Any, field_name: str) -> None:
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be numeric")
+    if value < 0:
+        raise ValueError(f"{field_name} must be non-negative")

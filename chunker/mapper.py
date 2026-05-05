@@ -6,15 +6,16 @@ import re
 from typing import Protocol
 
 try:
+    from .llm_client import DEFAULT_MAX_OUTPUT_TOKENS
     from .models import ContentBlock, DocumentTypeConfig
 except ImportError:  # pragma: no cover - supports running files directly
+    from llm_client import DEFAULT_MAX_OUTPUT_TOKENS
     from models import ContentBlock, DocumentTypeConfig
 
 
 logger = logging.getLogger(__name__)
 
 VALID_CONFIDENCES = {"high", "medium", "low"}
-MAX_OUTPUT_TOKENS = 16000
 
 
 class MapperResponseError(ValueError):
@@ -26,7 +27,7 @@ class LLMClientProtocol(Protocol):
         self,
         system_prompt: str,
         user_message: str,
-        max_tokens: int = MAX_OUTPUT_TOKENS,
+        max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     ) -> str:
         """Send a prompt to an LLM and return response text."""
 
@@ -35,6 +36,7 @@ def label_blocks(
     blocks: list[ContentBlock],
     config: DocumentTypeConfig,
     llm_client: LLMClientProtocol,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> list[ContentBlock]:
     """
     Phase 2 section labeling using an injected LLM client.
@@ -43,6 +45,7 @@ def label_blocks(
         blocks: List of ContentBlock objects from the parser
         config: Document-type config with taxonomy and rules
         llm_client: Object with a call(system_prompt, user_message, max_tokens) method
+        max_tokens: Maximum tokens allowed in each mapper response
 
     Returns:
         Same blocks with section_label and label_confidence filled in
@@ -52,7 +55,7 @@ def label_blocks(
         logger.warning("Labeling %s blocks at once may degrade results", len(blocks))
 
     system_prompt, user_message = build_prompts(blocks, config)
-    raw_response = llm_client.call(system_prompt, user_message, max_tokens=MAX_OUTPUT_TOKENS)
+    raw_response = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
 
     try:
         labels = _parse_label_response(raw_response)
@@ -61,7 +64,7 @@ def label_blocks(
         raw_response = llm_client.call(
             system_prompt,
             user_message,
-            max_tokens=MAX_OUTPUT_TOKENS,
+            max_tokens=max_tokens,
         )
         try:
             labels = _parse_label_response(raw_response)

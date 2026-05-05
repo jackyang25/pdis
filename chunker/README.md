@@ -86,21 +86,21 @@ Run parsed + mapped export:
 
 ```bash
 export OPENAI_API_KEY="..."
-python -m chunker.export_package downloaded_docs chunker_package --map --provider openai --max-workers 4
+python -m chunker.export_package downloaded_docs chunker_package --map --provider openai --max-workers 4 --max-tokens 16000
 ```
 
 Single-type parsed + mapped export:
 
 ```bash
 export OPENAI_API_KEY="..."
-python -m chunker.export_package downloaded_device_docs chunker_package --tpp-type device --map --provider openai --max-workers 4
+python -m chunker.export_package downloaded_device_docs chunker_package --tpp-type device --map --provider openai --max-workers 4 --max-tokens 16000
 ```
 
 For Anthropic:
 
 ```bash
 export ANTHROPIC_API_KEY="..."
-python -m chunker.export_package downloaded_docs chunker_package --map --provider anthropic --max-workers 4
+python -m chunker.export_package downloaded_docs chunker_package --map --provider anthropic --max-workers 4 --max-tokens 16000
 ```
 
 Output shape:
@@ -113,7 +113,7 @@ chunker_package/
   summary.csv
 ```
 
-`documents.csv` has one row per source document. `content_blocks.csv` has one row per parsed block. Both tables share `doc_key`, which is generated from the file's relative path, so block rows can be joined back to the source document row. In parser-only mode, `section_label` and `label_confidence` are blank. In mapped mode, they are filled by the mapper using the config inferred from the parent folder or the `--tpp-type` override. `--max-workers` controls how many documents are processed concurrently. This export does not change the parser's normal `list[ContentBlock]` output.
+`documents.csv` has one row per source document. `content_blocks.csv` has one row per parsed block. Both tables share `doc_key`, which is generated from the file's relative path, so block rows can be joined back to the source document row. In parser-only mode, `section_label` and `label_confidence` are blank. In mapped mode, they are filled by the mapper using the config inferred from the parent folder or the `--tpp-type` override. `--max-workers` controls how many documents are processed concurrently. `--max-tokens` controls the mapper response token budget for each document. This export does not change the parser's normal `list[ContentBlock]` output.
 
 ## ContentBlock Schema
 

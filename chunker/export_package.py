@@ -11,12 +11,20 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .llm_client import create_llm_client, default_model_for_provider
+    from .llm_client import (
+        DEFAULT_MAX_OUTPUT_TOKENS,
+        create_llm_client,
+        default_model_for_provider,
+    )
     from .mapper import label_blocks
     from .models import blocks_to_dicts, load_config
     from .parser import parse_document
 except ImportError:  # pragma: no cover - supports running as a script
-    from llm_client import create_llm_client, default_model_for_provider
+    from llm_client import (
+        DEFAULT_MAX_OUTPUT_TOKENS,
+        create_llm_client,
+        default_model_for_provider,
+    )
     from mapper import label_blocks
     from models import blocks_to_dicts, load_config
     from parser import parse_document
@@ -70,6 +78,7 @@ def export_chunker_package(
     model: str | None = None,
     api_key: str | None = None,
     max_workers: int = 4,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     tpp_type: str | None = None,
 ) -> None:
     """Parse, and optionally map, DOCX files into reusable package tables."""
@@ -115,6 +124,7 @@ def export_chunker_package(
                     provider=provider,
                     model=model,
                     api_key=api_key,
+                    max_tokens=max_tokens,
                 ),
                 document_jobs,
             )
@@ -139,6 +149,7 @@ def _process_document(
     provider: str,
     model: str | None,
     api_key: str | None,
+    max_tokens: int,
 ) -> dict[str, Any]:
     file_path = job["file_path"]
     tpp_type = job["tpp_type"]
@@ -172,7 +183,7 @@ def _process_document(
                 raise ValueError("api_key is required for mapping")
             config = _config_for_tpp_type(tpp_type)
             llm_client = create_llm_client(provider=provider, api_key=api_key, model=model)
-            blocks = label_blocks(blocks, config, llm_client)
+            blocks = label_blocks(blocks, config, llm_client, max_tokens=max_tokens)
             mapping_status = "ok"
         except Exception as exc:
             mapping_status = "error"
@@ -356,6 +367,12 @@ def _parse_args() -> argparse.Namespace:
         default=4,
         help="Maximum documents to process concurrently",
     )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=DEFAULT_MAX_OUTPUT_TOKENS,
+        help="Maximum tokens allowed in each mapper response",
+    )
     args = parser.parse_args()
     if args.model is None:
         args.model = default_model_for_provider(args.provider)
@@ -372,5 +389,6 @@ if __name__ == "__main__":
         model=args.model,
         api_key=args.api_key,
         max_workers=args.max_workers,
+        max_tokens=args.max_tokens,
         tpp_type=args.tpp_type,
     )

@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 ANTHROPIC_MODEL = "claude-opus-4-7"
 OPENAI_MODEL = "gpt-5.5"
+DEFAULT_MAX_OUTPUT_TOKENS = 16000
 DEFAULT_PROVIDER_MODELS = {
     "anthropic": ANTHROPIC_MODEL,
     "openai": OPENAI_MODEL,
@@ -20,7 +21,7 @@ class LLMClient(ABC):
         self,
         system_prompt: str,
         user_message: str,
-        max_tokens: int = 4096,
+        max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     ) -> str:
         """Send a system+user prompt to the LLM and return the response text."""
 
@@ -36,7 +37,7 @@ class AnthropicClient(LLMClient):
         self,
         system_prompt: str,
         user_message: str,
-        max_tokens: int = 4096,
+        max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     ) -> str:
         message = self.client.messages.create(
             model=self.model,
@@ -58,7 +59,7 @@ class OpenAIClient(LLMClient):
         self,
         system_prompt: str,
         user_message: str,
-        max_tokens: int = 4096,
+        max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     ) -> str:
         response = self.client.chat.completions.create(
             model=self.model,

@@ -1,0 +1,54 @@
+type_key: tpp_device
+display_name: "Medical Device Target Product Profile"
+
+section_taxonomy:
+  - name: "Instructions for Use"
+    description: "Guidance on completing the template. Describes the three key sections (Use Case/Medical Need, Product Requirements with Annotations, Change Management), Minimum/Optimistic criteria framework, and annotation conventions."
+
+  - name: "Medical Need / Differentiation Strategy / Use Case"
+    description: "The use case section, typically a single-column table. Contains Medical Need, Intended Use Case Scenario, and Critical Assumptions used to develop the TPP."
+
+  - name: "Annotated Product Requirements (Intervention-wide Variables)"
+    description: "The main device TPP table with Variable / Minimum / Optimistic / Annotations columns. Each row is an intervention-wide variable: Indication, Product, Target Population, Special Populations, Target Countries, Efficacy, Clinical Endpoint, Safety, Shelf Life, Product Presentation, Registration Path, WHO PQ Date, National Policy, Delivery Channel, Pricing, COGS, Procurement Price, Per Patient Costs, Financing, Volume estimates, Packaging, Shipping."
+
+  - name: "Additional Variables of Interest"
+    description: "Device-specific variables in same Variable / Minimum / Optimistic / Annotations format. Grouped under categories: Operation (ease of use, user preference, tamper evidence, reusability), Design (user error, robustness, components, environment, materials, manufacturing, standards, disposal, power/IT, size/weight), Product Performance (device performance, orientation, shelf life specifics, impurities, foreign matter, microbial standards, biocompatibility, leachables)."
+
+  - name: "Change Management"
+    description: "Version history table tracking changes between TPP versions. Columns: Version, Key Changes from Previous Version, Change Made By."
+
+  - name: "Appendix"
+    description: "Background reference content - what TPPs are, their key characteristics, and the distinction between Intervention TPPs and Candidate TPPs."
+
+preamble: >
+  This is a Medical Device Target Product Profile (TPP). Device TPPs define
+  the desired characteristics of a medical device using minimum and optimistic
+  targets. Structure: instructions for use, medical need/use case (single-column
+  table with medical need, use case scenario, and critical assumptions),
+  annotated product requirements split into intervention-wide variables and
+  device-specific additional variables, change management log, and appendix.
+
+  The annotated product requirements have two distinct sub-sections:
+  intervention-wide variables (broad characteristics) and additional variables
+  of interest (device-specific operation, design, and performance). Both are
+  multi-column tables with min/optimistic/annotations columns.
+
+disambiguation:
+  - >
+    Blocks about indication, target population, efficacy, safety, shelf life,
+    presentation, registration, pricing, COGS, volume estimates, packaging, and
+    shipping belong to "Annotated Product Requirements (Intervention-wide
+    Variables)".
+  - >
+    Blocks about device operation (ease of use, reusability, tamper evidence),
+    design (robustness, materials, environment, power), or product performance
+    (device performance, biocompatibility, leachables, microbial standards)
+    belong to "Additional Variables of Interest".
+  - >
+    The medical need / use case section is often a single-column table. Blocks
+    from this table should be labeled "Medical Need / Differentiation Strategy /
+    Use Case" even though their source_type may be "paragraph" (due to
+    single-column table flattening).
+
+include_metadata_label: true
+include_other_label: true

@@ -1,6 +1,6 @@
 # Document Quality Assessment
 
-Document Quality Assessment evaluates document completeness and adherence against a document-type rubric, then produces a graded report card. The current bundled config targets Vaccine TPPs, but the tool is designed for additional document types such as IPDPs or drug TPPs.
+Document Quality Assessment evaluates document completeness and adherence against a document-type rubric, then produces a graded report card. The bundled TPP configs currently cover vaccine, drug, diagnostic, and medical device TPPs.
 
 It uses the chunker as a library for document parsing and section labeling, then runs assessment prompts over the labeled content.
 
@@ -57,10 +57,13 @@ streamlit run quality_assessment/app.py
 
 ## Assessment Config
 
-Assessment behavior is driven by YAML, not hardcoded logic. The default config is:
+Assessment behavior is driven by YAML, not hardcoded logic. Bundled configs include:
 
 ```text
 quality_assessment/configs/tpp_vaccine.yaml
+quality_assessment/configs/tpp_drug_assessment.yaml
+quality_assessment/configs/tpp_diagnostic_assessment.yaml
+quality_assessment/configs/tpp_device_assessment.yaml
 ```
 
 The config defines:

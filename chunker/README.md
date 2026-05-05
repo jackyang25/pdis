@@ -16,8 +16,9 @@ The Streamlit app is a local inspector for this flow. It has a single-document m
 | `models.py` | Shared dataclasses: `ContentBlock` and `DocumentTypeConfig`; YAML config loader. |
 | `parser.py` | Deterministic Word parser. Walks XML body order so paragraphs and tables stay interleaved correctly. |
 | `mapper.py` | Prompt builder, provider-specific LLM calls, JSON validation, and label merge. |
+| `export_package.py` | CLI utility that parses a folder of `.docx` files into reusable `documents.csv`, `content_blocks.csv`, and `content_blocks.jsonl` tables. |
 | `app.py` | Streamlit UI for single-document inspection and batch parser evaluation. |
-| `configs/tpp_vaccine.yaml` | First mapper config: Vaccine TPP taxonomy, preamble, and disambiguation rules. |
+| `configs/` | Mapper configs for supported TPP families: vaccine, drug, diagnostic, and medical device. |
 | `requirements.txt` | Runtime dependencies. |
 
 ## Running The App
@@ -54,6 +55,52 @@ This mode is for comparing parser behavior across multiple TPP files and optiona
 6. Download `batch_summary.csv` or `batch_blocks.json`.
 
 Parsing and mapping are both parallelized in batch mode. Mapper failures are isolated per document so one failed API call does not discard the rest of the batch.
+
+## Export A Chunker Package
+
+For downstream ingestion, use `export_package.py` on a folder of downloaded `.docx` files.
+
+Expected input shape:
+
+```text
+downloaded_docs/
+  vaccine/
+  drug/
+  diagnostic/
+  device/
+```
+
+Run parser-only export from the repo root:
+
+```bash
+python -m chunker.export_package downloaded_docs chunker_package --max-workers 4
+```
+
+Run parsed + mapped export:
+
+```bash
+export OPENAI_API_KEY="..."
+python -m chunker.export_package downloaded_docs chunker_package --map --provider openai --max-workers 4
+```
+
+For Anthropic:
+
+```bash
+export ANTHROPIC_API_KEY="..."
+python -m chunker.export_package downloaded_docs chunker_package --map --provider anthropic --max-workers 4
+```
+
+Output shape:
+
+```text
+chunker_package/
+  documents.csv
+  content_blocks.csv
+  content_blocks.jsonl
+  summary.csv
+```
+
+`documents.csv` has one row per source document. `content_blocks.csv` has one row per parsed block. Both tables share `doc_key`, which is generated from the file's relative path, so block rows can be joined back to the source document row. In parser-only mode, `section_label` and `label_confidence` are blank. In mapped mode, they are filled by the mapper using the config inferred from the parent folder. `--max-workers` controls how many documents are processed concurrently. This export does not change the parser's normal `list[ContentBlock]` output.
 
 ## ContentBlock Schema
 
@@ -203,10 +250,13 @@ Single-column and single-cell tables are intentionally flattened to paragraph bl
 
 The mapper is driven by a `DocumentTypeConfig` loaded from YAML.
 
-Current config:
+Bundled configs:
 
 ```text
 configs/tpp_vaccine.yaml
+configs/tpp_drug.yaml
+configs/tpp_diagnostic.yaml
+configs/tpp_device.yaml
 ```
 
 It defines:
@@ -219,7 +269,7 @@ It defines:
 - `include_metadata_label`: whether the engine injects `Document Metadata`.
 - `include_other_label`: whether the engine injects `Other`.
 
-The current TPP document-specific taxonomy includes:
+For example, the vaccine TPP taxonomy includes:
 
 - `Introduction`
 - `Instructions for Use`

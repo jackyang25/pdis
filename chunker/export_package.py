@@ -70,6 +70,7 @@ def export_chunker_package(
     model: str | None = None,
     api_key: str | None = None,
     max_workers: int = 4,
+    tpp_type: str | None = None,
 ) -> None:
     """Parse, and optionally map, DOCX files into reusable package tables."""
     input_path = Path(input_dir).expanduser().resolve()
@@ -98,7 +99,7 @@ def export_chunker_package(
             {
                 "file_path": file_path,
                 "relative_path": relative_path,
-                "tpp_type": _tpp_type(relative_path),
+                "tpp_type": tpp_type or _tpp_type(relative_path),
                 "doc_key": _unique_doc_key(relative_path, used_doc_keys),
             }
         )
@@ -344,6 +345,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=None)
     parser.add_argument("--api-key", default=None)
     parser.add_argument(
+        "--tpp-type",
+        choices=sorted(CONFIG_BY_TPP_TYPE),
+        default=None,
+        help="Override TPP type for all input documents",
+    )
+    parser.add_argument(
         "--max-workers",
         type=int,
         default=4,
@@ -365,4 +372,5 @@ if __name__ == "__main__":
         model=args.model,
         api_key=args.api_key,
         max_workers=args.max_workers,
+        tpp_type=args.tpp_type,
     )

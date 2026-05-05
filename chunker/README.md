@@ -76,11 +76,24 @@ Run parser-only export from the repo root:
 python -m chunker.export_package downloaded_docs chunker_package --max-workers 4
 ```
 
+If the input folder contains documents for only one type directly, use `--tpp-type`:
+
+```bash
+python -m chunker.export_package downloaded_device_docs chunker_package --tpp-type device --max-workers 4
+```
+
 Run parsed + mapped export:
 
 ```bash
 export OPENAI_API_KEY="..."
 python -m chunker.export_package downloaded_docs chunker_package --map --provider openai --max-workers 4
+```
+
+Single-type parsed + mapped export:
+
+```bash
+export OPENAI_API_KEY="..."
+python -m chunker.export_package downloaded_device_docs chunker_package --tpp-type device --map --provider openai --max-workers 4
 ```
 
 For Anthropic:
@@ -100,7 +113,7 @@ chunker_package/
   summary.csv
 ```
 
-`documents.csv` has one row per source document. `content_blocks.csv` has one row per parsed block. Both tables share `doc_key`, which is generated from the file's relative path, so block rows can be joined back to the source document row. In parser-only mode, `section_label` and `label_confidence` are blank. In mapped mode, they are filled by the mapper using the config inferred from the parent folder. `--max-workers` controls how many documents are processed concurrently. This export does not change the parser's normal `list[ContentBlock]` output.
+`documents.csv` has one row per source document. `content_blocks.csv` has one row per parsed block. Both tables share `doc_key`, which is generated from the file's relative path, so block rows can be joined back to the source document row. In parser-only mode, `section_label` and `label_confidence` are blank. In mapped mode, they are filled by the mapper using the config inferred from the parent folder or the `--tpp-type` override. `--max-workers` controls how many documents are processed concurrently. This export does not change the parser's normal `list[ContentBlock]` output.
 
 ## ContentBlock Schema
 

@@ -34,7 +34,7 @@ class SectionGrade:
 
 
 @dataclass
-class AssessmentResult:
+class ReviewResult:
     """Full report card."""
 
     doc_id: str
@@ -62,8 +62,8 @@ class SectionSpec:
 
 
 @dataclass
-class AssessmentConfig:
-    """All document-type-specific configuration for the assessor."""
+class ReviewConfig:
+    """All document-type-specific configuration for PD Reviewer."""
 
     type_key: str
     display_name: str
@@ -71,14 +71,14 @@ class AssessmentConfig:
     sections: list[SectionSpec]
 
 
-def load_assessment_config(path: str) -> AssessmentConfig:
-    """Load an AssessmentConfig from YAML. Validates required fields."""
+def load_review_config(path: str) -> ReviewConfig:
+    """Load a ReviewConfig from YAML. Validates required fields."""
     config_path = Path(path).expanduser().resolve()
     with open(config_path, "r", encoding="utf-8") as config_file:
         data = yaml.safe_load(config_file)
 
     if not isinstance(data, dict):
-        raise ValueError("Assessment config file must contain a YAML mapping")
+        raise ValueError("PD Reviewer config file must contain a YAML mapping")
 
     required_fields = {
         "type_key",
@@ -89,14 +89,14 @@ def load_assessment_config(path: str) -> AssessmentConfig:
     missing_fields = required_fields - data.keys()
     if missing_fields:
         missing = ", ".join(sorted(missing_fields))
-        raise ValueError(f"Assessment config missing required fields: {missing}")
+        raise ValueError(f"PD Reviewer config missing required fields: {missing}")
 
     _validate_string_field(data, "type_key")
     _validate_string_field(data, "display_name")
     _validate_string_field(data, "chunker_config_path")
     sections = _parse_sections(data["sections"])
 
-    return AssessmentConfig(
+    return ReviewConfig(
         type_key=data["type_key"],
         display_name=data["display_name"],
         chunker_config_path=str(_resolve_path(config_path, data["chunker_config_path"])),
@@ -104,8 +104,8 @@ def load_assessment_config(path: str) -> AssessmentConfig:
     )
 
 
-def assessment_result_to_dict(result: AssessmentResult) -> dict[str, Any]:
-    """Convert an AssessmentResult to JSON-serializable dictionaries."""
+def review_result_to_dict(result: ReviewResult) -> dict[str, Any]:
+    """Convert a ReviewResult to JSON-serializable dictionaries."""
     return asdict(result)
 
 
@@ -129,7 +129,7 @@ def _resolve_path(config_path: Path, raw_path: str) -> Path:
 
 def _validate_string_field(data: dict[str, Any], field_name: str) -> None:
     if not isinstance(data[field_name], str) or not data[field_name].strip():
-        raise ValueError(f"Assessment config field '{field_name}' must be a string")
+        raise ValueError(f"PD Reviewer config field '{field_name}' must be a string")
 
 
 def _parse_sections(value: Any) -> list[SectionSpec]:

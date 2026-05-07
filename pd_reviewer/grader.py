@@ -9,21 +9,21 @@ from typing import Any
 from chunker.models import ContentBlock
 
 from .llm_client import LLMClient
-from .models import AssessmentConfig, Grade, SectionGrade, SectionSpec, VariableGrade
+from .models import Grade, ReviewConfig, SectionGrade, SectionSpec, VariableGrade
 
 logger = logging.getLogger(__name__)
 
 VALID_GRADES: set[str] = {"A", "B", "C", "D", "F", "N/A"}
-EVALUATOR_MAX_TOKENS = 4096
+GRADER_MAX_TOKENS = 4096
 
 
-def evaluate_quality(
+def grade_sections(
     labeled_blocks: list[ContentBlock],
-    config: AssessmentConfig,
+    config: ReviewConfig,
     llm_client: LLMClient,
 ) -> list[SectionGrade]:
     """
-    For each section, ask the LLM to grade completeness and quality.
+    For each section, ask the LLM to grade completeness and adherence.
 
     Returns a list of SectionGrade objects.
     """
@@ -42,7 +42,7 @@ def evaluate_quality(
             section_blocks,
         )
         section_grades.append(
-            _evaluate_section(
+            _grade_section(
                 section_spec.name,
                 section_blocks,
                 system_prompt,
@@ -54,18 +54,18 @@ def evaluate_quality(
     return section_grades
 
 
-def _evaluate_section(
+def _grade_section(
     section_name: str,
     section_blocks: list[ContentBlock],
     system_prompt: str,
     user_message: str,
     llm_client: LLMClient,
 ) -> SectionGrade:
-    raw_response = llm_client.call(system_prompt, user_message, max_tokens=EVALUATOR_MAX_TOKENS)
+    raw_response = llm_client.call(system_prompt, user_message, max_tokens=GRADER_MAX_TOKENS)
     try:
         return _parse_section_grade(section_name, raw_response, section_blocks)
     except ValueError as first_error:
-        logger.warning("Evaluator returned invalid JSON for %s; retrying", section_name)
+        logger.warning("Grader returned invalid JSON for %s; retrying", section_name)
         retry_message = (
             f"{user_message}\n\n"
             "Your previous response was invalid JSON. Return only one valid JSON object "
@@ -74,13 +74,13 @@ def _evaluate_section(
         raw_response = llm_client.call(
             system_prompt,
             retry_message,
-            max_tokens=EVALUATOR_MAX_TOKENS,
+            max_tokens=GRADER_MAX_TOKENS,
         )
         try:
             return _parse_section_grade(section_name, raw_response, section_blocks)
         except ValueError:
             logger.exception(
-                "Evaluator failed for %s after retry: %s",
+                "Grader failed for %s after retry: %s",
                 section_name,
                 first_error,
             )
@@ -88,13 +88,13 @@ def _evaluate_section(
                 section_name=section_name,
                 grade="N/A",
                 is_present=True,
-                issues=["Evaluation failed."],
-                recommendation="Retry evaluation or review this section manually.",
+                issues=["Grading failed."],
+                recommendation="Retry grading or review this section manually.",
             )
 
 
 def _build_system_prompt(section_spec: SectionSpec) -> str:
-    rubric = """You are assessing document quality.
+    rubric = """You are reviewing a PD document.
 
 Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
 
@@ -106,7 +106,7 @@ Grade definitions:
 - F: Section largely empty, contradicts itself, or violates structural expectations.
 - N/A: Section not applicable.
 
-Evaluation criteria:
+Review criteria:
 - Quantitative criteria: numeric targets ("at least X%") preferred over vague language ("better").
 - Source data: annotations should cite data sources, regulatory precedents, or comparable interventions.
 - Template tokens: content with <<...>> placeholders has not been filled in.
@@ -205,7 +205,7 @@ def _parse_section_grade(
 ) -> SectionGrade:
     parsed = json.loads(_extract_json_object(_strip_markdown_fences(raw_response).strip()))
     if not isinstance(parsed, dict):
-        raise ValueError("Evaluator response must be an object")
+        raise ValueError("Grader response must be an object")
 
     section_name = _string_value(parsed.get("section_name")) or expected_section_name
     grade = _grade_value(parsed.get("grade"))

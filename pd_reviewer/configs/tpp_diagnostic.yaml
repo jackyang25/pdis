@@ -1,5 +1,5 @@
 type_key: tpp_diagnostic
-display_name: "Diagnostic TPP Quality Assessment"
+display_name: "Diagnostic Target Product Profile"
 chunker_config_path: "../chunker/configs/tpp_diagnostic.yaml"
 
 sections:

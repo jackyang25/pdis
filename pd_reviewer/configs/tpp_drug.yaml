@@ -1,5 +1,5 @@
 type_key: tpp_drug
-display_name: "Drug TPP Quality Assessment"
+display_name: "Drug Target Product Profile"
 chunker_config_path: "../chunker/configs/tpp_drug.yaml"
 
 sections:

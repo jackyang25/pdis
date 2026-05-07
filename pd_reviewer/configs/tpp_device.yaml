@@ -1,5 +1,5 @@
 type_key: tpp_device
-display_name: "Medical Device TPP Quality Assessment"
+display_name: "Medical Device Target Product Profile"
 chunker_config_path: "../chunker/configs/tpp_device.yaml"
 
 sections:

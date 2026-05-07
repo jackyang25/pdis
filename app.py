@@ -3,7 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from chunker.app import render as render_chunker
-from quality_assessment.app import render as render_quality_assessment
+from pd_reviewer.app import render as render_pd_reviewer
 
 
 def main() -> None:
@@ -13,7 +13,7 @@ def main() -> None:
         "Tool",
         [
             "Document Chunker",
-            "Document Quality Assessment",
+            "PD Reviewer",
         ],
     )
 
@@ -21,7 +21,7 @@ def main() -> None:
         render_chunker()
         return
 
-    render_quality_assessment()
+    render_pd_reviewer()
 
 
 if __name__ == "__main__":

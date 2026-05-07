@@ -1,27 +1,27 @@
-# Document Quality Assessment
+# PD Reviewer
 
-Document Quality Assessment evaluates document completeness and adherence against a document-type rubric, then produces a graded report card. The bundled TPP configs currently cover vaccine, drug, diagnostic, and medical device TPPs.
+PD Reviewer reviews PD document completeness and adherence against a document-type rubric, then produces a graded report card. The bundled TPP configs currently cover vaccine, drug, diagnostic, and medical device TPPs.
 
-It uses the chunker as a library for document parsing and section labeling, then runs assessment prompts over the labeled content.
+It uses the chunker as a library for document parsing and section labeling, then runs review prompts over the labeled content.
 
 ## Architecture
 
 The module is intentionally separate from the chunker UI and LLM adapter.
 
 - `app.py`: Streamlit view and standalone entrypoint.
-- `assessor.py`: End-to-end orchestration.
-- `evaluator.py`: LLM prompt construction, JSON parsing, and section grading.
-- `models.py`: Assessment config, rubric, and report dataclasses.
-- `llm_client.py`: Document Quality Assessment LLM adapter.
-- `configs/`: Document-type assessment rubrics.
+- `reviewer.py`: End-to-end review orchestration.
+- `grader.py`: LLM prompt construction, JSON parsing, and section grading.
+- `models.py`: Review config, rubric, and report dataclasses.
+- `llm_client.py`: PD Reviewer LLM adapter.
+- `configs/`: Document-type review rubrics.
 
-Document Quality Assessment imports chunker parsing and mapping APIs:
+PD Reviewer imports chunker parsing and mapping APIs:
 
 - `chunker.parser.parse_document`
 - `chunker.mapper.label_blocks`
 - `chunker.models.load_config`
 
-Document Quality Assessment provides its own LLM client and injects it into the chunker mapper. This keeps it independently distributable while still reusing chunker logic.
+PD Reviewer provides its own LLM client and injects it into the chunker mapper. This keeps it independently distributable while still reusing chunker logic.
 
 ## Setup
 
@@ -30,7 +30,7 @@ From the repository root:
 ```bash
 source .venv/bin/activate
 python -m pip install -r chunker/requirements.txt
-python -m pip install -r quality_assessment/requirements.txt
+python -m pip install -r pd_reviewer/requirements.txt
 ```
 
 Set an API key in the environment or enter it in the Streamlit sidebar:
@@ -49,21 +49,21 @@ Use the unified root app:
 streamlit run app.py
 ```
 
-Or run Document Quality Assessment directly:
+Or run PD Reviewer directly:
 
 ```bash
-streamlit run quality_assessment/app.py
+streamlit run pd_reviewer/app.py
 ```
 
-## Assessment Config
+## Review Config
 
-Assessment behavior is driven by YAML, not hardcoded logic. Bundled configs include:
+Review behavior is driven by YAML, not hardcoded logic. Bundled configs include:
 
 ```text
-quality_assessment/configs/tpp_vaccine.yaml
-quality_assessment/configs/tpp_drug_assessment.yaml
-quality_assessment/configs/tpp_diagnostic_assessment.yaml
-quality_assessment/configs/tpp_device_assessment.yaml
+pd_reviewer/configs/tpp_vaccine.yaml
+pd_reviewer/configs/tpp_drug.yaml
+pd_reviewer/configs/tpp_diagnostic.yaml
+pd_reviewer/configs/tpp_device.yaml
 ```
 
 The config defines:
@@ -80,10 +80,10 @@ Section names must match the chunker's `section_label` taxonomy.
 The grading flow has three layers:
 
 1. Chunker parses the uploaded document into blocks and labels each block with a section using the selected LLM client.
-2. Document Quality Assessment evaluates each configured section with the selected LLM.
+2. PD Reviewer grades each configured section with the selected LLM.
 3. The overall grade is computed from section grades using the weights in the config.
 
-For sections with expected variables, such as a TPP executive summary table, the evaluator asks the LLM to:
+For sections with expected variables, such as a TPP executive summary table, the grader asks the LLM to:
 
 - determine which expected variables are present
 - list missing variables
@@ -91,13 +91,13 @@ For sections with expected variables, such as a TPP executive summary table, the
 - return source `block_ids` for each variable grade
 - assign a section grade based on completeness and adherence
 
-For prose sections with no expected variables, the evaluator returns only a section-level grade, issues, and recommendation.
+For prose sections with no expected variables, the grader returns only a section-level grade, issues, and recommendation.
 
 The section grade is returned by the LLM. It is not computed as a simple average of variable grades, because the section may include broader context, prose, notes, or structural issues. The overall document grade is deterministic: section grades are converted to numeric scores and weighted by each section's configured `weight`.
 
 ## Output
 
-The assessment returns an `AssessmentResult` with:
+The review returns a `ReviewResult` with:
 
 - `doc_id`
 - `overall_grade`

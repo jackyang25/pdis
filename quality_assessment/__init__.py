@@ -1,1 +1,0 @@
-"""Document Quality Assessment tool."""

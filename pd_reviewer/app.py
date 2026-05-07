@@ -18,16 +18,16 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from quality_assessment.assessor import assess_tpp  # noqa: E402
-from quality_assessment.llm_client import (  # noqa: E402
+from pd_reviewer.reviewer import review_document  # noqa: E402
+from pd_reviewer.llm_client import (  # noqa: E402
     create_llm_client,
     default_model_for_provider,
 )
-from quality_assessment.models import (  # noqa: E402
-    AssessmentConfig,
-    AssessmentResult,
-    assessment_result_to_dict,
-    load_assessment_config,
+from pd_reviewer.models import (  # noqa: E402
+    ReviewConfig,
+    ReviewResult,
+    load_review_config,
+    review_result_to_dict,
 )
 
 GRADE_COLORS = {
@@ -41,28 +41,28 @@ GRADE_COLORS = {
 
 
 def main() -> None:
-    st.set_page_config(page_title="Document Quality Assessment", layout="wide")
+    st.set_page_config(page_title="PD Reviewer", layout="wide")
     render()
 
 
 def render() -> None:
-    """Render the Tool 2 assessment UI inside a Streamlit app."""
+    """Render the PD Reviewer UI inside a Streamlit app."""
     load_dotenv()
-    st.title("Document Quality Assessment")
+    st.title("PD Reviewer")
 
-    if "quality_assessment_upload_counter" not in st.session_state:
-        st.session_state["quality_assessment_upload_counter"] = 0
+    if "pd_reviewer_upload_counter" not in st.session_state:
+        st.session_state["pd_reviewer_upload_counter"] = 0
 
     _render_sidebar()
-    result = st.session_state.get("assessment_result")
+    result = st.session_state.get("pd_reviewer_result")
     if result is None:
-        st.info("Upload a document `.docx`, enter an API key, and run the assessment.")
+        st.info("Upload a document `.docx`, enter an API key, and run the review.")
         return
 
     _render_result(result)
 
 
-def _render_sidebar() -> AssessmentConfig:
+def _render_sidebar() -> ReviewConfig:
     configs = _load_available_configs()
     config_labels = list(configs.keys())
     selected_label = st.sidebar.selectbox("Document type", config_labels)
@@ -71,38 +71,38 @@ def _render_sidebar() -> AssessmentConfig:
     uploaded_file = st.sidebar.file_uploader(
         "Upload document",
         type=["docx"],
-        key=f"quality_assessment_upload_{st.session_state['quality_assessment_upload_counter']}",
+        key=f"pd_reviewer_upload_{st.session_state['pd_reviewer_upload_counter']}",
     )
 
-    provider, model, api_key = _render_llm_controls("quality_assessment")
+    provider, model, api_key = _render_llm_controls("pd_reviewer")
 
-    if st.sidebar.button("Run Assessment"):
+    if st.sidebar.button("Run Review"):
         if uploaded_file is None:
-            st.error("Upload a `.docx` document before running assessment.")
+            st.error("Upload a `.docx` document before running the review.")
         elif not api_key:
-            st.error(f"Enter a {provider.title()} API key before running assessment.")
+            st.error(f"Enter a {provider.title()} API key before running the review.")
         else:
-            _run_assessment(uploaded_file, config, api_key, provider, model)
+            _run_review(uploaded_file, config, api_key, provider, model)
 
     if st.sidebar.button("Clear / Restart"):
-        _restart_assessment_session()
+        _restart_review_session()
 
     return config
 
 
-def _restart_assessment_session() -> None:
-    st.session_state.pop("assessment_result", None)
-    st.session_state["quality_assessment_upload_counter"] += 1
+def _restart_review_session() -> None:
+    st.session_state.pop("pd_reviewer_result", None)
+    st.session_state["pd_reviewer_upload_counter"] += 1
     st.rerun()
 
 
-def _load_available_configs() -> dict[str, AssessmentConfig]:
+def _load_available_configs() -> dict[str, ReviewConfig]:
     config_dir = Path(__file__).parent / "configs"
     config_paths = sorted(config_dir.glob("*.yaml"))
     if not config_paths:
-        raise FileNotFoundError(f"No assessment configs found in {config_dir}")
+        raise FileNotFoundError(f"No PD Reviewer configs found in {config_dir}")
 
-    configs = [load_assessment_config(str(path)) for path in config_paths]
+    configs = [load_review_config(str(path)) for path in config_paths]
     return {config.display_name: config for config in configs}
 
 
@@ -128,9 +128,9 @@ def _render_llm_controls(key_prefix: str) -> tuple[str, str, str]:
     return provider, model, api_key
 
 
-def _run_assessment(
+def _run_review(
     uploaded_file,
-    config: AssessmentConfig,
+    config: ReviewConfig,
     api_key: str,
     provider: str,
     model: str,
@@ -142,27 +142,27 @@ def _run_assessment(
             temp_file.write(uploaded_file.getvalue())
             temp_path = temp_file.name
 
-        with st.spinner("Assessing document quality..."):
+        with st.spinner("Reviewing document..."):
             llm_client = create_llm_client(provider, api_key, model)
-            result = assess_tpp(temp_path, config, llm_client)
+            result = review_document(temp_path, config, llm_client)
             result.doc_id = doc_id
-            st.session_state["assessment_result"] = result
+            st.session_state["pd_reviewer_result"] = result
     except Exception as exc:
-        st.session_state.pop("assessment_result", None)
-        st.error(f"Assessment failed: {exc}")
+        st.session_state.pop("pd_reviewer_result", None)
+        st.error(f"Review failed: {exc}")
     finally:
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
 
 
-def _render_result(result: AssessmentResult) -> None:
+def _render_result(result: ReviewResult) -> None:
     _render_overall_grade(result)
     _render_top_issues(result)
     _render_section_breakdown(result)
     _render_download(result)
 
 
-def _render_overall_grade(result: AssessmentResult) -> None:
+def _render_overall_grade(result: ReviewResult) -> None:
     color = GRADE_COLORS.get(result.overall_grade, "#616161")
     st.markdown(
         f"""
@@ -175,7 +175,7 @@ def _render_overall_grade(result: AssessmentResult) -> None:
     )
 
 
-def _render_top_issues(result: AssessmentResult) -> None:
+def _render_top_issues(result: ReviewResult) -> None:
     st.subheader("Top Issues")
     if not result.top_issues:
         st.success("No major issues were identified.")
@@ -184,7 +184,7 @@ def _render_top_issues(result: AssessmentResult) -> None:
         st.warning(issue)
 
 
-def _render_section_breakdown(result: AssessmentResult) -> None:
+def _render_section_breakdown(result: ReviewResult) -> None:
     st.subheader("Section Breakdown")
     for section_grade in result.section_grades:
         with st.expander(
@@ -220,12 +220,12 @@ def _render_list(title: str, items: list[str]) -> None:
         st.write(f"- {item}")
 
 
-def _render_download(result: AssessmentResult) -> None:
-    result_json = json.dumps(assessment_result_to_dict(result), indent=2)
+def _render_download(result: ReviewResult) -> None:
+    result_json = json.dumps(review_result_to_dict(result), indent=2)
     st.download_button(
-        "Download Full Assessment JSON",
+        "Download Full Review JSON",
         data=result_json,
-        file_name=f"{result.doc_id}_assessment.json",
+        file_name=f"{result.doc_id}_review.json",
         mime="application/json",
     )
 

@@ -6,9 +6,9 @@ from chunker.mapper import label_blocks
 from chunker.models import ContentBlock, load_config as load_chunker_config
 from chunker.parser import parse_document
 
-from .evaluator import evaluate_quality
+from .grader import grade_sections
 from .llm_client import LLMClient
-from .models import AssessmentConfig, AssessmentResult, Grade, SectionGrade, VariableSpec
+from .models import Grade, ReviewConfig, ReviewResult, SectionGrade, VariableSpec
 
 GRADE_TO_SCORE = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
 SEVERITY_ORDER = {"F": 0, "D": 1, "C": 2, "B": 3, "A": 4, "N/A": 5}
@@ -16,18 +16,18 @@ MISSING_SECTION_SEVERITY = -2
 MISSING_VARIABLE_SEVERITY = -1
 
 
-def assess_tpp(
+def review_document(
     file_path: str,
-    config: AssessmentConfig,
+    config: ReviewConfig,
     llm_client: LLMClient,
-) -> AssessmentResult:
-    """End-to-end document quality assessment."""
+) -> ReviewResult:
+    """End-to-end PD document review."""
     source_path = Path(file_path)
     chunker_config = load_chunker_config(config.chunker_config_path)
 
     blocks = parse_document(str(source_path), doc_id=source_path.stem)
     labeled_blocks = label_blocks_via_client(blocks, chunker_config, llm_client)
-    section_grades = evaluate_quality(labeled_blocks, config, llm_client)
+    section_grades = grade_sections(labeled_blocks, config, llm_client)
     return build_report_card(labeled_blocks, section_grades, config)
 
 
@@ -43,11 +43,11 @@ def label_blocks_via_client(
 def build_report_card(
     labeled_blocks: list[ContentBlock],
     section_grades: list[SectionGrade],
-    config: AssessmentConfig,
-) -> AssessmentResult:
+    config: ReviewConfig,
+) -> ReviewResult:
     """Roll section grades up into a full report card."""
     doc_id = labeled_blocks[0].doc_id if labeled_blocks else ""
-    return AssessmentResult(
+    return ReviewResult(
         doc_id=doc_id,
         overall_grade=_overall_grade(section_grades, config),
         top_issues=_top_issues(section_grades, config),
@@ -57,7 +57,7 @@ def build_report_card(
 
 def _overall_grade(
     section_grades: list[SectionGrade],
-    config: AssessmentConfig,
+    config: ReviewConfig,
 ) -> Grade:
     weighted_score = 0.0
     applied_weight = 0.0
@@ -89,7 +89,7 @@ def _score_to_grade(score: float) -> Grade:
 
 def _top_issues(
     section_grades: list[SectionGrade],
-    config: AssessmentConfig,
+    config: ReviewConfig,
     limit: int = 5,
 ) -> list[str]:
     issue_candidates: list[tuple[int, str]] = []
@@ -153,7 +153,7 @@ def _top_issues(
 def _format_missing_variable_issue(
     variable_name: str,
     section_name: str,
-    config: AssessmentConfig,
+    config: ReviewConfig,
 ) -> str:
     recommendation = _missing_variable_recommendation(variable_name, section_name, config)
     return f"{variable_name} missing - {recommendation}"
@@ -162,7 +162,7 @@ def _format_missing_variable_issue(
 def _missing_variable_recommendation(
     variable_name: str,
     section_name: str,
-    config: AssessmentConfig,
+    config: ReviewConfig,
 ) -> str:
     variable_spec = _find_variable_spec(variable_name, section_name, config)
     if variable_spec is not None:
@@ -173,7 +173,7 @@ def _missing_variable_recommendation(
 def _find_variable_spec(
     variable_name: str,
     section_name: str,
-    config: AssessmentConfig,
+    config: ReviewConfig,
 ) -> VariableSpec | None:
     for section_spec in config.sections:
         if section_spec.name != section_name:

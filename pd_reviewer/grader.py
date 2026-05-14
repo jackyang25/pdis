@@ -8,19 +8,19 @@ from typing import Any
 
 from chunker.models import ContentBlock
 
-from .llm_client import LLMClient
+from .llm_client import DEFAULT_MAX_OUTPUT_TOKENS, LLMClient
 from .models import Grade, ReviewConfig, SectionGrade, SectionSpec, VariableGrade
 
 logger = logging.getLogger(__name__)
 
 VALID_GRADES: set[str] = {"A", "B", "C", "D", "F", "N/A"}
-GRADER_MAX_TOKENS = 4096
 
 
 def grade_sections(
     labeled_blocks: list[ContentBlock],
     config: ReviewConfig,
     llm_client: LLMClient,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> list[SectionGrade]:
     """
     For each section, ask the LLM to grade completeness and adherence.
@@ -48,6 +48,7 @@ def grade_sections(
                 system_prompt,
                 user_message,
                 llm_client,
+                max_tokens=max_tokens,
             )
         )
 
@@ -60,8 +61,9 @@ def _grade_section(
     system_prompt: str,
     user_message: str,
     llm_client: LLMClient,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> SectionGrade:
-    raw_response = llm_client.call(system_prompt, user_message, max_tokens=GRADER_MAX_TOKENS)
+    raw_response = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
     try:
         return _parse_section_grade(section_name, raw_response, section_blocks)
     except ValueError as first_error:
@@ -74,7 +76,7 @@ def _grade_section(
         raw_response = llm_client.call(
             system_prompt,
             retry_message,
-            max_tokens=GRADER_MAX_TOKENS,
+            max_tokens=max_tokens,
         )
         try:
             return _parse_section_grade(section_name, raw_response, section_blocks)

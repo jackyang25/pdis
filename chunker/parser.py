@@ -9,10 +9,7 @@ from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
-try:
-    from .models import ContentBlock
-except ImportError:  # pragma: no cover - supports running files directly
-    from models import ContentBlock
+from .models import ContentBlock
 
 
 def parse_document(file_path: str, doc_id: str) -> list[ContentBlock]:

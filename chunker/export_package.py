@@ -10,24 +10,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-try:
-    from .llm_client import (
-        DEFAULT_MAX_OUTPUT_TOKENS,
-        create_llm_client,
-        default_model_for_provider,
-    )
-    from .mapper import label_blocks
-    from .models import blocks_to_dicts, load_config
-    from .parser import parse_document
-except ImportError:  # pragma: no cover - supports running as a script
-    from llm_client import (
-        DEFAULT_MAX_OUTPUT_TOKENS,
-        create_llm_client,
-        default_model_for_provider,
-    )
-    from mapper import label_blocks
-    from models import blocks_to_dicts, load_config
-    from parser import parse_document
+from .llm_client import (
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    create_llm_client,
+    default_model_for_provider,
+)
+from .mapper import label_blocks
+from .models import blocks_to_dicts, load_config
+from .parser import parse_document
 
 
 CONFIG_BY_TPP_TYPE = {

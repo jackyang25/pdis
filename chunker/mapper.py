@@ -5,12 +5,8 @@ import logging
 import re
 from typing import Protocol
 
-try:
-    from .llm_client import DEFAULT_MAX_OUTPUT_TOKENS
-    from .models import ContentBlock, DocumentTypeConfig
-except ImportError:  # pragma: no cover - supports running files directly
-    from llm_client import DEFAULT_MAX_OUTPUT_TOKENS
-    from models import ContentBlock, DocumentTypeConfig
+from .llm_client import DEFAULT_MAX_OUTPUT_TOKENS
+from .models import ContentBlock, DocumentTypeConfig
 
 
 logger = logging.getLogger(__name__)

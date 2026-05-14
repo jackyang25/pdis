@@ -15,19 +15,35 @@ The Streamlit app is a local inspector for this flow. It has a single-document m
 |---|---|
 | `models.py` | Shared dataclasses: `ContentBlock` and `DocumentTypeConfig`; YAML config loader. |
 | `parser.py` | Deterministic Word parser. Walks XML body order so paragraphs and tables stay interleaved correctly. |
-| `mapper.py` | Prompt builder, provider-specific LLM calls, JSON validation, and label merge. |
+| `mapper.py` | Prompt builder, JSON validation, and label merge. |
+| `llm_client.py` | Provider-neutral LLM adapter (OpenAI, Anthropic). Defines `DEFAULT_MAX_OUTPUT_TOKENS`. |
 | `export_package.py` | CLI utility that parses a folder of `.docx` files into reusable `documents.csv`, `content_blocks.csv`, and `content_blocks.jsonl` tables. |
 | `app.py` | Streamlit UI for single-document inspection and batch parser evaluation. |
 | `configs/` | Mapper configs for supported TPP families: vaccine, drug, diagnostic, and medical device. |
 | `requirements.txt` | Runtime dependencies. |
 
-## Running The App
+## Setup
 
-From the repo root:
+From the repository root:
 
 ```bash
 source .venv/bin/activate
 python -m pip install -r chunker/requirements.txt
+```
+
+Set an API key in the environment or enter it in the Streamlit sidebar when running the mapper:
+
+```bash
+export ANTHROPIC_API_KEY="your-key"
+# or
+export OPENAI_API_KEY="your-key"
+```
+
+## Run
+
+Launch the Streamlit app:
+
+```bash
 python -m streamlit run chunker/app.py
 ```
 

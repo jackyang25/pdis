@@ -11,11 +11,12 @@ It uses the chunker as a library for document parsing and section labeling, then
 | `models.py` | Shared dataclasses: `ReviewConfig`, `ReviewResult`, `SectionGrade`, `VariableGrade`; YAML config loader. |
 | `stages/grader.py` | Prompt builder, provider-neutral LLM calls, JSON validation, and section grading. |
 | `pipeline.py` | Stateless orchestrator: chunker.pipeline.run_pipeline → grade_sections → ReviewResult. Library entry point. |
-| `llm_client.py` | Provider-neutral LLM adapter (OpenAI, Anthropic). Defines `DEFAULT_MAX_OUTPUT_TOKENS`. |
-| `export_package.py` | CLI utility that grades a chunker package into `document_scores.csv`, `section_grades.csv`, `variable_grades.csv`, `summary.csv`, and `manifest.json`. |
-| `interface.py` | Streamlit UI for single-document review. |
+| `cli.py` | Headless CLI that grades a chunker package into `document_scores.csv`, `section_grades.csv`, `variable_grades.csv`, `summary.csv`, and `manifest.json`. |
 | `configs/` | Review rubrics for supported TPP families: vaccine, drug, diagnostic, and medical device. |
-| `requirements.txt` | Runtime dependencies. |
+| `requirements.txt` | Library runtime dependencies (no Streamlit). |
+
+The Streamlit UI for this library lives in `tools/pd_reviewer_tool.py`.
+LLM provider abstraction is shared at the repo root: `llm_client.py`.
 
 PD Reviewer imports chunker APIs for parsing and section labeling:
 
@@ -47,13 +48,13 @@ export OPENAI_API_KEY="your-key"
 Use the unified root app:
 
 ```bash
-streamlit run unified_interface.py
+streamlit run tools/app.py
 ```
 
 Or run PD Reviewer directly:
 
 ```bash
-streamlit run pd_reviewer/interface.py
+streamlit run tools/pd_reviewer_tool.py
 ```
 
 ## ReviewConfig
@@ -117,7 +118,7 @@ The Streamlit UI includes a download button for the full JSON report. Batch runs
 
 ## Export A Review Package
 
-For batch review, use `export_package.py` to grade an entire chunker package and write a review package on disk. The review package is a flat folder of CSVs plus a manifest, mirroring the chunker's export shape.
+For batch review, use `cli.py` to grade an entire chunker package and write a review package on disk. The review package is a flat folder of CSVs plus a manifest, mirroring the chunker's export shape.
 
 ### Input
 
@@ -136,7 +137,7 @@ Reviewer reads these read-only; the chunker package is never modified.
 source .venv/bin/activate
 export OPENAI_API_KEY="..."
 
-python -m pd_reviewer.export_package <chunker_package_dir> <review_package_dir> \
+python -m pd_reviewer.cli <chunker_package_dir> <review_package_dir> \
   --tpp-type drug --max-workers 8 --max-tokens 32000
 ```
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from chunker.stages.mapper import label_blocks
@@ -7,8 +8,17 @@ from chunker.models import ContentBlock, load_config as load_chunker_config
 from chunker.stages.parser import parse_document
 
 from .stages.grader import grade_sections
-from .llm_client import LLMClient
-from .models import Grade, ReviewConfig, ReviewResult, SectionGrade, VariableSpec
+from .models import (
+    BatchReviewResult,
+    Grade,
+    LLMClientProtocol,
+    ReviewConfig,
+    ReviewResult,
+    SectionGrade,
+    VariableSpec,
+)
+
+DEFAULT_MAX_OUTPUT_TOKENS = 32000
 
 GRADE_TO_SCORE = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
 SEVERITY_ORDER = {"F": 0, "D": 1, "C": 2, "B": 3, "A": 4, "N/A": 5}
@@ -16,28 +26,102 @@ MISSING_SECTION_SEVERITY = -2
 MISSING_VARIABLE_SEVERITY = -1
 
 
-def review_document(
+def run_pipeline(
     file_path: str,
+    *,
     config: ReviewConfig,
-    llm_client: LLMClient,
+    llm_client: LLMClientProtocol,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> ReviewResult:
-    """End-to-end PD document review."""
+    """End-to-end PD document review: parse → label → grade → report."""
     source_path = Path(file_path)
     chunker_config = load_chunker_config(config.chunker_config_path)
 
     blocks = parse_document(str(source_path), doc_id=source_path.stem)
-    labeled_blocks = label_blocks_via_client(blocks, chunker_config, llm_client)
-    section_grades = grade_sections(labeled_blocks, config, llm_client)
-    return build_report_card(labeled_blocks, section_grades, config)
+    labeled_blocks = label_blocks_via_client(
+        blocks, chunker_config, llm_client, max_tokens=max_tokens
+    )
+    return review_blocks(
+        labeled_blocks, config=config, llm_client=llm_client, max_tokens=max_tokens
+    )
+
+
+def review_blocks(
+    blocks: list[ContentBlock],
+    *,
+    config: ReviewConfig,
+    llm_client: LLMClientProtocol,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+) -> ReviewResult:
+    """Grade + report a document whose blocks have already been parsed and labeled."""
+    section_grades = grade_sections(blocks, config, llm_client, max_tokens=max_tokens)
+    return build_report_card(blocks, section_grades, config)
+
+
+
+
+def review_blocks_batch(
+    jobs: list[tuple[str, list[ContentBlock]]],
+    *,
+    config: ReviewConfig,
+    llm_client_factory,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    max_workers: int = 4,
+) -> list[BatchReviewResult]:
+    """Run `review_blocks` over many already-parsed documents in parallel.
+
+    Args:
+        jobs: list of (doc_key, blocks) pairs.
+        llm_client_factory: zero-arg callable returning a fresh LLMClient per worker.
+
+    Returns:
+        list[BatchReviewResult] in the same order as `jobs`.
+    """
+    if not jobs:
+        return []
+    workers = max(1, min(max_workers, len(jobs)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(
+            executor.map(
+                lambda job: _review_one_batch(
+                    job[0],
+                    job[1],
+                    config=config,
+                    llm_client_factory=llm_client_factory,
+                    max_tokens=max_tokens,
+                ),
+                jobs,
+            )
+        )
+
+
+def _review_one_batch(
+    doc_key: str,
+    blocks: list[ContentBlock],
+    *,
+    config: ReviewConfig,
+    llm_client_factory,
+    max_tokens: int,
+) -> BatchReviewResult:
+    try:
+        llm_client = llm_client_factory()
+        review = review_blocks(
+            blocks, config=config, llm_client=llm_client, max_tokens=max_tokens
+        )
+        return BatchReviewResult(doc_key=doc_key, review=review)
+    except Exception as exc:
+        return BatchReviewResult(doc_key=doc_key, error=str(exc))
 
 
 def label_blocks_via_client(
     blocks: list[ContentBlock],
     chunker_config,
-    llm_client: LLMClient,
+    llm_client: LLMClientProtocol,
+    *,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> list[ContentBlock]:
     """Label blocks through the chunker's provider-neutral mapper path."""
-    return label_blocks(blocks, chunker_config, llm_client)
+    return label_blocks(blocks, chunker_config, llm_client, max_tokens=max_tokens)
 
 
 def build_report_card(

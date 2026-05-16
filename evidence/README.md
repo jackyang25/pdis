@@ -13,11 +13,12 @@ It uses the chunker as a library for parsing, then runs four pipeline stages ove
 | `stages/binder.py` | LLM-driven attribute binding. Picks `attribute_ref` for each claim from the `AttributeConfig`'s constrained vocabulary. Mirrors `chunker/mapper.py`. |
 | `stages/appraiser.py` | Heuristic reliability labeling. Sets `evidence_strength` from `source_type` defaults and `recency_tier` from claim dates. |
 | `pipeline.py` | Stateless orchestrator: `run_pipeline(file_path, ...) → (blocks, claims)`. Wires parse → extract → bind → appraise. |
-| `llm_client.py` | Provider-neutral LLM adapter (OpenAI, Anthropic). Defines `DEFAULT_MAX_OUTPUT_TOKENS`. |
-| `export_package.py` | CLI: takes a folder of source documents + a config, writes `claims.jsonl`, `claims.csv`, and `summary.csv`. |
-| `interface.py` | Streamlit UI for single-document pipeline runs (parse → extract → bind → appraise → display + download). |
+| `cli.py` | Headless CLI: takes a folder of source documents + a config, writes `claims.jsonl`, `claims.csv`, and `summary.csv`. |
 | `configs/` | `AttributeConfig` YAML files (one per product class). `CONFIG_TEMPLATE.yaml` is the starter. |
-| `requirements.txt` | Runtime dependencies. |
+| `requirements.txt` | Library runtime dependencies (no Streamlit). |
+
+The Streamlit UI for this library lives in `tools/evidence_tool.py`.
+LLM provider abstraction is shared at the repo root: `llm_client.py`.
 
 Evidence imports chunker APIs for parsing:
 
@@ -49,13 +50,13 @@ export OPENAI_API_KEY="your-key"
 Use the unified root app:
 
 ```bash
-streamlit run unified_interface.py
+streamlit run tools/app.py
 ```
 
 Or evidence directly:
 
 ```bash
-streamlit run evidence/interface.py
+streamlit run tools/evidence_tool.py
 ```
 
 The Streamlit UI flow:
@@ -68,7 +69,7 @@ The Streamlit UI flow:
 For batch / scripted runs, use the CLI:
 
 ```bash
-python -m evidence.export_package \
+python -m evidence.cli \
   documents/ \
   out/ \
   --config evidence/configs/vaccine.yaml \
@@ -231,9 +232,9 @@ Shipped:
 - `stages/binder.py` (LLM-driven, constrained to config).
 - `stages/appraiser.py` (heuristic).
 - `pipeline.py` stateless orchestrator.
-- `interface.py` Streamlit UI (parse → extract → bind → appraise → display + download).
-- `export_package.py` CLI.
-- `llm_client.py` provider-neutral adapter.
+- `cli.py` headless CLI.
+- `tools/evidence_tool.py` Streamlit UI (parse → extract → bind → appraise → display + download).
+- `llm_client.py` shared provider-neutral adapter.
 
 Deferred until needed: persistent claim store, curation layer, additional extractors, and temporal operations. Each is additive to the current pipeline; specifics will be designed when the work is scheduled.
 

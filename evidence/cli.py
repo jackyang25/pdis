@@ -1,6 +1,6 @@
 """CLI: run the evidence pipeline against one or more documents.
 
-Mirrors chunker/export_package.py shape: input directory of source documents
+Mirrors chunker/cli.py shape: input directory of source documents
 + config + LLM config → output directory with claims.csv and claims.jsonl.
 
 No persistent store. Each run is an independent input → output transformation.
@@ -14,21 +14,18 @@ import io
 import json
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .llm_client import (
-    DEFAULT_MAX_OUTPUT_TOKENS,
-    create_llm_client,
-    default_model_for_provider,
-)
+from llm_client import create_llm_client, default_model_for_provider
+
 from .models import Claim, load_config
 from .pipeline import (
+    DEFAULT_MAX_OUTPUT_TOKENS,
     EXTRACTORS,
     default_source_id_from_path,
-    run_pipeline,
+    run_pipeline_batch,
 )
 
 
@@ -66,73 +63,36 @@ def main() -> None:
 
     llm_client_factory = lambda: create_llm_client(args.provider, api_key, model)
 
+    jobs = [(str(path), default_source_id_from_path(str(path))) for path in doc_paths]
+    batch_results = run_pipeline_batch(
+        jobs,
+        config=config,
+        source_type=args.source_type,
+        intervention_class=args.intervention_class,
+        therapeutic_area=args.therapeutic_area,
+        llm_client_factory=llm_client_factory,
+        max_tokens=args.max_tokens,
+        max_workers=args.max_workers,
+    )
+
     results: list[dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
-        futures = [
-            executor.submit(
-                _run_one,
-                path=path,
-                config=config,
-                source_type=args.source_type,
-                intervention_class=args.intervention_class,
-                therapeutic_area=args.therapeutic_area,
-                llm_client_factory=llm_client_factory,
-                max_tokens=args.max_tokens,
-            )
-            for path in doc_paths
-        ]
-        for future in futures:
-            results.append(future.result())
+    for path, batch_result in zip(doc_paths, batch_results):
+        if batch_result.error:
+            logger.exception("Pipeline failed for %s: %s", path, batch_result.error)
+        results.append(
+            {
+                "source_id": batch_result.source_id,
+                "file_name": path.name,
+                "block_count": len(batch_result.blocks),
+                "claim_count": len(batch_result.claims),
+                "status": "error" if batch_result.error else "ok",
+                "error": batch_result.error,
+                "claims": batch_result.claims,
+            }
+        )
 
     _write_outputs(output_dir, results)
     _log_summary(results)
-
-
-def _run_one(
-    *,
-    path: Path,
-    config,
-    source_type: str,
-    intervention_class: str | None,
-    therapeutic_area: str | None,
-    llm_client_factory,
-    max_tokens: int,
-) -> dict[str, Any]:
-    source_id = default_source_id_from_path(str(path))
-    doc_id = source_id
-    try:
-        llm_client = llm_client_factory()
-        blocks, claims = run_pipeline(
-            file_path=str(path),
-            doc_id=doc_id,
-            source_type=source_type,
-            source_id=source_id,
-            config=config,
-            llm_client=llm_client,
-            intervention_class=intervention_class,
-            therapeutic_area=therapeutic_area,
-            max_tokens=max_tokens,
-        )
-        return {
-            "source_id": source_id,
-            "file_name": path.name,
-            "block_count": len(blocks),
-            "claim_count": len(claims),
-            "status": "ok",
-            "error": None,
-            "claims": claims,
-        }
-    except Exception as exc:
-        logger.exception("Pipeline failed for %s", path)
-        return {
-            "source_id": source_id,
-            "file_name": path.name,
-            "block_count": 0,
-            "claim_count": 0,
-            "status": "error",
-            "error": str(exc),
-            "claims": [],
-        }
 
 
 def _write_outputs(output_dir: Path, results: list[dict[str, Any]]) -> None:

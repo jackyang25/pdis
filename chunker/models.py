@@ -1,7 +1,32 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any
+from dataclasses import asdict, dataclass, field
+from typing import Any, Protocol
+
+
+class LLMClientProtocol(Protocol):
+    """Contract chunker requires from any injected LLM client.
+
+    Library code depends only on this Protocol — the concrete client
+    (Anthropic, OpenAI, mock, anything) is passed in by the caller.
+    """
+    def call(self, system_prompt: str, user_message: str, max_tokens: int) -> str:
+        ...
+
+
+@dataclass
+class PipelineResult:
+    """Per-document result of run_pipeline_batch / map_blocks_batch.
+
+    `blocks` may be populated even when `mapping_error` is set (parse
+    succeeded but the mapper failed). When `parse_error` is set, `blocks`
+    is empty.
+    """
+    file_path: str
+    doc_id: str
+    blocks: list["ContentBlock"] = field(default_factory=list)
+    parse_error: str | None = None
+    mapping_error: str | None = None
 
 
 @dataclass

@@ -28,11 +28,12 @@ Dependency direction is one-way: chunker never imports from `pd_reviewer` or `ev
 | `stages/parser_docx.py` | Deterministic Word parser. Walks XML body order so paragraphs and tables stay interleaved correctly. Populates `heading_stack` from Word heading styles. |
 | `stages/parser_pdf.py` | PDF parser via `pdfplumber`. Extracts paragraphs (line + gap clustering) and tables (pdfplumber table detection) per page. Populates `structural_meta.page` for every block. `heading_stack` is left empty for PDFs at MVP (PDFs lack semantic heading tags). |
 | `stages/mapper.py` | Prompt builder, JSON validation, and label merge. |
-| `llm_client.py` | Provider-neutral LLM adapter (OpenAI, Anthropic). Defines `DEFAULT_MAX_OUTPUT_TOKENS`. |
-| `export_package.py` | CLI utility that parses a folder of `.docx` and `.pdf` files into reusable `documents.csv`, `content_blocks.csv`, and `content_blocks.jsonl` tables. |
-| `interface.py` | Streamlit UI for single-document inspection and batch parser evaluation. |
+| `cli.py` | Headless CLI that parses a folder of `.docx` and `.pdf` files into reusable `documents.csv`, `content_blocks.csv`, and `content_blocks.jsonl` tables. |
 | `configs/` | Mapper configs for supported TPP families: vaccine, drug, diagnostic, and medical device. |
-| `requirements.txt` | Runtime dependencies. |
+| `requirements.txt` | Library runtime dependencies (no Streamlit). |
+
+The Streamlit UI for this library lives in `tools/chunker_tool.py`.
+LLM provider abstraction is shared at the repo root: `llm_client.py`.
 
 ## Setup
 
@@ -56,7 +57,7 @@ export OPENAI_API_KEY="your-key"
 Launch the Streamlit app:
 
 ```bash
-python -m streamlit run chunker/interface.py
+python -m streamlit run tools/chunker_tool.py
 ```
 
 The app has two modes.
@@ -139,7 +140,7 @@ Phase 1 is deterministic. Phase 2 is the only LLM step. Detailed parser and mapp
 
 ## Export A Chunker Package
 
-For downstream ingestion, use `export_package.py` on a folder of downloaded `.docx` files.
+For downstream ingestion, use `cli.py` on a folder of downloaded `.docx` files.
 
 Expected input shape:
 
@@ -154,34 +155,34 @@ downloaded_docs/
 Run parser-only export from the repo root:
 
 ```bash
-python -m chunker.export_package downloaded_docs chunker_package --max-workers 4
+python -m chunker.cli downloaded_docs chunker_package --max-workers 4
 ```
 
 If the input folder contains documents for only one type directly, use `--tpp-type`:
 
 ```bash
-python -m chunker.export_package downloaded_device_docs chunker_package --tpp-type device --max-workers 4
+python -m chunker.cli downloaded_device_docs chunker_package --tpp-type device --max-workers 4
 ```
 
 Run parsed + mapped export:
 
 ```bash
 export OPENAI_API_KEY="..."
-python -m chunker.export_package downloaded_docs chunker_package --map --provider openai --max-workers 4 --max-tokens 16000
+python -m chunker.cli downloaded_docs chunker_package --map --provider openai --max-workers 4 --max-tokens 16000
 ```
 
 Single-type parsed + mapped export:
 
 ```bash
 export OPENAI_API_KEY="..."
-python -m chunker.export_package downloaded_device_docs chunker_package --tpp-type device --map --provider openai --max-workers 4 --max-tokens 16000
+python -m chunker.cli downloaded_device_docs chunker_package --tpp-type device --map --provider openai --max-workers 4 --max-tokens 16000
 ```
 
 For Anthropic:
 
 ```bash
 export ANTHROPIC_API_KEY="..."
-python -m chunker.export_package downloaded_docs chunker_package --map --provider anthropic --max-workers 4 --max-tokens 16000
+python -m chunker.cli downloaded_docs chunker_package --map --provider anthropic --max-workers 4 --max-tokens 16000
 ```
 
 Output shape:
@@ -423,7 +424,7 @@ The Streamlit app lets you choose the mapper provider in the sidebar:
 - `anthropic`, default model `claude-opus-4-7`
 - `openai`, default model `gpt-5.5`
 
-The selected provider, model, and API key are used by `interface.py` to construct an LLM client, which is passed into `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the injected LLM client is provider-specific.
+The selected provider, model, and API key are used by `tools/chunker_tool.py` to construct an LLM client, which is passed into `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the injected LLM client is provider-specific.
 
 The key is not stored by the app and should not be committed. Keep local secrets in ignored files such as `.env` if you add environment loading later.
 

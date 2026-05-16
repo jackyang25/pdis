@@ -7,7 +7,6 @@ import json
 import logging
 import os
 from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,10 +14,10 @@ from typing import Any
 
 from chunker.models import ContentBlock
 
-from .stages.grader import grade_sections
-from .llm_client import DEFAULT_MAX_OUTPUT_TOKENS, create_llm_client, default_model_for_provider
+from llm_client import create_llm_client, default_model_for_provider
+
 from .models import ReviewConfig, ReviewResult, SectionGrade, load_review_config
-from .pipeline import GRADE_TO_SCORE, build_report_card
+from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, GRADE_TO_SCORE, review_blocks_batch
 
 logger = logging.getLogger(__name__)
 
@@ -128,21 +127,25 @@ def export_review_package(
     section_rows: list[dict[str, Any]] = []
     variable_rows: list[dict[str, Any]] = []
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(_review_one, record, config, llm_client, max_tokens): record
-            for record in records
-        }
-        for future in as_completed(futures):
-            record = futures[future]
-            try:
-                result = future.result()
-                doc_score_rows.append(_document_score_row(record, result, config))
-                section_rows.extend(_section_rows(record, result, config))
-                variable_rows.extend(_variable_rows(record, result))
-            except Exception as exc:
-                logger.exception("Review failed for %s", record.doc_key)
-                doc_score_rows.append(_failed_document_row(record, str(exc)))
+    jobs = [(record.doc_key, record.blocks) for record in records]
+    batch_results = review_blocks_batch(
+        jobs,
+        config=config,
+        llm_client_factory=lambda: llm_client,
+        max_tokens=max_tokens,
+        max_workers=max_workers,
+    )
+    records_by_key = {record.doc_key: record for record in records}
+    for batch_result in batch_results:
+        record = records_by_key[batch_result.doc_key]
+        if batch_result.error:
+            logger.exception("Review failed for %s: %s", record.doc_key, batch_result.error)
+            doc_score_rows.append(_failed_document_row(record, batch_result.error))
+            continue
+        result = batch_result.review
+        doc_score_rows.append(_document_score_row(record, result, config))
+        section_rows.extend(_section_rows(record, result, config))
+        variable_rows.extend(_variable_rows(record, result))
 
     doc_score_rows.sort(key=lambda row: row["doc_key"])
     section_rows.sort(key=lambda row: (row["doc_key"], row["section_name"]))
@@ -172,14 +175,6 @@ def export_review_package(
     )
 
 
-def _review_one(
-    record: _DocumentRecord,
-    config: ReviewConfig,
-    llm_client,
-    max_tokens: int,
-) -> ReviewResult:
-    section_grades = grade_sections(record.blocks, config, llm_client, max_tokens=max_tokens)
-    return build_report_card(record.blocks, section_grades, config)
 
 
 def _build_document_records(

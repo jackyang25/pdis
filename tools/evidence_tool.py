@@ -4,47 +4,27 @@ import csv
 import io
 import json
 import os
+import sys
 import tempfile
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 
-import streamlit as st
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-try:
-    from .llm_client import (
-        DEFAULT_MAX_OUTPUT_TOKENS,
-        create_llm_client,
-        default_model_for_provider,
-    )
-    from .models import (
-        Claim,
-        SOURCE_TYPES,
-        claims_to_dicts,
-        load_config,
-    )
-    from .pipeline import (
-        EXTRACTORS,
-        default_source_id_from_path,
-        run_pipeline,
-    )
-except ImportError:  # pragma: no cover - supports `streamlit run evidence/interface.py`
-    from llm_client import (
-        DEFAULT_MAX_OUTPUT_TOKENS,
-        create_llm_client,
-        default_model_for_provider,
-    )
-    from models import (
-        Claim,
-        SOURCE_TYPES,
-        claims_to_dicts,
-        load_config,
-    )
-    from pipeline import (
-        EXTRACTORS,
-        default_source_id_from_path,
-        run_pipeline,
-    )
+import streamlit as st  # noqa: E402
+
+from evidence.models import Claim, load_config  # noqa: E402
+from evidence.pipeline import (  # noqa: E402
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    EXTRACTORS,
+    default_source_id_from_path,
+    run_pipeline,
+)
+from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
+from tools._widgets import render_advanced_controls, render_llm_controls  # noqa: E402
 
 
 SUPPORTED_UPLOAD_TYPES = ["docx", "pdf"]
@@ -103,8 +83,15 @@ def render() -> None:
         type=SUPPORTED_UPLOAD_TYPES,
     )
 
-    provider, model, api_key = _render_llm_controls()
-    advanced = _render_advanced_controls()
+    provider, model, api_key = render_llm_controls(
+        "evidence",
+        default_model_for_provider=default_model_for_provider,
+        env_fallback=False,
+    )
+    advanced = render_advanced_controls(
+        "evidence",
+        default_max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+    )
 
     st.sidebar.markdown("---")
     st.sidebar.caption(
@@ -215,41 +202,6 @@ def _run_pipeline_on_upload(
 # ---------------------------------------------------------------------------
 
 
-def _render_llm_controls() -> tuple[str, str, str]:
-    provider = st.sidebar.selectbox(
-        "LLM provider",
-        ["anthropic", "openai"],
-        key="evidence_llm_provider",
-    )
-    model = st.sidebar.text_input(
-        "Model",
-        value=default_model_for_provider(provider),
-        key=f"evidence_llm_model_{provider}",
-    )
-    api_label = "Anthropic API key" if provider == "anthropic" else "OpenAI API key"
-    api_key = st.sidebar.text_input(
-        api_label,
-        type="password",
-        key=f"evidence_{provider}_api_key",
-    )
-    return provider, model, api_key
-
-
-def _render_advanced_controls() -> dict:
-    settings: dict = {}
-    with st.sidebar.expander("Advanced", expanded=False):
-        settings["max_tokens"] = st.number_input(
-            "Binder max output tokens",
-            min_value=1000,
-            max_value=64000,
-            value=DEFAULT_MAX_OUTPUT_TOKENS,
-            step=1000,
-            help="Max tokens the binder LLM can return per pipeline run.",
-            key="evidence_max_tokens",
-        )
-    return settings
-
-
 # ---------------------------------------------------------------------------
 # Output rendering
 # ---------------------------------------------------------------------------
@@ -358,11 +310,11 @@ def _claims_to_csv(claims: list[Claim]) -> str:
 
 
 def _config_path(file_name: str) -> str:
-    return str(Path(__file__).parent / "configs" / file_name)
+    return str(ROOT_DIR / "evidence" / "configs" / file_name)
 
 
 def _discover_configs() -> list[tuple[str, str]]:
-    configs_dir = Path(__file__).parent / "configs"
+    configs_dir = ROOT_DIR / "evidence" / "configs"
     entries: list[tuple[str, str]] = []
     for path in sorted(configs_dir.glob("*.yaml")):
         try:

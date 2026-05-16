@@ -2,9 +2,16 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 import yaml
+
+
+class LLMClientProtocol(Protocol):
+    """Contract pd_reviewer requires from any injected LLM client."""
+    def call(self, system_prompt: str, user_message: str, max_tokens: int) -> str:
+        ...
+
 
 Grade = Literal["A", "B", "C", "D", "F", "N/A"]
 
@@ -41,6 +48,15 @@ class ReviewResult:
     overall_grade: Grade
     top_issues: list[str]
     section_grades: list[SectionGrade]
+
+
+@dataclass
+class BatchReviewResult:
+    """Per-document result of review_blocks_batch."""
+
+    doc_key: str
+    review: ReviewResult | None = None
+    error: str | None = None
 
 
 @dataclass

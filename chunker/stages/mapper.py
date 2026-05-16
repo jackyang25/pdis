@@ -3,10 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Protocol
 
-from ..llm_client import DEFAULT_MAX_OUTPUT_TOKENS
-from ..models import ContentBlock, DocumentTypeConfig
+from ..models import ContentBlock, DocumentTypeConfig, LLMClientProtocol
 
 
 logger = logging.getLogger(__name__)
@@ -18,21 +16,12 @@ class MapperResponseError(ValueError):
     """Raised when the mapper cannot produce a usable label response."""
 
 
-class LLMClientProtocol(Protocol):
-    def call(
-        self,
-        system_prompt: str,
-        user_message: str,
-        max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
-    ) -> str:
-        """Send a prompt to an LLM and return response text."""
-
-
 def label_blocks(
     blocks: list[ContentBlock],
     config: DocumentTypeConfig,
     llm_client: LLMClientProtocol,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    *,
+    max_tokens: int,
 ) -> list[ContentBlock]:
     """
     Phase 2 section labeling using an injected LLM client.

@@ -1,7 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Protocol
+
+from chunker.models import ContentBlock
+
+
+class LLMClientProtocol(Protocol):
+    """Contract evidence requires from any injected LLM client."""
+    def call(self, system_prompt: str, user_message: str, max_tokens: int) -> str:
+        ...
+
+
+@dataclass
+class BatchResult:
+    """Per-document result of run_pipeline_batch."""
+    file_path: str
+    source_id: str
+    blocks: list[ContentBlock] = field(default_factory=list)
+    claims: list["Claim"] = field(default_factory=list)
+    error: str | None = None
 
 
 # --- Controlled vocabularies ---

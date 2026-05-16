@@ -133,15 +133,22 @@ Deferred (require persistence): persistent substrate, curation layer, temporal o
 
 ```
 pdis/
-  chunker/             substrate — document parsing (.docx + .pdf) + mapping
-  evidence/            substrate — stateless claim pipeline (extract → bind → appraise)
-  pd_reviewer/         app — TPP rubric grading
-  pd_watch/            app — temporal change detection (planned, needs persistence)
-  pd_gate_assembler/   app — stage-gate decision packaging (planned)
-  unified_interface.py top-level Streamlit entry — dispatches to each tool's interface
+  llm_client.py          shared — LLM provider abstraction (Anthropic, OpenAI)
+  chunker/             library — document parsing (.docx + .pdf) + mapping
+  evidence/            library — stateless claim pipeline (extract → bind → appraise)
+  pd_reviewer/         library — TPP rubric grading
+  pd_watch/            library — temporal change detection (planned, needs persistence)
+  pd_gate_assembler/   library — stage-gate decision packaging (planned)
+  tools/               Streamlit UI suite over the libraries above
+    app.py             entry point: `streamlit run tools/app.py`
+    chunker_tool.py
+    evidence_tool.py
+    pd_reviewer_tool.py
+    _widgets.py        shared sidebar widgets
 ```
 
-Each folder has its own README, requirements, and configs. Substrate folders never import from app folders. Apps may import substrate packages. Evidence imports chunker for parsing; the reverse is not allowed.
+Each library has its own README, requirements, and configs and is importable headlessly (no Streamlit dependency). The Streamlit layer lives in `tools/`. Libraries never import from `tools/`. `evidence` and `pd_reviewer` import from `chunker` for parsing; the reverse is not allowed.
+
 
 ## Where To Start
 

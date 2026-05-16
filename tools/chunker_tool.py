@@ -4,32 +4,26 @@ import csv
 import io
 import json
 import os
+import sys
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from collections import Counter, defaultdict
-from itertools import repeat
 from pathlib import Path
 
-import streamlit as st
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-try:
-    from .llm_client import (
-        DEFAULT_MAX_OUTPUT_TOKENS,
-        create_llm_client,
-        default_model_for_provider,
-    )
-    from .stages.mapper import label_blocks
-    from .models import ContentBlock, blocks_to_dicts, load_config
-    from .stages.parser import parse_document
-except ImportError:  # pragma: no cover - supports `streamlit run chunker/interface.py`
-    from llm_client import (
-        DEFAULT_MAX_OUTPUT_TOKENS,
-        create_llm_client,
-        default_model_for_provider,
-    )
-    from stages.mapper import label_blocks
-    from models import ContentBlock, blocks_to_dicts, load_config
-    from stages.parser import parse_document
+import streamlit as st  # noqa: E402
+
+from chunker.models import ContentBlock, blocks_to_dicts, load_config  # noqa: E402
+from chunker.pipeline import (  # noqa: E402
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    map_blocks_batch,
+    run_pipeline,
+    run_pipeline_batch,
+)
+from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
+from tools._widgets import render_advanced_controls, render_llm_controls  # noqa: E402
 
 
 def main() -> None:
@@ -61,8 +55,15 @@ def render() -> None:
         key=f"upload_{st.session_state['upload_counter']}",
     )
 
-    provider, model, api_key = _render_llm_controls("single")
-    advanced = _render_advanced_controls("single", batch=False)
+    provider, model, api_key = render_llm_controls(
+        "chunker_single",
+        default_model_for_provider=default_model_for_provider,
+        env_fallback=False,
+    )
+    advanced = render_advanced_controls(
+        "chunker_single",
+        default_max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+    )
 
     if st.sidebar.button("Clear / Restart"):
         _restart_document_session()
@@ -94,19 +95,18 @@ def render() -> None:
             st.error(f"Enter a {provider.title()} API key before running the mapper.")
         else:
             with st.spinner("Labeling blocks with mapper..."):
-                try:
-                    _clear_block_labels(blocks)
-                    llm_client = create_llm_client(provider, api_key, model)
-                    blocks = label_blocks(
-                        blocks,
-                        config,
-                        llm_client,
-                        max_tokens=advanced["max_tokens"],
-                    )
-                    st.session_state["blocks"] = blocks
-                except Exception as exc:
-                    st.session_state["blocks"] = blocks
-                    st.error(f"Failed to run mapper: {exc}")
+                _clear_block_labels(blocks)
+                doc_id = blocks[0].doc_id if blocks else ""
+                [pipeline_result] = map_blocks_batch(
+                    [(doc_id, blocks)],
+                    config=config,
+                    llm_client_factory=lambda: create_llm_client(provider, api_key, model),
+                    max_tokens=advanced["max_tokens"],
+                    max_workers=1,
+                )
+                st.session_state["blocks"] = pipeline_result.blocks
+                if pipeline_result.mapping_error:
+                    st.error(f"Failed to run mapper: {pipeline_result.mapping_error}")
 
     block_dicts = blocks_to_dicts(blocks) if blocks is not None else None
     _render_lifecycle_status(uploaded_file.name, block_dicts)
@@ -130,8 +130,16 @@ def _render_batch_mode() -> None:
         key=f"batch_upload_{st.session_state['batch_upload_counter']}",
     )
 
-    provider, model, api_key = _render_llm_controls("batch")
-    advanced = _render_advanced_controls("batch", batch=True)
+    provider, model, api_key = render_llm_controls(
+        "chunker_batch",
+        default_model_for_provider=default_model_for_provider,
+        env_fallback=False,
+    )
+    advanced = render_advanced_controls(
+        "chunker_batch",
+        default_max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+        show_max_workers=True,
+    )
 
     if st.sidebar.button("Clear / Restart", key="batch_clear_restart"):
         _restart_document_session()
@@ -203,7 +211,7 @@ def _parse_uploaded_file(
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
             temp_file.write(file_bytes)
             temp_path = temp_file.name
-        return parse_document(temp_path, doc_id)
+        return run_pipeline(temp_path, doc_id)
     finally:
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
@@ -214,7 +222,7 @@ SUPPORTED_UPLOAD_TYPES = ["docx", "pdf"]
 
 def _discover_configs() -> list[tuple[str, str]]:
     """Return [(display_name, file_name), ...] from chunker/configs/*.yaml."""
-    configs_dir = Path(__file__).parent / "configs"
+    configs_dir = ROOT_DIR / "chunker" / "configs"
     entries: list[tuple[str, str]] = []
     for path in sorted(configs_dir.glob("*.yaml")):
         try:
@@ -240,29 +248,31 @@ def _suffix_for_upload(uploaded_file) -> str:
     return Path(uploaded_file.name).suffix.lower() or ".docx"
 
 
-def _parse_batch_file(uploaded_file) -> dict:
-    doc_id = Path(uploaded_file.name).stem
-    blocks = _parse_uploaded_file(
-        uploaded_file.getvalue(),
-        doc_id,
-        suffix=_suffix_for_upload(uploaded_file),
-    )
-    block_dicts = blocks_to_dicts(blocks)
-    return {
-        "doc_id": doc_id,
-        "file_name": uploaded_file.name,
-        "metrics": _batch_metrics(doc_id, uploaded_file.name, block_dicts),
-        "blocks": block_dicts,
-    }
-
-
 def _parse_batch_files_parallel(
     uploaded_files: list,
     max_workers: int = 4,
 ) -> list[dict]:
-    workers = min(max(1, max_workers), max(1, len(uploaded_files)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        return list(executor.map(_parse_batch_file, uploaded_files))
+    """Parse uploaded files in parallel via the shared pipeline.
+
+    Returns the legacy dict shape downstream rendering expects.
+    """
+    file_jobs = [_stage_upload(uploaded_file) for uploaded_file in uploaded_files]
+    try:
+        pipeline_jobs = [(stage["file_path"], stage["doc_id"]) for stage in file_jobs]
+        results = run_pipeline_batch(
+            pipeline_jobs,
+            config=None,
+            llm_client_factory=None,
+            max_workers=max_workers,
+        )
+        return [
+            _batch_dict_from_pipeline_result(stage["file_name"], pipeline_result)
+            for stage, pipeline_result in zip(file_jobs, results)
+        ]
+    finally:
+        for stage in file_jobs:
+            if os.path.exists(stage["file_path"]):
+                os.unlink(stage["file_path"])
 
 
 def _map_batch_results_parallel(
@@ -274,54 +284,69 @@ def _map_batch_results_parallel(
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
 ) -> list[dict]:
-    workers = min(max(1, max_workers), max(1, len(batch_results)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        return list(
-            executor.map(
-                _map_batch_result,
-                batch_results,
-                repeat(config),
-                repeat(api_key),
-                repeat(provider),
-                repeat(model),
-                repeat(max_tokens),
-            )
-        )
+    """Map already-parsed batch results in parallel via the shared pipeline."""
+    map_jobs = [
+        (result["doc_id"], _rehydrate_blocks(result["blocks"]))
+        for result in batch_results
+    ]
+    pipeline_results = map_blocks_batch(
+        map_jobs,
+        config=config,
+        llm_client_factory=lambda: create_llm_client(provider, api_key, model),
+        max_tokens=max_tokens,
+        max_workers=max_workers,
+    )
+    return [
+        _merge_mapped_into_batch_result(result, pipeline_result)
+        for result, pipeline_result in zip(batch_results, pipeline_results)
+    ]
 
 
-def _map_batch_result(
-    result: dict,
-    config,
-    api_key: str,
-    provider: str,
-    model: str,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
-) -> dict:
-    try:
-        blocks = [ContentBlock(**block) for block in result["blocks"]]
-        _clear_block_labels(blocks)
-        llm_client = create_llm_client(provider, api_key, model)
-        labeled_blocks = label_blocks(
-            blocks, config, llm_client, max_tokens=max_tokens
-        )
-        block_dicts = blocks_to_dicts(labeled_blocks)
-        metrics = _batch_metrics(result["doc_id"], result["file_name"], block_dicts)
-        metrics.update(_batch_label_metrics(block_dicts))
-        return {
-            **result,
-            "metrics": metrics,
-            "blocks": block_dicts,
-            "mapper_error": None,
-        }
-    except Exception as exc:
+def _stage_upload(uploaded_file) -> dict:
+    """Write the upload to a temp file the caller is responsible for cleaning up."""
+    doc_id = Path(uploaded_file.name).stem
+    suffix = _suffix_for_upload(uploaded_file)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+        temp_file.write(uploaded_file.getvalue())
+        temp_path = temp_file.name
+    return {"file_path": temp_path, "doc_id": doc_id, "file_name": uploaded_file.name}
+
+
+def _batch_dict_from_pipeline_result(file_name: str, pipeline_result) -> dict:
+    block_dicts = blocks_to_dicts(pipeline_result.blocks)
+    return {
+        "doc_id": pipeline_result.doc_id,
+        "file_name": file_name,
+        "metrics": _batch_metrics(pipeline_result.doc_id, file_name, block_dicts),
+        "blocks": block_dicts,
+    }
+
+
+def _rehydrate_blocks(block_dicts: list[dict]) -> list[ContentBlock]:
+    blocks = [ContentBlock(**block) for block in block_dicts]
+    _clear_block_labels(blocks)
+    return blocks
+
+
+def _merge_mapped_into_batch_result(result: dict, pipeline_result) -> dict:
+    if pipeline_result.mapping_error:
         clean_blocks = _clear_block_dict_labels(result["blocks"])
         metrics = _batch_metrics(result["doc_id"], result["file_name"], clean_blocks)
         return {
             **result,
             "metrics": metrics,
             "blocks": clean_blocks,
-            "mapper_error": str(exc),
+            "mapper_error": pipeline_result.mapping_error,
         }
+    block_dicts = blocks_to_dicts(pipeline_result.blocks)
+    metrics = _batch_metrics(result["doc_id"], result["file_name"], block_dicts)
+    metrics.update(_batch_label_metrics(block_dicts))
+    return {
+        **result,
+        "metrics": metrics,
+        "blocks": block_dicts,
+        "mapper_error": None,
+    }
 
 
 def _clear_block_labels(blocks: list[ContentBlock]) -> list[ContentBlock]:
@@ -393,53 +418,7 @@ def _restart_document_session() -> None:
 
 
 def _config_path(file_name: str) -> str:
-    return str(Path(__file__).parent / "configs" / file_name)
-
-
-def _render_advanced_controls(key_prefix: str, batch: bool) -> dict:
-    """Sidebar expander with CLI-symmetric knobs (max_workers, max_tokens)."""
-    settings: dict = {}
-    with st.sidebar.expander("Advanced", expanded=False):
-        settings["max_tokens"] = st.number_input(
-            "Mapper max output tokens",
-            min_value=1000,
-            max_value=64000,
-            value=DEFAULT_MAX_OUTPUT_TOKENS,
-            step=1000,
-            help="Max tokens the mapper LLM can return per document. CLI: --max-tokens.",
-            key=f"{key_prefix}_max_tokens",
-        )
-        if batch:
-            settings["max_workers"] = st.number_input(
-                "Batch max workers",
-                min_value=1,
-                max_value=16,
-                value=4,
-                step=1,
-                help="Number of documents to parse/map in parallel. CLI: --max-workers.",
-                key=f"{key_prefix}_max_workers",
-            )
-    return settings
-
-
-def _render_llm_controls(key_prefix: str) -> tuple[str, str, str]:
-    provider = st.sidebar.selectbox(
-        "LLM provider",
-        ["anthropic", "openai"],
-        key=f"{key_prefix}_llm_provider",
-    )
-    model = st.sidebar.text_input(
-        "Model",
-        value=default_model_for_provider(provider),
-        key=f"{key_prefix}_llm_model_{provider}",
-    )
-    api_label = "Anthropic API key" if provider == "anthropic" else "OpenAI API key"
-    api_key = st.sidebar.text_input(
-        api_label,
-        type="password",
-        key=f"{key_prefix}_{provider}_api_key",
-    )
-    return provider, model, api_key
+    return str(ROOT_DIR / "chunker" / "configs" / file_name)
 
 
 def _render_lifecycle_status(file_name: str, blocks: list[dict] | None) -> None:

@@ -6,18 +6,13 @@ import json
 import os
 import re
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from .llm_client import (
-    DEFAULT_MAX_OUTPUT_TOKENS,
-    create_llm_client,
-    default_model_for_provider,
-)
-from .stages.mapper import label_blocks
+from llm_client import create_llm_client, default_model_for_provider
+
 from .models import blocks_to_dicts, load_config
-from .stages.parser import parse_document
+from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, run_pipeline_batch
 
 
 CONFIG_BY_TPP_TYPE = {
@@ -103,27 +98,34 @@ def export_chunker_package(
             }
         )
 
-    worker_count = max(1, min(max_workers, len(document_jobs) or 1))
-    with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        results = list(
-            executor.map(
-                lambda job: _process_document(
-                    job=job,
-                    input_path=input_path,
-                    map_blocks=map_blocks,
-                    provider=provider,
-                    model=model,
-                    api_key=api_key,
-                    max_tokens=max_tokens,
-                ),
-                document_jobs,
-            )
-        )
+    config_by_doc = {
+        job["doc_key"]: _config_for_tpp_type(job["tpp_type"])
+        for job in document_jobs
+        if map_blocks
+    }
+    # run_pipeline_batch applies a single config to all jobs, so when TPP
+    # types are mixed we run one batch per type to keep configs correct.
+    pipeline_results = _run_chunker_batch(
+        document_jobs=document_jobs,
+        map_blocks=map_blocks,
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        max_tokens=max_tokens,
+        max_workers=max_workers,
+        config_by_doc=config_by_doc,
+    )
 
-    for result in results:
-        document_rows.append(result["document_row"])
-        block_rows.extend(result["block_rows"])
-        block_jsonl_rows.extend(result["block_jsonl_rows"])
+    for job, pipeline_result in zip(document_jobs, pipeline_results):
+        row_set = _process_pipeline_result(
+            job=job,
+            input_path=input_path,
+            pipeline_result=pipeline_result,
+            map_requested=map_blocks,
+        )
+        document_rows.append(row_set["document_row"])
+        block_rows.extend(row_set["block_rows"])
+        block_jsonl_rows.extend(row_set["block_jsonl_rows"])
 
     _write_csv(output_path / "documents.csv", document_rows, DOCUMENT_COLUMNS)
     _write_csv(output_path / "content_blocks.csv", block_rows, BLOCK_COLUMNS)
@@ -131,29 +133,73 @@ def export_chunker_package(
     _write_summary(output_path / "summary.csv", document_rows, block_rows)
 
 
-def _process_document(
+def _run_chunker_batch(
     *,
-    job: dict[str, Any],
-    input_path: Path,
+    document_jobs: list[dict[str, Any]],
     map_blocks: bool,
     provider: str,
     model: str | None,
     api_key: str | None,
     max_tokens: int,
+    max_workers: int,
+    config_by_doc: dict[str, Any],
+):
+    """Run run_pipeline_batch, grouped by tpp_type when mapping (one config per group)."""
+    pipeline_jobs = [(str(job["file_path"]), job["doc_key"]) for job in document_jobs]
+
+    if not map_blocks:
+        return run_pipeline_batch(
+            pipeline_jobs,
+            config=None,
+            llm_client_factory=None,
+            max_tokens=max_tokens,
+            max_workers=max_workers,
+        )
+
+    def factory():
+        return create_llm_client(provider=provider, api_key=api_key, model=model)
+
+    results_by_doc: dict[str, Any] = {}
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for job in document_jobs:
+        by_type.setdefault(job["tpp_type"], []).append(job)
+
+    for tpp_type, jobs_in_type in by_type.items():
+        type_config = config_by_doc[jobs_in_type[0]["doc_key"]]
+        type_jobs = [(str(job["file_path"]), job["doc_key"]) for job in jobs_in_type]
+        for job, pipeline_result in zip(
+            jobs_in_type,
+            run_pipeline_batch(
+                type_jobs,
+                config=type_config,
+                llm_client_factory=factory,
+                max_tokens=max_tokens,
+                max_workers=max_workers,
+            ),
+        ):
+            results_by_doc[job["doc_key"]] = pipeline_result
+
+    return [results_by_doc[job["doc_key"]] for job in document_jobs]
+
+
+def _process_pipeline_result(
+    *,
+    job: dict[str, Any],
+    input_path: Path,
+    pipeline_result,
+    map_requested: bool,
 ) -> dict[str, Any]:
     file_path = job["file_path"]
     tpp_type = job["tpp_type"]
     doc_key = job["doc_key"]
     document_row = _base_document_row(file_path, input_path, doc_key, tpp_type)
 
-    try:
-        blocks = parse_document(str(file_path), doc_key)
-    except Exception as exc:
+    if pipeline_result.parse_error:
         return {
             "document_row": {
                 **document_row,
                 "parse_status": "error",
-                "parse_error": str(exc),
+                "parse_error": pipeline_result.parse_error,
                 "mapping_status": "not_run",
                 "mapping_error": "",
                 "total_blocks": 0,
@@ -165,21 +211,17 @@ def _process_document(
             "block_jsonl_rows": [],
         }
 
-    mapping_status = "not_requested"
-    mapping_error = ""
-    if map_blocks:
-        try:
-            if api_key is None:
-                raise ValueError("api_key is required for mapping")
-            config = _config_for_tpp_type(tpp_type)
-            llm_client = create_llm_client(provider=provider, api_key=api_key, model=model)
-            blocks = label_blocks(blocks, config, llm_client, max_tokens=max_tokens)
-            mapping_status = "ok"
-        except Exception as exc:
-            mapping_status = "error"
-            mapping_error = str(exc)
+    if not map_requested:
+        mapping_status = "not_requested"
+        mapping_error = ""
+    elif pipeline_result.mapping_error:
+        mapping_status = "error"
+        mapping_error = pipeline_result.mapping_error
+    else:
+        mapping_status = "ok"
+        mapping_error = ""
 
-    block_dicts = blocks_to_dicts(blocks)
+    block_dicts = blocks_to_dicts(pipeline_result.blocks)
     source_counts = Counter(block["source_type"] for block in block_dicts)
     return {
         "document_row": {

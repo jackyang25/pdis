@@ -17,8 +17,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..llm_client import DEFAULT_MAX_OUTPUT_TOKENS, LLMClient
-from ..models import AttributeConfig, Claim
+from ..models import AttributeConfig, Claim, LLMClientProtocol
 
 
 class BinderResponseError(Exception):
@@ -28,9 +27,9 @@ class BinderResponseError(Exception):
 def bind_claims(
     claims: list[Claim],
     config: AttributeConfig,
-    llm_client: LLMClient,
+    llm_client: LLMClientProtocol,
     *,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    max_tokens: int,
 ) -> list[Claim]:
     """
     Fill `attribute_ref` and `binding_confidence` on each claim.

@@ -9,6 +9,7 @@ a file).
 from __future__ import annotations
 
 import datetime as _dt
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from chunker.stages.parser import parse_document
@@ -17,8 +18,9 @@ from chunker.models import ContentBlock
 from .stages.appraiser import appraise_claims
 from .stages.binder import bind_claims
 from .stages.extractor_product_profile import extract_product_profile
-from .llm_client import DEFAULT_MAX_OUTPUT_TOKENS, LLMClient
-from .models import AttributeConfig, Claim
+from .models import AttributeConfig, BatchResult, Claim, LLMClientProtocol
+
+DEFAULT_MAX_OUTPUT_TOKENS = 16000
 
 
 # Maps source_type -> the extractor function that recognizes it.
@@ -34,7 +36,7 @@ def run_pipeline(
     source_type: str,
     source_id: str,
     config: AttributeConfig,
-    llm_client: LLMClient,
+    llm_client: LLMClientProtocol,
     intervention_class: str | None = None,
     therapeutic_area: str | None = None,
     extracted_at: str | None = None,
@@ -75,7 +77,7 @@ def run_pipeline_on_blocks(
     source_type: str,
     source_id: str,
     config: AttributeConfig,
-    llm_client: LLMClient,
+    llm_client: LLMClientProtocol,
     intervention_class: str | None = None,
     therapeutic_area: str | None = None,
     extracted_at: str | None = None,
@@ -101,7 +103,7 @@ def _run_pipeline_on_blocks(
     source_type: str,
     source_id: str,
     config: AttributeConfig,
-    llm_client: LLMClient,
+    llm_client: LLMClientProtocol,
     intervention_class: str | None,
     therapeutic_area: str | None,
     extracted_at: str | None,
@@ -137,3 +139,74 @@ def _run_pipeline_on_blocks(
 def default_source_id_from_path(file_path: str) -> str:
     """Derive a fallback source_id from a file path (stem, lowercased)."""
     return Path(file_path).stem.lower()
+
+
+def run_pipeline_batch(
+    jobs: list[tuple[str, str]],
+    *,
+    config: AttributeConfig,
+    source_type: str,
+    llm_client_factory,
+    intervention_class: str | None = None,
+    therapeutic_area: str | None = None,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    max_workers: int = 4,
+) -> list[BatchResult]:
+    """Run `run_pipeline` over many documents in parallel, capturing per-doc errors.
+
+    Args:
+        jobs: list of (file_path, source_id) pairs.
+        llm_client_factory: zero-arg callable returning a fresh LLMClient per worker.
+
+    Returns:
+        list[BatchResult] in the same order as `jobs`.
+    """
+    if not jobs:
+        return []
+    workers = max(1, min(max_workers, len(jobs)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(
+            executor.map(
+                lambda job: _run_one_batch(
+                    job[0],
+                    job[1],
+                    config=config,
+                    source_type=source_type,
+                    intervention_class=intervention_class,
+                    therapeutic_area=therapeutic_area,
+                    llm_client_factory=llm_client_factory,
+                    max_tokens=max_tokens,
+                ),
+                jobs,
+            )
+        )
+
+
+def _run_one_batch(
+    file_path: str,
+    source_id: str,
+    *,
+    config: AttributeConfig,
+    source_type: str,
+    intervention_class: str | None,
+    therapeutic_area: str | None,
+    llm_client_factory,
+    max_tokens: int,
+) -> BatchResult:
+    result = BatchResult(file_path=file_path, source_id=source_id)
+    try:
+        llm_client = llm_client_factory()
+        result.blocks, result.claims = run_pipeline(
+            file_path=file_path,
+            doc_id=source_id,
+            source_type=source_type,
+            source_id=source_id,
+            config=config,
+            llm_client=llm_client,
+            intervention_class=intervention_class,
+            therapeutic_area=therapeutic_area,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:
+        result.error = str(exc)
+    return result

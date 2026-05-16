@@ -6,7 +6,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-import streamlit as st
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+import streamlit as st  # noqa: E402
 
 try:
     from dotenv import load_dotenv
@@ -14,21 +18,15 @@ except ImportError:  # pragma: no cover - optional until requirements are instal
     def load_dotenv() -> None:
         return None
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-from pd_reviewer.pipeline import review_document  # noqa: E402
-from pd_reviewer.llm_client import (  # noqa: E402
-    create_llm_client,
-    default_model_for_provider,
-)
+from pd_reviewer.pipeline import DEFAULT_MAX_OUTPUT_TOKENS, run_pipeline  # noqa: E402
 from pd_reviewer.models import (  # noqa: E402
     ReviewConfig,
     ReviewResult,
     load_review_config,
     review_result_to_dict,
 )
+from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
+from tools._widgets import render_advanced_controls, render_llm_controls  # noqa: E402
 
 GRADE_COLORS = {
     "A": "#2e7d32",
@@ -74,7 +72,14 @@ def _render_sidebar() -> ReviewConfig:
         key=f"pd_reviewer_upload_{st.session_state['pd_reviewer_upload_counter']}",
     )
 
-    provider, model, api_key = _render_llm_controls("pd_reviewer")
+    provider, model, api_key = render_llm_controls(
+        "pd_reviewer",
+        default_model_for_provider=default_model_for_provider,
+    )
+    advanced = render_advanced_controls(
+        "pd_reviewer",
+        default_max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+    )
 
     if st.sidebar.button("Run Review"):
         if uploaded_file is None:
@@ -82,7 +87,14 @@ def _render_sidebar() -> ReviewConfig:
         elif not api_key:
             st.error(f"Enter a {provider.title()} API key before running the review.")
         else:
-            _run_review(uploaded_file, config, api_key, provider, model)
+            _run_review(
+                uploaded_file,
+                config,
+                api_key,
+                provider,
+                model,
+                max_tokens=advanced["max_tokens"],
+            )
 
     if st.sidebar.button("Clear / Restart"):
         _restart_review_session()
@@ -97,7 +109,7 @@ def _restart_review_session() -> None:
 
 
 def _load_available_configs() -> dict[str, ReviewConfig]:
-    config_dir = Path(__file__).parent / "configs"
+    config_dir = ROOT_DIR / "pd_reviewer" / "configs"
     config_paths = sorted(config_dir.glob("*.yaml"))
     if not config_paths:
         raise FileNotFoundError(f"No PD Reviewer configs found in {config_dir}")
@@ -106,34 +118,14 @@ def _load_available_configs() -> dict[str, ReviewConfig]:
     return {config.display_name: config for config in configs}
 
 
-def _render_llm_controls(key_prefix: str) -> tuple[str, str, str]:
-    provider = st.sidebar.selectbox(
-        "LLM provider",
-        ["anthropic", "openai"],
-        key=f"{key_prefix}_llm_provider",
-    )
-    model = st.sidebar.text_input(
-        "Model",
-        value=default_model_for_provider(provider),
-        key=f"{key_prefix}_llm_model_{provider}",
-    )
-    api_label = "Anthropic API key" if provider == "anthropic" else "OpenAI API key"
-    env_key = "ANTHROPIC_API_KEY" if provider == "anthropic" else "OPENAI_API_KEY"
-    api_key = st.sidebar.text_input(
-        api_label,
-        value=os.environ.get(env_key, ""),
-        type="password",
-        key=f"{key_prefix}_{provider}_api_key",
-    )
-    return provider, model, api_key
-
-
 def _run_review(
     uploaded_file,
     config: ReviewConfig,
     api_key: str,
     provider: str,
     model: str,
+    *,
+    max_tokens: int,
 ) -> None:
     doc_id = Path(uploaded_file.name).stem
     temp_path = ""
@@ -144,7 +136,12 @@ def _run_review(
 
         with st.spinner("Reviewing document..."):
             llm_client = create_llm_client(provider, api_key, model)
-            result = review_document(temp_path, config, llm_client)
+            result = run_pipeline(
+                temp_path,
+                config=config,
+                llm_client=llm_client,
+                max_tokens=max_tokens,
+            )
             result.doc_id = doc_id
             st.session_state["pd_reviewer_result"] = result
     except Exception as exc:

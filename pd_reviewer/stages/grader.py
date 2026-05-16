@@ -8,8 +8,14 @@ from typing import Any
 
 from chunker.models import ContentBlock
 
-from ..llm_client import DEFAULT_MAX_OUTPUT_TOKENS, LLMClient
-from ..models import Grade, ReviewConfig, SectionGrade, SectionSpec, VariableGrade
+from ..models import (
+    Grade,
+    LLMClientProtocol,
+    ReviewConfig,
+    SectionGrade,
+    SectionSpec,
+    VariableGrade,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +25,9 @@ VALID_GRADES: set[str] = {"A", "B", "C", "D", "F", "N/A"}
 def grade_sections(
     labeled_blocks: list[ContentBlock],
     config: ReviewConfig,
-    llm_client: LLMClient,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    llm_client: LLMClientProtocol,
+    *,
+    max_tokens: int,
 ) -> list[SectionGrade]:
     """
     For each section, ask the LLM to grade completeness and adherence.
@@ -60,8 +67,8 @@ def _grade_section(
     section_blocks: list[ContentBlock],
     system_prompt: str,
     user_message: str,
-    llm_client: LLMClient,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    llm_client: LLMClientProtocol,
+    max_tokens: int,
 ) -> SectionGrade:
     raw_response = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
     try:

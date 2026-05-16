@@ -31,9 +31,14 @@ def run_pipeline(
     *,
     config: ReviewConfig,
     llm_client: LLMClientProtocol,
+    therapeutic_area: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> ReviewResult:
-    """End-to-end PD document review: parse → label → grade → report."""
+    """End-to-end PD document review: parse → label → grade → report.
+
+    Header (org, source_type, intervention_class) is read from `config`.
+    `therapeutic_area` is the only per-document scoping input.
+    """
     source_path = Path(file_path)
     chunker_config = load_chunker_config(config.chunker_config_path)
 
@@ -42,7 +47,11 @@ def run_pipeline(
         blocks, chunker_config, llm_client, max_tokens=max_tokens
     )
     return review_blocks(
-        labeled_blocks, config=config, llm_client=llm_client, max_tokens=max_tokens
+        labeled_blocks,
+        config=config,
+        llm_client=llm_client,
+        therapeutic_area=therapeutic_area,
+        max_tokens=max_tokens,
     )
 
 
@@ -51,11 +60,17 @@ def review_blocks(
     *,
     config: ReviewConfig,
     llm_client: LLMClientProtocol,
+    therapeutic_area: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> ReviewResult:
     """Grade + report a document whose blocks have already been parsed and labeled."""
     section_grades = grade_sections(blocks, config, llm_client, max_tokens=max_tokens)
-    return build_report_card(blocks, section_grades, config)
+    result = build_report_card(blocks, section_grades, config)
+    result.org = config.org
+    result.source_type = config.source_type
+    result.intervention_class = config.intervention_class
+    result.therapeutic_area = therapeutic_area
+    return result
 
 
 def run_pipeline_batch(
@@ -63,18 +78,11 @@ def run_pipeline_batch(
     *,
     config: ReviewConfig,
     llm_client_factory,
+    therapeutic_area: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
 ) -> list[BatchReviewResult]:
-    """Run `run_pipeline` (parse → label → grade) over many documents in parallel.
-
-    Args:
-        jobs: list of (file_path, doc_key) pairs.
-        llm_client_factory: zero-arg callable returning a fresh LLMClient per worker.
-
-    Returns:
-        list[BatchReviewResult] in the same order as `jobs`.
-    """
+    """Run `run_pipeline` (parse → label → grade) over many documents in parallel."""
     if not jobs:
         return []
     workers = max(1, min(max_workers, len(jobs)))
@@ -86,6 +94,7 @@ def run_pipeline_batch(
                     job[1],
                     config=config,
                     llm_client_factory=llm_client_factory,
+                    therapeutic_area=therapeutic_area,
                     max_tokens=max_tokens,
                 ),
                 jobs,
@@ -99,12 +108,17 @@ def _run_pipeline_one_batch(
     *,
     config: ReviewConfig,
     llm_client_factory,
+    therapeutic_area: str | None,
     max_tokens: int,
 ) -> BatchReviewResult:
     try:
         llm_client = llm_client_factory()
         review = run_pipeline(
-            file_path, config=config, llm_client=llm_client, max_tokens=max_tokens
+            file_path,
+            config=config,
+            llm_client=llm_client,
+            therapeutic_area=therapeutic_area,
+            max_tokens=max_tokens,
         )
         review.doc_id = doc_key
         return BatchReviewResult(doc_key=doc_key, review=review)
@@ -117,6 +131,7 @@ def review_blocks_batch(
     *,
     config: ReviewConfig,
     llm_client_factory,
+    therapeutic_area: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
 ) -> list[BatchReviewResult]:
@@ -140,6 +155,7 @@ def review_blocks_batch(
                     job[1],
                     config=config,
                     llm_client_factory=llm_client_factory,
+                    therapeutic_area=therapeutic_area,
                     max_tokens=max_tokens,
                 ),
                 jobs,
@@ -153,12 +169,17 @@ def _review_one_batch(
     *,
     config: ReviewConfig,
     llm_client_factory,
+    therapeutic_area: str | None,
     max_tokens: int,
 ) -> BatchReviewResult:
     try:
         llm_client = llm_client_factory()
         review = review_blocks(
-            blocks, config=config, llm_client=llm_client, max_tokens=max_tokens
+            blocks,
+            config=config,
+            llm_client=llm_client,
+            therapeutic_area=therapeutic_area,
+            max_tokens=max_tokens,
         )
         return BatchReviewResult(doc_key=doc_key, review=review)
     except Exception as exc:

@@ -1,4 +1,7 @@
 type_key: gates_tpp_drug
+org: gates
+source_type: tpp
+intervention_class: drug
 display_name: "Drug Target Product Profile"
 chunker_config_path: "../chunker/configs/gates_tpp_drug.yaml"
 

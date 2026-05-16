@@ -91,9 +91,9 @@ Planned: a persistent substrate on Databricks / Unity Catalog ("EDP") as a defer
 
 Some evidence sources are heavy capabilities with their own lifecycles. They live outside the substrate and feed findings in as `Claim`s via source-specific extractors:
 
-- **Biomedical knowledge graphs** (OpenTargets, MONDO, ClinicalTrials.gov, etc.): selectively ingested as claims with `source_type=knowledge_graph`.
-- **WHO PPCs, TPPs, and peer-org product profiles** (FIND, CEPI, MMV, DNDi, etc.): downloaded into `documents`, chunked, then mined into `claims` with `source_type=product_profile`.
-- **Causal / EHR-backed modeling** (PyWhy, OHDSI, partner platforms): model runs emit claims with `claim_type=modelled_impact` and `source_type=model_run`.
+- **Biomedical knowledge graphs** (OpenTargets, MONDO, ClinicalTrials.gov, etc.): selectively ingested as claims with `source_kind=knowledge_graph`.
+- **WHO PPCs, TPPs, and peer-org product profiles** (FIND, CEPI, MMV, DNDi, etc.): downloaded into `documents`, chunked, then mined into `claims` with `source_kind=product_profile`.
+- **Causal / EHR-backed modeling** (PyWhy, OHDSI, partner platforms): model runs emit claims with `claim_type=modelled_impact` and `source_kind=model_run`.
 
 In each case, the substrate ingests **findings**, not engines or raw datasets. This keeps the substrate from collapsing into "the place where all data lives."
 

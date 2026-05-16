@@ -69,7 +69,7 @@ def parse_pdf(file_path: str, doc_id: str) -> list[ContentBlock]:
                 blocks.append(
                     _make_block(
                         doc_id=doc_id,
-                        source_type="paragraph",
+                        block_type="paragraph",
                         content=paragraph_text,
                         structural_meta={
                             "paragraph_index": paragraph_index,
@@ -216,7 +216,7 @@ def _build_table_blocks(
         return [
             _make_block(
                 doc_id=doc_id,
-                source_type="paragraph",
+                block_type="paragraph",
                 content=text,
                 structural_meta={
                     "table_index": table_index,
@@ -237,7 +237,7 @@ def _build_table_blocks(
             blocks.append(
                 _make_block(
                     doc_id=doc_id,
-                    source_type="paragraph",
+                    block_type="paragraph",
                     content=text,
                     structural_meta={
                         "table_index": table_index,
@@ -260,7 +260,7 @@ def _build_table_blocks(
         return [
             _make_block(
                 doc_id=doc_id,
-                source_type="paragraph",
+                block_type="paragraph",
                 content=content,
                 structural_meta={
                     "table_index": table_index,
@@ -283,7 +283,7 @@ def _build_table_blocks(
         blocks.append(
             _make_block(
                 doc_id=doc_id,
-                source_type="table_row",
+                block_type="table_row",
                 content=content,
                 structural_meta={
                     "table_index": table_index,
@@ -317,7 +317,7 @@ def _normalize_row(row: list[str], width: int) -> list[str]:
 def _make_block(
     *,
     doc_id: str,
-    source_type: str,
+    block_type: str,
     content: str,
     structural_meta: dict[str, Any],
     style_hint: dict[str, Any],
@@ -326,7 +326,7 @@ def _make_block(
         id="",
         doc_id=doc_id,
         ordinal=-1,
-        source_type=source_type,
+        block_type=block_type,
         content=content,
         heading_stack=[],  # PDFs: heading hierarchy not inferred at MVP
         structural_meta=structural_meta,

@@ -138,16 +138,18 @@ source .venv/bin/activate
 export OPENAI_API_KEY="..."
 
 python -m pd_reviewer.cli <chunker_package_dir> <review_package_dir> \
-  --tpp-type drug --max-workers 8 --max-tokens 32000
+  --max-workers 8 --max-tokens 32000
 ```
+
+The header (`org`, `source_type`, `intervention_class`) is read from the chunker package's `documents.csv` — no need to pass it again. The rubric config is resolved by `{org}_{source_type}_{intervention}.yaml`.
 
 CLI options:
 
-- `--tpp-type` selects the review config. If omitted, inferred from `documents.csv` when unambiguous. Supported: `vaccine`, `drug`, `diagnostic`, `device`.
+- `--therapeutic-area` (optional) stamps a disease tag on every output row.
 - `--provider` selects the LLM provider (`openai` or `anthropic`).
 - `--model` selects the specific model. Defaults to the provider default.
 - `--max-workers` controls how many documents are graded concurrently.
-- `--max-tokens` caps the grader response budget per section. Defaults to `DEFAULT_MAX_OUTPUT_TOKENS` in `llm_client.py`. Reasoning models need a high budget because reasoning tokens count against this cap.
+- `--max-tokens` caps the grader response budget per section.
 
 ### Output Files
 
@@ -161,7 +163,7 @@ manifest.json
 
 `document_scores.csv` (one row per source document):
 
-- `doc_key`, `tpp_type`, `file_name`: join keys back to the chunker package.
+- `doc_key`, `intervention_class`, `file_name`: join keys back to the chunker package.
 - `overall_grade`, `weighted_score`: roll-up across sections weighted by config.
 - `sections_total`, `sections_present`, `sections_missing`: section-level completeness signal.
 - `top_issues_json`: ranked top issues across sections and variables.
@@ -169,14 +171,14 @@ manifest.json
 
 `section_grades.csv` (one row per `(doc, section)`):
 
-- `doc_key`, `tpp_type`, `section_name`: join keys.
+- `doc_key`, `intervention_class`, `section_name`: join keys.
 - `weight`, `grade`, `score`, `is_present`.
 - `missing_variables_json`, `issues_json`, `recommendation`.
 - `variable_grades_count`.
 
 `variable_grades.csv` (one row per `(doc, section, variable)`):
 
-- `doc_key`, `tpp_type`, `section_name`, `variable_name`.
+- `doc_key`, `intervention_class`, `section_name`, `variable_name`.
 - `grade`, `score`.
 - `issues_json`, `recommendation`.
 - `block_ids_json`: source block IDs from the chunker package supporting the variable grade.
@@ -190,7 +192,7 @@ manifest.json
 `manifest.json`:
 
 - `created_at`, `provider`, `model`, `max_workers`, `max_tokens`.
-- `tpp_type`.
+- `intervention_class`.
 - `input_chunker_package`: absolute path to the input package.
 - `input_content_blocks_sha256`: hash of the input `content_blocks.csv`, used to detect input drift.
 - `documents_total`, `documents_reviewed`, `documents_failed`.

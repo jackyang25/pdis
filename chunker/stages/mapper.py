@@ -176,15 +176,15 @@ Confidence must be one of: "high", "medium", "low"."""
 
 
 def _format_block(block: ContentBlock) -> str:
-    header_parts = [block.id, block.source_type]
+    header_parts = [block.id, block.block_type]
 
-    if block.source_type == "heading":
+    if block.block_type == "heading":
         heading_level = block.structural_meta.get("heading_level")
         header_parts.append(f"level: {heading_level}")
     else:
         header_parts.append(f"headings: {_format_heading_stack(block.heading_stack)}")
 
-    if block.source_type == "table_row":
+    if block.block_type == "table_row":
         column_headers = block.structural_meta.get("column_headers", [])
         if column_headers:
             header_parts.append(f"cols: {', '.join(column_headers)}")

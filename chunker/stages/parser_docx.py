@@ -52,7 +52,7 @@ def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
                 blocks.append(
                     _make_block(
                         doc_id=doc_id,
-                        source_type="heading",
+                        block_type="heading",
                         content=paragraph_text,
                         heading_stack=_stack_text(heading_stack),
                         structural_meta={
@@ -67,7 +67,7 @@ def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
             blocks.append(
                 _make_block(
                     doc_id=doc_id,
-                    source_type="paragraph",
+                    block_type="paragraph",
                     content=paragraph_text,
                     heading_stack=_stack_text(heading_stack),
                     structural_meta={"paragraph_index": current_paragraph_index},
@@ -128,7 +128,7 @@ def _parse_table(
         return [
             _make_block(
                 doc_id=doc_id,
-                source_type="paragraph",
+                block_type="paragraph",
                 content=text,
                 heading_stack=_stack_text(heading_stack),
                 structural_meta={"table_index": table_index, "row_index": 0},
@@ -145,7 +145,7 @@ def _parse_table(
             blocks.append(
                 _make_block(
                     doc_id=doc_id,
-                    source_type="paragraph",
+                    block_type="paragraph",
                     content=text,
                     heading_stack=_stack_text(heading_stack),
                     structural_meta={
@@ -183,7 +183,7 @@ def _parse_multi_column_table(
         return [
             _make_block(
                 doc_id=doc_id,
-                source_type="paragraph",
+                block_type="paragraph",
                 content=content,
                 heading_stack=_stack_text(heading_stack),
                 structural_meta={
@@ -208,7 +208,7 @@ def _parse_multi_column_table(
         blocks.append(
             _make_block(
                 doc_id=doc_id,
-                source_type="table_row",
+                block_type="table_row",
                 content=content,
                 heading_stack=_stack_text(heading_stack),
                 structural_meta={
@@ -246,7 +246,7 @@ def _cell_text(cell: Any) -> str:
 def _make_block(
     *,
     doc_id: str,
-    source_type: str,
+    block_type: str,
     content: str,
     heading_stack: list[str],
     structural_meta: dict,
@@ -256,7 +256,7 @@ def _make_block(
         id="",
         doc_id=doc_id,
         ordinal=-1,
-        source_type=source_type,
+        block_type=block_type,
         content=content,
         heading_stack=heading_stack.copy(),
         structural_meta=structural_meta,

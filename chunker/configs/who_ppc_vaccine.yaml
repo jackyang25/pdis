@@ -1,4 +1,7 @@
 type_key: who_ppc_vaccine
+org: who
+source_type: ppc
+intervention_class: vaccine
 display_name: "WHO Vaccine PPC"
 
 # STUB: refine this taxonomy after running the chunker against a real WHO PPC

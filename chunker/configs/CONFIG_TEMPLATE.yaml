@@ -1,0 +1,46 @@
+# DocumentTypeConfig template.
+#
+# Copy this file to a new config (e.g., new_product_type.yaml) and fill
+# in the section taxonomy, preamble, and disambiguation rules for the
+# document type you want to parse and label.
+#
+# The mapper LLM uses this config to assign each ContentBlock a
+# `section_label` matching one of the names in `section_taxonomy`.
+
+type_key: document_template_v0
+org: example_org
+source_type: example_type
+intervention_class: vaccine
+display_name: "Template Document Type"
+
+# Sections the mapper can assign to. Each section needs a name and a
+# description rich enough for the LLM to disambiguate from other sections.
+# Include the kinds of content (tables, prose, lists), typical variables,
+# and structural cues so the mapper has enough signal.
+section_taxonomy:
+  - name: "Introduction"
+    description: "Background or framing material. Explain what this section typically covers in this document type."
+
+  - name: "Section Name"
+    description: "Replace with a real section. Describe the content shape (table vs. prose), the variables expected, and any structural conventions the mapper should recognize."
+
+# Short paragraph the mapper LLM sees as context. Describe the document
+# type, its typical structure, and any global guidance for labeling.
+preamble: >
+  Replace this with a description of the document type. Explain the
+  overall structure (e.g., "this document has an introduction, a
+  use-case table, an executive summary table, and a change log"),
+  and any global rules (e.g., "label all rows of a multi-row table
+  under the same section").
+
+# Free-text rules for the mapper to break ties when a block could
+# plausibly belong to more than one section. Each entry is a single
+# instruction string.
+disambiguation:
+  - >
+    Example: blocks about <topic> belong to <Section A>, not <Section B>,
+    even when they appear visually similar.
+
+# Optional flags (default true). Drop these unless you want to disable.
+include_metadata_label: true
+include_other_label: true

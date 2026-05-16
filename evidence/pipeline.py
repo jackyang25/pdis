@@ -1,9 +1,9 @@
 """Stateless evidence pipeline.
 
 Wires the five stages — parse (chunker) → extract → bind → appraise →
-return — into a single function. No persistence in the active path; the
-caller decides what to do with the output (display, download, write to
-a file).
+return — into one function. Header (org, source_type, intervention_class,
+therapeutic_area) is required runtime input; the evidence config provides
+the attribute namespace for binding.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from .models import AttributeConfig, BatchResult, Claim, LLMClientProtocol
 DEFAULT_MAX_OUTPUT_TOKENS = 16000
 
 
-# Maps source_type -> the extractor function that recognizes it.
+# Maps source_kind → extractor.
 EXTRACTORS = {
     "product_profile": extract_product_profile,
 }
@@ -33,38 +33,39 @@ def run_pipeline(
     *,
     file_path: str,
     doc_id: str,
-    source_type: str,
     source_id: str,
     config: AttributeConfig,
     llm_client: LLMClientProtocol,
-    intervention_class: str | None = None,
+    org: str,
+    source_type: str,
     therapeutic_area: str | None = None,
+    source_kind: str = "product_profile",
     extracted_at: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> tuple[list[ContentBlock], list[Claim]]:
-    """
-    Run the full evidence pipeline on one document.
+    """Run the full evidence pipeline on one document.
 
-    Returns:
-        (blocks, claims) — the intermediate chunker output and the
-        finalized claims. Caller decides what to persist.
+    Header fields (org, source_type, intervention_class, therapeutic_area)
+    are stamped on every claim. `intervention_class` is read from
+    `config.intervention_class`. `source_kind` selects the extractor.
     """
-    if source_type not in EXTRACTORS:
+    if source_kind not in EXTRACTORS:
         supported = ", ".join(sorted(EXTRACTORS))
         raise ValueError(
-            f"No extractor registered for source_type='{source_type}'. "
+            f"No extractor registered for source_kind='{source_kind}'. "
             f"Supported: {supported}"
         )
 
     blocks = parse_document(file_path, doc_id)
     claims = _run_pipeline_on_blocks(
         blocks=blocks,
-        source_type=source_type,
         source_id=source_id,
         config=config,
         llm_client=llm_client,
-        intervention_class=intervention_class,
+        org=org,
+        source_type=source_type,
         therapeutic_area=therapeutic_area,
+        source_kind=source_kind,
         extracted_at=extracted_at,
         max_tokens=max_tokens,
     )
@@ -74,24 +75,26 @@ def run_pipeline(
 def run_pipeline_on_blocks(
     *,
     blocks: list[ContentBlock],
-    source_type: str,
     source_id: str,
     config: AttributeConfig,
     llm_client: LLMClientProtocol,
-    intervention_class: str | None = None,
+    org: str,
+    source_type: str,
     therapeutic_area: str | None = None,
+    source_kind: str = "product_profile",
     extracted_at: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> list[Claim]:
     """Same as run_pipeline but skips parsing — useful when blocks are already in hand."""
     return _run_pipeline_on_blocks(
         blocks=blocks,
-        source_type=source_type,
         source_id=source_id,
         config=config,
         llm_client=llm_client,
-        intervention_class=intervention_class,
+        org=org,
+        source_type=source_type,
         therapeutic_area=therapeutic_area,
+        source_kind=source_kind,
         extracted_at=extracted_at,
         max_tokens=max_tokens,
     )
@@ -100,25 +103,29 @@ def run_pipeline_on_blocks(
 def _run_pipeline_on_blocks(
     *,
     blocks: list[ContentBlock],
-    source_type: str,
     source_id: str,
     config: AttributeConfig,
     llm_client: LLMClientProtocol,
-    intervention_class: str | None,
+    org: str,
+    source_type: str,
     therapeutic_area: str | None,
+    source_kind: str,
     extracted_at: str | None,
     max_tokens: int,
 ) -> list[Claim]:
     if extracted_at is None:
         extracted_at = _dt.date.today().isoformat()
 
-    extractor = EXTRACTORS[source_type]
+    extractor = EXTRACTORS[source_kind]
     drafts = extractor(
         blocks,
         source_id=source_id,
-        intervention_class=intervention_class,
+        config=config,
+        llm_client=llm_client,
+        intervention_class=config.intervention_class,
         therapeutic_area=therapeutic_area,
         extracted_at=extracted_at,
+        max_tokens=max_tokens,
     )
     if not drafts:
         return drafts
@@ -126,12 +133,14 @@ def _run_pipeline_on_blocks(
     bound = bind_claims(drafts, config, llm_client, max_tokens=max_tokens)
     finalized = appraise_claims(bound)
 
-    # Assign stable IDs + ordinals so the output is self-contained and
-    # reproducible. (When a persistent backend lands later, it can use or
-    # override these — the pipeline still produces them either way.)
     for ordinal, claim in enumerate(finalized):
         claim.ordinal = ordinal
         claim.id = f"{source_id}/c-{ordinal:04d}"
+        # Stamp header on every claim
+        claim.org = org
+        claim.source_type = source_type
+        claim.intervention_class = config.intervention_class
+        claim.therapeutic_area = therapeutic_area
 
     return finalized
 
@@ -145,22 +154,15 @@ def run_pipeline_batch(
     jobs: list[tuple[str, str]],
     *,
     config: AttributeConfig,
-    source_type: str,
     llm_client_factory,
-    intervention_class: str | None = None,
+    org: str,
+    source_type: str,
     therapeutic_area: str | None = None,
+    source_kind: str = "product_profile",
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
 ) -> list[BatchResult]:
-    """Run `run_pipeline` over many documents in parallel, capturing per-doc errors.
-
-    Args:
-        jobs: list of (file_path, source_id) pairs.
-        llm_client_factory: zero-arg callable returning a fresh LLMClient per worker.
-
-    Returns:
-        list[BatchResult] in the same order as `jobs`.
-    """
+    """Run `run_pipeline` over many documents in parallel, capturing per-doc errors."""
     if not jobs:
         return []
     workers = max(1, min(max_workers, len(jobs)))
@@ -171,9 +173,10 @@ def run_pipeline_batch(
                     job[0],
                     job[1],
                     config=config,
+                    org=org,
                     source_type=source_type,
-                    intervention_class=intervention_class,
                     therapeutic_area=therapeutic_area,
+                    source_kind=source_kind,
                     llm_client_factory=llm_client_factory,
                     max_tokens=max_tokens,
                 ),
@@ -187,9 +190,10 @@ def _run_one_batch(
     source_id: str,
     *,
     config: AttributeConfig,
+    org: str,
     source_type: str,
-    intervention_class: str | None,
     therapeutic_area: str | None,
+    source_kind: str,
     llm_client_factory,
     max_tokens: int,
 ) -> BatchResult:
@@ -199,12 +203,13 @@ def _run_one_batch(
         result.blocks, result.claims = run_pipeline(
             file_path=file_path,
             doc_id=source_id,
-            source_type=source_type,
             source_id=source_id,
             config=config,
             llm_client=llm_client,
-            intervention_class=intervention_class,
+            org=org,
+            source_type=source_type,
             therapeutic_area=therapeutic_area,
+            source_kind=source_kind,
             max_tokens=max_tokens,
         )
     except Exception as exc:

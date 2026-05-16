@@ -9,7 +9,7 @@ It uses the chunker as a library for parsing, then runs four pipeline stages ove
 | File | Purpose |
 |---|---|
 | `models.py` | Shared dataclasses: `Claim`, `AttributeDef`, `AttributeConfig`; YAML config loader; canonical enums for `claim_type`, `source_type`, `polarity`, `evidence_strength`, etc.; `validate_claim`. |
-| `stages/extractor_product_profile.py` | Deterministic extractor for `source_type=product_profile` (WHO PPCs, TPPs, peer-org equivalents). Reads chunker `table_row` blocks and emits draft claims per Minimum/Preferred cell. One file per source type — mirrors chunker's `parser_docx.py` / `parser_pdf.py` pattern. |
+| `stages/extractor_product_profile.py` | Deterministic extractor for `source_kind=product_profile` (WHO PPCs, TPPs, peer-org equivalents). Reads chunker `table_row` blocks and emits draft claims per Minimum/Preferred cell. One file per source type — mirrors chunker's `parser_docx.py` / `parser_pdf.py` pattern. |
 | `stages/binder.py` | LLM-driven attribute binding. Picks `attribute_ref` for each claim from the `AttributeConfig`'s constrained vocabulary. Mirrors `chunker/mapper.py`. |
 | `stages/appraiser.py` | Heuristic reliability labeling. Sets `evidence_strength` from `source_type` defaults and `recency_tier` from claim dates. |
 | `pipeline.py` | Stateless orchestrator: `run_pipeline(file_path, ...) → (blocks, claims)`. Wires parse → extract → bind → appraise. |
@@ -61,34 +61,34 @@ streamlit run tools/evidence_tool.py
 
 The Streamlit UI flow:
 
-1. Sidebar — pick an `AttributeConfig`, a `source_type` (today: `product_profile`), optional `intervention_class` / `therapeutic_area`, LLM provider + API key.
+1. Sidebar — pick the document **header** (`org · source_type · intervention`) and optional `therapeutic_area` at the top of the app. Pick **Evidence** as the tool.
 2. Upload a `.docx` or `.pdf`.
 3. Click **Run Pipeline**. The pipeline parses, extracts, binds, and appraises.
 4. Inspect the resulting claims; download as JSONL or CSV.
 
-For batch / scripted runs, use the CLI:
+For batch / scripted runs, use the CLI (header flags identify the document type):
 
 ```bash
 python -m evidence.cli \
   documents/ \
   out/ \
-  --config evidence/configs/vaccine.yaml \
-  --source-type product_profile \
-  --intervention-class vaccine \
+  --org gates \
+  --source-type tpp \
+  --intervention vaccine \
   --therapeutic-area malaria \
   --provider anthropic \
   --max-workers 4
 ```
 
-Outputs `out/claims.jsonl`, `out/claims.csv`, `out/summary.csv`.
+Outputs `out/claims.jsonl`, `out/claims.csv`, `out/summary.csv`. Every claim is stamped with the full header (org, source_type, intervention_class, therapeutic_area).
 
 ## AttributeConfig
 
-One `AttributeConfig` per **product class** (vaccine, drug, diagnostic, device). Same config covers WHO PPCs, Gates TPPs, peer-org profiles — publisher is per-claim metadata, not per-config. Bundled / planned configs:
+Evidence configs are keyed by **intervention only** — the attribute namespace describes a product class (vaccine, drug, diagnostic, device), not a document format. Claims from a Gates TPP vaccine document and a WHO PPC vaccine document bind to the same `vaccine.*` namespace. Source provenance (`org`, `source_type`) is preserved on each claim via the header.
 
 ```text
-configs/CONFIG_TEMPLATE.yaml      # copy and customize for new configs
-configs/vaccine.yaml              # planned
+configs/CONFIG_TEMPLATE.yaml      # copy and customize for new product classes
+configs/vaccine.yaml              # shipped
 configs/drug.yaml                 # planned
 configs/diagnostic.yaml           # planned
 configs/device.yaml               # planned
@@ -96,16 +96,16 @@ configs/device.yaml               # planned
 
 The config defines:
 
-- `type_key`: stable identifier (e.g., `vaccine`).
+- `type_key`: stable identifier (matches filename stem, e.g., `vaccine`).
 - `display_name`: UI label.
+- `intervention_class`: the product class this config is for. Must match the filename stem.
 - `attributes`: list of `{name, description, parent?, expected_claim_types?}`. Each is a valid `attribute_ref` for binding.
-- `claim_types`: allowed `claim_type` values for this config (subset of canonical `CLAIM_TYPES`).
-- `intervention_classes`: allowed `intervention_class` values.
+- `claim_types`: allowed `claim_type` values for this config.
 - `therapeutic_areas`: allowed `therapeutic_area` values.
 - `preamble`: domain context injected into the binder prompt.
 - `disambiguation`: free-text rules for ambiguous binding.
 
-The substrate never hardcodes attribute names, intervention classes, or therapeutic areas. Adding a new product class = adding a new YAML, no code changes.
+Adding a new product class = adding `<intervention>.yaml`. No code changes.
 
 ## How The Pipeline Works
 
@@ -178,7 +178,7 @@ A claim must satisfy three properties. `validate_claim` enforces them.
 2. **Atomic** — one assertion per claim. Paragraphs defeat downstream filtering and comparison.
 3. **Decision-relevant** — could support, challenge, or revise a TPP attribute, threshold, or scope choice.
 
-Expert opinion counts when attributed and labeled honestly (`source_type=expert_note`, low `evidence_strength`). Unsourced inherited assumptions do not.
+Expert opinion counts when attributed and labeled honestly (`source_kind=expert_note`, low `evidence_strength`). Unsourced inherited assumptions do not.
 
 ## Evidence Sources (per `source_type`)
 

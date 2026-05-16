@@ -37,7 +37,7 @@ def appraise_claims(claims: list[Claim]) -> list[Claim]:
     today = _dt.date.today()
     for claim in claims:
         if claim.evidence_strength is None:
-            claim.evidence_strength = _strength_for(claim.source_type)
+            claim.evidence_strength = _strength_for(claim.source_kind)
         if claim.recency_tier is None:
             claim.recency_tier = _recency_for(today, claim.valid_as_of, claim.extracted_at)
     return claims

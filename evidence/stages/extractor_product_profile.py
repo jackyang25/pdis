@@ -1,200 +1,277 @@
-"""Extractor for `source_type=product_profile` (WHO PPCs, TPPs, peer-org equivalents).
+"""LLM-based extractor for `source_kind=product_profile` documents.
 
-Deterministic. Reads chunker `ContentBlock`s for a product-profile document
-and emits draft Claims — one per non-empty target column (Minimum /
-Preferred / Optimistic) in each PPC/TPP table row.
+Walks all chunker `ContentBlock`s and asks an LLM to emit one draft Claim
+per source-grounded assertion found in the text. Handles all block_types
+(headings, paragraphs, table_rows) uniformly — not just structured tables.
 
-This is the "recognition" step. It does NOT bind to attributes; that's
-the binder's job. attribute_ref / evidence_strength / recency_tier are
-left None for downstream stages to fill.
+The AttributeConfig is provided as **context** (preamble + attribute
+namespace) so the LLM knows what kinds of claims are worth extracting,
+but the extractor does NOT assign `attribute_ref`. That's the binder's
+job in the next stage.
+
+Hallucination guard: every claim must cite a `block_id` (must reference
+a real block) and a `quote` (must be a verbatim substring of that block's
+content). Claims failing validation are dropped silently.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
-from typing import Iterable
+import json
+import logging
+import re
+from typing import Any
 
 from chunker.models import ContentBlock
 
-from ..models import Claim
+from ..models import CLAIM_TYPES, POLARITIES, AttributeConfig, Claim, LLMClientProtocol
 
 
-# Column-header names that signal "this is a target-value column" in a
-# PPC/TPP table. The extractor is publisher-agnostic — it reads the
-# headers on each table_row block and adapts.
-TARGET_VALUE_COLUMNS = {"Minimum", "Preferred", "Optimistic"}
+logger = logging.getLogger(__name__)
 
-# Likely names of the row-label column (the "Variable" column in
-# Gates TPPs, often "Variable" or "Characteristic" in WHO PPCs).
-VARIABLE_LABEL_COLUMNS = {"Variable", "Characteristic", "Attribute"}
+
+DEFAULT_MAX_OUTPUT_TOKENS = 16000
 
 
 def extract_product_profile(
-    blocks: Iterable[ContentBlock],
+    blocks: list[ContentBlock],
     source_id: str,
     *,
+    config: AttributeConfig,
+    llm_client: LLMClientProtocol,
     intervention_class: str | None = None,
     therapeutic_area: str | None = None,
     extracted_at: str | None = None,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> list[Claim]:
-    """
-    Emit draft Claims from a parsed product-profile document.
+    """Emit draft Claims from a parsed product-profile document via LLM.
 
     Args:
         blocks: chunker output for the source document.
         source_id: stable identifier for this document.
-        intervention_class: optional scoping tag applied to every claim.
-        therapeutic_area: optional scoping tag applied to every claim.
+        config: AttributeConfig providing vocabulary + preamble context.
+        llm_client: LLM to call for extraction.
+        intervention_class: optional scoping tag stamped on each claim.
+        therapeutic_area: optional scoping tag stamped on each claim.
         extracted_at: ISO date for the extraction run (defaults to today).
+        max_tokens: LLM response token budget.
 
     Returns:
-        list of draft Claim objects. Every claim has:
-          - statement, claim_type=performance (default), polarity=neutral
-          - source_id, source_type=product_profile, source_locator
-          - intervention_class, therapeutic_area (if provided)
-          - attribute_ref=None, binding_confidence=None
-          - evidence_strength=None, recency_tier=None
+        list of draft Claim objects (attribute_ref=None — binder handles binding).
     """
     if extracted_at is None:
         extracted_at = _dt.date.today().isoformat()
+    if not blocks:
+        return []
+
+    block_by_id = {block.id: block for block in blocks}
+    system_prompt, user_message = _build_prompts(blocks, config)
+    raw_response = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+
+    try:
+        parsed = _parse_response(raw_response)
+    except ValueError:
+        logger.warning("Extractor response was not valid JSON; retrying once")
+        retry_message = (
+            f"{user_message}\n\n"
+            "Your previous response was not valid JSON. Return ONLY one JSON "
+            'object with a "claims" array matching the schema above. No prose, '
+            "no markdown fences."
+        )
+        raw_response = llm_client.call(system_prompt, retry_message, max_tokens=max_tokens)
+        try:
+            parsed = _parse_response(raw_response)
+        except ValueError:
+            logger.warning("Extractor response invalid after retry; returning no claims")
+            return []
 
     claims: list[Claim] = []
-    for block in blocks:
-        if not _is_ppc_table_row(block):
-            continue
-
-        headers = block.structural_meta.get("column_headers", [])
-        variable_value = _find_variable_value(block, headers)
-        target_cells = _extract_target_cells(block, headers)
-        if not target_cells:
-            continue
-
-        for column_name, cell_value in target_cells:
-            statement = _compose_statement(variable_value, column_name, cell_value)
-            claims.append(
-                Claim(
-                    id="",  # assigned downstream
-                    ordinal=-1,
-                    statement=statement,
-                    claim_type="performance",  # default; binder/appraiser can refine
-                    polarity="neutral",
-                    source_id=source_id,
-                    source_type="product_profile",
-                    source_locator=_build_locator(block, column_name, cell_value),
-                    extracted_at=extracted_at,
-                    intervention_class=intervention_class,
-                    therapeutic_area=therapeutic_area,
-                    attribute_ref=None,
-                    binding_confidence=None,
-                    evidence_strength=None,
-                    recency_tier=None,
-                    review_status="unverified",
-                    version=1,
-                )
-            )
+    for entry in parsed:
+        claim = _build_claim(
+            entry,
+            block_by_id=block_by_id,
+            source_id=source_id,
+            extracted_at=extracted_at,
+            intervention_class=intervention_class,
+            therapeutic_area=therapeutic_area,
+            config=config,
+        )
+        if claim is not None:
+            claims.append(claim)
     return claims
 
 
 # ---------------------------------------------------------------------------
-# Internals
+# Prompt construction
 # ---------------------------------------------------------------------------
 
 
-def _is_ppc_table_row(block: ContentBlock) -> bool:
-    if block.source_type != "table_row":
-        return False
-    headers = block.structural_meta.get("column_headers", [])
-    if not headers:
-        return False
-    # A PPC-shape table has at least one target-value column and (usually)
-    # a variable-label column.
-    return any(_normalize_header(h) in TARGET_VALUE_COLUMNS for h in headers)
+def _build_prompts(blocks: list[ContentBlock], config: AttributeConfig) -> tuple[str, str]:
+    """Return (system_prompt, user_message)."""
+    system_prompt = _build_system_prompt(config)
+    user_message = _build_user_message(blocks)
+    return system_prompt, user_message
 
 
-def _find_variable_value(block: ContentBlock, headers: list[str]) -> str:
-    parsed = _parse_row_content(block.content, headers)
-    for header_key, header_value in parsed.items():
-        if _normalize_header(header_key) in VARIABLE_LABEL_COLUMNS:
-            return header_value
-    # Fallback: first non-target column.
-    for header_key, header_value in parsed.items():
-        if _normalize_header(header_key) not in TARGET_VALUE_COLUMNS:
-            return header_value
-    return ""
+def _build_system_prompt(config: AttributeConfig) -> str:
+    claim_type_lines = ", ".join(sorted(set(config.claim_types) & set(CLAIM_TYPES)))
+    polarity_lines = ", ".join(POLARITIES)
+    attribute_hints = "\n".join(
+        f"- {attr.name}: {attr.description.strip()[:200]}"
+        for attr in config.attributes
+    )
+
+    return f"""You extract source-backed claims from product-profile documents (Target Product Profiles, Preferred Product Characteristics, peer-org equivalents).
+
+DOMAIN CONTEXT
+{config.preamble.strip()}
+
+WHAT TO LOOK FOR
+You're extracting claims worth grading and binding to attributes downstream. The attributes that exist (so you know what kinds of facts matter) are listed below — but DO NOT assign attribute_ref. Just extract the claims; another stage will bind them.
+
+ATTRIBUTES (context only — do not output these as refs):
+{attribute_hints}
+
+WHAT COUNTS AS A CLAIM
+A claim is one atomic, source-backed assertion. Examples:
+- "Minimum efficacy is at least 50% reduction in clinical disease over 12 months"
+- "Target population is children 6 months to 5 years in malaria-endemic areas"
+- "Product must achieve WHO Prequalification by 2030"
+
+A claim is NOT:
+- Section headings on their own
+- Boilerplate / introductions / instructions
+- Page numbers, references, version histories
+- Empty cells or placeholder tokens like <<TBD>>
+
+EXTRACTION RULES
+1. Process EVERY block (paragraphs, headings, table_rows). A heading can be the start of a claim — e.g. "Indication: malaria" is one claim from one block.
+2. A single block (especially a table_row) may contain multiple claims. Split them.
+3. Each claim cites:
+   - "block_id": the id of the block this claim came from. Must exactly match a block we provided.
+   - "quote": a verbatim substring from that block's content. Must appear character-for-character in the source.
+4. Use claim_type from: {claim_type_lines}
+5. Use polarity from: {polarity_lines}
+6. Do NOT output an "attribute_ref" — binding happens downstream.
+
+OUTPUT SCHEMA
+Return ONE JSON object exactly matching:
+{{
+  "claims": [
+    {{
+      "statement": "one normalized assertion, full sentence",
+      "claim_type": "performance|feasibility|user_need|workflow|access|market|regulatory|modelled_impact|expert_judgment",
+      "polarity": "supports|challenges|neutral",
+      "block_id": "the block id this claim came from",
+      "quote": "verbatim substring from that block's content"
+    }}
+  ]
+}}
+
+No markdown fences, no preamble, no trailing prose. Only the JSON object."""
 
 
-def _extract_target_cells(
-    block: ContentBlock,
-    headers: list[str],
-) -> list[tuple[str, str]]:
-    parsed = _parse_row_content(block.content, headers)
-    targets: list[tuple[str, str]] = []
-    for header_key, header_value in parsed.items():
-        if _normalize_header(header_key) not in TARGET_VALUE_COLUMNS:
-            continue
-        cleaned = header_value.strip()
-        if not cleaned:
-            continue
-        targets.append((_normalize_header(header_key), cleaned))
-    return targets
+def _build_user_message(blocks: list[ContentBlock]) -> str:
+    lines = ["Extract claims from these blocks:"]
+    for block in blocks:
+        heading_path = " > ".join(block.heading_stack) if block.heading_stack else ""
+        prefix = f"[{block.id} | {block.block_type}"
+        if heading_path:
+            prefix += f" | heading: {heading_path}"
+        prefix += "]"
+        lines.append(f"\n{prefix}\n{block.content}")
+    return "\n".join(lines)
 
 
-def _parse_row_content(content: str, headers: list[str]) -> dict[str, str]:
-    """
-    Recover {header: value} from the chunker's table_row content string.
-
-    The chunker emits table rows as "Header: Value, Header: Value, ...".
-    Splitting on comma is fragile (commas inside values), so we anchor on
-    each header name.
-    """
-    if not headers:
-        return {}
-
-    indexed: list[tuple[int, str]] = []
-    for header in headers:
-        if not header:
-            continue
-        marker = f"{header}:"
-        position = content.find(marker)
-        if position >= 0:
-            indexed.append((position, header))
-    indexed.sort()
-
-    result: dict[str, str] = {}
-    for i, (start, header) in enumerate(indexed):
-        marker = f"{header}:"
-        value_start = start + len(marker)
-        value_end = indexed[i + 1][0] if i + 1 < len(indexed) else len(content)
-        value = content[value_start:value_end].strip()
-        if value.endswith(","):
-            value = value[:-1].rstrip()
-        result[header] = value
-    return result
+# ---------------------------------------------------------------------------
+# Response parsing + validation
+# ---------------------------------------------------------------------------
 
 
-def _normalize_header(header: str) -> str:
-    return (header or "").strip()
+def _parse_response(raw: str) -> list[dict[str, Any]]:
+    """Parse the LLM response into a list of claim dicts. Raises ValueError on bad JSON."""
+    text = raw.strip()
+    # Strip markdown code fences if present.
+    fence_match = re.search(r"```(?:json)?\s*(.+?)\s*```", text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"response is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict) or "claims" not in data:
+        raise ValueError("response must be an object with a 'claims' array")
+    claims = data["claims"]
+    if not isinstance(claims, list):
+        raise ValueError("'claims' must be a list")
+    return claims
 
 
-def _compose_statement(variable: str, column: str, value: str) -> str:
-    variable = variable.strip() or "Attribute"
-    column = column.strip().lower()
-    # Trim very long values for the statement; full value is preserved in the quote.
-    short_value = value if len(value) <= 200 else value[:197] + "..."
-    return f"{column.capitalize()} value for {variable}: {short_value}"
+def _build_claim(
+    entry: dict[str, Any],
+    *,
+    block_by_id: dict[str, ContentBlock],
+    source_id: str,
+    extracted_at: str,
+    intervention_class: str | None,
+    therapeutic_area: str | None,
+    config: AttributeConfig,
+) -> Claim | None:
+    """Validate a single extracted claim dict; return a Claim or None if invalid."""
+    statement = (entry.get("statement") or "").strip()
+    block_id = entry.get("block_id")
+    quote = entry.get("quote") or ""
+    if not statement or not block_id or not quote:
+        return None
+
+    block = block_by_id.get(block_id)
+    if block is None:
+        logger.debug("Dropping claim: block_id %s not in source", block_id)
+        return None
+    if quote not in block.content:
+        logger.debug("Dropping claim: quote not a verbatim substring of block %s", block_id)
+        return None
+
+    claim_type = entry.get("claim_type") or "performance"
+    if claim_type not in config.claim_types:
+        claim_type = "performance"
+    polarity = entry.get("polarity") or "neutral"
+    if polarity not in POLARITIES:
+        polarity = "neutral"
+
+    return Claim(
+        id="",  # assigned downstream
+        ordinal=-1,
+        statement=statement,
+        claim_type=claim_type,
+        polarity=polarity,
+        source_id=source_id,
+        source_kind="product_profile",
+        source_locator=_build_locator(block, quote),
+        extracted_at=extracted_at,
+        intervention_class=intervention_class,
+        therapeutic_area=therapeutic_area,
+        attribute_ref=None,
+        binding_confidence=None,
+        evidence_strength=None,
+        recency_tier=None,
+        review_status="unverified",
+        version=1,
+    )
 
 
-def _build_locator(block: ContentBlock, column_name: str, cell_value: str) -> dict:
-    locator: dict = {
-        "quote": cell_value,
+def _build_locator(block: ContentBlock, quote: str) -> dict[str, Any]:
+    locator: dict[str, Any] = {
         "block_id": block.id,
-        "row_content": block.content,
+        "quote": quote,
+        "block_type": block.block_type,
     }
+    if block.heading_stack:
+        locator["heading_stack"] = list(block.heading_stack)
     if block.structural_meta.get("page") is not None:
         locator["page"] = block.structural_meta["page"]
     if block.structural_meta.get("table_index") is not None:
         locator["table_index"] = block.structural_meta["table_index"]
     if block.structural_meta.get("row_index") is not None:
         locator["row_index"] = block.structural_meta["row_index"]
-    locator["target_column"] = column_name
     return locator

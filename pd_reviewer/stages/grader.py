@@ -202,7 +202,7 @@ def _format_blocks(blocks: list[ContentBlock]) -> str:
 def _format_block(block: ContentBlock) -> str:
     heading_stack = " > ".join(block.heading_stack) if block.heading_stack else "none"
     return (
-        f"[{block.id} | {block.source_type} | headings: {heading_stack}]\n"
+        f"[{block.id} | {block.block_type} | headings: {heading_stack}]\n"
         f"{block.content}"
     )
 

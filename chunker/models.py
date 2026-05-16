@@ -1,7 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
+
+
+CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
+
+
+def find_config(org: str, source_type: str, intervention_class: str) -> "DocumentTypeConfig":
+    """Load the chunker config for the given (org, source_type, intervention)."""
+    path = CONFIGS_DIR / f"{org}_{source_type}_{intervention_class}.yaml"
+    if not path.exists():
+        raise LookupError(
+            f"No chunker config for ({org}, {source_type}, {intervention_class}). "
+            f"Expected: {path}"
+        )
+    return load_config(str(path))
 
 
 class LLMClientProtocol(Protocol):
@@ -35,7 +50,7 @@ class ContentBlock:
     id: str
     doc_id: str
     ordinal: int
-    source_type: str
+    block_type: str  # "paragraph", "heading", "table_row" — the kind of parser output
     content: str
     heading_stack: list[str]
     structural_meta: dict[str, Any]
@@ -45,10 +60,19 @@ class ContentBlock:
     section_label: str | None = None
     label_confidence: str | None = None
 
+    # --- Header (document provenance, stamped by pipeline after parsing) ---
+    org: str | None = None
+    source_type: str | None = None  # document format: "tpp", "ppc", "paper"
+    intervention_class: str | None = None
+    therapeutic_area: str | None = None
+
 
 @dataclass
 class DocumentTypeConfig:
     type_key: str
+    org: str
+    source_type: str
+    intervention_class: str
     display_name: str
     section_taxonomy: list[dict[str, str]]
     preamble: str
@@ -74,6 +98,9 @@ def load_config(config_path: str) -> DocumentTypeConfig:
 
     required_fields = {
         "type_key",
+        "org",
+        "source_type",
+        "intervention_class",
         "display_name",
         "section_taxonomy",
         "preamble",
@@ -86,6 +113,9 @@ def load_config(config_path: str) -> DocumentTypeConfig:
 
     _validate_section_taxonomy(data["section_taxonomy"])
     _validate_string_field(data, "type_key")
+    _validate_string_field(data, "org")
+    _validate_string_field(data, "source_type")
+    _validate_string_field(data, "intervention_class")
     _validate_string_field(data, "display_name")
     _validate_string_field(data, "preamble")
     _validate_string_list(data["disambiguation"], "disambiguation")
@@ -94,6 +124,9 @@ def load_config(config_path: str) -> DocumentTypeConfig:
 
     return DocumentTypeConfig(
         type_key=data["type_key"],
+        org=data["org"],
+        source_type=data["source_type"],
+        intervention_class=data["intervention_class"],
         display_name=data["display_name"],
         section_taxonomy=data["section_taxonomy"],
         preamble=data["preamble"],

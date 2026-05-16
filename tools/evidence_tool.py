@@ -16,7 +16,7 @@ if str(ROOT_DIR) not in sys.path:
 
 import streamlit as st  # noqa: E402
 
-from evidence.models import BatchResult, Claim, load_config  # noqa: E402
+from evidence.models import BatchResult, Claim  # noqa: E402
 from evidence.pipeline import (  # noqa: E402
     DEFAULT_MAX_OUTPUT_TOKENS,
     EXTRACTORS,
@@ -25,7 +25,13 @@ from evidence.pipeline import (  # noqa: E402
     run_pipeline_batch,
 )
 from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
-from tools._ui import render_empty_state, render_header, render_advanced_controls, render_llm_controls  # noqa: E402
+from tools._ui import (  # noqa: E402
+    render_advanced_controls,
+    render_empty_state,
+    render_header,
+    render_llm_controls,
+    render_section,
+)
 
 
 
@@ -37,8 +43,8 @@ def main() -> None:
     render()
 
 
-def render() -> None:
-    """Render the evidence UI inside a Streamlit app."""
+def render(header=None, config=None) -> None:
+    """Render the evidence UI. `header` and `config` come from app.py."""
     render_header(
         "Evidence",
         "Claim Pipeline",
@@ -46,48 +52,37 @@ def render() -> None:
         "source-backed claims grounded in an AttributeConfig.",
     )
 
+    if config is None or header is None:
+        render_empty_state("Pick a document type in the sidebar.")
+        return
+
     if "evidence_upload_counter" not in st.session_state:
         st.session_state["evidence_upload_counter"] = 0
     if "evidence_batch_upload_counter" not in st.session_state:
         st.session_state["evidence_batch_upload_counter"] = 0
 
-    config_entries = _discover_configs()
-    if not config_entries:
-        st.error(
-            "No AttributeConfig files found in evidence/configs/. "
-            "Copy CONFIG_TEMPLATE.yaml and fill in real attributes."
-        )
-        st.stop()
-
-    mode = st.sidebar.selectbox("Mode", ["Single Document", "Batch"])
-    if mode == "Batch":
-        _render_batch_mode(config_entries)
+    render_section("mode (ui)")
+    mode = st.sidebar.selectbox(
+        "mode",
+        ["single", "batch"],
+        key="evidence_mode",
+        label_visibility="collapsed",
+    )
+    if mode == "batch":
+        _render_batch_mode(header=header, config=config)
         return
 
-    _render_single_mode(config_entries)
+    _render_single_mode(header=header, config=config)
 
 
-def _render_single_mode(config_entries: list[tuple[str, str]]) -> None:
-    config = _config_selector(config_entries, key="evidence_single_doc_type")
-    source_type = st.sidebar.selectbox(
-        "Source type",
-        sorted(EXTRACTORS.keys()),
-        help="Which extractor to use. Only `product_profile` is wired today.",
-    )
-    intervention_class = st.sidebar.selectbox(
-        "Intervention class (optional)",
-        [""] + list(config.intervention_classes),
-    ) or None
-    therapeutic_area = st.sidebar.selectbox(
-        "Therapeutic area (optional)",
-        [""] + list(config.therapeutic_areas),
-    ) or None
-
+def _render_single_mode(*, header, config) -> None:
+    render_section("input")
     uploaded_file = st.sidebar.file_uploader(
-        "Upload document (.docx or .pdf)",
+        "input_dir (one .docx or .pdf)",
         type=SUPPORTED_UPLOAD_TYPES,
         key=f"evidence_upload_{st.session_state['evidence_upload_counter']}",
     )
+    source_kind = _select_source_kind(key="evidence_single_source_kind")
 
     provider, model, api_key = render_llm_controls(
         "evidence_single",
@@ -99,7 +94,7 @@ def _render_single_mode(config_entries: list[tuple[str, str]]) -> None:
         default_max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
     )
 
-    if st.sidebar.button("Run Pipeline"):
+    if st.sidebar.button("run"):
         if uploaded_file is None:
             st.error("Upload a document before running the pipeline.")
         elif not api_key:
@@ -108,16 +103,15 @@ def _render_single_mode(config_entries: list[tuple[str, str]]) -> None:
             _run_single_pipeline(
                 uploaded_file=uploaded_file,
                 config=config,
-                source_type=source_type,
-                intervention_class=intervention_class,
-                therapeutic_area=therapeutic_area,
+                header=header,
+                source_kind=source_kind,
                 provider=provider,
                 model=model,
                 api_key=api_key,
                 max_tokens=advanced["max_tokens"],
             )
 
-    if st.sidebar.button("Clear / Restart"):
+    if st.sidebar.button("clear / restart"):
         _restart_session()
 
     result = st.session_state.get("evidence_single_result")
@@ -136,30 +130,15 @@ def _render_single_mode(config_entries: list[tuple[str, str]]) -> None:
     _render_download(claims, source_id)
 
 
-def _render_batch_mode(config_entries: list[tuple[str, str]]) -> None:
-    config = _config_selector(config_entries, key="evidence_batch_doc_type")
-    source_type = st.sidebar.selectbox(
-        "Source type",
-        sorted(EXTRACTORS.keys()),
-        key="evidence_batch_source_type",
-    )
-    intervention_class = st.sidebar.selectbox(
-        "Intervention class (optional)",
-        [""] + list(config.intervention_classes),
-        key="evidence_batch_intervention",
-    ) or None
-    therapeutic_area = st.sidebar.selectbox(
-        "Therapeutic area (optional)",
-        [""] + list(config.therapeutic_areas),
-        key="evidence_batch_therapeutic",
-    ) or None
-
+def _render_batch_mode(*, header, config) -> None:
+    render_section("input")
     uploaded_files = st.sidebar.file_uploader(
-        "Upload documents (.docx or .pdf)",
+        "input_dir (.docx, .pdf)",
         type=SUPPORTED_UPLOAD_TYPES,
         accept_multiple_files=True,
         key=f"evidence_batch_upload_{st.session_state['evidence_batch_upload_counter']}",
     )
+    source_kind = _select_source_kind(key="evidence_batch_source_kind")
 
     provider, model, api_key = render_llm_controls(
         "evidence_batch",
@@ -172,7 +151,7 @@ def _render_batch_mode(config_entries: list[tuple[str, str]]) -> None:
         show_max_workers=True,
     )
 
-    if st.sidebar.button("Run Batch Pipeline"):
+    if st.sidebar.button("run"):
         if not uploaded_files:
             st.error("Upload one or more documents before running.")
         elif not api_key:
@@ -181,9 +160,8 @@ def _render_batch_mode(config_entries: list[tuple[str, str]]) -> None:
             _run_batch_pipeline(
                 uploaded_files=uploaded_files,
                 config=config,
-                source_type=source_type,
-                intervention_class=intervention_class,
-                therapeutic_area=therapeutic_area,
+                header=header,
+                source_kind=source_kind,
                 provider=provider,
                 model=model,
                 api_key=api_key,
@@ -191,7 +169,7 @@ def _render_batch_mode(config_entries: list[tuple[str, str]]) -> None:
                 max_workers=advanced["max_workers"],
             )
 
-    if st.sidebar.button("Clear / Restart", key="evidence_batch_clear"):
+    if st.sidebar.button("clear / restart", key="evidence_batch_clear"):
         _restart_session()
 
     batch_results = st.session_state.get("evidence_batch_results")
@@ -211,9 +189,8 @@ def _run_single_pipeline(
     *,
     uploaded_file,
     config,
-    source_type: str,
-    intervention_class: str | None,
-    therapeutic_area: str | None,
+    header,
+    source_kind: str,
     provider: str,
     model: str,
     api_key: str,
@@ -231,12 +208,13 @@ def _run_single_pipeline(
             blocks, claims = run_pipeline(
                 file_path=temp_path,
                 doc_id=source_id,
-                source_type=source_type,
                 source_id=source_id,
                 config=config,
                 llm_client=llm_client,
-                intervention_class=intervention_class,
-                therapeutic_area=therapeutic_area,
+                org=header["org"],
+                source_type=header["source_type"],
+                therapeutic_area=header.get("therapeutic_area"),
+                source_kind=source_kind,
                 max_tokens=max_tokens,
             )
         st.session_state["evidence_single_result"] = {
@@ -256,9 +234,8 @@ def _run_batch_pipeline(
     *,
     uploaded_files,
     config,
-    source_type: str,
-    intervention_class: str | None,
-    therapeutic_area: str | None,
+    header,
+    source_kind: str,
     provider: str,
     model: str,
     api_key: str,
@@ -272,10 +249,11 @@ def _run_batch_pipeline(
             results = run_pipeline_batch(
                 jobs,
                 config=config,
-                source_type=source_type,
                 llm_client_factory=lambda: create_llm_client(provider, api_key, model),
-                intervention_class=intervention_class,
-                therapeutic_area=therapeutic_area,
+                org=header["org"],
+                source_type=header["source_type"],
+                therapeutic_area=header.get("therapeutic_area"),
+                source_kind=source_kind,
                 max_tokens=max_tokens,
                 max_workers=max_workers,
             )
@@ -292,21 +270,6 @@ def _stage_upload(uploaded_file) -> dict:
     with tempfile.NamedTemporaryFile(delete=False, suffix=file_suffix) as temp_file:
         temp_file.write(uploaded_file.getvalue())
         return {"file_path": temp_file.name, "source_id": source_id}
-
-
-def _config_selector(
-    config_entries: list[tuple[str, str]],
-    *,
-    key: str,
-):
-    config_display = st.sidebar.selectbox(
-        "AttributeConfig",
-        [display for display, _ in config_entries],
-        key=key,
-        help="Defines the attribute namespace claims are bound to.",
-    )
-    config_file = next(file for display, file in config_entries if display == config_display)
-    return load_config(_config_path(config_file))
 
 
 def _restart_session() -> None:
@@ -478,20 +441,17 @@ def _claims_to_csv(claims: list[Claim]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _config_path(file_name: str) -> str:
-    return str(ROOT_DIR / "evidence" / "configs" / file_name)
-
-
-def _discover_configs() -> list[tuple[str, str]]:
-    configs_dir = ROOT_DIR / "evidence" / "configs"
-    entries: list[tuple[str, str]] = []
-    for path in sorted(configs_dir.glob("*.yaml")):
-        try:
-            config = load_config(str(path))
-        except Exception:
-            continue
-        entries.append((config.display_name, path.name))
-    return entries
+def _select_source_kind(*, key: str) -> str:
+    """Render the source_kind picker only when more than one extractor is wired."""
+    kinds = sorted(EXTRACTORS.keys())
+    if len(kinds) == 1:
+        return kinds[0]
+    return st.sidebar.selectbox(
+        "source_kind",
+        kinds,
+        help="CLI: --source-kind",
+        key=key,
+    )
 
 
 if __name__ == "__main__":

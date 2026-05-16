@@ -152,38 +152,24 @@ downloaded_docs/
   device/
 ```
 
-Run parser-only export from the repo root:
+The CLI takes the document **header** (org, source_type, intervention) as required flags. The chunker config is resolved by `{org}_{source_type}_{intervention}.yaml`.
+
+Parser-only:
 
 ```bash
-python -m chunker.cli downloaded_docs chunker_package --max-workers 4
+python -m chunker.cli docs/ chunker_package --org gates --source-type tpp --intervention vaccine --max-workers 4
 ```
 
-If the input folder contains documents for only one type directly, use `--tpp-type`:
-
-```bash
-python -m chunker.cli downloaded_device_docs chunker_package --tpp-type device --max-workers 4
-```
-
-Run parsed + mapped export:
+Parser + mapper:
 
 ```bash
 export OPENAI_API_KEY="..."
-python -m chunker.cli downloaded_docs chunker_package --map --provider openai --max-workers 4 --max-tokens 16000
+python -m chunker.cli docs/ chunker_package \
+  --org gates --source-type tpp --intervention vaccine \
+  --map --provider openai --max-workers 4 --max-tokens 16000
 ```
 
-Single-type parsed + mapped export:
-
-```bash
-export OPENAI_API_KEY="..."
-python -m chunker.cli downloaded_device_docs chunker_package --tpp-type device --map --provider openai --max-workers 4 --max-tokens 16000
-```
-
-For Anthropic:
-
-```bash
-export ANTHROPIC_API_KEY="..."
-python -m chunker.cli downloaded_docs chunker_package --map --provider anthropic --max-workers 4 --max-tokens 16000
-```
+Optional `--therapeutic-area malaria` stamps every output row with the disease tag.
 
 Output shape:
 
@@ -195,7 +181,7 @@ chunker_package/
   summary.csv
 ```
 
-`documents.csv` has one row per source document. `content_blocks.csv` has one row per parsed block. Both tables share `doc_key`, which is generated from the file's relative path, so block rows can be joined back to the source document row. In parser-only mode, `section_label` and `label_confidence` are blank. In mapped mode, they are filled by the mapper using the config inferred from the parent folder or the `--tpp-type` override. `--max-workers` controls how many documents are processed concurrently. `--max-tokens` controls the mapper response token budget for each document. This export does not change the parser's normal `list[ContentBlock]` output.
+`documents.csv` has one row per source document. `content_blocks.csv` has one row per parsed block. Both tables share `doc_key` and the four header columns (`org`, `source_type`, `intervention_class`, `therapeutic_area`). In parser-only mode, `section_label` and `label_confidence` are blank. In mapped mode, they are filled by the mapper using the config resolved from the header. `--max-workers` controls concurrency; `--max-tokens` controls the mapper response token budget.
 
 ## ContentBlock Schema
 
@@ -256,8 +242,8 @@ The parser walks `doc.element.body` in XML order, not `doc.paragraphs`, so inter
 For paragraphs:
 
 - Empty paragraphs are skipped, but still count toward `paragraph_index`.
-- Word styles starting with `"Heading"` become `source_type="heading"`.
-- Non-heading paragraphs become `source_type="paragraph"`.
+- Word styles starting with `"Heading"` become `block_type="heading"`.
+- Non-heading paragraphs become `block_type="paragraph"`.
 - The parser maintains a heading stack. When a heading at level `N` appears, headings at level `N` or deeper are popped and the new heading is pushed.
 
 For tables:

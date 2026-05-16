@@ -1,27 +1,34 @@
 """CLI: run the evidence pipeline against one or more documents.
 
-Mirrors chunker/cli.py shape: input directory of source documents
-+ config + LLM config → output directory with claims.csv and claims.jsonl.
+Inputs (header):
+    --org / --source-type / --intervention      identifies document type
+    --therapeutic-area                          optional per-doc tag
 
-No persistent store. Each run is an independent input → output transformation.
+Evidence config is resolved by `intervention` alone (the attribute namespace
+is per product class, not per document format). The full header is stamped
+on every output claim.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import io
 import json
 import logging
 import os
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from llm_client import create_llm_client, default_model_for_provider
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-from .models import Claim, load_config
-from .pipeline import (
+from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
+
+from .models import Claim, find_config  # noqa: E402
+from .pipeline import (  # noqa: E402
     DEFAULT_MAX_OUTPUT_TOKENS,
     EXTRACTORS,
     default_source_id_from_path,
@@ -39,7 +46,8 @@ def main() -> None:
     args = _parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-    config = load_config(args.config)
+    config = find_config(args.intervention)
+
     api_key = args.api_key or os.environ.get(_api_key_env_var(args.provider))
     if not api_key:
         raise SystemExit(
@@ -67,10 +75,11 @@ def main() -> None:
     batch_results = run_pipeline_batch(
         jobs,
         config=config,
-        source_type=args.source_type,
-        intervention_class=args.intervention_class,
-        therapeutic_area=args.therapeutic_area,
         llm_client_factory=llm_client_factory,
+        org=args.org,
+        source_type=args.source_type,
+        therapeutic_area=args.therapeutic_area,
+        source_kind=args.source_kind,
         max_tokens=args.max_tokens,
         max_workers=args.max_workers,
     )
@@ -104,13 +113,11 @@ def _write_outputs(output_dir: Path, results: list[dict[str, Any]]) -> None:
     for result in results:
         all_claims.extend(result["claims"])
 
-    # claims.jsonl
     with claims_jsonl_path.open("w", encoding="utf-8") as handle:
         for claim in all_claims:
             handle.write(json.dumps(asdict(claim), ensure_ascii=False))
             handle.write("\n")
 
-    # claims.csv (flat)
     if all_claims:
         flat_rows = []
         for claim in all_claims:
@@ -123,7 +130,6 @@ def _write_outputs(output_dir: Path, results: list[dict[str, Any]]) -> None:
             writer.writeheader()
             writer.writerows(flat_rows)
 
-    # summary.csv (per document)
     with summary_csv_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
@@ -170,20 +176,21 @@ def _parse_args() -> argparse.Namespace:
         description="Run the evidence pipeline against a folder of source documents."
     )
     parser.add_argument("input_dir", help="Folder containing source documents (.pdf, .docx)")
-    parser.add_argument("output_dir", help="Folder where claims.csv / claims.jsonl / summary.csv are written")
-    parser.add_argument(
-        "--config",
-        required=True,
-        help="Path to an evidence AttributeConfig YAML (e.g., evidence/configs/vaccine.yaml)",
-    )
-    parser.add_argument(
-        "--source-type",
-        choices=sorted(EXTRACTORS.keys()),
-        default="product_profile",
-        help="Which extractor to use. Only `product_profile` is wired today.",
-    )
-    parser.add_argument("--intervention-class", default=None)
+    parser.add_argument("output_dir", help="Folder where outputs are written")
+    parser.add_argument("--org", required=True)
+    parser.add_argument("--source-type", required=True)
+    parser.add_argument("--intervention", required=True)
     parser.add_argument("--therapeutic-area", default=None)
+    if len(EXTRACTORS) > 1:
+        parser.add_argument(
+            "--source-kind",
+            choices=sorted(EXTRACTORS.keys()),
+            required=True,
+            help="Which extractor to use.",
+        )
+    else:
+        only_kind = next(iter(EXTRACTORS))
+        parser.set_defaults(source_kind=only_kind)
     parser.add_argument("--provider", choices=["openai", "anthropic"], default="anthropic")
     parser.add_argument("--model", default=None)
     parser.add_argument("--api-key", default=None)

@@ -1,4 +1,7 @@
 type_key: gates_tpp_device
+org: gates
+source_type: tpp
+intervention_class: device
 display_name: "Medical Device Target Product Profile"
 chunker_config_path: "../chunker/configs/gates_tpp_device.yaml"
 

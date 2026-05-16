@@ -1,3 +1,14 @@
+"""CLI: grade a chunker package against a PD Reviewer rubric.
+
+Reads a chunker package (documents.csv + content_blocks.csv produced by
+`python -m chunker.cli`) and grades every successfully-mapped document.
+Outputs review CSVs + manifest.
+
+The header (org, source_type, intervention_class) is read from the chunker
+package contents (every row carries the header columns). Therapeutic area
+is an optional CLI flag.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -6,31 +17,33 @@ import hashlib
 import json
 import logging
 import os
+import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from chunker.models import ContentBlock
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-from llm_client import create_llm_client, default_model_for_provider
+from chunker.models import ContentBlock  # noqa: E402
+from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
 
-from .models import ReviewConfig, ReviewResult, SectionGrade, load_review_config
-from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, GRADE_TO_SCORE, review_blocks_batch
+from .models import ReviewConfig, ReviewResult, SectionGrade, find_config  # noqa: E402
+from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, GRADE_TO_SCORE, review_blocks_batch  # noqa: E402
+
 
 logger = logging.getLogger(__name__)
 
-CONFIG_BY_TPP_TYPE = {
-    "vaccine": "gates_tpp_vaccine.yaml",
-    "drug": "gates_tpp_drug.yaml",
-    "diagnostic": "gates_tpp_diagnostic.yaml",
-    "device": "gates_tpp_device.yaml",
-}
+
+HEADER_COLUMNS = ["org", "source_type", "intervention_class", "therapeutic_area"]
+
 
 DOCUMENT_SCORE_COLUMNS = [
     "doc_key",
-    "tpp_type",
+    *HEADER_COLUMNS,
     "file_name",
     "overall_grade",
     "weighted_score",
@@ -44,7 +57,7 @@ DOCUMENT_SCORE_COLUMNS = [
 
 SECTION_GRADE_COLUMNS = [
     "doc_key",
-    "tpp_type",
+    *HEADER_COLUMNS,
     "section_name",
     "weight",
     "grade",
@@ -58,7 +71,7 @@ SECTION_GRADE_COLUMNS = [
 
 VARIABLE_GRADE_COLUMNS = [
     "doc_key",
-    "tpp_type",
+    *HEADER_COLUMNS,
     "section_name",
     "variable_name",
     "grade",
@@ -74,7 +87,7 @@ class _DocumentRecord:
     """Per-document inputs assembled from the chunker package."""
 
     doc_key: str
-    tpp_type: str
+    header: dict[str, Any]
     file_name: str
     blocks: list[ContentBlock]
 
@@ -88,7 +101,7 @@ def export_review_package(
     api_key: str | None = None,
     max_workers: int = 4,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
-    tpp_type: str | None = None,
+    therapeutic_area: str | None = None,
 ) -> None:
     """Run PD Reviewer over a chunker package and write review tables."""
     input_path = Path(input_dir).expanduser().resolve()
@@ -113,11 +126,18 @@ def export_review_package(
     document_rows = _read_csv(documents_csv)
     block_rows = _read_csv(blocks_csv)
 
-    resolved_type = _resolve_tpp_type(tpp_type, document_rows)
-    config = _load_config_for_type(resolved_type)
+    header = _resolve_header_from_package(document_rows, therapeutic_area)
+    config = find_config(header["org"], header["source_type"], header["intervention_class"])
+    if config is None:
+        org, src, iv = header["org"], header["source_type"], header["intervention_class"]
+        raise ValueError(
+            f"No PD Reviewer rubric for ({org}, {src}, {iv}). "
+            f"Expected: pd_reviewer/configs/{org}_{src}_{iv}.yaml"
+        )
+
     llm_client = create_llm_client(provider, api_key, model=model)
 
-    records = _build_document_records(document_rows, block_rows, resolved_type)
+    records = _build_document_records(document_rows, block_rows, header)
     if not records:
         raise ValueError("No reviewable documents found (need parse_status=ok and mapping_status=ok)")
 
@@ -132,6 +152,7 @@ def export_review_package(
         jobs,
         config=config,
         llm_client_factory=lambda: llm_client,
+        therapeutic_area=therapeutic_area,
         max_tokens=max_tokens,
         max_workers=max_workers,
     )
@@ -149,24 +170,17 @@ def export_review_package(
 
     doc_score_rows.sort(key=lambda row: row["doc_key"])
     section_rows.sort(key=lambda row: (row["doc_key"], row["section_name"]))
-    variable_rows.sort(
-        key=lambda row: (row["doc_key"], row["section_name"], row["variable_name"])
-    )
+    variable_rows.sort(key=lambda row: (row["doc_key"], row["section_name"], row["variable_name"]))
 
     _write_csv(output_path / "document_scores.csv", doc_score_rows, DOCUMENT_SCORE_COLUMNS)
     _write_csv(output_path / "section_grades.csv", section_rows, SECTION_GRADE_COLUMNS)
     _write_csv(output_path / "variable_grades.csv", variable_rows, VARIABLE_GRADE_COLUMNS)
-    _write_summary(
-        output_path / "summary.csv",
-        doc_score_rows,
-        section_rows,
-        resolved_type,
-    )
+    _write_summary(output_path / "summary.csv", doc_score_rows, section_rows, header)
     _write_manifest(
         output_path / "manifest.json",
         input_path=input_path,
         blocks_csv=blocks_csv,
-        tpp_type=resolved_type,
+        header=header,
         provider=provider,
         model=llm_client.model,
         max_workers=max_workers,
@@ -175,12 +189,35 @@ def export_review_package(
     )
 
 
+def _resolve_header_from_package(
+    document_rows: list[dict[str, Any]],
+    therapeutic_area: str | None,
+) -> dict[str, Any]:
+    headers = {
+        (row.get("org"), row.get("source_type"), row.get("intervention_class"))
+        for row in document_rows
+        if row.get("org") and row.get("source_type") and row.get("intervention_class")
+    }
+    if not headers:
+        raise ValueError(
+            "documents.csv has no header columns (org, source_type, intervention_class). "
+            "Re-run the chunker with the current version."
+        )
+    if len(headers) > 1:
+        raise ValueError(f"Package contains multiple headers: {sorted(headers)}. Split before reviewing.")
+    org, source_type, intervention_class = next(iter(headers))
+    return {
+        "org": org,
+        "source_type": source_type,
+        "intervention_class": intervention_class,
+        "therapeutic_area": therapeutic_area or "",
+    }
 
 
 def _build_document_records(
     document_rows: list[dict[str, Any]],
     block_rows: list[dict[str, Any]],
-    expected_type: str,
+    header: dict[str, Any],
 ) -> list[_DocumentRecord]:
     blocks_by_doc = _blocks_by_doc(block_rows)
     records: list[_DocumentRecord] = []
@@ -194,7 +231,7 @@ def _build_document_records(
         records.append(
             _DocumentRecord(
                 doc_key=doc_key,
-                tpp_type=row.get("tpp_type") or expected_type,
+                header=header,
                 file_name=row.get("file_name", ""),
                 blocks=doc_blocks,
             )
@@ -207,7 +244,7 @@ def _blocks_by_doc(block_rows: list[dict[str, Any]]) -> dict[str, list[ContentBl
     for row in block_rows:
         block = _row_to_content_block(row)
         grouped[row["doc_key"]].append(block)
-    for doc_key, blocks in grouped.items():
+    for blocks in grouped.values():
         blocks.sort(key=lambda block: block.ordinal)
     return dict(grouped)
 
@@ -217,13 +254,17 @@ def _row_to_content_block(row: dict[str, Any]) -> ContentBlock:
         id=row["block_id"],
         doc_id=row["doc_key"],
         ordinal=int(row["ordinal"]),
-        source_type=row["source_type"],
+        block_type=row["block_type"],
         content=row.get("content", ""),
         heading_stack=_json_list(row.get("heading_stack_json")),
         structural_meta=_json_object(row.get("structural_meta_json")),
         style_hint=_json_object(row.get("style_hint_json")),
         section_label=row.get("section_label") or None,
         label_confidence=row.get("label_confidence") or None,
+        org=row.get("org") or None,
+        source_type=row.get("source_type") or None,
+        intervention_class=row.get("intervention_class") or None,
+        therapeutic_area=row.get("therapeutic_area") or None,
     )
 
 
@@ -235,7 +276,7 @@ def _document_score_row(
     sections_present = sum(1 for grade in result.section_grades if grade.is_present)
     return {
         "doc_key": record.doc_key,
-        "tpp_type": record.tpp_type,
+        **record.header,
         "file_name": record.file_name,
         "overall_grade": result.overall_grade,
         "weighted_score": _weighted_score(result.section_grades, config),
@@ -251,7 +292,7 @@ def _document_score_row(
 def _failed_document_row(record: _DocumentRecord, error: str) -> dict[str, Any]:
     return {
         "doc_key": record.doc_key,
-        "tpp_type": record.tpp_type,
+        **record.header,
         "file_name": record.file_name,
         "overall_grade": "",
         "weighted_score": "",
@@ -275,7 +316,7 @@ def _section_rows(
         rows.append(
             {
                 "doc_key": record.doc_key,
-                "tpp_type": record.tpp_type,
+                **record.header,
                 "section_name": grade.section_name,
                 "weight": weight_by_section.get(grade.section_name, 0.0),
                 "grade": grade.grade,
@@ -300,7 +341,7 @@ def _variable_rows(
             rows.append(
                 {
                     "doc_key": record.doc_key,
-                    "tpp_type": record.tpp_type,
+                    **record.header,
                     "section_name": section_grade.section_name,
                     "variable_name": variable.variable_name,
                     "grade": variable.grade,
@@ -331,37 +372,12 @@ def _weighted_score(
     return round(weighted / applied, 3)
 
 
-def _resolve_tpp_type(
-    explicit_type: str | None,
-    document_rows: list[dict[str, Any]],
-) -> str:
-    if explicit_type:
-        if explicit_type not in CONFIG_BY_TPP_TYPE:
-            raise ValueError(f"Unsupported tpp_type: {explicit_type}")
-        return explicit_type
-    types_in_package = {row.get("tpp_type") for row in document_rows if row.get("tpp_type")}
-    if len(types_in_package) == 1:
-        only_type = next(iter(types_in_package))
-        if only_type not in CONFIG_BY_TPP_TYPE:
-            raise ValueError(f"Unsupported tpp_type in package: {only_type}")
-        return only_type
-    raise ValueError(
-        "Package contains multiple or unknown tpp_types; pass --tpp-type to select one. "
-        f"Found: {sorted(t for t in types_in_package if t)}"
-    )
-
-
-def _load_config_for_type(tpp_type: str) -> ReviewConfig:
-    config_path = Path(__file__).parent / "configs" / CONFIG_BY_TPP_TYPE[tpp_type]
-    return load_review_config(str(config_path))
-
-
 def _write_manifest(
     path: Path,
     *,
     input_path: Path,
     blocks_csv: Path,
-    tpp_type: str,
+    header: dict[str, Any],
     provider: str,
     model: str,
     max_workers: int,
@@ -371,7 +387,10 @@ def _write_manifest(
     status_counts = Counter(row["review_status"] for row in doc_score_rows)
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "tpp_type": tpp_type,
+        "org": header["org"],
+        "source_type": header["source_type"],
+        "intervention_class": header["intervention_class"],
+        "therapeutic_area": header.get("therapeutic_area", ""),
         "provider": provider,
         "model": model,
         "max_workers": max_workers,
@@ -399,18 +418,19 @@ def _write_summary(
     path: Path,
     doc_score_rows: list[dict[str, Any]],
     section_rows: list[dict[str, Any]],
-    tpp_type: str,
+    header: dict[str, Any],
 ) -> None:
     status_counts = Counter(row["review_status"] for row in doc_score_rows)
-    grade_counts = Counter(
-        row["overall_grade"] for row in doc_score_rows if row["overall_grade"]
-    )
+    grade_counts = Counter(row["overall_grade"] for row in doc_score_rows if row["overall_grade"])
     section_grade_counts = Counter(row["grade"] for row in section_rows)
     scored = [row["weighted_score"] for row in doc_score_rows if isinstance(row["weighted_score"], (int, float))]
     avg_score = round(sum(scored) / len(scored), 3) if scored else ""
 
     summary_rows = [
-        {"metric": "tpp_type", "value": tpp_type},
+        {"metric": "org", "value": header["org"]},
+        {"metric": "source_type", "value": header["source_type"]},
+        {"metric": "intervention_class", "value": header["intervention_class"]},
+        {"metric": "therapeutic_area", "value": header.get("therapeutic_area", "")},
         {"metric": "documents_total", "value": len(doc_score_rows)},
         {"metric": "documents_reviewed", "value": status_counts["ok"]},
         {"metric": "documents_failed", "value": status_counts["error"]},
@@ -434,7 +454,7 @@ def _read_csv(path: Path) -> list[dict[str, Any]]:
 
 def _write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> None:
     with path.open("w", encoding="utf-8", newline="") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=columns)
+        writer = csv.DictWriter(csv_file, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
             writer.writerow({column: row.get(column, "") for column in columns})
@@ -470,27 +490,12 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("input_dir", help="Folder containing a parsed + mapped chunker package")
     parser.add_argument("output_dir", help="Folder where review CSVs are written")
+    parser.add_argument("--therapeutic-area", default=None)
     parser.add_argument("--provider", choices=["openai", "anthropic"], default="openai")
     parser.add_argument("--model", default=None)
     parser.add_argument("--api-key", default=None)
-    parser.add_argument(
-        "--tpp-type",
-        choices=sorted(CONFIG_BY_TPP_TYPE),
-        default=None,
-        help="Override TPP type. If omitted, inferred from documents.csv when unambiguous.",
-    )
-    parser.add_argument(
-        "--max-workers",
-        type=int,
-        default=4,
-        help="Maximum documents to review concurrently",
-    )
-    parser.add_argument(
-        "--max-tokens",
-        type=int,
-        default=DEFAULT_MAX_OUTPUT_TOKENS,
-        help="Maximum tokens allowed in each grader response (reasoning + output)",
-    )
+    parser.add_argument("--max-workers", type=int, default=4)
+    parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)
     args = parser.parse_args()
     if args.model is None:
         args.model = default_model_for_provider(args.provider)
@@ -507,5 +512,5 @@ if __name__ == "__main__":
         api_key=args.api_key,
         max_workers=args.max_workers,
         max_tokens=args.max_tokens,
-        tpp_type=args.tpp_type,
+        therapeutic_area=args.therapeutic_area,
     )

@@ -1,4 +1,7 @@
 type_key: gates_tpp_vaccine
+org: gates
+source_type: tpp
+intervention_class: vaccine
 display_name: "Vaccine Target Product Profile"
 
 section_taxonomy:

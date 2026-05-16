@@ -1,15 +1,17 @@
 # AttributeConfig template.
 #
-# Copy this file to a new config (e.g., vaccine.yaml or diagnostic.yaml) and fill in
-# the attributes, intervention_classes, and therapeutic_areas relevant
-# to your product class.
+# Evidence configs are keyed by INTERVENTION CLASS only. The attribute
+# namespace describes a product class (vaccine, drug, diagnostic, device),
+# not a document format. Copy this file to <intervention>.yaml (e.g.,
+# diagnostic.yaml or drug.yaml) and fill in the attributes.
 #
-# This template is intentionally minimal. Real configs should have
-# 30–60 attributes covering performance, usability, access, regulatory,
-# workflow, and market dimensions appropriate to the product class.
+# Real configs should have 25–50 attributes covering performance, safety,
+# presentation, access, regulatory, manufacturing, and economic dimensions
+# appropriate to the product class.
 
-type_key: tpp_template_v0
-display_name: Template TPP Config
+type_key: example_intervention
+intervention_class: example_intervention  # must match filename stem
+display_name: "Example Intervention"
 
 preamble: |
   Replace this with a short description of what this config covers and
@@ -28,16 +30,9 @@ claim_types:
   - modelled_impact
   - expert_judgment
 
-# Allowed intervention_class values for this config.
-intervention_classes:
-  - diagnostic_assay
-  - diagnostic_pocs
-  - drug_oral
-  - drug_lai
-  - vaccine
-  - mab
-  - device
-  - bednet
+# Intervention class this config is for. One value per config — write
+# a separate config for each (org × source_type × intervention).
+intervention_class: vaccine  # e.g., vaccine, mab, drug_oral, diagnostic_assay, device, bednet
 
 # Allowed therapeutic_area values for this config.
 therapeutic_areas:

@@ -1,0 +1,40 @@
+# ReviewConfig template.
+#
+# Copy this file to a new config (e.g., new_product_type.yaml) and fill
+# in the sections, variables, and weights for the document rubric you
+# want to grade against.
+#
+# Each section gets a letter grade (A–F or N/A). Section weights
+# determine how each section contributes to the overall grade. Variables
+# within a section let the grader call out specific gaps.
+
+type_key: rubric_template_v0
+org: example_org
+source_type: example_type
+intervention_class: vaccine
+display_name: "Template Rubric"
+
+# Path to the corresponding chunker config used to label blocks before
+# grading. Resolved relative to this file's directory.
+chunker_config_path: "../../chunker/configs/CONFIG_TEMPLATE.yaml"
+
+# Sections the grader evaluates. Weights should sum to ~1.0 across all
+# sections (the weights are renormalized internally if they don't, but
+# keeping them ~1.0 makes the math obvious).
+sections:
+  - name: "Introduction"
+    description: "Background or framing for this document type. What should be present here, and what makes it complete?"
+    weight: 0.10
+
+  - name: "Section Name (with structured variables)"
+    description: "Describe what the grader should look for. If the section is a table or has discrete variables, list them under `variables` below so missing/weak variables show up as specific issues."
+    weight: 0.50
+    variables:
+      - name: "Variable Name"
+        description: "What this variable should contain. The grader uses this to detect missing or template-token (<<...>>) content."
+      - name: "Another Variable"
+        description: "Quantitative target, source citation, both Minimum and Optimistic columns filled — whatever the rubric expects."
+
+  - name: "Section Name (prose only)"
+    description: "Sections without discrete variables can omit the `variables` list. The grader will evaluate the section as prose."
+    weight: 0.40

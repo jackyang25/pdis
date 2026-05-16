@@ -49,6 +49,12 @@ class ReviewResult:
     top_issues: list[str]
     section_grades: list[SectionGrade]
 
+    # --- Header (document provenance, stamped by pipeline) ---
+    org: str | None = None
+    source_type: str | None = None
+    intervention_class: str | None = None
+    therapeutic_area: str | None = None
+
 
 @dataclass
 class BatchReviewResult:
@@ -82,9 +88,24 @@ class ReviewConfig:
     """All document-type-specific configuration for PD Reviewer."""
 
     type_key: str
+    org: str
+    source_type: str
+    intervention_class: str
     display_name: str
     chunker_config_path: str
     sections: list[SectionSpec]
+
+
+CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
+
+
+def find_config(org: str, source_type: str, intervention_class: str) -> "ReviewConfig | None":
+    """Load the pd_reviewer config for the given triple. Returns None if not found
+    (pd_reviewer rubrics are optional per triple)."""
+    path = CONFIGS_DIR / f"{org}_{source_type}_{intervention_class}.yaml"
+    if not path.exists():
+        return None
+    return load_review_config(str(path))
 
 
 def load_review_config(path: str) -> ReviewConfig:
@@ -98,6 +119,9 @@ def load_review_config(path: str) -> ReviewConfig:
 
     required_fields = {
         "type_key",
+        "org",
+        "source_type",
+        "intervention_class",
         "display_name",
         "chunker_config_path",
         "sections",
@@ -108,12 +132,18 @@ def load_review_config(path: str) -> ReviewConfig:
         raise ValueError(f"PD Reviewer config missing required fields: {missing}")
 
     _validate_string_field(data, "type_key")
+    _validate_string_field(data, "org")
+    _validate_string_field(data, "source_type")
+    _validate_string_field(data, "intervention_class")
     _validate_string_field(data, "display_name")
     _validate_string_field(data, "chunker_config_path")
     sections = _parse_sections(data["sections"])
 
     return ReviewConfig(
         type_key=data["type_key"],
+        org=data["org"],
+        source_type=data["source_type"],
+        intervention_class=data["intervention_class"],
         display_name=data["display_name"],
         chunker_config_path=str(_resolve_path(config_path, data["chunker_config_path"])),
         sections=sections,

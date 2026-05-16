@@ -27,11 +27,16 @@ from pd_reviewer.models import (  # noqa: E402
     BatchReviewResult,
     ReviewConfig,
     ReviewResult,
-    load_review_config,
     review_result_to_dict,
 )
 from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
-from tools._ui import render_empty_state, render_header, render_advanced_controls, render_llm_controls  # noqa: E402
+from tools._ui import (  # noqa: E402
+    render_advanced_controls,
+    render_empty_state,
+    render_header,
+    render_llm_controls,
+    render_section,
+)
 
 
 GRADE_COLORS = {
@@ -49,8 +54,8 @@ def main() -> None:
     render()
 
 
-def render() -> None:
-    """Render the PD Reviewer UI inside a Streamlit app."""
+def render(header=None, config=None) -> None:
+    """Render the PD Reviewer UI. `header` and `config` come from app.py."""
     load_dotenv()
     render_header(
         "PD Reviewer",
@@ -59,21 +64,37 @@ def render() -> None:
         "Returns an overall grade, top issues, and section-level breakdown.",
     )
 
+    if header is None:
+        render_empty_state("Pick a document type in the sidebar.")
+        return
+    if config is None:
+        render_empty_state(
+            f"No PD Reviewer rubric for ({header['org']}, {header['source_type']}, "
+            f"{header['intervention_class']}). Add a config in pd_reviewer/configs/."
+        )
+        return
+
     if "pd_reviewer_upload_counter" not in st.session_state:
         st.session_state["pd_reviewer_upload_counter"] = 0
     if "pd_reviewer_batch_upload_counter" not in st.session_state:
         st.session_state["pd_reviewer_batch_upload_counter"] = 0
 
-    mode = st.sidebar.selectbox("Mode", ["Single Document", "Batch"])
-    if mode == "Batch":
-        _render_batch_mode()
+    render_section("mode (ui)")
+    mode = st.sidebar.selectbox(
+        "mode",
+        ["single", "batch"],
+        key="pd_reviewer_mode",
+        label_visibility="collapsed",
+    )
+    if mode == "batch":
+        _render_batch_mode(header=header, config=config)
         return
 
-    _render_single_mode()
+    _render_single_mode(header=header, config=config)
 
 
-def _render_single_mode() -> None:
-    _render_sidebar()
+def _render_single_mode(*, header, config: ReviewConfig) -> None:
+    _render_sidebar(header=header, config=config)
     result = st.session_state.get("pd_reviewer_result")
     if result is None:
         render_empty_state("Upload a `.docx` document to begin.")
@@ -82,14 +103,10 @@ def _render_single_mode() -> None:
     _render_result(result)
 
 
-def _render_sidebar() -> ReviewConfig:
-    configs = _load_available_configs()
-    config_labels = list(configs.keys())
-    selected_label = st.sidebar.selectbox("Document type", config_labels)
-    config = configs[selected_label]
-
+def _render_sidebar(*, header, config: ReviewConfig) -> ReviewConfig:
+    render_section("input")
     uploaded_file = st.sidebar.file_uploader(
-        "Upload document",
+        "input_dir (one .docx)",
         type=["docx"],
         key=f"pd_reviewer_upload_{st.session_state['pd_reviewer_upload_counter']}",
     )
@@ -103,7 +120,7 @@ def _render_sidebar() -> ReviewConfig:
         default_max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
     )
 
-    if st.sidebar.button("Run Review"):
+    if st.sidebar.button("run"):
         if uploaded_file is None:
             st.error("Upload a `.docx` document before running the review.")
         elif not api_key:
@@ -115,24 +132,20 @@ def _render_sidebar() -> ReviewConfig:
                 api_key,
                 provider,
                 model,
+                therapeutic_area=header.get("therapeutic_area"),
                 max_tokens=advanced["max_tokens"],
             )
 
-    if st.sidebar.button("Clear / Restart"):
+    if st.sidebar.button("clear / restart"):
         _restart_review_session()
 
     return config
 
 
-def _render_batch_mode() -> None:
-    configs = _load_available_configs()
-    selected_label = st.sidebar.selectbox(
-        "Document type", list(configs.keys()), key="pd_batch_doc_type"
-    )
-    config = configs[selected_label]
-
+def _render_batch_mode(*, header, config: ReviewConfig) -> None:
+    render_section("input")
     uploaded_files = st.sidebar.file_uploader(
-        "Upload documents (.docx)",
+        "input_dir (.docx)",
         type=["docx"],
         accept_multiple_files=True,
         key=f"pd_reviewer_batch_upload_{st.session_state['pd_reviewer_batch_upload_counter']}",
@@ -148,7 +161,7 @@ def _render_batch_mode() -> None:
         show_max_workers=True,
     )
 
-    if st.sidebar.button("Run Batch Review"):
+    if st.sidebar.button("run"):
         if not uploaded_files:
             st.error("Upload one or more `.docx` documents before running.")
         elif not api_key:
@@ -160,11 +173,12 @@ def _render_batch_mode() -> None:
                 api_key,
                 provider,
                 model,
+                therapeutic_area=header.get("therapeutic_area"),
                 max_tokens=advanced["max_tokens"],
                 max_workers=advanced["max_workers"],
             )
 
-    if st.sidebar.button("Clear / Restart", key="pd_batch_clear_restart"):
+    if st.sidebar.button("clear / restart", key="pd_batch_clear_restart"):
         _restart_review_session()
 
     batch_results = st.session_state.get("pd_reviewer_batch_results")
@@ -182,6 +196,7 @@ def _run_batch_review(
     provider: str,
     model: str,
     *,
+    therapeutic_area: str | None = None,
     max_tokens: int,
     max_workers: int,
 ) -> None:
@@ -193,6 +208,7 @@ def _run_batch_review(
                 jobs,
                 config=config,
                 llm_client_factory=lambda: create_llm_client(provider, api_key, model),
+                therapeutic_area=therapeutic_area,
                 max_tokens=max_tokens,
                 max_workers=max_workers,
             )
@@ -263,16 +279,6 @@ def _restart_review_session() -> None:
     st.rerun()
 
 
-def _load_available_configs() -> dict[str, ReviewConfig]:
-    config_dir = ROOT_DIR / "pd_reviewer" / "configs"
-    config_paths = sorted(config_dir.glob("*.yaml"))
-    if not config_paths:
-        raise FileNotFoundError(f"No PD Reviewer configs found in {config_dir}")
-
-    configs = [load_review_config(str(path)) for path in config_paths]
-    return {config.display_name: config for config in configs}
-
-
 def _run_review(
     uploaded_file,
     config: ReviewConfig,
@@ -280,6 +286,7 @@ def _run_review(
     provider: str,
     model: str,
     *,
+    therapeutic_area: str | None = None,
     max_tokens: int,
 ) -> None:
     doc_id = Path(uploaded_file.name).stem
@@ -295,6 +302,7 @@ def _run_review(
                 temp_path,
                 config=config,
                 llm_client=llm_client,
+                therapeutic_area=therapeutic_area,
                 max_tokens=max_tokens,
             )
             result.doc_id = doc_id

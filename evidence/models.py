@@ -3,7 +3,22 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
+from pathlib import Path
+
 from chunker.models import ContentBlock
+
+CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
+
+
+def find_config(intervention_class: str) -> "AttributeConfig":
+    """Load the evidence config for the given intervention (filename = {intervention}.yaml)."""
+    path = CONFIGS_DIR / f"{intervention_class}.yaml"
+    if not path.exists():
+        raise LookupError(
+            f"No evidence config for intervention '{intervention_class}'. "
+            f"Expected: {path}"
+        )
+    return load_config(str(path))
 
 
 class LLMClientProtocol(Protocol):
@@ -38,7 +53,7 @@ CLAIM_TYPES = (
     "expert_judgment",
 )
 
-SOURCE_TYPES = (
+SOURCE_KINDS = (
     "paper",
     "trial",
     "regulatory_doc",
@@ -75,12 +90,14 @@ class Claim:
 
     # --- Source / provenance ---
     source_id: str                    # system
-    source_type: str                  # system
+    source_kind: str                  # system: which extractor produced this (product_profile, paper, ...)
     source_locator: dict[str, Any]    # verifiable: anchor + locator
     extracted_at: str                 # system (ISO date)
     valid_as_of: str | None = None    # judgment (ISO date)
 
-    # --- Scoping (system, controlled vocab) ---
+    # --- Header (document provenance, stamped by pipeline) ---
+    org: str | None = None
+    source_type: str | None = None    # document format: "tpp", "ppc", "paper"
     intervention_class: str | None = None
     therapeutic_area: str | None = None
 
@@ -111,11 +128,14 @@ class AttributeDef:
 
 @dataclass
 class AttributeConfig:
+    """Evidence attribute namespace. Keyed by `intervention_class` only —
+    the attribute set describes a product class, not a document format."""
+
     type_key: str
+    intervention_class: str
     display_name: str
     attributes: list[AttributeDef]
     claim_types: list[str]
-    intervention_classes: list[str]
     therapeutic_areas: list[str]
     preamble: str
     disambiguation: list[str] = field(default_factory=list)
@@ -149,10 +169,10 @@ def load_config(config_path: str) -> AttributeConfig:
 
     required_fields = {
         "type_key",
+        "intervention_class",
         "display_name",
         "attributes",
         "claim_types",
-        "intervention_classes",
         "therapeutic_areas",
         "preamble",
     }
@@ -162,10 +182,10 @@ def load_config(config_path: str) -> AttributeConfig:
         raise ValueError(f"Config missing required fields: {missing}")
 
     _validate_string_field(data, "type_key")
+    _validate_string_field(data, "intervention_class")
     _validate_string_field(data, "display_name")
     _validate_string_field(data, "preamble")
     _validate_string_list(data["claim_types"], "claim_types")
-    _validate_string_list(data["intervention_classes"], "intervention_classes")
     _validate_string_list(data["therapeutic_areas"], "therapeutic_areas")
     _validate_string_list(data.get("disambiguation", []), "disambiguation")
     _validate_claim_types(data["claim_types"])
@@ -183,10 +203,10 @@ def load_config(config_path: str) -> AttributeConfig:
 
     return AttributeConfig(
         type_key=data["type_key"],
+        intervention_class=data["intervention_class"],
         display_name=data["display_name"],
         attributes=attributes,
         claim_types=data["claim_types"],
-        intervention_classes=data["intervention_classes"],
         therapeutic_areas=data["therapeutic_areas"],
         preamble=data["preamble"],
         disambiguation=data.get("disambiguation", []),
@@ -209,8 +229,8 @@ def validate_claim(claim: Claim, config: AttributeConfig | None = None) -> None:
 
     if claim.claim_type not in CLAIM_TYPES:
         raise ValueError(f"Invalid claim_type: {claim.claim_type}")
-    if claim.source_type not in SOURCE_TYPES:
-        raise ValueError(f"Invalid source_type: {claim.source_type}")
+    if claim.source_kind not in SOURCE_KINDS:
+        raise ValueError(f"Invalid source_kind: {claim.source_kind}")
     if claim.polarity not in POLARITIES:
         raise ValueError(f"Invalid polarity: {claim.polarity}")
     if claim.evidence_strength is not None and claim.evidence_strength not in EVIDENCE_STRENGTHS:
@@ -232,10 +252,10 @@ def validate_claim(claim: Claim, config: AttributeConfig | None = None) -> None:
                 f"attribute_ref '{claim.attribute_ref}' not in config "
                 f"'{config.type_key}'"
             )
-        if claim.intervention_class is not None and claim.intervention_class not in config.intervention_classes:
+        if claim.intervention_class is not None and claim.intervention_class != config.intervention_class:
             raise ValueError(
-                f"intervention_class '{claim.intervention_class}' not in config "
-                f"'{config.type_key}'"
+                f"intervention_class '{claim.intervention_class}' does not match config "
+                f"'{config.type_key}' (expected '{config.intervention_class}')"
             )
         if claim.therapeutic_area is not None and claim.therapeutic_area not in config.therapeutic_areas:
             raise ValueError(

@@ -15,7 +15,7 @@ if str(ROOT_DIR) not in sys.path:
 
 import streamlit as st  # noqa: E402
 
-from chunker.models import ContentBlock, blocks_to_dicts, load_config  # noqa: E402
+from chunker.models import ContentBlock, blocks_to_dicts  # noqa: E402
 from chunker.pipeline import (  # noqa: E402
     DEFAULT_MAX_OUTPUT_TOKENS,
     map_blocks_batch,
@@ -23,7 +23,13 @@ from chunker.pipeline import (  # noqa: E402
     run_pipeline_batch,
 )
 from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
-from tools._ui import render_empty_state, render_header, render_advanced_controls, render_llm_controls  # noqa: E402
+from tools._ui import (  # noqa: E402
+    render_advanced_controls,
+    render_empty_state,
+    render_header,
+    render_llm_controls,
+    render_section,
+)
 
 
 
@@ -32,8 +38,8 @@ def main() -> None:
     render()
 
 
-def render() -> None:
-    """Render the chunker UI inside a Streamlit app."""
+def render(header=None, config=None) -> None:
+    """Render the chunker UI. `header` and `config` come from app.py."""
     render_header(
         "Chunker",
         "Block Inspector",
@@ -41,22 +47,29 @@ def render() -> None:
         "optionally label each block with a section taxonomy.",
     )
 
+    if config is None or header is None:
+        render_empty_state("Pick a document type in the sidebar.")
+        return
+
     if "upload_counter" not in st.session_state:
         st.session_state["upload_counter"] = 0
     if "batch_upload_counter" not in st.session_state:
         st.session_state["batch_upload_counter"] = 0
 
+    render_section("mode (ui)")
     mode = st.sidebar.selectbox(
-        "Mode",
-        ["Single Document", "Batch"],
+        "mode",
+        ["single", "batch"],
+        key="chunker_mode",
+        label_visibility="collapsed",
     )
-    if mode == "Batch":
-        _render_batch_mode()
+    if mode == "batch":
+        _render_batch_mode(header=header, config=config)
         return
 
-    config = _config_selector("Document type", key="single_doc_type")
+    render_section("input")
     uploaded_file = st.sidebar.file_uploader(
-        "Upload document (.docx or .pdf)",
+        "input_dir (one .docx or .pdf)",
         type=SUPPORTED_UPLOAD_TYPES,
         key=f"upload_{st.session_state['upload_counter']}",
     )
@@ -71,7 +84,7 @@ def render() -> None:
         default_max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
     )
 
-    if st.sidebar.button("Clear / Restart"):
+    if st.sidebar.button("clear / restart"):
         _restart_document_session()
 
     if uploaded_file is None:
@@ -85,7 +98,7 @@ def render() -> None:
     file_key = f"{uploaded_file.name}:{len(file_bytes)}"
     _reset_state_for_new_file(file_key)
 
-    if st.sidebar.button("Parse Document"):
+    if st.sidebar.button("parse"):
         st.session_state.pop("blocks", None)
         with st.spinner("Parsing document..."):
             try:
@@ -96,7 +109,7 @@ def render() -> None:
                 return
 
     blocks = st.session_state.get("blocks")
-    if blocks is not None and st.sidebar.button("Run Mapper"):
+    if blocks is not None and st.sidebar.button("map"):
         if not api_key:
             st.error(f"Enter a {provider.title()} API key before running the mapper.")
         else:
@@ -127,13 +140,19 @@ def render() -> None:
     _render_download(block_dicts, doc_id)
 
 
-def _render_batch_mode() -> None:
-    config = _config_selector("Document type", key="batch_doc_type")
+def _render_batch_mode(*, header, config) -> None:
+    render_section("input")
     uploaded_files = st.sidebar.file_uploader(
-        "Upload documents (.docx or .pdf)",
+        "input_dir (.docx, .pdf)",
         type=SUPPORTED_UPLOAD_TYPES,
         accept_multiple_files=True,
         key=f"batch_upload_{st.session_state['batch_upload_counter']}",
+    )
+    map_blocks = st.sidebar.checkbox(
+        "map",
+        value=False,
+        help="Run the mapper to label blocks. CLI: --map",
+        key="chunker_batch_map",
     )
 
     provider, model, api_key = render_llm_controls(
@@ -147,7 +166,7 @@ def _render_batch_mode() -> None:
         show_max_workers=True,
     )
 
-    if st.sidebar.button("Clear / Restart", key="batch_clear_restart"):
+    if st.sidebar.button("clear / restart", key="batch_clear_restart"):
         _restart_document_session()
 
     if not uploaded_files:
@@ -161,7 +180,7 @@ def _render_batch_mode() -> None:
     st.success(f"Uploaded {len(uploaded_files)} documents.")
     st.info("Click Parse All Documents to compare parser output across files.")
 
-    if st.sidebar.button("Parse All Documents"):
+    if st.sidebar.button("parse"):
         st.session_state.pop("batch_results", None)
         with st.spinner("Parsing documents..."):
             try:
@@ -178,7 +197,7 @@ def _render_batch_mode() -> None:
         return
 
     st.success("Batch parsing completed.")
-    if st.sidebar.button("Run Mapper On Batch"):
+    if st.sidebar.button("map"):
         if not api_key:
             st.error(
                 f"Enter a {provider.title()} API key before running the batch mapper."
@@ -221,30 +240,6 @@ def _parse_uploaded_file(
 
 
 SUPPORTED_UPLOAD_TYPES = ["docx", "pdf"]
-
-
-def _discover_configs() -> list[tuple[str, str]]:
-    """Return [(display_name, file_name), ...] from chunker/configs/*.yaml."""
-    configs_dir = ROOT_DIR / "chunker" / "configs"
-    entries: list[tuple[str, str]] = []
-    for path in sorted(configs_dir.glob("*.yaml")):
-        try:
-            cfg = load_config(str(path))
-        except Exception:
-            continue
-        entries.append((cfg.display_name, path.name))
-    return entries
-
-
-def _config_selector(label: str, key: str) -> tuple:
-    entries = _discover_configs()
-    if not entries:
-        st.sidebar.error("No configs found in chunker/configs/")
-        st.stop()
-    options = [display for display, _ in entries]
-    selected_display = st.sidebar.selectbox(label, options, key=key)
-    file_name = next(file for display, file in entries if display == selected_display)
-    return load_config(_config_path(file_name))
 
 
 def _suffix_for_upload(uploaded_file) -> str:
@@ -418,10 +413,6 @@ def _restart_document_session() -> None:
     st.session_state.pop("batch_anthropic_api_key", None)
     st.session_state.pop("batch_openai_api_key", None)
     st.rerun()
-
-
-def _config_path(file_name: str) -> str:
-    return str(ROOT_DIR / "chunker" / "configs" / file_name)
 
 
 def _render_lifecycle_status(file_name: str, blocks: list[dict] | None) -> None:

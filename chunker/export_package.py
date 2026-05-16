@@ -15,9 +15,9 @@ from .llm_client import (
     create_llm_client,
     default_model_for_provider,
 )
-from .mapper import label_blocks
+from .stages.mapper import label_blocks
 from .models import blocks_to_dicts, load_config
-from .parser import parse_document
+from .stages.parser import parse_document
 
 
 CONFIG_BY_TPP_TYPE = {

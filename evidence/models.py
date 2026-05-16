@@ -1,0 +1,293 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+
+# --- Controlled vocabularies ---
+# These are the canonical enum values the substrate accepts.
+# AttributeConfig can further restrict which values are valid for a given config.
+
+CLAIM_TYPES = (
+    "performance",
+    "feasibility",
+    "user_need",
+    "workflow",
+    "access",
+    "market",
+    "regulatory",
+    "modelled_impact",
+    "expert_judgment",
+)
+
+SOURCE_TYPES = (
+    "paper",
+    "trial",
+    "regulatory_doc",
+    "product_profile",
+    "knowledge_graph",
+    "real_world_data",
+    "model_run",
+    "market_report",
+    "interview",
+    "expert_note",
+)
+
+POLARITIES = ("supports", "challenges", "neutral")
+
+EVIDENCE_STRENGTHS = ("strong", "moderate", "weak", "anecdotal")
+
+BINDING_CONFIDENCES = ("high", "medium", "low")
+
+RECENCY_TIERS = ("current", "aging", "stale")
+
+REVIEW_STATUSES = ("unverified", "human_reviewed", "disputed")
+
+
+@dataclass
+class Claim:
+    # --- Identity (system-set) ---
+    id: str
+    ordinal: int
+
+    # --- Content (judgment) ---
+    statement: str
+    claim_type: str
+    polarity: str
+
+    # --- Source / provenance ---
+    source_id: str                    # system
+    source_type: str                  # system
+    source_locator: dict[str, Any]    # verifiable: anchor + locator
+    extracted_at: str                 # system (ISO date)
+    valid_as_of: str | None = None    # judgment (ISO date)
+
+    # --- Scoping (system, controlled vocab) ---
+    intervention_class: str | None = None
+    therapeutic_area: str | None = None
+
+    # --- Binding (judgment) ---
+    attribute_ref: str | None = None
+    binding_confidence: str | None = None
+
+    # --- Quality labels ---
+    evidence_strength: str | None = None     # judgment
+    recency_tier: str | None = None          # system (computed)
+
+    # --- Versioning / review (system) ---
+    review_status: str = "unverified"
+    version: int = 1
+    superseded_by: str | None = None
+
+    # --- Annotation (judgment) ---
+    notes: str | None = None
+
+
+@dataclass
+class AttributeDef:
+    name: str
+    description: str
+    parent: str | None = None
+    expected_claim_types: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AttributeConfig:
+    type_key: str
+    display_name: str
+    attributes: list[AttributeDef]
+    claim_types: list[str]
+    intervention_classes: list[str]
+    therapeutic_areas: list[str]
+    preamble: str
+    disambiguation: list[str] = field(default_factory=list)
+
+
+# --- Serialization helpers ---
+
+
+def claims_to_dicts(claims: list[Claim]) -> list[dict]:
+    """Convert Claim objects to plain dictionaries."""
+    return [asdict(claim) for claim in claims]
+
+
+def config_to_dict(config: AttributeConfig) -> dict:
+    """Convert an AttributeConfig to a plain dictionary."""
+    return asdict(config)
+
+
+# --- YAML loading ---
+
+
+def load_config(config_path: str) -> AttributeConfig:
+    """Load an AttributeConfig from a YAML file."""
+    import yaml
+
+    with open(config_path, "r", encoding="utf-8") as config_file:
+        data = yaml.safe_load(config_file)
+
+    if not isinstance(data, dict):
+        raise ValueError("Config file must contain a YAML mapping")
+
+    required_fields = {
+        "type_key",
+        "display_name",
+        "attributes",
+        "claim_types",
+        "intervention_classes",
+        "therapeutic_areas",
+        "preamble",
+    }
+    missing_fields = required_fields - data.keys()
+    if missing_fields:
+        missing = ", ".join(sorted(missing_fields))
+        raise ValueError(f"Config missing required fields: {missing}")
+
+    _validate_string_field(data, "type_key")
+    _validate_string_field(data, "display_name")
+    _validate_string_field(data, "preamble")
+    _validate_string_list(data["claim_types"], "claim_types")
+    _validate_string_list(data["intervention_classes"], "intervention_classes")
+    _validate_string_list(data["therapeutic_areas"], "therapeutic_areas")
+    _validate_string_list(data.get("disambiguation", []), "disambiguation")
+    _validate_claim_types(data["claim_types"])
+    _validate_attributes(data["attributes"], data["claim_types"])
+
+    attributes = [
+        AttributeDef(
+            name=attr["name"],
+            description=attr["description"],
+            parent=attr.get("parent"),
+            expected_claim_types=attr.get("expected_claim_types", []),
+        )
+        for attr in data["attributes"]
+    ]
+
+    return AttributeConfig(
+        type_key=data["type_key"],
+        display_name=data["display_name"],
+        attributes=attributes,
+        claim_types=data["claim_types"],
+        intervention_classes=data["intervention_classes"],
+        therapeutic_areas=data["therapeutic_areas"],
+        preamble=data["preamble"],
+        disambiguation=data.get("disambiguation", []),
+    )
+
+
+# --- Validation ---
+
+
+def validate_claim(claim: Claim, config: AttributeConfig | None = None) -> None:
+    """Validate a Claim against the canonical vocabularies and (optionally) a config.
+
+    Raises ValueError on any violation. Mirrors the discipline the substrate
+    enforces at insert time.
+    """
+    _require(claim.id, "id")
+    _require(claim.statement, "statement")
+    _require(claim.source_id, "source_id")
+    _require(claim.extracted_at, "extracted_at")
+
+    if claim.claim_type not in CLAIM_TYPES:
+        raise ValueError(f"Invalid claim_type: {claim.claim_type}")
+    if claim.source_type not in SOURCE_TYPES:
+        raise ValueError(f"Invalid source_type: {claim.source_type}")
+    if claim.polarity not in POLARITIES:
+        raise ValueError(f"Invalid polarity: {claim.polarity}")
+    if claim.evidence_strength is not None and claim.evidence_strength not in EVIDENCE_STRENGTHS:
+        raise ValueError(f"Invalid evidence_strength: {claim.evidence_strength}")
+    if claim.binding_confidence is not None and claim.binding_confidence not in BINDING_CONFIDENCES:
+        raise ValueError(f"Invalid binding_confidence: {claim.binding_confidence}")
+    if claim.recency_tier is not None and claim.recency_tier not in RECENCY_TIERS:
+        raise ValueError(f"Invalid recency_tier: {claim.recency_tier}")
+    if claim.review_status not in REVIEW_STATUSES:
+        raise ValueError(f"Invalid review_status: {claim.review_status}")
+
+    if not isinstance(claim.source_locator, dict) or not claim.source_locator:
+        raise ValueError("source_locator must be a non-empty dict")
+
+    if config is not None:
+        attribute_names = {a.name for a in config.attributes}
+        if claim.attribute_ref is not None and claim.attribute_ref not in attribute_names:
+            raise ValueError(
+                f"attribute_ref '{claim.attribute_ref}' not in config "
+                f"'{config.type_key}'"
+            )
+        if claim.intervention_class is not None and claim.intervention_class not in config.intervention_classes:
+            raise ValueError(
+                f"intervention_class '{claim.intervention_class}' not in config "
+                f"'{config.type_key}'"
+            )
+        if claim.therapeutic_area is not None and claim.therapeutic_area not in config.therapeutic_areas:
+            raise ValueError(
+                f"therapeutic_area '{claim.therapeutic_area}' not in config "
+                f"'{config.type_key}'"
+            )
+        if claim.claim_type not in config.claim_types:
+            raise ValueError(
+                f"claim_type '{claim.claim_type}' not in config "
+                f"'{config.type_key}'"
+            )
+
+
+# --- Internal validators ---
+
+
+def _require(value: Any, name: str) -> None:
+    if value is None or value == "":
+        raise ValueError(f"Field '{name}' is required")
+
+
+def _validate_string_field(
+    data: dict[str, Any],
+    field_name: str,
+    context: str = "Config",
+) -> None:
+    if not isinstance(data[field_name], str):
+        raise ValueError(f"{context} field '{field_name}' must be a string")
+
+
+def _validate_string_list(value: Any, field_name: str) -> None:
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name}[{index}] must be a string")
+
+
+def _validate_claim_types(claim_types: list[str]) -> None:
+    for ct in claim_types:
+        if ct not in CLAIM_TYPES:
+            raise ValueError(
+                f"claim_type '{ct}' is not a canonical claim_type. "
+                f"Valid values: {CLAIM_TYPES}"
+            )
+
+
+def _validate_attributes(attributes: Any, config_claim_types: list[str]) -> None:
+    if not isinstance(attributes, list):
+        raise ValueError("attributes must be a list")
+
+    for index, attr in enumerate(attributes):
+        if not isinstance(attr, dict):
+            raise ValueError(f"attributes[{index}] must be a mapping")
+        missing = {"name", "description"} - attr.keys()
+        if missing:
+            joined = ", ".join(sorted(missing))
+            raise ValueError(f"attributes[{index}] missing required fields: {joined}")
+        _validate_string_field(attr, "name", f"attributes[{index}]")
+        _validate_string_field(attr, "description", f"attributes[{index}]")
+        if "parent" in attr and attr["parent"] is not None and not isinstance(attr["parent"], str):
+            raise ValueError(f"attributes[{index}].parent must be a string or null")
+        if "expected_claim_types" in attr:
+            _validate_string_list(
+                attr["expected_claim_types"],
+                f"attributes[{index}].expected_claim_types",
+            )
+            for ct in attr["expected_claim_types"]:
+                if ct not in config_claim_types:
+                    raise ValueError(
+                        f"attributes[{index}].expected_claim_types contains "
+                        f"'{ct}' which is not declared in this config's claim_types"
+                    )

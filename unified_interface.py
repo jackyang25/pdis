@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import streamlit as st
 
-from chunker.app import render as render_chunker
-from pd_reviewer.app import render as render_pd_reviewer
+from chunker.interface import render as render_chunker
+from evidence.interface import render as render_evidence
+from pd_reviewer.interface import render as render_pd_reviewer
 
 
 def main() -> None:
@@ -12,13 +13,18 @@ def main() -> None:
     tool = st.sidebar.selectbox(
         "Tool",
         [
-            "Document Chunker",
+            "Chunker",
+            "Evidence",
             "PD Reviewer",
         ],
     )
 
-    if tool == "Document Chunker":
+    if tool == "Chunker":
         render_chunker()
+        return
+
+    if tool == "Evidence":
+        render_evidence()
         return
 
     render_pd_reviewer()

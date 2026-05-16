@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from chunker.mapper import label_blocks
+from chunker.stages.mapper import label_blocks
 from chunker.models import ContentBlock, load_config as load_chunker_config
-from chunker.parser import parse_document
+from chunker.stages.parser import parse_document
 
-from .grader import grade_sections
+from .stages.grader import grade_sections
 from .llm_client import LLMClient
 from .models import Grade, ReviewConfig, ReviewResult, SectionGrade, VariableSpec
 

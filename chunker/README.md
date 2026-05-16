@@ -1,26 +1,36 @@
-# Document Chunker
+# Chunker
 
 The chunker turns documents (`.docx`, `.pdf`) into ordered, citable `ContentBlock` objects, then optionally runs an LLM mapper that assigns normalized section labels.
 
 The pipeline has two explicit phases:
 
-1. **Parser**: format-specific parsing. `.docx` uses semantic-tag walking (`parser_docx`); `.pdf` uses text + table extraction via `pdfplumber` (`parser_pdf`). A dispatcher in `parser.py` routes by file extension. Both produce the same `ContentBlock` shape; downstream consumers do not see the format.
+1. **Parser**: format-specific parsing. `.docx` uses semantic-tag walking (`parser_docx`); `.pdf` uses text + table extraction via `pdfplumber` (`parser_pdf`). A dispatcher in `stages/parser.py` routes by file extension. Both produce the same `ContentBlock` shape; downstream consumers do not see the format.
 2. **Mapper**: LLM-driven section labeling. Adds `section_label` and `label_confidence` using a document-type config.
 
 The Streamlit app is a local inspector for this flow. It has a single-document mode for deep inspection and a batch parser mode for comparing parser behavior across multiple TPP documents.
+
+## Consumers
+
+The chunker is a substrate library — it doesn't depend on anything downstream, and produces `ContentBlock`s for other tools to consume:
+
+- `pd_reviewer` imports `chunker.pipeline.run_pipeline` (or the underlying `chunker.stages.parser.parse_document` + `chunker.stages.mapper.label_blocks`) and `chunker.models.load_config` to grade PDs.
+- `evidence` imports `chunker.stages.parser.parse_document` and `chunker.models.ContentBlock` to feed its extractor pipeline.
+
+Dependency direction is one-way: chunker never imports from `pd_reviewer` or `evidence`.
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `models.py` | Shared dataclasses: `ContentBlock` and `DocumentTypeConfig`; YAML config loader. |
-| `parser.py` | Format dispatcher. Routes `.docx` → `parser_docx.parse_docx`, `.pdf` → `parser_pdf.parse_pdf`. Preserves a single public entry point (`parse_document`). |
-| `parser_docx.py` | Deterministic Word parser. Walks XML body order so paragraphs and tables stay interleaved correctly. Populates `heading_stack` from Word heading styles. |
-| `parser_pdf.py` | PDF parser via `pdfplumber`. Extracts paragraphs (line + gap clustering) and tables (pdfplumber table detection) per page. Populates `structural_meta.page` for every block. `heading_stack` is left empty for PDFs at MVP (PDFs lack semantic heading tags). |
-| `mapper.py` | Prompt builder, JSON validation, and label merge. |
+| `pipeline.py` | Stateless orchestrator: `run_pipeline(file_path, doc_id, config=None, llm_client=None)`. Wires parse → optional map. Library entry point. |
+| `stages/parser.py` | Format dispatcher. Routes `.docx` → `parser_docx.parse_docx`, `.pdf` → `parser_pdf.parse_pdf`. Preserves a single public entry point (`parse_document`). |
+| `stages/parser_docx.py` | Deterministic Word parser. Walks XML body order so paragraphs and tables stay interleaved correctly. Populates `heading_stack` from Word heading styles. |
+| `stages/parser_pdf.py` | PDF parser via `pdfplumber`. Extracts paragraphs (line + gap clustering) and tables (pdfplumber table detection) per page. Populates `structural_meta.page` for every block. `heading_stack` is left empty for PDFs at MVP (PDFs lack semantic heading tags). |
+| `stages/mapper.py` | Prompt builder, JSON validation, and label merge. |
 | `llm_client.py` | Provider-neutral LLM adapter (OpenAI, Anthropic). Defines `DEFAULT_MAX_OUTPUT_TOKENS`. |
-| `export_package.py` | CLI utility that parses a folder of `.docx` files into reusable `documents.csv`, `content_blocks.csv`, and `content_blocks.jsonl` tables. |
-| `app.py` | Streamlit UI for single-document inspection and batch parser evaluation. |
+| `export_package.py` | CLI utility that parses a folder of `.docx` and `.pdf` files into reusable `documents.csv`, `content_blocks.csv`, and `content_blocks.jsonl` tables. |
+| `interface.py` | Streamlit UI for single-document inspection and batch parser evaluation. |
 | `configs/` | Mapper configs for supported TPP families: vaccine, drug, diagnostic, and medical device. |
 | `requirements.txt` | Runtime dependencies. |
 
@@ -46,7 +56,7 @@ export OPENAI_API_KEY="your-key"
 Launch the Streamlit app:
 
 ```bash
-python -m streamlit run chunker/app.py
+python -m streamlit run chunker/interface.py
 ```
 
 The app has two modes.
@@ -55,7 +65,7 @@ The app has two modes.
 
 This mode is for inspecting one document deeply.
 
-1. Upload a `.docx`.
+1. Upload a `.docx` or `.pdf`.
 2. Click **Parse Document** to create raw `ContentBlock`s.
 3. Review parser output.
 4. Choose an LLM provider, enter that provider's API key, and click **Run Mapper** if section labels are needed.
@@ -73,6 +83,59 @@ This mode is for comparing parser behavior across multiple TPP files and optiona
 6. Download `batch_summary.csv` or `batch_blocks.json`.
 
 Parsing and mapping are both parallelized in batch mode. Mapper failures are isolated per document so one failed API call does not discard the rest of the batch.
+
+## DocumentTypeConfig
+
+The chunker's single config type. The mapper is the only module that consumes it. Loaded from YAML.
+
+Bundled configs:
+
+```text
+configs/gates_tpp_vaccine.yaml
+configs/gates_tpp_drug.yaml
+configs/gates_tpp_diagnostic.yaml
+configs/gates_tpp_device.yaml
+configs/who_ppc_vaccine.yaml
+```
+
+Configs are named `<publisher>_<doctype>_<class>.yaml`. Publisher prefix groups configs from the same source (Gates, WHO, future peer orgs); `doctype` reflects WHO's vocabulary (`tpp` for diagnostics/drugs/devices, `ppc` for vaccines/biologics).
+
+A config defines:
+
+- `type_key`: machine-readable config key.
+- `display_name`: UI label.
+- `section_taxonomy`: document-specific section definitions. Each entry has `name` and `description`.
+- `preamble`: document-type context injected into the system prompt.
+- `disambiguation`: rules for ambiguous blocks.
+- `include_metadata_label`: whether the engine injects `Document Metadata`.
+- `include_other_label`: whether the engine injects `Other`.
+
+For example, the vaccine TPP taxonomy includes:
+
+- `Introduction`
+- `Instructions for Use`
+- `Medical Need / Use Case`
+- `Executive Summary (Core Variables)`
+- `Additional Variables of Interest`
+- `Change Management`
+
+The mapper engine appends universal labels when enabled:
+
+- `Document Metadata`: page numbers, version stamps, template metadata, headers, footers, and formatting artifacts.
+- `Other`: real content that does not fit any document-specific section.
+
+The mapper accepts `Other` only as an exact label. Free-text variants like `Other: Reviewer note` are not valid.
+
+## How It Works
+
+Two phases, each owning one slice of the `ContentBlock`:
+
+| # | Phase | Transformation |
+|---|---|---|
+| 1 | Parser (`parser_docx` or `parser_pdf` via dispatcher) | Document → `list[ContentBlock]` with `content`, `heading_stack`, `structural_meta`, `style_hint`. `section_label`/`label_confidence` left `None`. |
+| 2 | Mapper (`label_blocks`) | LLM-driven section labeling against the `DocumentTypeConfig`. Fills `section_label` + `label_confidence`. |
+
+Phase 1 is deterministic. Phase 2 is the only LLM step. Detailed parser and mapper behavior (table handling, prompt format, validation rules) is documented in the sections below.
 
 ## Export A Chunker Package
 
@@ -204,7 +267,7 @@ For tables:
 - **Header-only multi-column table**: emitted as a paragraph block with headers joined by `" | "` and `style_hint.source="table_headers"`.
 - **Merged/repeated cells**: repeated values are preserved in the row output so each block remains self-contained.
 
-## Batch Parser Evaluation
+## Batch Mode Metrics
 
 Batch mode helps answer whether the parser and mapper perform consistently across clean, messy, and table-heavy TPPs.
 
@@ -277,48 +340,6 @@ Example table row block:
 
 Single-column and single-cell tables are intentionally flattened to paragraph blocks because Word often uses them for layout. They can be grouped by `table_index`, but they are not treated as data tables.
 
-## Mapper Config
-
-The mapper is driven by a `DocumentTypeConfig` loaded from YAML.
-
-Bundled configs:
-
-```text
-configs/gates_tpp_vaccine.yaml
-configs/gates_tpp_drug.yaml
-configs/gates_tpp_diagnostic.yaml
-configs/gates_tpp_device.yaml
-configs/who_ppc_vaccine.yaml
-```
-
-Configs are named `<publisher>_<doctype>_<class>.yaml`. Publisher prefix groups configs from the same source (Gates, WHO, future peer orgs); `doctype` reflects WHO's vocabulary (`tpp` for diagnostics/drugs/devices, `ppc` for vaccines/biologics).
-
-It defines:
-
-- `type_key`: machine-readable config key.
-- `display_name`: UI label.
-- `section_taxonomy`: document-specific section definitions. Each entry has `name` and `description`.
-- `preamble`: document-type context injected into the system prompt.
-- `disambiguation`: rules for ambiguous blocks.
-- `include_metadata_label`: whether the engine injects `Document Metadata`.
-- `include_other_label`: whether the engine injects `Other`.
-
-For example, the vaccine TPP taxonomy includes:
-
-- `Introduction`
-- `Instructions for Use`
-- `Medical Need / Use Case`
-- `Executive Summary (Core Variables)`
-- `Additional Variables of Interest`
-- `Change Management`
-
-The mapper engine appends universal labels when enabled:
-
-- `Document Metadata`: page numbers, version stamps, template metadata, headers, footers, and formatting artifacts.
-- `Other`: real content that does not fit any document-specific section.
-
-The mapper accepts `Other` only as an exact label. Free-text variants like `Other: Reviewer note` are not valid.
-
 ## Mapper Prompt Format
 
 Prompt construction is split into two messages: a system prompt and a user message.
@@ -379,7 +400,7 @@ The mapper primarily uses:
 
 ## Mapper Validation And Merge
 
-After the LLM returns JSON, `mapper.py`:
+After the LLM returns JSON, `stages/mapper.py`:
 
 1. Strips markdown fences if present.
 2. Parses the JSON response.
@@ -402,9 +423,21 @@ The Streamlit app lets you choose the mapper provider in the sidebar:
 - `anthropic`, default model `claude-opus-4-7`
 - `openai`, default model `gpt-5.5`
 
-The selected provider, model, and API key are used by `app.py` to construct an LLM client, which is passed into `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the injected LLM client is provider-specific.
+The selected provider, model, and API key are used by `interface.py` to construct an LLM client, which is passed into `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the injected LLM client is provider-specific.
 
 The key is not stored by the app and should not be committed. Keep local secrets in ignored files such as `.env` if you add environment loading later.
+
+## Design Rules
+
+Load-bearing. Violations leak domain into the substrate or break determinism.
+
+1. **No domain-specific logic.** The chunker has no knowledge of TPPs, PPCs, or any document family. Domain context enters through the injected `DocumentTypeConfig`.
+2. **Parser is deterministic.** Same input bytes → same `ContentBlock`s, every time. No randomness, no LLM, no inference.
+3. **One config consumer.** Only the mapper consumes the `DocumentTypeConfig`. The parser is config-free.
+4. **One-way dependency.** The chunker imports nothing from `pd_reviewer` or `evidence`. Consumers may import the chunker.
+5. **Stateless.** No persistence in the active path. Outputs are returned to the caller (UI / CLI), which writes them if needed.
+6. **Format absorbed in the parser layer.** `parser_docx` and `parser_pdf` produce the same `ContentBlock` shape; downstream code is format-agnostic.
+7. **Provider-neutral LLM access.** The mapper's LLM client is injected, not imported globally — so the same mapper code works against any supported provider.
 
 ## Current Limitations
 

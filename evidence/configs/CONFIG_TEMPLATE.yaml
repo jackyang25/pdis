@@ -1,0 +1,63 @@
+# AttributeConfig template.
+#
+# Copy this file to a new config (e.g., vaccine.yaml or diagnostic.yaml) and fill in
+# the attributes, intervention_classes, and therapeutic_areas relevant
+# to your product class.
+#
+# This template is intentionally minimal. Real configs should have
+# 30–60 attributes covering performance, usability, access, regulatory,
+# workflow, and market dimensions appropriate to the product class.
+
+type_key: tpp_template_v0
+display_name: Template TPP Config
+
+preamble: |
+  Replace this with a short description of what this config covers and
+  how a binder/author should approach attribute assignment for it.
+
+# Allowed claim_type values for this config. Must be a subset of the
+# canonical CLAIM_TYPES enum in evidence/models.py.
+claim_types:
+  - performance
+  - feasibility
+  - user_need
+  - workflow
+  - access
+  - market
+  - regulatory
+  - modelled_impact
+  - expert_judgment
+
+# Allowed intervention_class values for this config.
+intervention_classes:
+  - diagnostic_assay
+  - diagnostic_pocs
+  - drug_oral
+  - drug_lai
+  - vaccine
+  - mab
+  - device
+  - bednet
+
+# Allowed therapeutic_area values for this config.
+therapeutic_areas:
+  - hiv
+  - tb
+  - malaria
+  - contraception
+  - maternal_health
+
+# Attribute definitions. Each must have a name and a description.
+# Optional: parent, expected_claim_types.
+attributes:
+  - name: example.performance.threshold
+    description: >
+      Replace with a real attribute description. The description is what
+      a binder LLM (or a human author) uses to decide whether a claim
+      belongs to this attribute.
+    expected_claim_types:
+      - performance
+      - modelled_impact
+
+# Optional rules for ambiguous binding (free-text guidance for the binder).
+disambiguation: []

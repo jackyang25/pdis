@@ -5,7 +5,7 @@ from typing import Any
 
 import pdfplumber
 
-from .models import ContentBlock
+from ..models import ContentBlock
 
 
 # Heuristic: words within this y-pixel tolerance are treated as the same line.

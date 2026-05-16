@@ -8,8 +8,8 @@ from typing import Any
 
 from chunker.models import ContentBlock
 
-from .llm_client import DEFAULT_MAX_OUTPUT_TOKENS, LLMClient
-from .models import Grade, ReviewConfig, SectionGrade, SectionSpec, VariableGrade
+from ..llm_client import DEFAULT_MAX_OUTPUT_TOKENS, LLMClient
+from ..models import Grade, ReviewConfig, SectionGrade, SectionSpec, VariableGrade
 
 logger = logging.getLogger(__name__)
 

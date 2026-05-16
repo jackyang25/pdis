@@ -5,8 +5,8 @@ import logging
 import re
 from typing import Protocol
 
-from .llm_client import DEFAULT_MAX_OUTPUT_TOKENS
-from .models import ContentBlock, DocumentTypeConfig
+from ..llm_client import DEFAULT_MAX_OUTPUT_TOKENS
+from ..models import ContentBlock, DocumentTypeConfig
 
 
 logger = logging.getLogger(__name__)

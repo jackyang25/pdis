@@ -15,10 +15,10 @@ from typing import Any
 
 from chunker.models import ContentBlock
 
-from .grader import grade_sections
+from .stages.grader import grade_sections
 from .llm_client import DEFAULT_MAX_OUTPUT_TOKENS, create_llm_client, default_model_for_provider
 from .models import ReviewConfig, ReviewResult, SectionGrade, load_review_config
-from .reviewer import GRADE_TO_SCORE, build_report_card
+from .pipeline import GRADE_TO_SCORE, build_report_card
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .models import ContentBlock
+from ..models import ContentBlock
 from .parser_docx import parse_docx
 from .parser_pdf import parse_pdf
 

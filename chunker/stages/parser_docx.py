@@ -9,7 +9,7 @@ from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
-from .models import ContentBlock
+from ..models import ContentBlock
 
 
 def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:

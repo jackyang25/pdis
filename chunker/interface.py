@@ -18,28 +18,28 @@ try:
         create_llm_client,
         default_model_for_provider,
     )
-    from .mapper import label_blocks
+    from .stages.mapper import label_blocks
     from .models import ContentBlock, blocks_to_dicts, load_config
-    from .parser import parse_document
-except ImportError:  # pragma: no cover - supports `streamlit run chunker/app.py`
+    from .stages.parser import parse_document
+except ImportError:  # pragma: no cover - supports `streamlit run chunker/interface.py`
     from llm_client import (
         DEFAULT_MAX_OUTPUT_TOKENS,
         create_llm_client,
         default_model_for_provider,
     )
-    from mapper import label_blocks
+    from stages.mapper import label_blocks
     from models import ContentBlock, blocks_to_dicts, load_config
-    from parser import parse_document
+    from stages.parser import parse_document
 
 
 def main() -> None:
-    st.set_page_config(page_title="Document Chunker - Block Inspector", layout="wide")
+    st.set_page_config(page_title="Chunker - Block Inspector", layout="wide")
     render()
 
 
 def render() -> None:
     """Render the chunker UI inside a Streamlit app."""
-    st.title("Document Chunker — Block Inspector")
+    st.title("Chunker — Block Inspector")
 
     if "upload_counter" not in st.session_state:
         st.session_state["upload_counter"] = 0

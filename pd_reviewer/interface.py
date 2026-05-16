@@ -18,7 +18,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from pd_reviewer.reviewer import review_document  # noqa: E402
+from pd_reviewer.pipeline import review_document  # noqa: E402
 from pd_reviewer.llm_client import (  # noqa: E402
     create_llm_client,
     default_model_for_provider,

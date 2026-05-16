@@ -9,21 +9,20 @@ It uses the chunker as a library for document parsing and section labeling, then
 | File | Purpose |
 |---|---|
 | `models.py` | Shared dataclasses: `ReviewConfig`, `ReviewResult`, `SectionGrade`, `VariableGrade`; YAML config loader. |
-| `grader.py` | Prompt builder, provider-neutral LLM calls, JSON validation, and section grading. |
-| `reviewer.py` | Single-document end-to-end orchestration: chunker parse → chunker map → grade. |
+| `stages/grader.py` | Prompt builder, provider-neutral LLM calls, JSON validation, and section grading. |
+| `pipeline.py` | Stateless orchestrator: chunker.pipeline.run_pipeline → grade_sections → ReviewResult. Library entry point. |
 | `llm_client.py` | Provider-neutral LLM adapter (OpenAI, Anthropic). Defines `DEFAULT_MAX_OUTPUT_TOKENS`. |
 | `export_package.py` | CLI utility that grades a chunker package into `document_scores.csv`, `section_grades.csv`, `variable_grades.csv`, `summary.csv`, and `manifest.json`. |
-| `app.py` | Streamlit UI for single-document review. |
+| `interface.py` | Streamlit UI for single-document review. |
 | `configs/` | Review rubrics for supported TPP families: vaccine, drug, diagnostic, and medical device. |
 | `requirements.txt` | Runtime dependencies. |
 
 PD Reviewer imports chunker APIs for parsing and section labeling:
 
-- `chunker.parser.parse_document`
-- `chunker.mapper.label_blocks`
+- `chunker.pipeline.run_pipeline` (orchestrates parse + map in one call)
 - `chunker.models.load_config`
 
-PD Reviewer provides its own LLM client and injects it into the chunker mapper. This keeps it independently distributable while still reusing chunker logic.
+PD Reviewer provides its own LLM client and injects it into chunker.pipeline. This keeps it independently distributable while still reusing chunker logic.
 
 ## Setup
 
@@ -48,16 +47,16 @@ export OPENAI_API_KEY="your-key"
 Use the unified root app:
 
 ```bash
-streamlit run app.py
+streamlit run unified_interface.py
 ```
 
 Or run PD Reviewer directly:
 
 ```bash
-streamlit run pd_reviewer/app.py
+streamlit run pd_reviewer/interface.py
 ```
 
-## Review Config
+## ReviewConfig
 
 Review behavior is driven by YAML, not hardcoded logic. Bundled configs include:
 
@@ -198,6 +197,17 @@ manifest.json
 ### Joining To Source
 
 The review package is keyed by `doc_key` (joinable to `chunker_package/documents.csv`) and `block_id` (joinable to `chunker_package/content_blocks.csv` for citation). Cross-family or registry-side metadata (dates, owners, therapeutic area) should be joined downstream rather than baked into the review package.
+
+## Design Rules
+
+Load-bearing. Violations break the substrate/app split or duplicate substrate concerns.
+
+1. **PD-specific logic stays in pd_reviewer.** Chunker and (future) evidence remain domain-agnostic. Rubric language, grading prompts, and section weights belong here.
+2. **One-way dependency on substrate.** pd_reviewer imports from `chunker` (and will import from `evidence`). The reverse never happens.
+3. **One config type, one consumer.** The review config is consumed by the grader. The chunker config path it carries is a *reference*, not a separate type.
+4. **Recognition (parsing/labeling) reused, not reimplemented.** pd_reviewer never re-parses or re-labels a document — it calls `chunker.pipeline.run_pipeline`, which orchestrates the chunker's parse + map stages.
+5. **Stateless grading.** The grader takes a document + config, returns a review. No persistence; no in-place edits. CLI / UI is the consumer of each run's output.
+6. **Provider-neutral LLM access.** Uses its own `llm_client.py` adapter; the LLM client is injected into `chunker.pipeline` rather than imported as a global.
 
 ## Current Limitations
 

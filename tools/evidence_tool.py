@@ -16,15 +16,17 @@ if str(ROOT_DIR) not in sys.path:
 
 import streamlit as st  # noqa: E402
 
-from evidence.models import Claim, load_config  # noqa: E402
+from evidence.models import BatchResult, Claim, load_config  # noqa: E402
 from evidence.pipeline import (  # noqa: E402
     DEFAULT_MAX_OUTPUT_TOKENS,
     EXTRACTORS,
     default_source_id_from_path,
     run_pipeline,
+    run_pipeline_batch,
 )
 from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
-from tools._widgets import render_advanced_controls, render_llm_controls  # noqa: E402
+from tools._ui import render_empty_state, render_header, render_advanced_controls, render_llm_controls  # noqa: E402
+
 
 
 SUPPORTED_UPLOAD_TYPES = ["docx", "pdf"]
@@ -36,16 +38,18 @@ def main() -> None:
 
 
 def render() -> None:
-    """Stateless evidence pipeline UI.
-
-    Mirrors chunker's pattern: upload one document, run the pipeline,
-    show the output, offer a download. No persistence.
-    """
-    st.title("Evidence — Claim Pipeline")
-    st.caption(
-        "Upload a document, run the parse → extract → bind → appraise pipeline, "
-        "and inspect the resulting claims. Stateless: download or save the output yourself."
+    """Render the evidence UI inside a Streamlit app."""
+    render_header(
+        "Evidence",
+        "Claim Pipeline",
+        caption="Parse a document, then extract → bind → appraise to produce "
+        "source-backed claims grounded in an AttributeConfig.",
     )
+
+    if "evidence_upload_counter" not in st.session_state:
+        st.session_state["evidence_upload_counter"] = 0
+    if "evidence_batch_upload_counter" not in st.session_state:
+        st.session_state["evidence_batch_upload_counter"] = 0
 
     config_entries = _discover_configs()
     if not config_entries:
@@ -55,20 +59,21 @@ def render() -> None:
         )
         st.stop()
 
-    config_display = st.sidebar.selectbox(
-        "AttributeConfig",
-        [display for display, _ in config_entries],
-        help="Defines the attribute namespace claims are bound to.",
-    )
-    config_file = next(file for display, file in config_entries if display == config_display)
-    config = load_config(_config_path(config_file))
+    mode = st.sidebar.selectbox("Mode", ["Single Document", "Batch"])
+    if mode == "Batch":
+        _render_batch_mode(config_entries)
+        return
 
+    _render_single_mode(config_entries)
+
+
+def _render_single_mode(config_entries: list[tuple[str, str]]) -> None:
+    config = _config_selector(config_entries, key="evidence_single_doc_type")
     source_type = st.sidebar.selectbox(
         "Source type",
         sorted(EXTRACTORS.keys()),
         help="Which extractor to use. Only `product_profile` is wired today.",
     )
-
     intervention_class = st.sidebar.selectbox(
         "Intervention class (optional)",
         [""] + list(config.intervention_classes),
@@ -81,61 +86,29 @@ def render() -> None:
     uploaded_file = st.sidebar.file_uploader(
         "Upload document (.docx or .pdf)",
         type=SUPPORTED_UPLOAD_TYPES,
+        key=f"evidence_upload_{st.session_state['evidence_upload_counter']}",
     )
 
     provider, model, api_key = render_llm_controls(
-        "evidence",
+        "evidence_single",
         default_model_for_provider=default_model_for_provider,
         env_fallback=False,
     )
     advanced = render_advanced_controls(
-        "evidence",
+        "evidence_single",
         default_max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
     )
 
-    st.sidebar.markdown("---")
-    st.sidebar.caption(
-        f"**Config**: `{config.type_key}`  \n"
-        f"**Attributes**: {len(config.attributes)}  \n"
-        f"**Source type**: `{source_type}`"
-    )
-
-    if uploaded_file is None:
-        st.info("Step 1: upload a document to begin.")
-        return
-
-    source_id = st.text_input(
-        "Source ID",
-        value=default_source_id_from_path(uploaded_file.name),
-        help="Stable identifier for this document. Example: who_ppc_malaria_vaccine_2022",
-    )
-
-    run_pipeline_button = st.button("Run Pipeline", type="primary")
-    if not run_pipeline_button:
-        st.info(
-            "Step 2: choose config + source type + identifiers in the sidebar, "
-            "then click Run Pipeline. The pipeline parses the document, extracts "
-            "draft claims, binds them to attributes via an LLM, and appraises "
-            "reliability."
-        )
-        return
-
-    if not api_key:
-        st.error(f"Enter a {provider.title()} API key in the sidebar to run the pipeline.")
-        return
-
-    file_bytes = uploaded_file.getvalue()
-    file_suffix = Path(uploaded_file.name).suffix.lower() or ".docx"
-
-    with st.spinner("Running pipeline (parse → extract → bind → appraise)..."):
-        try:
-            blocks, claims = _run_pipeline_on_upload(
-                file_bytes=file_bytes,
-                file_suffix=file_suffix,
-                doc_id=source_id,
-                source_type=source_type,
-                source_id=source_id,
+    if st.sidebar.button("Run Pipeline"):
+        if uploaded_file is None:
+            st.error("Upload a document before running the pipeline.")
+        elif not api_key:
+            st.error(f"Enter a {provider.title()} API key before running the pipeline.")
+        else:
+            _run_single_pipeline(
+                uploaded_file=uploaded_file,
                 config=config,
+                source_type=source_type,
                 intervention_class=intervention_class,
                 therapeutic_area=therapeutic_area,
                 provider=provider,
@@ -143,68 +116,264 @@ def render() -> None:
                 api_key=api_key,
                 max_tokens=advanced["max_tokens"],
             )
-        except Exception as exc:
-            st.error(f"Pipeline failed: {exc}")
-            return
 
+    if st.sidebar.button("Clear / Restart"):
+        _restart_session()
+
+    result = st.session_state.get("evidence_single_result")
+    if result is None:
+        render_empty_state("Upload a `.docx` or `.pdf` document to begin.")
+        return
+
+    claims = result["claims"]
+    source_id = result["source_id"]
     st.success(
-        f"Pipeline completed. Parsed {len(blocks)} blocks; produced {len(claims)} claims."
+        f"Pipeline completed. Parsed {result['block_count']} blocks; "
+        f"produced {len(claims)} claims."
     )
     _render_summary(claims)
     _render_claim_list(claims)
     _render_download(claims, source_id)
 
 
+def _render_batch_mode(config_entries: list[tuple[str, str]]) -> None:
+    config = _config_selector(config_entries, key="evidence_batch_doc_type")
+    source_type = st.sidebar.selectbox(
+        "Source type",
+        sorted(EXTRACTORS.keys()),
+        key="evidence_batch_source_type",
+    )
+    intervention_class = st.sidebar.selectbox(
+        "Intervention class (optional)",
+        [""] + list(config.intervention_classes),
+        key="evidence_batch_intervention",
+    ) or None
+    therapeutic_area = st.sidebar.selectbox(
+        "Therapeutic area (optional)",
+        [""] + list(config.therapeutic_areas),
+        key="evidence_batch_therapeutic",
+    ) or None
+
+    uploaded_files = st.sidebar.file_uploader(
+        "Upload documents (.docx or .pdf)",
+        type=SUPPORTED_UPLOAD_TYPES,
+        accept_multiple_files=True,
+        key=f"evidence_batch_upload_{st.session_state['evidence_batch_upload_counter']}",
+    )
+
+    provider, model, api_key = render_llm_controls(
+        "evidence_batch",
+        default_model_for_provider=default_model_for_provider,
+        env_fallback=False,
+    )
+    advanced = render_advanced_controls(
+        "evidence_batch",
+        default_max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+        show_max_workers=True,
+    )
+
+    if st.sidebar.button("Run Batch Pipeline"):
+        if not uploaded_files:
+            st.error("Upload one or more documents before running.")
+        elif not api_key:
+            st.error(f"Enter a {provider.title()} API key before running.")
+        else:
+            _run_batch_pipeline(
+                uploaded_files=uploaded_files,
+                config=config,
+                source_type=source_type,
+                intervention_class=intervention_class,
+                therapeutic_area=therapeutic_area,
+                provider=provider,
+                model=model,
+                api_key=api_key,
+                max_tokens=advanced["max_tokens"],
+                max_workers=advanced["max_workers"],
+            )
+
+    if st.sidebar.button("Clear / Restart", key="evidence_batch_clear"):
+        _restart_session()
+
+    batch_results = st.session_state.get("evidence_batch_results")
+    if not batch_results:
+        render_empty_state("Upload one or more `.docx` or `.pdf` documents to begin.")
+        return
+
+    _render_batch_results(batch_results)
+
+
 # ---------------------------------------------------------------------------
-# Pipeline driver
+# Pipeline drivers
 # ---------------------------------------------------------------------------
 
 
-def _run_pipeline_on_upload(
+def _run_single_pipeline(
     *,
-    file_bytes: bytes,
-    file_suffix: str,
-    doc_id: str,
-    source_type: str,
-    source_id: str,
+    uploaded_file,
     config,
+    source_type: str,
     intervention_class: str | None,
     therapeutic_area: str | None,
     provider: str,
     model: str,
     api_key: str,
     max_tokens: int,
-):
+) -> None:
+    source_id = default_source_id_from_path(uploaded_file.name)
+    file_suffix = Path(uploaded_file.name).suffix.lower() or ".docx"
     temp_path = ""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_suffix) as temp_file:
-            temp_file.write(file_bytes)
+            temp_file.write(uploaded_file.getvalue())
             temp_path = temp_file.name
-        llm_client = create_llm_client(provider, api_key, model)
-        return run_pipeline(
-            file_path=temp_path,
-            doc_id=doc_id,
-            source_type=source_type,
-            source_id=source_id,
-            config=config,
-            llm_client=llm_client,
-            intervention_class=intervention_class,
-            therapeutic_area=therapeutic_area,
-            max_tokens=max_tokens,
-        )
+        with st.spinner("Running pipeline (parse → extract → bind → appraise)..."):
+            llm_client = create_llm_client(provider, api_key, model)
+            blocks, claims = run_pipeline(
+                file_path=temp_path,
+                doc_id=source_id,
+                source_type=source_type,
+                source_id=source_id,
+                config=config,
+                llm_client=llm_client,
+                intervention_class=intervention_class,
+                therapeutic_area=therapeutic_area,
+                max_tokens=max_tokens,
+            )
+        st.session_state["evidence_single_result"] = {
+            "source_id": source_id,
+            "block_count": len(blocks),
+            "claims": claims,
+        }
+    except Exception as exc:
+        st.session_state.pop("evidence_single_result", None)
+        st.error(f"Pipeline failed: {exc}")
     finally:
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
 
 
-# ---------------------------------------------------------------------------
-# Sidebar controls
-# ---------------------------------------------------------------------------
+def _run_batch_pipeline(
+    *,
+    uploaded_files,
+    config,
+    source_type: str,
+    intervention_class: str | None,
+    therapeutic_area: str | None,
+    provider: str,
+    model: str,
+    api_key: str,
+    max_tokens: int,
+    max_workers: int,
+) -> None:
+    staged = [_stage_upload(file) for file in uploaded_files]
+    try:
+        jobs = [(stage["file_path"], stage["source_id"]) for stage in staged]
+        with st.spinner(f"Running pipeline on {len(jobs)} documents..."):
+            results = run_pipeline_batch(
+                jobs,
+                config=config,
+                source_type=source_type,
+                llm_client_factory=lambda: create_llm_client(provider, api_key, model),
+                intervention_class=intervention_class,
+                therapeutic_area=therapeutic_area,
+                max_tokens=max_tokens,
+                max_workers=max_workers,
+            )
+        st.session_state["evidence_batch_results"] = results
+    finally:
+        for stage in staged:
+            if os.path.exists(stage["file_path"]):
+                os.unlink(stage["file_path"])
+
+
+def _stage_upload(uploaded_file) -> dict:
+    source_id = default_source_id_from_path(uploaded_file.name)
+    file_suffix = Path(uploaded_file.name).suffix.lower() or ".docx"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=file_suffix) as temp_file:
+        temp_file.write(uploaded_file.getvalue())
+        return {"file_path": temp_file.name, "source_id": source_id}
+
+
+def _config_selector(
+    config_entries: list[tuple[str, str]],
+    *,
+    key: str,
+):
+    config_display = st.sidebar.selectbox(
+        "AttributeConfig",
+        [display for display, _ in config_entries],
+        key=key,
+        help="Defines the attribute namespace claims are bound to.",
+    )
+    config_file = next(file for display, file in config_entries if display == config_display)
+    return load_config(_config_path(config_file))
+
+
+def _restart_session() -> None:
+    st.session_state.pop("evidence_single_result", None)
+    st.session_state.pop("evidence_batch_results", None)
+    st.session_state["evidence_upload_counter"] += 1
+    st.session_state["evidence_batch_upload_counter"] += 1
+    st.rerun()
 
 
 # ---------------------------------------------------------------------------
 # Output rendering
 # ---------------------------------------------------------------------------
+
+
+def _render_batch_results(batch_results: list[BatchResult]) -> None:
+    succeeded = [r for r in batch_results if r.error is None]
+    failed = [r for r in batch_results if r.error is not None]
+    total_claims = sum(len(r.claims) for r in succeeded)
+    st.success(
+        f"Pipeline completed on {len(succeeded)} of {len(batch_results)} documents; "
+        f"produced {total_claims} claims."
+    )
+
+    if failed:
+        with st.expander(f"Failures ({len(failed)})"):
+            for result in failed:
+                st.error(f"{result.source_id}: {result.error}")
+
+    st.subheader("Batch Overview")
+    st.dataframe(
+        [
+            {
+                "source": r.source_id,
+                "blocks": len(r.blocks),
+                "claims": len(r.claims),
+                "status": "ok" if r.error is None else "error",
+            }
+            for r in batch_results
+        ],
+        width="stretch",
+        hide_index=True,
+    )
+
+    st.subheader("Per-Document Claims")
+    for result in batch_results:
+        if result.error is not None:
+            continue
+        with st.expander(f"{result.source_id} — {len(result.claims)} claims"):
+            _render_summary(result.claims)
+            _render_claim_list(result.claims)
+
+    st.subheader("Downloads")
+    all_claims = [c for r in succeeded for c in r.claims]
+    cols = st.columns(2)
+    cols[0].download_button(
+        "Download All Claims (JSONL)",
+        data=_claims_to_jsonl(all_claims),
+        file_name="batch_claims.jsonl",
+        mime="application/jsonl",
+    )
+    cols[1].download_button(
+        "Download All Claims (CSV)",
+        data=_claims_to_csv(all_claims),
+        file_name="batch_claims.csv",
+        mime="text/csv",
+    )
 
 
 def _render_summary(claims: list[Claim]) -> None:

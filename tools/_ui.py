@@ -1,8 +1,19 @@
-"""Shared Streamlit sidebar widgets for the tool suite.
+"""Shared UI helpers for the tool suite.
 
-Every `tools/*_tool.py` uses these helpers so the sidebar stays symmetric
-and widget outputs map cleanly to the kwargs each library's
-`pipeline.run_pipeline(...)` already accepts.
+Two roles in one file:
+- **Layout / chrome**: header, empty state, clear button. Page skeleton.
+- **Sidebar widgets**: LLM controls, Advanced expander. Inputs that collect
+  user values and return them.
+
+Sidebar order convention (every tool follows this top-to-bottom):
+    1. Mode selector (single vs batch) — if the tool has batch mode
+    2. Document type / config selector
+    3. Tool-specific config widgets (source_type, filters, etc.)
+    4. File uploader (single or multi)
+    5. LLM controls (provider / model / api key)         ← render_llm_controls
+    6. Advanced expander (max_tokens, max_workers)       ← render_advanced_controls
+    7. Run button(s) — primary action
+    8. Clear / Restart button                            ← render_clear_button
 """
 
 from __future__ import annotations
@@ -16,6 +27,38 @@ from llm_client import PROVIDER_ENV_VAR
 
 
 PROVIDER_CHOICES = ["anthropic", "openai"]
+
+
+# ---------------------------------------------------------------------------
+# Layout / chrome
+# ---------------------------------------------------------------------------
+
+
+def render_header(title: str, subtitle: str, caption: str | None = None) -> None:
+    """Render the standard page header.
+
+    Pattern: `<Tool Name> — <Subtitle>` plus a one-line caption.
+    Every tool calls this first thing in `render()`.
+    """
+    st.title(f"{title} — {subtitle}")
+    if caption:
+        st.caption(caption)
+
+
+def render_empty_state(message: str) -> None:
+    """Render the standard 'no input yet' message in the main area."""
+    st.info(message)
+
+
+def render_clear_button(callback: Callable[[], None], *, key: str = "clear_restart") -> None:
+    """Render the standard Clear / Restart button at the bottom of the sidebar."""
+    if st.sidebar.button("Clear / Restart", key=key):
+        callback()
+
+
+# ---------------------------------------------------------------------------
+# Sidebar widgets
+# ---------------------------------------------------------------------------
 
 
 def render_llm_controls(

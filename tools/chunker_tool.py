@@ -23,7 +23,8 @@ from chunker.pipeline import (  # noqa: E402
     run_pipeline_batch,
 )
 from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
-from tools._widgets import render_advanced_controls, render_llm_controls  # noqa: E402
+from tools._ui import render_empty_state, render_header, render_advanced_controls, render_llm_controls  # noqa: E402
+
 
 
 def main() -> None:
@@ -33,7 +34,12 @@ def main() -> None:
 
 def render() -> None:
     """Render the chunker UI inside a Streamlit app."""
-    st.title("Chunker — Block Inspector")
+    render_header(
+        "Chunker",
+        "Block Inspector",
+        caption="Parse `.docx` and `.pdf` documents into ordered ContentBlocks, "
+        "optionally label each block with a section taxonomy.",
+    )
 
     if "upload_counter" not in st.session_state:
         st.session_state["upload_counter"] = 0
@@ -42,9 +48,9 @@ def render() -> None:
 
     mode = st.sidebar.selectbox(
         "Mode",
-        ["Single Document Inspector", "Batch Parser Evaluation"],
+        ["Single Document", "Batch"],
     )
-    if mode == "Batch Parser Evaluation":
+    if mode == "Batch":
         _render_batch_mode()
         return
 
@@ -70,7 +76,7 @@ def render() -> None:
 
     if uploaded_file is None:
         _clear_document_state()
-        st.info("Step 1: Upload a .docx or .pdf file to begin.")
+        render_empty_state("Upload a `.docx` or `.pdf` document to begin.")
         return
 
     doc_id = Path(uploaded_file.name).stem
@@ -146,10 +152,7 @@ def _render_batch_mode() -> None:
 
     if not uploaded_files:
         _clear_batch_state()
-        st.info(
-            "Batch mode: upload multiple `.docx` and/or `.pdf` files, "
-            "then click Parse All Documents."
-        )
+        render_empty_state("Upload one or more `.docx` or `.pdf` documents to begin.")
         return
 
     batch_key = "|".join(f"{file.name}:{file.size}" for file in uploaded_files)
@@ -424,17 +427,12 @@ def _config_path(file_name: str) -> str:
 def _render_lifecycle_status(file_name: str, blocks: list[dict] | None) -> None:
     st.success(f"Uploaded: {file_name}")
     if blocks is None:
-        st.info("Step 2: Click Parse Document to extract ContentBlocks.")
+        st.info("Click **Parse Document** to extract ContentBlocks.")
         return
-
-    st.success("Parsing completed.")
     if _has_labels(blocks):
-        st.success("Mapper completed.")
-        st.success("Status: Parsed and mapped. Blocks now include section labels.")
+        st.success("Parsed and labeled. Blocks include section labels.")
         return
-
-    st.info("Status: Parsed, not mapped yet. Blocks are raw parser output.")
-    st.info("Step 3: Optionally enter an API key and click Run Mapper.")
+    st.success("Parsed. Optionally click **Run Mapper** to label blocks.")
 
 
 def _render_summary(blocks: list[dict]) -> None:

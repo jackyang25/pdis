@@ -58,6 +58,58 @@ def review_blocks(
     return build_report_card(blocks, section_grades, config)
 
 
+def run_pipeline_batch(
+    jobs: list[tuple[str, str]],
+    *,
+    config: ReviewConfig,
+    llm_client_factory,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    max_workers: int = 4,
+) -> list[BatchReviewResult]:
+    """Run `run_pipeline` (parse → label → grade) over many documents in parallel.
+
+    Args:
+        jobs: list of (file_path, doc_key) pairs.
+        llm_client_factory: zero-arg callable returning a fresh LLMClient per worker.
+
+    Returns:
+        list[BatchReviewResult] in the same order as `jobs`.
+    """
+    if not jobs:
+        return []
+    workers = max(1, min(max_workers, len(jobs)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(
+            executor.map(
+                lambda job: _run_pipeline_one_batch(
+                    job[0],
+                    job[1],
+                    config=config,
+                    llm_client_factory=llm_client_factory,
+                    max_tokens=max_tokens,
+                ),
+                jobs,
+            )
+        )
+
+
+def _run_pipeline_one_batch(
+    file_path: str,
+    doc_key: str,
+    *,
+    config: ReviewConfig,
+    llm_client_factory,
+    max_tokens: int,
+) -> BatchReviewResult:
+    try:
+        llm_client = llm_client_factory()
+        review = run_pipeline(
+            file_path, config=config, llm_client=llm_client, max_tokens=max_tokens
+        )
+        review.doc_id = doc_key
+        return BatchReviewResult(doc_key=doc_key, review=review)
+    except Exception as exc:
+        return BatchReviewResult(doc_key=doc_key, error=str(exc))
 
 
 def review_blocks_batch(

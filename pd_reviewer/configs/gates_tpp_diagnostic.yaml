@@ -1,6 +1,6 @@
-type_key: tpp_diagnostic
+type_key: gates_tpp_diagnostic
 display_name: "Diagnostic Target Product Profile"
-chunker_config_path: "../chunker/configs/tpp_diagnostic.yaml"
+chunker_config_path: "../chunker/configs/gates_tpp_diagnostic.yaml"
 
 sections:
   - name: "Instructions for Use"

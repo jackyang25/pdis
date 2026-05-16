@@ -62,10 +62,10 @@ streamlit run pd_reviewer/app.py
 Review behavior is driven by YAML, not hardcoded logic. Bundled configs include:
 
 ```text
-pd_reviewer/configs/tpp_vaccine.yaml
-pd_reviewer/configs/tpp_drug.yaml
-pd_reviewer/configs/tpp_diagnostic.yaml
-pd_reviewer/configs/tpp_device.yaml
+pd_reviewer/configs/gates_tpp_vaccine.yaml
+pd_reviewer/configs/gates_tpp_drug.yaml
+pd_reviewer/configs/gates_tpp_diagnostic.yaml
+pd_reviewer/configs/gates_tpp_device.yaml
 ```
 
 The config defines:

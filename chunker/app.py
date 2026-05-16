@@ -13,12 +13,20 @@ from pathlib import Path
 import streamlit as st
 
 try:
-    from .llm_client import create_llm_client, default_model_for_provider
+    from .llm_client import (
+        DEFAULT_MAX_OUTPUT_TOKENS,
+        create_llm_client,
+        default_model_for_provider,
+    )
     from .mapper import label_blocks
     from .models import ContentBlock, blocks_to_dicts, load_config
     from .parser import parse_document
 except ImportError:  # pragma: no cover - supports `streamlit run chunker/app.py`
-    from llm_client import create_llm_client, default_model_for_provider
+    from llm_client import (
+        DEFAULT_MAX_OUTPUT_TOKENS,
+        create_llm_client,
+        default_model_for_provider,
+    )
     from mapper import label_blocks
     from models import ContentBlock, blocks_to_dicts, load_config
     from parser import parse_document
@@ -46,27 +54,27 @@ def render() -> None:
         _render_batch_mode()
         return
 
-    config_path = _config_path("tpp_vaccine.yaml")
-    config = load_config(config_path)
-    st.sidebar.selectbox("Document type", [config.display_name])
+    config = _config_selector("Document type", key="single_doc_type")
     uploaded_file = st.sidebar.file_uploader(
-        "Upload document",
-        type=["docx"],
-        key=f"docx_upload_{st.session_state['upload_counter']}",
+        "Upload document (.docx or .pdf)",
+        type=SUPPORTED_UPLOAD_TYPES,
+        key=f"upload_{st.session_state['upload_counter']}",
     )
 
     provider, model, api_key = _render_llm_controls("single")
+    advanced = _render_advanced_controls("single", batch=False)
 
     if st.sidebar.button("Clear / Restart"):
         _restart_document_session()
 
     if uploaded_file is None:
         _clear_document_state()
-        st.info("Step 1: Upload a .docx file to begin.")
+        st.info("Step 1: Upload a .docx or .pdf file to begin.")
         return
 
     doc_id = Path(uploaded_file.name).stem
     file_bytes = uploaded_file.getvalue()
+    file_suffix = _suffix_for_upload(uploaded_file)
     file_key = f"{uploaded_file.name}:{len(file_bytes)}"
     _reset_state_for_new_file(file_key)
 
@@ -74,7 +82,7 @@ def render() -> None:
         st.session_state.pop("blocks", None)
         with st.spinner("Parsing document..."):
             try:
-                blocks = _parse_uploaded_file(file_bytes, doc_id)
+                blocks = _parse_uploaded_file(file_bytes, doc_id, suffix=file_suffix)
                 st.session_state["blocks"] = blocks
             except Exception as exc:
                 st.error(f"Failed to parse document: {exc}")
@@ -89,7 +97,12 @@ def render() -> None:
                 try:
                     _clear_block_labels(blocks)
                     llm_client = create_llm_client(provider, api_key, model)
-                    blocks = label_blocks(blocks, config, llm_client)
+                    blocks = label_blocks(
+                        blocks,
+                        config,
+                        llm_client,
+                        max_tokens=advanced["max_tokens"],
+                    )
                     st.session_state["blocks"] = blocks
                 except Exception as exc:
                     st.session_state["blocks"] = blocks
@@ -109,24 +122,26 @@ def render() -> None:
 
 
 def _render_batch_mode() -> None:
-    config_path = _config_path("tpp_vaccine.yaml")
-    config = load_config(config_path)
-    st.sidebar.selectbox("Document type", [config.display_name], key="batch_doc_type")
+    config = _config_selector("Document type", key="batch_doc_type")
     uploaded_files = st.sidebar.file_uploader(
-        "Upload documents",
-        type=["docx"],
+        "Upload documents (.docx or .pdf)",
+        type=SUPPORTED_UPLOAD_TYPES,
         accept_multiple_files=True,
-        key=f"batch_docx_upload_{st.session_state['batch_upload_counter']}",
+        key=f"batch_upload_{st.session_state['batch_upload_counter']}",
     )
 
     provider, model, api_key = _render_llm_controls("batch")
+    advanced = _render_advanced_controls("batch", batch=True)
 
     if st.sidebar.button("Clear / Restart", key="batch_clear_restart"):
         _restart_document_session()
 
     if not uploaded_files:
         _clear_batch_state()
-        st.info("Batch mode: upload multiple `.docx` files, then click Parse All Documents.")
+        st.info(
+            "Batch mode: upload multiple `.docx` and/or `.pdf` files, "
+            "then click Parse All Documents."
+        )
         return
 
     batch_key = "|".join(f"{file.name}:{file.size}" for file in uploaded_files)
@@ -140,7 +155,8 @@ def _render_batch_mode() -> None:
         with st.spinner("Parsing documents..."):
             try:
                 st.session_state["batch_results"] = _parse_batch_files_parallel(
-                    uploaded_files
+                    uploaded_files,
+                    max_workers=advanced["max_workers"],
                 )
             except Exception as exc:
                 st.error(f"Failed to parse batch: {exc}")
@@ -165,6 +181,8 @@ def _render_batch_mode() -> None:
                     api_key,
                     provider,
                     model,
+                    max_tokens=advanced["max_tokens"],
+                    max_workers=advanced["max_workers"],
                 )
                 batch_results = st.session_state["batch_results"]
 
@@ -175,10 +193,14 @@ def _render_batch_mode() -> None:
     _render_batch_downloads(batch_results)
 
 
-def _parse_uploaded_file(file_bytes: bytes, doc_id: str) -> list[ContentBlock]:
+def _parse_uploaded_file(
+    file_bytes: bytes,
+    doc_id: str,
+    suffix: str = ".docx",
+) -> list[ContentBlock]:
     temp_path = ""
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
             temp_file.write(file_bytes)
             temp_path = temp_file.name
         return parse_document(temp_path, doc_id)
@@ -187,9 +209,44 @@ def _parse_uploaded_file(file_bytes: bytes, doc_id: str) -> list[ContentBlock]:
             os.unlink(temp_path)
 
 
+SUPPORTED_UPLOAD_TYPES = ["docx", "pdf"]
+
+
+def _discover_configs() -> list[tuple[str, str]]:
+    """Return [(display_name, file_name), ...] from chunker/configs/*.yaml."""
+    configs_dir = Path(__file__).parent / "configs"
+    entries: list[tuple[str, str]] = []
+    for path in sorted(configs_dir.glob("*.yaml")):
+        try:
+            cfg = load_config(str(path))
+        except Exception:
+            continue
+        entries.append((cfg.display_name, path.name))
+    return entries
+
+
+def _config_selector(label: str, key: str) -> tuple:
+    entries = _discover_configs()
+    if not entries:
+        st.sidebar.error("No configs found in chunker/configs/")
+        st.stop()
+    options = [display for display, _ in entries]
+    selected_display = st.sidebar.selectbox(label, options, key=key)
+    file_name = next(file for display, file in entries if display == selected_display)
+    return load_config(_config_path(file_name))
+
+
+def _suffix_for_upload(uploaded_file) -> str:
+    return Path(uploaded_file.name).suffix.lower() or ".docx"
+
+
 def _parse_batch_file(uploaded_file) -> dict:
     doc_id = Path(uploaded_file.name).stem
-    blocks = _parse_uploaded_file(uploaded_file.getvalue(), doc_id)
+    blocks = _parse_uploaded_file(
+        uploaded_file.getvalue(),
+        doc_id,
+        suffix=_suffix_for_upload(uploaded_file),
+    )
     block_dicts = blocks_to_dicts(blocks)
     return {
         "doc_id": doc_id,
@@ -199,9 +256,12 @@ def _parse_batch_file(uploaded_file) -> dict:
     }
 
 
-def _parse_batch_files_parallel(uploaded_files: list) -> list[dict]:
-    max_workers = min(8, max(1, len(uploaded_files)))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+def _parse_batch_files_parallel(
+    uploaded_files: list,
+    max_workers: int = 4,
+) -> list[dict]:
+    workers = min(max(1, max_workers), max(1, len(uploaded_files)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         return list(executor.map(_parse_batch_file, uploaded_files))
 
 
@@ -211,9 +271,11 @@ def _map_batch_results_parallel(
     api_key: str,
     provider: str,
     model: str,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    max_workers: int = 4,
 ) -> list[dict]:
-    max_workers = min(8, max(1, len(batch_results)))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    workers = min(max(1, max_workers), max(1, len(batch_results)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         return list(
             executor.map(
                 _map_batch_result,
@@ -222,6 +284,7 @@ def _map_batch_results_parallel(
                 repeat(api_key),
                 repeat(provider),
                 repeat(model),
+                repeat(max_tokens),
             )
         )
 
@@ -232,12 +295,15 @@ def _map_batch_result(
     api_key: str,
     provider: str,
     model: str,
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> dict:
     try:
         blocks = [ContentBlock(**block) for block in result["blocks"]]
         _clear_block_labels(blocks)
         llm_client = create_llm_client(provider, api_key, model)
-        labeled_blocks = label_blocks(blocks, config, llm_client)
+        labeled_blocks = label_blocks(
+            blocks, config, llm_client, max_tokens=max_tokens
+        )
         block_dicts = blocks_to_dicts(labeled_blocks)
         metrics = _batch_metrics(result["doc_id"], result["file_name"], block_dicts)
         metrics.update(_batch_label_metrics(block_dicts))
@@ -328,6 +394,32 @@ def _restart_document_session() -> None:
 
 def _config_path(file_name: str) -> str:
     return str(Path(__file__).parent / "configs" / file_name)
+
+
+def _render_advanced_controls(key_prefix: str, batch: bool) -> dict:
+    """Sidebar expander with CLI-symmetric knobs (max_workers, max_tokens)."""
+    settings: dict = {}
+    with st.sidebar.expander("Advanced", expanded=False):
+        settings["max_tokens"] = st.number_input(
+            "Mapper max output tokens",
+            min_value=1000,
+            max_value=64000,
+            value=DEFAULT_MAX_OUTPUT_TOKENS,
+            step=1000,
+            help="Max tokens the mapper LLM can return per document. CLI: --max-tokens.",
+            key=f"{key_prefix}_max_tokens",
+        )
+        if batch:
+            settings["max_workers"] = st.number_input(
+                "Batch max workers",
+                min_value=1,
+                max_value=16,
+                value=4,
+                step=1,
+                help="Number of documents to parse/map in parallel. CLI: --max-workers.",
+                key=f"{key_prefix}_max_workers",
+            )
+    return settings
 
 
 def _render_llm_controls(key_prefix: str) -> tuple[str, str, str]:

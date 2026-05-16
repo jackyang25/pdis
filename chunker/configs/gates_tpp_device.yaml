@@ -1,4 +1,4 @@
-type_key: tpp_device
+type_key: gates_tpp_device
 display_name: "Medical Device Target Product Profile"
 
 section_taxonomy:

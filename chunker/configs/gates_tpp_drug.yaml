@@ -1,4 +1,4 @@
-type_key: tpp_drug
+type_key: gates_tpp_drug
 display_name: "Drug Target Product Profile"
 
 section_taxonomy:

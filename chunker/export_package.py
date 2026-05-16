@@ -21,10 +21,10 @@ from .parser import parse_document
 
 
 CONFIG_BY_TPP_TYPE = {
-    "vaccine": "tpp_vaccine.yaml",
-    "drug": "tpp_drug.yaml",
-    "diagnostic": "tpp_diagnostic.yaml",
-    "device": "tpp_device.yaml",
+    "vaccine": "gates_tpp_vaccine.yaml",
+    "drug": "gates_tpp_drug.yaml",
+    "diagnostic": "gates_tpp_diagnostic.yaml",
+    "device": "gates_tpp_device.yaml",
 }
 
 DOCUMENT_COLUMNS = [

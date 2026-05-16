@@ -1,10 +1,10 @@
 # Document Chunker
 
-The chunker turns `.docx` files into ordered, citable `ContentBlock` objects, then optionally runs an LLM mapper that assigns normalized section labels.
+The chunker turns documents (`.docx`, `.pdf`) into ordered, citable `ContentBlock` objects, then optionally runs an LLM mapper that assigns normalized section labels.
 
 The pipeline has two explicit phases:
 
-1. **Parser**: deterministic `.docx` parsing. Produces blocks with source text, document order, heading context, and structural provenance.
+1. **Parser**: format-specific parsing. `.docx` uses semantic-tag walking (`parser_docx`); `.pdf` uses text + table extraction via `pdfplumber` (`parser_pdf`). A dispatcher in `parser.py` routes by file extension. Both produce the same `ContentBlock` shape; downstream consumers do not see the format.
 2. **Mapper**: LLM-driven section labeling. Adds `section_label` and `label_confidence` using a document-type config.
 
 The Streamlit app is a local inspector for this flow. It has a single-document mode for deep inspection and a batch parser mode for comparing parser behavior across multiple TPP documents.
@@ -14,7 +14,9 @@ The Streamlit app is a local inspector for this flow. It has a single-document m
 | File | Purpose |
 |---|---|
 | `models.py` | Shared dataclasses: `ContentBlock` and `DocumentTypeConfig`; YAML config loader. |
-| `parser.py` | Deterministic Word parser. Walks XML body order so paragraphs and tables stay interleaved correctly. |
+| `parser.py` | Format dispatcher. Routes `.docx` → `parser_docx.parse_docx`, `.pdf` → `parser_pdf.parse_pdf`. Preserves a single public entry point (`parse_document`). |
+| `parser_docx.py` | Deterministic Word parser. Walks XML body order so paragraphs and tables stay interleaved correctly. Populates `heading_stack` from Word heading styles. |
+| `parser_pdf.py` | PDF parser via `pdfplumber`. Extracts paragraphs (line + gap clustering) and tables (pdfplumber table detection) per page. Populates `structural_meta.page` for every block. `heading_stack` is left empty for PDFs at MVP (PDFs lack semantic heading tags). |
 | `mapper.py` | Prompt builder, JSON validation, and label merge. |
 | `llm_client.py` | Provider-neutral LLM adapter (OpenAI, Anthropic). Defines `DEFAULT_MAX_OUTPUT_TOKENS`. |
 | `export_package.py` | CLI utility that parses a folder of `.docx` files into reusable `documents.csv`, `content_blocks.csv`, and `content_blocks.jsonl` tables. |
@@ -282,11 +284,14 @@ The mapper is driven by a `DocumentTypeConfig` loaded from YAML.
 Bundled configs:
 
 ```text
-configs/tpp_vaccine.yaml
-configs/tpp_drug.yaml
-configs/tpp_diagnostic.yaml
-configs/tpp_device.yaml
+configs/gates_tpp_vaccine.yaml
+configs/gates_tpp_drug.yaml
+configs/gates_tpp_diagnostic.yaml
+configs/gates_tpp_device.yaml
+configs/who_ppc_vaccine.yaml
 ```
+
+Configs are named `<publisher>_<doctype>_<class>.yaml`. Publisher prefix groups configs from the same source (Gates, WHO, future peer orgs); `doctype` reflects WHO's vocabulary (`tpp` for diagnostics/drugs/devices, `ppc` for vaccines/biologics).
 
 It defines:
 

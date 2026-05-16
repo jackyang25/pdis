@@ -1,0 +1,55 @@
+type_key: who_ppc_vaccine
+display_name: "WHO Vaccine PPC"
+
+# STUB: refine this taxonomy after running the chunker against a real WHO PPC
+# (e.g., the Malaria Vaccines PPC, iris.who.int/.../9789240057463).
+# WHO PPCs differ from BMGF/Gates TPPs: they use "Minimum / Preferred" (not
+# "Minimum / Optimistic"), often cover multiple use cases per document,
+# and include a substantial clinical development considerations section.
+
+section_taxonomy:
+  - name: "Introduction and Background"
+    description: "Front matter explaining what PPCs are, scope of the document, disease context, and rationale for the product class. Often includes target setting (e.g., transmission setting, target geography)."
+
+  - name: "Scope and Use Cases"
+    description: "Description of one or more product use cases the PPC covers. Each use case is treated as a distinct product profile downstream (e.g., for malaria vaccines: blood-stage infection prevention vs. transmission reduction)."
+
+  - name: "Preferred Product Characteristics Table"
+    description: "The main PPC table per use case. Each row is one variable (indication, target population, efficacy, duration of protection, safety, dosing, route, presentation, cold chain, co-administration, regulatory pathway, etc.) with Minimum and Preferred target values, often followed by annotations or rationale."
+
+  - name: "Clinical Development Considerations"
+    description: "Guidance for developers on trial design, endpoints, populations, comparators, regulatory expectations, and evidence requirements. Distinct from the PPC table itself; this section is normative guidance rather than target specification."
+
+  - name: "Implementation and Programmatic Considerations"
+    description: "Discussion of how the product would be deployed: target programs (e.g., EPI), schedule integration, supply chain, equity, access pricing, cold chain logistics."
+
+  - name: "References and Annexes"
+    description: "Bibliography, supplementary tables, methodology notes, contributor lists, abbreviations, and any appendices."
+
+preamble: >
+  This is a WHO Preferred Product Characteristics (PPC) document. PPCs define
+  the desired characteristics of a vaccine or biologic using Minimum and
+  Preferred targets. WHO PPCs typically cover one or more product use cases,
+  each with its own PPC table. The PPC table is the dense, citable core of the
+  document — each row is a variable with Minimum and Preferred target values.
+  Surrounding sections give context (introduction, scope) and guidance
+  (clinical development, implementation).
+
+  Label all rows within a PPC table under "Preferred Product Characteristics
+  Table" — do not split individual table rows into different sections.
+
+disambiguation:
+  - >
+    PPC tables vs. clinical development considerations: PPC table rows are
+    target specifications (Minimum / Preferred values for product attributes).
+    Clinical development considerations are normative guidance about how to
+    generate evidence for those attributes (trial designs, endpoints,
+    comparators). When in doubt, look at whether the content states a target
+    value (PPC table) or a methodological recommendation (clinical
+    development).
+  - >
+    Multi-use-case PPCs: if the document covers multiple use cases (e.g.,
+    blood-stage prevention vs. transmission reduction), each use case
+    typically has its own PPC table. Label them all under "Preferred Product
+    Characteristics Table"; downstream extractors will distinguish them by
+    section headings and the use case context.

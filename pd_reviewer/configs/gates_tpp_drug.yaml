@@ -1,6 +1,6 @@
-type_key: tpp_drug
+type_key: gates_tpp_drug
 display_name: "Drug Target Product Profile"
-chunker_config_path: "../chunker/configs/tpp_drug.yaml"
+chunker_config_path: "../chunker/configs/gates_tpp_drug.yaml"
 
 sections:
   - name: "Introduction"

@@ -18,19 +18,20 @@ except ImportError:  # pragma: no cover - optional until requirements are instal
     def load_dotenv() -> None:
         return None
 
-from pd_reviewer.pipeline import (  # noqa: E402
+from services.evidence import FileClaimsStore  # noqa: E402
+from services.pd_reviewer import (  # noqa: E402
     DEFAULT_MAX_OUTPUT_TOKENS,
     run_pipeline,
     run_pipeline_batch,
 )
-from pd_reviewer.models import (  # noqa: E402
+from services.pd_reviewer import (  # noqa: E402
     BatchReviewResult,
     ReviewConfig,
     ReviewResult,
     review_result_to_dict,
 )
 from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
-from tools._ui import (  # noqa: E402
+from dashboard._ui import (  # noqa: E402
     render_advanced_controls,
     render_empty_state,
     render_header,
@@ -110,6 +111,13 @@ def _render_sidebar(*, header, config: ReviewConfig) -> ReviewConfig:
         type=["docx"],
         key=f"pd_reviewer_upload_{st.session_state['pd_reviewer_upload_counter']}",
     )
+    claims_dir = st.sidebar.text_input(
+        "claims_dir",
+        value="",
+        help="optional. Folder of claims.jsonl files (your local evidence table). "
+        "CLI: --claims-dir",
+        key="pd_reviewer_claims_dir",
+    ).strip() or None
 
     provider, model, api_key = render_llm_controls(
         "pd_reviewer",
@@ -133,6 +141,7 @@ def _render_sidebar(*, header, config: ReviewConfig) -> ReviewConfig:
                 provider,
                 model,
                 therapeutic_area=header.get("therapeutic_area"),
+                claims_dir=claims_dir,
                 max_tokens=advanced["max_tokens"],
             )
 
@@ -150,6 +159,12 @@ def _render_batch_mode(*, header, config: ReviewConfig) -> None:
         accept_multiple_files=True,
         key=f"pd_reviewer_batch_upload_{st.session_state['pd_reviewer_batch_upload_counter']}",
     )
+    claims_dir = st.sidebar.text_input(
+        "claims_dir",
+        value="",
+        help="optional. Folder of claims.jsonl files. CLI: --claims-dir",
+        key="pd_reviewer_batch_claims_dir",
+    ).strip() or None
 
     provider, model, api_key = render_llm_controls(
         "pd_reviewer_batch",
@@ -174,6 +189,7 @@ def _render_batch_mode(*, header, config: ReviewConfig) -> None:
                 provider,
                 model,
                 therapeutic_area=header.get("therapeutic_area"),
+                claims_dir=claims_dir,
                 max_tokens=advanced["max_tokens"],
                 max_workers=advanced["max_workers"],
             )
@@ -197,10 +213,12 @@ def _run_batch_review(
     model: str,
     *,
     therapeutic_area: str | None = None,
+    claims_dir: str | None = None,
     max_tokens: int,
     max_workers: int,
 ) -> None:
     staged = [_stage_upload(file) for file in uploaded_files]
+    claims_store = FileClaimsStore(claims_dir) if claims_dir else None
     try:
         jobs = [(stage["file_path"], stage["doc_key"]) for stage in staged]
         with st.spinner(f"Reviewing {len(jobs)} documents..."):
@@ -209,6 +227,7 @@ def _run_batch_review(
                 config=config,
                 llm_client_factory=lambda: create_llm_client(provider, api_key, model),
                 therapeutic_area=therapeutic_area,
+                claims_store=claims_store,
                 max_tokens=max_tokens,
                 max_workers=max_workers,
             )
@@ -287,10 +306,12 @@ def _run_review(
     model: str,
     *,
     therapeutic_area: str | None = None,
+    claims_dir: str | None = None,
     max_tokens: int,
 ) -> None:
     doc_id = Path(uploaded_file.name).stem
     temp_path = ""
+    claims_store = FileClaimsStore(claims_dir) if claims_dir else None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_file:
             temp_file.write(uploaded_file.getvalue())
@@ -303,6 +324,7 @@ def _run_review(
                 config=config,
                 llm_client=llm_client,
                 therapeutic_area=therapeutic_area,
+                claims_store=claims_store,
                 max_tokens=max_tokens,
             )
             result.doc_id = doc_id

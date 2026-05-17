@@ -92,7 +92,6 @@ class ReviewConfig:
     source_type: str
     intervention_class: str
     display_name: str
-    chunker_config_path: str
     sections: list[SectionSpec]
 
 
@@ -123,7 +122,6 @@ def load_review_config(path: str) -> ReviewConfig:
         "source_type",
         "intervention_class",
         "display_name",
-        "chunker_config_path",
         "sections",
     }
     missing_fields = required_fields - data.keys()
@@ -136,7 +134,6 @@ def load_review_config(path: str) -> ReviewConfig:
     _validate_string_field(data, "source_type")
     _validate_string_field(data, "intervention_class")
     _validate_string_field(data, "display_name")
-    _validate_string_field(data, "chunker_config_path")
     sections = _parse_sections(data["sections"])
 
     return ReviewConfig(
@@ -145,7 +142,6 @@ def load_review_config(path: str) -> ReviewConfig:
         source_type=data["source_type"],
         intervention_class=data["intervention_class"],
         display_name=data["display_name"],
-        chunker_config_path=str(_resolve_path(config_path, data["chunker_config_path"])),
         sections=sections,
     )
 

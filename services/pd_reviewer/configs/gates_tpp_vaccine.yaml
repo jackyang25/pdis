@@ -3,7 +3,6 @@ org: gates
 source_type: tpp
 intervention_class: vaccine
 display_name: "Vaccine Target Product Profile"
-chunker_config_path: "../chunker/configs/gates_tpp_vaccine.yaml"
 
 sections:
   - name: "Introduction"

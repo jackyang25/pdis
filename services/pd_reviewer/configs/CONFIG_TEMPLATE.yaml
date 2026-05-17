@@ -14,9 +14,8 @@ source_type: example_type
 intervention_class: vaccine
 display_name: "Template Rubric"
 
-# Path to the corresponding chunker config used to label blocks before
-# grading. Resolved relative to this file's directory.
-chunker_config_path: "../../chunker/configs/CONFIG_TEMPLATE.yaml"
+# The chunker config used for parsing/labeling is resolved automatically
+# from (org, source_type, intervention_class) — same triple as this file.
 
 # Sections the grader evaluates. Weights should sum to ~1.0 across all
 # sections (the weights are renormalized internally if they don't, but

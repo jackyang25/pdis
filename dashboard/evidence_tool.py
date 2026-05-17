@@ -16,8 +16,8 @@ if str(ROOT_DIR) not in sys.path:
 
 import streamlit as st  # noqa: E402
 
-from evidence.models import BatchResult, Claim  # noqa: E402
-from evidence.pipeline import (  # noqa: E402
+from services.evidence import BatchResult, Claim  # noqa: E402
+from services.evidence import (  # noqa: E402
     DEFAULT_MAX_OUTPUT_TOKENS,
     EXTRACTORS,
     default_source_id_from_path,
@@ -25,7 +25,7 @@ from evidence.pipeline import (  # noqa: E402
     run_pipeline_batch,
 )
 from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
-from tools._ui import (  # noqa: E402
+from dashboard._ui import (  # noqa: E402
     render_advanced_controls,
     render_empty_state,
     render_header,
@@ -326,15 +326,15 @@ def _render_batch_results(batch_results: list[BatchResult]) -> None:
     all_claims = [c for r in succeeded for c in r.claims]
     cols = st.columns(2)
     cols[0].download_button(
-        "Download All Claims (JSONL)",
+        "claims.jsonl",
         data=_claims_to_jsonl(all_claims),
-        file_name="batch_claims.jsonl",
+        file_name="claims.jsonl",
         mime="application/jsonl",
     )
     cols[1].download_button(
-        "Download All Claims (CSV)",
+        "claims.csv",
         data=_claims_to_csv(all_claims),
-        file_name="batch_claims.csv",
+        file_name="claims.csv",
         mime="text/csv",
     )
 

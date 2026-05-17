@@ -1,7 +1,7 @@
 """Streamlit entry for the PDIS tool suite.
 
 Sidebar inputs mirror CLI flag names 1:1. Run from the repo root:
-    streamlit run tools/app.py
+    streamlit run dashboard/app.py
 """
 
 from __future__ import annotations
@@ -15,14 +15,14 @@ if str(ROOT_DIR) not in sys.path:
 
 import streamlit as st  # noqa: E402
 
-from chunker.models import find_config as find_chunker_config  # noqa: E402
-from evidence.models import find_config as find_evidence_config  # noqa: E402
-from pd_reviewer.models import find_config as find_pd_reviewer_config  # noqa: E402
+from services.chunker import find_config as find_chunker_config  # noqa: E402
+from services.evidence import find_config as find_evidence_config  # noqa: E402
+from services.pd_reviewer import find_config as find_pd_reviewer_config  # noqa: E402
 
-from tools._ui import render_section  # noqa: E402
-from tools.chunker_tool import render as render_chunker  # noqa: E402
-from tools.evidence_tool import render as render_evidence  # noqa: E402
-from tools.pd_reviewer_tool import render as render_pd_reviewer  # noqa: E402
+from dashboard._ui import render_section  # noqa: E402
+from dashboard.chunker_tool import render as render_chunker  # noqa: E402
+from dashboard.evidence_tool import render as render_evidence  # noqa: E402
+from dashboard.pd_reviewer_tool import render as render_pd_reviewer  # noqa: E402
 
 
 def main() -> None:

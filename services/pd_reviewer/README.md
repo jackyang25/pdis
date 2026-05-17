@@ -15,7 +15,7 @@ It uses the chunker as a library for document parsing and section labeling, then
 | `configs/` | Review rubrics for supported TPP families: vaccine, drug, diagnostic, and medical device. |
 | `requirements.txt` | Library runtime dependencies (no Streamlit). |
 
-The Streamlit UI for this library lives in `tools/pd_reviewer_tool.py`.
+The Streamlit UI for this library lives in `dashboard/pd_reviewer_tool.py`.
 LLM provider abstraction is shared at the repo root: `llm_client.py`.
 
 PD Reviewer imports chunker APIs for parsing and section labeling:
@@ -48,13 +48,13 @@ export OPENAI_API_KEY="your-key"
 Use the unified root app:
 
 ```bash
-streamlit run tools/app.py
+streamlit run dashboard/app.py
 ```
 
 Or run PD Reviewer directly:
 
 ```bash
-streamlit run tools/pd_reviewer_tool.py
+streamlit run dashboard/pd_reviewer_tool.py
 ```
 
 ## ReviewConfig
@@ -62,17 +62,17 @@ streamlit run tools/pd_reviewer_tool.py
 Review behavior is driven by YAML, not hardcoded logic. Bundled configs include:
 
 ```text
-pd_reviewer/configs/gates_tpp_vaccine.yaml
-pd_reviewer/configs/gates_tpp_drug.yaml
-pd_reviewer/configs/gates_tpp_diagnostic.yaml
-pd_reviewer/configs/gates_tpp_device.yaml
+services/pd_reviewer/configs/gates_tpp_vaccine.yaml
+services/pd_reviewer/configs/gates_tpp_drug.yaml
+services/pd_reviewer/configs/gates_tpp_diagnostic.yaml
+services/pd_reviewer/configs/gates_tpp_device.yaml
 ```
 
 The config defines:
 
 - `type_key`: Stable document-type key.
 - `display_name`: UI label.
-- `chunker_config_path`: Chunker taxonomy config to use for labeling.
+- `org` / `source_type` / `intervention_class`: Header — used to resolve the matching chunker config automatically.
 - `sections`: Ordered section rubric with section names, descriptions, weights, and expected variables.
 
 Section names must match the chunker's `section_label` taxonomy.
@@ -137,7 +137,7 @@ Reviewer reads these read-only; the chunker package is never modified.
 source .venv/bin/activate
 export OPENAI_API_KEY="..."
 
-python -m pd_reviewer.cli <chunker_package_dir> <review_package_dir> \
+python -m services.pd_reviewer.cli <chunker_package_dir> <review_package_dir> \
   --max-workers 8 --max-tokens 32000
 ```
 

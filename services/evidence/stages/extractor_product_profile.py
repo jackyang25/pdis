@@ -22,7 +22,7 @@ import logging
 import re
 from typing import Any
 
-from chunker.models import ContentBlock
+from services.chunker import ContentBlock
 
 from ..models import CLAIM_TYPES, POLARITIES, AttributeConfig, Claim, LLMClientProtocol
 

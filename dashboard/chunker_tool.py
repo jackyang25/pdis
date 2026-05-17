@@ -15,15 +15,15 @@ if str(ROOT_DIR) not in sys.path:
 
 import streamlit as st  # noqa: E402
 
-from chunker.models import ContentBlock, blocks_to_dicts  # noqa: E402
-from chunker.pipeline import (  # noqa: E402
+from services.chunker import ContentBlock, blocks_to_dicts  # noqa: E402
+from services.chunker import (  # noqa: E402
     DEFAULT_MAX_OUTPUT_TOKENS,
     map_blocks_batch,
     run_pipeline,
     run_pipeline_batch,
 )
 from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
-from tools._ui import (  # noqa: E402
+from dashboard._ui import (  # noqa: E402
     render_advanced_controls,
     render_empty_state,
     render_header,

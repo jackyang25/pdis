@@ -5,7 +5,7 @@ from typing import Any, Protocol
 
 from pathlib import Path
 
-from chunker.models import ContentBlock
+from services.chunker import ContentBlock
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
 
@@ -112,6 +112,9 @@ class Claim:
     # --- Versioning / review (system) ---
     review_status: str = "unverified"
     version: int = 1
+
+    # --- Schema version for serialized output (bump on incompatible changes) ---
+    claim_schema_version: str = "v1"
     superseded_by: str | None = None
 
     # --- Annotation (judgment) ---

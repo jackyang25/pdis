@@ -1,75 +1,61 @@
 # PDIS — Product Development Intelligence System
 
-PDIS is a layered system for developing Target Product Profiles (TPPs) faster and with better grounding. It separates **the substrate** that produces and stores processed information from **the apps** that turn that information into decisions.
+PDIS is a layered system for developing Target Product Profiles (TPPs) faster and with better grounding. Documents become structured records, records become decisions, all stateless until a persistent store lands.
 
-The premise: TPP development is held back less by missing tools than by missing shared foundations. Documents are scattered, processing is redone per tool, evidence is implicit, and nothing persists across runs. PDIS fixes that by treating documents and evidence as first-class shared assets, and treating each app as a thin consumer of those assets.
+The premise: TPP development is held back less by missing tools than by missing shared foundations. Documents are scattered, processing is redone per tool, evidence is implicit, and nothing persists across runs. PDIS fixes that by treating documents and evidence as first-class shared assets that any service can produce, query, or build on.
 
 ## Architecture
 
-Two layers. Apps consume substrate output; substrate never imports app code.
+```
+┌─────────────────────────────────────────────────────────┐
+│ dashboard/                   Streamlit UI surface       │
+└─────────────────────────────────────────────────────────┘
+                          │ calls
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│ services/                    Processing services        │
+│   chunker, evidence, pd_reviewer                        │
+│   (each callable headlessly OR via dashboard OR by      │
+│    other services; deployable independently)            │
+└─────────────────────────────────────────────────────────┘
+                          │ reads/writes
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│ data/                        Local store (mimics EDP)   │
+└─────────────────────────────────────────────────────────┘
 
-**Apps** (opinionated, PD-specific):
+Cross-cutting:  llm_client.py  (shared SDK)
+```
 
-| Component | Question it answers |
-|---|---|
-| `pd_reviewer` | Is this PD good *now*? |
-| `pd_watch` | What changed? *(planned, requires persistence)* |
-| `pd_gate_assembler` | What should we decide at the gate? *(planned)* |
+Each service has the same shape: a stateless pipeline, a CLI for headless invocation, and a UI adapter in `dashboard/`. In production, each service becomes an independently deployable container; today they're Python packages in this monorepo.
 
-**Substrate** (shared, domain-agnostic):
+## Services
 
-| Component | Transformation |
-|---|---|
-| `chunker` | documents → `ContentBlock`s |
-| `evidence` | `ContentBlock`s → `Claim`s (via extract → bind → appraise) |
-
-Both substrate pipelines are stateless today: same input → same output, no persistence in the active path. Persistence (Delta tables in Unity Catalog on EDP) is a deferred consumer of the pipelines.
-
-## Components
-
-| Layer | Component | Status | One-line job |
+| Service | Status | One-line job | Dependencies |
 |---|---|---|---|
-| Substrate | `chunker/` | shipped | Parse documents (`.docx`, `.pdf`) into ordered, citable `ContentBlock`s. |
-| Substrate | `evidence/` | shipped | Stateless pipeline: `ContentBlock`s → source-backed `Claim`s bound to an `AttributeConfig`. |
-| App | `pd_reviewer/` | shipped | Grade a TPP against a rubric. Stateless, point-in-time. |
-| App | `pd_watch/` | planned | Temporal app — depends on a persistent substrate. |
-| App | `pd_gate_assembler/` | planned | Stage-gate composition app. |
+| `services/chunker/` | shipped | Parse documents (`.docx`, `.pdf`) into ordered, citable `ContentBlock`s; optionally label sections. | none |
+| `services/evidence/` | shipped | Documents → source-backed `Claim`s (extract → bind → appraise). | chunker |
+| `services/pd_reviewer/` | shipped | Grade a document against a TPP rubric. Stateless, point-in-time. | chunker, evidence (optional) |
+| `services/pd_watch/` | planned | Temporal change detection over a persistent claim store. | evidence + persistent store |
+| `services/pd_gate_assembler/` | planned | Assemble a stage-gate packet from claims + reviews. | evidence + pd_reviewer |
 
-Each component has a README inside its folder with its own contract, file map, and run instructions.
+Each service has a README inside its folder with its own contract, file map, and run instructions.
 
-## The Two-Layer Split
+## How Services Interact
 
-**Substrate** owns the document → block → claim transformations. It knows about documents, content blocks, sources, claims, attributes. It knows nothing about TPPs — domain context enters through injected configs (`DocumentTypeConfig` for chunker, `AttributeConfig` for evidence).
+Services call each other through **public contracts** declared in `__init__.py`. They never reach into another service's internals (`stages/`, helpers). This mirrors how separate deployments would interact — over a public API surface, not by sharing implementation code.
 
-**Apps** own the opinions. They know what "good" looks like, what to alert on, what a gate audience needs. They consume substrate output; they don't modify substrate internals.
+- **chunker** has no dependencies. It's the root.
+- **evidence** calls `chunker.run_pipeline` to get parsed blocks, then extracts/binds/appraises claims.
+- **pd_reviewer** calls `chunker.run_pipeline` to get parsed + labeled blocks, then grades. Optionally calls `evidence.FileClaimsStore` to read accumulated claims as additional grading signal.
 
-This split is what makes the system maintainable:
-
-- Substrate moves slowly. Breaking changes are expensive. Contracts are stable.
-- Apps move quickly. They evolve with TPP development practice.
-- Substrate is reusable across domains. A non-TPP team could adopt these pipelines with their own configs.
-- Apps don't compete or overlap. Each has a distinct time shape, trigger, and audience.
-
-## Data Flow
-
-1. **Input** — a document (`.pdf` or `.docx`) is uploaded via the UI or pointed at by the CLI.
-2. **Chunker** — parses the document into ordered `ContentBlock`s.
-3. **Block consumers** (both run on the chunker's output):
-   - `pd_reviewer` grades the blocks against a rubric → produces a review report.
-   - `evidence` runs `extract → bind → appraise` over the blocks → produces `Claim` records.
-4. **Output** — both consumers return their results to the caller. The Streamlit UI shows them and offers downloads; the CLI writes them to files.
-5. **Deferred** — a persistent substrate (Delta on EDP) and a curation layer will land later. Future apps (`pd_watch`, `pd_gate_assembler`) consume that persistence.
-
-Every transformation in the active path is stateless. The CLI / UI is the consumer of each run's output.
+Every service is **stateless** today: same input → same output (modulo small LLM drift). No service writes to a persistent store in the active path — outputs are returned to the caller (CLI writes files, UI shows + offers downloads).
 
 ## Statelessness Today, Persistence Later
 
-Both substrate pipelines are stateless:
+A persistent store (Delta on Unity Catalog / EDP, with a curation layer) is a **deferred consumer** of these services. When it lands, it ingests service outputs the same way the CLI/UI does today; the services themselves don't change.
 
-- **chunker** — parse a document, return `ContentBlock`s. Regenerable from the source. Output ephemeral unless the caller writes it.
-- **evidence** — parse → extract → bind → appraise. Returns `Claim`s. No store in the active path; the binder is the only LLM step.
-
-Persistence (Delta tables in Unity Catalog on EDP, plus a separate curation layer for human annotations) is a **deferred consumer** of the pipelines. When it lands, it consumes pipeline output the same way the CLI/UI does today; the pipelines themselves don't change. `pd_watch` requires persistence to detect change, so it stays planned until then.
+`services/pd_watch/` requires persistence (you can't diff without history), so it stays planned until the store exists.
 
 ## What Counts As Evidence
 
@@ -101,61 +87,67 @@ In each case, the substrate ingests **findings**, not engines or raw datasets. T
 
 These are load-bearing. Violations create overlap and force rewrites.
 
-1. **PD-specific logic never enters the substrate.** Domain enters through injected configs.
-2. **Substrate pipelines are stateless.** Same input → same output (modulo small LLM drift in the binder). No persistence in the active path. Persistence and curation are deferred consumers.
-3. **One writer per asset (when persistence lands).** Substrate tables written only by substrate pipelines; app tables only by their owning app; annotations only by humans.
-4. **Apps don't read each other's internals.** They consume published outputs.
+1. **PD-specific logic never enters service infrastructure.** Domain enters through injected configs (`DocumentTypeConfig`, `AttributeConfig`, `ReviewConfig`).
+2. **Services are stateless.** Same input → same output (modulo small LLM drift). No persistence in the active path. Persistence is a deferred consumer.
+3. **One writer per asset (when persistence lands).** Each service owns its output namespace; no service overwrites another's records.
+4. **Services consume each other only through public contracts.** No reaching into `stages/`, helpers, or other internals. Cross-service calls go through the package root.
 5. **One claim = one assertion.** Atomicity is what makes downstream comparison and filtering real.
 6. **Provenance is required.** No source, no claim.
 7. **Labels, not gatekeeping.** Weak evidence is stored and labeled weak; consumers decide weight.
-8. **Re-ingestion is a full rewrite per `source_id`.** Pipelines never edit existing claim rows; human curation lives in a separate, non-cascading table.
+8. **Re-ingestion is a full rewrite per `source_id`.** Services never edit existing records; human curation lives in a separate, non-cascading table.
 
 ## Build Order
 
-The system is built bottom-up. Each layer is shippable on its own; apps grow against an existing substrate.
+Bottom-up. Each service is shippable on its own; downstream services and apps grow against existing producers.
 
 Shipped:
 
-1. **Chunker** (`.docx` and `.pdf` parsers, mapper, configs, CLI, Streamlit UI).
-2. **pd_reviewer** (rubric grading on chunker output, CLI, Streamlit UI).
-3. **Evidence pipeline** (Claim schema, `product_profile` extractor, binder, appraiser, stateless orchestrator, CLI, Streamlit UI). Imports chunker for parsing.
+1. **Chunker** — `.docx` and `.pdf` parsers, mapper, configs, CLI, UI.
+2. **Evidence** — Claim schema, `product_profile` extractor (LLM-based), binder, appraiser, stateless orchestrator, CLI, UI. Calls chunker via its public contract.
+3. **PD Reviewer** — rubric grading on chunker output; optionally consumes evidence claims via `FileClaimsStore`. CLI, UI.
 
 Next:
 
-4. **Real `AttributeConfig` YAMLs** (vaccine first, then drug / diagnostic / device).
-5. **Run the evidence pipeline against a real WHO PPC** end-to-end and validate the config.
-6. **pd_reviewer grounding** — pd_reviewer optionally calls the evidence pipeline or reads its output to surface evidence behind each attribute.
-7. **Additional evidence extractors** (paper, trial, knowledge_graph, model_run, …) — same pipeline shape, one new file per source type.
-
-Deferred (require persistence): persistent substrate, curation layer, temporal operations, and the temporal/episodic apps. Shapes will be designed when scheduled.
+4. **More `AttributeConfig` YAMLs** (drug, diagnostic, device) and more chunker / pd_reviewer rubric configs per (org × source_type × intervention).
+5. **Real persistence**: replace `FileClaimsStore` with a Delta-backed implementation against EDP — same interface, different substrate.
+6. **`pd_watch`** — temporal change detection. Requires (5) to detect change.
+7. **More evidence extractors** (paper, trial, knowledge_graph, model_run, …) — same `source_kind` dispatch shape.
+8. **`pd_gate_assembler`** — stage-gate composition from claims + reviews.
 
 ## Repository Layout
 
 ```
 pdis/
-  llm_client.py          shared — LLM provider abstraction (Anthropic, OpenAI)
-  chunker/             library — document parsing (.docx + .pdf) + mapping
-  evidence/            library — stateless claim pipeline (extract → bind → appraise)
-  pd_reviewer/         library — TPP rubric grading
-  pd_watch/            library — temporal change detection (planned, needs persistence)
-  pd_gate_assembler/   library — stage-gate decision packaging (planned)
-  tools/               Streamlit UI suite over the libraries above
-    app.py             entry point: `streamlit run tools/app.py`
+  llm_client.py          shared SDK — LLM provider abstraction (Anthropic, OpenAI)
+  services/              processing services; each independently deployable in production
+    chunker/             documents (.docx, .pdf) → ContentBlocks (+ section labels)
+    evidence/            documents → Claims (extract → bind → appraise)
+    pd_reviewer/         grade a document against a TPP rubric
+  dashboard/             user-facing Streamlit UI surface over services
+    app.py               entry point: `streamlit run dashboard/app.py`
     chunker_tool.py
     evidence_tool.py
     pd_reviewer_tool.py
-    _widgets.py        shared sidebar widgets
+    _ui.py               shared sidebar widgets
+  data/                  local data store (gitignored); mimics EDP for now
+    evidence_table/      drop claims.jsonl files here to query across runs
 ```
 
-Each library has its own README, requirements, and configs and is importable headlessly (no Streamlit dependency). The Streamlit layer lives in `tools/`. Libraries never import from `tools/`. `evidence` and `pd_reviewer` import from `chunker` for parsing; the reverse is not allowed.
+The layers mirror how a real distributed deployment is shaped:
 
+- **`services/`** — independently deployable processing services. In production, each runs as a worker / Lambda / DAG step. Today, Python packages in this monorepo.
+- **`dashboard/`** — UI surface. Only consumes services; never imported by them.
+- **`data/`** — local mimic of EDP / Delta. Where claims accumulate. In production, replaced by a real persistent store; the interface stays the same.
+- **`llm_client.py`** — shared SDK. Cross-cutting; used by all services. In production, becomes an internal package or a gateway-service client.
+
+Each service has a **thin public contract** declared in its `__init__.py`. External consumers import from the package root only — never from `stages/`, `cli.py`, or other internals. Cross-layer imports follow one direction: `dashboard/` → `services/`, services depend on each other through public contracts, never the reverse.
 
 ## Where To Start
 
-- New to the system → read this file, then `chunker/README.md`, then `evidence/README.md`.
-- Adding a new TPP family → write an `AttributeConfig` YAML and a chunker `DocumentTypeConfig` YAML. No code changes in the substrate.
-- Adding a new evidence source → add an `evidence/stages/extractor_<source_type>.py` that emits `Claim` records. No substrate changes.
-- Adding a new app → create a sibling folder. Consume substrate via the documented contract. Do not modify substrate to fit the app.
+- New to the system → read this file, then `services/chunker/README.md`, then `services/evidence/README.md`.
+- Adding a new (org × source_type × intervention) → write the matching YAML in each service's `configs/` (`{org}_{source_type}_{intervention}.yaml` for chunker / pd_reviewer; `{intervention}.yaml` for evidence). No code changes.
+- Adding a new evidence extractor → add `services/evidence/stages/extractor_<source_kind>.py` that emits `Claim` records. Register it in `EXTRACTORS`. No other service changes.
+- Adding a new service → create `services/<name>/` with `__init__.py` declaring the public contract, plus `pipeline.py` + `cli.py` adapters. Consume upstream services via their public contracts.
 
 ## Status Summary
 

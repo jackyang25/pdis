@@ -12,8 +12,7 @@ import datetime as _dt
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from chunker.stages.parser import parse_document
-from chunker.models import ContentBlock
+from services.chunker import ContentBlock, run_pipeline as chunker_run_pipeline
 
 from .stages.appraiser import appraise_claims
 from .stages.binder import bind_claims
@@ -56,7 +55,8 @@ def run_pipeline(
             f"Supported: {supported}"
         )
 
-    blocks = parse_document(file_path, doc_id)
+    # Parse-only call into chunker (no mapper — evidence doesn't need section labels)
+    blocks = chunker_run_pipeline(file_path, doc_id)
     claims = _run_pipeline_on_blocks(
         blocks=blocks,
         source_id=source_id,

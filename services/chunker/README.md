@@ -32,7 +32,7 @@ Dependency direction is one-way: chunker never imports from `pd_reviewer` or `ev
 | `configs/` | Mapper configs for supported TPP families: vaccine, drug, diagnostic, and medical device. |
 | `requirements.txt` | Library runtime dependencies (no Streamlit). |
 
-The Streamlit UI for this library lives in `tools/chunker_tool.py`.
+The Streamlit UI for this library lives in `dashboard/chunker_tool.py`.
 LLM provider abstraction is shared at the repo root: `llm_client.py`.
 
 ## Setup
@@ -57,7 +57,7 @@ export OPENAI_API_KEY="your-key"
 Launch the Streamlit app:
 
 ```bash
-python -m streamlit run tools/chunker_tool.py
+python -m streamlit run dashboard/chunker_tool.py
 ```
 
 The app has two modes.
@@ -157,14 +157,14 @@ The CLI takes the document **header** (org, source_type, intervention) as requir
 Parser-only:
 
 ```bash
-python -m chunker.cli docs/ chunker_package --org gates --source-type tpp --intervention vaccine --max-workers 4
+python -m services.chunker.cli docs/ chunker_package --org gates --source-type tpp --intervention vaccine --max-workers 4
 ```
 
 Parser + mapper:
 
 ```bash
 export OPENAI_API_KEY="..."
-python -m chunker.cli docs/ chunker_package \
+python -m services.chunker.cli docs/ chunker_package \
   --org gates --source-type tpp --intervention vaccine \
   --map --provider openai --max-workers 4 --max-tokens 16000
 ```
@@ -410,7 +410,7 @@ The Streamlit app lets you choose the mapper provider in the sidebar:
 - `anthropic`, default model `claude-opus-4-7`
 - `openai`, default model `gpt-5.5`
 
-The selected provider, model, and API key are used by `tools/chunker_tool.py` to construct an LLM client, which is passed into `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the injected LLM client is provider-specific.
+The selected provider, model, and API key are used by `dashboard/chunker_tool.py` to construct an LLM client, which is passed into `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the injected LLM client is provider-specific.
 
 The key is not stored by the app and should not be committed. Keep local secrets in ignored files such as `.env` if you add environment loading later.
 

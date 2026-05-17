@@ -3,9 +3,11 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from chunker.stages.mapper import label_blocks
-from chunker.models import ContentBlock, load_config as load_chunker_config
-from chunker.stages.parser import parse_document
+from services.chunker import (
+    ContentBlock,
+    find_config as find_chunker_config,
+    run_pipeline as chunker_run_pipeline,
+)
 
 from .stages.grader import grade_sections
 from .models import (
@@ -32,25 +34,34 @@ def run_pipeline(
     config: ReviewConfig,
     llm_client: LLMClientProtocol,
     therapeutic_area: str | None = None,
+    claims_store=None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> ReviewResult:
     """End-to-end PD document review: parse → label → grade → report.
 
-    Header (org, source_type, intervention_class) is read from `config`.
-    `therapeutic_area` is the only per-document scoping input.
+    If `claims_store` is provided, the grader receives pre-extracted claims
+    for this document as additional signal. Same interface a future Delta
+    backend would expose.
     """
     source_path = Path(file_path)
-    chunker_config = load_chunker_config(config.chunker_config_path)
-
-    blocks = parse_document(str(source_path), doc_id=source_path.stem)
-    labeled_blocks = label_blocks_via_client(
-        blocks, chunker_config, llm_client, max_tokens=max_tokens
+    chunker_config = find_chunker_config(
+        config.org, config.source_type, config.intervention_class
+    )
+    # Delegate parse + label to chunker via its public surface
+    labeled_blocks = chunker_run_pipeline(
+        str(source_path),
+        doc_id=source_path.stem,
+        config=chunker_config,
+        llm_client=llm_client,
+        max_tokens=max_tokens,
     )
     return review_blocks(
         labeled_blocks,
         config=config,
         llm_client=llm_client,
         therapeutic_area=therapeutic_area,
+        claims_store=claims_store,
+        source_id=source_path.stem,
         max_tokens=max_tokens,
     )
 
@@ -61,10 +72,21 @@ def review_blocks(
     config: ReviewConfig,
     llm_client: LLMClientProtocol,
     therapeutic_area: str | None = None,
+    claims_store=None,
+    source_id: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> ReviewResult:
     """Grade + report a document whose blocks have already been parsed and labeled."""
-    section_grades = grade_sections(blocks, config, llm_client, max_tokens=max_tokens)
+    claims_for_doc = []
+    if claims_store is not None and source_id is not None:
+        claims_for_doc = claims_store.get_by_source_id(source_id)
+    section_grades = grade_sections(
+        blocks,
+        config,
+        llm_client,
+        max_tokens=max_tokens,
+        claims=claims_for_doc,
+    )
     result = build_report_card(blocks, section_grades, config)
     result.org = config.org
     result.source_type = config.source_type
@@ -79,6 +101,7 @@ def run_pipeline_batch(
     config: ReviewConfig,
     llm_client_factory,
     therapeutic_area: str | None = None,
+    claims_store=None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
 ) -> list[BatchReviewResult]:
@@ -95,6 +118,7 @@ def run_pipeline_batch(
                     config=config,
                     llm_client_factory=llm_client_factory,
                     therapeutic_area=therapeutic_area,
+                    claims_store=claims_store,
                     max_tokens=max_tokens,
                 ),
                 jobs,
@@ -109,6 +133,7 @@ def _run_pipeline_one_batch(
     config: ReviewConfig,
     llm_client_factory,
     therapeutic_area: str | None,
+    claims_store,
     max_tokens: int,
 ) -> BatchReviewResult:
     try:
@@ -118,6 +143,7 @@ def _run_pipeline_one_batch(
             config=config,
             llm_client=llm_client,
             therapeutic_area=therapeutic_area,
+            claims_store=claims_store,
             max_tokens=max_tokens,
         )
         review.doc_id = doc_key
@@ -132,6 +158,7 @@ def review_blocks_batch(
     config: ReviewConfig,
     llm_client_factory,
     therapeutic_area: str | None = None,
+    claims_store=None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
 ) -> list[BatchReviewResult]:
@@ -156,6 +183,7 @@ def review_blocks_batch(
                     config=config,
                     llm_client_factory=llm_client_factory,
                     therapeutic_area=therapeutic_area,
+                    claims_store=claims_store,
                     max_tokens=max_tokens,
                 ),
                 jobs,
@@ -170,6 +198,7 @@ def _review_one_batch(
     config: ReviewConfig,
     llm_client_factory,
     therapeutic_area: str | None,
+    claims_store,
     max_tokens: int,
 ) -> BatchReviewResult:
     try:
@@ -179,6 +208,8 @@ def _review_one_batch(
             config=config,
             llm_client=llm_client,
             therapeutic_area=therapeutic_area,
+            claims_store=claims_store,
+            source_id=doc_key,
             max_tokens=max_tokens,
         )
         return BatchReviewResult(doc_key=doc_key, review=review)
@@ -186,15 +217,6 @@ def _review_one_batch(
         return BatchReviewResult(doc_key=doc_key, error=str(exc))
 
 
-def label_blocks_via_client(
-    blocks: list[ContentBlock],
-    chunker_config,
-    llm_client: LLMClientProtocol,
-    *,
-    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
-) -> list[ContentBlock]:
-    """Label blocks through the chunker's provider-neutral mapper path."""
-    return label_blocks(blocks, chunker_config, llm_client, max_tokens=max_tokens)
 
 
 def build_report_card(

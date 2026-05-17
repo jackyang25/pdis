@@ -6,7 +6,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
-from chunker.models import ContentBlock
+from services.chunker import ContentBlock
 
 from ..models import (
     Grade,
@@ -28,14 +28,19 @@ def grade_sections(
     llm_client: LLMClientProtocol,
     *,
     max_tokens: int,
+    claims: list | None = None,
 ) -> list[SectionGrade]:
     """
     For each section, ask the LLM to grade completeness and adherence.
 
-    Returns a list of SectionGrade objects.
+    If `claims` is provided (pre-extracted Claim records from the evidence
+    pipeline), they're injected into the grader prompt as additional signal.
+    Each claim's `attribute_ref`, `binding_confidence`, and `evidence_strength`
+    tell the grader which variables the document actually addresses.
     """
     blocks_by_section = _group_blocks_by_section(labeled_blocks)
     section_grades: list[SectionGrade] = []
+    claims_context = _format_claims_for_prompt(claims) if claims else ""
 
     for section_spec in config.sections:
         section_blocks = blocks_by_section.get(section_spec.name, [])
@@ -47,6 +52,7 @@ def grade_sections(
         user_message = _build_user_message(
             section_spec,
             section_blocks,
+            claims_context=claims_context,
         )
         section_grades.append(
             _grade_section(
@@ -60,6 +66,23 @@ def grade_sections(
         )
 
     return section_grades
+
+
+def _format_claims_for_prompt(claims: list) -> str:
+    """Render a compact claim summary for inclusion in the grader user message."""
+    if not claims:
+        return ""
+    lines = ["", "Pre-extracted claims for this document (use as additional signal):"]
+    for claim in claims:
+        attr = getattr(claim, "attribute_ref", None) or "unbound"
+        conf = getattr(claim, "binding_confidence", None) or "—"
+        strength = getattr(claim, "evidence_strength", None) or "—"
+        statement = getattr(claim, "statement", "") or ""
+        lines.append(
+            f"  - {attr} (binding={conf}, strength={strength}): "
+            f"{statement[:160]}"
+        )
+    return "\n".join(lines)
 
 
 def _grade_section(
@@ -176,6 +199,8 @@ Output schema:
 def _build_user_message(
     section_spec: SectionSpec,
     section_blocks: list[ContentBlock],
+    *,
+    claims_context: str = "",
 ) -> str:
     parts = [
         f"Section: {section_spec.name}",
@@ -183,6 +208,8 @@ def _build_user_message(
         "Actual document blocks:",
         _format_blocks(section_blocks),
     ]
+    if claims_context:
+        parts.append(claims_context)
     return "\n\n".join(parts)
 
 

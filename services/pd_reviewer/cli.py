@@ -30,7 +30,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from services.chunker import ContentBlock  # noqa: E402
 from services.evidence import FileClaimsStore  # noqa: E402
-from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
+from llm_client import LLMClient  # noqa: E402
 
 from .models import ReviewConfig, ReviewResult, SectionGrade, find_config  # noqa: E402
 from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, GRADE_TO_SCORE, review_blocks_batch  # noqa: E402
@@ -97,8 +97,6 @@ def export_review_package(
     input_dir: str,
     output_dir: str,
     *,
-    provider: str = "openai",
-    model: str | None = None,
     api_key: str | None = None,
     max_workers: int = 4,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
@@ -119,11 +117,9 @@ def export_review_package(
             "(a parsed + mapped chunker package)"
         )
 
-    api_key = api_key or os.getenv(_api_key_env_var(provider))
+    api_key = api_key or os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise ValueError(
-            f"api key is required. Set {_api_key_env_var(provider)} or pass --api-key."
-        )
+        raise ValueError("OPENAI_API_KEY is required (or pass --api-key).")
 
     document_rows = _read_csv(documents_csv)
     block_rows = _read_csv(blocks_csv)
@@ -137,7 +133,7 @@ def export_review_package(
             f"Expected: pd_reviewer/configs/{org}_{src}_{iv}.yaml"
         )
 
-    llm_client = create_llm_client(provider, api_key, model=model)
+    llm_client = LLMClient(api_key=api_key)
 
     records = _build_document_records(document_rows, block_rows, header)
     if not records:
@@ -188,7 +184,6 @@ def export_review_package(
         input_path=input_path,
         blocks_csv=blocks_csv,
         header=header,
-        provider=provider,
         model=llm_client.model,
         max_workers=max_workers,
         max_tokens=max_tokens,
@@ -385,7 +380,6 @@ def _write_manifest(
     input_path: Path,
     blocks_csv: Path,
     header: dict[str, Any],
-    provider: str,
     model: str,
     max_workers: int,
     max_tokens: int,
@@ -398,7 +392,6 @@ def _write_manifest(
         "source_type": header["source_type"],
         "intervention_class": header["intervention_class"],
         "therapeutic_area": header.get("therapeutic_area", ""),
-        "provider": provider,
         "model": model,
         "max_workers": max_workers,
         "max_tokens": max_tokens,
@@ -487,10 +480,6 @@ def _json_object(value: Any) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _api_key_env_var(provider: str) -> str:
-    return "ANTHROPIC_API_KEY" if provider.lower() == "anthropic" else "OPENAI_API_KEY"
-
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export a PD Reviewer package from a chunker package."
@@ -504,15 +493,10 @@ def _parse_args() -> argparse.Namespace:
         help="Folder of evidence claims.jsonl files. If provided, the grader uses "
         "matching claims as additional signal.",
     )
-    parser.add_argument("--provider", choices=["openai", "anthropic"], default="openai")
-    parser.add_argument("--model", default=None)
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)
-    args = parser.parse_args()
-    if args.model is None:
-        args.model = default_model_for_provider(args.provider)
-    return args
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
@@ -520,8 +504,6 @@ if __name__ == "__main__":
     export_review_package(
         args.input_dir,
         args.output_dir,
-        provider=args.provider,
-        model=args.model,
         api_key=args.api_key,
         max_workers=args.max_workers,
         max_tokens=args.max_tokens,

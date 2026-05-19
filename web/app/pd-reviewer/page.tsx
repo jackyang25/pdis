@@ -7,6 +7,7 @@ import { HeaderGuard } from "@/components/header-guard";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { DownloadButton } from "@/components/download-button";
 import {
   runPDReviewer,
   type Header,
@@ -47,11 +48,20 @@ function ReviewerView({ header }: { header: Header }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <RunPanel accept=".docx,.pdf" busy={busy} onRun={handleRun} />
+      <RunPanel
+        accept=".docx,.pdf"
+        busy={busy}
+        onRun={handleRun}
+        steps={["Parse document", "Label sections", "Retrieve peer claims", "Grade sections"]}
+      />
       {error && <p className="text-sm text-destructive">{error}</p>}
       {result && (
         <>
-          <OverallCard grade={result.review.overall_grade} docId={result.review.doc_id} />
+          <OverallCard
+            grade={result.review.overall_grade}
+            docId={result.review.doc_id}
+            result={result}
+          />
           <PeerClaimsCard peerClaims={result.peer_claims} />
           <TopIssuesCard issues={result.review.top_issues} />
           <SectionsCard sections={result.review.section_grades} />
@@ -64,14 +74,30 @@ function ReviewerView({ header }: { header: Header }) {
   );
 }
 
-function OverallCard({ grade, docId }: { grade: string; docId: string }) {
+function OverallCard({
+  grade,
+  docId,
+  result,
+}: {
+  grade: string;
+  docId: string;
+  result: PDReviewerResponse;
+}) {
   return (
     <div className="flex items-center justify-between rounded-lg border border-border bg-card px-6 py-5">
       <div>
         <div className="text-xs uppercase tracking-wide text-muted-foreground">Overall grade</div>
         <div className="mt-1 font-mono text-sm">{docId}</div>
       </div>
-      <div className="text-4xl font-semibold tabular-nums">{grade}</div>
+      <div className="flex items-center gap-4">
+        <div className="text-4xl font-semibold tabular-nums">{grade}</div>
+        <DownloadButton
+          filename={`${docId}_review.json`}
+          data={result}
+          format="json"
+          label="Download JSON"
+        />
+      </div>
     </div>
   );
 }

@@ -25,7 +25,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
+from llm_client import LLMClient  # noqa: E402
 
 from .models import blocks_to_dicts, find_config  # noqa: E402
 from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, run_pipeline_batch  # noqa: E402
@@ -74,8 +74,6 @@ def export_chunker_package(
     intervention_class: str,
     therapeutic_area: str | None = None,
     map_blocks: bool = False,
-    provider: str = "openai",
-    model: str | None = None,
     api_key: str | None = None,
     max_workers: int = 4,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
@@ -86,12 +84,9 @@ def export_chunker_package(
     if not input_path.exists() or not input_path.is_dir():
         raise ValueError(f"input_dir must be an existing directory: {input_path}")
     if map_blocks:
-        api_key = api_key or os.getenv(_api_key_env_var(provider))
+        api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise ValueError(
-                f"api key is required for --map. Set {_api_key_env_var(provider)} "
-                "or pass --api-key."
-            )
+            raise ValueError("OPENAI_API_KEY is required for --map (or pass --api-key).")
 
     config = find_config(org, source_type, intervention_class)
     header = _make_header(org, source_type, intervention_class, therapeutic_area)
@@ -111,7 +106,7 @@ def export_chunker_package(
     pipeline_jobs = [(str(job["file_path"]), job["doc_key"]) for job in document_jobs]
 
     def factory():
-        return create_llm_client(provider=provider, api_key=api_key, model=model)
+        return LLMClient(api_key=api_key)
 
     pipeline_results = run_pipeline_batch(
         pipeline_jobs,
@@ -326,10 +321,6 @@ def _write_summary(
     _write_csv(path, summary_rows, ["metric", "value"])
 
 
-def _api_key_env_var(provider: str) -> str:
-    return "ANTHROPIC_API_KEY" if provider.lower() == "anthropic" else "OPENAI_API_KEY"
-
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export a folder of documents into chunker package tables."
@@ -341,15 +332,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--intervention", required=True, help="e.g., vaccine, drug")
     parser.add_argument("--therapeutic-area", default=None, help="Optional; stamped on outputs")
     parser.add_argument("--map", action="store_true", dest="map_blocks", help="Run mapper")
-    parser.add_argument("--provider", choices=["openai", "anthropic"], default="openai")
-    parser.add_argument("--model", default=None)
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)
-    args = parser.parse_args()
-    if args.model is None:
-        args.model = default_model_for_provider(args.provider)
-    return args
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
@@ -362,8 +348,6 @@ if __name__ == "__main__":
         intervention_class=args.intervention,
         therapeutic_area=args.therapeutic_area,
         map_blocks=args.map_blocks,
-        provider=args.provider,
-        model=args.model,
         api_key=args.api_key,
         max_workers=args.max_workers,
         max_tokens=args.max_tokens,

@@ -24,8 +24,6 @@ async def run_chunker(
     intervention_class: str = Form(...),
     therapeutic_area: str | None = Form(None),
     label: bool = Form(True),
-    provider: str | None = Form(None),
-    model: str | None = Form(None),
     max_tokens: int = Form(16000),
 ) -> ChunkerRunResponse:
     config = find_config(org, source_type, intervention_class)
@@ -43,7 +41,7 @@ async def run_chunker(
             temp_file.write(contents)
             temp_path = temp_file.name
 
-        llm_client = get_llm_client(provider, model) if label else None
+        llm_client = get_llm_client() if label else None
         doc_id = Path(file.filename or "doc").stem
         blocks = run_pipeline(
             temp_path,

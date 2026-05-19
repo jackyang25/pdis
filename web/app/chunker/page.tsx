@@ -7,6 +7,7 @@ import { HeaderGuard } from "@/components/header-guard";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { DownloadButton } from "@/components/download-button";
 import { runChunker, type ContentBlock, type Header } from "@/lib/api";
 
 export default function ChunkerPage() {
@@ -41,7 +42,12 @@ function ChunkerView({ header }: { header: Header }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <RunPanel accept=".docx,.pdf" busy={busy} onRun={handleRun} />
+      <RunPanel
+        accept=".docx,.pdf"
+        busy={busy}
+        onRun={handleRun}
+        steps={["Parse document", "Label sections"]}
+      />
       {error && <p className="text-sm text-destructive">{error}</p>}
       {blocks && <BlocksList blocks={blocks} />}
       {!blocks && !busy && !error && (
@@ -52,10 +58,17 @@ function ChunkerView({ header }: { header: Header }) {
 }
 
 function BlocksList({ blocks }: { blocks: ContentBlock[] }) {
+  const docId = blocks[0]?.doc_id ?? "blocks";
   return (
     <div className="rounded-lg border border-border bg-card">
       <div className="flex items-center justify-between px-6 py-4">
         <h2 className="text-sm font-semibold">{blocks.length} blocks</h2>
+        <DownloadButton
+          filename={`${docId}_blocks.jsonl`}
+          data={blocks}
+          format="jsonl"
+          label="Download JSONL"
+        />
       </div>
       <Separator />
       <ul className="divide-y divide-border">

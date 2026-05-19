@@ -28,8 +28,6 @@ async def run_evidence(
     intervention_class: str = Form(...),
     therapeutic_area: str | None = Form(None),
     source_kind: str = Form("product_profile"),
-    provider: str | None = Form(None),
-    model: str | None = Form(None),
     max_tokens: int = Form(16000),
 ) -> EvidenceRunResponse:
     try:
@@ -47,7 +45,7 @@ async def run_evidence(
 
         doc_id = Path(file.filename or "doc").stem
         source_id = default_source_id_from_path(file.filename or doc_id)
-        llm_client = get_llm_client(provider, model)
+        llm_client = get_llm_client()
         _blocks, claims = run_pipeline(
             file_path=temp_path,
             doc_id=doc_id,

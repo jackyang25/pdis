@@ -25,6 +25,7 @@ web/.next/
 # environment and secrets
 .env
 .env.*
+!.env.example
 
 # editor and os files
 .DS_Store

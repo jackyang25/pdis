@@ -34,8 +34,6 @@ async def run_pd_reviewer(
     intervention_class: str = Form(...),
     therapeutic_area: str | None = Form(None),
     use_peer_claims: bool = Form(True),
-    provider: str | None = Form(None),
-    model: str | None = Form(None),
     max_tokens: int = Form(32000),
 ) -> PDReviewerRunResponse:
     config = find_config(org, source_type, intervention_class)
@@ -59,7 +57,7 @@ async def run_pd_reviewer(
             temp_path = temp_file.name
 
         doc_id = Path(file.filename or "doc").stem
-        llm_client = get_llm_client(provider, model)
+        llm_client = get_llm_client()
 
         if claims_store is not None:
             peers = claims_store.get_by_header(

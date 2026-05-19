@@ -7,6 +7,7 @@ import { HeaderGuard } from "@/components/header-guard";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { DownloadButton } from "@/components/download-button";
 import { runEvidence, type Claim, type Header } from "@/lib/api";
 
 export default function EvidencePage() {
@@ -41,7 +42,12 @@ function EvidenceView({ header }: { header: Header }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <RunPanel accept=".docx,.pdf" busy={busy} onRun={handleRun} />
+      <RunPanel
+        accept=".docx,.pdf"
+        busy={busy}
+        onRun={handleRun}
+        steps={["Parse document", "Extract claims", "Bind to attributes", "Appraise strength"]}
+      />
       {error && <p className="text-sm text-destructive">{error}</p>}
       {claims && <ClaimsList claims={claims} />}
       {!claims && !busy && !error && (
@@ -53,11 +59,20 @@ function EvidenceView({ header }: { header: Header }) {
 
 function ClaimsList({ claims }: { claims: Claim[] }) {
   const byAttr = useMemo(() => groupByAttribute(claims), [claims]);
+  const sourceId = claims[0]?.source_id ?? "claims";
   return (
     <div className="rounded-lg border border-border bg-card">
       <div className="flex items-center justify-between px-6 py-4">
-        <h2 className="text-sm font-semibold">{claims.length} claims</h2>
-        <span className="text-xs text-muted-foreground">{byAttr.size} attributes</span>
+        <div className="flex items-baseline gap-3">
+          <h2 className="text-sm font-semibold">{claims.length} claims</h2>
+          <span className="text-xs text-muted-foreground">{byAttr.size} attributes</span>
+        </div>
+        <DownloadButton
+          filename={`${sourceId}_claims.jsonl`}
+          data={claims}
+          format="jsonl"
+          label="Download JSONL"
+        />
       </div>
       <Separator />
       <div className="divide-y divide-border">

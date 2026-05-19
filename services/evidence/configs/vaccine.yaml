@@ -28,7 +28,6 @@ claim_types:
   - market
   - regulatory
   - modelled_impact
-  - expert_judgment
 
 # Allowed therapeutic_area values for this config.
 therapeutic_areas:
@@ -164,7 +163,6 @@ attributes:
       Expected adverse events based on platform characteristics or prior
       data from comparable products. Forward-looking projection.
     expected_claim_types:
-      - expert_judgment
       - modelled_impact
 
   # --- Presentation, dosing, route ---

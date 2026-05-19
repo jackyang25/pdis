@@ -25,7 +25,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from llm_client import create_llm_client, default_model_for_provider  # noqa: E402
+from llm_client import LLMClient  # noqa: E402
 
 from .models import Claim, find_config  # noqa: E402
 from .pipeline import (  # noqa: E402
@@ -48,12 +48,9 @@ def main() -> None:
 
     config = find_config(args.intervention)
 
-    api_key = args.api_key or os.environ.get(_api_key_env_var(args.provider))
+    api_key = args.api_key or os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise SystemExit(
-            f"api key is required. Set {_api_key_env_var(args.provider)} or pass --api-key."
-        )
-    model = args.model or default_model_for_provider(args.provider)
+        raise SystemExit("OPENAI_API_KEY is required (or pass --api-key).")
 
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
@@ -69,7 +66,7 @@ def main() -> None:
 
     logger.info("Found %d documents under %s", len(doc_paths), input_dir)
 
-    llm_client_factory = lambda: create_llm_client(args.provider, api_key, model)
+    llm_client_factory = lambda: LLMClient(api_key=api_key)
 
     jobs = [(str(path), default_source_id_from_path(str(path))) for path in doc_paths]
     batch_results = run_pipeline_batch(
@@ -167,10 +164,6 @@ def _log_summary(results: list[dict[str, Any]]) -> None:
     )
 
 
-def _api_key_env_var(provider: str) -> str:
-    return "ANTHROPIC_API_KEY" if provider == "anthropic" else "OPENAI_API_KEY"
-
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the evidence pipeline against a folder of source documents."
@@ -191,8 +184,6 @@ def _parse_args() -> argparse.Namespace:
     else:
         only_kind = next(iter(EXTRACTORS))
         parser.set_defaults(source_kind=only_kind)
-    parser.add_argument("--provider", choices=["openai", "anthropic"], default="anthropic")
-    parser.add_argument("--model", default=None)
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)

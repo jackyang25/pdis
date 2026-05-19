@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Loader2, Upload } from "lucide-react";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
+import { ProgressSteps } from "./progress-steps";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -12,9 +13,11 @@ type Props = {
   busy?: boolean;
   onRun: (file: File) => void;
   extraControls?: React.ReactNode;
+  /** Tool-specific pipeline stages, shown while running. */
+  steps?: string[];
 };
 
-export function RunPanel({ accept, disabled, busy, onRun, extraControls }: Props) {
+export function RunPanel({ accept, disabled, busy, onRun, extraControls, steps }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
 
@@ -58,6 +61,8 @@ export function RunPanel({ accept, disabled, busy, onRun, extraControls }: Props
           "Run"
         )}
       </Button>
+
+      {steps && <ProgressSteps steps={steps} busy={!!busy} />}
     </div>
   );
 }

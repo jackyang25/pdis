@@ -146,7 +146,16 @@ A claim is one atomic, source-backed assertion. Examples:
 - "Target population is children 6 months to 5 years in malaria-endemic areas"
 - "Product must achieve WHO Prequalification by 2030"
 
-A claim is NOT:
+INCLUSION TEST — apply this to every candidate claim:
+> Could this claim change a number, threshold, or scope choice in a TPP draft?
+
+If yes, extract it. If no, drop it. We are not building a general knowledge
+store — we are building decision-grounding evidence for product development
+teams. Mechanism-of-action background, general epidemiology unrelated to a
+product's target population, and operational research on existing products
+all fail this test.
+
+A claim is also NOT:
 - Section headings on their own
 - Boilerplate / introductions / instructions
 - Page numbers, references, version histories

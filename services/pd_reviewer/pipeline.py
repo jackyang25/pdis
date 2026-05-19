@@ -76,16 +76,28 @@ def review_blocks(
     source_id: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> ReviewResult:
-    """Grade + report a document whose blocks have already been parsed and labeled."""
-    claims_for_doc = []
-    if claims_store is not None and source_id is not None:
-        claims_for_doc = claims_store.get_by_source_id(source_id)
+    """Grade + report a document whose blocks have already been parsed and labeled.
+
+    If `claims_store` is provided, the grader gets **peer claims** as
+    benchmark context — claims from OTHER documents in the same intervention
+    (and therapeutic area, if set). Used to grade the new document against
+    the accumulated corpus.
+    """
+    peer_claims = []
+    if claims_store is not None:
+        peer_claims = claims_store.get_by_header(
+            intervention_class=config.intervention_class,
+            therapeutic_area=therapeutic_area,
+        )
+        # Exclude claims from the document being graded — only peer claims matter.
+        if source_id is not None:
+            peer_claims = [c for c in peer_claims if c.source_id != source_id]
     section_grades = grade_sections(
         blocks,
         config,
         llm_client,
         max_tokens=max_tokens,
-        claims=claims_for_doc,
+        peer_claims=peer_claims,
     )
     result = build_report_card(blocks, section_grades, config)
     result.org = config.org

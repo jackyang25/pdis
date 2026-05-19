@@ -17,6 +17,7 @@ content). Claims failing validation are dropped silently.
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import json
 import logging
 import re
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_MAX_OUTPUT_TOKENS = 16000
+EXTRACTOR_VERSION = "product_profile@1"
 
 
 def extract_product_profile(
@@ -42,6 +44,8 @@ def extract_product_profile(
     intervention_class: str | None = None,
     therapeutic_area: str | None = None,
     extracted_at: str | None = None,
+    source_url: str | None = None,
+    model_id: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> list[Claim]:
     """Emit draft Claims from a parsed product-profile document via LLM.
@@ -66,6 +70,7 @@ def extract_product_profile(
 
     block_by_id = {block.id: block for block in blocks}
     system_prompt, user_message = _build_prompts(blocks, config)
+    prompt_hash = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16]
     raw_response = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
 
     try:
@@ -95,6 +100,9 @@ def extract_product_profile(
             intervention_class=intervention_class,
             therapeutic_area=therapeutic_area,
             config=config,
+            source_url=source_url,
+            model_id=model_id,
+            prompt_hash=prompt_hash,
         )
         if claim is not None:
             claims.append(claim)
@@ -216,6 +224,9 @@ def _build_claim(
     intervention_class: str | None,
     therapeutic_area: str | None,
     config: AttributeConfig,
+    source_url: str | None,
+    model_id: str | None,
+    prompt_hash: str,
 ) -> Claim | None:
     """Validate a single extracted claim dict; return a Claim or None if invalid."""
     statement = (entry.get("statement") or "").strip()
@@ -257,6 +268,10 @@ def _build_claim(
         recency_tier=None,
         review_status="unverified",
         version=1,
+        source_url=source_url,
+        extractor_version=EXTRACTOR_VERSION,
+        model_id=model_id,
+        prompt_hash=prompt_hash,
     )
 
 

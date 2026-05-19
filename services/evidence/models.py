@@ -117,6 +117,12 @@ class Claim:
     claim_schema_version: str = "v1"
     superseded_by: str | None = None
 
+    # --- Producer provenance (forward-compat for autonomous ingestion) ---
+    source_url: str | None = None
+    extractor_version: str | None = None
+    model_id: str | None = None
+    prompt_hash: str | None = None
+
     # --- Annotation (judgment) ---
     notes: str | None = None
 

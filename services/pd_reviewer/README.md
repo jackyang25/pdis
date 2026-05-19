@@ -13,10 +13,9 @@ It uses the chunker as a library for document parsing and section labeling, then
 | `pipeline.py` | Stateless orchestrator: chunker.pipeline.run_pipeline → grade_sections → ReviewResult. Library entry point. |
 | `cli.py` | Headless CLI that grades a chunker package into `document_scores.csv`, `section_grades.csv`, `variable_grades.csv`, `summary.csv`, and `manifest.json`. |
 | `configs/` | Review rubrics for supported TPP families: vaccine, drug, diagnostic, and medical device. |
-| `requirements.txt` | Library runtime dependencies (no Streamlit). |
+| `requirements.txt` | Library runtime dependencies. |
 
-The Streamlit UI for this library lives in `dashboard/pd_reviewer_tool.py`.
-LLM provider abstraction is shared at the repo root: `llm_client.py`.
+The web UI for this library lives at `web/app/pd-reviewer/page.tsx`, backed by `api/routes/pd_reviewer.py`. The LLM provider abstraction is shared at the repo root in `llm_client.py`.
 
 PD Reviewer imports chunker APIs for parsing and section labeling:
 
@@ -35,7 +34,7 @@ python -m pip install -r chunker/requirements.txt
 python -m pip install -r pd_reviewer/requirements.txt
 ```
 
-Set an API key in the environment or enter it in the Streamlit sidebar:
+Set an API key in the environment before launching the API gateway:
 
 ```bash
 export ANTHROPIC_API_KEY="your-key"
@@ -45,17 +44,7 @@ export OPENAI_API_KEY="your-key"
 
 ## Run
 
-Use the unified root app:
-
-```bash
-streamlit run dashboard/app.py
-```
-
-Or run PD Reviewer directly:
-
-```bash
-streamlit run dashboard/pd_reviewer_tool.py
-```
+See the root `README.md` for the full local run instructions. Then open `/pd-reviewer` in the web app.
 
 ## ReviewConfig
 
@@ -114,7 +103,7 @@ Each `SectionGrade` includes:
 - `recommendation`
 - `variable_grades`: per-variable grades with source `block_ids`
 
-The Streamlit UI includes a download button for the full JSON report. Batch runs produce CSV tables instead — see *Export A Review Package* below.
+The web UI shows the full report and lets you copy the result as JSON. Batch runs via the CLI produce CSV tables instead — see *Export A Review Package* below.
 
 ## Export A Review Package
 

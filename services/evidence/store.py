@@ -44,6 +44,7 @@ class ClaimsStore(Protocol):
         org: str | None = None,
         source_type: str | None = None,
         intervention_class: str | None = None,
+        therapeutic_area: str | None = None,
     ) -> list[Claim]:
         ...
 
@@ -71,6 +72,7 @@ class FileClaimsStore:
         org: str | None = None,
         source_type: str | None = None,
         intervention_class: str | None = None,
+        therapeutic_area: str | None = None,
     ) -> list[Claim]:
         results = self._claims
         if org is not None:
@@ -79,6 +81,8 @@ class FileClaimsStore:
             results = [c for c in results if c.source_type == source_type]
         if intervention_class is not None:
             results = [c for c in results if c.intervention_class == intervention_class]
+        if therapeutic_area is not None:
+            results = [c for c in results if c.therapeutic_area == therapeutic_area]
         return results
 
 

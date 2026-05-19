@@ -7,7 +7,7 @@ The pipeline has two explicit phases:
 1. **Parser**: format-specific parsing. `.docx` uses semantic-tag walking (`parser_docx`); `.pdf` uses text + table extraction via `pdfplumber` (`parser_pdf`). A dispatcher in `stages/parser.py` routes by file extension. Both produce the same `ContentBlock` shape; downstream consumers do not see the format.
 2. **Mapper**: LLM-driven section labeling. Adds `section_label` and `label_confidence` using a document-type config.
 
-The Streamlit app is a local inspector for this flow. It has a single-document mode for deep inspection and a batch parser mode for comparing parser behavior across multiple TPP documents.
+The web UI at `/chunker` is a local inspector for this flow.
 
 ## Consumers
 
@@ -30,10 +30,9 @@ Dependency direction is one-way: chunker never imports from `pd_reviewer` or `ev
 | `stages/mapper.py` | Prompt builder, JSON validation, and label merge. |
 | `cli.py` | Headless CLI that parses a folder of `.docx` and `.pdf` files into reusable `documents.csv`, `content_blocks.csv`, and `content_blocks.jsonl` tables. |
 | `configs/` | Mapper configs for supported TPP families: vaccine, drug, diagnostic, and medical device. |
-| `requirements.txt` | Library runtime dependencies (no Streamlit). |
+| `requirements.txt` | Library runtime dependencies. |
 
-The Streamlit UI for this library lives in `dashboard/chunker_tool.py`.
-LLM provider abstraction is shared at the repo root: `llm_client.py`.
+The web UI for this library lives at `web/app/chunker/page.tsx`, backed by `api/routes/chunker.py`. The LLM provider abstraction is shared at the repo root in `llm_client.py`.
 
 ## Setup
 
@@ -44,7 +43,7 @@ source .venv/bin/activate
 python -m pip install -r chunker/requirements.txt
 ```
 
-Set an API key in the environment or enter it in the Streamlit sidebar when running the mapper:
+Set an API key in the environment before launching the API gateway:
 
 ```bash
 export ANTHROPIC_API_KEY="your-key"
@@ -54,34 +53,21 @@ export OPENAI_API_KEY="your-key"
 
 ## Run
 
-Launch the Streamlit app:
-
-```bash
-python -m streamlit run dashboard/chunker_tool.py
-```
-
-The app has two modes.
-
-### Single Document Inspector
-
-This mode is for inspecting one document deeply.
+See the root `README.md` for the full local run instructions (start the FastAPI gateway and the Next.js dev server). Then open `/chunker` in the web app:
 
 1. Upload a `.docx` or `.pdf`.
-2. Click **Parse Document** to create raw `ContentBlock`s.
+2. Click **Run** to parse and label the document.
 3. Review parser output.
 4. Choose an LLM provider, enter that provider's API key, and click **Run Mapper** if section labels are needed.
 5. Download JSON. Before mapping, mapper fields are `null`; after mapping, they are filled.
 
-### Batch Parser Evaluation
+### Batch Mode (headless)
 
-This mode is for comparing parser behavior across multiple TPP files and optionally mapping all parsed documents.
+For batch processing across multiple documents, use the CLI:
 
-1. Select **Batch Parser Evaluation** in the sidebar.
-2. Upload multiple `.docx` files.
-3. Click **Parse All Documents**.
-4. Review per-document metrics and block previews.
-5. Optionally choose an LLM provider, enter that provider's API key, and click **Run Mapper On Batch**.
-6. Download `batch_summary.csv` or `batch_blocks.json`.
+```bash
+python -m services.chunker.cli --input-dir path/to/docs --output-dir path/to/output
+```
 
 Parsing and mapping are both parallelized in batch mode. Mapper failures are isolated per document so one failed API call does not discard the rest of the batch.
 
@@ -405,12 +391,12 @@ Failure behavior:
 
 ## LLM Provider Handling
 
-The Streamlit app lets you choose the mapper provider in the sidebar:
+The web app lets you choose the mapper provider per run (default is Anthropic):
 
 - `anthropic`, default model `claude-opus-4-7`
 - `openai`, default model `gpt-5.5`
 
-The selected provider, model, and API key are used by `dashboard/chunker_tool.py` to construct an LLM client, which is passed into `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the injected LLM client is provider-specific.
+The provider and model are passed as form fields to `api/routes/chunker.py`, which constructs an LLM client via `api/deps.py` and forwards it into `label_blocks()`. Prompt construction, JSON parsing, validation, and merge behavior stay shared; only the injected LLM client is provider-specific.
 
 The key is not stored by the app and should not be committed. Keep local secrets in ignored files such as `.env` if you add environment loading later.
 

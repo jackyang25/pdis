@@ -18,8 +18,9 @@ dist/
 .coverage
 htmlcov/
 
-# streamlit/local config
-.streamlit/
+# node / next
+web/node_modules/
+web/.next/
 
 # environment and secrets
 .env

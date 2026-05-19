@@ -28,19 +28,19 @@ def grade_sections(
     llm_client: LLMClientProtocol,
     *,
     max_tokens: int,
-    claims: list | None = None,
+    peer_claims: list | None = None,
 ) -> list[SectionGrade]:
     """
     For each section, ask the LLM to grade completeness and adherence.
 
-    If `claims` is provided (pre-extracted Claim records from the evidence
-    pipeline), they're injected into the grader prompt as additional signal.
-    Each claim's `attribute_ref`, `binding_confidence`, and `evidence_strength`
-    tell the grader which variables the document actually addresses.
+    If `peer_claims` is provided (Claim records from OTHER documents in the
+    same intervention/therapeutic area), they're injected into the grader
+    prompt as **comparative benchmark context**. The grader can then judge
+    the document being graded against what peer documents have claimed.
     """
     blocks_by_section = _group_blocks_by_section(labeled_blocks)
     section_grades: list[SectionGrade] = []
-    claims_context = _format_claims_for_prompt(claims) if claims else ""
+    peer_context = _format_peer_claims_for_prompt(peer_claims) if peer_claims else ""
 
     for section_spec in config.sections:
         section_blocks = blocks_by_section.get(section_spec.name, [])
@@ -52,7 +52,7 @@ def grade_sections(
         user_message = _build_user_message(
             section_spec,
             section_blocks,
-            claims_context=claims_context,
+            peer_context=_filter_peers_for_section(peer_context, section_spec),
         )
         section_grades.append(
             _grade_section(
@@ -68,21 +68,44 @@ def grade_sections(
     return section_grades
 
 
-def _format_claims_for_prompt(claims: list) -> str:
-    """Render a compact claim summary for inclusion in the grader user message."""
-    if not claims:
+def _format_peer_claims_for_prompt(peer_claims: list) -> str:
+    """Render peer claims grouped by attribute_ref for comparative context."""
+    if not peer_claims:
         return ""
-    lines = ["", "Pre-extracted claims for this document (use as additional signal):"]
-    for claim in claims:
+    # Group by attribute_ref so the grader can see "for vaccine.efficacy, peers said..."
+    by_attr: dict[str, list] = {}
+    for claim in peer_claims:
         attr = getattr(claim, "attribute_ref", None) or "unbound"
-        conf = getattr(claim, "binding_confidence", None) or "—"
-        strength = getattr(claim, "evidence_strength", None) or "—"
-        statement = getattr(claim, "statement", "") or ""
-        lines.append(
-            f"  - {attr} (binding={conf}, strength={strength}): "
-            f"{statement[:160]}"
-        )
+        by_attr.setdefault(attr, []).append(claim)
+
+    # Track distinct source documents in the peer set
+    sources = {getattr(c, "source_id", "") for c in peer_claims if getattr(c, "source_id", None)}
+    n_docs = len(sources)
+    n_claims = len(peer_claims)
+
+    lines = [
+        "",
+        f"PEER BENCHMARK — {n_claims} claims from {n_docs} peer document(s) "
+        f"in the same intervention class. Use as comparative context when grading "
+        f"the document above. Flag where this document is below, above, or absent "
+        f"relative to peer claims.",
+        "",
+    ]
+    for attr in sorted(by_attr.keys()):
+        claims_for_attr = by_attr[attr]
+        lines.append(f"  {attr} ({len(claims_for_attr)} peer claim(s)):")
+        for claim in claims_for_attr[:5]:  # cap at 5 per attribute to keep prompt tight
+            statement = (getattr(claim, "statement", "") or "")[:160]
+            src = getattr(claim, "source_id", "?")
+            lines.append(f"    - [{src}] {statement}")
+        if len(claims_for_attr) > 5:
+            lines.append(f"    ... ({len(claims_for_attr) - 5} more)")
     return "\n".join(lines)
+
+
+def _filter_peers_for_section(peer_context: str, section_spec: SectionSpec) -> str:
+    """For now, pass full peer context to every section. Future: filter by section's expected attributes."""
+    return peer_context
 
 
 def _grade_section(
@@ -200,7 +223,7 @@ def _build_user_message(
     section_spec: SectionSpec,
     section_blocks: list[ContentBlock],
     *,
-    claims_context: str = "",
+    peer_context: str = "",
 ) -> str:
     parts = [
         f"Section: {section_spec.name}",
@@ -208,8 +231,8 @@ def _build_user_message(
         "Actual document blocks:",
         _format_blocks(section_blocks),
     ]
-    if claims_context:
-        parts.append(claims_context)
+    if peer_context:
+        parts.append(peer_context)
     return "\n\n".join(parts)
 
 

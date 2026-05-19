@@ -1,6 +1,6 @@
 # Evidence
 
-Evidence turns a source document (a WHO PPC, a TPP, a paper) into a flat list of source-backed `Claim` records bound to an `AttributeConfig`. The pipeline is **stateless**: document in, claims out. The caller (Streamlit UI or CLI) decides what to do with the output — display, download, or hand off to the next consumer.
+Evidence turns a source document (a WHO PPC, a TPP, a paper) into a flat list of source-backed `Claim` records bound to an `AttributeConfig`. The pipeline is **stateless**: document in, claims out. The caller (web UI, CLI, or another service) decides what to do with the output — display, download, or hand off to the next consumer.
 
 It uses the chunker as a library for parsing, then runs four pipeline stages over the parsed blocks: extract → bind → appraise → output.
 
@@ -15,10 +15,9 @@ It uses the chunker as a library for parsing, then runs four pipeline stages ove
 | `pipeline.py` | Stateless orchestrator: `run_pipeline(file_path, ...) → (blocks, claims)`. Wires parse → extract → bind → appraise. |
 | `cli.py` | Headless CLI: takes a folder of source documents + a config, writes `claims.jsonl`, `claims.csv`, and `summary.csv`. |
 | `configs/` | `AttributeConfig` YAML files (one per product class). `CONFIG_TEMPLATE.yaml` is the starter. |
-| `requirements.txt` | Library runtime dependencies (no Streamlit). |
+| `requirements.txt` | Library runtime dependencies. |
 
-The Streamlit UI for this library lives in `dashboard/evidence_tool.py`.
-LLM provider abstraction is shared at the repo root: `llm_client.py`.
+The web UI for this library lives at `web/app/evidence/page.tsx`, backed by `api/routes/evidence.py`. The LLM provider abstraction is shared at the repo root in `llm_client.py`.
 
 Evidence imports chunker APIs for parsing:
 
@@ -37,7 +36,7 @@ python -m pip install -r chunker/requirements.txt
 python -m pip install -r evidence/requirements.txt
 ```
 
-Set an API key in the environment or enter it in the Streamlit sidebar:
+Set an API key in the environment before launching the API gateway:
 
 ```bash
 export ANTHROPIC_API_KEY="your-key"
@@ -47,24 +46,12 @@ export OPENAI_API_KEY="your-key"
 
 ## Run
 
-Use the unified root app:
+See the root `README.md` for the full local run instructions. Then open `/evidence` in the web app:
 
-```bash
-streamlit run dashboard/app.py
-```
-
-Or evidence directly:
-
-```bash
-streamlit run dashboard/evidence_tool.py
-```
-
-The Streamlit UI flow:
-
-1. Sidebar — pick the document **header** (`org · source_type · intervention`) and optional `therapeutic_area` at the top of the app. Pick **Evidence** as the tool.
+1. Pick the document header (org, source type, intervention, optional therapeutic area) in the sidebar.
 2. Upload a `.docx` or `.pdf`.
-3. Click **Run Pipeline**. The pipeline parses, extracts, binds, and appraises.
-4. Inspect the resulting claims; download as JSONL or CSV.
+3. Click **Run**. The pipeline parses, extracts, binds, and appraises.
+4. Inspect the resulting claims grouped by attribute.
 
 For batch / scripted runs, use the CLI (header flags identify the document type):
 
@@ -233,7 +220,7 @@ Shipped:
 - `stages/appraiser.py` (heuristic).
 - `pipeline.py` stateless orchestrator.
 - `cli.py` headless CLI.
-- `dashboard/evidence_tool.py` Streamlit UI (parse → extract → bind → appraise → display + download).
+- `api/routes/evidence.py` + `web/app/evidence/page.tsx` (parse → extract → bind → appraise → display).
 - `llm_client.py` shared provider-neutral adapter.
 
 Deferred until needed: persistent claim store, curation layer, additional extractors, and temporal operations. Each is additive to the current pipeline; specifics will be designed when the work is scheduled.

@@ -14,5 +14,8 @@ export const useHeaderStore = create<HeaderState>((set) => ({
 }));
 
 export function isHeaderComplete(h: Partial<Header>): h is Header {
-  return Boolean(h.org && h.source_type && h.intervention_class);
+  return Boolean(
+    h.org && h.source_type && h.intervention_class && h.indication,
+  );
 }
+

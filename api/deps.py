@@ -6,7 +6,7 @@ import os
 
 from fastapi import HTTPException
 
-from llm_client import LLMClient
+from shared.llm_client import LLMClient
 
 
 def get_llm_client() -> LLMClient:

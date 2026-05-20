@@ -33,7 +33,7 @@ def label_blocks(
         max_tokens: Maximum tokens allowed in each mapper response
 
     Returns:
-        Same blocks with section_label and label_confidence filled in
+        Same blocks with section_label filled in
     """
     _clear_labels(blocks)
     if len(blocks) >= 200:
@@ -297,7 +297,6 @@ def _merge_labels(
             continue
 
         block.section_label = section_label
-        block.label_confidence = confidence
 
     return blocks
 
@@ -305,9 +304,7 @@ def _merge_labels(
 def _clear_labels(blocks: list[ContentBlock]) -> None:
     for block in blocks:
         block.section_label = None
-        block.label_confidence = None
 
 
 def _set_block_mapping_error(block: ContentBlock) -> None:
     block.section_label = "Mapping Error"
-    block.label_confidence = "low"

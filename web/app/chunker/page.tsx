@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { HeaderGuard } from "@/components/header-guard";
@@ -8,7 +7,14 @@ import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { DownloadButton } from "@/components/download-button";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { runChunker, type ContentBlock, type Header } from "@/lib/api";
+import { useChunkerSession } from "@/lib/session";
+
+const CHUNKER_STEPS = [
+  { key: "parse", label: "Parse document" },
+  { key: "label", label: "Label sections" },
+];
 
 export default function ChunkerPage() {
   return (
@@ -23,16 +29,16 @@ export default function ChunkerPage() {
 }
 
 function ChunkerView({ header }: { header: Header }) {
-  const [blocks, setBlocks] = useState<ContentBlock[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { result, busy, stage, error, setResult, setBusy, setStage, setError } =
+    useChunkerSession();
 
   async function handleRun(file: File) {
     setBusy(true);
     setError(null);
+    setStage(null);
     try {
-      const res = await runChunker(file, header, { label: true });
-      setBlocks(res.blocks);
+      const res = await runChunker(file, header, setStage);
+      setResult(res);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -40,13 +46,16 @@ function ChunkerView({ header }: { header: Header }) {
     }
   }
 
+  const blocks = result?.blocks ?? null;
+
   return (
     <div className="flex flex-col gap-6">
       <RunPanel
         accept=".docx,.pdf"
         busy={busy}
         onRun={handleRun}
-        steps={["Parse document", "Label sections"]}
+        steps={CHUNKER_STEPS}
+        currentStage={stage}
       />
       {error && <p className="text-sm text-destructive">{error}</p>}
       {blocks && <BlocksList blocks={blocks} />}
@@ -59,19 +68,21 @@ function ChunkerView({ header }: { header: Header }) {
 
 function BlocksList({ blocks }: { blocks: ContentBlock[] }) {
   const docId = blocks[0]?.doc_id ?? "blocks";
+  const labeledCount = blocks.filter((b) => b.section_label).length;
   return (
-    <div className="rounded-lg border border-border bg-card">
-      <div className="flex items-center justify-between px-6 py-4">
-        <h2 className="text-sm font-semibold">{blocks.length} blocks</h2>
+    <CollapsibleCard
+      title={`${blocks.length} blocks`}
+      subtitle={`${labeledCount} labeled`}
+      trailing={
         <DownloadButton
           filename={`${docId}_blocks.jsonl`}
           data={blocks}
           format="jsonl"
           label="Download JSONL"
         />
-      </div>
-      <Separator />
-      <ul className="divide-y divide-border">
+      }
+    >
+      <ul className="-mx-6 divide-y divide-border">
         {blocks.map((block) => (
           <li key={block.id} className="px-6 py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -88,6 +99,6 @@ function BlocksList({ blocks }: { blocks: ContentBlock[] }) {
           </li>
         ))}
       </ul>
-    </div>
+    </CollapsibleCard>
   );
 }

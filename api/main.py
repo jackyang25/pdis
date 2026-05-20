@@ -24,7 +24,7 @@ try:
 except ImportError:
     pass
 
-from api.routes import chunker, configs, evidence, pd_reviewer
+from api.routes import benchmarker, chunker, configs, reviewer
 
 app = FastAPI(title="PDIS API", version="0.1.0")
 
@@ -38,8 +38,8 @@ app.add_middleware(
 
 app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
 app.include_router(chunker.router, prefix="/api/chunker", tags=["chunker"])
-app.include_router(evidence.router, prefix="/api/evidence", tags=["evidence"])
-app.include_router(pd_reviewer.router, prefix="/api/pd-reviewer", tags=["pd_reviewer"])
+app.include_router(benchmarker.router, prefix="/api/benchmarker", tags=["benchmarker"])
+app.include_router(reviewer.router, prefix="/api/reviewer", tags=["reviewer"])
 
 
 @app.get("/api/health")

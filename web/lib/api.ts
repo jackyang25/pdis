@@ -2,13 +2,18 @@ export type Header = {
   org: string;
   source_type: string;
   intervention_class: string;
-  therapeutic_area: string | null;
+  indication: string;
 };
 
-export type TriplesResponse = {
-  orgs: string[];
-  source_types_by_org: Record<string, string[]>;
-  interventions_by_org_source: Record<string, string[]>;
+export type ToolName = "chunker" | "benchmarker" | "reviewer";
+
+export type DocumentType = {
+  key: string;
+  org: string;
+  source_type: string;
+  intervention_class: string;
+  display_name: string;
+  supports: Record<ToolName, boolean>;
 };
 
 export type ContentBlock = {
@@ -19,7 +24,6 @@ export type ContentBlock = {
   content: string;
   heading_stack: string[];
   section_label: string | null;
-  label_confidence: string | null;
 };
 
 export type Claim = {
@@ -32,118 +36,186 @@ export type Claim = {
   source_kind: string;
   source_locator: Record<string, unknown>;
   attribute_ref: string | null;
-  binding_confidence: string | null;
-  evidence_strength: string | null;
-  recency_tier: string | null;
   org: string | null;
   source_type: string | null;
   intervention_class: string | null;
-  therapeutic_area: string | null;
+  indication: string | null;
 };
 
-export type VariableGrade = {
-  variable_name: string;
+export type DimensionName = "completeness" | "adherence" | "expertise";
+
+export type DimensionGrade = {
   grade: string;
   issues: string[];
   recommendation: string;
+  cited_claim_ids: string[];
+};
+
+export type Dimensions = Record<DimensionName, DimensionGrade>;
+
+export type VariableGrade = {
+  variable_name: string;
+  dimensions: Dimensions;
   block_ids: string[];
+  attribute_ref: string | null;
 };
 
 export type SectionGrade = {
   section_name: string;
-  grade: string;
   is_present: boolean;
+  dimensions: Dimensions;
   missing_variables: string[];
-  issues: string[];
-  recommendation: string;
   variable_grades: VariableGrade[];
 };
 
 export type ReviewResult = {
   doc_id: string;
-  overall_grade: string;
+  dimensions: Dimensions;
   top_issues: string[];
   section_grades: SectionGrade[];
   org: string | null;
   source_type: string | null;
   intervention_class: string | null;
-  therapeutic_area: string | null;
+  indication: string | null;
+};
+
+export const DIMENSION_NAMES: DimensionName[] = ["completeness", "adherence", "expertise"];
+
+export const GRADE_LABELS: Record<string, string> = {
+  A: "Fully complete",
+  B: "Substantially complete",
+  C: "Partially complete",
+  D: "Significant gaps",
+  F: "Incomplete",
+  "N/A": "Not applicable",
 };
 
 export type PeerClaim = {
   source_id: string;
   statement: string;
+  claim_type: string | null;
   attribute_ref: string | null;
-  binding_confidence: string | null;
-  evidence_strength: string | null;
+  valid_as_of: string | null;
+  extracted_at: string | null;
+  org: string | null;
+  source_type: string | null;
+  indication: string | null;
 };
 
-export type PDReviewerResponse = {
+export type ReviewerResponse = {
   review: ReviewResult;
   peer_claims: PeerClaim[];
 };
 
+export type StageEvent = { event: "stage"; name: string };
+export type CompleteEvent<T> = { event: "complete"; result: T };
+export type ErrorEvent = { event: "error"; detail: string };
+export type StreamEvent<T> = StageEvent | CompleteEvent<T> | ErrorEvent;
+
 const API_BASE = process.env.NEXT_PUBLIC_PDIS_API_URL || "http://localhost:8000";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(detail || `Request failed: ${res.status}`);
+    throw new Error((await res.text()) || `Request failed: ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
 
-export async function fetchTriples(): Promise<TriplesResponse> {
-  return request<TriplesResponse>("/api/configs/triples");
+/**
+ * Consume an NDJSON stream from a POST. Each line is a `StreamEvent<T>`.
+ * Calls `onStage` for each stage event; returns the result from the complete event.
+ */
+async function streamRequest<T>(
+  path: string,
+  body: FormData,
+  onStage?: (stage: string) => void,
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { method: "POST", body });
+  if (!res.ok || !res.body) {
+    throw new Error((await res.text()) || `Request failed: ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: T | null = null;
+  let error: string | null = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      const event = JSON.parse(line) as StreamEvent<T>;
+      if (event.event === "stage") {
+        onStage?.(event.name);
+      } else if (event.event === "complete") {
+        result = event.result;
+      } else if (event.event === "error") {
+        error = event.detail;
+      }
+    }
+  }
+
+  if (error) throw new Error(error);
+  if (result === null) throw new Error("Stream ended without complete event");
+  return result;
 }
 
-export async function fetchTherapeuticAreas(intervention: string): Promise<string[]> {
-  const res = await request<{ therapeutic_areas: string[] }>(
-    `/api/configs/therapeutic-areas?intervention=${encodeURIComponent(intervention)}`,
+export async function fetchDocumentTypes(): Promise<DocumentType[]> {
+  const res = await jsonRequest<{ document_types: DocumentType[] }>(
+    "/api/configs/document-types",
   );
-  return res.therapeutic_areas;
+  return res.document_types;
+}
+
+export async function fetchIndications(intervention: string): Promise<string[]> {
+  const res = await jsonRequest<{ indications: string[] }>(
+    `/api/configs/indications?intervention=${encodeURIComponent(intervention)}`,
+  );
+  return res.indications;
 }
 
 function appendHeader(form: FormData, header: Header) {
   form.append("org", header.org);
   form.append("source_type", header.source_type);
   form.append("intervention_class", header.intervention_class);
-  if (header.therapeutic_area) {
-    form.append("therapeutic_area", header.therapeutic_area);
-  }
+  form.append("indication", header.indication);
 }
 
 export async function runChunker(
   file: File,
   header: Header,
-  options: { label: boolean },
+  onStage?: (stage: string) => void,
 ): Promise<{ doc_id: string; blocks: ContentBlock[] }> {
   const form = new FormData();
   form.append("file", file);
   appendHeader(form, header);
-  form.append("label", String(options.label));
-  return request("/api/chunker/run", { method: "POST", body: form });
+  return streamRequest("/api/chunker/run", form, onStage);
 }
 
-export async function runEvidence(
+export async function runBenchmarker(
   file: File,
   header: Header,
+  onStage?: (stage: string) => void,
 ): Promise<{ doc_id: string; source_id: string; claims: Claim[] }> {
   const form = new FormData();
   form.append("file", file);
   appendHeader(form, header);
-  return request("/api/evidence/run", { method: "POST", body: form });
+  return streamRequest("/api/benchmarker/run", form, onStage);
 }
 
-export async function runPDReviewer(
+export async function runReviewer(
   file: File,
   header: Header,
-  options: { usePeerClaims: boolean },
-): Promise<PDReviewerResponse> {
+  onStage?: (stage: string) => void,
+): Promise<ReviewerResponse> {
   const form = new FormData();
   form.append("file", file);
   appendHeader(form, header);
-  form.append("use_peer_claims", String(options.usePeerClaims));
-  return request("/api/pd-reviewer/run", { method: "POST", body: form });
+  return streamRequest("/api/reviewer/run", form, onStage);
 }

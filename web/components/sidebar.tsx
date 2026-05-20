@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Boxes, FileSearch, GraduationCap } from "lucide-react";
+import { Boxes, FileSearch, HeartHandshake, Layers3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HeaderPicker } from "./header-picker";
 import { Separator } from "./ui/separator";
 
 const NAV = [
   { href: "/chunker", label: "Chunker", description: "Parse + label", icon: Boxes },
-  { href: "/evidence", label: "Evidence", description: "Extract claims", icon: FileSearch },
-  { href: "/pd-reviewer", label: "PD Reviewer", description: "Grade documents", icon: GraduationCap },
+  { href: "/benchmarker", label: "Benchmarker", description: "Extract peer claims", icon: FileSearch },
+  { href: "/reviewer", label: "Reviewer", description: "Grade documents", icon: Layers3 },
 ];
 
 export function Sidebar() {
@@ -18,10 +18,15 @@ export function Sidebar() {
   return (
     <aside className="flex w-72 shrink-0 flex-col border-r border-border bg-secondary/30">
       <div className="px-6 py-6">
-        <Link href="/" className="block">
-          <div className="text-sm font-semibold tracking-tight">PDIS</div>
-          <div className="text-xs text-muted-foreground">Product Development Intelligence</div>
-        </Link>
+        <div className="text-sm font-semibold leading-tight tracking-tight">
+          Product Development
+          <br />
+          Intelligence Suite
+        </div>
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+          Solving for global health
+          <HeartHandshake className="h-3 w-3" />
+        </div>
       </div>
       <Separator />
       <nav className="flex flex-col gap-1 px-3 py-4">

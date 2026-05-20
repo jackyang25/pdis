@@ -39,7 +39,7 @@ class PipelineResult:
     """
     file_path: str
     doc_id: str
-    blocks: list["ContentBlock"] = field(default_factory=list)
+    blocks: list[ContentBlock] = field(default_factory=list)
     parse_error: str | None = None
     mapping_error: str | None = None
 
@@ -58,13 +58,12 @@ class ContentBlock:
 
     # --- Reserved for Phase 2 (mapper) - always None after parsing ---
     section_label: str | None = None
-    label_confidence: str | None = None
 
     # --- Header (document provenance, stamped by pipeline after parsing) ---
     org: str | None = None
     source_type: str | None = None  # document format: "tpp", "ppc", "paper"
     intervention_class: str | None = None
-    therapeutic_area: str | None = None
+    indication: str | None = None
 
 
 @dataclass

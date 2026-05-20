@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Label } from "./ui/label";
 import {
   Select,
@@ -9,56 +10,118 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { fetchTherapeuticAreas, fetchTriples, type TriplesResponse } from "@/lib/api";
+import {
+  fetchDocumentTypes,
+  fetchIndications,
+  type DocumentType,
+  type ToolName,
+} from "@/lib/api";
 import { useHeaderStore } from "@/lib/store";
 
-const NONE_VALUE = "__none__";
+const PATH_TO_TOOL: Record<string, ToolName> = {
+  "/chunker": "chunker",
+  "/benchmarker": "benchmarker",
+  "/reviewer": "reviewer",
+};
+
+type FieldRole = "selects config" | "tags output" | "scopes peer claims";
+
+const ROLES: Record<ToolName, Record<keyof Roles, FieldRole>> = {
+  chunker: {
+    org: "selects config",
+    source_type: "selects config",
+    intervention: "selects config",
+    indication: "tags output",
+  },
+  benchmarker: {
+    org: "tags output",
+    source_type: "tags output",
+    intervention: "selects config",
+    indication: "tags output",
+  },
+  reviewer: {
+    org: "selects config",
+    source_type: "selects config",
+    intervention: "selects config",
+    indication: "scopes peer claims",
+  },
+};
+
+type Roles = {
+  org: FieldRole;
+  source_type: FieldRole;
+  intervention: FieldRole;
+  indication: FieldRole;
+};
 
 export function HeaderPicker() {
+  const pathname = usePathname() ?? "";
+  const tool = PATH_TO_TOOL[pathname] ?? null;
   const { header, setHeader } = useHeaderStore();
-  const [triples, setTriples] = useState<TriplesResponse | null>(null);
-  const [therapeuticAreas, setTherapeuticAreas] = useState<string[]>([]);
+  const [docTypes, setDocTypes] = useState<DocumentType[] | null>(null);
+  const [indications, setIndications] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchTriples()
-      .then((data) => {
-        setTriples(data);
-        setError(null);
-      })
+    fetchDocumentTypes()
+      .then(setDocTypes)
       .catch((err: Error) => setError(err.message));
   }, []);
 
   useEffect(() => {
     if (!header.intervention_class) {
-      setTherapeuticAreas([]);
+      setIndications([]);
       return;
     }
-    fetchTherapeuticAreas(header.intervention_class)
-      .then(setTherapeuticAreas)
-      .catch(() => setTherapeuticAreas([]));
+    fetchIndications(header.intervention_class)
+      .then(setIndications)
+      .catch(() => setIndications([]));
   }, [header.intervention_class]);
 
-  if (error) {
-    return <p className="text-xs text-destructive">{error}</p>;
-  }
-  if (!triples) {
-    return <p className="text-xs text-muted-foreground">Loading...</p>;
-  }
+  const supported = useMemo(() => {
+    if (!docTypes) return [];
+    return tool ? docTypes.filter((d) => d.supports[tool]) : docTypes;
+  }, [docTypes, tool]);
 
-  const sourceTypes = header.org ? triples.source_types_by_org[header.org] ?? [] : [];
-  const interventions =
-    header.org && header.source_type
-      ? triples.interventions_by_org_source[`${header.org}__${header.source_type}`] ?? []
-      : [];
+  const orgs = useMemo(
+    () => Array.from(new Set(supported.map((d) => d.org))).sort(),
+    [supported],
+  );
+  const sourceTypes = useMemo(
+    () =>
+      Array.from(
+        new Set(supported.filter((d) => d.org === header.org).map((d) => d.source_type)),
+      ).sort(),
+    [supported, header.org],
+  );
+  const interventions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          supported
+            .filter((d) => d.org === header.org && d.source_type === header.source_type)
+            .map((d) => d.intervention_class),
+        ),
+      ).sort(),
+    [supported, header.org, header.source_type],
+  );
+
+  if (error) return <p className="text-xs text-destructive">{error}</p>;
+  if (!docTypes) return <p className="text-xs text-muted-foreground">Loading...</p>;
+
+  const roles: Roles =
+    tool && tool in ROLES
+      ? ROLES[tool]
+      : {
+          org: "tags output",
+          source_type: "tags output",
+          intervention: "tags output",
+          indication: "tags output",
+        };
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Document
-      </div>
-
-      <Field label="Org">
+      <Field label="Org" role={roles.org}>
         <Select
           value={header.org}
           onValueChange={(value) =>
@@ -66,34 +129,35 @@ export function HeaderPicker() {
               org: value,
               source_type: undefined,
               intervention_class: undefined,
-              therapeutic_area: null,
+              indication: undefined,
             })
           }
+          disabled={orgs.length === 0}
         >
           <SelectTrigger>
             <SelectValue placeholder="Select" />
           </SelectTrigger>
           <SelectContent>
-            {triples.orgs.map((org) => (
-              <SelectItem key={org} value={org}>
-                {org}
+            {orgs.map((o) => (
+              <SelectItem key={o} value={o}>
+                {displayLabel(o)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </Field>
 
-      <Field label="Source type" disabled={!header.org}>
+      <Field label="Source type" role={roles.source_type} disabled={!header.org}>
         <Select
           value={header.source_type}
           onValueChange={(value) =>
             setHeader({
               source_type: value,
               intervention_class: undefined,
-              therapeutic_area: null,
+              indication: undefined,
             })
           }
-          disabled={!header.org}
+          disabled={!header.org || sourceTypes.length === 0}
         >
           <SelectTrigger>
             <SelectValue placeholder="Select" />
@@ -101,20 +165,20 @@ export function HeaderPicker() {
           <SelectContent>
             {sourceTypes.map((st) => (
               <SelectItem key={st} value={st}>
-                {st}
+                {displayLabel(st)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </Field>
 
-      <Field label="Intervention" disabled={!header.source_type}>
+      <Field label="Intervention" role={roles.intervention} disabled={!header.source_type}>
         <Select
           value={header.intervention_class}
           onValueChange={(value) =>
-            setHeader({ intervention_class: value, therapeutic_area: null })
+            setHeader({ intervention_class: value, indication: undefined })
           }
-          disabled={!header.source_type}
+          disabled={!header.source_type || interventions.length === 0}
         >
           <SelectTrigger>
             <SelectValue placeholder="Select" />
@@ -122,29 +186,30 @@ export function HeaderPicker() {
           <SelectContent>
             {interventions.map((iv) => (
               <SelectItem key={iv} value={iv}>
-                {iv}
+                {displayLabel(iv)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </Field>
 
-      <Field label="Therapeutic area" disabled={therapeuticAreas.length === 0}>
+      <Field
+        label="Indication"
+        role={roles.indication}
+        disabled={!header.intervention_class}
+      >
         <Select
-          value={header.therapeutic_area ?? NONE_VALUE}
-          onValueChange={(value) =>
-            setHeader({ therapeutic_area: value === NONE_VALUE ? null : value })
-          }
-          disabled={therapeuticAreas.length === 0}
+          value={header.indication}
+          onValueChange={(value) => setHeader({ indication: value })}
+          disabled={!header.intervention_class || indications.length === 0}
         >
           <SelectTrigger>
-            <SelectValue placeholder="Optional" />
+            <SelectValue placeholder="Select" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NONE_VALUE}>Any</SelectItem>
-            {therapeuticAreas.map((ta) => (
+            {indications.map((ta) => (
               <SelectItem key={ta} value={ta}>
-                {ta}
+                {displayLabel(ta)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -156,17 +221,43 @@ export function HeaderPicker() {
 
 function Field({
   label,
-  children,
+  role,
   disabled,
+  children,
 }: {
   label: string;
-  children: React.ReactNode;
+  role: FieldRole;
   disabled?: boolean;
+  children: React.ReactNode;
 }) {
   return (
-    <div className={disabled ? "opacity-60" : ""}>
-      <Label className="mb-1.5 block">{label}</Label>
+    <div className={disabled ? "opacity-60" : undefined}>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+        <Label>{label}</Label>
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{role}</span>
+      </div>
       {children}
     </div>
   );
 }
+
+const ACRONYMS = new Set([
+  "who",
+  "bmgf",
+  "tpp",
+  "ppc",
+  "hiv",
+  "tb",
+  "rsv",
+  "hpv",
+  "covid19",
+]);
+
+function displayLabel(value: string): string {
+  if (ACRONYMS.has(value.toLowerCase())) return value.toUpperCase();
+  return value
+    .split("_")
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))
+    .join(" ");
+}
+

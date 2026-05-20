@@ -4,44 +4,60 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 4%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 4%;
-    --primary: 240 10% 4%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 5% 96%;
-    --secondary-foreground: 240 6% 10%;
-    --muted: 240 5% 96%;
-    --muted-foreground: 240 4% 46%;
-    --accent: 240 5% 96%;
-    --accent-foreground: 240 6% 10%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 6% 90%;
-    --input: 240 6% 90%;
-    --ring: 240 5% 64%;
+    /* Warm, soft palette — cream background, warm-dark text, muted yellow accent. */
+    --background: 40 38% 97%;
+    --foreground: 25 18% 14%;
+
+    --card: 40 38% 99%;
+    --card-foreground: 25 18% 14%;
+
+    --primary: 25 18% 14%;
+    --primary-foreground: 40 38% 97%;
+
+    --secondary: 40 28% 92%;
+    --secondary-foreground: 25 18% 18%;
+
+    --muted: 40 24% 91%;
+    --muted-foreground: 25 8% 42%;
+
+    --accent: 42 70% 72%;
+    --accent-foreground: 25 30% 18%;
+
+    --destructive: 5 60% 48%;
+    --destructive-foreground: 40 38% 97%;
+
+    --border: 40 18% 86%;
+    --input: 40 18% 86%;
+    --ring: 42 60% 60%;
+
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 240 10% 4%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 4%;
-    --card-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 6% 10%;
-    --secondary: 240 4% 16%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 4% 16%;
-    --muted-foreground: 240 5% 64%;
-    --accent: 240 4% 16%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 16%;
-    --input: 240 4% 16%;
-    --ring: 240 5% 64%;
+    --background: 28 8% 9%;
+    --foreground: 40 28% 92%;
+
+    --card: 28 8% 11%;
+    --card-foreground: 40 28% 92%;
+
+    --primary: 40 28% 92%;
+    --primary-foreground: 28 8% 9%;
+
+    --secondary: 28 6% 16%;
+    --secondary-foreground: 40 28% 92%;
+
+    --muted: 28 6% 16%;
+    --muted-foreground: 40 8% 60%;
+
+    --accent: 42 50% 55%;
+    --accent-foreground: 28 8% 9%;
+
+    --destructive: 5 50% 45%;
+    --destructive-foreground: 40 28% 92%;
+
+    --border: 28 6% 20%;
+    --input: 28 6% 20%;
+    --ring: 42 40% 55%;
   }
 }
 
@@ -52,6 +68,12 @@
   html,
   body {
     @apply bg-background text-foreground antialiased;
-    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "cv11" 1;
+    letter-spacing: -0.005em;
+  }
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
   }
 }

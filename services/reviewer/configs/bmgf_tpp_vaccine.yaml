@@ -1,0 +1,110 @@
+type_key: bmgf_tpp_vaccine
+org: bmgf
+source_type: tpp
+intervention_class: vaccine
+display_name: "Vaccine Target Product Profile"
+
+sections:
+  - name: "Introduction"
+    description: "Background on what TPPs are and how they're used. Sets context for the document."
+    weight: 0.05
+
+  - name: "Instructions for Use"
+    description: "Guidance on completing the template, including Minimum vs. Optimistic framing and version conventions."
+    weight: 0.05
+
+  - name: "Medical Need / Use Case"
+    description: "Problem definition, target user group, intended use case, barriers, medical need, critical assumptions."
+    weight: 0.20
+
+  - name: "Executive Summary (Core Variables)"
+    description: "Main TPP table with Variable / Minimum / Optimistic / Annotations columns. Each variable should have both Minimum and Optimistic targets, with annotations citing source data or rationale."
+    weight: 0.40
+    variables:
+      - name: "Indication"
+        description: "The disease or condition the vaccine is intended to prevent or treat. Should be specific and aligned with regulatory language."
+        attribute_ref: vaccine.indication
+      - name: "Product"
+        description: "The vaccine candidate or class -- antigens, platform, formulation."
+        attribute_ref: vaccine.product
+      - name: "Target Population"
+        description: "Demographic and clinical characteristics of recipients. Specify age range, geography, and risk factors."
+        attribute_ref: vaccine.target_population
+      - name: "Target Countries"
+        description: "Geographic markets and tiers (LMIC focus). Should reference WHO regions or specific country lists."
+        attribute_ref: vaccine.target_countries
+      - name: "Efficacy"
+        description: "Required protective efficacy. Quantitative target like 'at least X% reduction in disease incidence over Y months.'"
+        attribute_ref: vaccine.efficacy
+      - name: "Duration of Protection"
+        description: "How long protection lasts after immunization. Quantitative target in months or years."
+        attribute_ref: vaccine.duration_of_protection
+      - name: "Onset of Immunity"
+        description: "Time from immunization to protective immunity. Quantitative target in days or weeks."
+        attribute_ref: vaccine.onset_of_immunity
+      - name: "Indirect (Herd) Protection"
+        description: "Effect on transmission and unvaccinated populations. Quantitative if possible."
+        attribute_ref: vaccine.transmission_reduction
+      - name: "Safety"
+        description: "Acceptable adverse event profile. Should reference WHO/regulatory benchmarks and quantify acceptable rates."
+        attribute_ref: vaccine.safety
+      - name: "Co-administration"
+        description: "Compatibility with other vaccines in the schedule. List specific co-administered vaccines."
+        attribute_ref: vaccine.coadministration
+      - name: "Presentation"
+        description: "Vial size, doses per vial, formulation. Specify single-dose vs multi-dose."
+        attribute_ref: vaccine.presentation
+      - name: "Dosing Schedule and Route of Administration"
+        description: "Number of doses, intervals, and route (IM, oral, etc.). Specify exact schedule."
+        attribute_ref: vaccine.dosing_schedule
+      - name: "Vaccine Volume"
+        description: "Volume per dose in mL. Quantitative target."
+        attribute_ref: vaccine.dose_volume
+      - name: "Stability/Shelf Life"
+        description: "Shelf life at recommended storage temperatures. Quantitative target like 'X months at 2-8 C, Y months at 25 C.'"
+        attribute_ref: vaccine.shelf_life
+      - name: "Product Registration Path"
+        description: "Regulatory pathway: WHO PQ + stringent regulatory authority + specific country authorities."
+        attribute_ref: vaccine.registration_path
+      - name: "WHO Prequalification Date"
+        description: "Target year for WHO PQ. Quantitative target."
+        attribute_ref: vaccine.who_prequalification_target
+      - name: "Primary Target Delivery Channel"
+        description: "EPI vs. campaign vs. private market. Specify delivery model."
+        attribute_ref: vaccine.delivery_strategy
+      - name: "COGS"
+        description: "Cost of goods per dose at scale. Quantitative target like 'less than $X per dose.'"
+        attribute_ref: vaccine.cogs
+      - name: "Manufacturing Capacities"
+        description: "Annual production capacity needed. Quantitative target in doses per year."
+        attribute_ref: vaccine.supply_and_manufacturing
+
+  - name: "Additional Variables of Interest"
+    description: "Secondary variables in same min/optimistic/annotations format. Variables not relevant to every TPP."
+    weight: 0.20
+    variables:
+      - name: "Special Populations"
+        description: "Considerations for pregnancy, immunocompromised, elderly, pediatric subgroups."
+        attribute_ref: vaccine.special_populations
+      - name: "Anticipated Safety Profile"
+        description: "Expected adverse events based on platform and prior data. Quantify rates."
+        attribute_ref: vaccine.anticipated_safety_profile
+      - name: "Regimen Compliance Risks"
+        description: "Risks to completing the dosing schedule (drop-off, refrigeration access)."
+        attribute_ref: vaccine.regimen_compliance_risk
+      - name: "Companion Diagnostic"
+        description: "Whether a companion test is needed and what it measures."
+        attribute_ref: vaccine.companion_diagnostic
+      - name: "Target Procurement Price"
+        description: "Price per dose for procurement (Gavi, UNICEF, country governments). Quantitative."
+        attribute_ref: vaccine.procurement_price
+      - name: "Total Per Patient Costs"
+        description: "Full cost including delivery, cold chain, administration. Quantitative."
+        attribute_ref: vaccine.total_per_patient_cost
+      - name: "Clinical Endpoint for Licensure"
+        description: "Primary endpoint required for regulatory approval. Specify the measure and target."
+        attribute_ref: vaccine.clinical_endpoint
+
+  - name: "Change Management"
+    description: "Version history tracking changes between TPP versions. Should record what changed, who made the change, and when."
+    weight: 0.10

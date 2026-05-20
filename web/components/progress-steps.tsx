@@ -1,40 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+export type Step = { key: string; label: string };
+
 type Props = {
-  steps: string[];
-  /** Cycles through steps to indicate progress while the backend is running. */
+  steps: Step[];
   busy: boolean;
-  /** Approximate seconds per step. Visual only — backend has no streaming. */
-  cadenceSec?: number;
+  /** The key of the currently active step (set from a server-sent stage event). */
+  currentStage: string | null;
 };
 
-export function ProgressSteps({ steps, busy, cadenceSec = 8 }: Props) {
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  useEffect(() => {
-    if (!busy) {
-      setActiveIndex(0);
-      return;
-    }
-    const interval = setInterval(() => {
-      setActiveIndex((i) => Math.min(i + 1, steps.length - 1));
-    }, cadenceSec * 1000);
-    return () => clearInterval(interval);
-  }, [busy, cadenceSec, steps.length]);
-
+export function ProgressSteps({ steps, busy, currentStage }: Props) {
   if (!busy) return null;
+
+  const activeIndex = currentStage
+    ? Math.max(
+        0,
+        steps.findIndex((s) => s.key === currentStage),
+      )
+    : 0;
 
   return (
     <ol className="flex flex-col gap-2 rounded-md border border-border bg-secondary/30 p-4">
-      {steps.map((label, idx) => {
+      {steps.map((step, idx) => {
         const isDone = idx < activeIndex;
         const isActive = idx === activeIndex;
         return (
-          <li key={label} className="flex items-center gap-3 text-sm">
+          <li key={step.key} className="flex items-center gap-3 text-sm">
             <span
               className={cn(
                 "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
@@ -57,7 +51,7 @@ export function ProgressSteps({ steps, busy, cadenceSec = 8 }: Props) {
                 isDone && "text-muted-foreground",
               )}
             >
-              {label}
+              {step.label}
             </span>
           </li>
         );

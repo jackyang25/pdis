@@ -6,7 +6,7 @@ display_name: "WHO Vaccine PPC"
 
 # STUB: refine this taxonomy after running the chunker against a real WHO PPC
 # (e.g., the Malaria Vaccines PPC, iris.who.int/.../9789240057463).
-# WHO PPCs differ from BMGF/Gates TPPs: they use "Minimum / Preferred" (not
+# WHO PPCs differ from BMGF TPPs: they use "Minimum / Preferred" (not
 # "Minimum / Optimistic"), often cover multiple use cases per document,
 # and include a substantial clinical development considerations section.
 

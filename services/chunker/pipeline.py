@@ -32,19 +32,24 @@ def run_pipeline(
     org: str | None = None,
     source_type: str | None = None,
     intervention_class: str | None = None,
-    therapeutic_area: str | None = None,
+    indication: str | None = None,
+    progress_callback=None,
 ) -> list[ContentBlock]:
     """Parse a document, then optionally run the mapper to assign section labels.
 
-    Header fields (org / source_type / intervention_class / therapeutic_area)
+    Header fields (org / source_type / intervention_class / indication)
     are stamped onto every returned block. If not provided, the pipeline reads
     them from `config` (chunker configs declare the full header internally).
 
     Raises on parse or mapping failure. For batch use with per-document
     error capture, call `run_pipeline_batch`.
     """
+    if progress_callback:
+        progress_callback("parse")
     blocks = parse_document(file_path, doc_id)
     if config is not None and llm_client is not None:
+        if progress_callback:
+            progress_callback("label")
         blocks = label_blocks(blocks, config, llm_client, max_tokens=max_tokens)
     _stamp_header(
         blocks,
@@ -55,7 +60,7 @@ def run_pipeline(
         intervention_class=intervention_class
         if intervention_class is not None
         else (config.intervention_class if config else None),
-        therapeutic_area=therapeutic_area,
+        indication=indication,
     )
     return blocks
 
@@ -66,13 +71,13 @@ def _stamp_header(
     org: str | None,
     source_type: str | None,
     intervention_class: str | None,
-    therapeutic_area: str | None,
+    indication: str | None,
 ) -> None:
     for block in blocks:
         block.org = org
         block.source_type = source_type
         block.intervention_class = intervention_class
-        block.therapeutic_area = therapeutic_area
+        block.indication = indication
 
 
 def run_pipeline_batch(
@@ -82,7 +87,7 @@ def run_pipeline_batch(
     llm_client_factory=None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
-    therapeutic_area: str | None = None,
+    indication: str | None = None,
 ) -> list[PipelineResult]:
     """Run `run_pipeline` over many documents in parallel, capturing per-doc errors.
 
@@ -109,7 +114,7 @@ def run_pipeline_batch(
                     config=config,
                     llm_client_factory=llm_client_factory,
                     max_tokens=max_tokens,
-                    therapeutic_area=therapeutic_area,
+                    indication=indication,
                 ),
                 jobs,
             )
@@ -123,7 +128,7 @@ def _run_one(
     config: DocumentTypeConfig | None,
     llm_client_factory,
     max_tokens: int,
-    therapeutic_area: str | None = None,
+    indication: str | None = None,
 ) -> PipelineResult:
     result = PipelineResult(file_path=file_path, doc_id=doc_id)
     try:
@@ -146,7 +151,7 @@ def _run_one(
         org=config.org if config else None,
         source_type=config.source_type if config else None,
         intervention_class=config.intervention_class if config else None,
-        therapeutic_area=therapeutic_area,
+        indication=indication,
     )
     return result
 

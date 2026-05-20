@@ -1,0 +1,30 @@
+# Indications — shared vocabulary across services.
+# Keyed by intervention_class. Each entry is the set of valid indication
+# tags for that intervention. Read by:
+#   - the header picker (drives the Indication dropdown)
+#   - Reviewer (filters peer claims by indication)
+# Stamped on every output (block, claim, review result).
+
+vaccine:
+  - malaria
+  - hiv
+  - tb
+  - rsv
+  - influenza
+  - covid19
+  - dengue
+  - cholera
+  - hpv
+
+drug:
+  - malaria
+  - hiv
+  - tb
+
+diagnostic:
+  - malaria
+  - hiv
+  - tb
+
+device:
+  - malaria

@@ -2,7 +2,7 @@
 
 Inputs (header):
     --org / --source-type / --intervention      identifies document type
-    --therapeutic-area                          optional, stamped on every row
+    --indication                          optional, stamped on every row
 
 The chunker config is resolved from (org, source_type, intervention) via the
 shared registry. Every output row (documents.csv, content_blocks.csv,
@@ -25,13 +25,13 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from llm_client import LLMClient  # noqa: E402
+from shared.llm_client import LLMClient  # noqa: E402
 
 from .models import blocks_to_dicts, find_config  # noqa: E402
 from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, run_pipeline_batch  # noqa: E402
 
 
-HEADER_COLUMNS = ["org", "source_type", "intervention_class", "therapeutic_area"]
+HEADER_COLUMNS = ["org", "source_type", "intervention_class", "indication"]
 
 DOCUMENT_COLUMNS = [
     "doc_key",
@@ -61,7 +61,6 @@ BLOCK_COLUMNS = [
     "structural_meta_json",
     "style_hint_json",
     "section_label",
-    "label_confidence",
 ]
 
 
@@ -72,7 +71,7 @@ def export_chunker_package(
     org: str,
     source_type: str,
     intervention_class: str,
-    therapeutic_area: str | None = None,
+    indication: str | None = None,
     map_blocks: bool = False,
     api_key: str | None = None,
     max_workers: int = 4,
@@ -89,7 +88,7 @@ def export_chunker_package(
             raise ValueError("OPENAI_API_KEY is required for --map (or pass --api-key).")
 
     config = find_config(org, source_type, intervention_class)
-    header = _make_header(org, source_type, intervention_class, therapeutic_area)
+    header = _make_header(org, source_type, intervention_class, indication)
 
     output_path.mkdir(parents=True, exist_ok=True)
     doc_files = _input_files(input_path)
@@ -230,13 +229,13 @@ def _slugify(value: str) -> str:
 
 
 def _make_header(
-    org: str, source_type: str, intervention_class: str, therapeutic_area: str | None
+    org: str, source_type: str, intervention_class: str, indication: str | None
 ) -> dict[str, Any]:
     return {
         "org": org,
         "source_type": source_type,
         "intervention_class": intervention_class,
-        "therapeutic_area": therapeutic_area or "",
+        "indication": indication or "",
     }
 
 
@@ -269,7 +268,6 @@ def _block_row(block: dict[str, Any], doc_key: str, header: dict[str, Any]) -> d
         "structural_meta_json": _json_value(block["structural_meta"]),
         "style_hint_json": _json_value(block["style_hint"]),
         "section_label": block["section_label"],
-        "label_confidence": block["label_confidence"],
     }
 
 
@@ -303,7 +301,7 @@ def _write_summary(
         {"metric": "org", "value": header["org"]},
         {"metric": "source_type", "value": header["source_type"]},
         {"metric": "intervention_class", "value": header["intervention_class"]},
-        {"metric": "therapeutic_area", "value": header.get("therapeutic_area", "")},
+        {"metric": "indication", "value": header.get("indication", "")},
         {"metric": "documents_total", "value": len(document_rows)},
         {"metric": "documents_parsed", "value": status_counts["ok"]},
         {"metric": "documents_failed", "value": status_counts["error"]},
@@ -327,10 +325,10 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("input_dir", help="Folder containing .docx / .pdf files")
     parser.add_argument("output_dir", help="Folder where package files are written")
-    parser.add_argument("--org", required=True, help="e.g., gates, who")
+    parser.add_argument("--org", required=True, help="e.g., bmgf, who")
     parser.add_argument("--source-type", required=True, help="e.g., tpp, ppc")
     parser.add_argument("--intervention", required=True, help="e.g., vaccine, drug")
-    parser.add_argument("--therapeutic-area", default=None, help="Optional; stamped on outputs")
+    parser.add_argument("--indication", default=None, help="Optional; stamped on outputs")
     parser.add_argument("--map", action="store_true", dest="map_blocks", help="Run mapper")
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--max-workers", type=int, default=4)
@@ -346,7 +344,7 @@ if __name__ == "__main__":
         org=args.org,
         source_type=args.source_type,
         intervention_class=args.intervention,
-        therapeutic_area=args.therapeutic_area,
+        indication=args.indication,
         map_blocks=args.map_blocks,
         api_key=args.api_key,
         max_workers=args.max_workers,

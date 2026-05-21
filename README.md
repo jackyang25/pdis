@@ -17,7 +17,7 @@ Layered system for developing Target Product Profiles (TPPs) faster and with bet
                        ▼
 ┌─────────────────────────────────────────────────────────┐
 │ services/           Processing services                 │
-│   chunker, benchmarker, reviewer                        │
+│   chunker, benchmarker, reviewer, searcher              │
 └─────────────────────────────────────────────────────────┘
                        │ reads/writes
                        ▼
@@ -25,7 +25,7 @@ Layered system for developing Target Product Profiles (TPPs) faster and with bet
 │ data/               Local claim store (mimics EDP)      │
 └─────────────────────────────────────────────────────────┘
 
-Cross-cutting:  shared/  (llm_client.py, indications.yaml)
+Cross-cutting:  shared/  (openai_client.py, anthropic_client.py, indications.yaml)
 ```
 
 Imports flow one way only: `web/` → `api/` → `services/`. Services never import from `api/` or `web/`. Services import from each other only through `__init__.py` public contracts.
@@ -37,12 +37,13 @@ Imports flow one way only: `web/` → `api/` → `services/`. Services never imp
 | `services/chunker/` | Chunker | Parse documents into ordered, citable `ContentBlock`s; optionally label sections. | — |
 | `services/benchmarker/` | Benchmarker | Documents → source-backed `Claim`s bound to an attribute namespace. Builds the peer corpus. | chunker |
 | `services/reviewer/` | Reviewer | Grade a document against a rubric on three dimensions (completeness, adherence, expertise). | chunker, benchmarker |
+| `services/searcher/` | — (library-only) | Query → source-attributed `Finding`s via Anthropic web search. | shared/anthropic_client |
 
 Each service has its own README with the file map and public contract.
 
-## Required inputs (consistent across all three tools)
+## Required inputs (consistent across document tools)
 
-Every tool requires the same four primitives, picked once in the sidebar:
+Chunker, Benchmarker, and Reviewer require the same four primitives, picked once in the sidebar:
 
 | Field | Purpose |
 |---|---|
@@ -51,7 +52,7 @@ Every tool requires the same four primitives, picked once in the sidebar:
 | `intervention_class` | Product class (vaccine, drug, diagnostic, device) |
 | `indication` | Disease scope (malaria, rsv, …) |
 
-The first three select the config. All four are stamped on every output so downstream tools can filter (e.g., Reviewer pulls peer claims scoped to the same indication).
+The first three select the config. All four are stamped on every document-derived output so downstream tools can filter (e.g., Reviewer pulls peer claims scoped to the same indication). Searcher is query-based and does not use these document headers.
 
 ## Configs
 
@@ -64,18 +65,21 @@ Configs are the only place a human edits domain content. Code stays stable.
 | reviewer | `{org}_{source_type}_{intervention}.yaml` | full triple — rubric per document format |
 
 Add a new (org × source_type × intervention) by dropping YAMLs into the matching `configs/` folders. No code changes.
+Searcher has no configs; add one only when a real consumer needs domain keying.
 
 ## Repository layout
 
 ```
 pdis/
   shared/                cross-cutting (not owned by any service)
-    llm_client.py        LLM client (OpenAI today)
+    openai_client.py     OpenAI client (chunker/benchmarker/reviewer)
+    anthropic_client.py  Anthropic client (searcher)
     indications.yaml     controlled vocabulary of indications per intervention
   services/              processing services
     chunker/             documents → ContentBlocks
     benchmarker/         documents → Claims (peer corpus)
     reviewer/            documents → graded ReviewResult
+    searcher/            queries → Findings
   api/                   FastAPI gateway
     main.py              app
     routes/              per-service routes + configs
@@ -99,6 +103,7 @@ Each service has two modes. Code is the same; trigger and storage differ. Work b
 | chunker | User uploads doc → blocks returned | Cron / event → blocks downstream | `ContentBlock`, configs |
 | benchmarker | User extracts → JSONL in `data/claims/` | Connectors → `upsert_claims` on Delta | `Claim`, `ClaimsStore` Protocol |
 | reviewer | User uploads draft → graded against folder | Same, but corpus lives in Delta | rubric configs, three-dimension grade shape |
+| searcher | Python caller runs query → findings returned | Monitoring service consumes findings | `Finding`, `SearcherLLMClientProtocol` |
 
 `ClaimsStore` is the bridge: today `FileClaimsStore` reads a folder, tomorrow `DeltaClaimsStore` reads a table. Service code doesn't change.
 
@@ -110,6 +115,7 @@ Each service has two modes. Code is the same; trigger and storage differ. Work b
 4. **One claim = one assertion.** Atomicity is what makes downstream filtering real.
 5. **Provenance is required.** Every claim has a `source_id`, `source_locator`, and the header.
 6. **Re-ingestion is a full rewrite per `source_id`.** Services never edit existing records.
+7. **One shared client per provider.** `OpenAIClient` serves chunker/benchmarker/reviewer; `AnthropicClient` serves searcher.
 
 ## Running locally
 

@@ -179,7 +179,7 @@ def review_blocks_batch(
 
     Args:
         jobs: list of (doc_key, blocks) pairs.
-        llm_client_factory: zero-arg callable returning a fresh LLMClient per worker.
+        llm_client_factory: zero-arg callable returning a fresh OpenAIClient per worker.
 
     Returns:
         list[BatchReviewResult] in the same order as `jobs`.
@@ -390,5 +390,4 @@ def _find_variable_spec(
             if variable_spec.name == variable_name:
                 return variable_spec
     return None
-
 

@@ -30,7 +30,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from services.chunker import ContentBlock  # noqa: E402
 from services.benchmarker import FileClaimsStore  # noqa: E402
-from shared.llm_client import LLMClient  # noqa: E402
+from shared.openai_client import OpenAIClient  # noqa: E402
 
 from .models import ReviewConfig, ReviewResult, SectionGrade, find_config  # noqa: E402
 from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, GRADE_TO_SCORE, review_blocks_batch  # noqa: E402
@@ -133,7 +133,7 @@ def export_review_package(
             f"Expected: reviewer/configs/{org}_{src}_{iv}.yaml"
         )
 
-    llm_client = LLMClient(api_key=api_key)
+    llm_client = OpenAIClient(api_key=api_key)
 
     records = _build_document_records(document_rows, block_rows, header)
     if not records:

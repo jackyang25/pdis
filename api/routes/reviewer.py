@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from services.benchmarker import FileClaimsStore
 from services.reviewer import find_config, run_pipeline
 
-from api.deps import get_llm_client
+from api.deps import get_openai_client
 from api.schemas import ReviewerRunResponse, PeerClaimOut, ReviewResultOut
 from api.streaming import run_with_progress
 
@@ -56,7 +56,7 @@ async def run_reviewer(
                 FileClaimsStore(DEFAULT_CLAIMS_DIR) if DEFAULT_CLAIMS_DIR.exists() else None
             )
 
-            llm_client = get_llm_client()
+            llm_client = get_openai_client()
             result = run_pipeline(
                 temp_path,
                 config=config,

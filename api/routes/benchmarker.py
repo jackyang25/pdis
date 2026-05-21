@@ -16,7 +16,7 @@ from services.benchmarker import (
     run_pipeline,
 )
 
-from api.deps import get_llm_client
+from api.deps import get_openai_client
 from api.schemas import ClaimOut, BenchmarkerRunResponse
 from api.streaming import run_with_progress
 
@@ -52,7 +52,7 @@ async def run_benchmarker(
                 temp_file.write(contents)
                 temp_path = temp_file.name
 
-            llm_client = get_llm_client()
+            llm_client = get_openai_client()
             _blocks, claims = run_pipeline(
                 file_path=temp_path,
                 doc_id=doc_id,

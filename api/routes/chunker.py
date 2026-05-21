@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from services.chunker import find_config, run_pipeline
 
-from api.deps import get_llm_client
+from api.deps import get_openai_client
 from api.schemas import ChunkerRunResponse, ContentBlockOut
 from api.streaming import run_with_progress
 
@@ -45,7 +45,7 @@ async def run_chunker(
                 temp_file.write(contents)
                 temp_path = temp_file.name
 
-            llm_client = get_llm_client()
+            llm_client = get_openai_client()
             blocks = run_pipeline(
                 temp_path,
                 doc_id,

@@ -1,8 +1,8 @@
-"""Shared LLM client for all PDIS services.
+"""Shared OpenAI client.
 
-One provider (OpenAI), one model (gpt-5.5). Services depend on the
-`LLMClient` interface, not on the provider. Swapping providers later
-means rewriting this module — the services don't change.
+One provider (OpenAI), one default model (gpt-5.5). Used by
+chunker/benchmarker/reviewer. Searcher uses sibling provider client
+`shared/anthropic_client.py`.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gpt-5.5"
 
 
-class LLMClient:
+class OpenAIClient:
     """Thin OpenAI wrapper exposing one method: `call(system, user, max_tokens)`."""
 
     def __init__(self, api_key: str | None = None, model: str | None = None):

@@ -25,7 +25,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from shared.llm_client import LLMClient  # noqa: E402
+from shared.openai_client import OpenAIClient  # noqa: E402
 
 from .models import Claim, find_config  # noqa: E402
 from .pipeline import (  # noqa: E402
@@ -66,7 +66,7 @@ def main() -> None:
 
     logger.info("Found %d documents under %s", len(doc_paths), input_dir)
 
-    llm_client_factory = lambda: LLMClient(api_key=api_key)
+    llm_client_factory = lambda: OpenAIClient(api_key=api_key)
 
     jobs = [(str(path), default_source_id_from_path(str(path))) for path in doc_paths]
     batch_results = run_pipeline_batch(

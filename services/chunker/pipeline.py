@@ -95,7 +95,7 @@ def run_pipeline_batch(
         jobs: list of (file_path, doc_id) pairs.
         config / llm_client_factory: if either is None, the mapper is skipped.
             `llm_client_factory` is a zero-arg callable returning a fresh
-            LLMClient per worker (avoids sharing a client across threads).
+            OpenAIClient per worker (avoids sharing a client across threads).
         max_tokens: mapper token budget.
         max_workers: parallel worker count.
 
@@ -169,7 +169,7 @@ def map_blocks_batch(
     Args:
         jobs: list of (doc_id, blocks) pairs where blocks are the parser output.
         config: mapper config (single config applied to all jobs).
-        llm_client_factory: zero-arg callable returning a fresh LLMClient per worker.
+        llm_client_factory: zero-arg callable returning a fresh OpenAIClient per worker.
         max_tokens: mapper token budget.
         max_workers: parallel worker count.
 

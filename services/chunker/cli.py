@@ -25,7 +25,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from shared.llm_client import LLMClient  # noqa: E402
+from shared.openai_client import OpenAIClient  # noqa: E402
 
 from .models import blocks_to_dicts, find_config  # noqa: E402
 from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, run_pipeline_batch  # noqa: E402
@@ -105,7 +105,7 @@ def export_chunker_package(
     pipeline_jobs = [(str(job["file_path"]), job["doc_key"]) for job in document_jobs]
 
     def factory():
-        return LLMClient(api_key=api_key)
+        return OpenAIClient(api_key=api_key)
 
     pipeline_results = run_pipeline_batch(
         pipeline_jobs,

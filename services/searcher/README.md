@@ -7,7 +7,7 @@ LLM-driven web search service. Returns atomic, source-attributed `Finding`s.
 | | |
 |---|---|
 | Input | One free-text query + an injected `SearcherLLMClientProtocol` implementation |
-| Output | `list[Finding]` - each finding is a source URL, page title, cited excerpt, original query, and retrieval timestamp |
+| Output | `list[Finding]` - each finding is a source URL, page title, optional cited excerpt, original query, and retrieval timestamp |
 
 Searcher does not use document headers or the four primitives. A query is not a document.
 
@@ -34,7 +34,8 @@ findings: list[Finding] = run_pipeline(
 
 for f in findings:
     print(f.url, "-", f.title)
-    print(f.excerpt[:200])
+    if f.excerpt:
+        print(f.excerpt[:200])
 ```
 
 ## What a `Finding` is
@@ -43,10 +44,17 @@ for f in findings:
 |---|---|---|
 | `url` | str | Source URL |
 | `title` | str | Page title (or URL if title missing) |
-| `excerpt` | str | The cited passage from the source page (not LLM prose) |
 | `query` | str | The original query that produced this finding |
 | `retrieved_at` | datetime | UTC timestamp of the search |
+| `excerpt` | str \| None | Cited passage from the source page when the model quoted it; otherwise `None`. URL still appears in the list either way. |
 | `published_at` | datetime \| None | Only set when reliably known |
+
+**Why excerpt is optional:** searcher returns every URL the web_search
+backend surfaced, not just the ones the model decided to cite. When the
+model quoted a source in its response, we attach that quoted text as
+the excerpt. When it didn't (or didn't write a text response at all),
+the URL still appears with `excerpt=None` - consumers can fetch the page
+themselves if they need content.
 
 ## Architecture
 
@@ -54,8 +62,8 @@ One stage, one shape, one job. Mirrors the layout of other services
 (`chunker`, `benchmarker`, `reviewer`) but intentionally lighter:
 
 - **No `configs/`** - searcher has no natural per-domain keying.
-- **No API route or UI** - first consumer is a Python service (the planned
-  monitoring tool). Add these when a real consumer needs them.
+- **Minimal API route and UI** - exposed as a debug surface for sanity-checking
+  web search results.
 - **No 4-primitive stamping** - those are document-centric; a freeform
   query is not a document.
 

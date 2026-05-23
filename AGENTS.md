@@ -18,7 +18,7 @@ Imports flow one way only: `web → api → services → (shared, data)`. **Neve
 | `services/chunker/` | Chunker | Parses `.docx`/`.pdf` → `list[ContentBlock]`. Optionally labels sections via LLM mapper. | — |
 | `services/benchmarker/` | Benchmarker | Document → `list[Claim]`. Builds the peer corpus stored under `data/claims/`. | chunker |
 | `services/reviewer/` | Reviewer | Document → `ReviewResult` graded across 3 dimensions. | chunker, benchmarker (`FileClaimsStore`) |
-| `services/searcher/` | (none — backend-only) | Query → `list[Finding]`. LLM-driven web search via Anthropic. | shared/anthropic_client |
+| `services/searcher/` | Searcher | Query → `list[Finding]`. LLM-driven web search via Anthropic. | shared/anthropic_client |
 
 ## Cross-cutting (`shared/`)
 
@@ -76,9 +76,9 @@ The `services/benchmarker/stages/appraiser.py` stage is **deleted** — don't re
 
 - Folders use **action names**: `services/chunker/`, `services/benchmarker/`, `services/reviewer/`, `services/searcher/`.
 - Data units stay as their nouns: `Claim`, `ClaimsStore`, `data/claims/`, `ContentBlock`, `Finding`.
-- UI labels: **Chunker**, **Benchmarker**, **Reviewer** (sidebar nav).
-- Web routes: `/chunker`, `/benchmarker`, `/reviewer`. (`/` redirects to `/chunker`.)
-- API routes: `/api/chunker/run`, `/api/benchmarker/run`, `/api/reviewer/run`.
+- UI labels: **Chunker**, **Benchmarker**, **Reviewer**, **Searcher** (sidebar nav).
+- Web routes: `/chunker`, `/benchmarker`, `/reviewer`, `/searcher`. (`/` redirects to `/chunker`.)
+- API routes: `/api/chunker/run`, `/api/benchmarker/run`, `/api/reviewer/run`, `/api/searcher/run`.
 - Acronyms (BMGF, WHO, TPP, PPC, HIV, TB, RSV, HPV, COVID19) display uppercase via `displayLabel()` in `web/components/header-picker.tsx`.
 - The field is `indication` (singular) everywhere — **not** `therapeutic_area` (renamed).
 
@@ -116,9 +116,7 @@ Warm cream palette (`hsl(40 38% 97%)` background, warm-dark text, muted yellow a
 - **`pd_watch` and `pd_gate_assembler`**: planned services, not built. Don't add stubs.
 - **Curation / supersession workflow**: removed all placeholder fields. Don't add back until there's a real curation pipeline.
 - **Golden-set regression tests for prompts**: not built. Prompt edits today are silently breakable.
-- **Searcher API route, UI, and configs**: searcher is library-only today.
-  Add an API route / UI / configs only when a real consumer demands them.
-  Do NOT add 4-primitive stamping to Findings — they aren't documents.
+- **Searcher 4-primitive stamping**: Do NOT add 4-primitive stamping to Findings — they aren't documents.
 
 ## Where things live (file map for quick lookup)
 
@@ -138,6 +136,7 @@ services/searcher/stages/searcher.py  single LLM web-search stage
 services/searcher/models.py      Finding dataclass + protocol
 api/main.py                      FastAPI app + route registration
 api/routes/{chunker,benchmarker,reviewer,configs}.py
+api/routes/searcher.py           POST /api/searcher/run (query -> Findings)
 api/schemas.py                   Pydantic wire models (ClaimOut, ReviewerRunResponse, ...)
 api/streaming.py                 NDJSON streaming helper (background thread + queue)
 web/lib/api.ts                   typed API client (runChunker, runBenchmarker, runReviewer)
@@ -146,5 +145,6 @@ web/lib/session.ts               zustand: per-tool result/busy/stage sessions
 web/components/header-picker.tsx 4-primitive cascading picker
 web/components/sidebar.tsx       static title (non-clickable) + nav + picker
 web/app/{chunker,benchmarker,reviewer}/page.tsx  per-tool views
+web/app/searcher/page.tsx        searcher debug UI (no picker)
 data/claims/                     JSONL claim store (gitignored)
 ```

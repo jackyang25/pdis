@@ -24,7 +24,7 @@ try:
 except ImportError:
     pass
 
-from api.routes import benchmarker, chunker, configs, reviewer
+from api.routes import benchmarker, chunker, configs, reviewer, searcher
 
 app = FastAPI(title="PDIS API", version="0.1.0")
 
@@ -40,6 +40,7 @@ app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
 app.include_router(chunker.router, prefix="/api/chunker", tags=["chunker"])
 app.include_router(benchmarker.router, prefix="/api/benchmarker", tags=["benchmarker"])
 app.include_router(reviewer.router, prefix="/api/reviewer", tags=["reviewer"])
+app.include_router(searcher.router, prefix="/api/searcher", tags=["searcher"])
 
 
 @app.get("/api/health")

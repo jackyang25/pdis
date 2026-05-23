@@ -44,19 +44,48 @@ def _parse_response_to_findings(
     query: str,
     retrieved_at: datetime,
 ) -> list[Finding]:
-    """Extract Findings from an Anthropic Messages API response.
+    """Extract Findings from an Anthropic Messages API response (hybrid).
 
-    Walks `response.content` for text blocks, then iterates each text
-    block's `citations` list for `web_search_result_location` citations.
-    Each unique cited URL becomes one Finding. Dedup by URL, keep the
-    first (typically most relevant) cited_text.
+    Two passes:
 
-    The Anthropic SDK exposes citations as either object attributes or
-    dict keys depending on version - use defensive `_get` access.
+    1. Walk `response.content` for `web_search_tool_result` blocks.
+       Each inner `web_search_result` (url + title) becomes one Finding
+       with `excerpt=None`. This is the raw search hit list.
+
+    2. Walk text blocks' `citations` for `web_search_result_location`
+       items. If a citation's url matches a Finding from pass 1, fill
+       in that Finding's `excerpt` with the citation's `cited_text`.
+
+    Net effect: Findings reflect what the search returned (not what the
+    model chose to mention), but get useful excerpts when available.
+
+    Dedup by URL across both passes - first occurrence wins.
     """
     content_blocks = _get(response, "content", default=[]) or []
     findings_by_url: dict[str, Finding] = {}
 
+    # Pass 1: raw search hits
+    for block in content_blocks:
+        if _get(block, "type") != "web_search_tool_result":
+            continue
+        results = _get(block, "content", default=[]) or []
+        for result in results:
+            if _get(result, "type") != "web_search_result":
+                continue
+            url = _get(result, "url", default="") or ""
+            if not url or url in findings_by_url:
+                continue
+            title = _get(result, "title", default="") or url
+            findings_by_url[url] = Finding(
+                url=url,
+                title=title,
+                query=query,
+                retrieved_at=retrieved_at,
+                excerpt=None,
+                published_at=None,
+            )
+
+    # Pass 2: overlay cited excerpts where the model attributed text to a source
     for block in content_blocks:
         if _get(block, "type") != "text":
             continue
@@ -65,27 +94,34 @@ def _parse_response_to_findings(
             if _get(cite, "type") != "web_search_result_location":
                 continue
             url = _get(cite, "url", default="") or ""
-            if not url or url in findings_by_url:
+            if not url:
                 continue
-            title = _get(cite, "title", default="") or url
             cited_text = _get(cite, "cited_text", default="") or ""
-            excerpt = cited_text.strip()
-            if not excerpt:
+            cited_text = cited_text.strip()
+            if not cited_text:
                 continue
-            findings_by_url[url] = Finding(
-                url=url,
-                title=title,
-                excerpt=excerpt,
-                query=query,
-                retrieved_at=retrieved_at,
-                published_at=None,
-            )
+            finding = findings_by_url.get(url)
+            if finding is None:
+                # The model cited a URL that didn't appear in tool_result blocks
+                # (rare - usually means the SDK didn't expose the tool_result).
+                # Create a Finding for it anyway so we don't lose information.
+                title = _get(cite, "title", default="") or url
+                findings_by_url[url] = Finding(
+                    url=url,
+                    title=title,
+                    query=query,
+                    retrieved_at=retrieved_at,
+                    excerpt=cited_text,
+                    published_at=None,
+                )
+            elif finding.excerpt is None:
+                finding.excerpt = cited_text
 
     if not findings_by_url:
         logger.warning(
-            "Web search returned no citations. The model may not have "
-            "invoked the web_search tool, or the response shape has changed. "
-            "Inspect `response.content` to diagnose."
+            "Web search returned no results. The model may not have invoked "
+            "the web_search tool, or the response shape has changed. Inspect "
+            "`response.content` to diagnose (try running probe_search.py)."
         )
     return list(findings_by_url.values())
 

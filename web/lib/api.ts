@@ -107,6 +107,20 @@ export type ReviewerResponse = {
   peer_claims: PeerClaim[];
 };
 
+export type Finding = {
+  url: string;
+  title: string;
+  query: string;
+  retrieved_at: string;
+  excerpt: string | null;
+  published_at: string | null;
+};
+
+export type SearcherResponse = {
+  query: string;
+  findings: Finding[];
+};
+
 export type StageEvent = { event: "stage"; name: string };
 export type CompleteEvent<T> = { event: "complete"; result: T };
 export type ErrorEvent = { event: "error"; detail: string };
@@ -218,4 +232,13 @@ export async function runReviewer(
   form.append("file", file);
   appendHeader(form, header);
   return streamRequest("/api/reviewer/run", form, onStage);
+}
+
+export async function runSearcher(
+  query: string,
+  onStage?: (stage: string) => void,
+): Promise<SearcherResponse> {
+  const form = new FormData();
+  form.append("query", query);
+  return streamRequest("/api/searcher/run", form, onStage);
 }

@@ -44,6 +44,20 @@ class ChunkerRunResponse(BaseModel):
     blocks: list[ContentBlockOut]
 
 
+class FindingOut(BaseModel):
+    url: str
+    title: str
+    query: str
+    retrieved_at: str
+    excerpt: str | None = None
+    published_at: str | None = None
+
+
+class SearcherRunResponse(BaseModel):
+    query: str
+    findings: list[FindingOut]
+
+
 class ClaimOut(BaseModel):
     """Mirrors the Claim dataclass — downloads must roundtrip back into FileClaimsStore."""
 

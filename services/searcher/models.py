@@ -15,17 +15,17 @@ from typing import Any, Protocol
 class Finding:
     """One atomic, source-attributed result from a web search.
 
-    Stays intentionally primitive. No synthesis, no relevance scores,
-    no provenance fields beyond what's needed to cite and date the
-    source. Consumers (e.g. a monitoring tool) layer their own
-    reasoning on top.
+    Stays intentionally primitive. No synthesis, no relevance scores.
+    `excerpt` is filled when the model cited the URL in its response;
+    otherwise None (the URL still appears in the list because the
+    search returned it).
     """
 
     url: str
     title: str
-    excerpt: str
     query: str
     retrieved_at: datetime
+    excerpt: str | None = None
     published_at: datetime | None = None
 
 

@@ -33,7 +33,7 @@ class SearcherLLMClientProtocol(Protocol):
     """Contract searcher requires from any injected LLM client.
 
     Library code depends only on this Protocol - the concrete client
-    (AnthropicClient, a mock, anything) is passed in by the caller.
+    (OpenAIClient, a mock, anything) is passed in by the caller.
     """
 
     def search_web(self, query: str, *, max_tokens: int, max_uses: int) -> Any:

@@ -1,4 +1,4 @@
-"""Searcher - LLM-driven web search service.
+"""Searcher - OpenAI web-search service.
 
 Public contract: consumers import from this package root only.
 Internals (`stages/`, helpers) are not part of the contract.

@@ -17,7 +17,7 @@ Layered system for developing Target Product Profiles (TPPs) faster and with bet
                        ▼
 ┌─────────────────────────────────────────────────────────┐
 │ services/           Processing services                 │
-│   chunker, benchmarker, reviewer, searcher              │
+│   chunker, benchmarker, reviewer, searcher, monitor     │
 └─────────────────────────────────────────────────────────┘
                        │ reads/writes
                        ▼
@@ -25,7 +25,7 @@ Layered system for developing Target Product Profiles (TPPs) faster and with bet
 │ data/               Local claim store (mimics EDP)      │
 └─────────────────────────────────────────────────────────┘
 
-Cross-cutting:  shared/  (openai_client.py, anthropic_client.py, indications.yaml)
+Cross-cutting:  shared/  (openai_client.py, indications.yaml)
 ```
 
 Imports flow one way only: `web/` → `api/` → `services/`. Services never import from `api/` or `web/`. Services import from each other only through `__init__.py` public contracts.
@@ -37,7 +37,8 @@ Imports flow one way only: `web/` → `api/` → `services/`. Services never imp
 | `services/chunker/` | Chunker | Parse documents into ordered, citable `ContentBlock`s; optionally label sections. | — |
 | `services/benchmarker/` | Benchmarker | Documents → source-backed `Claim`s bound to an attribute namespace. Builds the peer corpus. | chunker |
 | `services/reviewer/` | Reviewer | Grade a document against a rubric on three dimensions (completeness, adherence, expertise). | chunker, benchmarker |
-| `services/searcher/` | — (library-only) | Query → source-attributed `Finding`s via Anthropic web search. | shared/anthropic_client |
+| `services/searcher/` | Searcher | Query → source-attributed `Finding`s via OpenAI web search. | shared/openai_client |
+| `services/monitor/` | Monitor | Files + 4 primitives → `Insight`s by combining chunker + searcher. | chunker, searcher |
 
 Each service has its own README with the file map and public contract.
 
@@ -72,14 +73,14 @@ Searcher has no configs; add one only when a real consumer needs domain keying.
 ```
 pdis/
   shared/                cross-cutting (not owned by any service)
-    openai_client.py     OpenAI client (chunker/benchmarker/reviewer)
-    anthropic_client.py  Anthropic client (searcher)
+    openai_client.py     OpenAI client (all services, including web search)
     indications.yaml     controlled vocabulary of indications per intervention
   services/              processing services
     chunker/             documents → ContentBlocks
     benchmarker/         documents → Claims (peer corpus)
     reviewer/            documents → graded ReviewResult
     searcher/            queries → Findings
+    monitor/             documents + web search → Insights
   api/                   FastAPI gateway
     main.py              app
     routes/              per-service routes + configs
@@ -87,7 +88,7 @@ pdis/
     deps.py              LLM client from env
     streaming.py         NDJSON streaming helper
   web/                   Next.js frontend
-    app/                 routes: /chunker, /benchmarker, /reviewer
+    app/                 routes: /chunker, /benchmarker, /reviewer, /searcher, /monitor
     components/          UI primitives + tool panels
     lib/                 API client + header store
   data/                  local claim store (gitignored); mimics EDP
@@ -104,6 +105,7 @@ Each service has two modes. Code is the same; trigger and storage differ. Work b
 | benchmarker | User extracts → JSONL in `data/claims/` | Connectors → `upsert_claims` on Delta | `Claim`, `ClaimsStore` Protocol |
 | reviewer | User uploads draft → graded against folder | Same, but corpus lives in Delta | rubric configs, three-dimension grade shape |
 | searcher | Python caller runs query → findings returned | Monitoring service consumes findings | `Finding`, `SearcherLLMClientProtocol` |
+| monitor | User uploads docs → insights returned | Scheduled monitoring workflow | `Insight`, configs |
 
 `ClaimsStore` is the bridge: today `FileClaimsStore` reads a folder, tomorrow `DeltaClaimsStore` reads a table. Service code doesn't change.
 
@@ -115,7 +117,7 @@ Each service has two modes. Code is the same; trigger and storage differ. Work b
 4. **One claim = one assertion.** Atomicity is what makes downstream filtering real.
 5. **Provenance is required.** Every claim has a `source_id`, `source_locator`, and the header.
 6. **Re-ingestion is a full rewrite per `source_id`.** Services never edit existing records.
-7. **One shared client per provider.** `OpenAIClient` serves chunker/benchmarker/reviewer; `AnthropicClient` serves searcher.
+7. **Single provider.** All services share `shared/openai_client.py`. Anthropic support was removed; do not add it back without an explicit design discussion.
 
 ## Running locally
 

@@ -121,6 +121,24 @@ export type SearcherResponse = {
   findings: Finding[];
 };
 
+export type Insight = {
+  statement: string;
+  query: string;
+  supporting_findings: Finding[];
+  org: string | null;
+  source_type: string | null;
+  intervention_class: string | null;
+  indication: string | null;
+};
+
+export type MonitorResponse = {
+  org: string;
+  source_type: string;
+  intervention_class: string;
+  indication: string;
+  insights: Insight[];
+};
+
 export type StageEvent = { event: "stage"; name: string };
 export type CompleteEvent<T> = { event: "complete"; result: T };
 export type ErrorEvent = { event: "error"; detail: string };
@@ -241,4 +259,17 @@ export async function runSearcher(
   const form = new FormData();
   form.append("query", query);
   return streamRequest("/api/searcher/run", form, onStage);
+}
+
+export async function runMonitor(
+  files: File[],
+  header: Header,
+  onStage?: (stage: string) => void,
+): Promise<MonitorResponse> {
+  const form = new FormData();
+  for (const file of files) {
+    form.append("files", file);
+  }
+  appendHeader(form, header);
+  return streamRequest("/api/monitor/run", form, onStage);
 }

@@ -1,1 +1,1 @@
-anthropic>=0.40.0
+# No service-specific deps; uses shared/openai_client (openai>=1.0.0 from shared infra)

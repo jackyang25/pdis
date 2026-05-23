@@ -11,19 +11,19 @@ web/ (Next.js + shadcn/ui)  →  api/ (FastAPI)  →  services/  →  data/
 
 Imports flow one way only: `web → api → services → (shared, data)`. **Never** the reverse. Cross-service imports must go through `__init__.py` public contracts — no reaching into `stages/`, `models.py`, or other internals from another service.
 
-## Four services
+## Five services
 
 | Folder | UI label | What it does | Depends on |
 |---|---|---|---|
 | `services/chunker/` | Chunker | Parses `.docx`/`.pdf` → `list[ContentBlock]`. Optionally labels sections via LLM mapper. | — |
 | `services/benchmarker/` | Benchmarker | Document → `list[Claim]`. Builds the peer corpus stored under `data/claims/`. | chunker |
 | `services/reviewer/` | Reviewer | Document → `ReviewResult` graded across 3 dimensions. | chunker, benchmarker (`FileClaimsStore`) |
-| `services/searcher/` | Searcher | Query → `list[Finding]`. LLM-driven web search via Anthropic. | shared/anthropic_client |
+| `services/searcher/` | Searcher | Query → `list[Finding]`. LLM-driven web search via OpenAI. | shared/openai_client |
+| `services/monitor/` | Monitor | Files + 4 primitives → `list[Insight]`. Reuses chunker + searcher. | chunker, searcher |
 
 ## Cross-cutting (`shared/`)
 
-- `shared/openai_client.py` — OpenAI client (gpt-5.5). Used by **chunker, benchmarker, reviewer**.
-- `shared/anthropic_client.py` — Anthropic client (claude-sonnet-4-6). Used by **searcher** only (native `web_search` tool).
+- `shared/openai_client.py` — OpenAI client (gpt-5.5), including `search_web()`. Used by **all services**.
 - `shared/indications.yaml` — controlled vocabulary of indications per intervention class. Read by `/api/configs/indications` and stamped on every document-derived output. **Indications are NOT owned by any service config.**
 
 ## The 4 primitives (required for every document tool run)
@@ -46,6 +46,7 @@ Picker is 4 cascading dropdowns; each shows a per-tool role label ("selects conf
 | chunker | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` raises `LookupError` |
 | benchmarker | `{intervention}.yaml` | `find_config(intervention)` raises `LookupError` |
 | reviewer | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` returns `None` |
+| monitor | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` raises `LookupError` |
 
 Configs declare their own `org`/`source_type`/`intervention_class` as data inside the YAML — the picker reads YAML contents, not filename parts. The vocabulary of valid (org, source_type, intervention) triples emerges from the union of chunker configs.
 
@@ -74,11 +75,11 @@ The `services/benchmarker/stages/appraiser.py` stage is **deleted** — don't re
 
 ## Naming conventions
 
-- Folders use **action names**: `services/chunker/`, `services/benchmarker/`, `services/reviewer/`, `services/searcher/`.
-- Data units stay as their nouns: `Claim`, `ClaimsStore`, `data/claims/`, `ContentBlock`, `Finding`.
-- UI labels: **Chunker**, **Benchmarker**, **Reviewer**, **Searcher** (sidebar nav).
-- Web routes: `/chunker`, `/benchmarker`, `/reviewer`, `/searcher`. (`/` redirects to `/chunker`.)
-- API routes: `/api/chunker/run`, `/api/benchmarker/run`, `/api/reviewer/run`, `/api/searcher/run`.
+- Folders use **action names**: `services/chunker/`, `services/benchmarker/`, `services/reviewer/`, `services/searcher/`, `services/monitor/`.
+- Data units stay as their nouns: `Claim`, `ClaimsStore`, `data/claims/`, `ContentBlock`, `Finding`, `Insight`.
+- UI labels: **Chunker**, **Benchmarker**, **Reviewer**, **Searcher**, **Monitor** (sidebar nav).
+- Web routes: `/chunker`, `/benchmarker`, `/reviewer`, `/searcher`, `/monitor`. (`/` redirects to `/chunker`.)
+- API routes: `/api/chunker/run`, `/api/benchmarker/run`, `/api/reviewer/run`, `/api/searcher/run`, `/api/monitor/run`.
 - Acronyms (BMGF, WHO, TPP, PPC, HIV, TB, RSV, HPV, COVID19) display uppercase via `displayLabel()` in `web/components/header-picker.tsx`.
 - The field is `indication` (singular) everywhere — **not** `therapeutic_area` (renamed).
 
@@ -89,7 +90,7 @@ The `services/benchmarker/stages/appraiser.py` stage is **deleted** — don't re
 3. **No cross-service internals.** Reach only through `__init__.py`.
 4. **Code = infrastructure, config = domain content.** Prompts live in `stages/*.py` (versioned via `prompt_hash` on claims). Domain rubric content lives in YAML.
 5. **No speculative fields or stages.** If a feature isn't wired end-to-end, it doesn't get a placeholder slot. Wait for the actual use case.
-6. **One client per provider, in `shared/`.** chunker/benchmarker/reviewer use `shared/openai_client.py` (OpenAI). searcher uses `shared/anthropic_client.py` (Anthropic). Don't add a third provider without a design discussion. Don't switch a service to a different provider without one either.
+6. **Single provider (OpenAI).** All services share `shared/openai_client.py`. Anthropic support was removed; do not add it back without an explicit design discussion.
 
 ## API contract
 
@@ -117,12 +118,14 @@ Warm cream palette (`hsl(40 38% 97%)` background, warm-dark text, muted yellow a
 - **Curation / supersession workflow**: removed all placeholder fields. Don't add back until there's a real curation pipeline.
 - **Golden-set regression tests for prompts**: not built. Prompt edits today are silently breakable.
 - **Searcher 4-primitive stamping**: Do NOT add 4-primitive stamping to Findings — they aren't documents.
+- **Monitor v1 with benchmarker integration**: v0 produces Insights from
+  web findings only. Comparing Insights against doc Claims (and emitting
+  `Match` records) is the v1 layer — deferred.
 
 ## Where things live (file map for quick lookup)
 
 ```
-shared/openai_client.py          OpenAI client (chunker/benchmarker/reviewer)
-shared/anthropic_client.py       Anthropic client (searcher) — native web_search
+shared/openai_client.py          OpenAI client (all services, including web_search)
 shared/indications.yaml          indication vocabulary per intervention
 services/chunker/pipeline.py     run_pipeline (parse + optional label)
 services/chunker/stages/         parser_docx, parser_pdf, mapper
@@ -134,9 +137,14 @@ services/reviewer/stages/grader.py  3-dimension parallel grader
 services/searcher/pipeline.py    run_pipeline (query -> Findings)
 services/searcher/stages/searcher.py  single LLM web-search stage
 services/searcher/models.py      Finding dataclass + protocol
+services/monitor/pipeline.py     run_pipeline (files + primitives -> Insights)
+services/monitor/stages/query_extractor.py    LLM: docs -> search queries
+services/monitor/stages/insight_extractor.py  LLM: findings -> Insights
+services/monitor/models.py       Insight dataclass + config
 api/main.py                      FastAPI app + route registration
 api/routes/{chunker,benchmarker,reviewer,configs}.py
 api/routes/searcher.py           POST /api/searcher/run (query -> Findings)
+api/routes/monitor.py            POST /api/monitor/run (files + primitives -> Insights)
 api/schemas.py                   Pydantic wire models (ClaimOut, ReviewerRunResponse, ...)
 api/streaming.py                 NDJSON streaming helper (background thread + queue)
 web/lib/api.ts                   typed API client (runChunker, runBenchmarker, runReviewer)
@@ -146,5 +154,6 @@ web/components/header-picker.tsx 4-primitive cascading picker
 web/components/sidebar.tsx       static title (non-clickable) + nav + picker
 web/app/{chunker,benchmarker,reviewer}/page.tsx  per-tool views
 web/app/searcher/page.tsx        searcher debug UI (no picker)
+web/app/monitor/page.tsx         monitor UI (picker + multi-file upload + insight list)
 data/claims/                     JSONL claim store (gitignored)
 ```

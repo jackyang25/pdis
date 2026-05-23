@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Boxes, FileSearch, HeartHandshake, Layers3, Search } from "lucide-react";
+import {
+  Activity,
+  Boxes,
+  FileSearch,
+  HeartHandshake,
+  Layers3,
+  Search,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HeaderPicker } from "./header-picker";
 import { Separator } from "./ui/separator";
@@ -12,6 +19,7 @@ const NAV = [
   { href: "/benchmarker", label: "Benchmarker", description: "Extract peer claims", icon: FileSearch },
   { href: "/reviewer", label: "Reviewer", description: "Grade documents", icon: Layers3 },
   { href: "/searcher", label: "Searcher", description: "Find web evidence", icon: Search },
+  { href: "/monitor", label: "Monitor", description: "Track web updates", icon: Activity },
 ];
 
 export function Sidebar() {

@@ -1,0 +1,16 @@
+type_key: example_template
+org: bmgf
+source_type: tpp
+intervention_class: vaccine
+display_name: "Example Template"
+
+# Domain-specific guidance for the query extractor. Tell the LLM what
+# kinds of things matter to watch for in this product class.
+query_extraction_guidance: |
+  Generate web search queries that surface up-to-date information about
+  the product profile. Focus on: regulatory developments, clinical
+  trial readouts, competitive products, and authoritative scientific
+  publications. Each query should be specific enough to return targeted
+  results - avoid generic queries.
+
+num_queries: 5

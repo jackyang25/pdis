@@ -1,8 +1,7 @@
 """Shared OpenAI client.
 
-One provider (OpenAI), one default model (gpt-5.5). Used by
-chunker/benchmarker/reviewer. Searcher uses sibling provider client
-`shared/anthropic_client.py`.
+One provider (OpenAI), one default model (gpt-5.5). Used by all
+services for text generation and web search.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ DEFAULT_MODEL = "gpt-5.5"
 
 
 class OpenAIClient:
-    """Thin OpenAI wrapper exposing one method: `call(system, user, max_tokens)`."""
+    """Thin OpenAI wrapper exposing text generation and web search."""
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
         from openai import OpenAI  # type: ignore[reportMissingImports]
@@ -38,6 +37,39 @@ class OpenAIClient:
             ],
         )
         return _response_text(response)
+
+    def search_web(
+        self,
+        query: str,
+        *,
+        max_tokens: int = 4000,
+        max_uses: int = 5,
+    ) -> Any:
+        """Run an LLM-driven web search via OpenAI's Responses API.
+
+        Uses the built-in `web_search` tool. Returns the raw Responses API
+        response object; callers extract URLs and cited text from the
+        output's annotations.
+
+        `max_uses` is accepted for protocol compatibility. The current OpenAI
+        SDK does not expose a per-tool max_uses setting for this call.
+        """
+        from openai import BadRequestError  # type: ignore[reportMissingImports]
+
+        try:
+            return self.client.responses.create(
+                model=self.model,
+                input=query,
+                tools=[{"type": "web_search"}],
+                max_output_tokens=max_tokens,
+            )
+        except BadRequestError:
+            return self.client.responses.create(
+                model=self.model,
+                input=query,
+                tools=[{"type": "web_search_preview"}],
+                max_output_tokens=max_tokens,
+            )
 
 
 def _response_text(response: Any) -> str:

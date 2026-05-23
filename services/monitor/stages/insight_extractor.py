@@ -1,0 +1,121 @@
+"""Stage 2: extract atomic Insights from web Findings.
+
+Given a flat list of Findings (collected across all queries), the LLM
+extracts atomic factual statements, each tied to one or more supporting
+Findings by URL. We then re-attach the full Finding objects.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+
+from services.searcher import Finding
+
+from ..models import Insight, OpenAIClientProtocol
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_MAX_TOKENS = 12000
+
+
+def extract_insights(
+    findings: list[Finding],
+    llm_client: OpenAIClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> list[Insight]:
+    """Return Insights extracted from the supplied Findings."""
+    if not findings:
+        return []
+
+    system_prompt = _system_prompt(indication=indication, intervention_class=intervention_class)
+    user_message = _user_message(findings)
+
+    raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+    parsed = _parse_insights(raw)
+    if not parsed:
+        logger.warning("insight_extractor produced no parsable insights; retrying once")
+        raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+        parsed = _parse_insights(raw)
+
+    findings_by_url = {f.url: f for f in findings}
+    insights: list[Insight] = []
+    for item in parsed:
+        statement = item.get("statement", "").strip()
+        urls = item.get("supporting_finding_urls", []) or []
+        supporting = [findings_by_url[u] for u in urls if u in findings_by_url]
+        if not statement or not supporting:
+            continue
+        # Use the query of the first supporting finding (best available attribution)
+        query = supporting[0].query
+        insights.append(
+            Insight(
+                statement=statement,
+                supporting_findings=supporting,
+                query=query,
+            )
+        )
+    return insights
+
+
+def _system_prompt(*, indication: str, intervention_class: str) -> str:
+    return (
+        f"You extract atomic factual insights from web search findings about "
+        f"a {intervention_class} for {indication}.\n\n"
+        "Rules:\n"
+        "- Each Insight is ONE atomic factual statement (one fact, not a paragraph).\n"
+        "- Every Insight must cite at least one supporting Finding by its URL.\n"
+        "- Prefer recent, source-attributable facts (regulatory actions, trial readouts, "
+        "approvals, safety signals). Skip opinion and marketing language.\n"
+        "- Do not invent facts not present in the findings.\n\n"
+        "Return ONLY JSON. No markdown, no preamble. Format:\n"
+        "[\n"
+        '  {"statement": "...", "supporting_finding_urls": ["https://...", "https://..."]},\n'
+        "  ...\n"
+        "]"
+    )
+
+
+def _user_message(findings: list[Finding]) -> str:
+    lines = ["Findings:"]
+    for f in findings:
+        lines.append(f"\n--- {f.url} ---")
+        lines.append(f"title: {f.title}")
+        if f.excerpt:
+            lines.append(f"excerpt: {f.excerpt}")
+    lines.append("\nExtract insights now.")
+    return "\n".join(lines)
+
+
+def _parse_insights(raw: str) -> list[dict]:
+    text = _strip_fences(raw).strip()
+    try:
+        parsed = json.loads(_extract_json_array(text))
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [p for p in parsed if isinstance(p, dict)]
+
+
+def _strip_fences(s: str) -> str:
+    m = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", s, re.DOTALL)
+    return m.group(1) if m else s
+
+
+def _extract_json_array(s: str) -> str:
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(s):
+        if ch != "[":
+            continue
+        try:
+            parsed, end = decoder.raw_decode(s[i:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, list):
+            return s[i : i + end]
+    return s

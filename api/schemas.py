@@ -58,6 +58,24 @@ class SearcherRunResponse(BaseModel):
     findings: list[FindingOut]
 
 
+class InsightOut(BaseModel):
+    statement: str
+    query: str
+    supporting_findings: list[FindingOut]
+    org: str | None = None
+    source_type: str | None = None
+    intervention_class: str | None = None
+    indication: str | None = None
+
+
+class MonitorRunResponse(BaseModel):
+    org: str
+    source_type: str
+    intervention_class: str
+    indication: str
+    insights: list[InsightOut]
+
+
 class ClaimOut(BaseModel):
     """Mirrors the Claim dataclass — downloads must roundtrip back into FileClaimsStore."""
 

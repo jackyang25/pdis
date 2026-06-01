@@ -26,9 +26,9 @@ import {
 import { useReviewerSession } from "@/lib/session";
 
 const PD_REVIEWER_STEPS = [
-  { key: "parse", label: "Parse document" },
-  { key: "label", label: "Label sections" },
-  { key: "grade", label: "Grade sections" },
+  { key: "parse", label: "Parsing document" },
+  { key: "label", label: "Labeling sections" },
+  { key: "grade", label: "Grading sections" },
 ];
 
 export default function ReviewerPage() {

@@ -1,10 +1,11 @@
 """Stateless monitor pipeline.
 
-Orchestrates: chunker (parse docs) -> query_extractor (LLM) -> searcher
-(web) -> insight_extractor (LLM). Reuses chunker and searcher via their
-public contracts only.
+Orchestrates: chunker (parse + section label) -> per-section query_extractor
+(LLM) -> searcher (web) -> per-section insight_extractor (LLM) ->
+drift_classifier (LLM). Reuses chunker and searcher via their public
+contracts only.
 
-v0 does NOT use benchmarker; doc claims comparison is deferred to v1.
+v0 does NOT use benchmarker; claim-level comparison is deferred to v1.
 """
 
 from __future__ import annotations
@@ -12,19 +13,26 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from services.chunker import run_pipeline as chunker_run
+from services.chunker import (
+    ContentBlock,
+    find_config as chunker_find_config,
+    run_pipeline as chunker_run,
+)
 from services.searcher import Finding, run_pipeline as searcher_run
 
 from .models import (
     Insight,
+    Match,
     MonitorTypeConfig,
     OpenAIClientProtocol,
     SearchClientProtocol,
 )
+from .stages.drift_classifier import classify_drift
 from .stages.insight_extractor import extract_insights
-from .stages.query_extractor import extract_queries
+from .stages.query_extractor import extract_queries_for_section
 
-MAX_PER_DOC_CHARS = 4000
+MAX_FINDINGS_FOR_EXTRACTION_PER_SECTION = 20
+SECTIONS_TO_SKIP = {"Document Metadata", "Other", None, ""}
 
 
 def run_pipeline(
@@ -38,85 +46,189 @@ def run_pipeline(
     intervention_class: str,
     indication: str,
     progress_callback=None,
-) -> list[Insight]:
-    """Run the full monitor pipeline. Stateless.
+) -> list[Match]:
+    """Per-section monitor pipeline.
 
-    Args:
-        file_paths: uploaded document paths.
-        config: monitor's domain config (per 4-primitive triple).
-        openai_client: used by query_extractor + insight_extractor.
-        search_client: used by searcher.
-        org/source_type/intervention_class/indication: stamped onto every Insight.
-
-    Returns:
-        list[Insight] - empty if no queries or no findings produced.
+    Section-labels each uploaded doc, generates queries per section,
+    searches the web in parallel, extracts Insights per section (tagged
+    with section_label), and classifies drift against the doc.
     """
     if progress_callback:
         progress_callback("parse")
-    doc_excerpts = [_parse_doc_excerpt(p) for p in file_paths]
+    blocks = _parse_all_docs(
+        file_paths,
+        org=org,
+        source_type=source_type,
+        intervention_class=intervention_class,
+        indication=indication,
+        openai_client=openai_client,
+    )
+
+    sections = _group_by_section(blocks)
+    if not sections:
+        return []
 
     if progress_callback:
         progress_callback("queries")
-    queries = extract_queries(
-        doc_excerpts, config, openai_client, indication=indication,
+    section_queries = _extract_queries_all_sections(
+        sections, config, openai_client, indication=indication
     )
-    if not queries:
+    flat: list[tuple[str, str]] = [
+        (label, query) for label, queries in section_queries.items() for query in queries
+    ]
+    if not flat:
         return []
 
     if progress_callback:
         progress_callback("search")
-    findings = _search_all(queries, search_client)
-    if not findings:
+    findings_by_query = _search_all(flat, search_client)
+    if not findings_by_query:
         return []
+
+    findings_by_section: dict[str, list[Finding]] = {}
+    for (label, _query), findings in findings_by_query.items():
+        findings_by_section.setdefault(label, [])
+        for finding in findings:
+            if not any(existing.url == finding.url for existing in findings_by_section[label]):
+                findings_by_section[label].append(finding)
 
     if progress_callback:
         progress_callback("insights")
-    insights = extract_insights(
-        findings,
+    insights: list[Insight] = []
+    for label, section_findings in findings_by_section.items():
+        capped = section_findings[:MAX_FINDINGS_FOR_EXTRACTION_PER_SECTION]
+        section_insights = extract_insights(
+            capped,
+            openai_client,
+            indication=indication,
+            intervention_class=intervention_class,
+            section_label=label,
+        )
+        insights.extend(section_insights)
+
+    _stamp(
+        insights,
+        org=org,
+        source_type=source_type,
+        intervention_class=intervention_class,
+        indication=indication,
+    )
+
+    if progress_callback:
+        progress_callback("classify")
+    doc_excerpts = _doc_excerpts_for_classifier(sections)
+    matches = classify_drift(
+        doc_excerpts,
+        insights,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
     )
-
-    _stamp(insights, org=org, source_type=source_type,
-           intervention_class=intervention_class, indication=indication)
-    return insights
+    return matches
 
 
-def _parse_doc_excerpt(file_path: str) -> str:
-    """Parse a doc via chunker (no mapper) and return concatenated content."""
-    doc_id = Path(file_path).stem
-    blocks = chunker_run(file_path, doc_id)  # no config/llm_client -> skips mapper
-    text = "\n".join(b.content for b in blocks if getattr(b, "content", ""))
-    if len(text) > MAX_PER_DOC_CHARS:
-        text = text[:MAX_PER_DOC_CHARS] + "\n...[truncated]"
-    return f"FILE: {doc_id}\n{text}"
+def _parse_all_docs(
+    file_paths: list[str],
+    *,
+    org: str,
+    source_type: str,
+    intervention_class: str,
+    indication: str,
+    openai_client: OpenAIClientProtocol,
+) -> list[ContentBlock]:
+    """Parse + label each doc via chunker (with config to enable the mapper)."""
+    try:
+        chunker_config = chunker_find_config(org, source_type, intervention_class)
+    except LookupError as exc:
+        raise LookupError(
+            f"Chunker config missing for ({org}, {source_type}, {intervention_class}). "
+            f"Monitor needs section labeling to scope queries per variable. "
+            f"Original error: {exc}"
+        )
+
+    blocks: list[ContentBlock] = []
+    for file_path in file_paths:
+        doc_id = Path(file_path).stem
+        doc_blocks = chunker_run(
+            file_path,
+            doc_id,
+            config=chunker_config,
+            llm_client=openai_client,
+            org=org,
+            source_type=source_type,
+            intervention_class=intervention_class,
+            indication=indication,
+        )
+        blocks.extend(doc_blocks)
+    return blocks
+
+
+def _group_by_section(blocks: list[ContentBlock]) -> dict[str, list[ContentBlock]]:
+    """Group blocks by section_label; drop metadata/other/empty labels."""
+    grouped: dict[str, list[ContentBlock]] = {}
+    for block in blocks:
+        label = block.section_label
+        if label in SECTIONS_TO_SKIP:
+            continue
+        grouped.setdefault(label, []).append(block)
+    return grouped
+
+
+def _extract_queries_all_sections(
+    sections: dict[str, list[ContentBlock]],
+    config: MonitorTypeConfig,
+    openai_client: OpenAIClientProtocol,
+    *,
+    indication: str,
+) -> dict[str, list[str]]:
+    """One query-extractor call per section, sequential (fast LLM calls)."""
+    out: dict[str, list[str]] = {}
+    for label, section_blocks in sections.items():
+        section_text = "\n".join(block.content for block in section_blocks if block.content)
+        queries = extract_queries_for_section(
+            label,
+            section_text,
+            config,
+            openai_client,
+            indication=indication,
+            queries_per_section=config.queries_per_section,
+        )
+        if queries:
+            out[label] = queries
+    return out
 
 
 def _search_all(
-    queries: list[str],
+    section_queries: list[tuple[str, str]],
     search_client: SearchClientProtocol,
-) -> list[Finding]:
-    """Run searcher in parallel across queries. Concat and dedupe by URL.
-
-    Worker count equals query count - `num_queries` is the natural bound
-    (config-controlled, small). No separate cap.
-    """
-    if not queries:
-        return []
-    workers = max(1, len(queries))
+) -> dict[tuple[str, str], list[Finding]]:
+    """Run all queries in parallel. Returns mapping from (section, query) to findings."""
+    if not section_queries:
+        return {}
+    workers = max(1, len(section_queries))
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        per_query = list(
-            executor.map(lambda q: searcher_run(q, llm_client=search_client), queries)
+        results = list(
+            executor.map(
+                lambda section_query: searcher_run(
+                    section_query[1], llm_client=search_client
+                ),
+                section_queries,
+            )
         )
-    seen: set[str] = set()
-    out: list[Finding] = []
-    for findings in per_query:
-        for f in findings:
-            if f.url in seen:
-                continue
-            seen.add(f.url)
-            out.append(f)
+    return {
+        section_query: findings
+        for section_query, findings in zip(section_queries, results)
+    }
+
+
+def _doc_excerpts_for_classifier(
+    sections: dict[str, list[ContentBlock]],
+) -> list[str]:
+    """Build per-section excerpts for the drift_classifier prompt."""
+    out: list[str] = []
+    for label, blocks in sections.items():
+        text = "\n".join(block.content for block in blocks if block.content)
+        out.append(f"### {label}\n{text}")
     return out
 
 
@@ -128,8 +240,8 @@ def _stamp(
     intervention_class: str,
     indication: str,
 ) -> None:
-    for ins in insights:
-        ins.org = org
-        ins.source_type = source_type
-        ins.intervention_class = intervention_class
-        ins.indication = indication
+    for insight in insights:
+        insight.org = org
+        insight.source_type = source_type
+        insight.intervention_class = intervention_class
+        insight.indication = indication

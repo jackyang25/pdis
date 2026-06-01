@@ -1,4 +1,4 @@
-"""Monitor route - uploaded docs + 4 primitives -> Insights, streaming progress."""
+"""Monitor route - uploaded docs + 4 primitives -> Matches, streaming progress."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from services.monitor import find_config, insights_to_dicts, run_pipeline
+from services.monitor import find_config, matches_to_dicts, run_pipeline
 
 from api.deps import get_openai_client
-from api.schemas import FindingOut, InsightOut, MonitorRunResponse
+from api.schemas import FindingOut, InsightOut, MatchOut, MonitorRunResponse
 from api.streaming import run_with_progress
 
 router = APIRouter()
@@ -42,7 +42,7 @@ async def run_monitor(
     def work(progress):
         try:
             openai_client = get_openai_client()
-            insights = run_pipeline(
+            matches = run_pipeline(
                 temp_paths,
                 config=config,
                 openai_client=openai_client,
@@ -53,25 +53,33 @@ async def run_monitor(
                 indication=indication,
                 progress_callback=progress,
             )
-            insight_dicts = insights_to_dicts(insights)
+            match_dicts = matches_to_dicts(matches)
             return MonitorRunResponse(
                 org=org,
                 source_type=source_type,
                 intervention_class=intervention_class,
                 indication=indication,
-                insights=[
-                    InsightOut(
-                        statement=d["statement"],
-                        query=d["query"],
-                        supporting_findings=[
-                            FindingOut(**f) for f in d["supporting_findings"]
-                        ],
-                        org=d.get("org"),
-                        source_type=d.get("source_type"),
-                        intervention_class=d.get("intervention_class"),
-                        indication=d.get("indication"),
+                matches=[
+                    MatchOut(
+                        insight=InsightOut(
+                            statement=md["insight"]["statement"],
+                            query=md["insight"]["query"],
+                            supporting_findings=[
+                                FindingOut(**f)
+                                for f in md["insight"]["supporting_findings"]
+                            ],
+                            org=md["insight"].get("org"),
+                            source_type=md["insight"].get("source_type"),
+                            intervention_class=md["insight"].get(
+                                "intervention_class"
+                            ),
+                            indication=md["insight"].get("indication"),
+                            section_label=md["insight"].get("section_label"),
+                        ),
+                        relation=md["relation"],
+                        reason=md["reason"],
                     )
-                    for d in insight_dicts
+                    for md in match_dicts
                 ],
             ).model_dump()
         finally:

@@ -26,6 +26,7 @@ def extract_insights(
     *,
     indication: str,
     intervention_class: str,
+    section_label: str | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[Insight]:
     """Return Insights extracted from the supplied Findings."""
@@ -57,6 +58,7 @@ def extract_insights(
                 statement=statement,
                 supporting_findings=supporting,
                 query=query,
+                section_label=section_label,
             )
         )
     return insights

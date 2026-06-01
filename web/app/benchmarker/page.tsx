@@ -25,10 +25,10 @@ export default function EvidencePage() {
 }
 
 const EVIDENCE_STEPS = [
-  { key: "parse", label: "Parse document" },
-  { key: "extract", label: "Extract claims" },
-  { key: "bind", label: "Bind to attributes" },
-  { key: "appraise", label: "Appraise strength" },
+  { key: "parse", label: "Parsing document" },
+  { key: "extract", label: "Extracting claims" },
+  { key: "bind", label: "Binding to attributes" },
+  { key: "appraise", label: "Appraising strength" },
 ];
 
 function EvidenceView({ header }: { header: Header }) {

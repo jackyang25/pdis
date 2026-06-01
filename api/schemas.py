@@ -66,6 +66,13 @@ class InsightOut(BaseModel):
     source_type: str | None = None
     intervention_class: str | None = None
     indication: str | None = None
+    section_label: str | None = None
+
+
+class MatchOut(BaseModel):
+    insight: InsightOut
+    relation: str
+    reason: str
 
 
 class MonitorRunResponse(BaseModel):
@@ -73,7 +80,7 @@ class MonitorRunResponse(BaseModel):
     source_type: str
     intervention_class: str
     indication: str
-    insights: list[InsightOut]
+    matches: list[MatchOut]
 
 
 class ClaimOut(BaseModel):

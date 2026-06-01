@@ -19,7 +19,7 @@ Imports flow one way only: `web → api → services → (shared, data)`. **Neve
 | `services/benchmarker/` | Benchmarker | Document → `list[Claim]`. Builds the peer corpus stored under `data/claims/`. | chunker |
 | `services/reviewer/` | Reviewer | Document → `ReviewResult` graded across 3 dimensions. | chunker, benchmarker (`FileClaimsStore`) |
 | `services/searcher/` | Searcher | Query → `list[Finding]`. LLM-driven web search via OpenAI. | shared/openai_client |
-| `services/monitor/` | Monitor | Files + 4 primitives → `list[Insight]`. Reuses chunker + searcher. | chunker, searcher |
+| `services/monitor/` | Monitor | Files + 4 primitives → `list[Match]` (wraps Insight + relation_to_doc). Reuses chunker + searcher. | chunker, searcher |
 
 ## Cross-cutting (`shared/`)
 
@@ -76,7 +76,7 @@ The `services/benchmarker/stages/appraiser.py` stage is **deleted** — don't re
 ## Naming conventions
 
 - Folders use **action names**: `services/chunker/`, `services/benchmarker/`, `services/reviewer/`, `services/searcher/`, `services/monitor/`.
-- Data units stay as their nouns: `Claim`, `ClaimsStore`, `data/claims/`, `ContentBlock`, `Finding`, `Insight`.
+- Data units stay as their nouns: `Claim`, `ClaimsStore`, `data/claims/`, `ContentBlock`, `Finding`, `Insight`, `Match`.
 - UI labels: **Chunker**, **Benchmarker**, **Reviewer**, **Searcher**, **Monitor** (sidebar nav).
 - Web routes: `/chunker`, `/benchmarker`, `/reviewer`, `/searcher`, `/monitor`. (`/` redirects to `/chunker`.)
 - API routes: `/api/chunker/run`, `/api/benchmarker/run`, `/api/reviewer/run`, `/api/searcher/run`, `/api/monitor/run`.
@@ -118,9 +118,13 @@ Warm cream palette (`hsl(40 38% 97%)` background, warm-dark text, muted yellow a
 - **Curation / supersession workflow**: removed all placeholder fields. Don't add back until there's a real curation pipeline.
 - **Golden-set regression tests for prompts**: not built. Prompt edits today are silently breakable.
 - **Searcher 4-primitive stamping**: Do NOT add 4-primitive stamping to Findings — they aren't documents.
-- **Monitor v1 with benchmarker integration**: v0 produces Insights from
-  web findings only. Comparing Insights against doc Claims (and emitting
-  `Match` records) is the v1 layer — deferred.
+- **Monitor v1 with benchmarker integration**: v0 produces Matches by
+  comparing web Insights against uploaded doc excerpts. Enriching Match
+  with a benchmarker `claim_id` for claim-level comparison is the v1
+  layer — deferred.
+- **Monitor v1 per-variable claim comparison**: benchmarker integration
+  will compare per-section Insights against per-variable Claims for
+  stricter drift detection.
 
 ## Where things live (file map for quick lookup)
 
@@ -137,14 +141,15 @@ services/reviewer/stages/grader.py  3-dimension parallel grader
 services/searcher/pipeline.py    run_pipeline (query -> Findings)
 services/searcher/stages/searcher.py  single LLM web-search stage
 services/searcher/models.py      Finding dataclass + protocol
-services/monitor/pipeline.py     run_pipeline (files + primitives -> Insights)
+services/monitor/pipeline.py     run_pipeline (files + primitives -> Matches)
 services/monitor/stages/query_extractor.py    LLM: docs -> search queries
 services/monitor/stages/insight_extractor.py  LLM: findings -> Insights
-services/monitor/models.py       Insight dataclass + config
+services/monitor/stages/drift_classifier.py   LLM: insights x doc -> relations
+services/monitor/models.py       Insight + Match dataclasses + config
 api/main.py                      FastAPI app + route registration
 api/routes/{chunker,benchmarker,reviewer,configs}.py
 api/routes/searcher.py           POST /api/searcher/run (query -> Findings)
-api/routes/monitor.py            POST /api/monitor/run (files + primitives -> Insights)
+api/routes/monitor.py            POST /api/monitor/run (files + primitives -> Matches)
 api/schemas.py                   Pydantic wire models (ClaimOut, ReviewerRunResponse, ...)
 api/streaming.py                 NDJSON streaming helper (background thread + queue)
 web/lib/api.ts                   typed API client (runChunker, runBenchmarker, runReviewer)

@@ -4,16 +4,21 @@ source_type: tpp
 intervention_class: vaccine
 display_name: "BMGF TPP - Vaccine"
 
+# Domain-specific guidance for the per-section query extractor. Each
+# section of the doc (Efficacy, Safety, Storage, etc.) gets its own
+# focused queries - these instructions apply to ALL sections.
 query_extraction_guidance: |
   Generate web search queries to surface up-to-date vaccine-relevant
-  information for the indication. Cover:
+  information for the indication, scoped to the specific section topic.
+  Focus on:
   - Recent regulatory approvals or guidance (FDA, EMA, WHO)
   - Pivotal clinical trial readouts (Phase 2/3) in the indication
-  - Competitive vaccines in development for the same indication
+  - Competitive vaccines for the same indication
   - Safety signals, post-market surveillance updates
   - Authoritative reviews and recent meta-analyses
 
-  Use the indication name in queries. Prefer queries that target
-  specific authorities, trial registries, or peer-reviewed sources.
+  Use the indication name and the section topic in queries. Prefer
+  queries that target specific authorities, trial registries, or
+  peer-reviewed sources.
 
-num_queries: 5
+queries_per_section: 1

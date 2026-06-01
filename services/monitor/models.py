@@ -14,6 +14,7 @@ from services.searcher import Finding
 
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
+VALID_RELATIONS = {"contradicts", "extends", "confirms", "unrelated"}
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> "MonitorTypeConfig":
@@ -58,6 +59,23 @@ class Insight:
     source_type: str | None = None
     intervention_class: str | None = None
     indication: str | None = None
+    section_label: str | None = None
+
+
+@dataclass
+class Match:
+    """Pairs an Insight (pure web evidence) with its relation to the document.
+
+    Match is the doc-aware primitive monitor emits. Insight stays
+    doc-agnostic - anyone wanting pure web evidence can still consume
+    list[Insight] directly. When benchmarker integration lands later,
+    Match will optionally gain a claim_id pointing at the specific doc
+    Claim involved in the comparison; nothing else changes.
+    """
+
+    insight: Insight
+    relation: str
+    reason: str
 
 
 @dataclass
@@ -68,7 +86,7 @@ class MonitorTypeConfig:
     intervention_class: str
     display_name: str
     query_extraction_guidance: str
-    num_queries: int = 5
+    queries_per_section: int = 1
 
 
 def insights_to_dicts(insights: list[Insight]) -> list[dict]:
@@ -82,6 +100,28 @@ def insights_to_dicts(insights: list[Insight]) -> list[dict]:
                 f["retrieved_at"] = f["retrieved_at"].isoformat()
             if f.get("published_at") is not None and not isinstance(f["published_at"], str):
                 f["published_at"] = f["published_at"].isoformat()
+        out.append(d)
+    return out
+
+
+def matches_to_dicts(matches: list[Match]) -> list[dict]:
+    """Convert Match objects to plain dictionaries (Insight nested, datetimes ISO)."""
+    out: list[dict] = []
+    for match in matches:
+        d = {
+            "insight": asdict(match.insight),
+            "relation": match.relation,
+            "reason": match.reason,
+        }
+        for finding in d["insight"]["supporting_findings"]:
+            if finding.get("retrieved_at") is not None and not isinstance(
+                finding["retrieved_at"], str
+            ):
+                finding["retrieved_at"] = finding["retrieved_at"].isoformat()
+            if finding.get("published_at") is not None and not isinstance(
+                finding["published_at"], str
+            ):
+                finding["published_at"] = finding["published_at"].isoformat()
         out.append(d)
     return out
 
@@ -115,5 +155,5 @@ def load_config(config_path: str) -> MonitorTypeConfig:
         intervention_class=data["intervention_class"],
         display_name=data["display_name"],
         query_extraction_guidance=data["query_extraction_guidance"],
-        num_queries=int(data.get("num_queries", 5)),
+        queries_per_section=int(data.get("queries_per_section", 1)),
     )

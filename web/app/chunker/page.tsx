@@ -12,8 +12,8 @@ import { runChunker, type ContentBlock, type Header } from "@/lib/api";
 import { useChunkerSession } from "@/lib/session";
 
 const CHUNKER_STEPS = [
-  { key: "parse", label: "Parse document" },
-  { key: "label", label: "Label sections" },
+  { key: "parse", label: "Parsing document" },
+  { key: "label", label: "Labeling sections" },
 ];
 
 export default function ChunkerPage() {

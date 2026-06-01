@@ -1,9 +1,8 @@
-"""Stage 1: derive web search queries from doc content + the 4 primitives.
+"""Stage 1: derive web search queries from one labeled doc section.
 
-Single LLM call. Input is a summary of the uploaded docs plus the
-primitives (org/source_type/intervention_class/indication) plus the
-config's domain-specific guidance. Output is a list of search query
-strings to feed into searcher.
+Each section is treated as a self-contained topic. The monitor pipeline
+calls this stage once per section and feeds the resulting focused queries
+into searcher.
 """
 
 from __future__ import annotations
@@ -16,49 +15,79 @@ from ..models import MonitorTypeConfig, OpenAIClientProtocol
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TOKENS = 2000
-MAX_DOC_CONTEXT_CHARS = 8000
+DEFAULT_MAX_TOKENS = 1000
+MAX_SECTION_CONTEXT_CHARS = 4000
 
 
-def extract_queries(
-    doc_excerpts: list[str],
+def extract_queries_for_section(
+    section_label: str,
+    section_text: str,
     config: MonitorTypeConfig,
     llm_client: OpenAIClientProtocol,
     *,
     indication: str,
+    queries_per_section: int,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[str]:
-    """Return a list of search queries grounded in doc content + primitives."""
-    system_prompt = _build_system_prompt(config, indication=indication)
-    user_message = _build_user_message(doc_excerpts, config)
+    """Generate web search queries focused on a single doc section.
+
+    Each section is treated as a self-contained topic (e.g. "Efficacy",
+    "Safety", "Storage"). The LLM sees the section's content plus the
+    config's domain guidance, and emits queries scoped to that topic.
+    """
+    if not section_text.strip():
+        return []
+
+    system_prompt = _system_prompt_for_section(
+        config,
+        indication=indication,
+        section_label=section_label,
+        queries_per_section=queries_per_section,
+    )
+    user_message = _user_message_for_section(section_label, section_text)
 
     raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
     queries = _parse_queries(raw)
     if not queries:
-        logger.warning("query_extractor produced no parsable queries; retrying once")
+        logger.warning(
+            "query_extractor produced no parsable queries for section %r; retrying once",
+            section_label,
+        )
         raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
         queries = _parse_queries(raw)
 
-    return queries[: config.num_queries]
+    return queries[:queries_per_section]
 
 
-def _build_system_prompt(config: MonitorTypeConfig, *, indication: str) -> str:
+def _system_prompt_for_section(
+    config: MonitorTypeConfig,
+    *,
+    indication: str,
+    section_label: str,
+    queries_per_section: int,
+) -> str:
     return "\n\n".join([
         "You generate web search queries to surface up-to-date information "
-        "relevant to a product profile document.",
+        f"relevant to ONE section of a product profile document: "
+        f'"{section_label}".',
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         config.query_extraction_guidance.strip(),
-        f"Return EXACTLY {config.num_queries} queries as a JSON array of strings. "
-        "No markdown, no commentary. Each query 5-15 words. Example:\n"
-        '["FDA RSV vaccine approval 2025", "Phase 3 RSV vaccine efficacy elderly"]',
+        f"Return EXACTLY {queries_per_section} quer"
+        f"{'y' if queries_per_section == 1 else 'ies'} as a JSON array of strings. "
+        "No markdown, no commentary. Each query 5-15 words. Each query must be "
+        f'specific to the "{section_label}" topic. Example:\n'
+        '["FDA RSV vaccine approval 2025 elderly adults"]',
     ])
 
 
-def _build_user_message(doc_excerpts: list[str], config: MonitorTypeConfig) -> str:
-    joined = "\n\n=== DOC ===\n".join(doc_excerpts)
-    if len(joined) > MAX_DOC_CONTEXT_CHARS:
-        joined = joined[:MAX_DOC_CONTEXT_CHARS] + "\n...[truncated]"
-    return f"Document content:\n\n{joined}\n\nGenerate the queries now."
+def _user_message_for_section(section_label: str, section_text: str) -> str:
+    if len(section_text) > MAX_SECTION_CONTEXT_CHARS:
+        section_text = section_text[:MAX_SECTION_CONTEXT_CHARS] + "\n...[truncated]"
+    return (
+        f"Section: {section_label}\n\n"
+        f"Section content:\n\n{section_text}\n\n"
+        f"Generate the queries for this section now."
+    )
 
 
 def _parse_queries(raw: str) -> list[str]:

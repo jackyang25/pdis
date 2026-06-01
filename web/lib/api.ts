@@ -129,6 +129,13 @@ export type Insight = {
   source_type: string | null;
   intervention_class: string | null;
   indication: string | null;
+  section_label: string | null;
+};
+
+export type Match = {
+  insight: Insight;
+  relation: "contradicts" | "extends" | "confirms" | "unrelated";
+  reason: string;
 };
 
 export type MonitorResponse = {
@@ -136,7 +143,7 @@ export type MonitorResponse = {
   source_type: string;
   intervention_class: string;
   indication: string;
-  insights: Insight[];
+  matches: Match[];
 };
 
 export type StageEvent = { event: "stage"; name: string };

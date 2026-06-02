@@ -75,11 +75,17 @@ class MatchOut(BaseModel):
     reason: str
 
 
+class VariableOut(BaseModel):
+    name: str
+    description: str
+
+
 class MonitorRunResponse(BaseModel):
     org: str
     source_type: str
     intervention_class: str
     indication: str
+    variables: list[VariableOut]
     matches: list[MatchOut]
 
 

@@ -138,11 +138,17 @@ export type Match = {
   reason: string;
 };
 
+export type Variable = {
+  name: string;
+  description: string;
+};
+
 export type MonitorResponse = {
   org: string;
   source_type: string;
   intervention_class: string;
   indication: string;
+  variables: Variable[];
   matches: Match[];
 };
 

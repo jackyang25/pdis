@@ -9,10 +9,10 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from services.monitor import find_config, matches_to_dicts, run_pipeline
+from services.monitor import find_config, load_attributes, matches_to_dicts, run_pipeline
 
 from api.deps import get_openai_client
-from api.schemas import FindingOut, InsightOut, MatchOut, MonitorRunResponse
+from api.schemas import FindingOut, InsightOut, MatchOut, MonitorRunResponse, VariableOut
 from api.streaming import run_with_progress
 
 router = APIRouter()
@@ -54,11 +54,16 @@ async def run_monitor(
                 progress_callback=progress,
             )
             match_dicts = matches_to_dicts(matches)
+            variables = load_attributes(intervention_class)
             return MonitorRunResponse(
                 org=org,
                 source_type=source_type,
                 intervention_class=intervention_class,
                 indication=indication,
+                variables=[
+                    VariableOut(name=variable.name, description=variable.description)
+                    for variable in variables
+                ],
                 matches=[
                     MatchOut(
                         insight=InsightOut(

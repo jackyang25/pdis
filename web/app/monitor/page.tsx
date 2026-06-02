@@ -25,11 +25,43 @@ const RELATION_ORDER: Record<Match["relation"], number> = {
   unrelated: 3,
 };
 
-const RELATION_VARIANT: Record<Match["relation"], "default" | "outline" | "muted"> = {
-  contradicts: "default",
-  extends: "outline",
-  confirms: "muted",
-  unrelated: "outline",
+type Status = "conflict" | "updates" | "confirmed" | "clear";
+
+const STATUS_RANK: Record<Status, number> = {
+  conflict: 0,
+  updates: 1,
+  confirmed: 2,
+  clear: 3,
+};
+
+const STATUS_META: Record<
+  Status,
+  {
+    label: string;
+    tone: string;
+    badge: "default" | "outline" | "muted";
+  }
+> = {
+  conflict: {
+    label: "Conflict",
+    tone: "border-red-300 bg-red-50/70",
+    badge: "default",
+  },
+  updates: {
+    label: "Updates",
+    tone: "border-amber-300 bg-amber-50/80",
+    badge: "outline",
+  },
+  confirmed: {
+    label: "Confirmed",
+    tone: "border-emerald-300 bg-emerald-50/70",
+    badge: "muted",
+  },
+  clear: {
+    label: "Clear",
+    tone: "border-border bg-background",
+    badge: "outline",
+  },
 };
 
 function attributeLabel(ref: string) {
@@ -79,7 +111,7 @@ function MonitorView({ header }: { header: Header }) {
         currentStage={stage}
       />
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {result && <MatchesList result={result} />}
+      {result && <FieldGrid result={result} />}
       {!result && !busy && !error && (
         <EmptyState message="Upload one or more documents to begin." />
       )}
@@ -87,28 +119,60 @@ function MonitorView({ header }: { header: Header }) {
   );
 }
 
-function MatchesList({ result }: { result: MonitorResponse }) {
+function statusFor(matches: Match[]): Status {
+  if (matches.some((match) => match.relation === "contradicts")) return "conflict";
+  if (matches.some((match) => match.relation === "extends")) return "updates";
+  if (matches.some((match) => match.relation === "confirms")) return "confirmed";
+  return "clear";
+}
+
+function FieldGrid({ result }: { result: MonitorResponse }) {
   const matches = result.matches ?? [];
-  if (matches.length === 0) {
-    return <EmptyState message="No matches were produced from this run." />;
+  const variables = result.variables ?? [];
+
+  if (variables.length === 0) {
+    return <EmptyState message="No variables were returned for this intervention." />;
   }
 
-  const sorted = [...matches].sort(
-    (a, b) => RELATION_ORDER[a.relation] - RELATION_ORDER[b.relation],
+  const matchesByVariable = new Map<string, Match[]>();
+  for (const match of matches) {
+    const ref = match.insight.attribute_ref;
+    if (!ref) continue;
+    if (!matchesByVariable.has(ref)) matchesByVariable.set(ref, []);
+    matchesByVariable.get(ref)!.push(match);
+  }
+
+  const rows = variables
+    .map((variable) => {
+      const variableMatches = matchesByVariable.get(variable.name) ?? [];
+      const sortedMatches = [...variableMatches].sort(
+        (a, b) => RELATION_ORDER[a.relation] - RELATION_ORDER[b.relation],
+      );
+      const status = statusFor(sortedMatches);
+      return { variable, matches: sortedMatches, status };
+    })
+    .sort(
+      (a, b) =>
+        STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
+        attributeLabel(a.variable.name).localeCompare(attributeLabel(b.variable.name)),
+    );
+
+  const updatedCount = rows.filter(
+    (row) => row.status === "conflict" || row.status === "updates",
+  ).length;
+  const counts = rows.reduce<Record<Status, number>>(
+    (acc, row) => {
+      acc[row.status] += 1;
+      return acc;
+    },
+    { conflict: 0, updates: 0, confirmed: 0, clear: 0 },
   );
-  const counts = sorted.reduce<Record<string, number>>((acc, match) => {
-    acc[match.relation] = (acc[match.relation] || 0) + 1;
-    return acc;
-  }, {});
 
   return (
     <div className="flex flex-col gap-4">
       <CollapsibleCard
-        title={`${matches.length} match${matches.length === 1 ? "" : "es"}`}
-        subtitle={["contradicts", "extends", "confirms", "unrelated"]
-          .filter((relation) => counts[relation])
-          .map((relation) => `${counts[relation]} ${relation}`)
-          .join(" · ")}
+        title={`${variables.length} fields`}
+        subtitle={`${updatedCount} with updates · ${counts.clear} clear`}
         trailing={
           <DownloadButton
             filename="matches.jsonl"
@@ -118,48 +182,112 @@ function MatchesList({ result }: { result: MonitorResponse }) {
           />
         }
       >
-        <ul className="-mx-6 divide-y divide-border">
-          {sorted.map((match, index) => (
-            <li key={index} className="px-6 py-4">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <Badge variant={RELATION_VARIANT[match.relation]}>
-                  {match.relation}
-                </Badge>
-                {match.insight.attribute_ref && (
-                  <Badge variant="outline">
-                    {attributeLabel(match.insight.attribute_ref)}
-                  </Badge>
-                )}
-                <span className="break-words text-xs text-muted-foreground">
-                  {match.insight.query}
-                </span>
-              </div>
-              <p className="text-sm leading-relaxed">{match.insight.statement}</p>
-              {match.reason && (
-                <p className="mt-1 text-xs italic text-muted-foreground">
-                  {match.reason}
-                </p>
-              )}
-              {match.insight.supporting_findings.length > 0 && (
-                <ul className="mt-2 space-y-1">
-                  {match.insight.supporting_findings.map((finding) => (
-                    <li key={finding.url} className="text-xs text-muted-foreground">
-                      <a
-                        href={finding.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline hover:text-foreground"
-                      >
-                        {finding.title || finding.url}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
+        <div className="-mx-6 divide-y divide-border">
+          {rows.map((row) => (
+            <FieldRow
+              key={row.variable.name}
+              name={row.variable.name}
+              description={row.variable.description}
+              status={row.status}
+              matches={row.matches}
+            />
           ))}
-        </ul>
+        </div>
       </CollapsibleCard>
     </div>
+  );
+}
+
+function FieldRow({
+  name,
+  description,
+  status,
+  matches,
+}: {
+  name: string;
+  description: string;
+  status: Status;
+  matches: Match[];
+}) {
+  const meta = STATUS_META[status];
+
+  return (
+    <details className={`group border-l-4 ${meta.tone}`}>
+      <summary className="flex cursor-pointer items-start justify-between gap-4 px-6 py-4 [&::-webkit-details-marker]:hidden">
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <Badge variant={meta.badge}>{meta.label}</Badge>
+            <h3 className="text-sm font-medium">{attributeLabel(name)}</h3>
+            <span className="text-xs text-muted-foreground">
+              {matches.length} match{matches.length === 1 ? "" : "es"}
+            </span>
+          </div>
+          <p className="mt-2 mb-3 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+            {description}
+          </p>
+        </div>
+        <span className="shrink-0 text-xs text-muted-foreground group-open:hidden">
+          Expand
+        </span>
+        <span className="hidden shrink-0 text-xs text-muted-foreground group-open:inline">
+          Collapse
+        </span>
+      </summary>
+
+      <div className="px-6 pb-4">
+        {matches.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No matches for this variable.
+          </p>
+        ) : (
+          <ul className="space-y-4">
+            {matches.map((match, index) => (
+              <li key={index} className="rounded-md border border-border bg-card p-4">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{match.relation}</Badge>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Found
+                  </p>
+                  <p className="mt-1 text-sm font-medium leading-relaxed text-foreground">
+                    {match.insight.statement}
+                  </p>
+                </div>
+                {match.reason && (
+                  <div className="mt-3 border-l-2 border-border pl-3">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Why it matters
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      {match.reason}
+                    </p>
+                  </div>
+                )}
+                {match.insight.supporting_findings.length > 0 && (
+                  <ul className="mt-3 space-y-1">
+                    {match.insight.supporting_findings.map((finding) => (
+                      <li key={finding.url} className="text-xs text-muted-foreground">
+                        <a
+                          href={finding.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline hover:text-foreground"
+                        >
+                          {finding.title || finding.url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="mt-2 truncate text-[11px] text-muted-foreground/70">
+                  searched: {match.insight.query}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </details>
   );
 }

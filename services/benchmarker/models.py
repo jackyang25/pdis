@@ -7,18 +7,25 @@ from pathlib import Path
 
 from services.chunker import ContentBlock
 
+# Attribute taxonomy is shared domain vocabulary (like shared/indications.yaml),
+# not benchmarker-private. It lives in shared/attributes.yaml and is read by
+# benchmarker (binds claims to it) and referenced by reviewer (attribute_ref).
+# Benchmarker owns the consumption logic below, not the vocabulary.
+ATTRIBUTES_FILE = Path(__file__).resolve().parents[2] / "shared" / "attributes.yaml"
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
 
 
 def find_config(intervention_class: str) -> "AttributeConfig":
     """Load the evidence config for the given intervention (filename = {intervention}.yaml)."""
-    path = CONFIGS_DIR / f"{intervention_class}.yaml"
-    if not path.exists():
+    extraction_path = CONFIGS_DIR / f"{intervention_class}.yaml"
+    if not ATTRIBUTES_FILE.exists():
+        raise LookupError(f"Shared attribute vocabulary missing: {ATTRIBUTES_FILE}")
+    if not extraction_path.exists():
         raise LookupError(
-            f"No evidence config for intervention '{intervention_class}'. "
-            f"Expected: {path}"
+            f"No benchmarker extraction config for {intervention_class!r}. "
+            f"Expected: {extraction_path}"
         )
-    return load_config(str(path))
+    return load_config(intervention_class, str(extraction_path))
 
 
 class LLMClientProtocol(Protocol):
@@ -149,56 +156,88 @@ def config_to_dict(config: AttributeConfig) -> dict:
 # --- YAML loading ---
 
 
-def load_config(config_path: str) -> AttributeConfig:
-    """Load an AttributeConfig from a YAML file."""
+def load_config(intervention_class: str, extraction_path: str) -> AttributeConfig:
+    """Load an AttributeConfig from shared vocabulary + benchmarker config."""
     import yaml
 
-    with open(config_path, "r", encoding="utf-8") as config_file:
-        data = yaml.safe_load(config_file)
+    with open(ATTRIBUTES_FILE, "r", encoding="utf-8") as vocab_file:
+        vocab_data = yaml.safe_load(vocab_file)
+    with open(extraction_path, "r", encoding="utf-8") as extraction_file:
+        extraction_data = yaml.safe_load(extraction_file)
 
-    if not isinstance(data, dict):
-        raise ValueError("Config file must contain a YAML mapping")
+    if not isinstance(vocab_data, dict):
+        raise ValueError("Attribute vocabulary file must contain a YAML mapping")
+    if not isinstance(extraction_data, dict):
+        raise ValueError("Benchmarker extraction config must contain a YAML mapping")
 
-    required_fields = {
+    if intervention_class not in vocab_data:
+        raise ValueError(
+            f"Shared attribute vocabulary missing intervention_class {intervention_class!r}"
+        )
+    vocab_attributes = vocab_data[intervention_class]
+
+    extraction_required_fields = {
         "type_key",
         "intervention_class",
         "display_name",
-        "attributes",
         "claim_types",
         "preamble",
     }
-    missing_fields = required_fields - data.keys()
-    if missing_fields:
-        missing = ", ".join(sorted(missing_fields))
-        raise ValueError(f"Config missing required fields: {missing}")
+    missing_extraction_fields = extraction_required_fields - extraction_data.keys()
+    if missing_extraction_fields:
+        missing = ", ".join(sorted(missing_extraction_fields))
+        raise ValueError(f"Benchmarker extraction config missing required fields: {missing}")
 
-    _validate_string_field(data, "type_key")
-    _validate_string_field(data, "intervention_class")
-    _validate_string_field(data, "display_name")
-    _validate_string_field(data, "preamble")
-    _validate_string_list(data["claim_types"], "claim_types")
-    _validate_string_list(data.get("disambiguation", []), "disambiguation")
-    _validate_claim_types(data["claim_types"])
-    _validate_attributes(data["attributes"], data["claim_types"])
+    _validate_string_field(extraction_data, "type_key")
+    _validate_string_field(extraction_data, "intervention_class")
+    _validate_string_field(extraction_data, "display_name")
+    _validate_string_field(extraction_data, "preamble")
+    _validate_string_list(extraction_data["claim_types"], "claim_types")
+    _validate_string_list(
+        extraction_data.get("disambiguation", []),
+        "disambiguation",
+    )
+    _validate_claim_types(extraction_data["claim_types"])
+
+    if intervention_class != extraction_data["intervention_class"]:
+        raise ValueError(
+            f"Requested intervention_class '{intervention_class}' does not match "
+            f"extraction config '{extraction_data['intervention_class']}'"
+        )
+
+    attribute_extraction = extraction_data.get("attribute_extraction", []) or []
+    expected_by_ref = _expected_claim_types_by_ref(
+        attribute_extraction,
+        vocab_attributes,
+        extraction_data["claim_types"],
+    )
+    joined_attributes = [
+        {
+            "name": attr["name"],
+            "description": attr["description"],
+            "expected_claim_types": expected_by_ref.get(attr["name"], []),
+        }
+        for attr in vocab_attributes
+    ]
+    _validate_attributes(joined_attributes, extraction_data["claim_types"])
 
     attributes = [
         AttributeDef(
             name=attr["name"],
             description=attr["description"],
-            parent=attr.get("parent"),
-            expected_claim_types=attr.get("expected_claim_types", []),
+            expected_claim_types=attr["expected_claim_types"],
         )
-        for attr in data["attributes"]
+        for attr in joined_attributes
     ]
 
     return AttributeConfig(
-        type_key=data["type_key"],
-        intervention_class=data["intervention_class"],
-        display_name=data["display_name"],
+        type_key=extraction_data["type_key"],
+        intervention_class=extraction_data["intervention_class"],
+        display_name=extraction_data["display_name"],
         attributes=attributes,
-        claim_types=data["claim_types"],
-        preamble=data["preamble"],
-        disambiguation=data.get("disambiguation", []),
+        claim_types=extraction_data["claim_types"],
+        preamble=extraction_data["preamble"],
+        disambiguation=extraction_data.get("disambiguation", []),
     )
 
 
@@ -276,6 +315,60 @@ def _validate_claim_types(claim_types: list[str]) -> None:
                 f"claim_type '{ct}' is not a canonical claim_type. "
                 f"Valid values: {CLAIM_TYPES}"
             )
+
+
+def _expected_claim_types_by_ref(
+    attribute_extraction: Any,
+    vocab_attributes: Any,
+    config_claim_types: list[str],
+) -> dict[str, list[str]]:
+    if not isinstance(attribute_extraction, list):
+        raise ValueError("attribute_extraction must be a list")
+    if not isinstance(vocab_attributes, list):
+        raise ValueError("attributes must be a list")
+
+    vocab_names = set()
+    for index, attr in enumerate(vocab_attributes):
+        if not isinstance(attr, dict):
+            raise ValueError(f"attributes[{index}] must be a mapping")
+        missing = {"name", "description"} - attr.keys()
+        if missing:
+            joined = ", ".join(sorted(missing))
+            raise ValueError(f"attributes[{index}] missing required fields: {joined}")
+        _validate_string_field(attr, "name", f"attributes[{index}]")
+        _validate_string_field(attr, "description", f"attributes[{index}]")
+        vocab_names.add(attr["name"])
+
+    out: dict[str, list[str]] = {}
+    for index, entry in enumerate(attribute_extraction):
+        if not isinstance(entry, dict):
+            raise ValueError(f"attribute_extraction[{index}] must be a mapping")
+        missing = {"ref", "expected_claim_types"} - entry.keys()
+        if missing:
+            joined = ", ".join(sorted(missing))
+            raise ValueError(
+                f"attribute_extraction[{index}] missing required fields: {joined}"
+            )
+        _validate_string_field(entry, "ref", f"attribute_extraction[{index}]")
+        ref = entry["ref"]
+        if ref not in vocab_names:
+            raise ValueError(
+                f"attribute_extraction[{index}].ref '{ref}' not in shared vocabulary"
+            )
+        if ref in out:
+            raise ValueError(f"Duplicate attribute_extraction ref: {ref}")
+        _validate_string_list(
+            entry["expected_claim_types"],
+            f"attribute_extraction[{index}].expected_claim_types",
+        )
+        for claim_type in entry["expected_claim_types"]:
+            if claim_type not in config_claim_types:
+                raise ValueError(
+                    f"attribute_extraction[{index}].expected_claim_types contains "
+                    f"'{claim_type}' which is not declared in this config's claim_types"
+                )
+        out[ref] = entry["expected_claim_types"]
+    return out
 
 
 def _validate_attributes(attributes: Any, config_claim_types: list[str]) -> None:

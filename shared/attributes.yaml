@@ -1,0 +1,112 @@
+# Controlled vocabulary: TPP attributes per intervention class.
+# Shared domain vocabulary - NOT owned by any service. Read by benchmarker,
+# referenced by reviewer (attribute_ref). Mirrors shared/indications.yaml.
+vaccine:
+- name: vaccine.indication
+  description: |
+    The disease or condition the vaccine is intended to prevent or treat. Claims about the target disease, pathogen, or clinical condition.
+- name: vaccine.product
+  description: |
+    The vaccine candidate or class — antigens, platform (mRNA, protein subunit, viral vector, etc.), and formulation.
+- name: vaccine.use_case
+  description: |
+    Specific product use case when a document defines more than one (e.g., WHO PPCs may cover blood-stage prevention vs. transmission reduction as separate use cases within the same document).
+- name: vaccine.target_population
+  description: |
+    Demographic and clinical characteristics of intended recipients — age range, geography (LMIC vs. global), pregnancy status, comorbidities, risk factors.
+- name: vaccine.target_countries
+  description: |
+    Geographic markets and tiers (LMIC focus, WHO regions, Gavi-eligible countries, specific country lists).
+- name: vaccine.target_setting
+  description: |
+    Transmission setting or epidemiological context where the vaccine is intended to be used (e.g., high vs. low transmission, endemic vs. epidemic).
+- name: vaccine.efficacy
+  description: |
+    Required protective efficacy against the primary clinical endpoint. Typically expressed as percent reduction in disease incidence over a defined follow-up period. Includes Minimum and Preferred / Optimistic target values from the source document.
+- name: vaccine.efficacy_against_severe_disease
+  description: |
+    Protective efficacy specifically against severe disease, hospitalization, or death. Often tracked separately from prevention of mild/moderate disease.
+- name: vaccine.duration_of_protection
+  description: |
+    How long protective immunity persists after immunization. Typically months or years. Claims about waning, booster requirements, durability.
+- name: vaccine.onset_of_immunity
+  description: |
+    Time from immunization (or completion of series) to protective immunity. Typically days or weeks.
+- name: vaccine.transmission_reduction
+  description: |
+    Impact on transmission of the pathogen — indirect (herd) effects, reduction in onward infection, community-level impact.
+- name: vaccine.safety
+  description: |
+    Overall safety profile — acceptable rates of serious adverse events, contraindications, post-licensure pharmacovigilance expectations. Benchmarked against WHO / regulatory safety standards.
+- name: vaccine.reactogenicity
+  description: |
+    Local and systemic reactogenicity (injection-site reactions, fever, malaise). Tracked separately from serious adverse events because it affects acceptability and EPI integration.
+- name: vaccine.anticipated_safety_profile
+  description: |
+    Expected adverse events based on platform characteristics or prior data from comparable products. Forward-looking projection.
+- name: vaccine.presentation
+  description: |
+    Vial size, doses per vial, formulation (liquid vs. lyophilized), primary container.
+- name: vaccine.dose_volume
+  description: |
+    Volume per dose in mL.
+- name: vaccine.dosing_schedule
+  description: |
+    Number of doses, interval between doses, timing relative to age or EPI schedule.
+- name: vaccine.route_of_administration
+  description: |
+    Route (intramuscular, intradermal, subcutaneous, oral, intranasal).
+- name: vaccine.thermostability
+  description: |
+    Stability profile across temperature ranges. Controlled Temperature Chain (CTC) eligibility, out-of-cold-chain excursion tolerance, freeze sensitivity.
+- name: vaccine.shelf_life
+  description: |
+    Shelf life at recommended storage temperatures (typically 2–8°C).
+- name: vaccine.cold_chain_requirements
+  description: |
+    Cold chain storage and transport requirements — required temperature range, special handling, in-country cold-chain footprint.
+- name: vaccine.coadministration
+  description: |
+    Compatibility with other vaccines in the routine immunization schedule without interference.
+- name: vaccine.combination_potential
+  description: |
+    Potential for combination with other antigens into a multivalent product (e.g., combined with measles or DTP).
+- name: vaccine.registration_path
+  description: |
+    Regulatory pathway — WHO Prequalification + stringent regulatory authority (SRA) + national authorities of high-burden countries.
+- name: vaccine.who_prequalification_target
+  description: |
+    Target year/timeline for WHO Prequalification. PQ is the gateway to Gavi procurement.
+- name: vaccine.clinical_endpoint
+  description: |
+    Primary clinical endpoint required for licensure (e.g., reduction in lab-confirmed disease, hospitalization, seroconversion).
+- name: vaccine.programmatic_suitability
+  description: |
+    Suitability for the intended deployment model — EPI integration, mass campaigns, outbreak response. Operational feasibility at scale.
+- name: vaccine.delivery_strategy
+  description: |
+    Primary delivery channel — routine EPI, supplementary campaigns, catch-up, outbreak response, private market.
+- name: vaccine.equity_and_access
+  description: |
+    Equity considerations — access pricing for LMICs, Gavi procurement eligibility, supply allocation, regional manufacturing.
+- name: vaccine.cogs
+  description: |
+    Cost of goods per dose at scale. Quantitative targets like "less than $X per dose at Y doses/year volume."
+- name: vaccine.procurement_price
+  description: |
+    Target price per dose paid by procurers (Gavi, UNICEF, country governments). Distinct from COGS.
+- name: vaccine.total_per_patient_cost
+  description: |
+    Full cost per immunized person including delivery, cold chain, administration, wastage.
+- name: vaccine.supply_and_manufacturing
+  description: |
+    Annual production capacity needed at scale, manufacturing footprint, tech transfer, regional diversification.
+- name: vaccine.special_populations
+  description: |
+    Considerations for pregnancy, immunocompromised individuals, infants, elderly, or other subgroups. Subgroup-specific efficacy, safety, or dosing adjustments.
+- name: vaccine.regimen_compliance_risk
+  description: |
+    Risks to completing the dosing schedule — series drop-off, cold chain access at point of care, scheduling barriers.
+- name: vaccine.companion_diagnostic
+  description: |
+    Whether a companion test is needed (e.g., to screen recipients or monitor response).

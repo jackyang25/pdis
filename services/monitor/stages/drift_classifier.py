@@ -21,7 +21,7 @@ import json
 import logging
 import re
 
-from ..models import Insight, Match, OpenAIClientProtocol, VALID_RELATIONS
+from ..models import Insight, LLMClientProtocol, Match, VALID_RELATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ MAX_DOC_CONTEXT_CHARS = 8000
 def classify_drift(
     doc_excerpts: list[str],
     insights: list[Insight],
-    llm_client: OpenAIClientProtocol,
+    llm_client: LLMClientProtocol,
     *,
     indication: str,
     intervention_class: str,
@@ -85,6 +85,10 @@ def _system_prompt(*, indication: str, intervention_class: str) -> str:
         "the order contradicts > extends > confirms > unrelated.\n"
         "- Reason is one short sentence (max ~25 words) explaining the choice and citing "
         "the relevant doc topic concisely.\n"
+        "- Prefer 'extends' over 'unrelated' when the Insight is on-topic for the "
+        "product class and indication, even if the document doesn't explicitly "
+        "mention it. Reserve 'unrelated' for genuinely off-topic findings: "
+        "a different disease, a different product class, or administrative noise.\n"
         "- Do not invent doc content not present in the excerpts.\n\n"
         "Return ONLY valid JSON. No markdown, no preamble. Format:\n"
         "[\n"

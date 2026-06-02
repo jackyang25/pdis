@@ -11,6 +11,19 @@ web/ (Next.js + shadcn/ui)  →  api/ (FastAPI)  →  services/  →  data/
 
 Imports flow one way only: `web → api → services → (shared, data)`. **Never** the reverse. Cross-service imports must go through `__init__.py` public contracts — no reaching into `stages/`, `models.py`, or other internals from another service.
 
+## File roles (location encodes role)
+
+| Role | Shape | Location | Maintained by |
+|---|---|---|---|
+| Vocabulary | flat `{name, description}` keyed by intervention | `shared/` | humans (domain) |
+| Service config | that service's own schema | `services/X/configs/` | humans (domain) |
+| Template | mirrors its target's shape | beside what it templates | engineers |
+| Code / scaffold | Python | `services/X/*.py`, `shared/*.py` | engineers |
+
+**Rule:** anything in `shared/` is a controlled vocabulary and MUST be vocab-shaped (a flat term list). Service-specific tuning lives in that service's `configs/`. Never put a service-shaped config in `shared/`.
+
+**Human-maintained domain surface:** `shared/*.yaml` (vocabularies) + `services/*/configs/*.yaml` (per-service configs). Everything else is engineer-maintained.
+
 ## Five services
 
 | Folder | UI label | What it does | Depends on |
@@ -25,6 +38,7 @@ Imports flow one way only: `web → api → services → (shared, data)`. **Neve
 
 - `shared/openai_client.py` — OpenAI client (gpt-5.5), including `search_web()`. Used by **all services**.
 - `shared/indications.yaml` — controlled vocabulary of indications per intervention class. Read by `/api/configs/indications` and stamped on every document-derived output. **Indications are NOT owned by any service config.**
+- `shared/attributes.yaml` — controlled vocabulary of TPP attributes per intervention class (e.g. `vaccine.efficacy`, `vaccine.safety`). Read by benchmarker (binds claims) and referenced by reviewer (`attribute_ref`). **Attributes are NOT owned by any service config** — same principle as indications.
 
 ## The 4 primitives (required for every document tool run)
 
@@ -39,16 +53,22 @@ Every document-tool request stamps these 4 fields on every document-derived outp
 
 Picker is 4 cascading dropdowns; each shows a per-tool role label ("selects config" / "tags output" / "scopes peer claims").
 
-## Configs (the only human-edit surface)
+## Configs And Vocabularies
 
 | Service | Filename pattern | Lookup |
 |---|---|---|
 | chunker | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` raises `LookupError` |
-| benchmarker | `{intervention}.yaml` | `find_config(intervention)` raises `LookupError` |
+| benchmarker | `services/benchmarker/configs/{intervention}.yaml` + `shared/attributes.yaml` | `find_config(intervention)` raises `LookupError` |
 | reviewer | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` returns `None` |
 | monitor | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` raises `LookupError` |
 
 Configs declare their own `org`/`source_type`/`intervention_class` as data inside the YAML — the picker reads YAML contents, not filename parts. The vocabulary of valid (org, source_type, intervention) triples emerges from the union of chunker configs.
+
+Benchmarker reads its attribute vocabulary from `shared/attributes.yaml` and
+keeps extraction/binding tuning in `services/benchmarker/configs/`.
+
+Monitor configs may also include `priority_sources` and `modalities` lists.
+These are domain vocabulary injected into per-section query generation.
 
 ## Reviewer grading shape (option B — fully implemented)
 
@@ -110,27 +130,13 @@ The `services/benchmarker/stages/appraiser.py` stage is **deleted** — don't re
 
 Warm cream palette (`hsl(40 38% 97%)` background, warm-dark text, muted yellow accent). Defined in `web/app/globals.css`. Font: Inter via `--font-sans` variable, tightened letter-spacing for an agent-surface feel.
 
-## What's deferred (don't preempt)
-
-- **Persistence**: `FileClaimsStore` reads a folder of JSONL; the Protocol matches a future Delta backend. No persistence code in the active path.
-- **More extractors**: only `product_profile` extractor exists. `paper`, `trial`, `regulatory_doc`, `model_run`, etc. are file slots in the design but not implemented.
-- **`pd_watch` and `pd_gate_assembler`**: planned services, not built. Don't add stubs.
-- **Curation / supersession workflow**: removed all placeholder fields. Don't add back until there's a real curation pipeline.
-- **Golden-set regression tests for prompts**: not built. Prompt edits today are silently breakable.
-- **Searcher 4-primitive stamping**: Do NOT add 4-primitive stamping to Findings — they aren't documents.
-- **Monitor v1 with benchmarker integration**: v0 produces Matches by
-  comparing web Insights against uploaded doc excerpts. Enriching Match
-  with a benchmarker `claim_id` for claim-level comparison is the v1
-  layer — deferred.
-- **Monitor v1 per-variable claim comparison**: benchmarker integration
-  will compare per-section Insights against per-variable Claims for
-  stricter drift detection.
-
 ## Where things live (file map for quick lookup)
 
 ```
 shared/openai_client.py          OpenAI client (all services, including web_search)
 shared/indications.yaml          indication vocabulary per intervention
+shared/attributes.yaml           attribute taxonomy vocabulary per intervention
+services/benchmarker/configs/{intervention}.yaml  extraction/binding tuning
 services/chunker/pipeline.py     run_pipeline (parse + optional label)
 services/chunker/stages/         parser_docx, parser_pdf, mapper
 services/benchmarker/pipeline.py run_pipeline (parse → extract → bind)

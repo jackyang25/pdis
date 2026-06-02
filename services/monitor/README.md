@@ -47,7 +47,7 @@ as pure web evidence underneath it.
 ## Pipeline
 
 1. **parse + label** - chunker parses each uploaded doc and labels blocks by section.
-2. **per-section queries** - LLM extracts focused web queries for each non-metadata section.
+2. **per-section queries** - LLM extracts focused web queries for each non-metadata section using two axes: standard of care and new scientific data.
 3. **search** - searcher runs all section queries in parallel; findings are grouped back by section.
 4. **per-section insights** - LLM extracts atomic Insights per section and stamps `section_label`.
 5. **classify** - LLM classifies each Insight against the uploaded doc as `contradicts`, `extends`, `confirms`, or `unrelated`.
@@ -58,6 +58,17 @@ Monitor reuses chunker's section labeling to scope web searches to the
 document variables that matter. This avoids truncating the whole document
 into one query prompt and lets downstream views answer which section is
 drifting.
+
+## Config fields
+
+Monitor configs define query-generation guidance:
+
+| Field | Notes |
+|---|---|
+| `query_extraction_guidance` | Domain guidance injected into per-section query generation |
+| `queries_per_section` | Number of focused queries generated for each labeled section |
+| `priority_sources` | Optional authoritative sources to name in generated queries |
+| `modalities` | Optional platform technologies the query generator considers |
 
 ## One LLM client
 

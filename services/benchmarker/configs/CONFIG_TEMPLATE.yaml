@@ -1,24 +1,18 @@
-# AttributeConfig template.
-#
-# Evidence configs are keyed by INTERVENTION CLASS only. The attribute
-# namespace describes a product class (vaccine, drug, diagnostic, device),
-# not a document format. Copy this file to <intervention>.yaml (e.g.,
-# diagnostic.yaml or drug.yaml) and fill in the attributes.
-#
-# Real configs should have 25–50 attributes covering performance, safety,
-# presentation, access, regulatory, manufacturing, and economic dimensions
-# appropriate to the product class.
+# Benchmarker extraction config template. The attribute VOCABULARY
+# (names + descriptions) lives in shared/attributes.yaml.
+# This file holds only how benchmarker EXTRACTS/BINDS claims to those
+# shared attributes.
 
 type_key: example_intervention
-intervention_class: example_intervention  # must match filename stem
+intervention_class: example_intervention
 display_name: "Example Intervention"
 
 preamble: |
-  Replace this with a short description of what this config covers and
-  how a binder/author should approach attribute assignment for it.
+  Replace this with a short description of what this benchmarker config
+  covers and how the extractor/binder should approach claims for it.
 
 # Allowed claim_type values for this config. Must be a subset of the
-# canonical CLAIM_TYPES enum in evidence/models.py.
+# canonical CLAIM_TYPES enum in services/benchmarker/models.py.
 claim_types:
   - performance
   - feasibility
@@ -30,29 +24,18 @@ claim_types:
   - modelled_impact
   - expert_judgment
 
-# Intervention class this config is for. One value per config — write
-# a separate config for each (org × source_type × intervention).
-intervention_class: vaccine  # e.g., vaccine, mab, drug_oral, diagnostic_assay, device, bednet
-
-# Allowed indication values for this config.
-indications:
-  - hiv
-  - tb
-  - malaria
-  - contraception
-  - maternal_health
-
-# Attribute definitions. Each must have a name and a description.
-# Optional: parent, expected_claim_types.
-attributes:
-  - name: example.performance.threshold
-    description: >
-      Replace with a real attribute description. The description is what
-      a binder LLM (or a human author) uses to decide whether a claim
-      belongs to this attribute.
+# Per-attribute extraction hints, keyed by shared attribute name.
+# Omit attributes that need no benchmarker-specific expected_claim_types.
+attribute_extraction:
+  - ref: example.performance
     expected_claim_types:
       - performance
       - modelled_impact
 
-# Optional rules for ambiguous binding (free-text guidance for the binder).
+  - ref: example.safety
+    expected_claim_types:
+      - performance
+      - regulatory
+
+# Optional rules for ambiguous extraction/binding.
 disambiguation: []

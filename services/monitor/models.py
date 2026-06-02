@@ -28,8 +28,12 @@ def find_config(org: str, source_type: str, intervention_class: str) -> "Monitor
     return load_config(str(path))
 
 
-class OpenAIClientProtocol(Protocol):
-    """Contract for monitor's text-LLM stages (query + insight extraction)."""
+class LLMClientProtocol(Protocol):
+    """Contract for monitor's text-LLM stages (query + insight + drift).
+
+    Capability-named, not provider-named: any client exposing `call(...)`
+    satisfies it. The concrete client (OpenAIClient today) is injected.
+    """
 
     def call(self, system_prompt: str, user_message: str, max_tokens: int) -> str:
         ...
@@ -87,6 +91,8 @@ class MonitorTypeConfig:
     display_name: str
     query_extraction_guidance: str
     queries_per_section: int = 1
+    priority_sources: list[str] = field(default_factory=list)
+    modalities: list[str] = field(default_factory=list)
 
 
 def insights_to_dicts(insights: list[Insight]) -> list[dict]:
@@ -148,6 +154,17 @@ def load_config(config_path: str) -> MonitorTypeConfig:
     if missing:
         raise ValueError(f"Config missing required fields: {', '.join(sorted(missing))}")
 
+    priority_sources = data.get("priority_sources", []) or []
+    modalities = data.get("modalities", []) or []
+    if not isinstance(priority_sources, list) or not all(
+        isinstance(source, str) for source in priority_sources
+    ):
+        raise ValueError("priority_sources must be a list of strings")
+    if not isinstance(modalities, list) or not all(
+        isinstance(modality, str) for modality in modalities
+    ):
+        raise ValueError("modalities must be a list of strings")
+
     return MonitorTypeConfig(
         type_key=data["type_key"],
         org=data["org"],
@@ -156,4 +173,6 @@ def load_config(config_path: str) -> MonitorTypeConfig:
         display_name=data["display_name"],
         query_extraction_guidance=data["query_extraction_guidance"],
         queries_per_section=int(data.get("queries_per_section", 1)),
+        priority_sources=priority_sources,
+        modalities=modalities,
     )

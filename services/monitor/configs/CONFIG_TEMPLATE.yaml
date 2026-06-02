@@ -8,10 +8,21 @@ display_name: "Example Template"
 # section of the doc gets its own focused queries - these instructions
 # apply to ALL sections.
 query_extraction_guidance: |
-  Generate web search queries that surface up-to-date information about
-  the product profile, scoped to the specific section topic. Focus on:
-  regulatory developments, clinical trial readouts, competitive products,
-  and authoritative scientific publications. Each query should be specific
-  enough to return targeted results - avoid generic queries.
+  Generate web search queries across two axes:
+  (1) standard of care - current options, their efficacy/safety numbers,
+  and how a new product could win; and (2) new scientific data - recent
+  trial readouts, new entrants, platform/manufacturing advances, and
+  epidemiology trends. Use the section topic in every query.
+
+# Authoritative sources to name in generated queries (regulatory agencies,
+# registries, literature, key companies). Optional - omit for none.
+priority_sources:
+  - FDA
+  - EMA
+  - WHO
+  - PubMed
+
+# Platform technologies relevant to queries. Optional.
+modalities: []
 
 queries_per_section: 1

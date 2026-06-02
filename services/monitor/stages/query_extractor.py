@@ -11,7 +11,7 @@ import json
 import logging
 import re
 
-from ..models import MonitorTypeConfig, OpenAIClientProtocol
+from ..models import LLMClientProtocol, MonitorTypeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ def extract_queries_for_section(
     section_label: str,
     section_text: str,
     config: MonitorTypeConfig,
-    llm_client: OpenAIClientProtocol,
+    llm_client: LLMClientProtocol,
     *,
     indication: str,
     queries_per_section: int,
@@ -66,18 +66,35 @@ def _system_prompt_for_section(
     section_label: str,
     queries_per_section: int,
 ) -> str:
-    return "\n\n".join([
+    parts = [
         "You generate web search queries to surface up-to-date information "
         f"relevant to ONE section of a product profile document: "
         f'"{section_label}".',
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         config.query_extraction_guidance.strip(),
+    ]
+    if config.priority_sources:
+        parts.append(
+            "When relevant, try to name priority sources in the query text "
+            "(regulatory agencies, registries, literature, key companies): "
+            + ", ".join(config.priority_sources)
+            + "."
+        )
+    if config.modalities:
+        parts.append(
+            "Relevant platform technologies to consider when they bear on "
+            "the section topic: "
+            + ", ".join(config.modalities)
+            + "."
+        )
+    parts.append(
         f"Return EXACTLY {queries_per_section} quer"
         f"{'y' if queries_per_section == 1 else 'ies'} as a JSON array of strings. "
         "No markdown, no commentary. Each query 5-15 words. Each query must be "
         f'specific to the "{section_label}" topic. Example:\n'
-        '["FDA RSV vaccine approval 2025 elderly adults"]',
-    ])
+        '["FDA EMA RSV vaccine efficacy safety 2025"]'
+    )
+    return "\n\n".join(parts)
 
 
 def _user_message_for_section(section_label: str, section_text: str) -> str:

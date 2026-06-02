@@ -8,17 +8,39 @@ display_name: "BMGF TPP - Vaccine"
 # section of the doc (Efficacy, Safety, Storage, etc.) gets its own
 # focused queries - these instructions apply to ALL sections.
 query_extraction_guidance: |
-  Generate web search queries to surface up-to-date vaccine-relevant
-  information for the indication, scoped to the specific section topic.
-  Focus on:
-  - Recent regulatory approvals or guidance (FDA, EMA, WHO)
-  - Pivotal clinical trial readouts (Phase 2/3) in the indication
-  - Competitive vaccines for the same indication
-  - Safety signals, post-market surveillance updates
-  - Authoritative reviews and recent meta-analyses
+  Generate web search queries across TWO axes:
+
+  1. Standard of care - current prevention and treatment options for the
+     indication, their efficacy and safety numbers, regimen length, and
+     number of doses. Frame queries around how a new vaccine product could
+     win: higher efficacy, comparable efficacy with a better safety
+     profile, or fewer doses.
+
+  2. New scientific data - recent trial readouts, new product entrants,
+     platform and manufacturing advances, and epidemiology trends that
+     change how valuable a vaccine is for this indication.
 
   Use the indication name and the section topic in queries. Prefer
-  queries that target specific authorities, trial registries, or
-  peer-reviewed sources.
+  queries that target named regulators, trial registries, or
+  peer-reviewed literature over generic phrasing.
+
+priority_sources:
+  - FDA
+  - EMA
+  - WHO
+  - CDC
+  - PubMed
+  - ClinicalTrials.gov
+  - company press releases (Pfizer, GSK, Moderna, Merck)
+
+modalities:
+  - mRNA
+  - protein subunit
+  - viral vector
+  - DNA
+  - live-attenuated
+  - inactivated
+  - virus-like particle (VLP)
+  - conjugate
 
 queries_per_section: 1

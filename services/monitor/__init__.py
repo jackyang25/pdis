@@ -9,9 +9,9 @@ Matches with benchmarker claim IDs - not built yet.
 
 from .models import (
     Insight,
+    LLMClientProtocol,
     Match,
     MonitorTypeConfig,
-    OpenAIClientProtocol,
     SearchClientProtocol,
     VALID_RELATIONS,
     find_config,
@@ -23,9 +23,9 @@ from .pipeline import run_pipeline
 
 __all__ = [
     "Insight",
+    "LLMClientProtocol",
     "Match",
     "MonitorTypeConfig",
-    "OpenAIClientProtocol",
     "SearchClientProtocol",
     "VALID_RELATIONS",
     "find_config",

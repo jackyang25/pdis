@@ -13,7 +13,7 @@ import re
 
 from services.searcher import Finding
 
-from ..models import Insight, OpenAIClientProtocol
+from ..models import Insight, LLMClientProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ DEFAULT_MAX_TOKENS = 12000
 
 def extract_insights(
     findings: list[Finding],
-    llm_client: OpenAIClientProtocol,
+    llm_client: LLMClientProtocol,
     *,
     indication: str,
     intervention_class: str,

@@ -22,9 +22,9 @@ from services.searcher import Finding, run_pipeline as searcher_run
 
 from .models import (
     Insight,
+    LLMClientProtocol,
     Match,
     MonitorTypeConfig,
-    OpenAIClientProtocol,
     SearchClientProtocol,
 )
 from .stages.drift_classifier import classify_drift
@@ -39,7 +39,7 @@ def run_pipeline(
     file_paths: list[str],
     *,
     config: MonitorTypeConfig,
-    openai_client: OpenAIClientProtocol,
+    openai_client: LLMClientProtocol,
     search_client: SearchClientProtocol,
     org: str,
     source_type: str,
@@ -134,7 +134,7 @@ def _parse_all_docs(
     source_type: str,
     intervention_class: str,
     indication: str,
-    openai_client: OpenAIClientProtocol,
+    openai_client: LLMClientProtocol,
 ) -> list[ContentBlock]:
     """Parse + label each doc via chunker (with config to enable the mapper)."""
     try:
@@ -177,7 +177,7 @@ def _group_by_section(blocks: list[ContentBlock]) -> dict[str, list[ContentBlock
 def _extract_queries_all_sections(
     sections: dict[str, list[ContentBlock]],
     config: MonitorTypeConfig,
-    openai_client: OpenAIClientProtocol,
+    openai_client: LLMClientProtocol,
     *,
     indication: str,
 ) -> dict[str, list[str]]:

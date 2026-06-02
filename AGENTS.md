@@ -32,13 +32,13 @@ Imports flow one way only: `web → api → services → (shared, data)`. **Neve
 | `services/benchmarker/` | Benchmarker | Document → `list[Claim]`. Builds the peer corpus stored under `data/claims/`. | chunker |
 | `services/reviewer/` | Reviewer | Document → `ReviewResult` graded across 3 dimensions. | chunker, benchmarker (`FileClaimsStore`) |
 | `services/searcher/` | Searcher | Query → `list[Finding]`. LLM-driven web search via OpenAI. | shared/openai_client |
-| `services/monitor/` | Monitor | Files + 4 primitives → `list[Match]` (wraps Insight + relation_to_doc). Reuses chunker + searcher. | chunker, searcher |
+| `services/monitor/` | Monitor | Files + 4 primitives → `list[Match]`. Loops over attribute variables from `shared/attributes.yaml` and wraps each Insight with its relation to the uploaded doc. | chunker, searcher |
 
 ## Cross-cutting (`shared/`)
 
 - `shared/openai_client.py` — OpenAI client (gpt-5.5), including `search_web()`. Used by **all services**.
 - `shared/indications.yaml` — controlled vocabulary of indications per intervention class. Read by `/api/configs/indications` and stamped on every document-derived output. **Indications are NOT owned by any service config.**
-- `shared/attributes.yaml` — controlled vocabulary of TPP attributes per intervention class (e.g. `vaccine.efficacy`, `vaccine.safety`). Read by benchmarker (binds claims) and referenced by reviewer (`attribute_ref`). **Attributes are NOT owned by any service config** — same principle as indications.
+- `shared/attributes.yaml` — controlled vocabulary of TPP attributes per intervention class (e.g. `vaccine.efficacy`, `vaccine.safety`). Read by benchmarker (binds claims), referenced by reviewer (`attribute_ref`), and read by monitor (per-variable search loop). **Attributes are NOT owned by any service config** — same principle as indications.
 
 ## The 4 primitives (required for every document tool run)
 
@@ -68,7 +68,7 @@ Benchmarker reads its attribute vocabulary from `shared/attributes.yaml` and
 keeps extraction/binding tuning in `services/benchmarker/configs/`.
 
 Monitor configs may also include `priority_sources` and `modalities` lists.
-These are domain vocabulary injected into per-section query generation.
+These are domain vocabulary injected into per-variable query generation.
 
 ## Reviewer grading shape (option B — fully implemented)
 
@@ -148,7 +148,7 @@ services/searcher/pipeline.py    run_pipeline (query -> Findings)
 services/searcher/stages/searcher.py  single LLM web-search stage
 services/searcher/models.py      Finding dataclass + protocol
 services/monitor/pipeline.py     run_pipeline (files + primitives -> Matches)
-services/monitor/stages/query_extractor.py    LLM: docs -> search queries
+services/monitor/stages/query_extractor.py    LLM: attribute variables -> search queries
 services/monitor/stages/insight_extractor.py  LLM: findings -> Insights
 services/monitor/stages/drift_classifier.py   LLM: insights x doc -> relations
 services/monitor/models.py       Insight + Match dataclasses + config

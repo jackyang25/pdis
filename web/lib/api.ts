@@ -129,7 +129,7 @@ export type Insight = {
   source_type: string | null;
   intervention_class: string | null;
   indication: string | null;
-  section_label: string | null;
+  attribute_ref: string | null;
 };
 
 export type Match = {

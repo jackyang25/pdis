@@ -4,9 +4,9 @@ source_type: tpp
 intervention_class: vaccine
 display_name: "BMGF TPP - Vaccine"
 
-# Domain-specific guidance for the per-section query extractor. Each
-# section of the doc (Efficacy, Safety, Storage, etc.) gets its own
-# focused queries - these instructions apply to ALL sections.
+# Domain-specific guidance for the per-variable query extractor. Each
+# shared TPP attribute variable gets its own focused queries - these
+# instructions apply to ALL variables.
 query_extraction_guidance: |
   Generate web search queries across TWO axes:
 
@@ -20,7 +20,7 @@ query_extraction_guidance: |
      platform and manufacturing advances, and epidemiology trends that
      change how valuable a vaccine is for this indication.
 
-  Use the indication name and the section topic in queries. Prefer
+  Use the indication name and the variable topic in queries. Prefer
   queries that target named regulators, trial registries, or
   peer-reviewed literature over generic phrasing.
 
@@ -43,4 +43,4 @@ modalities:
   - virus-like particle (VLP)
   - conjugate
 
-queries_per_section: 1
+queries_per_variable: 1

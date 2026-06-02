@@ -14,6 +14,7 @@ from services.searcher import Finding
 
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
+ATTRIBUTES_FILE = Path(__file__).resolve().parents[2] / "shared" / "attributes.yaml"
 VALID_RELATIONS = {"contradicts", "extends", "confirms", "unrelated"}
 
 
@@ -47,6 +48,29 @@ class SearchClientProtocol(Protocol):
 
 
 @dataclass
+class Attribute:
+    """One TPP attribute variable from the shared vocabulary."""
+
+    name: str
+    description: str
+
+
+def load_attributes(intervention_class: str) -> list[Attribute]:
+    """Load attribute variables for an intervention class from shared vocabulary."""
+    import yaml
+
+    if not ATTRIBUTES_FILE.exists():
+        raise LookupError(f"Shared attribute vocabulary missing: {ATTRIBUTES_FILE}")
+    with open(ATTRIBUTES_FILE, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    items = data.get(intervention_class) or []
+    return [
+        Attribute(name=item["name"], description=item["description"])
+        for item in items
+    ]
+
+
+@dataclass
 class Insight:
     """One atomic factual observation from the web, source-attributed.
 
@@ -63,7 +87,7 @@ class Insight:
     source_type: str | None = None
     intervention_class: str | None = None
     indication: str | None = None
-    section_label: str | None = None
+    attribute_ref: str | None = None
 
 
 @dataclass
@@ -90,7 +114,7 @@ class MonitorTypeConfig:
     intervention_class: str
     display_name: str
     query_extraction_guidance: str
-    queries_per_section: int = 1
+    queries_per_variable: int = 1
     priority_sources: list[str] = field(default_factory=list)
     modalities: list[str] = field(default_factory=list)
 
@@ -172,7 +196,7 @@ def load_config(config_path: str) -> MonitorTypeConfig:
         intervention_class=data["intervention_class"],
         display_name=data["display_name"],
         query_extraction_guidance=data["query_extraction_guidance"],
-        queries_per_section=int(data.get("queries_per_section", 1)),
+        queries_per_variable=int(data.get("queries_per_variable", 1)),
         priority_sources=priority_sources,
         modalities=modalities,
     )

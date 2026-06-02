@@ -74,7 +74,7 @@ async def run_monitor(
                                 "intervention_class"
                             ),
                             indication=md["insight"].get("indication"),
-                            section_label=md["insight"].get("section_label"),
+                            attribute_ref=md["insight"].get("attribute_ref"),
                         ),
                         relation=md["relation"],
                         reason=md["reason"],

@@ -66,7 +66,7 @@ class InsightOut(BaseModel):
     source_type: str | None = None
     intervention_class: str | None = None
     indication: str | None = None
-    section_label: str | None = None
+    attribute_ref: str | None = None
 
 
 class MatchOut(BaseModel):

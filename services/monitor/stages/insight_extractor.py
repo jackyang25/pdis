@@ -26,7 +26,7 @@ def extract_insights(
     *,
     indication: str,
     intervention_class: str,
-    section_label: str | None = None,
+    attribute_ref: str | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[Insight]:
     """Return Insights extracted from the supplied Findings."""
@@ -58,7 +58,7 @@ def extract_insights(
                 statement=statement,
                 supporting_findings=supporting,
                 query=query,
-                section_label=section_label,
+                attribute_ref=attribute_ref,
             )
         )
     return insights
@@ -73,6 +73,11 @@ def _system_prompt(*, indication: str, intervention_class: str) -> str:
         "- Every Insight must cite at least one supporting Finding by its URL.\n"
         "- Prefer recent, source-attributable facts (regulatory actions, trial readouts, "
         "approvals, safety signals). Skip opinion and marketing language.\n"
+        "- Extract only SUBSTANTIVE facts: approvals, recommendations, trial readouts, "
+        "efficacy/safety findings, regulatory actions, new products, epidemiology shifts. "
+        "Do NOT extract meta-statements that merely note a resource exists - e.g. "
+        "\"X published a Q&A page\", \"a webpage describes Y\", \"a fact sheet is available\". "
+        "Those are not insights. Extract the underlying fact only if the source states one.\n"
         "- Do not invent facts not present in the findings.\n\n"
         "Return ONLY JSON. No markdown, no preamble. Format:\n"
         "[\n"

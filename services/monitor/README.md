@@ -31,7 +31,7 @@ print(matches_to_dicts(matches)[:3])
 | `supporting_findings` | list[Finding] | Sources backing the statement |
 | `query` | str | The search query that surfaced the supporting evidence |
 | `org` / `source_type` / `intervention_class` / `indication` | str \| None | Stamped from inputs |
-| `section_label` | str \| None | Chunker section/variable label this Insight relates to |
+| `attribute_ref` | str \| None | Shared TPP attribute variable this Insight relates to |
 
 ## What a `Match` is
 
@@ -46,18 +46,18 @@ as pure web evidence underneath it.
 
 ## Pipeline
 
-1. **parse + label** - chunker parses each uploaded doc and labels blocks by section.
-2. **per-section queries** - LLM extracts focused web queries for each non-metadata section using two axes: standard of care and new scientific data.
-3. **search** - searcher runs all section queries in parallel; findings are grouped back by section.
-4. **per-section insights** - LLM extracts atomic Insights per section and stamps `section_label`.
+1. **parse** - chunker parses each uploaded doc without section mapping.
+2. **per-variable queries** - LLM extracts focused web queries for each shared attribute variable using two axes: standard of care and new scientific data.
+3. **search** - searcher runs all variable queries in parallel; findings are grouped back by attribute.
+4. **per-variable insights** - LLM extracts atomic Insights per attribute and stamps `attribute_ref`.
 5. **classify** - LLM classifies each Insight against the uploaded doc as `contradicts`, `extends`, `confirms`, or `unrelated`.
 
 Each step is one stage in `services/monitor/stages/`.
 
-Monitor reuses chunker's section labeling to scope web searches to the
-document variables that matter. This avoids truncating the whole document
-into one query prompt and lets downstream views answer which section is
-drifting.
+Monitor reads the variable list from `shared/attributes.yaml` for the
+run's intervention class. It parses the uploaded document for classifier
+context, then searches per attribute variable so downstream views can
+show which TPP variable is drifting.
 
 ## Config fields
 
@@ -65,8 +65,8 @@ Monitor configs define query-generation guidance:
 
 | Field | Notes |
 |---|---|
-| `query_extraction_guidance` | Domain guidance injected into per-section query generation |
-| `queries_per_section` | Number of focused queries generated for each labeled section |
+| `query_extraction_guidance` | Domain guidance injected into per-variable query generation |
+| `queries_per_variable` | Number of focused queries generated for each shared attribute variable |
 | `priority_sources` | Optional authoritative sources to name in generated queries |
 | `modalities` | Optional platform technologies the query generator considers |
 
@@ -78,13 +78,6 @@ via searcher, insight extraction, and drift classification.
 Monitor's `run_pipeline` keeps separate `openai_client` and
 `search_client` parameters because those are separate contracts, but the
 same `OpenAIClient` satisfies both.
-
-## What v0 does NOT do (deferred)
-
-- **No comparison against doc Claims.** Benchmarker integration is a
-  v1 layer that will enrich Matches with `claim_id` pointers to the
-  specific doc Claims involved in the comparison.
-- **No persistence.** Stateless; same input -> same output (mod LLM/web drift).
 
 ## Stateless
 

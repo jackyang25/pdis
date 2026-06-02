@@ -32,6 +32,13 @@ const RELATION_VARIANT: Record<Match["relation"], "default" | "outline" | "muted
   unrelated: "outline",
 };
 
+function attributeLabel(ref: string) {
+  const local = ref.includes(".") ? ref.split(".").slice(1).join(".") : ref;
+  return local
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export default function MonitorPage() {
   return (
     <>
@@ -118,8 +125,10 @@ function MatchesList({ result }: { result: MonitorResponse }) {
                 <Badge variant={RELATION_VARIANT[match.relation]}>
                   {match.relation}
                 </Badge>
-                {match.insight.section_label && (
-                  <Badge variant="outline">{match.insight.section_label}</Badge>
+                {match.insight.attribute_ref && (
+                  <Badge variant="outline">
+                    {attributeLabel(match.insight.attribute_ref)}
+                  </Badge>
                 )}
                 <span className="break-words text-xs text-muted-foreground">
                   {match.insight.query}

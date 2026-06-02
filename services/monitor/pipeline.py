@@ -1,11 +1,9 @@
 """Stateless monitor pipeline.
 
-Orchestrates: chunker (parse + section label) -> per-section query_extractor
-(LLM) -> searcher (web) -> per-section insight_extractor (LLM) ->
+Orchestrates: chunker (parse only) -> per-attribute query_extractor
+(LLM) -> searcher (web) -> per-attribute insight_extractor (LLM) ->
 drift_classifier (LLM). Reuses chunker and searcher via their public
 contracts only.
-
-v0 does NOT use benchmarker; claim-level comparison is deferred to v1.
 """
 
 from __future__ import annotations
@@ -13,26 +11,23 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from services.chunker import (
-    ContentBlock,
-    find_config as chunker_find_config,
-    run_pipeline as chunker_run,
-)
+from services.chunker import ContentBlock, run_pipeline as chunker_run
 from services.searcher import Finding, run_pipeline as searcher_run
 
 from .models import (
+    Attribute,
     Insight,
     LLMClientProtocol,
     Match,
     MonitorTypeConfig,
     SearchClientProtocol,
+    load_attributes,
 )
 from .stages.drift_classifier import classify_drift
 from .stages.insight_extractor import extract_insights
-from .stages.query_extractor import extract_queries_for_section
+from .stages.query_extractor import extract_queries_for_variable
 
-MAX_FINDINGS_FOR_EXTRACTION_PER_SECTION = 20
-SECTIONS_TO_SKIP = {"Document Metadata", "Other", None, ""}
+MAX_FINDINGS_FOR_EXTRACTION_PER_VARIABLE = 20
 
 
 def run_pipeline(
@@ -47,12 +42,7 @@ def run_pipeline(
     indication: str,
     progress_callback=None,
 ) -> list[Match]:
-    """Per-section monitor pipeline.
-
-    Section-labels each uploaded doc, generates queries per section,
-    searches the web in parallel, extracts Insights per section (tagged
-    with section_label), and classifies drift against the doc.
-    """
+    """Run monitor over every shared attribute variable for the intervention."""
     if progress_callback:
         progress_callback("parse")
     blocks = _parse_all_docs(
@@ -61,20 +51,27 @@ def run_pipeline(
         source_type=source_type,
         intervention_class=intervention_class,
         indication=indication,
-        openai_client=openai_client,
+    )
+    doc_text = "\n".join(
+        block.content for block in blocks if getattr(block, "content", "")
     )
 
-    sections = _group_by_section(blocks)
-    if not sections:
+    attributes = load_attributes(intervention_class)
+    if not attributes:
         return []
 
     if progress_callback:
         progress_callback("queries")
-    section_queries = _extract_queries_all_sections(
-        sections, config, openai_client, indication=indication
+    attribute_queries = _extract_queries_all_variables(
+        attributes,
+        config,
+        openai_client,
+        indication=indication,
     )
     flat: list[tuple[str, str]] = [
-        (label, query) for label, queries in section_queries.items() for query in queries
+        (attribute_ref, query)
+        for attribute_ref, queries in attribute_queries.items()
+        for query in queries
     ]
     if not flat:
         return []
@@ -85,26 +82,24 @@ def run_pipeline(
     if not findings_by_query:
         return []
 
-    findings_by_section: dict[str, list[Finding]] = {}
-    for (label, _query), findings in findings_by_query.items():
-        findings_by_section.setdefault(label, [])
+    findings_by_attribute: dict[str, list[Finding]] = {}
+    for (attribute_ref, _query), findings in findings_by_query.items():
+        findings_by_attribute.setdefault(attribute_ref, [])
         for finding in findings:
-            if not any(existing.url == finding.url for existing in findings_by_section[label]):
-                findings_by_section[label].append(finding)
+            if not any(
+                existing.url == finding.url
+                for existing in findings_by_attribute[attribute_ref]
+            ):
+                findings_by_attribute[attribute_ref].append(finding)
 
     if progress_callback:
         progress_callback("insights")
-    insights: list[Insight] = []
-    for label, section_findings in findings_by_section.items():
-        capped = section_findings[:MAX_FINDINGS_FOR_EXTRACTION_PER_SECTION]
-        section_insights = extract_insights(
-            capped,
-            openai_client,
-            indication=indication,
-            intervention_class=intervention_class,
-            section_label=label,
-        )
-        insights.extend(section_insights)
+    insights = _extract_insights_all_variables(
+        findings_by_attribute,
+        openai_client,
+        indication=indication,
+        intervention_class=intervention_class,
+    )
 
     _stamp(
         insights,
@@ -116,9 +111,8 @@ def run_pipeline(
 
     if progress_callback:
         progress_callback("classify")
-    doc_excerpts = _doc_excerpts_for_classifier(sections)
     matches = classify_drift(
-        doc_excerpts,
+        [doc_text],
         insights,
         openai_client,
         indication=indication,
@@ -134,26 +128,14 @@ def _parse_all_docs(
     source_type: str,
     intervention_class: str,
     indication: str,
-    openai_client: LLMClientProtocol,
 ) -> list[ContentBlock]:
-    """Parse + label each doc via chunker (with config to enable the mapper)."""
-    try:
-        chunker_config = chunker_find_config(org, source_type, intervention_class)
-    except LookupError as exc:
-        raise LookupError(
-            f"Chunker config missing for ({org}, {source_type}, {intervention_class}). "
-            f"Monitor needs section labeling to scope queries per variable. "
-            f"Original error: {exc}"
-        )
-
+    """Parse each doc via chunker without section-label mapping."""
     blocks: list[ContentBlock] = []
     for file_path in file_paths:
         doc_id = Path(file_path).stem
         doc_blocks = chunker_run(
             file_path,
             doc_id,
-            config=chunker_config,
-            llm_client=openai_client,
             org=org,
             source_type=source_type,
             intervention_class=intervention_class,
@@ -163,73 +145,86 @@ def _parse_all_docs(
     return blocks
 
 
-def _group_by_section(blocks: list[ContentBlock]) -> dict[str, list[ContentBlock]]:
-    """Group blocks by section_label; drop metadata/other/empty labels."""
-    grouped: dict[str, list[ContentBlock]] = {}
-    for block in blocks:
-        label = block.section_label
-        if label in SECTIONS_TO_SKIP:
-            continue
-        grouped.setdefault(label, []).append(block)
-    return grouped
-
-
-def _extract_queries_all_sections(
-    sections: dict[str, list[ContentBlock]],
+def _extract_queries_all_variables(
+    attributes: list[Attribute],
     config: MonitorTypeConfig,
     openai_client: LLMClientProtocol,
     *,
     indication: str,
 ) -> dict[str, list[str]]:
-    """One query-extractor call per section, sequential (fast LLM calls)."""
-    out: dict[str, list[str]] = {}
-    for label, section_blocks in sections.items():
-        section_text = "\n".join(block.content for block in section_blocks if block.content)
-        queries = extract_queries_for_section(
-            label,
-            section_text,
+    """Run query extraction across attribute variables with bounded concurrency."""
+    if not attributes:
+        return {}
+    workers = max(1, min(8, len(attributes)))
+
+    def one(attribute: Attribute) -> tuple[str, list[str]]:
+        return attribute.name, extract_queries_for_variable(
+            attribute,
             config,
             openai_client,
             indication=indication,
-            queries_per_section=config.queries_per_section,
+            queries_per_variable=config.queries_per_variable,
         )
-        if queries:
-            out[label] = queries
-    return out
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(one, attributes))
+    return {name: queries for name, queries in results if queries}
+
+
+def _extract_insights_all_variables(
+    findings_by_attribute: dict[str, list[Finding]],
+    openai_client: LLMClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+) -> list[Insight]:
+    """Run insight extraction per attribute with bounded concurrency."""
+    items = list(findings_by_attribute.items())
+    if not items:
+        return []
+    workers = max(1, min(8, len(items)))
+
+    def one(item: tuple[str, list[Finding]]) -> list[Insight]:
+        attribute_ref, findings = item
+        capped = findings[:MAX_FINDINGS_FOR_EXTRACTION_PER_VARIABLE]
+        return extract_insights(
+            capped,
+            openai_client,
+            indication=indication,
+            intervention_class=intervention_class,
+            attribute_ref=attribute_ref,
+        )
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(one, items))
+
+    insights: list[Insight] = []
+    for variable_insights in results:
+        insights.extend(variable_insights)
+    return insights
 
 
 def _search_all(
-    section_queries: list[tuple[str, str]],
+    attribute_queries: list[tuple[str, str]],
     search_client: SearchClientProtocol,
 ) -> dict[tuple[str, str], list[Finding]]:
-    """Run all queries in parallel. Returns mapping from (section, query) to findings."""
-    if not section_queries:
+    """Run all queries in parallel. Returns mapping from (attribute, query) to findings."""
+    if not attribute_queries:
         return {}
-    workers = max(1, len(section_queries))
+    workers = max(1, min(8, len(attribute_queries)))
     with ThreadPoolExecutor(max_workers=workers) as executor:
         results = list(
             executor.map(
-                lambda section_query: searcher_run(
-                    section_query[1], llm_client=search_client
+                lambda attribute_query: searcher_run(
+                    attribute_query[1], llm_client=search_client
                 ),
-                section_queries,
+                attribute_queries,
             )
         )
     return {
-        section_query: findings
-        for section_query, findings in zip(section_queries, results)
+        attribute_query: findings
+        for attribute_query, findings in zip(attribute_queries, results)
     }
-
-
-def _doc_excerpts_for_classifier(
-    sections: dict[str, list[ContentBlock]],
-) -> list[str]:
-    """Build per-section excerpts for the drift_classifier prompt."""
-    out: list[str] = []
-    for label, blocks in sections.items():
-        text = "\n".join(block.content for block in blocks if block.content)
-        out.append(f"### {label}\n{text}")
-    return out
 
 
 def _stamp(

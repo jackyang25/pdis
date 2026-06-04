@@ -59,6 +59,9 @@ def run_pipeline(
     attributes = load_attributes(intervention_class)
     if not attributes:
         return []
+    attribute_descriptions = {
+        attribute.name: attribute.description for attribute in attributes
+    }
 
     if progress_callback:
         progress_callback("queries")
@@ -96,6 +99,7 @@ def run_pipeline(
         progress_callback("insights")
     insights = _extract_insights_all_variables(
         findings_by_attribute,
+        attribute_descriptions,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
@@ -173,6 +177,7 @@ def _extract_queries_all_variables(
 
 def _extract_insights_all_variables(
     findings_by_attribute: dict[str, list[Finding]],
+    attribute_descriptions: dict[str, str],
     openai_client: LLMClientProtocol,
     *,
     indication: str,
@@ -193,6 +198,7 @@ def _extract_insights_all_variables(
             indication=indication,
             intervention_class=intervention_class,
             attribute_ref=attribute_ref,
+            attribute_description=attribute_descriptions.get(attribute_ref, ""),
         )
 
     with ThreadPoolExecutor(max_workers=workers) as executor:

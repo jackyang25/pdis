@@ -69,6 +69,10 @@ def _system_prompt_for_variable(
         "beyond this one variable. Example: for the variable \"Indication\", search the "
         "disease/target-population scope (e.g. which products are indicated for the "
         "disease) - not efficacy percentages or dosing schedules.",
+        "Favor recent developments (roughly the last 1-2 years). Do NOT hardcode a "
+        "specific calendar year in the query text - the live web search stays current "
+        "on its own. Use relative terms like \"recent\" or \"latest\", or omit the year "
+        "entirely.",
         config.query_extraction_guidance.strip(),
     ]
     if config.priority_sources:
@@ -90,7 +94,7 @@ def _system_prompt_for_variable(
         f"{'y' if queries_per_variable == 1 else 'ies'} as a JSON array of strings. "
         "No markdown, no commentary. Each query 5-15 words. Each query must be "
         f"specific to the {attribute.name} variable. Example:\n"
-        '["FDA EMA RSV vaccine efficacy safety 2025"]'
+        '["latest FDA EMA RSV vaccine efficacy safety"]'
     )
     return "\n\n".join(parts)
 

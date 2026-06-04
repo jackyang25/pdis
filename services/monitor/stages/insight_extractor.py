@@ -27,13 +27,19 @@ def extract_insights(
     indication: str,
     intervention_class: str,
     attribute_ref: str | None = None,
+    attribute_description: str = "",
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[Insight]:
     """Return Insights extracted from the supplied Findings."""
     if not findings:
         return []
 
-    system_prompt = _system_prompt(indication=indication, intervention_class=intervention_class)
+    system_prompt = _system_prompt(
+        indication=indication,
+        intervention_class=intervention_class,
+        attribute_ref=attribute_ref,
+        attribute_description=attribute_description,
+    )
     user_message = _user_message(findings)
 
     raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
@@ -64,10 +70,31 @@ def extract_insights(
     return insights
 
 
-def _system_prompt(*, indication: str, intervention_class: str) -> str:
+def _system_prompt(
+    *,
+    indication: str,
+    intervention_class: str,
+    attribute_ref: str | None,
+    attribute_description: str,
+) -> str:
     return (
         f"You extract atomic factual insights from web search findings about "
         f"a {intervention_class} for {indication}.\n\n"
+        "You are extracting insights for ONE specific TPP variable:\n"
+        f"Variable: {attribute_ref or 'unknown'}\n"
+        f"Definition: {attribute_description or 'No definition provided.'}\n\n"
+        "Relevance rule:\n"
+        "- Extract ONLY facts that are genuinely about THIS variable's topic, as defined above.\n"
+        "- If a finding is about a DIFFERENT topic, SKIP it - do not extract it. "
+        "Examples of skips: an identity fact like \"X is a malaria vaccine\" when "
+        "the variable is about price; a general dosing-schedule recommendation when "
+        "the variable is about a companion diagnostic.\n"
+        "- Returning an EMPTY list is correct and expected when the findings contain "
+        "nothing about this variable's topic. Do NOT stretch loosely-related facts to "
+        "fill the field.\n"
+        "- Keep facts that are clearly on-topic OR closely related to the variable's "
+        "definition. When genuinely unsure whether a fact fits, prefer keeping it over "
+        "dropping it (favor recall slightly, to avoid emptying fields that have real content).\n\n"
         "Rules:\n"
         "- Each Insight is ONE atomic factual statement (one fact, not a paragraph).\n"
         "- Every Insight must cite at least one supporting Finding by its URL.\n"

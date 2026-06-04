@@ -44,22 +44,22 @@ const STATUS_META: Record<
 > = {
   conflict: {
     label: "Conflict",
-    tone: "border-red-300 bg-red-50/70",
+    tone: "border-l-red-500 bg-red-50/50",
     badge: "default",
   },
   updates: {
     label: "Updates",
-    tone: "border-amber-300 bg-amber-50/80",
+    tone: "border-l-amber-400 bg-amber-50/50",
     badge: "outline",
   },
   confirmed: {
     label: "Confirmed",
-    tone: "border-emerald-300 bg-emerald-50/70",
+    tone: "border-l-emerald-500 bg-emerald-50/50",
     badge: "muted",
   },
   clear: {
     label: "Clear",
-    tone: "border-border bg-background",
+    tone: "border-l-transparent bg-transparent",
     badge: "outline",
   },
 };
@@ -182,7 +182,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
           />
         }
       >
-        <div className="-mx-6 divide-y divide-border">
+        <div className="-mx-6">
           {rows.map((row) => (
             <FieldRow
               key={row.variable.name}
@@ -212,7 +212,7 @@ function FieldRow({
   const meta = STATUS_META[status];
 
   return (
-    <details className={`group border-l-4 ${meta.tone}`}>
+    <details className={`group border-b border-b-border border-l-4 ${meta.tone}`}>
       <summary className="flex cursor-pointer items-start justify-between gap-4 px-6 py-4 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-2">

@@ -111,19 +111,303 @@ vaccine:
   description: |
     Whether a companion test is needed (e.g., to screen recipients or monitor response).
 
+
 # ---------------------------------------------------------------------------
-# TODO (domain): author attribute variables for the intervention classes
-# below, mirroring the `vaccine:` block above. Each entry is:
-#   - name: "<class>.<slug>"
-#     description: |
-#       What this variable covers (one or two sentences).
-# Until filled, monitor returns no fields for these classes (load_attributes
-# returns an empty list - safe, just empty). Human-maintained domain
-# vocabulary, owned by no service.
+# Seeded from the reviewer rubrics (services/reviewer/configs/) as a first
+# draft. Domain owners should refine wording/granularity over time. Mirrors
+# the vaccine block above. Human-maintained; owned by no service.
 # ---------------------------------------------------------------------------
 
-drug: []
+drug:
+- name: drug.indication
+  description: |
+    The disease or condition the drug is intended to treat. Should be specific and aligned with regulatory language.
+- name: drug.product
+  description: |
+    Drug name and mechanism of action (Candidate TPP only).
+- name: drug.target_population
+  description: |
+    Demographic and clinical characteristics of patients. Specify age range, geography, disease stage, and any risk factors.
+- name: drug.target_countries
+  description: |
+    Geographic markets and tiers (LMIC focus). Should reference WHO regions or specific country lists with rationale.
+- name: drug.efficacy
+  description: |
+    Primary efficacy endpoints and target levels. Quantitative target like 'at least X% reduction in mortality at Y months.' Should reference comparable interventions.
+- name: drug.safety
+  description: |
+    Primary safety endpoints and target levels. Quantitative target with acceptable adverse event rates. Reference WHO/regulatory benchmarks.
+- name: drug.formulation_dosage_and_administration
+  description: |
+    Target formulation, route of administration, dose strengths, and regimen. Specify rationale and reference supporting data.
+- name: drug.stability_shelf_life
+  description: |
+    Target duration of stability and storage conditions. Quantitative target like 'X months at 2-8 C, Y months at 25 C.' Specify cold chain tolerance.
+- name: drug.product_presentation
+  description: |
+    How the product is presented (tablet, vial, etc.). Address registration requirements and access considerations.
+- name: drug.product_registration_pathway_s
+  description: |
+    Regulatory pathway: country focus, intended path (Fast to POC, Launch, Experimental), anticipated challenges.
+- name: drug.who_prequalification_date
+  description: |
+    Target year/timeframe for WHO PQ. Quantitative timeframe.
+- name: drug.national_policy_recommendation_needs
+  description: |
+    Targeted policy requirements and timeframe based on focus countries.
+- name: drug.primary_target_delivery_channel
+  description: |
+    Intended delivery channels - direct to consumer, health care facility, public/private funding, campaign mode.
+- name: drug.target_affordable_pricing_procurement
+  description: |
+    Fixed costs and country for manufacturing. Pricing rationale and regulatory considerations.
+- name: drug.cogs
+  description: |
+    Target cost of goods. Quantitative target like 'less than $X per dose.' Should include rationale and source data.
+- name: drug.special_populations
+  description: |
+    Considerations for pregnancy, immunocompromised, elderly, pediatric subgroups.
+- name: drug.population_segment_unlikely_to_be_treated_i_e_ddi
+  description: |
+    Patient populations or segments unlikely to be treated, including drug-drug interactions and contraindications (renal/hepatic dysfunction).
+- name: drug.treatment_adherence_risks
+  description: |
+    Minimally acceptable and optimistic treatment adherence risks. How adherence affects safety and efficacy.
+- name: drug.is_companion_diagnostic_needed_for_use
+  description: |
+    Whether use is conditional on a companion diagnostic test or follow-up testing.
+- name: drug.target_procurement_price
+  description: |
+    Target wholesale price for procurement (Gavi, UNICEF, country governments). Quantitative.
+- name: drug.total_per_patient_costs_delivered
+  description: |
+    Full cost including delivery, cold chain, administration, and treatment regimen. Quantitative.
+- name: drug.expected_financing_source
+  description: |
+    Expected financing - subsidized, consumer-paid, donor-funded, government-funded. Cost sharing across country income categories.
+- name: drug.clinical_endpoint_for_licensure
+  description: |
+    Primary endpoint required for regulatory approval. Specify the measure and target.
+- name: drug.user_benefits
+  description: |
+    Benefits the product offers the primary user and key stakeholders.
+- name: drug.user_barriers
+  description: |
+    Barriers preventing the primary user, influencers, and stakeholders from adopting the product.
 
-diagnostic: []
+diagnostic:
+- name: diagnostic.intended_detection_target
+  description: |
+    What the test detects - target organism or molecular component. Should specify variants, genotypes, or subtypes to be detected or avoided.
+- name: diagnostic.intended_use_population
+  description: |
+    Population for which the test is intended. Should specify demographics and clinical criteria.
+- name: diagnostic.actionable_result
+  description: |
+    What the information is used for - diagnosis, screening, prognosis, monitoring, surveillance, IUO, or RUO.
+- name: diagnostic.specimen_type
+  description: |
+    Type of specimens to be tested (blood, plasma, swab, etc.).
+- name: diagnostic.test_type
+  description: |
+    Whether the test is qualitative or quantitative.
+- name: diagnostic.platform_technology
+  description: |
+    Type of platform or technology used (PCR, lateral flow, ELISA, etc.).
+- name: diagnostic.clinical_sensitivity
+  description: |
+    Quantitative target for clinical sensitivity. Reference WHO benchmarks where applicable.
+- name: diagnostic.clinical_specificity
+  description: |
+    Quantitative target for clinical specificity. Reference WHO benchmarks where applicable.
+- name: diagnostic.analytical_specificity_cross_reactivity
+  description: |
+    Target for analytical specificity and cross-reactivity with related organisms.
+- name: diagnostic.analytical_sensitivity
+  description: |
+    Target for limit of detection (LOD).
+- name: diagnostic.precision_and_reproducibility
+  description: |
+    Targets for precision (within-run, between-run) and reproducibility across labs/users.
+- name: diagnostic.test_robustness
+  description: |
+    Targets for interference, cross-contamination, and validity controls.
+- name: diagnostic.risk_of_inaccurate_result
+  description: |
+    Risk assessment for inaccurate results and assay/system features to minimize risk.
+- name: diagnostic.regulatory_approvals_and_standards
+  description: |
+    Regulatory approvals needed (WHO PQ, FDA QSR, ISO 13485) before commercialization in target countries.
+- name: diagnostic.promotional_materials
+  description: |
+    Permitted promotional, educational, marketing, and sales materials.
+- name: diagnostic.environment_location_of_use
+  description: |
+    Where the test is performed - health care level, environmental conditions.
+- name: diagnostic.instrument_and_device_characteristics
+  description: |
+    Physical dimensions, modularity, weight, automation level, power and water requirements, reliability, throughput, waste management, and biosafety.
+- name: diagnostic.information_and_communication_technology
+  description: |
+    User interface, data input/output, security, storage, connectivity requirements, result transmission.
+- name: diagnostic.reagent_and_control_handling
+  description: |
+    Reagent and cartridge storage, packaging requirements.
+- name: diagnostic.sample_handling
+  description: |
+    Specimen tracking, sample types and volumes, collection and transport, sample preparation.
+- name: diagnostic.distribution_service_support_training
+  description: |
+    Who runs the test, training and support, quality control system, instrument and supply reliability, service response time.
+- name: diagnostic.commercial_launch_and_funding
+  description: |
+    Launch countries, government priority alignment, funding agencies, IP/global access issues, commercial channels.
+- name: diagnostic.pricing
+  description: |
+    Total end-user price per test, maximum cost of instrumentation.
 
-device: []
+device:
+- name: device.indication
+  description: |
+    The condition the device is intended to address. Should match regulatory language.
+- name: device.product
+  description: |
+    Device name and mechanism of action (Candidate TPP only).
+- name: device.target_population
+  description: |
+    Demographic and clinical characteristics of patients. Specify age range, geography, and condition severity.
+- name: device.special_populations
+  description: |
+    Considerations for pediatric, pregnant, immunocompromised, or elderly populations.
+- name: device.population_segment_unlikely_to_be_treated
+  description: |
+    Patient populations or segments unlikely to be treated, including device contraindications.
+- name: device.target_countries
+  description: |
+    Geographic markets and tiers. Should reference WHO regions or specific country lists with rationale.
+- name: device.efficacy
+  description: |
+    Primary efficacy endpoints and target levels. Quantitative target with rationale.
+- name: device.clinical_endpoint_for_licensure
+  description: |
+    Clinical endpoint required for regulatory approval.
+- name: device.safety
+  description: |
+    Primary safety endpoints and target levels. Quantitative.
+- name: device.shelf_life
+  description: |
+    Target duration of storage and required conditions. Quantitative target.
+- name: device.product_presentation
+  description: |
+    How the product is presented. Registration and access considerations.
+- name: device.product_registration_pathway_s
+  description: |
+    Regulatory pathway: country focus, intended path, anticipated challenges.
+- name: device.who_prequalification_date
+  description: |
+    Target year/timeframe for WHO PQ.
+- name: device.national_policy_recommendation_needs
+  description: |
+    Targeted policy requirements and timeframe based on focus countries.
+- name: device.primary_target_delivery_channel
+  description: |
+    Intended delivery channels - direct to consumer, health care facility, public/private funding.
+- name: device.target_affordable_pricing_procurement
+  description: |
+    Affordable price for the end user in target countries.
+- name: device.cogs
+  description: |
+    Target manufacturing cost. Quantitative target with rationale.
+- name: device.target_procurement_price
+  description: |
+    Target wholesale procurement price (USAID, World Bank, Global Fund). Quantitative.
+- name: device.total_per_patient_costs_delivered
+  description: |
+    Full cost including delivery and treatment regimen. Quantitative.
+- name: device.expected_financing_source
+  description: |
+    Expected financing mechanism - donor, government, consumer.
+- name: device.volume_estimates
+  description: |
+    1 to 5 year demand forecast post-approval.
+- name: device.packaging
+  description: |
+    How the product will be packaged - components and consumables together or separately.
+- name: device.shipping
+  description: |
+    Mode of transportation, temperature and monitoring requirements.
+- name: device.device_type
+  description: |
+    Device type by anticipated risk to patient (e.g. class II FDA device).
+- name: device.device_format
+  description: |
+    Physical format of the device.
+- name: device.is_companion_diagnostic_needed_for_use
+  description: |
+    Whether use is conditional on a companion diagnostic test.
+- name: device.ease_of_operation
+  description: |
+    Skills and training required to operate the device, appropriate for defined user groups.
+- name: device.user_preference
+  description: |
+    Design parameters addressing end user preferences (size, weight, format, left/right-handed use).
+- name: device.tamper_evidence
+  description: |
+    Tamper-evidence indicators or barriers to entry.
+- name: device.reusability
+  description: |
+    Components intended as consumables vs. non-consumables, single use vs. reusable.
+- name: device.user_error
+  description: |
+    Protocols ensuring proper device usage; risk of user error and detectable user-related hazards.
+- name: device.robustness
+  description: |
+    Target durability and robustness test requirements.
+- name: device.components
+  description: |
+    Major components and sub-components of the device.
+- name: device.environmental_description
+  description: |
+    Whether the device can be operated in low-infrastructure environments.
+- name: device.construction_materials
+  description: |
+    Materials used; safety parameters for material leachability and foreign particulate matter.
+- name: device.manufacturing_process
+  description: |
+    Manufacturing process details.
+- name: device.development_standards
+  description: |
+    Quality systems and documentation per regulatory guidance and standards.
+- name: device.disposal
+  description: |
+    Disposal requirements for the device and patient samples.
+- name: device.power_and_it_requirements
+  description: |
+    Power source, battery life, charging time, digital requirements.
+- name: device.size_weight
+  description: |
+    Size and weight relative to comparable devices.
+- name: device.device_performance
+  description: |
+    Conformance to recognized FDA consensus standards.
+- name: device.orientation
+  description: |
+    Device performance impact due to changes in orientation.
+- name: device.shelf_life_device_specific_performance
+  description: |
+    Sterilization requirements and product property retention through storage and use.
+- name: device.impurities_and_degradation_products
+  description: |
+    Impurities and degradation products controlled within toxicological limits.
+- name: device.foreign_particulate_matter
+  description: |
+    Acceptance criteria for foreign particulate matter.
+- name: device.microbial_standards
+  description: |
+    Microbial standards applying to the treatment process.
+- name: device.biocompatibility_requirements
+  description: |
+    Biological acceptability criteria for device use (cytotoxicity, sensitization, hemocompatibility, pyrogenicity, genotoxicity, carcinogenicity, reproductive toxicity).
+- name: device.leachables
+  description: |
+    Target level for leachables under normal use, application, or storage conditions.

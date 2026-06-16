@@ -4,17 +4,60 @@ source_type: tpp
 intervention_class: diagnostic
 display_name: "BMGF TPP - Diagnostic"
 
-# TODO (domain): query guidance for diagnostic TPPs. See bmgf_tpp_vaccine.yaml
-# for a complete example. Cover the three axes: (1) standard of care, (2) new
-# scientific data, (3) global access / regulatory signals.
+# Domain-specific guidance for the per-variable query extractor. Each shared
+# TPP attribute variable gets its own focused queries - these instructions
+# apply to ALL variables.
 query_extraction_guidance: |
-  TODO: describe the search axes for diagnostic TPPs.
+  Generate web search queries across THREE axes for a complete global
+  evidence landscape:
 
-# TODO (domain): authoritative sources to name in queries for this class.
-priority_sources: []
+  1. Standard of care - current diagnostic methods for the indication, their
+     sensitivity, specificity, time-to-result, cost, and setting (central lab
+     vs. point-of-care). Frame queries around how a new test could win: higher
+     sensitivity/specificity, faster result, lower cost, or decentralized /
+     point-of-care use.
 
-# TODO (domain): platform/assay types relevant to diagnostics (optional).
-modalities: []
+  2. New scientific data - recent assay platforms, comparative performance
+     evaluations, clinical validation studies, and epidemiology trends that
+     change how valuable a test is for this indication.
+
+  3. Global access and regulatory signals - spread queries across global
+     regulators, IVD prequalification, evaluation bodies, LMIC national
+     regulators, procurement, registries, and literature. Include WHO IVD
+     prequalification, FIND evaluations, LMIC approval, access, and uptake
+     signals where relevant.
+
+  Use the indication name and the variable topic in queries. Prefer queries
+  that target named regulators, evaluation bodies, registries, or
+  peer-reviewed literature over generic phrasing. Spread queries across
+  priority sources and configured languages rather than repeatedly naming the
+  same authorities.
+
+priority_sources:
+  - FDA
+  - EMA
+  - WHO
+  - WHO Prequalification (IVD)
+  - FIND
+  - CDC
+  - PubMed
+  - ClinicalTrials.gov
+  - SAHPRA (South Africa)
+  - NMPA (China)
+  - CDSCO (India)
+  - BPOM (Indonesia)
+  - ANVISA (Brazil)
+  - Africa CDC
+  - Unitaid
+
+modalities:
+  - NAAT / PCR
+  - rapid diagnostic test (RDT)
+  - antigen test
+  - serology / ELISA
+  - LAMP
+  - point-of-care molecular
+  - next-generation sequencing
 
 languages:
   - en

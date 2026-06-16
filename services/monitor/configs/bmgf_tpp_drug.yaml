@@ -4,17 +4,58 @@ source_type: tpp
 intervention_class: drug
 display_name: "BMGF TPP - Drug"
 
-# TODO (domain): query guidance for drug TPPs. See bmgf_tpp_vaccine.yaml for a
-# complete example. Cover the three axes: (1) standard of care, (2) new
-# scientific data, (3) global access / regulatory signals.
+# Domain-specific guidance for the per-variable query extractor. Each shared
+# TPP attribute variable gets its own focused queries - these instructions
+# apply to ALL variables.
 query_extraction_guidance: |
-  TODO: describe the search axes for drug TPPs.
+  Generate web search queries across THREE axes for a complete global
+  evidence landscape:
 
-# TODO (domain): authoritative sources to name in queries for this class.
-priority_sources: []
+  1. Standard of care - current treatment regimens for the indication, their
+     cure/response rates, safety, regimen length, pill burden, and resistance
+     profile. Frame queries around how a new drug could win: higher efficacy,
+     shorter regimen, fewer doses, better safety, or activity against
+     resistant strains.
 
-# TODO (domain): platform/technology types relevant to drugs (optional).
-modalities: []
+  2. New scientific data - recent trial readouts, new drug entrants, mechanism
+     and formulation advances (long-acting, fixed-dose combinations), and
+     resistance/epidemiology trends that change how valuable a drug is for
+     this indication.
+
+  3. Global access and regulatory signals - spread queries across global
+     regulators, LMIC national regulators, procurement bodies, registries, and
+     literature. Include LMIC approval, WHO Essential Medicines List, access,
+     financing, prequalification, and uptake signals where relevant.
+
+  Use the indication name and the variable topic in queries. Prefer queries
+  that target named regulators, trial registries, or peer-reviewed literature
+  over generic phrasing. Spread queries across priority sources and configured
+  languages rather than repeatedly naming the same authorities.
+
+priority_sources:
+  - FDA
+  - EMA
+  - WHO
+  - WHO Prequalification
+  - WHO Essential Medicines List
+  - CDC
+  - PubMed
+  - ClinicalTrials.gov
+  - SAHPRA (South Africa)
+  - NMPA (China)
+  - CDSCO (India)
+  - BPOM (Indonesia)
+  - ANVISA (Brazil)
+  - Africa CDC
+  - Global Fund
+  - Medicines Patent Pool
+
+modalities:
+  - small molecule
+  - biologic
+  - monoclonal antibody
+  - long-acting injectable
+  - fixed-dose combination
 
 languages:
   - en

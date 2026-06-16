@@ -4,16 +4,51 @@ source_type: tpp
 intervention_class: device
 display_name: "BMGF TPP - Device"
 
-# TODO (domain): query guidance for device TPPs. See bmgf_tpp_vaccine.yaml for a
-# complete example. Cover the three axes: (1) standard of care, (2) new
-# scientific data, (3) global access / regulatory signals.
+# Domain-specific guidance for the per-variable query extractor. Each shared
+# TPP attribute variable gets its own focused queries - these instructions
+# apply to ALL variables.
 query_extraction_guidance: |
-  TODO: describe the search axes for device TPPs.
+  Generate web search queries across THREE axes for a complete global
+  evidence landscape:
 
-# TODO (domain): authoritative sources to name in queries for this class.
-priority_sources: []
+  1. Standard of care - current devices or approaches for the indication,
+     their clinical performance, usability, durability, and cost. Frame
+     queries around how a new device could win: better clinical outcomes,
+     easier use, lower cost, or suitability for low-resource settings.
 
-# TODO (domain): platform/technology types relevant to devices (optional).
+  2. New scientific data - recent device entrants, clinical and usability
+     studies, engineering/materials advances, and epidemiology trends that
+     change how valuable a device is for this indication.
+
+  3. Global access and regulatory signals - spread queries across global
+     regulators (including device clearance pathways), WHO technical
+     specifications and prequalification, LMIC national regulators,
+     procurement, registries, and literature. Include LMIC approval, access,
+     and uptake signals where relevant.
+
+  Use the indication name and the variable topic in queries. Prefer queries
+  that target named regulators, technical specifications, registries, or
+  peer-reviewed literature over generic phrasing. Spread queries across
+  priority sources and configured languages rather than repeatedly naming the
+  same authorities.
+
+priority_sources:
+  - FDA (510(k) / PMA)
+  - EMA
+  - WHO
+  - WHO Prequalification
+  - CDC
+  - PubMed
+  - ClinicalTrials.gov
+  - SAHPRA (South Africa)
+  - NMPA (China)
+  - CDSCO (India)
+  - BPOM (Indonesia)
+  - ANVISA (Brazil)
+  - Africa CDC
+  - Unitaid
+
+# Optional. Device categories vary widely by indication; refine per use case.
 modalities: []
 
 languages:

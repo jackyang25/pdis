@@ -16,6 +16,12 @@ from typing import Any, Callable, Generator
 
 END = object()
 
+# Emit a keepalive this often when no real event has occurred, so the HTTP
+# stream never goes idle long enough for a proxy/host to cut it during long
+# silent stages (e.g. monitor's multi-minute search). The frontend ignores
+# unknown event types, so `ping` is a safe no-op there.
+HEARTBEAT_SECONDS = 15
+
 
 def run_with_progress(work: Callable[[Callable[[str], None]], Any]) -> Generator[str, None, None]:
     """Run `work(progress_callback)` in a background thread, yielding NDJSON.
@@ -44,7 +50,11 @@ def run_with_progress(work: Callable[[Callable[[str], None]], Any]) -> Generator
     thread.start()
 
     while True:
-        item = events.get()
+        try:
+            item = events.get(timeout=HEARTBEAT_SECONDS)
+        except queue.Empty:
+            yield json.dumps({"event": "ping"}) + "\n"
+            continue
         if item is END:
             break
         yield json.dumps(item) + "\n"

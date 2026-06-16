@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -16,8 +17,33 @@ logger = logging.getLogger(__name__)
 
 EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 REQUEST_TIMEOUT_SECONDS = 20
-REQUEST_PAUSE_SECONDS = 0.12
 MAX_EXCERPT_CHARS = 6000
+# Full-text PMC fetches per query — each is its own NCBI request, so cap the
+# fan-out. Articles beyond this fall back to their abstract.
+MAX_PMC_FULLTEXT = 5
+
+# NCBI rate limits: ~3 req/s without an API key, ~10 req/s with one. The
+# monitor runs many searcher threads in parallel, so spacing must be enforced
+# PROCESS-WIDE, not per-thread. _throttle holds a single lock and spaces the
+# START of every NCBI request across all threads.
+_RATE_LOCK = threading.Lock()
+_NEXT_ALLOWED = 0.0
+RATE_INTERVAL_NO_KEY = 0.35
+RATE_INTERVAL_WITH_KEY = 0.11
+MAX_RETRIES_ON_429 = 2
+
+
+def _throttle(min_interval: float) -> None:
+    """Block until at least `min_interval` has passed since the last request,
+    globally across all threads."""
+    global _NEXT_ALLOWED
+    with _RATE_LOCK:
+        now = time.monotonic()
+        wait = _NEXT_ALLOWED - now
+        if wait > 0:
+            time.sleep(wait)
+            now = time.monotonic()
+        _NEXT_ALLOWED = now + min_interval
 
 
 def search_pubmed(
@@ -143,6 +169,7 @@ def _fetch_pmc_texts(
     pmcids = [record["pmcid"] for record in records if record.get("pmcid")]
     if not pmcids:
         return {}
+    pmcids = pmcids[:MAX_PMC_FULLTEXT]
     out: dict[str, str] = {}
     for pmcid in pmcids:
         try:
@@ -182,18 +209,26 @@ def _request_xml(
     if api_key:
         params["api_key"] = api_key
     url = f"{EUTILS_BASE}/{endpoint}?{urllib.parse.urlencode(params)}"
-    time.sleep(REQUEST_PAUSE_SECONDS)
+    interval = RATE_INTERVAL_WITH_KEY if api_key else RATE_INTERVAL_NO_KEY
     request = urllib.request.Request(
         url,
         headers={"User-Agent": "pdis-monitor/0.1 (mailto:devnull@example.com)"},
     )
-    try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            payload = response.read()
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
-        logger.exception("NCBI request failed: %s", endpoint)
-        raise
-    return ET.fromstring(payload)
+    for attempt in range(MAX_RETRIES_ON_429 + 1):
+        _throttle(interval)
+        try:
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                return ET.fromstring(response.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 and attempt < MAX_RETRIES_ON_429:
+                time.sleep(interval * (2 ** attempt))
+                continue
+            logger.warning("NCBI request failed (%s): %s", exc.code, endpoint)
+            raise
+        except (urllib.error.URLError, TimeoutError):
+            logger.warning("NCBI request failed (network): %s", endpoint)
+            raise
+    raise RuntimeError("unreachable")
 
 
 def _pubdate_from_article(article: ET.Element) -> str:

@@ -2,12 +2,13 @@
 
 Orchestrates: chunker (parse only) -> per-attribute query_extractor
 (LLM) -> searcher (web) -> per-attribute insight_extractor (LLM) ->
-drift_classifier (LLM). Reuses chunker and searcher via their public
-contracts only.
+drift_classifier + evidence_assessor (LLM). Reuses chunker and searcher
+via their public contracts only.
 """
 
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -16,18 +17,24 @@ from services.searcher import Finding, run_pipeline as searcher_run
 
 from .models import (
     Attribute,
+    EvidenceAssessment,
+    FunnelStats,
     Insight,
     LLMClientProtocol,
     Match,
+    MonitorResult,
     MonitorTypeConfig,
     SearchClientProtocol,
     load_attributes,
 )
 from .stages.drift_classifier import classify_drift
+from .stages.evidence_assessor import assess_evidence
 from .stages.insight_extractor import extract_insights
 from .stages.query_extractor import extract_queries_for_variable
 
-MAX_FINDINGS_FOR_EXTRACTION_PER_VARIABLE = 20
+FINDINGS_BATCH_SIZE = 40
+SEARCH_MAX_TOKENS = 8000
+SEARCH_MAX_USES = 10
 
 
 def run_pipeline(
@@ -41,7 +48,7 @@ def run_pipeline(
     intervention_class: str,
     indication: str,
     progress_callback=None,
-) -> list[Match]:
+) -> MonitorResult:
     """Run monitor over every shared attribute variable for the intervention."""
     if progress_callback:
         progress_callback("parse")
@@ -58,7 +65,18 @@ def run_pipeline(
 
     attributes = load_attributes(intervention_class)
     if not attributes:
-        return []
+        return MonitorResult(
+            matches=[],
+            assessments=[],
+            stats=FunnelStats(
+                queries=0,
+                findings=0,
+                unique_findings=0,
+                insights=0,
+                matches=0,
+                assessments=0,
+            ),
+        )
     attribute_descriptions = {
         attribute.name: attribute.description for attribute in attributes
     }
@@ -77,16 +95,18 @@ def run_pipeline(
         for query in queries
     ]
     if not flat:
-        return []
+        return _empty_result()
 
     if progress_callback:
         progress_callback("search")
     findings_by_query = _search_all(flat, search_client)
     if not findings_by_query:
-        return []
+        return _empty_result(queries=len(flat))
 
     findings_by_attribute: dict[str, list[Finding]] = {}
+    total_findings = 0
     for (attribute_ref, _query), findings in findings_by_query.items():
+        total_findings += len(findings)
         findings_by_attribute.setdefault(attribute_ref, [])
         for finding in findings:
             if not any(
@@ -122,7 +142,27 @@ def run_pipeline(
         indication=indication,
         intervention_class=intervention_class,
     )
-    return matches
+
+    if progress_callback:
+        progress_callback("evidence")
+    assessments = _assess_evidence_all_variables(
+        attributes,
+        doc_text,
+        insights,
+        openai_client,
+        indication=indication,
+        intervention_class=intervention_class,
+    )
+
+    stats = FunnelStats(
+        queries=len(flat),
+        findings=total_findings,
+        unique_findings=sum(len(findings) for findings in findings_by_attribute.values()),
+        insights=len(insights),
+        matches=len(matches),
+        assessments=len(assessments),
+    )
+    return MonitorResult(matches=matches, assessments=assessments, stats=stats)
 
 
 def _parse_all_docs(
@@ -191,14 +231,13 @@ def _extract_insights_all_variables(
 
     def one(item: tuple[str, list[Finding]]) -> list[Insight]:
         attribute_ref, findings = item
-        capped = findings[:MAX_FINDINGS_FOR_EXTRACTION_PER_VARIABLE]
-        return extract_insights(
-            capped,
+        return _extract_insights_for_variable(
+            attribute_ref,
+            findings,
+            attribute_descriptions,
             openai_client,
             indication=indication,
             intervention_class=intervention_class,
-            attribute_ref=attribute_ref,
-            attribute_description=attribute_descriptions.get(attribute_ref, ""),
         )
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -207,6 +246,32 @@ def _extract_insights_all_variables(
     insights: list[Insight] = []
     for variable_insights in results:
         insights.extend(variable_insights)
+    return insights
+
+
+def _extract_insights_for_variable(
+    attribute_ref: str,
+    findings: list[Finding],
+    attribute_descriptions: dict[str, str],
+    openai_client: LLMClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+) -> list[Insight]:
+    """Extract insights from every finding for one variable, batching as needed."""
+    insights: list[Insight] = []
+    for start in range(0, len(findings), FINDINGS_BATCH_SIZE):
+        batch = findings[start : start + FINDINGS_BATCH_SIZE]
+        insights.extend(
+            extract_insights(
+                batch,
+                openai_client,
+                indication=indication,
+                intervention_class=intervention_class,
+                attribute_ref=attribute_ref,
+                attribute_description=attribute_descriptions.get(attribute_ref, ""),
+            )
+        )
     return insights
 
 
@@ -222,7 +287,12 @@ def _search_all(
         results = list(
             executor.map(
                 lambda attribute_query: searcher_run(
-                    attribute_query[1], llm_client=search_client
+                    attribute_query[1],
+                    llm_client=search_client,
+                    max_tokens=SEARCH_MAX_TOKENS,
+                    max_uses=SEARCH_MAX_USES,
+                    backends=("web", "pubmed"),
+                    ncbi_api_key=os.getenv("NCBI_API_KEY"),
                 ),
                 attribute_queries,
             )
@@ -231,6 +301,61 @@ def _search_all(
         attribute_query: findings
         for attribute_query, findings in zip(attribute_queries, results)
     }
+
+
+def _assess_evidence_all_variables(
+    attributes: list[Attribute],
+    doc_text: str,
+    insights: list[Insight],
+    openai_client: LLMClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+) -> list[EvidenceAssessment]:
+    """Assess evidence per attribute with bounded concurrency."""
+    insights_by_attribute: dict[str, list[Insight]] = {}
+    for insight in insights:
+        if not insight.attribute_ref:
+            continue
+        insights_by_attribute.setdefault(insight.attribute_ref, []).append(insight)
+
+    if not attributes:
+        return []
+    workers = max(1, min(8, len(attributes)))
+
+    def one(attribute: Attribute) -> EvidenceAssessment:
+        return assess_evidence(
+            attribute,
+            doc_text,
+            insights_by_attribute.get(attribute.name, []),
+            openai_client,
+            indication=indication,
+            intervention_class=intervention_class,
+        )
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(one, attributes))
+
+
+def _empty_result(
+    *,
+    queries: int = 0,
+    findings: int = 0,
+    unique_findings: int = 0,
+    insights: int = 0,
+) -> MonitorResult:
+    return MonitorResult(
+        matches=[],
+        assessments=[],
+        stats=FunnelStats(
+            queries=queries,
+            findings=findings,
+            unique_findings=unique_findings,
+            insights=insights,
+            matches=0,
+            assessments=0,
+        ),
+    )
 
 
 def _stamp(

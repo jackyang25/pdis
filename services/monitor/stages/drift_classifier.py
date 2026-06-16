@@ -25,8 +25,9 @@ from ..models import Insight, LLMClientProtocol, Match, VALID_RELATIONS
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TOKENS = 8000
-MAX_DOC_CONTEXT_CHARS = 8000
+DEFAULT_MAX_TOKENS = 24000
+MAX_DOC_CONTEXT_CHARS = 60000
+INSIGHTS_BATCH_SIZE = 30
 
 
 def classify_drift(
@@ -40,6 +41,21 @@ def classify_drift(
 ) -> list[Match]:
     if not insights:
         return []
+    if len(insights) > INSIGHTS_BATCH_SIZE:
+        matches: list[Match] = []
+        for start in range(0, len(insights), INSIGHTS_BATCH_SIZE):
+            batch = insights[start : start + INSIGHTS_BATCH_SIZE]
+            matches.extend(
+                classify_drift(
+                    doc_excerpts,
+                    batch,
+                    llm_client,
+                    indication=indication,
+                    intervention_class=intervention_class,
+                    max_tokens=max_tokens,
+                )
+            )
+        return matches
 
     system_prompt = _system_prompt(indication=indication, intervention_class=intervention_class)
     user_message = _user_message(doc_excerpts, insights)

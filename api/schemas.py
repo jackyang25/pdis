@@ -7,8 +7,6 @@ wire contract.
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel
 
 
@@ -18,7 +16,7 @@ class DocumentType(BaseModel):
     source_type: str
     intervention_class: str
     display_name: str
-    supports: dict[str, bool]  # {"chunker": true, "claims": ..., "reviewer": ...}
+    supports: dict[str, bool]  # {"chunker": true, "reviewer": ..., "monitor": ...}
 
 
 class DocumentTypesResponse(BaseModel):
@@ -51,6 +49,7 @@ class FindingOut(BaseModel):
     retrieved_at: str
     excerpt: str | None = None
     published_at: str | None = None
+    source: str = "web"
 
 
 class SearcherRunResponse(BaseModel):
@@ -75,6 +74,23 @@ class MatchOut(BaseModel):
     reason: str
 
 
+class EvidenceAssessmentOut(BaseModel):
+    attribute_ref: str
+    strength: str
+    basis: list[str]
+    reason: str
+    supporting_findings: list[FindingOut]
+
+
+class FunnelStatsOut(BaseModel):
+    queries: int
+    findings: int
+    unique_findings: int
+    insights: int
+    matches: int
+    assessments: int
+
+
 class VariableOut(BaseModel):
     name: str
     description: str
@@ -87,51 +103,20 @@ class MonitorRunResponse(BaseModel):
     indication: str
     variables: list[VariableOut]
     matches: list[MatchOut]
-
-
-class ClaimOut(BaseModel):
-    """Mirrors the Claim dataclass — downloads must roundtrip back into FileClaimsStore."""
-
-    id: str
-    ordinal: int
-    statement: str
-    claim_type: str
-    polarity: str
-    source_id: str
-    source_kind: str
-    source_locator: dict[str, Any]
-    extracted_at: str
-    valid_as_of: str | None = None
-    org: str | None = None
-    source_type: str | None = None
-    intervention_class: str | None = None
-    indication: str | None = None
-    attribute_ref: str | None = None
-    claim_schema_version: str = "v1"
-    source_url: str | None = None
-    extractor_version: str | None = None
-    model_id: str | None = None
-    prompt_hash: str | None = None
-
-
-class BenchmarkerRunResponse(BaseModel):
-    doc_id: str
-    source_id: str
-    claims: list[ClaimOut]
+    assessments: list[EvidenceAssessmentOut]
+    stats: FunnelStatsOut
 
 
 class DimensionGradeOut(BaseModel):
     grade: str
     issues: list[str] = []
     recommendation: str = ""
-    cited_claim_ids: list[str] = []
 
 
 class VariableGradeOut(BaseModel):
     variable_name: str
     dimensions: dict[str, DimensionGradeOut]
     block_ids: list[str] = []
-    attribute_ref: str | None = None
 
 
 class SectionGradeOut(BaseModel):
@@ -153,18 +138,5 @@ class ReviewResultOut(BaseModel):
     indication: str | None = None
 
 
-class PeerClaimOut(BaseModel):
-    source_id: str
-    statement: str
-    claim_type: str | None = None
-    attribute_ref: str | None = None
-    valid_as_of: str | None = None
-    extracted_at: str | None = None
-    org: str | None = None
-    source_type: str | None = None
-    indication: str | None = None
-
-
 class ReviewerRunResponse(BaseModel):
     review: ReviewResultOut
-    peer_claims: list[PeerClaimOut]

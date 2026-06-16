@@ -15,7 +15,7 @@ from ..models import Attribute, LLMClientProtocol, MonitorTypeConfig
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TOKENS = 1000
+DEFAULT_MAX_TOKENS = 5000
 
 
 def extract_queries_for_variable(
@@ -28,7 +28,7 @@ def extract_queries_for_variable(
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[str]:
     """Generate web search queries focused on a single TPP attribute variable."""
-    system_prompt = _system_prompt_for_variable(
+    general_prompt = _system_prompt_for_variable(
         config,
         indication=indication,
         attribute=attribute,
@@ -36,17 +36,39 @@ def extract_queries_for_variable(
     )
     user_message = _user_message_for_variable(attribute)
 
-    raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
-    queries = _parse_queries(raw)
-    if not queries:
+    raw = llm_client.call(general_prompt, user_message, max_tokens=max_tokens)
+    general_queries = _parse_queries(raw)
+    if not general_queries:
         logger.warning(
             "query_extractor produced no parsable queries for %r; retrying once",
             attribute.name,
         )
-        raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
-        queries = _parse_queries(raw)
+        raw = llm_client.call(general_prompt, user_message, max_tokens=max_tokens)
+        general_queries = _parse_queries(raw)
 
-    return queries[:queries_per_variable]
+    general_queries = general_queries[:queries_per_variable]
+    geographic_queries: list[str] = []
+    if config.geographic_emphasis and config.geographic_queries_per_variable > 0:
+        geographic_prompt = _system_prompt_for_geographic_variable(
+            config,
+            indication=indication,
+            attribute=attribute,
+            geographic_queries_per_variable=config.geographic_queries_per_variable,
+        )
+        raw = llm_client.call(geographic_prompt, user_message, max_tokens=max_tokens)
+        geographic_queries = _parse_queries(raw)
+        if not geographic_queries:
+            logger.warning(
+                "query_extractor produced no parsable geographic queries for %r; retrying once",
+                attribute.name,
+            )
+            raw = llm_client.call(geographic_prompt, user_message, max_tokens=max_tokens)
+            geographic_queries = _parse_queries(raw)
+        geographic_queries = geographic_queries[: config.geographic_queries_per_variable]
+
+    return _dedupe_queries(general_queries + geographic_queries)[
+        : queries_per_variable + config.geographic_queries_per_variable
+    ]
 
 
 def _system_prompt_for_variable(
@@ -73,6 +95,12 @@ def _system_prompt_for_variable(
         "specific calendar year in the query text - the live web search stays current "
         "on its own. Use relative terms like \"recent\" or \"latest\", or omit the year "
         "entirely.",
+        "Generate a diverse query set across THREE axes: content, source, and language. "
+        "Content coverage should include standard of care and new scientific data when "
+        "those angles fit this variable. Source coverage should spread across regulators, "
+        "registries, literature, procurement/access bodies, and LMIC authorities rather "
+        "than repeatedly naming only FDA or EMA. Language coverage should include native "
+        "language phrasing for the configured languages, not translated English.",
         config.query_extraction_guidance.strip(),
     ]
     if config.priority_sources:
@@ -81,6 +109,14 @@ def _system_prompt_for_variable(
             "(regulatory agencies, registries, literature, key companies): "
             + ", ".join(config.priority_sources)
             + "."
+        )
+    if config.languages:
+        parts.append(
+            "Configured languages: "
+            + ", ".join(config.languages)
+            + ". Generate at least one query in each configured language when "
+            "queries_per_variable allows it. Use native-language search phrasing "
+            "for non-English languages."
         )
     if config.modalities:
         parts.append(
@@ -92,9 +128,10 @@ def _system_prompt_for_variable(
     parts.append(
         f"Return EXACTLY {queries_per_variable} quer"
         f"{'y' if queries_per_variable == 1 else 'ies'} as a JSON array of strings. "
-        "No markdown, no commentary. Each query 5-15 words. Each query must be "
-        f"specific to the {attribute.name} variable. Example:\n"
-        '["latest FDA EMA RSV vaccine efficacy safety"]'
+        "No markdown, no commentary. Each query 5-15 words. The set must be diverse "
+        "across content angles, priority sources, and configured languages. Each query "
+        f"must be specific to the {attribute.name} variable. Example:\n"
+        '["latest WHO RSV vaccine efficacy evidence"]'
     )
     return "\n\n".join(parts)
 
@@ -105,6 +142,68 @@ def _user_message_for_variable(attribute: Attribute) -> str:
         f"What this variable covers: {attribute.description}\n\n"
         "Generate the queries for this variable now."
     )
+
+
+def _system_prompt_for_geographic_variable(
+    config: MonitorTypeConfig,
+    *,
+    indication: str,
+    attribute: Attribute,
+    geographic_queries_per_variable: int,
+) -> str:
+    parts = [
+        "You generate ADDITIVE Global-South web search queries for ONE TPP variable. "
+        "These queries are added to the general query set, never substituted for it.",
+        f"TPP variable: {attribute.name}.",
+        f"Product class: {config.intervention_class}. Indication: {indication}.",
+        f"What this variable covers: {attribute.description.strip()}",
+        "SCOPE: Every query must remain about THIS variable. Do not pull in other "
+        "variables like efficacy, safety, dosing, duration, or cost unless this "
+        "variable is that topic.",
+        "Favor recent developments (roughly the last 1-2 years). Do NOT hardcode a "
+        "specific calendar year in the query text. Use relative terms like "
+        "\"recent\" or \"latest\", or omit the year entirely.",
+        "Global-South emphasis: target national regulators and implementation/access "
+        "evidence from LMIC settings. Include regulators such as SAHPRA, NMPA, BPOM, "
+        "CDSCO, ANVISA; regional bodies such as Africa CDC and WHO regional offices; "
+        "and field evidence about access, equity, procurement, adoption, delivery, "
+        "deficiencies, unmet needs, and gaps not addressed by current standard of care.",
+        "Use native-language phrasing when using non-English configured languages. "
+        "Do not translate English queries word-for-word.",
+        "Return the Global-South queries only; the caller appends them after the "
+        "general queries.",
+    ]
+    if config.geographic_emphasis:
+        parts.append("Configured geographic emphasis: " + ", ".join(config.geographic_emphasis) + ".")
+    if config.priority_sources:
+        parts.append("Priority sources to spread across: " + ", ".join(config.priority_sources) + ".")
+    if config.languages:
+        parts.append(
+            "Configured languages: "
+            + ", ".join(config.languages)
+            + ". Include language diversity across this additive query group when possible."
+        )
+    parts.append(
+        f"Return EXACTLY {geographic_queries_per_variable} quer"
+        f"{'y' if geographic_queries_per_variable == 1 else 'ies'} as a JSON array of strings. "
+        "No markdown, no commentary. Each query 5-15 words."
+    )
+    return "\n\n".join(parts)
+
+
+def _dedupe_queries(queries: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for query in queries:
+        normalized = " ".join(query.split()).strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(normalized)
+    return out
 
 
 def _parse_queries(raw: str) -> list[str]:

@@ -9,7 +9,7 @@ Parses documents (`.docx`, `.pdf`) into ordered, citable `ContentBlock`s. Option
 | Input | One document (`.docx` or `.pdf`) + header `(org, source_type, intervention_class, indication)` |
 | Output | `list[ContentBlock]` — each block stamped with the header |
 
-The header is stamped on every block so downstream tools (benchmarker, reviewer) can route by provenance.
+The header is stamped on every block so downstream tools can route by provenance.
 
 ## Files
 
@@ -32,7 +32,6 @@ Filename: `{org}_{source_type}_{intervention}.yaml`. Each file declares the sect
 - `bmgf_tpp_drug.yaml`
 - `bmgf_tpp_diagnostic.yaml`
 - `bmgf_tpp_device.yaml`
-- `who_ppc_vaccine.yaml`
 
 ## Public contract
 
@@ -43,7 +42,7 @@ From `__init__.py`:
 - `find_config`, `blocks_to_dicts`
 - `DEFAULT_MAX_OUTPUT_TOKENS`
 
-External callers (`api/routes/chunker.py`, `benchmarker`, `reviewer`) import only from this surface.
+External callers (`api/routes/chunker.py`, `reviewer`, `monitor`) import only from this surface.
 
 ## Dependencies
 

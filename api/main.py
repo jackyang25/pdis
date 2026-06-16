@@ -24,13 +24,20 @@ try:
 except ImportError:
     pass
 
-from api.routes import benchmarker, chunker, configs, monitor, reviewer, searcher
+import os
+
+from api.routes import chunker, configs, monitor, reviewer, searcher
 
 app = FastAPI(title="PDIS API", version="0.1.0")
 
+# Allowed browser origins. Comma-separated env var for deploys; defaults to
+# local dev. e.g. CORS_ALLOW_ORIGINS="https://pdis-web.onrender.com"
+_origins = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000")
+allow_origins = [o.strip() for o in _origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,7 +45,6 @@ app.add_middleware(
 
 app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
 app.include_router(chunker.router, prefix="/api/chunker", tags=["chunker"])
-app.include_router(benchmarker.router, prefix="/api/benchmarker", tags=["benchmarker"])
 app.include_router(reviewer.router, prefix="/api/reviewer", tags=["reviewer"])
 app.include_router(searcher.router, prefix="/api/searcher", tags=["searcher"])
 app.include_router(monitor.router, prefix="/api/monitor", tags=["monitor"])

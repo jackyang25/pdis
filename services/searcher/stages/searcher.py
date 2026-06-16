@@ -79,6 +79,7 @@ def _parse_response_to_findings(
                     retrieved_at=retrieved_at,
                     excerpt=excerpt,
                     published_at=None,
+                    source="web",
                 )
 
     if not findings_by_url:

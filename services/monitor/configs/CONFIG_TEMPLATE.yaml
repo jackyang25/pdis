@@ -8,11 +8,14 @@ display_name: "Example Template"
 # shared TPP attribute variable gets its own focused queries - these
 # instructions apply to ALL variables.
 query_extraction_guidance: |
-  Generate web search queries across two axes:
+  Generate web search queries across three axes:
   (1) standard of care - current options, their efficacy/safety numbers,
   and how a new product could win; and (2) new scientific data - recent
   trial readouts, new entrants, platform/manufacturing advances, and
-  epidemiology trends. Use the variable topic in every query.
+  epidemiology trends; and (3) global access/regulatory signals across
+  global and LMIC authorities, procurement bodies, registries, and
+  literature. Use the variable topic in every query and spread queries
+  across configured sources and languages.
 
 # Authoritative sources to name in generated queries (regulatory agencies,
 # registries, literature, key companies). Optional - omit for none.
@@ -20,9 +23,24 @@ priority_sources:
   - FDA
   - EMA
   - WHO
+  - WHO Prequalification
   - PubMed
+  - ClinicalTrials.gov
+  - Africa CDC
+  - Gavi
 
 # Platform technologies relevant to queries. Optional.
 modalities: []
 
-queries_per_variable: 1
+languages:
+  - en
+  - fr
+  - pt
+  - es
+  - zh
+  - id
+
+queries_per_variable: 8
+geographic_emphasis:
+  - global_south
+geographic_queries_per_variable: 4

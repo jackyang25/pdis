@@ -17,7 +17,7 @@ from ..models import Insight, LLMClientProtocol
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TOKENS = 12000
+DEFAULT_MAX_TOKENS = 16000
 
 
 def extract_insights(
@@ -98,6 +98,8 @@ def _system_prompt(
         "Rules:\n"
         "- Each Insight is ONE atomic factual statement (one fact, not a paragraph).\n"
         "- Every Insight must cite at least one supporting Finding by its URL.\n"
+        "- Write every Insight statement in English, even when the supporting Finding "
+        "is in another language. Preserve the original source via its URL/title.\n"
         "- Prefer recent, source-attributable facts (regulatory actions, trial readouts, "
         "approvals, safety signals). Skip opinion and marketing language.\n"
         "- Extract only SUBSTANTIVE facts: approvals, recommendations, trial readouts, "

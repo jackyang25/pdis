@@ -34,17 +34,15 @@ def run_pipeline(
     config: ReviewConfig,
     llm_client: LLMClientProtocol,
     indication: str | None = None,
-    claims_store=None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     progress_callback=None,
     doc_id: str | None = None,
 ) -> ReviewResult:
     """End-to-end PD document review: parse → label → grade → report.
 
-    `doc_id` is stamped on every block and used as the source_id for peer
-    filtering. Pass the original filename stem when `file_path` points to a
-    temp file (e.g., from an HTTP upload), so block ids don't end up
-    prefixed with the temp filename.
+    `doc_id` is stamped on every block. Pass the original filename stem
+    when `file_path` points to a temp file (e.g., from an HTTP upload),
+    so block ids don't end up prefixed with the temp filename.
     """
     source_path = Path(file_path)
     resolved_doc_id = doc_id or source_path.stem
@@ -65,8 +63,6 @@ def run_pipeline(
         config=config,
         llm_client=llm_client,
         indication=indication,
-        claims_store=claims_store,
-        source_id=resolved_doc_id,
         max_tokens=max_tokens,
         progress_callback=progress_callback,
     )
@@ -78,16 +74,10 @@ def review_blocks(
     config: ReviewConfig,
     llm_client: LLMClientProtocol,
     indication: str | None = None,
-    claims_store=None,
-    source_id: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     progress_callback=None,
 ) -> ReviewResult:
     """Grade + report a document whose blocks have already been parsed and labeled.
-
-    If `claims_store` is provided, the grader queries it per variable via
-    `get_by_attribute` at grade time. No bulk retrieval. Peer claims feed
-    only the expertise dimension and only on variable-bearing sections.
     """
     if progress_callback:
         progress_callback("grade")
@@ -96,9 +86,6 @@ def review_blocks(
         config,
         llm_client,
         max_tokens=max_tokens,
-        claims_store=claims_store,
-        source_id=source_id,
-        indication=indication,
     )
     result = build_report_card(blocks, section_grades, config)
     result.org = config.org
@@ -114,7 +101,6 @@ def run_pipeline_batch(
     config: ReviewConfig,
     llm_client_factory,
     indication: str | None = None,
-    claims_store=None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
 ) -> list[BatchReviewResult]:
@@ -131,7 +117,6 @@ def run_pipeline_batch(
                     config=config,
                     llm_client_factory=llm_client_factory,
                     indication=indication,
-                    claims_store=claims_store,
                     max_tokens=max_tokens,
                 ),
                 jobs,
@@ -146,7 +131,6 @@ def _run_pipeline_one_batch(
     config: ReviewConfig,
     llm_client_factory,
     indication: str | None,
-    claims_store,
     max_tokens: int,
 ) -> BatchReviewResult:
     try:
@@ -156,7 +140,6 @@ def _run_pipeline_one_batch(
             config=config,
             llm_client=llm_client,
             indication=indication,
-            claims_store=claims_store,
             max_tokens=max_tokens,
         )
         review.doc_id = doc_key
@@ -171,7 +154,6 @@ def review_blocks_batch(
     config: ReviewConfig,
     llm_client_factory,
     indication: str | None = None,
-    claims_store=None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
 ) -> list[BatchReviewResult]:
@@ -196,7 +178,6 @@ def review_blocks_batch(
                     config=config,
                     llm_client_factory=llm_client_factory,
                     indication=indication,
-                    claims_store=claims_store,
                     max_tokens=max_tokens,
                 ),
                 jobs,
@@ -211,7 +192,6 @@ def _review_one_batch(
     config: ReviewConfig,
     llm_client_factory,
     indication: str | None,
-    claims_store,
     max_tokens: int,
 ) -> BatchReviewResult:
     try:
@@ -221,8 +201,6 @@ def _review_one_batch(
             config=config,
             llm_client=llm_client,
             indication=indication,
-            claims_store=claims_store,
-            source_id=doc_key,
             max_tokens=max_tokens,
         )
         return BatchReviewResult(doc_key=doc_key, review=review)
@@ -237,7 +215,7 @@ def build_report_card(
     section_grades: list[SectionGrade],
     config: ReviewConfig,
 ) -> ReviewResult:
-    """Roll section grades up into a full report card across three dimensions."""
+    """Roll section grades up into a full report card across two dimensions."""
     doc_id = labeled_blocks[0].doc_id if labeled_blocks else ""
     return ReviewResult(
         doc_id=doc_id,
@@ -261,7 +239,6 @@ def _document_dimensions(
         applied_weight = 0.0
         issues: list[str] = []
         recs: list[str] = []
-        cites: list[str] = []
         for sg in section_grades:
             dg = sg.dimensions.get(name)
             if dg is None:
@@ -269,7 +246,6 @@ def _document_dimensions(
             issues.extend(dg.issues)
             if dg.recommendation:
                 recs.append(dg.recommendation)
-            cites.extend(dg.cited_claim_ids)
             if dg.grade == "N/A" or dg.grade not in GRADE_TO_SCORE:
                 continue
             weight = weights_by_section.get(sg.section_name, 0.0)
@@ -282,7 +258,6 @@ def _document_dimensions(
             grade=grade,
             issues=issues,
             recommendation="; ".join(dict.fromkeys(recs)),
-            cited_claim_ids=list(dict.fromkeys(cites)),
         )
     return out
 
@@ -390,4 +365,3 @@ def _find_variable_spec(
             if variable_spec.name == variable_name:
                 return variable_spec
     return None
-

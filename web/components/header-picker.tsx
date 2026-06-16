@@ -20,11 +20,11 @@ import { useHeaderStore } from "@/lib/store";
 
 const PATH_TO_TOOL: Record<string, ToolName> = {
   "/chunker": "chunker",
-  "/benchmarker": "benchmarker",
   "/reviewer": "reviewer",
+  "/monitor": "monitor",
 };
 
-type FieldRole = "selects config" | "tags output" | "scopes peer claims";
+type FieldRole = "selects config" | "tags output" | "scopes search";
 
 const ROLES: Record<ToolName, Record<keyof Roles, FieldRole>> = {
   chunker: {
@@ -33,17 +33,17 @@ const ROLES: Record<ToolName, Record<keyof Roles, FieldRole>> = {
     intervention: "selects config",
     indication: "tags output",
   },
-  benchmarker: {
-    org: "tags output",
-    source_type: "tags output",
-    intervention: "selects config",
-    indication: "tags output",
-  },
   reviewer: {
     org: "selects config",
     source_type: "selects config",
     intervention: "selects config",
-    indication: "scopes peer claims",
+    indication: "tags output",
+  },
+  monitor: {
+    org: "selects config",
+    source_type: "selects config",
+    intervention: "selects config",
+    indication: "scopes search",
   },
 };
 
@@ -260,4 +260,3 @@ function displayLabel(value: string): string {
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))
     .join(" ");
 }
-

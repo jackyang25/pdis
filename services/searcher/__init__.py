@@ -1,10 +1,11 @@
-"""Searcher - OpenAI web-search service.
+"""Searcher - web and literature retrieval service.
 
 Public contract: consumers import from this package root only.
 Internals (`stages/`, helpers) are not part of the contract.
 
-Today this is a Python package consumed by other services in-process.
-The public surface below is the wire protocol - keep it small and stable.
+Searcher can union OpenAI web_search findings with NCBI PubMed/PMC
+literature findings. The public surface below is the wire protocol -
+keep it small and stable.
 """
 
 from .models import (

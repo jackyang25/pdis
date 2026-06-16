@@ -1,13 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { HeaderGuard } from "@/components/header-guard";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { DownloadButton } from "@/components/download-button";
-import { Disclosure } from "@/components/disclosure";
 import { LabeledItem } from "@/components/labeled-item";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -19,7 +17,6 @@ import {
   type Dimensions,
   type Header,
   type ReviewerResponse,
-  type PeerClaim,
   type SectionGrade,
   type VariableGrade,
 } from "@/lib/api";
@@ -36,7 +33,7 @@ export default function ReviewerPage() {
     <>
       <PageHeader
         title="Reviewer"
-        description="Grade a document against a TPP rubric, benchmarked against peer claims."
+        description="Grade a document against a TPP rubric."
       />
       <HeaderGuard>{(header) => <ReviewerView header={header as Header} />}</HeaderGuard>
     </>
@@ -74,10 +71,7 @@ function ReviewerView({ header }: { header: Header }) {
       {result && (
         <>
           <OverallCard result={result} />
-          <SectionsList
-            sections={result.review.section_grades}
-            peerClaims={result.peer_claims}
-          />
+          <SectionsList sections={result.review.section_grades} />
         </>
       )}
       {!result && !busy && !error && (
@@ -128,40 +122,17 @@ function DimensionTile({ name, grade }: { name: DimensionName; grade: string }) 
   );
 }
 
-function SectionsList({
-  sections,
-  peerClaims,
-}: {
-  sections: SectionGrade[];
-  peerClaims: PeerClaim[];
-}) {
-  const peersByAttr = useMemo(() => {
-    const m = new Map<string, PeerClaim[]>();
-    for (const c of peerClaims) {
-      if (!c.attribute_ref) continue;
-      const list = m.get(c.attribute_ref) ?? [];
-      list.push(c);
-      m.set(c.attribute_ref, list);
-    }
-    return m;
-  }, [peerClaims]);
-
+function SectionsList({ sections }: { sections: SectionGrade[] }) {
   return (
     <div className="flex flex-col gap-3">
       {sections.map((section) => (
-        <SectionCard key={section.section_name} section={section} peersByAttr={peersByAttr} />
+        <SectionCard key={section.section_name} section={section} />
       ))}
     </div>
   );
 }
 
-function SectionCard({
-  section,
-  peersByAttr,
-}: {
-  section: SectionGrade;
-  peersByAttr: Map<string, PeerClaim[]>;
-}) {
+function SectionCard({ section }: { section: SectionGrade }) {
   return (
     <CollapsibleCard
       title={section.section_name}
@@ -189,11 +160,7 @@ function SectionCard({
       {section.variable_grades.length > 0 && (
         <ul className="flex flex-col gap-3">
           {section.variable_grades.map((v) => (
-            <VariableRow
-              key={v.variable_name}
-              variable={v}
-              peerClaims={v.attribute_ref ? peersByAttr.get(v.attribute_ref) ?? [] : []}
-            />
+            <VariableRow key={v.variable_name} variable={v} />
           ))}
         </ul>
       )}
@@ -201,13 +168,7 @@ function SectionCard({
   );
 }
 
-function VariableRow({
-  variable,
-  peerClaims,
-}: {
-  variable: VariableGrade;
-  peerClaims: PeerClaim[];
-}) {
+function VariableRow({ variable }: { variable: VariableGrade }) {
   return (
     <li className="rounded-md bg-secondary/40 px-4 py-3">
       <div className="flex items-start justify-between gap-4">
@@ -215,7 +176,7 @@ function VariableRow({
         <DimensionStrip dimensions={variable.dimensions} compact />
       </div>
 
-      <DimensionDetails dimensions={variable.dimensions} peerClaims={peerClaims} />
+      <DimensionDetails dimensions={variable.dimensions} />
     </li>
   );
 }
@@ -260,17 +221,11 @@ function DimensionStrip({
   );
 }
 
-function DimensionDetails({
-  dimensions,
-  peerClaims = [],
-}: {
-  dimensions: Dimensions;
-  peerClaims?: PeerClaim[];
-}) {
+function DimensionDetails({ dimensions }: { dimensions: Dimensions }) {
   const anyContent =
     DIMENSION_NAMES.some(
       (d) => dimensions[d].issues.length > 0 || dimensions[d].recommendation,
-    ) || peerClaims.length > 0;
+    );
   if (!anyContent) return null;
 
   return (
@@ -292,11 +247,10 @@ function DimensionDetails({
         </TabsList>
         {DIMENSION_NAMES.map((d) => {
           const dg = dimensions[d];
-          const showPeers = d === "expertise" && peerClaims.length > 0;
           const empty = dg.issues.length === 0 && !dg.recommendation;
           return (
             <TabsContent key={d} value={d}>
-              {empty && !showPeers ? (
+              {empty ? (
                 <p className="text-xs text-muted-foreground">No items on this dimension.</p>
               ) : (
                 <div className="flex flex-col gap-3">
@@ -308,22 +262,6 @@ function DimensionDetails({
                   {dg.recommendation && (
                     <LabeledItem kind="recommendation">{dg.recommendation}</LabeledItem>
                   )}
-                  {showPeers && (
-                    <Disclosure
-                      summary={`${peerClaims.length} peer claim(s) used as benchmark`}
-                    >
-                      <ul className="flex flex-col gap-3">
-                        {peerClaims.slice(0, 5).map((c, idx) => (
-                          <PeerClaimRow key={idx} claim={c} />
-                        ))}
-                        {peerClaims.length > 5 && (
-                          <li className="text-xs text-muted-foreground">
-                            +{peerClaims.length - 5} more
-                          </li>
-                        )}
-                      </ul>
-                    </Disclosure>
-                  )}
                 </div>
               )}
             </TabsContent>
@@ -333,38 +271,3 @@ function DimensionDetails({
     </div>
   );
 }
-
-function PeerClaimRow({ claim }: { claim: PeerClaim }) {
-  const date = formatClaimDate(claim);
-  const identity = [
-    claim.org && claim.source_type ? `${claim.org} · ${claim.source_type}` : null,
-    claim.claim_type,
-    date,
-    claim.indication,
-  ].filter(Boolean);
-  return (
-    <li className="border-l-2 border-l-border pl-3">
-      <div className="mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {identity.map((part, idx) => (
-          <span key={idx}>
-            {idx > 0 && <span className="mr-2">·</span>}
-            {part}
-          </span>
-        ))}
-      </div>
-      <div className="text-sm leading-relaxed">{claim.statement}</div>
-      <div className="mt-1 font-mono text-[10px] text-muted-foreground/60">
-        {claim.source_id}
-      </div>
-    </li>
-  );
-}
-
-function formatClaimDate(claim: PeerClaim): string {
-  const raw = claim.valid_as_of || claim.extracted_at;
-  if (!raw) return "";
-  // ISO date → "YYYY-MM" for display tightness.
-  const match = /^(\d{4})-(\d{2})/.exec(raw);
-  return match ? `${match[1]}-${match[2]}` : raw;
-}
-

@@ -1,0 +1,30 @@
+type_key: bmgf_tpp_diagnostic
+org: bmgf
+source_type: tpp
+intervention_class: diagnostic
+display_name: "BMGF TPP - Diagnostic"
+
+# TODO (domain): query guidance for diagnostic TPPs. See bmgf_tpp_vaccine.yaml
+# for a complete example. Cover the three axes: (1) standard of care, (2) new
+# scientific data, (3) global access / regulatory signals.
+query_extraction_guidance: |
+  TODO: describe the search axes for diagnostic TPPs.
+
+# TODO (domain): authoritative sources to name in queries for this class.
+priority_sources: []
+
+# TODO (domain): platform/assay types relevant to diagnostics (optional).
+modalities: []
+
+languages:
+  - en
+  - fr
+  - pt
+  - es
+  - zh
+  - id
+
+queries_per_variable: 8
+geographic_emphasis:
+  - global_south
+geographic_queries_per_variable: 4

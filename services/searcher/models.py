@@ -13,7 +13,7 @@ from typing import Any, Protocol
 
 @dataclass
 class Finding:
-    """One atomic, source-attributed result from a web search.
+    """One atomic, source-attributed result from a retrieval backend.
 
     Stays intentionally primitive. No synthesis, no relevance scores.
     `excerpt` is filled when the model cited the URL in its response;
@@ -27,6 +27,7 @@ class Finding:
     retrieved_at: datetime
     excerpt: str | None = None
     published_at: datetime | None = None
+    source: str = "web"
 
 
 class SearcherLLMClientProtocol(Protocol):

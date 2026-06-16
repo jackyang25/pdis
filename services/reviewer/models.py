@@ -14,17 +14,16 @@ class LLMClientProtocol(Protocol):
 
 
 Grade = Literal["A", "B", "C", "D", "F", "N/A"]
-Dimension = Literal["completeness", "adherence", "expertise"]
-DIMENSIONS: tuple[Dimension, ...] = ("completeness", "adherence", "expertise")
+Dimension = Literal["completeness", "adherence"]
+DIMENSIONS: tuple[Dimension, ...] = ("completeness", "adherence")
 
 
 @dataclass
 class DimensionGrade:
-    """A grade along one of three orthogonal axes.
+    """A grade along one of two orthogonal axes.
 
     - adherence:    does the draft follow the rubric's structural expectations?
     - completeness: are all required variables filled in?
-    - expertise:    is what's there high-quality and defensible (against peers)?
 
     Same shape at every level (variable, section, document). The LLM
     produces these at the variable level; section and document grades
@@ -34,7 +33,6 @@ class DimensionGrade:
     grade: Grade
     issues: list[str] = field(default_factory=list)
     recommendation: str = ""
-    cited_claim_ids: list[str] = field(default_factory=list)
 
 
 def _empty_dimensions() -> dict[str, DimensionGrade]:
@@ -43,12 +41,11 @@ def _empty_dimensions() -> dict[str, DimensionGrade]:
 
 @dataclass
 class VariableGrade:
-    """Atomic graded unit: one rubric variable, three dimension grades."""
+    """Atomic graded unit: one rubric variable, two dimension grades."""
 
     variable_name: str
     dimensions: dict[str, DimensionGrade] = field(default_factory=_empty_dimensions)
     block_ids: list[str] = field(default_factory=list)
-    attribute_ref: str | None = None  # carried from VariableSpec for peer-claim routing
 
 
 @dataclass
@@ -92,11 +89,7 @@ class BatchReviewResult:
 class VariableSpec:
     """Rubric expectations for one variable within a section.
 
-    `attribute_ref` is the routing key: when set, only peer claims with
-    a matching `attribute_ref` are surfaced to the grader for this
-    variable.
-
-    `completeness`, `adherence`, `expertise` are optional per-dimension
+    `completeness` and `adherence` are optional per-dimension
     rule hints (free-form dicts). The grader uses each block only when
     grading that dimension — no cross-dimension leakage. The blocks are
     informational; the grader reads them into the dimension's prompt
@@ -105,10 +98,8 @@ class VariableSpec:
 
     name: str
     description: str
-    attribute_ref: str | None = None
     completeness: dict[str, Any] = field(default_factory=dict)
     adherence: dict[str, Any] = field(default_factory=dict)
-    expertise: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -127,7 +118,6 @@ class SectionSpec:
     variables: list[VariableSpec] = field(default_factory=list)
     completeness: dict[str, Any] = field(default_factory=dict)
     adherence: dict[str, Any] = field(default_factory=dict)
-    expertise: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -247,7 +237,6 @@ def _parse_sections(value: Any) -> list[SectionSpec]:
                 variables=_parse_variables(section_data.get("variables", []), index),
                 completeness=_parse_dimension_block(section_data.get("completeness"), f"sections[{index}].completeness"),
                 adherence=_parse_dimension_block(section_data.get("adherence"), f"sections[{index}].adherence"),
-                expertise=_parse_dimension_block(section_data.get("expertise"), f"sections[{index}].expertise"),
             )
         )
 
@@ -279,17 +268,10 @@ def _parse_variables(value: Any, section_index: int) -> list[VariableSpec]:
             )
         seen_names.add(variable_name)
 
-        attribute_ref = variable_data.get("attribute_ref")
-        if attribute_ref is not None and not isinstance(attribute_ref, str):
-            raise ValueError(
-                f"sections[{section_index}].variables[{index}].attribute_ref must be a string"
-            )
-
         variables.append(
             VariableSpec(
                 name=variable_name,
                 description=variable_data["description"],
-                attribute_ref=attribute_ref,
                 completeness=_parse_dimension_block(
                     variable_data.get("completeness"),
                     f"sections[{section_index}].variables[{index}].completeness",
@@ -297,10 +279,6 @@ def _parse_variables(value: Any, section_index: int) -> list[VariableSpec]:
                 adherence=_parse_dimension_block(
                     variable_data.get("adherence"),
                     f"sections[{section_index}].variables[{index}].adherence",
-                ),
-                expertise=_parse_dimension_block(
-                    variable_data.get("expertise"),
-                    f"sections[{section_index}].variables[{index}].expertise",
                 ),
             )
         )

@@ -29,7 +29,6 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from services.chunker import ContentBlock  # noqa: E402
-from services.benchmarker import FileClaimsStore  # noqa: E402
 from shared.openai_client import OpenAIClient  # noqa: E402
 
 from .models import ReviewConfig, ReviewResult, SectionGrade, find_config  # noqa: E402
@@ -101,7 +100,6 @@ def export_review_package(
     max_workers: int = 4,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     indication: str | None = None,
-    claims_dir: str | None = None,
 ) -> None:
     """Run Reviewer over a chunker package and write review tables."""
     input_path = Path(input_dir).expanduser().resolve()
@@ -139,10 +137,6 @@ def export_review_package(
     if not records:
         raise ValueError("No reviewable documents found (need parse_status=ok and mapping_status=ok)")
 
-    claims_store = FileClaimsStore(claims_dir) if claims_dir else None
-    if claims_store is not None:
-        logger.info("Loaded %d claims from %s", len(claims_store), claims_dir)
-
     output_path.mkdir(parents=True, exist_ok=True)
 
     doc_score_rows: list[dict[str, Any]] = []
@@ -155,7 +149,6 @@ def export_review_package(
         config=config,
         llm_client_factory=lambda: llm_client,
         indication=indication,
-        claims_store=claims_store,
         max_tokens=max_tokens,
         max_workers=max_workers,
     )
@@ -486,12 +479,6 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("input_dir", help="Folder containing a parsed + mapped chunker package")
     parser.add_argument("output_dir", help="Folder where review CSVs are written")
     parser.add_argument("--indication", default=None)
-    parser.add_argument(
-        "--claims-dir",
-        default=None,
-        help="Folder of evidence claims.jsonl files. If provided, the grader uses "
-        "matching claims as additional signal.",
-    )
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)
@@ -507,5 +494,4 @@ if __name__ == "__main__":
         max_workers=args.max_workers,
         max_tokens=args.max_tokens,
         indication=args.indication,
-        claims_dir=args.claims_dir,
     )

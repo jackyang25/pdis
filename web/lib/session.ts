@@ -3,7 +3,6 @@
 import { create } from "zustand";
 import type {
   ContentBlock,
-  Claim,
   MonitorResponse,
   ReviewerResponse,
   SearcherResponse,
@@ -36,13 +35,11 @@ function createToolSession<TResult>() {
 }
 
 export type ChunkerResult = { doc_id: string; blocks: ContentBlock[] };
-export type BenchmarkerResult = { doc_id: string; source_id: string; claims: Claim[] };
 export type ReviewerResult = ReviewerResponse;
 export type SearcherResult = SearcherResponse;
 export type MonitorResult = MonitorResponse;
 
 export const useChunkerSession = createToolSession<ChunkerResult>();
-export const useBenchmarkerSession = createToolSession<BenchmarkerResult>();
 export const useReviewerSession = createToolSession<ReviewerResult>();
 export const useSearcherSession = createToolSession<SearcherResult>();
 export const useMonitorSession = createToolSession<MonitorResult>();

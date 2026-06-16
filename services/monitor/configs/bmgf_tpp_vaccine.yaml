@@ -8,7 +8,8 @@ display_name: "BMGF TPP - Vaccine"
 # shared TPP attribute variable gets its own focused queries - these
 # instructions apply to ALL variables.
 query_extraction_guidance: |
-  Generate web search queries across TWO axes:
+  Generate web search queries across THREE axes for a complete global
+  evidence landscape:
 
   1. Standard of care - current prevention and treatment options for the
      indication, their efficacy and safety numbers, regimen length, and
@@ -20,17 +21,32 @@ query_extraction_guidance: |
      platform and manufacturing advances, and epidemiology trends that
      change how valuable a vaccine is for this indication.
 
+  3. Global access and regulatory signals - spread queries across global
+     regulators, LMIC national regulators, procurement bodies, registries,
+     and literature sources. Include LMIC approval, access, financing,
+     prequalification, and uptake signals where relevant.
+
   Use the indication name and the variable topic in queries. Prefer
   queries that target named regulators, trial registries, or
-  peer-reviewed literature over generic phrasing.
+  peer-reviewed literature over generic phrasing. Spread queries across
+  priority sources and configured languages rather than repeatedly naming
+  the same authorities.
 
 priority_sources:
   - FDA
   - EMA
   - WHO
+  - WHO Prequalification
   - CDC
   - PubMed
   - ClinicalTrials.gov
+  - SAHPRA (South Africa)
+  - NMPA (China)
+  - CDSCO (India)
+  - BPOM (Indonesia)
+  - ANVISA (Brazil)
+  - Africa CDC
+  - Gavi
   - company press releases (Pfizer, GSK, Moderna, Merck)
 
 modalities:
@@ -43,4 +59,15 @@ modalities:
   - virus-like particle (VLP)
   - conjugate
 
-queries_per_variable: 1
+languages:
+  - en
+  - fr
+  - pt
+  - es
+  - zh
+  - id
+
+queries_per_variable: 8
+geographic_emphasis:
+  - global_south
+geographic_queries_per_variable: 4

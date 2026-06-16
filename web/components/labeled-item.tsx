@@ -1,11 +1,10 @@
 import { cn } from "@/lib/utils";
 
-type Kind = "issue" | "recommendation" | "peer_claim";
+type Kind = "issue" | "recommendation";
 
 const KIND_STYLES: Record<Kind, { label: string; border: string }> = {
   issue: { label: "Warning", border: "border-l-amber-500" },
   recommendation: { label: "Recommendation", border: "border-l-foreground" },
-  peer_claim: { label: "Peer", border: "border-l-border" },
 };
 
 type Props = {

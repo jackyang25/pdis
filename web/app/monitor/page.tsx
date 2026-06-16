@@ -7,7 +7,13 @@ import { EmptyState } from "@/components/empty-state";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { DownloadButton } from "@/components/download-button";
 import { Badge } from "@/components/ui/badge";
-import { runMonitor, type Header, type Match, type MonitorResponse } from "@/lib/api";
+import {
+  runMonitor,
+  type EvidenceAssessment,
+  type Header,
+  type Match,
+  type MonitorResponse,
+} from "@/lib/api";
 import { useMonitorSession } from "@/lib/session";
 
 const MONITOR_STEPS = [
@@ -16,6 +22,7 @@ const MONITOR_STEPS = [
   { key: "search", label: "Searching the web" },
   { key: "insights", label: "Extracting insights" },
   { key: "classify", label: "Detecting drift" },
+  { key: "evidence", label: "Assessing evidence" },
 ];
 
 const RELATION_ORDER: Record<Match["relation"], number> = {
@@ -62,6 +69,39 @@ const STATUS_META: Record<
     tone: "border-l-transparent bg-transparent",
     badge: "outline",
   },
+};
+
+const EVIDENCE_META: Record<
+  EvidenceAssessment["strength"],
+  { label: string; className: string }
+> = {
+  well_grounded: {
+    label: "Well grounded",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  partial: {
+    label: "Partial evidence",
+    className: "border-blue-200 bg-blue-50 text-blue-700",
+  },
+  thin: {
+    label: "Thin evidence",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+  unsupported: {
+    label: "Unsupported",
+    className: "border-red-200 bg-red-50 text-red-700",
+  },
+  unknown: {
+    label: "Unknown evidence",
+    className: "border-transparent bg-muted text-muted-foreground",
+  },
+};
+
+const BASIS_LABELS: Record<string, string> = {
+  standard_of_care: "Standard of care",
+  modeling: "Modeling",
+  study_strength: "Study strength",
+  regulatory_precedent: "Regulatory precedent",
 };
 
 function attributeLabel(ref: string) {
@@ -141,6 +181,10 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
     if (!matchesByVariable.has(ref)) matchesByVariable.set(ref, []);
     matchesByVariable.get(ref)!.push(match);
   }
+  const assessmentsByVariable = new Map<string, EvidenceAssessment>();
+  for (const assessment of result.assessments ?? []) {
+    assessmentsByVariable.set(assessment.attribute_ref, assessment);
+  }
 
   const rows = variables
     .map((variable) => {
@@ -149,7 +193,12 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
         (a, b) => RELATION_ORDER[a.relation] - RELATION_ORDER[b.relation],
       );
       const status = statusFor(sortedMatches);
-      return { variable, matches: sortedMatches, status };
+      return {
+        variable,
+        matches: sortedMatches,
+        status,
+        assessment: assessmentsByVariable.get(variable.name) ?? null,
+      };
     })
     .sort(
       (a, b) =>
@@ -172,7 +221,9 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
     <div className="flex flex-col gap-4">
       <CollapsibleCard
         title={`${variables.length} fields`}
-        subtitle={`${updatedCount} with updates · ${counts.clear} clear`}
+        subtitle={`${result.stats?.unique_findings ?? 0} sources · ${
+          result.stats?.insights ?? 0
+        } insights · ${updatedCount} updates · ${counts.clear} clear`}
         trailing={
           <DownloadButton
             filename="matches.jsonl"
@@ -190,6 +241,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
               description={row.variable.description}
               status={row.status}
               matches={row.matches}
+              assessment={row.assessment}
             />
           ))}
         </div>
@@ -203,13 +255,16 @@ function FieldRow({
   description,
   status,
   matches,
+  assessment,
 }: {
   name: string;
   description: string;
   status: Status;
   matches: Match[];
+  assessment: EvidenceAssessment | null;
 }) {
   const meta = STATUS_META[status];
+  const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
 
   return (
     <details className={`group border-b border-b-border border-l-4 ${meta.tone}`}>
@@ -217,6 +272,11 @@ function FieldRow({
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-2">
             <Badge variant={meta.badge}>{meta.label}</Badge>
+            {assessment && evidenceMeta && (
+              <Badge variant="outline" className={evidenceMeta.className}>
+                {evidenceMeta.label}
+              </Badge>
+            )}
             <h3 className="text-sm font-medium">{attributeLabel(name)}</h3>
             <span className="text-xs text-muted-foreground">
               {matches.length} match{matches.length === 1 ? "" : "es"}
@@ -235,6 +295,48 @@ function FieldRow({
       </summary>
 
       <div className="px-6 pb-4">
+        {assessment && (
+          <div className="mb-4 rounded-md bg-card p-4">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Evidence
+            </p>
+            {assessment.basis.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {assessment.basis.map((basis) => (
+                  <Badge key={basis} variant="outline">
+                    {BASIS_LABELS[basis] ?? basis}
+                  </Badge>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {assessment.reason}
+            </p>
+            {assessment.supporting_findings.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {assessment.supporting_findings.map((finding) => (
+                  <li key={finding.url} className="text-xs text-muted-foreground">
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <a
+                        href={finding.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline hover:text-foreground"
+                      >
+                        {finding.title || finding.url}
+                      </a>
+                      {finding.source === "pubmed" && (
+                        <Badge variant="outline" className="text-[10px]">
+                          PubMed
+                        </Badge>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         {matches.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No matches for this variable.
@@ -268,14 +370,21 @@ function FieldRow({
                   <ul className="mt-3 space-y-1">
                     {match.insight.supporting_findings.map((finding) => (
                       <li key={finding.url} className="text-xs text-muted-foreground">
-                        <a
-                          href={finding.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="underline hover:text-foreground"
-                        >
-                          {finding.title || finding.url}
-                        </a>
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          <a
+                            href={finding.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline hover:text-foreground"
+                          >
+                            {finding.title || finding.url}
+                          </a>
+                          {finding.source === "pubmed" && (
+                            <Badge variant="outline" className="text-[10px]">
+                              PubMed
+                            </Badge>
+                          )}
+                        </span>
                       </li>
                     ))}
                   </ul>

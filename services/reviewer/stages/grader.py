@@ -1,19 +1,17 @@
-"""Three-dimension grader.
+"""Two-dimension grader.
 
-Each section is graded by THREE independent LLM calls — one per dimension
-(completeness, adherence, expertise). Each call's prompt contains only the
+Each section is graded by TWO independent LLM calls - one per dimension
+(completeness, adherence). Each call's prompt contains only the
 rules and inputs that dimension needs:
 
-- completeness call: rubric + draft. No peer claims.
-- adherence call:    rubric + draft. No peer claims.
-- expertise call:    rubric + draft + peer claims (the only dimension that
-                     sees the peer benchmark).
+- completeness call: rubric + draft.
+- adherence call:    rubric + draft.
 
-The three results are merged into a single SectionGrade (or VariableGrade
+The two results are merged into a single SectionGrade (or VariableGrade
 list) with the same `dimensions` shape the rest of the system already
 consumes. The I/O contract is unchanged.
 
-Sections grade in parallel, and the three dimension calls within each
+Sections grade in parallel, and the two dimension calls within each
 section also run in parallel — so total wall-clock stays close to the
 slowest individual LLM call.
 """
@@ -58,9 +56,6 @@ def grade_sections(
     llm_client: LLMClientProtocol,
     *,
     max_tokens: int,
-    claims_store=None,
-    source_id: str | None = None,
-    indication: str | None = None,
 ) -> list[SectionGrade]:
     blocks_by_section = _group_blocks_by_section(labeled_blocks)
     indexed: list[tuple[int, SectionSpec, list[ContentBlock] | None]] = []
@@ -78,11 +73,7 @@ def grade_sections(
             section_blocks=section_blocks,
             llm_client=llm_client,
             max_tokens=max_tokens,
-            claims_store=claims_store,
-            source_id=source_id,
-            indication=indication,
         )
-        _stamp_variable_attribute_refs(section_grade, section_spec)
         if section_spec.variables:
             section_grade.dimensions = _rollup_dimensions(
                 [vg.dimensions for vg in section_grade.variable_grades]
@@ -100,7 +91,7 @@ def grade_sections(
 
 
 # ---------------------------------------------------------------------------
-# Per-section grading: three parallel dimension calls
+# Per-section grading: two parallel dimension calls
 # ---------------------------------------------------------------------------
 
 
@@ -110,11 +101,8 @@ def _grade_section(
     section_blocks: list[ContentBlock],
     llm_client: LLMClientProtocol,
     max_tokens: int,
-    claims_store,
-    source_id: str | None,
-    indication: str | None,
 ) -> SectionGrade:
-    """Run three independent dimension calls and merge into one SectionGrade."""
+    """Run two independent dimension calls and merge into one SectionGrade."""
 
     blocks_text = _format_blocks(section_blocks)
 
@@ -124,7 +112,6 @@ def _grade_section(
             section_spec=section_spec,
             blocks_text=blocks_text,
             section_blocks=section_blocks,
-            peer_context=None,
             llm_client=llm_client,
             max_tokens=max_tokens,
         )
@@ -135,31 +122,14 @@ def _grade_section(
             section_spec=section_spec,
             blocks_text=blocks_text,
             section_blocks=section_blocks,
-            peer_context=None,
             llm_client=llm_client,
             max_tokens=max_tokens,
         )
 
-    def call_expertise():
-        peer_claims = _peer_claims_for_section(
-            claims_store, section_spec, source_id, indication
-        )
-        peer_context = _format_peer_claims_for_prompt(peer_claims)
-        return _call_dimension(
-            dimension="expertise",
-            section_spec=section_spec,
-            blocks_text=blocks_text,
-            section_blocks=section_blocks,
-            peer_context=peer_context,
-            llm_client=llm_client,
-            max_tokens=max_tokens,
-        )
-
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=2) as executor:
         futures = {
             "completeness": executor.submit(call_completeness),
             "adherence": executor.submit(call_adherence),
-            "expertise": executor.submit(call_expertise),
         }
         results = {name: future.result() for name, future in futures.items()}
 
@@ -172,7 +142,6 @@ def _call_dimension(
     section_spec: SectionSpec,
     blocks_text: str,
     section_blocks: list[ContentBlock],
-    peer_context: str | None,
     llm_client: LLMClientProtocol,
     max_tokens: int,
 ) -> dict[str, Any]:
@@ -189,8 +158,7 @@ def _call_dimension(
               "block_ids": [str, ...],
               "grade": "A|B|C|D|F|N/A",
               "issues": [str, ...],
-              "recommendation": str,
-              "cited_claim_ids": [str, ...]  # expertise only
+              "recommendation": str
             }
           ]
         }
@@ -199,15 +167,13 @@ def _call_dimension(
         {
           "grade": "A|B|C|D|F|N/A",
           "issues": [str, ...],
-          "recommendation": str,
-          "cited_claim_ids": [str, ...]      # expertise only
+          "recommendation": str
         }
     """
     system_prompt = _build_system_prompt(dimension, section_spec)
     user_message = _build_user_message(
         section_spec=section_spec,
         blocks_text=blocks_text,
-        peer_context=peer_context,
     )
     raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
     try:
@@ -257,8 +223,6 @@ Style for issues and recommendations:
         focus = _build_completeness_focus(section_spec)
     elif dimension == "adherence":
         focus = _build_adherence_focus(section_spec)
-    elif dimension == "expertise":
-        focus = _build_expertise_focus(section_spec)
     else:
         raise ValueError(f"Unknown dimension: {dimension}")
 
@@ -273,7 +237,6 @@ def _build_completeness_focus(section_spec: SectionSpec) -> str:
         "Question: is every required variable filled with substantive content?",
         "",
         "Inputs you may consider: the rubric's expected variables and the draft content.",
-        "Inputs you must IGNORE: peer claims from other documents (none provided here on purpose).",
         "",
         "Rules:",
         "- A required variable is missing if it has no content at all.",
@@ -300,7 +263,6 @@ def _build_adherence_focus(section_spec: SectionSpec) -> str:
         "Question: does the content follow the rubric's structural expectations?",
         "",
         "Inputs you may consider: the rubric's structural rules and the draft content.",
-        "Inputs you must IGNORE: peer claims from other documents (none provided here on purpose).",
         "",
         "Rules:",
         "- Section and variable names should match the rubric's expected names.",
@@ -322,34 +284,6 @@ def _build_adherence_focus(section_spec: SectionSpec) -> str:
     return "\n".join(lines)
 
 
-def _build_expertise_focus(section_spec: SectionSpec) -> str:
-    lines = [
-        "# DIMENSION: EXPERTISE",
-        "Question: is what is there high-quality and defensible against peers?",
-        "",
-        "Inputs you may consider: the rubric, the draft content, and the PEER BENCHMARK in the user message.",
-        "This is the ONLY dimension where peer claims may influence the grade.",
-        "Cite specific peer source_ids in cited_claim_ids when you base the grade on them.",
-        "",
-        "Rules:",
-        "- Prefer quantitative targets over qualitative language where numbers are expected.",
-        "- Annotations should cite a source or rationale.",
-        "- Judge the draft's position as BELOW peer floor, AT peer norm, ABOVE peer ceiling, or MISSING relative to peers — reflect this in the grade and issues.",
-    ]
-    if section_spec.expertise:
-        lines.append("")
-        lines.append("Additional rules from rubric config:")
-        for key, value in section_spec.expertise.items():
-            lines.append(f"- {key}: {value}")
-    if section_spec.variables:
-        lines.append("")
-        lines.append("Expected variables for this section:")
-        for v in section_spec.variables:
-            extra = _format_variable_dimension_rules(v, "expertise")
-            lines.append(f"- {v.name}: {v.description}{extra}")
-    return "\n".join(lines)
-
-
 def _format_variable_dimension_rules(v: VariableSpec, dimension: str) -> str:
     block = getattr(v, dimension, {}) or {}
     if not block:
@@ -359,25 +293,20 @@ def _format_variable_dimension_rules(v: VariableSpec, dimension: str) -> str:
 
 
 def _output_schema(dimension: str, section_spec: SectionSpec) -> str:
-    cited_field = "expertise"
     if section_spec.variables:
         per_variable = (
             '{"variable_name": "exact name", "block_ids": ["block id"], '
             '"grade": "A|B|C|D|F|N/A", "issues": ["..."], "recommendation": "..."'
         )
-        if dimension == cited_field:
-            per_variable += ', "cited_claim_ids": ["peer_source_id"]'
         per_variable += "}"
 
         schema = {
-            "missing_variables": "list of expected variable names not present in the content (completeness only — leave empty for adherence and expertise)",
+            "missing_variables": "list of expected variable names not present in the content (completeness only - leave empty for adherence)",
             "variable_grades": f"list of {per_variable}",
         }
         return "Output schema:\n" + json.dumps(schema, indent=2)
     else:
         section_obj = '{"grade": "A|B|C|D|F|N/A", "issues": ["..."], "recommendation": "..."'
-        if dimension == cited_field:
-            section_obj += ', "cited_claim_ids": ["peer_source_id"]'
         section_obj += "}"
         return f"Output schema:\n{section_obj}"
 
@@ -386,7 +315,6 @@ def _build_user_message(
     *,
     section_spec: SectionSpec,
     blocks_text: str,
-    peer_context: str | None,
 ) -> str:
     parts = [
         f"Section: {section_spec.name}",
@@ -394,8 +322,6 @@ def _build_user_message(
         "Actual document blocks:",
         blocks_text,
     ]
-    if peer_context:
-        parts.append(peer_context)
     return "\n\n".join(parts)
 
 
@@ -431,7 +357,6 @@ def _parse_dimension_response(
                     "grade": _grade_value(item.get("grade")),
                     "issues": _string_list(item.get("issues")),
                     "recommendation": _string_value(item.get("recommendation")),
-                    "cited_claim_ids": _string_list(item.get("cited_claim_ids")),
                 }
             )
         return {
@@ -443,7 +368,6 @@ def _parse_dimension_response(
         "grade": _grade_value(parsed.get("grade")),
         "issues": _string_list(parsed.get("issues")),
         "recommendation": _string_value(parsed.get("recommendation")),
-        "cited_claim_ids": _string_list(parsed.get("cited_claim_ids")),
     }
 
 
@@ -454,7 +378,6 @@ def _failed_dimension_response(section_spec: SectionSpec) -> dict[str, Any]:
         "grade": "N/A",
         "issues": ["Grading failed."],
         "recommendation": "Retry grading or review this section manually.",
-        "cited_claim_ids": [],
     }
 
 
@@ -515,7 +438,6 @@ def _merge_variable_bearing(
                 grade=item.get("grade", "N/A"),
                 issues=list(item.get("issues", [])),
                 recommendation=item.get("recommendation", ""),
-                cited_claim_ids=list(item.get("cited_claim_ids", [])),
             )
             for bid in item.get("block_ids", []):
                 if bid not in block_ids:
@@ -549,7 +471,6 @@ def _merge_prose(
             grade=item.get("grade", "N/A"),
             issues=list(item.get("issues", [])),
             recommendation=item.get("recommendation", ""),
-            cited_claim_ids=list(item.get("cited_claim_ids", [])),
         )
     return SectionGrade(
         section_name=section_spec.name,
@@ -559,108 +480,20 @@ def _merge_prose(
 
 
 # ---------------------------------------------------------------------------
-# Peer-claim routing (expertise only)
-# ---------------------------------------------------------------------------
-
-
-def _peer_claims_for_section(
-    claims_store,
-    section_spec: SectionSpec,
-    source_id: str | None,
-    indication: str | None,
-) -> list:
-    if claims_store is None:
-        return []
-    if not section_spec.variables:
-        return []
-    refs = [v.attribute_ref for v in section_spec.variables if v.attribute_ref]
-    if not refs:
-        return []
-    seen: set[str] = set()
-    out: list = []
-    for ref in refs:
-        for claim in claims_store.get_by_attribute(
-            ref,
-            indication=indication,
-            exclude_source_id=source_id,
-        ):
-            cid = getattr(claim, "id", None) or f"{claim.source_id}/{claim.ordinal}"
-            if cid in seen:
-                continue
-            seen.add(cid)
-            out.append(claim)
-    return out
-
-
-def _format_peer_claims_for_prompt(peer_claims: list) -> str:
-    if not peer_claims:
-        return ""
-
-    by_attr: dict[str, list] = {}
-    for claim in peer_claims:
-        attr = getattr(claim, "attribute_ref", None) or "unbound"
-        by_attr.setdefault(attr, []).append(claim)
-
-    sources = {getattr(c, "source_id", "") for c in peer_claims if getattr(c, "source_id", None)}
-    lines = [
-        "",
-        f"PEER BENCHMARK — {len(peer_claims)} peer claims from {len(sources)} peer document(s).",
-        "Each claim is tagged with [source_id (org·source_type · claim_type · date · indication)]. "
-        "Weight recent claims from authoritative sources more heavily than old ones. "
-        "Use these claims to judge whether the document is BELOW peer floor, AT peer norm, "
-        "ABOVE peer ceiling, or MISSING relative to peers. Cite source_ids in cited_claim_ids.",
-        "",
-    ]
-    for attr in sorted(by_attr.keys()):
-        claims_for_attr = by_attr[attr]
-        attr_sources = sorted({getattr(c, "source_id", "?") for c in claims_for_attr})
-        lines.append(
-            f"  {attr}: {len(claims_for_attr)} claim(s) across {len(attr_sources)} doc(s)"
-        )
-        for claim in claims_for_attr[:3]:
-            statement = (getattr(claim, "statement", "") or "")[:160]
-            src = getattr(claim, "source_id", "?")
-            org = getattr(claim, "org", None)
-            source_type = getattr(claim, "source_type", None)
-            date = getattr(claim, "valid_as_of", None) or getattr(claim, "extracted_at", None)
-            ta = getattr(claim, "indication", None)
-            claim_type = getattr(claim, "claim_type", None)
-            tags = [
-                f"{org}·{source_type}" if org and source_type else None,
-                claim_type,
-                date,
-                ta,
-            ]
-            tag_text = " · ".join(t for t in tags if t)
-            tag_text = f" ({tag_text})" if tag_text else ""
-            lines.append(f"    - [{src}{tag_text}] {statement}")
-        if len(claims_for_attr) > 3:
-            lines.append(f"    ... ({len(claims_for_attr) - 3} more)")
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
 # Helpers shared with the rest of the pipeline
 # ---------------------------------------------------------------------------
-
-
-def _stamp_variable_attribute_refs(grade: SectionGrade, spec: SectionSpec) -> None:
-    refs_by_name = {v.name: v.attribute_ref for v in spec.variables}
-    for vg in grade.variable_grades:
-        vg.attribute_ref = refs_by_name.get(vg.variable_name)
 
 
 def _rollup_dimensions(
     children: list[dict[str, DimensionGrade]],
 ) -> dict[str, DimensionGrade]:
-    """Average each dimension across children; collect their issues/recommendations/citations."""
+    """Average each dimension across children; collect issues/recommendations."""
     out: dict[str, DimensionGrade] = {}
     for name in DIMENSIONS:
         grades = [c[name].grade for c in children if name in c]
         score = _average_score(grades)
         issues: list[str] = []
         recs: list[str] = []
-        cites: list[str] = []
         for c in children:
             dg = c.get(name)
             if dg is None:
@@ -668,12 +501,10 @@ def _rollup_dimensions(
             issues.extend(dg.issues)
             if dg.recommendation:
                 recs.append(dg.recommendation)
-            cites.extend(dg.cited_claim_ids)
         out[name] = DimensionGrade(
             grade=_score_to_grade(score),
             issues=issues,
             recommendation="; ".join(dict.fromkeys(recs)),
-            cited_claim_ids=list(dict.fromkeys(cites)),
         )
     return out
 

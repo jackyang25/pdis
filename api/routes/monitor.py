@@ -9,10 +9,24 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from services.monitor import find_config, load_attributes, matches_to_dicts, run_pipeline
+from services.monitor import (
+    assessments_to_dicts,
+    find_config,
+    load_attributes,
+    matches_to_dicts,
+    run_pipeline,
+)
 
 from api.deps import get_openai_client
-from api.schemas import FindingOut, InsightOut, MatchOut, MonitorRunResponse, VariableOut
+from api.schemas import (
+    EvidenceAssessmentOut,
+    FindingOut,
+    FunnelStatsOut,
+    InsightOut,
+    MatchOut,
+    MonitorRunResponse,
+    VariableOut,
+)
 from api.streaming import run_with_progress
 
 router = APIRouter()
@@ -42,7 +56,7 @@ async def run_monitor(
     def work(progress):
         try:
             openai_client = get_openai_client()
-            matches = run_pipeline(
+            result = run_pipeline(
                 temp_paths,
                 config=config,
                 openai_client=openai_client,
@@ -53,7 +67,8 @@ async def run_monitor(
                 indication=indication,
                 progress_callback=progress,
             )
-            match_dicts = matches_to_dicts(matches)
+            match_dicts = matches_to_dicts(result.matches)
+            assessment_dicts = assessments_to_dicts(result.assessments)
             variables = load_attributes(intervention_class)
             return MonitorRunResponse(
                 org=org,
@@ -86,6 +101,27 @@ async def run_monitor(
                     )
                     for md in match_dicts
                 ],
+                assessments=[
+                    EvidenceAssessmentOut(
+                        attribute_ref=assessment["attribute_ref"],
+                        strength=assessment["strength"],
+                        basis=assessment["basis"],
+                        reason=assessment["reason"],
+                        supporting_findings=[
+                            FindingOut(**finding)
+                            for finding in assessment["supporting_findings"]
+                        ],
+                    )
+                    for assessment in assessment_dicts
+                ],
+                stats=FunnelStatsOut(
+                    queries=result.stats.queries,
+                    findings=result.stats.findings,
+                    unique_findings=result.stats.unique_findings,
+                    insights=result.stats.insights,
+                    matches=result.stats.matches,
+                    assessments=result.stats.assessments,
+                ),
             ).model_dump()
         finally:
             for path in temp_paths:

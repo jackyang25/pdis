@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   Boxes,
-  FileSearch,
   HeartHandshake,
   Layers3,
   Search,
@@ -16,7 +15,6 @@ import { Separator } from "./ui/separator";
 
 const NAV = [
   { href: "/chunker", label: "Chunker", description: "Parse + label", icon: Boxes },
-  { href: "/benchmarker", label: "Benchmarker", description: "Extract peer claims", icon: FileSearch },
   { href: "/searcher", label: "Searcher", description: "Find web evidence", icon: Search },
   { href: "/reviewer", label: "Reviewer", description: "Grade documents", icon: Layers3 },
   { href: "/monitor", label: "Monitor", description: "Track web updates", icon: Activity },
@@ -32,10 +30,6 @@ export function Sidebar() {
           <br />
           Intelligence Suite
         </div>
-        <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          Solving for global health
-          <HeartHandshake className="h-3 w-3" />
-        </div>
       </div>
       <Separator />
       <nav className="flex flex-col gap-1 px-3 py-4">
@@ -44,7 +38,7 @@ export function Sidebar() {
           const Icon = item.icon;
           return (
             <div key={item.href}>
-              {index === 3 && <Separator className="my-2 opacity-50" />}
+              {index === 2 && <Separator className="my-2 opacity-50" />}
               <Link
                 href={item.href}
                 className={cn(

@@ -5,7 +5,7 @@ export type Header = {
   indication: string;
 };
 
-export type ToolName = "chunker" | "benchmarker" | "reviewer";
+export type ToolName = "chunker" | "reviewer" | "monitor";
 
 export type DocumentType = {
   key: string;
@@ -26,29 +26,12 @@ export type ContentBlock = {
   section_label: string | null;
 };
 
-export type Claim = {
-  id: string;
-  ordinal: number;
-  statement: string;
-  claim_type: string;
-  polarity: string;
-  source_id: string;
-  source_kind: string;
-  source_locator: Record<string, unknown>;
-  attribute_ref: string | null;
-  org: string | null;
-  source_type: string | null;
-  intervention_class: string | null;
-  indication: string | null;
-};
-
-export type DimensionName = "completeness" | "adherence" | "expertise";
+export type DimensionName = "completeness" | "adherence";
 
 export type DimensionGrade = {
   grade: string;
   issues: string[];
   recommendation: string;
-  cited_claim_ids: string[];
 };
 
 export type Dimensions = Record<DimensionName, DimensionGrade>;
@@ -57,7 +40,6 @@ export type VariableGrade = {
   variable_name: string;
   dimensions: Dimensions;
   block_ids: string[];
-  attribute_ref: string | null;
 };
 
 export type SectionGrade = {
@@ -79,7 +61,7 @@ export type ReviewResult = {
   indication: string | null;
 };
 
-export const DIMENSION_NAMES: DimensionName[] = ["completeness", "adherence", "expertise"];
+export const DIMENSION_NAMES: DimensionName[] = ["completeness", "adherence"];
 
 export const GRADE_LABELS: Record<string, string> = {
   A: "Fully complete",
@@ -90,21 +72,8 @@ export const GRADE_LABELS: Record<string, string> = {
   "N/A": "Not applicable",
 };
 
-export type PeerClaim = {
-  source_id: string;
-  statement: string;
-  claim_type: string | null;
-  attribute_ref: string | null;
-  valid_as_of: string | null;
-  extracted_at: string | null;
-  org: string | null;
-  source_type: string | null;
-  indication: string | null;
-};
-
 export type ReviewerResponse = {
   review: ReviewResult;
-  peer_claims: PeerClaim[];
 };
 
 export type Finding = {
@@ -114,6 +83,7 @@ export type Finding = {
   retrieved_at: string;
   excerpt: string | null;
   published_at: string | null;
+  source: string;
 };
 
 export type SearcherResponse = {
@@ -138,6 +108,30 @@ export type Match = {
   reason: string;
 };
 
+export type EvidenceStrength =
+  | "well_grounded"
+  | "partial"
+  | "thin"
+  | "unsupported"
+  | "unknown";
+
+export type EvidenceAssessment = {
+  attribute_ref: string;
+  strength: EvidenceStrength;
+  basis: string[];
+  reason: string;
+  supporting_findings: Finding[];
+};
+
+export type FunnelStats = {
+  queries: number;
+  findings: number;
+  unique_findings: number;
+  insights: number;
+  matches: number;
+  assessments: number;
+};
+
 export type Variable = {
   name: string;
   description: string;
@@ -150,6 +144,8 @@ export type MonitorResponse = {
   indication: string;
   variables: Variable[];
   matches: Match[];
+  assessments: EvidenceAssessment[];
+  stats: FunnelStats;
 };
 
 export type StageEvent = { event: "stage"; name: string };
@@ -241,17 +237,6 @@ export async function runChunker(
   form.append("file", file);
   appendHeader(form, header);
   return streamRequest("/api/chunker/run", form, onStage);
-}
-
-export async function runBenchmarker(
-  file: File,
-  header: Header,
-  onStage?: (stage: string) => void,
-): Promise<{ doc_id: string; source_id: string; claims: Claim[] }> {
-  const form = new FormData();
-  form.append("file", file);
-  appendHeader(form, header);
-  return streamRequest("/api/benchmarker/run", form, onStage);
 }
 
 export async function runReviewer(

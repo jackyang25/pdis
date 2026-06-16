@@ -16,6 +16,19 @@ from services.searcher import Finding
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
 ATTRIBUTES_FILE = Path(__file__).resolve().parents[2] / "shared" / "attributes.yaml"
 VALID_RELATIONS = {"contradicts", "extends", "confirms", "unrelated"}
+VALID_EVIDENCE_STRENGTHS = {
+    "well_grounded",
+    "partial",
+    "thin",
+    "unsupported",
+    "unknown",
+}
+VALID_EVIDENCE_BASIS = {
+    "standard_of_care",
+    "modeling",
+    "study_strength",
+    "regulatory_precedent",
+}
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> "MonitorTypeConfig":
@@ -74,7 +87,6 @@ def load_attributes(intervention_class: str) -> list[Attribute]:
 class Insight:
     """One atomic factual observation from the web, source-attributed.
 
-    Symmetric in spirit to `Claim` (which benchmarker extracts from docs):
     Insight is what monitor extracts from web Findings. Each Insight is
     a single statement backed by one or more supporting Findings.
     """
@@ -96,14 +108,40 @@ class Match:
 
     Match is the doc-aware primitive monitor emits. Insight stays
     doc-agnostic - anyone wanting pure web evidence can still consume
-    list[Insight] directly. When benchmarker integration lands later,
-    Match will optionally gain a claim_id pointing at the specific doc
-    Claim involved in the comparison; nothing else changes.
+    list[Insight] directly.
     """
 
     insight: Insight
     relation: str
     reason: str
+
+
+@dataclass
+class EvidenceAssessment:
+    """Weight-of-evidence assessment for one TPP attribute variable."""
+
+    attribute_ref: str
+    strength: str
+    basis: list[str] = field(default_factory=list)
+    reason: str = ""
+    supporting_findings: list[Finding] = field(default_factory=list)
+
+
+@dataclass
+class FunnelStats:
+    queries: int
+    findings: int
+    unique_findings: int
+    insights: int
+    matches: int
+    assessments: int
+
+
+@dataclass
+class MonitorResult:
+    matches: list[Match]
+    assessments: list[EvidenceAssessment]
+    stats: FunnelStats
 
 
 @dataclass
@@ -117,6 +155,9 @@ class MonitorTypeConfig:
     queries_per_variable: int = 1
     priority_sources: list[str] = field(default_factory=list)
     modalities: list[str] = field(default_factory=list)
+    languages: list[str] = field(default_factory=list)
+    geographic_emphasis: list[str] = field(default_factory=list)
+    geographic_queries_per_variable: int = 0
 
 
 def insights_to_dicts(insights: list[Insight]) -> list[dict]:
@@ -156,6 +197,24 @@ def matches_to_dicts(matches: list[Match]) -> list[dict]:
     return out
 
 
+def assessments_to_dicts(assessments: list[EvidenceAssessment]) -> list[dict]:
+    """Convert EvidenceAssessment objects to plain dictionaries."""
+    out: list[dict] = []
+    for assessment in assessments:
+        d = asdict(assessment)
+        for finding in d["supporting_findings"]:
+            if finding.get("retrieved_at") is not None and not isinstance(
+                finding["retrieved_at"], str
+            ):
+                finding["retrieved_at"] = finding["retrieved_at"].isoformat()
+            if finding.get("published_at") is not None and not isinstance(
+                finding["published_at"], str
+            ):
+                finding["published_at"] = finding["published_at"].isoformat()
+        out.append(d)
+    return out
+
+
 def load_config(config_path: str) -> MonitorTypeConfig:
     """Load a MonitorTypeConfig from YAML."""
     import yaml
@@ -180,6 +239,8 @@ def load_config(config_path: str) -> MonitorTypeConfig:
 
     priority_sources = data.get("priority_sources", []) or []
     modalities = data.get("modalities", []) or []
+    languages = data.get("languages", []) or []
+    geographic_emphasis = data.get("geographic_emphasis", []) or []
     if not isinstance(priority_sources, list) or not all(
         isinstance(source, str) for source in priority_sources
     ):
@@ -188,6 +249,17 @@ def load_config(config_path: str) -> MonitorTypeConfig:
         isinstance(modality, str) for modality in modalities
     ):
         raise ValueError("modalities must be a list of strings")
+    if not isinstance(languages, list) or not all(
+        isinstance(language, str) for language in languages
+    ):
+        raise ValueError("languages must be a list of strings")
+    if not isinstance(geographic_emphasis, list) or not all(
+        isinstance(emphasis, str) for emphasis in geographic_emphasis
+    ):
+        raise ValueError("geographic_emphasis must be a list of strings")
+    geographic_queries_per_variable = int(data.get("geographic_queries_per_variable", 0))
+    if geographic_queries_per_variable < 0:
+        raise ValueError("geographic_queries_per_variable must be >= 0")
 
     return MonitorTypeConfig(
         type_key=data["type_key"],
@@ -199,4 +271,7 @@ def load_config(config_path: str) -> MonitorTypeConfig:
         queries_per_variable=int(data.get("queries_per_variable", 1)),
         priority_sources=priority_sources,
         modalities=modalities,
+        languages=languages,
+        geographic_emphasis=geographic_emphasis,
+        geographic_queries_per_variable=geographic_queries_per_variable,
     )

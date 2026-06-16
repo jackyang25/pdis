@@ -1,6 +1,6 @@
 # Controlled vocabulary: TPP attributes per intervention class.
-# Shared domain vocabulary - NOT owned by any service. Read by benchmarker,
-# referenced by reviewer (attribute_ref). Mirrors shared/indications.yaml.
+# Shared domain vocabulary - NOT owned by any service. Read by monitor
+# (per-variable search/evaluate loop). Mirrors shared/indications.yaml.
 vaccine:
 - name: vaccine.indication
   description: |
@@ -110,3 +110,20 @@ vaccine:
 - name: vaccine.companion_diagnostic
   description: |
     Whether a companion test is needed (e.g., to screen recipients or monitor response).
+
+# ---------------------------------------------------------------------------
+# TODO (domain): author attribute variables for the intervention classes
+# below, mirroring the `vaccine:` block above. Each entry is:
+#   - name: "<class>.<slug>"
+#     description: |
+#       What this variable covers (one or two sentences).
+# Until filled, monitor returns no fields for these classes (load_attributes
+# returns an empty list - safe, just empty). Human-maintained domain
+# vocabulary, owned by no service.
+# ---------------------------------------------------------------------------
+
+drug: []
+
+diagnostic: []
+
+device: []

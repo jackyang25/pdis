@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from functools import lru_cache
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -173,31 +174,36 @@ def _fetch_pmc_texts(
     out: dict[str, str] = {}
     for pmcid in pmcids:
         try:
-            root = _request_xml(
-                "efetch.fcgi",
-                {
-                    "db": "pmc",
-                    "id": pmcid.removeprefix("PMC"),
-                    "retmode": "xml",
-                },
-                api_key=api_key,
-            )
+            # Cached process-wide by PMCID: the same open-access article recurs
+            # across many queries, so it is fetched from NCBI only once.
+            out[pmcid] = _pmc_fulltext(pmcid, api_key)
         except Exception:
-            logger.exception("PMC full-text fetch failed for %s", pmcid)
+            # Transient errors (e.g. 429) are NOT cached, so they retry later.
+            logger.warning("PMC full-text fetch failed for %s", pmcid)
             continue
+    return out
+
+
+@lru_cache(maxsize=2048)
+def _pmc_fulltext(pmcid: str, api_key: str | None) -> str:
+    """Fetch and clean PMC open-access full text for one PMCID. Memoized."""
+    root = _request_xml(
+        "efetch.fcgi",
+        {"db": "pmc", "id": pmcid.removeprefix("PMC"), "retmode": "xml"},
+        api_key=api_key,
+    )
+    texts = [
+        _iter_text(node)
+        for node in root.findall(".//body//p")
+        if _iter_text(node).strip()
+    ]
+    if not texts:
         texts = [
             _iter_text(node)
-            for node in root.findall(".//body//p")
+            for node in root.findall(".//abstract//p")
             if _iter_text(node).strip()
         ]
-        if not texts:
-            texts = [
-                _iter_text(node)
-                for node in root.findall(".//abstract//p")
-                if _iter_text(node).strip()
-            ]
-        out[pmcid] = _clean_text(" ".join(texts))
-    return out
+    return _clean_text(" ".join(texts))
 
 
 def _request_xml(

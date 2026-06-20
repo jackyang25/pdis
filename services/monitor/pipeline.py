@@ -36,6 +36,12 @@ FINDINGS_BATCH_SIZE = 40
 SEARCH_MAX_TOKENS = 8000
 SEARCH_MAX_USES = 10
 
+# Parallelism. LLM/web stages are I/O-bound on OpenAI (enterprise rate limits
+# allow generous concurrency). PubMed runs on its own pass; NCBI is globally
+# rate-throttled inside the searcher regardless, so its worker count is modest.
+MAX_WORKERS = 16
+PUBMED_WORKERS = 8
+
 
 def run_pipeline(
     file_paths: list[str],
@@ -199,7 +205,7 @@ def _extract_queries_all_variables(
     """Run query extraction across attribute variables with bounded concurrency."""
     if not attributes:
         return {}
-    workers = max(1, min(8, len(attributes)))
+    workers = max(1, min(MAX_WORKERS, len(attributes)))
 
     def one(attribute: Attribute) -> tuple[str, list[str]]:
         return attribute.name, extract_queries_for_variable(
@@ -227,7 +233,7 @@ def _extract_insights_all_variables(
     items = list(findings_by_attribute.items())
     if not items:
         return []
-    workers = max(1, min(8, len(items)))
+    workers = max(1, min(MAX_WORKERS, len(items)))
 
     def one(item: tuple[str, list[Finding]]) -> list[Insight]:
         attribute_ref, findings = item
@@ -279,10 +285,46 @@ def _search_all(
     attribute_queries: list[tuple[str, str]],
     search_client: SearchClientProtocol,
 ) -> dict[tuple[str, str], list[Finding]]:
-    """Run all queries in parallel. Returns mapping from (attribute, query) to findings."""
+    """Search all queries and return a mapping from (attribute, query) to findings.
+
+    Web and PubMed run as TWO concurrent passes so the fast web modality is not
+    blocked by PubMed's global NCBI rate throttle. Per query, the two backends'
+    findings are unioned (dedup by URL).
+    """
     if not attribute_queries:
         return {}
-    workers = max(1, min(8, len(attribute_queries)))
+
+    with ThreadPoolExecutor(max_workers=2) as outer:
+        web_future = outer.submit(
+            _search_backend, attribute_queries, search_client, ("web",), MAX_WORKERS
+        )
+        pubmed_future = outer.submit(
+            _search_backend, attribute_queries, search_client, ("pubmed",), PUBMED_WORKERS
+        )
+        web = web_future.result()
+        pubmed = pubmed_future.result()
+
+    merged: dict[tuple[str, str], list[Finding]] = {}
+    for attribute_query in attribute_queries:
+        seen: set[str] = set()
+        out: list[Finding] = []
+        for finding in web.get(attribute_query, []) + pubmed.get(attribute_query, []):
+            if finding.url in seen:
+                continue
+            seen.add(finding.url)
+            out.append(finding)
+        merged[attribute_query] = out
+    return merged
+
+
+def _search_backend(
+    attribute_queries: list[tuple[str, str]],
+    search_client: SearchClientProtocol,
+    backends: tuple[str, ...],
+    max_workers: int,
+) -> dict[tuple[str, str], list[Finding]]:
+    """Run one retrieval backend across all queries with bounded concurrency."""
+    workers = max(1, min(max_workers, len(attribute_queries)))
     with ThreadPoolExecutor(max_workers=workers) as executor:
         results = list(
             executor.map(
@@ -291,7 +333,7 @@ def _search_all(
                     llm_client=search_client,
                     max_tokens=SEARCH_MAX_TOKENS,
                     max_uses=SEARCH_MAX_USES,
-                    backends=("web", "pubmed"),
+                    backends=backends,
                     ncbi_api_key=os.getenv("NCBI_API_KEY"),
                 ),
                 attribute_queries,
@@ -321,7 +363,7 @@ def _assess_evidence_all_variables(
 
     if not attributes:
         return []
-    workers = max(1, min(8, len(attributes)))
+    workers = max(1, min(MAX_WORKERS, len(attributes)))
 
     def one(attribute: Attribute) -> EvidenceAssessment:
         return assess_evidence(

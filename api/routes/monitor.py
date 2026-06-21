@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from services.monitor import (
     assessments_to_dicts,
+    conformity_to_dicts,
     find_config,
     load_attributes,
     matches_to_dicts,
@@ -19,11 +20,13 @@ from services.monitor import (
 
 from api.deps import get_openai_client
 from api.schemas import (
+    ConformityOut,
     EvidenceAssessmentOut,
     FindingOut,
     FunnelStatsOut,
     InsightOut,
     MatchOut,
+    MeasurementOut,
     MonitorRunResponse,
     VariableOut,
 )
@@ -69,6 +72,7 @@ async def run_monitor(
             )
             match_dicts = matches_to_dicts(result.matches)
             assessment_dicts = assessments_to_dicts(result.assessments)
+            conformity_dicts = conformity_to_dicts(result.conformity)
             variables = load_attributes(intervention_class)
             return MonitorRunResponse(
                 org=org,
@@ -113,6 +117,22 @@ async def run_monitor(
                         ],
                     )
                     for assessment in assessment_dicts
+                ],
+                conformity=[
+                    ConformityOut(
+                        attribute_ref=score["attribute_ref"],
+                        target_value=score["target_value"],
+                        comparator=score["comparator"],
+                        unit=score["unit"],
+                        conformity=score["conformity"],
+                        lower=score["lower"],
+                        upper=score["upper"],
+                        verdict=score["verdict"],
+                        measurements=[
+                            MeasurementOut(**m) for m in score["measurements"]
+                        ],
+                    )
+                    for score in conformity_dicts
                 ],
                 stats=FunnelStatsOut(
                     queries=result.stats.queries,

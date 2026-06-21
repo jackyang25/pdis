@@ -132,6 +132,26 @@ export type FunnelStats = {
   assessments: number;
 };
 
+export type Measurement = {
+  value: number;
+  source_type: string;
+  url: string;
+  age_months: number | null;
+  weight: number;
+};
+
+export type Conformity = {
+  attribute_ref: string;
+  target_value: number;
+  comparator: string;
+  unit: string;
+  conformity: number;
+  lower: number;
+  upper: number;
+  verdict: string;
+  measurements: Measurement[];
+};
+
 export type Variable = {
   name: string;
   description: string;
@@ -145,6 +165,7 @@ export type MonitorResponse = {
   variables: Variable[];
   matches: Match[];
   assessments: EvidenceAssessment[];
+  conformity: Conformity[];
   stats: FunnelStats;
 };
 

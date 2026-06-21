@@ -9,11 +9,13 @@ variable, and emits doc-aware Matches.
 
 from .models import (
     Attribute,
+    ConformityScore,
     EvidenceAssessment,
     FunnelStats,
     Insight,
     LLMClientProtocol,
     Match,
+    Measurement,
     MonitorResult,
     MonitorTypeConfig,
     SearchClientProtocol,
@@ -21,6 +23,7 @@ from .models import (
     VALID_EVIDENCE_STRENGTHS,
     VALID_RELATIONS,
     assessments_to_dicts,
+    conformity_to_dicts,
     find_config,
     insights_to_dicts,
     load_attributes,
@@ -31,11 +34,13 @@ from .pipeline import run_pipeline
 
 __all__ = [
     "Attribute",
+    "ConformityScore",
     "EvidenceAssessment",
     "FunnelStats",
     "Insight",
     "LLMClientProtocol",
     "Match",
+    "Measurement",
     "MonitorResult",
     "MonitorTypeConfig",
     "SearchClientProtocol",
@@ -43,6 +48,7 @@ __all__ = [
     "VALID_EVIDENCE_STRENGTHS",
     "VALID_RELATIONS",
     "assessments_to_dicts",
+    "conformity_to_dicts",
     "find_config",
     "insights_to_dicts",
     "load_attributes",

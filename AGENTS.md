@@ -31,7 +31,7 @@ Imports flow one way only: `web → api → services → (shared, data)`. **Neve
 | `services/chunker/` | Chunker | Parses `.docx`/`.pdf` → `list[ContentBlock]`. Optionally labels sections via LLM mapper. | — |
 | `services/reviewer/` | Reviewer | Document → `ReviewResult` graded across completeness and adherence. | chunker |
 | `services/searcher/` | Searcher | Query → `list[Finding]`. Web retrieval via OpenAI plus optional literature retrieval via NCBI PubMed/PMC. | shared/openai_client, NCBI |
-| `services/monitor/` | Monitor | Files + 4 primitives → drift `Match` records plus evidence assessments over attribute variables from `shared/attributes.yaml`. | chunker, searcher |
+| `services/monitor/` | Monitor | Files + 4 primitives → drift `Match` records, evidence assessments, and (for quantitative variables) combined `ConformityScore`s, over attribute variables from `shared/attributes.yaml`. | chunker, searcher |
 
 ## Cross-cutting (`shared/`)
 
@@ -133,6 +133,7 @@ services/monitor/stages/query_extractor.py    LLM: attribute variables -> search
 services/monitor/stages/insight_extractor.py  LLM: findings -> Insights
 services/monitor/stages/drift_classifier.py   LLM: insights x doc -> relations
 services/monitor/stages/evidence_assessor.py  LLM: variable evidence -> strength
+services/monitor/stages/conformity.py          LLM extract numbers + Python combine -> ConformityScore (quantitative vars)
 services/monitor/models.py       Insight + Match + EvidenceAssessment dataclasses + config
 api/main.py                      FastAPI app + route registration
 api/routes/{chunker,reviewer,configs}.py

@@ -17,6 +17,7 @@ from services.searcher import Finding, run_pipeline as searcher_run
 
 from .models import (
     Attribute,
+    ConformityScore,
     EvidenceAssessment,
     FunnelStats,
     Insight,
@@ -27,6 +28,7 @@ from .models import (
     SearchClientProtocol,
     load_attributes,
 )
+from .stages.conformity import score_conformity
 from .stages.drift_classifier import classify_drift
 from .stages.evidence_assessor import assess_evidence
 from .stages.insight_extractor import extract_insights
@@ -160,6 +162,17 @@ def run_pipeline(
         intervention_class=intervention_class,
     )
 
+    if progress_callback:
+        progress_callback("conformity")
+    conformity = _score_conformity_all_variables(
+        attributes,
+        doc_text,
+        insights,
+        openai_client,
+        indication=indication,
+        intervention_class=intervention_class,
+    )
+
     stats = FunnelStats(
         queries=len(flat),
         findings=total_findings,
@@ -168,7 +181,12 @@ def run_pipeline(
         matches=len(matches),
         assessments=len(assessments),
     )
-    return MonitorResult(matches=matches, assessments=assessments, stats=stats)
+    return MonitorResult(
+        matches=matches,
+        assessments=assessments,
+        stats=stats,
+        conformity=conformity,
+    )
 
 
 def _parse_all_docs(
@@ -377,6 +395,44 @@ def _assess_evidence_all_variables(
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         return list(executor.map(one, attributes))
+
+
+def _score_conformity_all_variables(
+    attributes: list[Attribute],
+    doc_text: str,
+    insights: list[Insight],
+    openai_client: LLMClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+) -> list[ConformityScore]:
+    """Score quantitative conformity per attribute with bounded concurrency.
+
+    Self-gating: returns scores only for variables that are numeric and have
+    comparable evidence (score_conformity returns None otherwise)."""
+    insights_by_attribute: dict[str, list[Insight]] = {}
+    for insight in insights:
+        if not insight.attribute_ref:
+            continue
+        insights_by_attribute.setdefault(insight.attribute_ref, []).append(insight)
+
+    if not attributes:
+        return []
+    workers = max(1, min(MAX_WORKERS, len(attributes)))
+
+    def one(attribute: Attribute) -> ConformityScore | None:
+        return score_conformity(
+            attribute,
+            doc_text,
+            insights_by_attribute.get(attribute.name, []),
+            openai_client,
+            indication=indication,
+            intervention_class=intervention_class,
+        )
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(one, attributes))
+    return [score for score in results if score is not None]
 
 
 def _empty_result(

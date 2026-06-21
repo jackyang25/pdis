@@ -128,6 +128,42 @@ class EvidenceAssessment:
 
 
 @dataclass
+class Measurement:
+    """One source's reported numeric value for a quantitative TPP variable.
+
+    Feeds the conformity combiner. `source_type` selects the reliability
+    weight; `age_months` (from the finding's publish date) drives recency.
+    """
+
+    value: float
+    source_type: str
+    url: str = ""
+    age_months: float | None = None
+    weight: float = 0.0
+
+
+@dataclass
+class ConformityScore:
+    """Combined weight-of-evidence that a quantitative target is met.
+
+    Produced only for variables where sources report comparable numbers
+    against a doc-stated target (e.g. efficacy >= 80%). A transparent,
+    reproducible alternative to the LLM's qualitative verdict: each source's
+    value is weighted by reliability + recency and combined.
+    """
+
+    attribute_ref: str
+    target_value: float
+    comparator: str  # ">=" or "<="
+    unit: str
+    conformity: float  # 0..1 combined probability the target is met
+    lower: float
+    upper: float
+    verdict: str
+    measurements: list[Measurement] = field(default_factory=list)
+
+
+@dataclass
 class FunnelStats:
     queries: int
     findings: int
@@ -142,6 +178,7 @@ class MonitorResult:
     matches: list[Match]
     assessments: list[EvidenceAssessment]
     stats: FunnelStats
+    conformity: list[ConformityScore] = field(default_factory=list)
 
 
 @dataclass
@@ -213,6 +250,11 @@ def assessments_to_dicts(assessments: list[EvidenceAssessment]) -> list[dict]:
                 finding["published_at"] = finding["published_at"].isoformat()
         out.append(d)
     return out
+
+
+def conformity_to_dicts(scores: list[ConformityScore]) -> list[dict]:
+    """Convert ConformityScore objects to plain dictionaries."""
+    return [asdict(score) for score in scores]
 
 
 def load_config(config_path: str) -> MonitorTypeConfig:

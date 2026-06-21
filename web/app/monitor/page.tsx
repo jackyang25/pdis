@@ -9,7 +9,9 @@ import { DownloadButton } from "@/components/download-button";
 import { Badge } from "@/components/ui/badge";
 import {
   runMonitor,
+  type Conformity,
   type EvidenceAssessment,
+  type Finding,
   type Header,
   type Match,
   type MonitorResponse,
@@ -23,6 +25,7 @@ const MONITOR_STEPS = [
   { key: "insights", label: "Extracting insights" },
   { key: "classify", label: "Detecting drift" },
   { key: "evidence", label: "Assessing evidence" },
+  { key: "conformity", label: "Scoring conformity" },
 ];
 
 const RELATION_ORDER: Record<Match["relation"], number> = {
@@ -104,11 +107,139 @@ const BASIS_LABELS: Record<string, string> = {
   regulatory_precedent: "Regulatory precedent",
 };
 
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  systematic_review_meta_analysis: "Meta-analysis",
+  rct_phase3: "Phase 3 RCT",
+  rct_phase2: "Phase 2 RCT",
+  regulatory_assessment: "Regulatory assessment",
+  clinical_trial_registry: "Trial registry",
+  observational_study: "Observational study",
+  program_effectiveness: "Program effectiveness",
+  preprint: "Preprint",
+  press_release: "Press release",
+  other: "Other source",
+};
+
+function formatDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short" });
+}
+
+function SourceLink({ finding }: { finding: Finding }) {
+  const date = formatDate(finding.published_at);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <a
+        href={finding.url}
+        target="_blank"
+        rel="noreferrer"
+        className="underline hover:text-foreground"
+      >
+        {finding.title || finding.url}
+      </a>
+      {finding.source === "pubmed" && (
+        <Badge variant="outline" className="text-[10px]">
+          PubMed
+        </Badge>
+      )}
+      {date && <span className="text-muted-foreground/70">· {date}</span>}
+    </span>
+  );
+}
+
+function conformityTone(conformity: number): { className: string } {
+  if (conformity >= 0.55)
+    return { className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+  if (conformity <= 0.45)
+    return { className: "border-red-200 bg-red-50 text-red-700" };
+  return { className: "border-amber-200 bg-amber-50 text-amber-700" };
+}
+
 function attributeLabel(ref: string) {
   const local = ref.includes(".") ? ref.split(".").slice(1).join(".") : ref;
   return local
     .replace(/_/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function ConformityBlock({ conformity }: { conformity: Conformity }) {
+  const pct = Math.round(conformity.conformity * 100);
+  const lowerPct = Math.round(conformity.lower * 100);
+  const upperPct = Math.round(conformity.upper * 100);
+  const tone = conformityTone(conformity.conformity);
+  const targetLabel = `${conformity.comparator} ${conformity.target_value}${conformity.unit}`;
+
+  return (
+    <div className="mb-4 rounded-md border border-border bg-card p-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Computed conformity
+        </p>
+        <span className="text-xs text-muted-foreground">Target: {targetLabel}</span>
+      </div>
+
+      <div className="mt-3">
+        <div className="mb-1 flex items-baseline justify-between">
+          <span className="text-sm font-semibold text-foreground">
+            {pct}% likely meets target
+          </span>
+          <span className="text-xs text-muted-foreground">
+            range {lowerPct}–{upperPct}%
+          </span>
+        </div>
+        <div className="relative h-2 w-full rounded-full bg-muted">
+          <div
+            className="absolute h-2 rounded-full bg-foreground/20"
+            style={{ left: `${lowerPct}%`, width: `${Math.max(2, upperPct - lowerPct)}%` }}
+          />
+          <div
+            className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground"
+            style={{ left: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      <p className={`mt-2 inline-block rounded border px-2 py-0.5 text-xs ${tone.className}`}>
+        {conformity.verdict}
+      </p>
+
+      {conformity.measurements.length > 0 && (
+        <div className="mt-3">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Sources combined ({conformity.measurements.length}) — weighted by quality &amp; recency
+          </p>
+          <ul className="mt-1 space-y-1">
+            {conformity.measurements.map((m, index) => (
+              <li key={`${m.url}-${index}`} className="text-xs text-muted-foreground">
+                {m.url ? (
+                  <a
+                    href={m.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-foreground"
+                  >
+                    {SOURCE_TYPE_LABELS[m.source_type] ?? m.source_type}
+                  </a>
+                ) : (
+                  <span>{SOURCE_TYPE_LABELS[m.source_type] ?? m.source_type}</span>
+                )}
+                {": "}
+                <span className="text-foreground">
+                  {m.value}
+                  {conformity.unit}
+                </span>
+                {m.age_months != null && ` · ${Math.round(m.age_months)}mo old`}
+                {" · weight "}
+                {m.weight.toFixed(2)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function MonitorPage() {
@@ -185,6 +316,10 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
   for (const assessment of result.assessments ?? []) {
     assessmentsByVariable.set(assessment.attribute_ref, assessment);
   }
+  const conformityByVariable = new Map<string, Conformity>();
+  for (const score of result.conformity ?? []) {
+    conformityByVariable.set(score.attribute_ref, score);
+  }
 
   const rows = variables
     .map((variable) => {
@@ -198,6 +333,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
         matches: sortedMatches,
         status,
         assessment: assessmentsByVariable.get(variable.name) ?? null,
+        conformity: conformityByVariable.get(variable.name) ?? null,
       };
     })
     .sort(
@@ -242,6 +378,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
               status={row.status}
               matches={row.matches}
               assessment={row.assessment}
+              conformity={row.conformity}
             />
           ))}
         </div>
@@ -256,12 +393,14 @@ function FieldRow({
   status,
   matches,
   assessment,
+  conformity,
 }: {
   name: string;
   description: string;
   status: Status;
   matches: Match[];
   assessment: EvidenceAssessment | null;
+  conformity: Conformity | null;
 }) {
   const meta = STATUS_META[status];
   const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
@@ -275,6 +414,11 @@ function FieldRow({
             {assessment && evidenceMeta && (
               <Badge variant="outline" className={evidenceMeta.className}>
                 {evidenceMeta.label}
+              </Badge>
+            )}
+            {conformity && (
+              <Badge variant="outline" className={conformityTone(conformity.conformity).className}>
+                {Math.round(conformity.conformity * 100)}% conformity
               </Badge>
             )}
             <h3 className="text-sm font-medium">{attributeLabel(name)}</h3>
@@ -295,6 +439,7 @@ function FieldRow({
       </summary>
 
       <div className="px-6 pb-4">
+        {conformity && <ConformityBlock conformity={conformity} />}
         {assessment && (
           <div className="mb-4 rounded-md bg-card p-4">
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -316,21 +461,7 @@ function FieldRow({
               <ul className="mt-2 space-y-1">
                 {assessment.supporting_findings.map((finding) => (
                   <li key={finding.url} className="text-xs text-muted-foreground">
-                    <span className="inline-flex flex-wrap items-center gap-1.5">
-                      <a
-                        href={finding.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline hover:text-foreground"
-                      >
-                        {finding.title || finding.url}
-                      </a>
-                      {finding.source === "pubmed" && (
-                        <Badge variant="outline" className="text-[10px]">
-                          PubMed
-                        </Badge>
-                      )}
-                    </span>
+                    <SourceLink finding={finding} />
                   </li>
                 ))}
               </ul>
@@ -370,21 +501,7 @@ function FieldRow({
                   <ul className="mt-3 space-y-1">
                     {match.insight.supporting_findings.map((finding) => (
                       <li key={finding.url} className="text-xs text-muted-foreground">
-                        <span className="inline-flex flex-wrap items-center gap-1.5">
-                          <a
-                            href={finding.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="underline hover:text-foreground"
-                          >
-                            {finding.title || finding.url}
-                          </a>
-                          {finding.source === "pubmed" && (
-                            <Badge variant="outline" className="text-[10px]">
-                              PubMed
-                            </Badge>
-                          )}
-                        </span>
+                        <SourceLink finding={finding} />
                       </li>
                     ))}
                   </ul>

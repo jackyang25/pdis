@@ -96,6 +96,26 @@ class VariableOut(BaseModel):
     description: str
 
 
+class MeasurementOut(BaseModel):
+    value: float
+    source_type: str
+    url: str = ""
+    age_months: float | None = None
+    weight: float = 0.0
+
+
+class ConformityOut(BaseModel):
+    attribute_ref: str
+    target_value: float
+    comparator: str
+    unit: str = ""
+    conformity: float
+    lower: float
+    upper: float
+    verdict: str
+    measurements: list[MeasurementOut] = []
+
+
 class MonitorRunResponse(BaseModel):
     org: str
     source_type: str
@@ -103,6 +123,7 @@ class MonitorRunResponse(BaseModel):
     indication: str
     variables: list[VariableOut]
     matches: list[MatchOut]
+    conformity: list[ConformityOut] = []
     assessments: list[EvidenceAssessmentOut]
     stats: FunnelStatsOut
 

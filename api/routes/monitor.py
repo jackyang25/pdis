@@ -124,6 +124,7 @@ async def run_monitor(
                         target_value=score["target_value"],
                         comparator=score["comparator"],
                         unit=score["unit"],
+                        target_label=score["target_label"],
                         conformity=score["conformity"],
                         lower=score["lower"],
                         upper=score["upper"],

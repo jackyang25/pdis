@@ -160,6 +160,7 @@ class ConformityScore:
     lower: float
     upper: float
     verdict: str
+    target_label: str = ""  # which target was scored (e.g. "adult threshold <=1.0 mL")
     measurements: list[Measurement] = field(default_factory=list)
 
 
@@ -195,21 +196,6 @@ class MonitorTypeConfig:
     languages: list[str] = field(default_factory=list)
     geographic_emphasis: list[str] = field(default_factory=list)
     geographic_queries_per_variable: int = 0
-
-
-def insights_to_dicts(insights: list[Insight]) -> list[dict]:
-    """Convert Insight objects to plain dictionaries (Findings included nested)."""
-    out: list[dict] = []
-    for ins in insights:
-        d = asdict(ins)
-        # Datetimes in supporting_findings -> ISO strings
-        for f in d["supporting_findings"]:
-            if f.get("retrieved_at") is not None and not isinstance(f["retrieved_at"], str):
-                f["retrieved_at"] = f["retrieved_at"].isoformat()
-            if f.get("published_at") is not None and not isinstance(f["published_at"], str):
-                f["published_at"] = f["published_at"].isoformat()
-        out.append(d)
-    return out
 
 
 def matches_to_dicts(matches: list[Match]) -> list[dict]:

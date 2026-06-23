@@ -145,6 +145,7 @@ export type Conformity = {
   target_value: number;
   comparator: string;
   unit: string;
+  target_label: string;
   conformity: number;
   lower: number;
   upper: number;

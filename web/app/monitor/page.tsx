@@ -169,16 +169,21 @@ function ConformityBlock({ conformity }: { conformity: Conformity }) {
   const lowerPct = Math.round(conformity.lower * 100);
   const upperPct = Math.round(conformity.upper * 100);
   const tone = conformityTone(conformity.conformity);
-  const targetLabel = `${conformity.comparator} ${conformity.target_value}${conformity.unit}`;
+  const targetLabel =
+    conformity.target_label ||
+    `${conformity.comparator} ${conformity.target_value}${conformity.unit}`;
 
   return (
     <div className="mb-4 rounded-md border border-border bg-card p-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           Computed conformity
         </p>
-        <span className="text-xs text-muted-foreground">Target: {targetLabel}</span>
+        <span className="text-xs text-muted-foreground">Scored vs: {targetLabel}</span>
       </div>
+      <p className="mt-0.5 text-[11px] text-muted-foreground/80">
+        Do the reported real-world numbers meet your doc&apos;s target? (weighted statistical combine)
+      </p>
 
       <div className="mt-3">
         <div className="mb-1 flex items-baseline justify-between">
@@ -230,7 +235,9 @@ function ConformityBlock({ conformity }: { conformity: Conformity }) {
                   {m.value}
                   {conformity.unit}
                 </span>
-                {m.age_months != null && ` · ${Math.round(m.age_months)}mo old`}
+                {m.age_months != null
+                  ? ` · ${Math.round(m.age_months)}mo old`
+                  : " · date unknown"}
                 {" · weight "}
                 {m.weight.toFixed(2)}
               </li>
@@ -443,7 +450,10 @@ function FieldRow({
         {assessment && (
           <div className="mb-4 rounded-md bg-card p-4">
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Evidence
+              Evidence quality
+            </p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground/80">
+              How well-grounded and justified your doc&apos;s target is (LLM judgment)
             </p>
             {assessment.basis.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">

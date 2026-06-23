@@ -109,6 +109,7 @@ class ConformityOut(BaseModel):
     target_value: float
     comparator: str
     unit: str = ""
+    target_label: str = ""
     conformity: float
     lower: float
     upper: float

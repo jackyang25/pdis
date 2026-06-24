@@ -15,6 +15,7 @@ from services.monitor import (
     find_config,
     load_attributes,
     matches_to_dicts,
+    precedents_to_dicts,
     run_pipeline,
 )
 
@@ -28,6 +29,7 @@ from api.schemas import (
     MatchOut,
     MeasurementOut,
     MonitorRunResponse,
+    PrecedentOut,
     VariableOut,
 )
 from api.streaming import run_with_progress
@@ -73,6 +75,7 @@ async def run_monitor(
             match_dicts = matches_to_dicts(result.matches)
             assessment_dicts = assessments_to_dicts(result.assessments)
             conformity_dicts = conformity_to_dicts(result.conformity)
+            precedent_dicts = precedents_to_dicts(result.precedents)
             variables = load_attributes(intervention_class)
             return MonitorRunResponse(
                 org=org,
@@ -135,6 +138,18 @@ async def run_monitor(
                         ],
                     )
                     for score in conformity_dicts
+                ],
+                precedents=[
+                    PrecedentOut(
+                        attribute_ref=signal["attribute_ref"],
+                        precedent=signal["precedent"],
+                        reason=signal["reason"],
+                        supporting_findings=[
+                            FindingOut(**finding)
+                            for finding in signal["supporting_findings"]
+                        ],
+                    )
+                    for signal in precedent_dicts
                 ],
                 stats=FunnelStatsOut(
                     queries=result.stats.queries,

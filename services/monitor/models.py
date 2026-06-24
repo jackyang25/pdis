@@ -29,6 +29,13 @@ VALID_EVIDENCE_BASIS = {
     "study_strength",
     "regulatory_precedent",
 }
+VALID_PRECEDENT = {
+    "established",
+    "emerging",
+    "novel",
+    "disconfirmed",
+    "unknown",
+}
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> "MonitorTypeConfig":
@@ -129,6 +136,26 @@ class EvidenceAssessment:
 
 
 @dataclass
+class PrecedentSignal:
+    """Whether one TPP variable's target/approach has precedent in the evidence.
+
+    Resolves the ambiguity in a low evidence assessment: an unsupported target
+    can be genuinely NOVEL (white space - expected, often intended for a TPP) or
+    DISCONFIRMED (tried before and failed). These pull in opposite directions but
+    look identical to the evidence dimension alone.
+
+    Reasons over the SAME per-variable insights the evidence assessor sees -
+    including the disconfirming insights surfaced by the counterfactual query
+    track - so it can tell those two stories apart.
+    """
+
+    attribute_ref: str
+    precedent: str  # established | emerging | novel | disconfirmed | unknown
+    reason: str = ""
+    supporting_findings: list[Finding] = field(default_factory=list)
+
+
+@dataclass
 class Measurement:
     """One source's reported numeric value for a quantitative TPP variable.
 
@@ -181,6 +208,7 @@ class MonitorResult:
     assessments: list[EvidenceAssessment]
     stats: FunnelStats
     conformity: list[ConformityScore] = field(default_factory=list)
+    precedents: list[PrecedentSignal] = field(default_factory=list)
 
 
 @dataclass
@@ -243,6 +271,24 @@ def assessments_to_dicts(assessments: list[EvidenceAssessment]) -> list[dict]:
 def conformity_to_dicts(scores: list[ConformityScore]) -> list[dict]:
     """Convert ConformityScore objects to plain dictionaries."""
     return [asdict(score) for score in scores]
+
+
+def precedents_to_dicts(signals: list[PrecedentSignal]) -> list[dict]:
+    """Convert PrecedentSignal objects to plain dictionaries (datetimes ISO)."""
+    out: list[dict] = []
+    for signal in signals:
+        d = asdict(signal)
+        for finding in d["supporting_findings"]:
+            if finding.get("retrieved_at") is not None and not isinstance(
+                finding["retrieved_at"], str
+            ):
+                finding["retrieved_at"] = finding["retrieved_at"].isoformat()
+            if finding.get("published_at") is not None and not isinstance(
+                finding["published_at"], str
+            ):
+                finding["published_at"] = finding["published_at"].isoformat()
+        out.append(d)
+    return out
 
 
 def load_config(config_path: str) -> MonitorTypeConfig:

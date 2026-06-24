@@ -154,6 +154,20 @@ export type Conformity = {
   measurements: Measurement[];
 };
 
+export type PrecedentLabel =
+  | "established"
+  | "emerging"
+  | "novel"
+  | "disconfirmed"
+  | "unknown";
+
+export type PrecedentSignal = {
+  attribute_ref: string;
+  precedent: PrecedentLabel;
+  reason: string;
+  supporting_findings: Finding[];
+};
+
 export type Variable = {
   name: string;
   description: string;
@@ -168,6 +182,7 @@ export type MonitorResponse = {
   matches: Match[];
   assessments: EvidenceAssessment[];
   conformity: Conformity[];
+  precedents: PrecedentSignal[];
   stats: FunnelStats;
 };
 

@@ -25,6 +25,7 @@ from .models import (
     Match,
     MonitorResult,
     MonitorTypeConfig,
+    PrecedentSignal,
     SearchClientProtocol,
     load_attributes,
 )
@@ -32,6 +33,7 @@ from .stages.conformity import score_conformity
 from .stages.drift_classifier import classify_drift
 from .stages.evidence_assessor import assess_evidence
 from .stages.insight_extractor import extract_insights
+from .stages.precedent_classifier import classify_precedent
 from .stages.query_extractor import extract_queries_for_variable
 
 FINDINGS_BATCH_SIZE = 40
@@ -173,6 +175,17 @@ def run_pipeline(
         intervention_class=intervention_class,
     )
 
+    if progress_callback:
+        progress_callback("precedent")
+    precedents = _classify_precedent_all_variables(
+        attributes,
+        doc_text,
+        insights,
+        openai_client,
+        indication=indication,
+        intervention_class=intervention_class,
+    )
+
     stats = FunnelStats(
         queries=len(flat),
         findings=total_findings,
@@ -186,6 +199,7 @@ def run_pipeline(
         assessments=assessments,
         stats=stats,
         conformity=conformity,
+        precedents=precedents,
     )
 
 
@@ -433,6 +447,44 @@ def _score_conformity_all_variables(
     with ThreadPoolExecutor(max_workers=workers) as executor:
         results = list(executor.map(one, attributes))
     return [score for score in results if score is not None]
+
+
+def _classify_precedent_all_variables(
+    attributes: list[Attribute],
+    doc_text: str,
+    insights: list[Insight],
+    openai_client: LLMClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+) -> list[PrecedentSignal]:
+    """Classify precedent per attribute with bounded concurrency.
+
+    Self-gating: returns a signal only for variables with web evidence
+    (classify_precedent returns None otherwise)."""
+    insights_by_attribute: dict[str, list[Insight]] = {}
+    for insight in insights:
+        if not insight.attribute_ref:
+            continue
+        insights_by_attribute.setdefault(insight.attribute_ref, []).append(insight)
+
+    if not attributes:
+        return []
+    workers = max(1, min(MAX_WORKERS, len(attributes)))
+
+    def one(attribute: Attribute) -> PrecedentSignal | None:
+        return classify_precedent(
+            attribute,
+            doc_text,
+            insights_by_attribute.get(attribute.name, []),
+            openai_client,
+            indication=indication,
+            intervention_class=intervention_class,
+        )
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(one, attributes))
+    return [signal for signal in results if signal is not None]
 
 
 def _empty_result(

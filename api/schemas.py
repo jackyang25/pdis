@@ -118,6 +118,13 @@ class ConformityOut(BaseModel):
     measurements: list[MeasurementOut] = []
 
 
+class PrecedentOut(BaseModel):
+    attribute_ref: str
+    precedent: str  # established | emerging | novel | disconfirmed | unknown
+    reason: str = ""
+    supporting_findings: list[FindingOut] = []
+
+
 class MonitorRunResponse(BaseModel):
     org: str
     source_type: str
@@ -126,6 +133,7 @@ class MonitorRunResponse(BaseModel):
     variables: list[VariableOut]
     matches: list[MatchOut]
     conformity: list[ConformityOut] = []
+    precedents: list[PrecedentOut] = []
     assessments: list[EvidenceAssessmentOut]
     stats: FunnelStatsOut
 

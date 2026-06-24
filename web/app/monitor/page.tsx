@@ -15,6 +15,7 @@ import {
   type Header,
   type Match,
   type MonitorResponse,
+  type PrecedentSignal,
 } from "@/lib/api";
 import { useMonitorSession } from "@/lib/session";
 
@@ -26,6 +27,7 @@ const MONITOR_STEPS = [
   { key: "classify", label: "Detecting drift" },
   { key: "evidence", label: "Assessing evidence" },
   { key: "conformity", label: "Scoring conformity" },
+  { key: "precedent", label: "Checking precedent" },
 ];
 
 const SOURCE_LIST_LIMIT = 5;
@@ -93,11 +95,23 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   other: "Other source",
 };
 
-function conformityDot(conformity: number): string {
-  if (conformity >= 0.55) return "bg-emerald-500";
-  if (conformity <= 0.45) return "bg-red-500";
-  return "bg-amber-400";
-}
+// Conformity is a position (target vs current evidence), NOT a good/bad grade:
+// a low score often reflects an intentional stretch target, not a failure. So
+// its chip uses a single neutral tone rather than green/red, to avoid being
+// read as a pass/fail score.
+const CONFORMITY_DOT = "bg-slate-400";
+
+// Precedent is also NOT a good/bad grade - a novel target is exactly what a TPP
+// is for. So established/emerging/novel/unknown share a neutral dot (the label
+// carries the meaning); only `disconfirmed` (the approach was tried and failed)
+// gets an attention tone, since it is the one genuine caution.
+const PRECEDENT_META: Record<PrecedentSignal["precedent"], { label: string; dot: string }> = {
+  established: { label: "Established", dot: NEUTRAL_DOT },
+  emerging: { label: "Emerging", dot: NEUTRAL_DOT },
+  novel: { label: "Novel / white space", dot: NEUTRAL_DOT },
+  disconfirmed: { label: "Disconfirmed", dot: "bg-amber-400" },
+  unknown: { label: "Precedent unknown", dot: NEUTRAL_DOT },
+};
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -292,7 +306,13 @@ function MonitorView({ header }: { header: Header }) {
   );
 }
 
-function SignalLegend({ hasConformity }: { hasConformity: boolean }) {
+function SignalLegend({
+  hasConformity,
+  hasPrecedent,
+}: {
+  hasConformity: boolean;
+  hasPrecedent: boolean;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-6 py-2.5 text-[11px] text-muted-foreground">
       <span>
@@ -301,13 +321,18 @@ function SignalLegend({ hasConformity }: { hasConformity: boolean }) {
       <span>
         <span className="font-medium text-foreground">Evidence</span> — how grounded the target is
       </span>
+      {hasPrecedent && (
+        <span>
+          <span className="font-medium text-foreground">Precedent</span> — tried before? novel = white space, not a gap
+        </span>
+      )}
       {hasConformity && (
         <span>
-          <span className="font-medium text-foreground">Conformity</span> — % the target is met (computed)
+          <span className="font-medium text-foreground">Conformity</span> — target vs current evidence; low = ambitious, not bad (computed)
         </span>
       )}
       <span className="text-muted-foreground/70">
-        Status &amp; Evidence are AI judgments; Conformity is calculated.
+        Status, Evidence &amp; Precedent are AI judgments; Conformity is calculated.
       </span>
     </div>
   );
@@ -336,6 +361,10 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
   for (const score of result.conformity ?? []) {
     conformityByVariable.set(score.attribute_ref, score);
   }
+  const precedentByVariable = new Map<string, PrecedentSignal>();
+  for (const signal of result.precedents ?? []) {
+    precedentByVariable.set(signal.attribute_ref, signal);
+  }
 
   const rows = variables
     .map((variable) => {
@@ -349,6 +378,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
         status: statusFor(sortedMatches),
         assessment: assessmentsByVariable.get(variable.name) ?? null,
         conformity: conformityByVariable.get(variable.name) ?? null,
+        precedent: precedentByVariable.get(variable.name) ?? null,
       };
     })
     .sort(
@@ -362,6 +392,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
   ).length;
   const clearCount = rows.filter((r) => r.status === "clear").length;
   const hasConformity = rows.some((r) => r.conformity);
+  const hasPrecedent = rows.some((r) => r.precedent);
 
   return (
     <div className="flex flex-col gap-4">
@@ -380,7 +411,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
         }
       >
         <div className="-mx-6">
-          <SignalLegend hasConformity={hasConformity} />
+          <SignalLegend hasConformity={hasConformity} hasPrecedent={hasPrecedent} />
           {rows.map((row) => (
             <FieldRow
               key={row.variable.name}
@@ -390,6 +421,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
               matches={row.matches}
               assessment={row.assessment}
               conformity={row.conformity}
+              precedent={row.precedent}
             />
           ))}
         </div>
@@ -405,6 +437,7 @@ function FieldRow({
   matches,
   assessment,
   conformity,
+  precedent,
 }: {
   name: string;
   description: string;
@@ -412,9 +445,11 @@ function FieldRow({
   matches: Match[];
   assessment: EvidenceAssessment | null;
   conformity: Conformity | null;
+  precedent: PrecedentSignal | null;
 }) {
   const statusMeta = STATUS_META[status];
   const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
+  const precedentMeta = precedent ? PRECEDENT_META[precedent.precedent] : null;
   const counts = relationCounts(matches);
 
   return (
@@ -437,10 +472,15 @@ function FieldRow({
                 {evidenceMeta.label}
               </SignalChip>
             )}
+            {precedent && precedentMeta && (
+              <SignalChip dot={precedentMeta.dot} title="Precedent — has this target/approach been tried before? (AI)">
+                {precedentMeta.label}
+              </SignalChip>
+            )}
             {conformity && (
               <SignalChip
-                dot={conformityDot(conformity.conformity)}
-                title="Conformity — % the target is met (computed)"
+                dot={CONFORMITY_DOT}
+                title="Conformity — target vs current evidence; low = ambitious, not bad (computed)"
               >
                 {Math.round(conformity.conformity * 100)}% conformity
               </SignalChip>
@@ -472,6 +512,9 @@ function FieldRow({
         {assessment && evidenceMeta && (
           <EvidenceBlock assessment={assessment} evidenceMeta={evidenceMeta} />
         )}
+        {precedent && precedentMeta && (
+          <PrecedentBlock precedent={precedent} precedentMeta={precedentMeta} />
+        )}
         <MatchesBlock matches={matches} />
       </div>
     </details>
@@ -490,7 +533,9 @@ function ConformityBlock({ conformity }: { conformity: Conformity }) {
     <section className="rounded-md border border-border bg-card p-4">
       <SectionLabel>Conformity · computed</SectionLabel>
       <p className="mt-0.5 text-[11px] text-muted-foreground/80">
-        Do the reported real-world numbers meet your target? (weighted statistical combine)
+        How much current evidence supports your target — weighted by source quality &amp; recency.
+        A <span className="text-foreground">low</span> score means your target sits above today&apos;s
+        evidence, which may be intended (a stretch goal); it is a position, not a pass/fail grade.
       </p>
       <p className="mt-1 text-[11px] text-muted-foreground">
         Scored vs <span className="text-foreground">{targetLabel}</span>
@@ -516,7 +561,7 @@ function ConformityBlock({ conformity }: { conformity: Conformity }) {
       </div>
 
       <div className="mt-3">
-        <SignalChip dot={conformityDot(conformity.conformity)}>{conformity.verdict}</SignalChip>
+        <SignalChip dot={CONFORMITY_DOT}>{conformity.verdict}</SignalChip>
       </div>
 
       {conformity.measurements.length > 0 && (
@@ -586,6 +631,33 @@ function EvidenceBlock({
         </p>
       )}
       <SourceList findings={assessment.supporting_findings} />
+    </section>
+  );
+}
+
+function PrecedentBlock({
+  precedent,
+  precedentMeta,
+}: {
+  precedent: PrecedentSignal;
+  precedentMeta: { label: string; dot: string };
+}) {
+  return (
+    <section className="rounded-md border border-border bg-card p-4">
+      <div className="flex items-center justify-between gap-2">
+        <SectionLabel>Precedent · AI judgment</SectionLabel>
+        <SignalChip dot={precedentMeta.dot}>{precedentMeta.label}</SignalChip>
+      </div>
+      <p className="mt-0.5 text-[11px] text-muted-foreground/80">
+        Has this target/approach been tried before? Separates a genuinely{" "}
+        <span className="text-foreground">novel</span> target (white space — expected for a TPP)
+        from a <span className="text-foreground">disconfirmed</span> one (tried &amp; failed). It
+        reads disconfirming evidence too, so low evidence isn&apos;t mistaken for a gap.
+      </p>
+      {precedent.reason && (
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{precedent.reason}</p>
+      )}
+      <SourceList findings={precedent.supporting_findings} />
     </section>
   );
 }

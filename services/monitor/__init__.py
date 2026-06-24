@@ -18,9 +18,11 @@ from .models import (
     Measurement,
     MonitorResult,
     MonitorTypeConfig,
+    PrecedentSignal,
     SearchClientProtocol,
     VALID_EVIDENCE_BASIS,
     VALID_EVIDENCE_STRENGTHS,
+    VALID_PRECEDENT,
     VALID_RELATIONS,
     assessments_to_dicts,
     conformity_to_dicts,
@@ -28,6 +30,7 @@ from .models import (
     load_attributes,
     load_config,
     matches_to_dicts,
+    precedents_to_dicts,
 )
 from .pipeline import run_pipeline
 
@@ -42,9 +45,11 @@ __all__ = [
     "Measurement",
     "MonitorResult",
     "MonitorTypeConfig",
+    "PrecedentSignal",
     "SearchClientProtocol",
     "VALID_EVIDENCE_BASIS",
     "VALID_EVIDENCE_STRENGTHS",
+    "VALID_PRECEDENT",
     "VALID_RELATIONS",
     "assessments_to_dicts",
     "conformity_to_dicts",
@@ -52,5 +57,6 @@ __all__ = [
     "load_attributes",
     "load_config",
     "matches_to_dicts",
+    "precedents_to_dicts",
     "run_pipeline",
 ]

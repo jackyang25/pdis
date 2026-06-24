@@ -82,10 +82,27 @@ def extract_queries_for_variable(
             track="counterfactual",
         )
 
+    if config.precedent_queries_per_variable > 0:
+        queries += _run_track(
+            _system_prompt_for_precedent_variable(
+                config,
+                indication=indication,
+                attribute=attribute,
+                precedent_queries_per_variable=config.precedent_queries_per_variable,
+            ),
+            user_message,
+            llm_client,
+            max_tokens,
+            cap=config.precedent_queries_per_variable,
+            attribute_name=attribute.name,
+            track="precedent",
+        )
+
     total = (
         queries_per_variable
         + config.geographic_queries_per_variable
         + config.counterfactual_queries_per_variable
+        + config.precedent_queries_per_variable
     )
     return _dedupe_queries(queries)[:total]
 
@@ -275,6 +292,54 @@ def _system_prompt_for_counterfactual_variable(
     parts.append(
         f"Return EXACTLY {counterfactual_queries_per_variable} quer"
         f"{'y' if counterfactual_queries_per_variable == 1 else 'ies'} as a JSON array of strings. "
+        "No markdown, no commentary. Each query 5-15 words."
+    )
+    return "\n\n".join(parts)
+
+
+def _system_prompt_for_precedent_variable(
+    config: MonitorTypeConfig,
+    *,
+    indication: str,
+    attribute: Attribute,
+    precedent_queries_per_variable: int,
+) -> str:
+    parts = [
+        "You generate ADDITIVE PRECEDENT web search queries for ONE TPP variable. "
+        "These seek evidence of whether this variable's target/approach has been "
+        "ATTEMPTED BEFORE - so a downstream classifier can tell a genuinely novel "
+        "target apart from one that has prior precedent. They are added to the general "
+        "query set, never substituted for it.",
+        f"TPP variable: {attribute.name}.",
+        f"Product class: {config.intervention_class}. Indication: {indication}.",
+        f"What this variable covers: {attribute.description.strip()}",
+        "SCOPE: Every query must remain about THIS variable. Do not pull in other "
+        "variables like efficacy, safety, dosing, duration, or cost unless this variable "
+        "is that topic.",
+        "Precedent emphasis: search for PRIOR or EXISTING attempts at this target/approach - "
+        "earlier or current products pursuing the same target for this indication, past "
+        "programs or trials that pursued it (whether they succeeded, stalled, or were "
+        "abandoned), and the same platform/mechanism proven in ADJACENT indications as "
+        "analogous precedent. The goal is to establish whether the approach is new or has "
+        "a track record.",
+        "Recency: precedent is HISTORICAL - do NOT restrict to recent years. Prior "
+        "attempts may be old; include first-in-class, original-development, and historical "
+        "framing. Do not hardcode a specific calendar year in the query text.",
+        "Do NOT seek disconfirming/failure evidence here (a separate track covers that); "
+        "seek the EXISTENCE of prior or analogous work, positive or negative.",
+        "Return the precedent queries only; the caller appends them after the other tracks.",
+    ]
+    if config.priority_sources:
+        parts.append("Priority sources to spread across: " + ", ".join(config.priority_sources) + ".")
+    if config.languages:
+        parts.append(
+            "Configured languages: "
+            + ", ".join(config.languages)
+            + ". Use native-language phrasing where it helps surface non-English evidence."
+        )
+    parts.append(
+        f"Return EXACTLY {precedent_queries_per_variable} quer"
+        f"{'y' if precedent_queries_per_variable == 1 else 'ies'} as a JSON array of strings. "
         "No markdown, no commentary. Each query 5-15 words."
     )
     return "\n\n".join(parts)

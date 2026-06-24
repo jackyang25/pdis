@@ -70,3 +70,4 @@ geographic_emphasis:
   - global_south
 geographic_queries_per_variable: 4
 counterfactual_queries_per_variable: 3
+precedent_queries_per_variable: 3

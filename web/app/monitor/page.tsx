@@ -1,12 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { MultiRunPanel } from "@/components/multi-run-panel";
 import { HeaderGuard } from "@/components/header-guard";
 import { EmptyState } from "@/components/empty-state";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { DownloadButton } from "@/components/download-button";
-import { Badge } from "@/components/ui/badge";
 import {
   runMonitor,
   type Conformity,
@@ -28,6 +28,8 @@ const MONITOR_STEPS = [
   { key: "conformity", label: "Scoring conformity" },
 ];
 
+const SOURCE_LIST_LIMIT = 5;
+
 const RELATION_ORDER: Record<Match["relation"], number> = {
   contradicts: 0,
   extends: 1,
@@ -44,60 +46,31 @@ const STATUS_RANK: Record<Status, number> = {
   clear: 3,
 };
 
-const STATUS_META: Record<
-  Status,
-  {
-    label: string;
-    tone: string;
-    badge: "default" | "outline" | "muted";
-  }
-> = {
-  conflict: {
-    label: "Conflict",
-    tone: "border-l-red-500 bg-red-50/50",
-    badge: "default",
-  },
-  updates: {
-    label: "Updates",
-    tone: "border-l-amber-400 bg-amber-50/50",
-    badge: "outline",
-  },
-  confirmed: {
-    label: "Confirmed",
-    tone: "border-l-emerald-500 bg-emerald-50/50",
-    badge: "muted",
-  },
-  clear: {
-    label: "Clear",
-    tone: "border-l-transparent bg-transparent",
-    badge: "outline",
-  },
+// --- Tone tokens: one dot color per signal value. Only the field stripe is
+// "filled" color; every chip uses the same shape + a small dot, so appearance
+// encodes severity without competing fills. ---
+const NEUTRAL_DOT = "bg-muted-foreground/40";
+
+const STATUS_META: Record<Status, { label: string; dot: string; stripe: string }> = {
+  conflict: { label: "Conflict", dot: "bg-red-500", stripe: "border-l-red-500" },
+  updates: { label: "Updates", dot: "bg-amber-400", stripe: "border-l-amber-400" },
+  confirmed: { label: "Confirmed", dot: "bg-emerald-500", stripe: "border-l-emerald-500" },
+  clear: { label: "Clear", dot: NEUTRAL_DOT, stripe: "border-l-border" },
 };
 
-const EVIDENCE_META: Record<
-  EvidenceAssessment["strength"],
-  { label: string; className: string }
-> = {
-  well_grounded: {
-    label: "Well grounded",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  },
-  partial: {
-    label: "Partial evidence",
-    className: "border-blue-200 bg-blue-50 text-blue-700",
-  },
-  thin: {
-    label: "Thin evidence",
-    className: "border-amber-200 bg-amber-50 text-amber-700",
-  },
-  unsupported: {
-    label: "Unsupported",
-    className: "border-red-200 bg-red-50 text-red-700",
-  },
-  unknown: {
-    label: "Unknown evidence",
-    className: "border-transparent bg-muted text-muted-foreground",
-  },
+const EVIDENCE_META: Record<EvidenceAssessment["strength"], { label: string; dot: string }> = {
+  well_grounded: { label: "Well grounded", dot: "bg-emerald-500" },
+  partial: { label: "Partial evidence", dot: "bg-blue-500" },
+  thin: { label: "Thin evidence", dot: "bg-amber-400" },
+  unsupported: { label: "Unsupported", dot: "bg-red-500" },
+  unknown: { label: "Unknown", dot: NEUTRAL_DOT },
+};
+
+const RELATION_DOT: Record<Match["relation"], string> = {
+  contradicts: "bg-red-500",
+  extends: "bg-amber-400",
+  confirms: "bg-emerald-500",
+  unrelated: NEUTRAL_DOT,
 };
 
 const BASIS_LABELS: Record<string, string> = {
@@ -120,6 +93,12 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   other: "Other source",
 };
 
+function conformityDot(conformity: number): string {
+  if (conformity >= 0.55) return "bg-emerald-500";
+  if (conformity <= 0.45) return "bg-red-500";
+  return "bg-amber-400";
+}
+
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -127,127 +106,143 @@ function formatDate(iso: string | null): string | null {
   return d.toLocaleDateString("en-US", { year: "numeric", month: "short" });
 }
 
-function SourceLink({ finding }: { finding: Finding }) {
-  const date = formatDate(finding.published_at);
+function attributeLabel(ref: string) {
+  const local = ref.includes(".") ? ref.split(".").slice(1).join(".") : ref;
+  return local.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function statusFor(matches: Match[]): Status {
+  if (matches.some((m) => m.relation === "contradicts")) return "conflict";
+  if (matches.some((m) => m.relation === "extends")) return "updates";
+  if (matches.some((m) => m.relation === "confirms")) return "confirmed";
+  return "clear";
+}
+
+// ---------------------------------------------------------------------------
+// Shared primitives
+// ---------------------------------------------------------------------------
+
+/** One consistent chip for every signal (status / evidence / conformity /
+ * relation). A dot carries severity; the shell is identical everywhere. */
+function SignalChip({
+  dot,
+  title,
+  children,
+}: {
+  dot: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <span className="inline-flex flex-wrap items-center gap-1.5">
-      <a
-        href={finding.url}
-        target="_blank"
-        rel="noreferrer"
-        className="underline hover:text-foreground"
-      >
-        {finding.title || finding.url}
-      </a>
-      {finding.source === "pubmed" && (
-        <Badge variant="outline" className="text-[10px]">
-          PubMed
-        </Badge>
-      )}
-      {date && <span className="text-muted-foreground/70">· {date}</span>}
+    <span
+      title={title}
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-background px-2 py-0.5 text-xs text-foreground"
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+      {children}
     </span>
   );
 }
 
-function conformityTone(conformity: number): { className: string } {
-  if (conformity >= 0.55)
-    return { className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
-  if (conformity <= 0.45)
-    return { className: "border-red-200 bg-red-50 text-red-700" };
-  return { className: "border-amber-200 bg-amber-50 text-amber-700" };
-}
-
-function attributeLabel(ref: string) {
-  const local = ref.includes(".") ? ref.split(".").slice(1).join(".") : ref;
-  return local
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function ConformityBlock({ conformity }: { conformity: Conformity }) {
-  const pct = Math.round(conformity.conformity * 100);
-  const lowerPct = Math.round(conformity.lower * 100);
-  const upperPct = Math.round(conformity.upper * 100);
-  const tone = conformityTone(conformity.conformity);
-  const targetLabel =
-    conformity.target_label ||
-    `${conformity.comparator} ${conformity.target_value}${conformity.unit}`;
-
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-4 rounded-md border border-border bg-card p-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          Computed conformity
-        </p>
-        <span className="text-xs text-muted-foreground">Scored vs: {targetLabel}</span>
-      </div>
-      <p className="mt-0.5 text-[11px] text-muted-foreground/80">
-        Do the reported real-world numbers meet your doc&apos;s target? (weighted statistical combine)
-      </p>
-
-      <div className="mt-3">
-        <div className="mb-1 flex items-baseline justify-between">
-          <span className="text-sm font-semibold text-foreground">
-            {pct}% likely meets target
-          </span>
-          <span className="text-xs text-muted-foreground">
-            range {lowerPct}–{upperPct}%
-          </span>
-        </div>
-        <div className="relative h-2 w-full rounded-full bg-muted">
-          <div
-            className="absolute h-2 rounded-full bg-foreground/20"
-            style={{ left: `${lowerPct}%`, width: `${Math.max(2, upperPct - lowerPct)}%` }}
-          />
-          <div
-            className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground"
-            style={{ left: `${pct}%` }}
-          />
-        </div>
-      </div>
-
-      <p className={`mt-2 inline-block rounded border px-2 py-0.5 text-xs ${tone.className}`}>
-        {conformity.verdict}
-      </p>
-
-      {conformity.measurements.length > 0 && (
-        <div className="mt-3">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Sources combined ({conformity.measurements.length}) — weighted by quality &amp; recency
-          </p>
-          <ul className="mt-1 space-y-1">
-            {conformity.measurements.map((m, index) => (
-              <li key={`${m.url}-${index}`} className="text-xs text-muted-foreground">
-                {m.url ? (
-                  <a
-                    href={m.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline hover:text-foreground"
-                  >
-                    {SOURCE_TYPE_LABELS[m.source_type] ?? m.source_type}
-                  </a>
-                ) : (
-                  <span>{SOURCE_TYPE_LABELS[m.source_type] ?? m.source_type}</span>
-                )}
-                {": "}
-                <span className="text-foreground">
-                  {m.value}
-                  {conformity.unit}
-                </span>
-                {m.age_months != null
-                  ? ` · ${Math.round(m.age_months)}mo old`
-                  : " · date unknown"}
-                {" · weight "}
-                {m.weight.toFixed(2)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
+    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      {children}
+    </p>
   );
 }
+
+type RelationCounts = Record<Match["relation"], number>;
+
+const RELATION_BAR_ORDER: { key: Match["relation"]; color: string }[] = [
+  { key: "contradicts", color: "bg-red-500" },
+  { key: "extends", color: "bg-amber-400" },
+  { key: "confirms", color: "bg-emerald-500" },
+  { key: "unrelated", color: "bg-muted-foreground/30" },
+];
+
+function relationCounts(matches: Match[]): RelationCounts {
+  return matches.reduce(
+    (acc, m) => {
+      acc[m.relation] += 1;
+      return acc;
+    },
+    { contradicts: 0, extends: 0, confirms: 0, unrelated: 0 } as RelationCounts,
+  );
+}
+
+function relationSummary(counts: RelationCounts): string {
+  return RELATION_BAR_ORDER.filter(({ key }) => counts[key] > 0)
+    .map(({ key }) => `${counts[key]} ${key}`)
+    .join(" · ");
+}
+
+/** Thin stacked bar showing the field's relation mix, so the worst-case Status
+ * label can't hide the distribution (1-of-18 vs 15-of-18 contradicts). */
+function RelationBar({ counts }: { counts: RelationCounts }) {
+  const total = RELATION_BAR_ORDER.reduce((sum, { key }) => sum + counts[key], 0);
+  if (total === 0) return null;
+  return (
+    <span
+      title={relationSummary(counts)}
+      className="inline-flex h-1.5 w-20 overflow-hidden rounded-full bg-muted"
+    >
+      {RELATION_BAR_ORDER.filter(({ key }) => counts[key] > 0).map(({ key, color }) => (
+        <span
+          key={key}
+          className={color}
+          style={{ width: `${(counts[key] / total) * 100}%` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** Tidy, one-line-per-row source list. Titles truncate (never wrap), metadata
+ * is muted and right of the title; long lists collapse. Used everywhere a
+ * finding list appears, so sources look identical across the view. */
+function SourceList({ findings }: { findings: Finding[] }) {
+  const [showAll, setShowAll] = useState(false);
+  if (findings.length === 0) return null;
+  const shown = showAll ? findings : findings.slice(0, SOURCE_LIST_LIMIT);
+  return (
+    <ul className="mt-2 space-y-1">
+      {shown.map((f) => {
+        const date = formatDate(f.published_at);
+        const meta = [f.source === "pubmed" ? "PubMed" : "Web", date].filter(Boolean).join(" · ");
+        return (
+          <li key={f.url} className="flex items-baseline gap-2 text-xs">
+            <a
+              href={f.url}
+              target="_blank"
+              rel="noreferrer"
+              title={f.title || f.url}
+              className="min-w-0 flex-1 truncate text-muted-foreground underline hover:text-foreground"
+            >
+              {f.title || f.url}
+            </a>
+            <span className="shrink-0 text-[11px] text-muted-foreground/60">{meta}</span>
+          </li>
+        );
+      })}
+      {findings.length > SOURCE_LIST_LIMIT && (
+        <li>
+          <button
+            type="button"
+            onClick={() => setShowAll((v) => !v)}
+            className="text-[11px] text-muted-foreground underline hover:text-foreground"
+          >
+            {showAll ? "Show fewer" : `Show all ${findings.length} sources`}
+          </button>
+        </li>
+      )}
+    </ul>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function MonitorPage() {
   return (
@@ -297,11 +292,25 @@ function MonitorView({ header }: { header: Header }) {
   );
 }
 
-function statusFor(matches: Match[]): Status {
-  if (matches.some((match) => match.relation === "contradicts")) return "conflict";
-  if (matches.some((match) => match.relation === "extends")) return "updates";
-  if (matches.some((match) => match.relation === "confirms")) return "confirmed";
-  return "clear";
+function SignalLegend({ hasConformity }: { hasConformity: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-6 py-2.5 text-[11px] text-muted-foreground">
+      <span>
+        <span className="font-medium text-foreground">Status</span> — change vs your doc
+      </span>
+      <span>
+        <span className="font-medium text-foreground">Evidence</span> — how grounded the target is
+      </span>
+      {hasConformity && (
+        <span>
+          <span className="font-medium text-foreground">Conformity</span> — % the target is met (computed)
+        </span>
+      )}
+      <span className="text-muted-foreground/70">
+        Status &amp; Evidence are AI judgments; Conformity is calculated.
+      </span>
+    </div>
+  );
 }
 
 function FieldGrid({ result }: { result: MonitorResponse }) {
@@ -334,11 +343,10 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
       const sortedMatches = [...variableMatches].sort(
         (a, b) => RELATION_ORDER[a.relation] - RELATION_ORDER[b.relation],
       );
-      const status = statusFor(sortedMatches);
       return {
         variable,
         matches: sortedMatches,
-        status,
+        status: statusFor(sortedMatches),
         assessment: assessmentsByVariable.get(variable.name) ?? null,
         conformity: conformityByVariable.get(variable.name) ?? null,
       };
@@ -350,15 +358,10 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
     );
 
   const updatedCount = rows.filter(
-    (row) => row.status === "conflict" || row.status === "updates",
+    (r) => r.status === "conflict" || r.status === "updates",
   ).length;
-  const counts = rows.reduce<Record<Status, number>>(
-    (acc, row) => {
-      acc[row.status] += 1;
-      return acc;
-    },
-    { conflict: 0, updates: 0, confirmed: 0, clear: 0 },
-  );
+  const clearCount = rows.filter((r) => r.status === "clear").length;
+  const hasConformity = rows.some((r) => r.conformity);
 
   return (
     <div className="flex flex-col gap-4">
@@ -366,7 +369,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
         title={`${variables.length} fields`}
         subtitle={`${result.stats?.unique_findings ?? 0} sources · ${
           result.stats?.insights ?? 0
-        } insights · ${updatedCount} updates · ${counts.clear} clear`}
+        } insights · ${updatedCount} updated · ${clearCount} clear`}
         trailing={
           <DownloadButton
             filename="matches.jsonl"
@@ -377,6 +380,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
         }
       >
         <div className="-mx-6">
+          <SignalLegend hasConformity={hasConformity} />
           {rows.map((row) => (
             <FieldRow
               key={row.variable.name}
@@ -409,121 +413,209 @@ function FieldRow({
   assessment: EvidenceAssessment | null;
   conformity: Conformity | null;
 }) {
-  const meta = STATUS_META[status];
+  const statusMeta = STATUS_META[status];
   const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
+  const counts = relationCounts(matches);
 
   return (
-    <details className={`group border-b border-b-border border-l-4 ${meta.tone}`}>
+    <details className={`group border-b border-b-border border-l-4 ${statusMeta.stripe}`}>
       <summary className="flex cursor-pointer items-start justify-between gap-4 px-6 py-4 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0 flex-1">
-          <div className="mb-1 flex flex-wrap items-center gap-2">
-            <Badge variant={meta.badge}>{meta.label}</Badge>
-            {assessment && evidenceMeta && (
-              <Badge variant="outline" className={evidenceMeta.className}>
-                {evidenceMeta.label}
-              </Badge>
-            )}
-            {conformity && (
-              <Badge variant="outline" className={conformityTone(conformity.conformity).className}>
-                {Math.round(conformity.conformity * 100)}% conformity
-              </Badge>
-            )}
-            <h3 className="text-sm font-medium">{attributeLabel(name)}</h3>
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <h3 className="text-sm font-semibold text-foreground">{attributeLabel(name)}</h3>
             <span className="text-xs text-muted-foreground">
               {matches.length} match{matches.length === 1 ? "" : "es"}
             </span>
           </div>
-          <p className="mt-2 mb-3 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <SignalChip dot={statusMeta.dot} title="Status — change vs your document (worst-case across the matches below)">
+              {statusMeta.label}
+            </SignalChip>
+            {matches.length > 0 && <RelationBar counts={counts} />}
+            {assessment && evidenceMeta && (
+              <SignalChip dot={evidenceMeta.dot} title="Evidence — how grounded the target is (AI)">
+                {evidenceMeta.label}
+              </SignalChip>
+            )}
+            {conformity && (
+              <SignalChip
+                dot={conformityDot(conformity.conformity)}
+                title="Conformity — % the target is met (computed)"
+              >
+                {Math.round(conformity.conformity * 100)}% conformity
+              </SignalChip>
+            )}
+          </div>
+          <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
             {description}
           </p>
         </div>
-        <span className="shrink-0 text-xs text-muted-foreground group-open:hidden">
-          Expand
-        </span>
+        <span className="shrink-0 text-xs text-muted-foreground group-open:hidden">Expand</span>
         <span className="hidden shrink-0 text-xs text-muted-foreground group-open:inline">
           Collapse
         </span>
       </summary>
 
-      <div className="px-6 pb-4">
-        {conformity && <ConformityBlock conformity={conformity} />}
-        {assessment && (
-          <div className="mb-4 rounded-md bg-card p-4">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Evidence quality
+      <div className="space-y-4 px-6 pb-5">
+        {assessment?.doc_target && (
+          <div className="rounded-md border border-border bg-muted/40 px-4 py-3">
+            <SectionLabel>From your document</SectionLabel>
+            <p className="mt-1 text-sm leading-relaxed text-foreground">
+              {assessment.doc_target}
             </p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground/80">
-              How well-grounded and justified your doc&apos;s target is (LLM judgment)
+            <p className="mt-1 text-[11px] text-muted-foreground/70">
+              Everything below is web evidence assessed against this.
             </p>
-            {assessment.basis.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {assessment.basis.map((basis) => (
-                  <Badge key={basis} variant="outline">
-                    {BASIS_LABELS[basis] ?? basis}
-                  </Badge>
-                ))}
-              </div>
-            )}
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              {assessment.reason}
-            </p>
-            {assessment.supporting_findings.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {assessment.supporting_findings.map((finding) => (
-                  <li key={finding.url} className="text-xs text-muted-foreground">
-                    <SourceLink finding={finding} />
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
         )}
-        {matches.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No matches for this variable.
-          </p>
-        ) : (
-          <ul className="space-y-4">
-            {matches.map((match, index) => (
-              <li key={index} className="rounded-md border border-border bg-card p-4">
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">{match.relation}</Badge>
-                </div>
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Found
-                  </p>
-                  <p className="mt-1 text-sm font-medium leading-relaxed text-foreground">
-                    {match.insight.statement}
-                  </p>
-                </div>
-                {match.reason && (
-                  <div className="mt-3 border-l-2 border-border pl-3">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Why it matters
-                    </p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      {match.reason}
-                    </p>
-                  </div>
+        {conformity && <ConformityBlock conformity={conformity} />}
+        {assessment && evidenceMeta && (
+          <EvidenceBlock assessment={assessment} evidenceMeta={evidenceMeta} />
+        )}
+        <MatchesBlock matches={matches} />
+      </div>
+    </details>
+  );
+}
+
+function ConformityBlock({ conformity }: { conformity: Conformity }) {
+  const pct = Math.round(conformity.conformity * 100);
+  const lowerPct = Math.round(conformity.lower * 100);
+  const upperPct = Math.round(conformity.upper * 100);
+  const targetLabel =
+    conformity.target_label ||
+    `${conformity.comparator} ${conformity.target_value}${conformity.unit}`;
+
+  return (
+    <section className="rounded-md border border-border bg-card p-4">
+      <SectionLabel>Conformity · computed</SectionLabel>
+      <p className="mt-0.5 text-[11px] text-muted-foreground/80">
+        Do the reported real-world numbers meet your target? (weighted statistical combine)
+      </p>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Scored vs <span className="text-foreground">{targetLabel}</span>
+      </p>
+
+      <div className="mt-3">
+        <div className="mb-1 flex items-baseline justify-between gap-2">
+          <span className="text-sm font-semibold text-foreground">{pct}% likely meets target</span>
+          <span className="text-xs text-muted-foreground">
+            range {lowerPct}–{upperPct}%
+          </span>
+        </div>
+        <div className="relative h-2 w-full rounded-full bg-muted">
+          <div
+            className="absolute h-2 rounded-full bg-foreground/20"
+            style={{ left: `${lowerPct}%`, width: `${Math.max(2, upperPct - lowerPct)}%` }}
+          />
+          <div
+            className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground"
+            style={{ left: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <SignalChip dot={conformityDot(conformity.conformity)}>{conformity.verdict}</SignalChip>
+      </div>
+
+      {conformity.measurements.length > 0 && (
+        <div className="mt-3">
+          <SectionLabel>
+            {conformity.measurements.length} source
+            {conformity.measurements.length === 1 ? "" : "s"} combined · weighted by quality &amp; recency
+          </SectionLabel>
+          <ul className="mt-1 space-y-1">
+            {conformity.measurements.map((m, index) => (
+              <li
+                key={`${m.url}-${index}`}
+                className="flex items-baseline gap-2 text-xs text-muted-foreground"
+              >
+                {m.url ? (
+                  <a
+                    href={m.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-w-0 flex-1 truncate underline hover:text-foreground"
+                  >
+                    {SOURCE_TYPE_LABELS[m.source_type] ?? m.source_type}
+                  </a>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate">
+                    {SOURCE_TYPE_LABELS[m.source_type] ?? m.source_type}
+                  </span>
                 )}
-                {match.insight.supporting_findings.length > 0 && (
-                  <ul className="mt-3 space-y-1">
-                    {match.insight.supporting_findings.map((finding) => (
-                      <li key={finding.url} className="text-xs text-muted-foreground">
-                        <SourceLink finding={finding} />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <p className="mt-2 truncate text-[11px] text-muted-foreground/70">
-                  searched: {match.insight.query}
-                </p>
+                <span className="shrink-0 text-[11px] text-muted-foreground/60">
+                  {m.value}
+                  {conformity.unit} ·{" "}
+                  {m.age_months != null ? `${Math.round(m.age_months)}mo` : "date unknown"} · wt{" "}
+                  {m.weight.toFixed(2)}
+                </span>
               </li>
             ))}
           </ul>
-        )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EvidenceBlock({
+  assessment,
+  evidenceMeta,
+}: {
+  assessment: EvidenceAssessment;
+  evidenceMeta: { label: string; dot: string };
+}) {
+  return (
+    <section className="rounded-md border border-border bg-card p-4">
+      <div className="flex items-center justify-between gap-2">
+        <SectionLabel>Evidence quality · AI judgment</SectionLabel>
+        <SignalChip dot={evidenceMeta.dot}>{evidenceMeta.label}</SignalChip>
       </div>
-    </details>
+      <p className="mt-0.5 text-[11px] text-muted-foreground/80">
+        How well-grounded and justified your target is
+      </p>
+      {assessment.reason && (
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{assessment.reason}</p>
+      )}
+      {assessment.basis.length > 0 && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          <span className="text-muted-foreground/70">Basis: </span>
+          {assessment.basis.map((b) => BASIS_LABELS[b] ?? b).join(" · ")}
+        </p>
+      )}
+      <SourceList findings={assessment.supporting_findings} />
+    </section>
+  );
+}
+
+function MatchesBlock({ matches }: { matches: Match[] }) {
+  if (matches.length === 0) {
+    return <p className="text-sm text-muted-foreground">No matches for this variable.</p>;
+  }
+  return (
+    <section>
+      <SectionLabel>Matches · {relationSummary(relationCounts(matches))}</SectionLabel>
+      <ul className="mt-2 space-y-3">
+        {matches.map((match, index) => (
+          <li key={index} className="rounded-md border border-border bg-card p-4">
+            <SignalChip dot={RELATION_DOT[match.relation]}>{match.relation}</SignalChip>
+            <p className="mt-3 text-sm font-medium leading-relaxed text-foreground">
+              {match.insight.statement}
+            </p>
+            {match.reason && (
+              <p className="mt-2 border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">
+                {match.reason}
+              </p>
+            )}
+            <SourceList findings={match.insight.supporting_findings} />
+            <p className="mt-2 truncate text-[11px] text-muted-foreground/60">
+              searched: {match.insight.query}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

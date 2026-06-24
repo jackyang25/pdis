@@ -111,6 +111,7 @@ async def run_monitor(
                         strength=assessment["strength"],
                         basis=assessment["basis"],
                         reason=assessment["reason"],
+                        doc_target=assessment.get("doc_target", ""),
                         supporting_findings=[
                             FindingOut(**finding)
                             for finding in assessment["supporting_findings"]

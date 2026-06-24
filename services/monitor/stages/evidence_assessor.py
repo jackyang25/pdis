@@ -73,11 +73,13 @@ def assess_evidence(
         if str(item).strip().lower() in VALID_EVIDENCE_BASIS
     ]
     reason = str(parsed.get("reason", "")).strip() or "assessment failed"
+    doc_target = str(parsed.get("doc_target", "")).strip()
     return EvidenceAssessment(
         attribute_ref=attribute.name,
         strength=strength,
         basis=list(dict.fromkeys(basis)),
         reason=reason,
+        doc_target=doc_target,
         supporting_findings=supporting_findings,
     )
 
@@ -106,10 +108,15 @@ def _system_prompt(
         "- unsupported: no evidence supports the target being achievable or justified. Do NOT use this merely because a threshold target is unambitious or already met - that is well_grounded.\n"
         "- unknown: the evidence cannot be assessed.\n\n"
         "Basis enum values: standard_of_care, modeling, study_strength, regulatory_precedent.\n"
-        "Use only basis values actually supported by the web evidence; basis may be empty.\n"
-        "Reason is one sentence, 25 words or fewer.\n\n"
+        "Use only basis values actually supported by the web evidence; basis may be empty.\n\n"
+        "Also return doc_target: a SHORT phrase stating ONLY what THIS document targets for "
+        "this field (e.g. \"co-administration with routine child/adult vaccines\"). Quote the "
+        "document, do not mix in web evidence. Empty string if the document states no target.\n"
+        "reason: one sentence (<=25 words) giving ONLY your evidence judgment - do NOT restate "
+        "the document target (that is doc_target's job).\n\n"
         "Return ONLY JSON. No markdown, no commentary. Format:\n"
-        '{"strength": "partial", "basis": ["standard_of_care"], "reason": "..."}'
+        '{"strength": "partial", "basis": ["standard_of_care"], '
+        '"doc_target": "...", "reason": "..."}'
     )
 
 

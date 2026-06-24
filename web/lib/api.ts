@@ -120,6 +120,7 @@ export type EvidenceAssessment = {
   strength: EvidenceStrength;
   basis: string[];
   reason: string;
+  doc_target: string;
   supporting_findings: Finding[];
 };
 

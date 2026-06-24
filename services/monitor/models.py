@@ -124,6 +124,7 @@ class EvidenceAssessment:
     strength: str
     basis: list[str] = field(default_factory=list)
     reason: str = ""
+    doc_target: str = ""  # what the uploaded document states for this field
     supporting_findings: list[Finding] = field(default_factory=list)
 
 

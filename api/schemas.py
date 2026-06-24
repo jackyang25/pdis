@@ -79,6 +79,7 @@ class EvidenceAssessmentOut(BaseModel):
     strength: str
     basis: list[str]
     reason: str
+    doc_target: str = ""
     supporting_findings: list[FindingOut]
 
 

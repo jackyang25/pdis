@@ -34,12 +34,12 @@ from ..models import Attribute, ConformityScore, Insight, LLMClientProtocol, Mea
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TOKENS = 8000
+DEFAULT_MAX_TOKENS = 16000
 MAX_MEASUREMENTS = 40
 # Keep in lockstep with drift_classifier / evidence_assessor so all three
 # doc-reading stages see the SAME baseline and a target near the end of a long
 # doc is never cut off in one stage but not another.
-MAX_DOC_CONTEXT_CHARS = 60000
+MAX_DOC_CONTEXT_CHARS = 120000
 
 # Reliability weight per source type (evidence hierarchy). Human-owned domain
 # numbers: strongest direct evidence ~1.0, weakest/indirect ~0.4. The LLM

@@ -44,3 +44,4 @@ queries_per_variable: 8
 geographic_emphasis:
   - global_south
 geographic_queries_per_variable: 4
+counterfactual_queries_per_variable: 3

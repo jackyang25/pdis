@@ -2,22 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Activity,
-  Boxes,
-  HeartHandshake,
-  Layers3,
-  Search,
-} from "lucide-react";
+import { Activity, Layers3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HeaderPicker } from "./header-picker";
 import { Separator } from "./ui/separator";
 
+// User-facing intelligence tools. Chunker and Searcher are plumbing/debug
+// utilities — their routes still work directly, but they are not surfaced here.
 const NAV = [
-  { href: "/chunker", label: "Chunker", description: "Parse + label", icon: Boxes },
-  { href: "/searcher", label: "Searcher", description: "Find web evidence", icon: Search },
-  { href: "/reviewer", label: "Reviewer", description: "Grade documents", icon: Layers3 },
-  { href: "/monitor", label: "Monitor", description: "Track web updates", icon: Activity },
+  { href: "/reviewer", label: "Reviewer", description: "Grade completeness & adherence", icon: Layers3 },
+  { href: "/monitor", label: "Monitor", description: "Check targets vs web evidence", icon: Activity },
 ];
 
 export function Sidebar() {
@@ -33,12 +27,11 @@ export function Sidebar() {
       </div>
       <Separator />
       <nav className="flex flex-col gap-1 px-3 py-4">
-        {NAV.map((item, index) => {
+        {NAV.map((item) => {
           const active = pathname?.startsWith(item.href);
           const Icon = item.icon;
           return (
             <div key={item.href}>
-              {index === 2 && <Separator className="my-2 opacity-50" />}
               <Link
                 href={item.href}
                 className={cn(

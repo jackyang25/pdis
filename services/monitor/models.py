@@ -197,6 +197,7 @@ class MonitorTypeConfig:
     languages: list[str] = field(default_factory=list)
     geographic_emphasis: list[str] = field(default_factory=list)
     geographic_queries_per_variable: int = 0
+    counterfactual_queries_per_variable: int = 0
 
 
 def matches_to_dicts(matches: list[Match]) -> list[dict]:
@@ -289,6 +290,9 @@ def load_config(config_path: str) -> MonitorTypeConfig:
     geographic_queries_per_variable = int(data.get("geographic_queries_per_variable", 0))
     if geographic_queries_per_variable < 0:
         raise ValueError("geographic_queries_per_variable must be >= 0")
+    counterfactual_queries_per_variable = int(data.get("counterfactual_queries_per_variable", 0))
+    if counterfactual_queries_per_variable < 0:
+        raise ValueError("counterfactual_queries_per_variable must be >= 0")
 
     return MonitorTypeConfig(
         type_key=data["type_key"],
@@ -303,4 +307,5 @@ def load_config(config_path: str) -> MonitorTypeConfig:
         languages=languages,
         geographic_emphasis=geographic_emphasis,
         geographic_queries_per_variable=geographic_queries_per_variable,
+        counterfactual_queries_per_variable=counterfactual_queries_per_variable,
     )

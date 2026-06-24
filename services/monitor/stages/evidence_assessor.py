@@ -20,7 +20,7 @@ from ..models import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 16000
-MAX_DOC_CONTEXT_CHARS = 60000
+MAX_DOC_CONTEXT_CHARS = 120000
 
 
 def assess_evidence(

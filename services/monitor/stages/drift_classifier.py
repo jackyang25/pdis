@@ -26,7 +26,7 @@ from ..models import Insight, LLMClientProtocol, Match, VALID_RELATIONS
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 24000
-MAX_DOC_CONTEXT_CHARS = 60000
+MAX_DOC_CONTEXT_CHARS = 120000
 INSIGHTS_BATCH_SIZE = 30
 
 

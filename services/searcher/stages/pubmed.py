@@ -77,7 +77,11 @@ def search_pubmed(
         pmcid = record.get("pmcid", "")
         abstract = record.get("abstract", "")
         full_text = pmc_texts.get(pmcid, "") if pmcid else ""
-        excerpt = _clean_text(full_text or abstract) or None
+        # Lead with the abstract: it front-loads the headline findings/numbers
+        # (efficacy %, primary endpoint). Append full text for depth. This avoids
+        # keeping only the intro of a long article, where results are absent.
+        combined = "\n\n".join(part for part in (abstract, full_text) if part)
+        excerpt = _clean_text(combined) or None
         if excerpt and len(excerpt) > MAX_EXCERPT_CHARS:
             excerpt = excerpt[:MAX_EXCERPT_CHARS].rstrip() + "..."
         findings.append(

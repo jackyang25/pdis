@@ -17,7 +17,7 @@ from ..models import Insight, LLMClientProtocol
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TOKENS = 16000
+DEFAULT_MAX_TOKENS = 24000
 
 
 def extract_insights(

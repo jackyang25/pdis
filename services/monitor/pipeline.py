@@ -32,7 +32,7 @@ from .models import (
     load_attributes,
 )
 from .stages.conformity import score_conformity
-from .stages.drift_classifier import classify_drift
+from .stages.drift_classifier import INSIGHTS_BATCH_SIZE, classify_drift
 from .stages.evidence_assessor import assess_evidence
 from .stages.insight_extractor import extract_insights
 from .stages.precedent_classifier import classify_precedent
@@ -161,12 +161,13 @@ def run_pipeline(
 
     if progress_callback:
         progress_callback("classify")
-    matches = classify_drift(
-        [doc_text],
+    matches = _classify_drift_all(
+        doc_text,
         insights,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
+        progress=progress_callback,
     )
 
     if progress_callback:
@@ -331,55 +332,46 @@ def _extract_insights_all_variables(
     intervention_class: str,
     progress: ProgressFn | None = None,
 ) -> list[Insight]:
-    """Run insight extraction per attribute with bounded concurrency."""
+    """Run insight extraction concurrently across all (variable, finding-batch)
+    units.
+
+    Findings are split into the same per-variable 40-finding batches as before,
+    but every batch from every variable is scheduled into one worker pool - so a
+    finding-heavy variable's batches no longer serialize behind each other. Tasks
+    are built in (variable, batch) order and _parallel_map preserves input order,
+    so the concatenated output is identical to the sequential version. Each batch
+    keeps its own attribute_ref (single-variable), so nothing is cross-mixed."""
     items = list(findings_by_attribute.items())
     if not items:
         return []
 
-    def one(item: tuple[str, list[Finding]]) -> list[Insight]:
-        attribute_ref, findings = item
-        return _extract_insights_for_variable(
-            attribute_ref,
-            findings,
-            attribute_descriptions,
+    # Flatten to independent (attribute_ref, batch) units, in (variable, batch) order.
+    batch_tasks: list[tuple[str, list[Finding]]] = [
+        (attribute_ref, findings[start : start + FINDINGS_BATCH_SIZE])
+        for attribute_ref, findings in items
+        for start in range(0, len(findings), FINDINGS_BATCH_SIZE)
+    ]
+    if not batch_tasks:
+        return []
+
+    def one(task: tuple[str, list[Finding]]) -> list[Insight]:
+        attribute_ref, batch = task
+        return extract_insights(
+            batch,
             openai_client,
             indication=indication,
             intervention_class=intervention_class,
+            attribute_ref=attribute_ref,
+            attribute_description=attribute_descriptions.get(attribute_ref, ""),
         )
 
     results = _parallel_map(
-        items, one, workers=MAX_WORKERS, stage="insights", progress=progress
+        batch_tasks, one, workers=MAX_WORKERS, stage="insights", progress=progress
     )
 
     insights: list[Insight] = []
-    for variable_insights in results:
-        insights.extend(variable_insights)
-    return insights
-
-
-def _extract_insights_for_variable(
-    attribute_ref: str,
-    findings: list[Finding],
-    attribute_descriptions: dict[str, str],
-    openai_client: LLMClientProtocol,
-    *,
-    indication: str,
-    intervention_class: str,
-) -> list[Insight]:
-    """Extract insights from every finding for one variable, batching as needed."""
-    insights: list[Insight] = []
-    for start in range(0, len(findings), FINDINGS_BATCH_SIZE):
-        batch = findings[start : start + FINDINGS_BATCH_SIZE]
-        insights.extend(
-            extract_insights(
-                batch,
-                openai_client,
-                indication=indication,
-                intervention_class=intervention_class,
-                attribute_ref=attribute_ref,
-                attribute_description=attribute_descriptions.get(attribute_ref, ""),
-            )
-        )
+    for batch_insights in results:
+        insights.extend(batch_insights)
     return insights
 
 
@@ -494,6 +486,50 @@ def _search_backend(
         attribute_query: findings
         for attribute_query, findings in zip(attribute_queries, results)
     }
+
+
+def _classify_drift_all(
+    doc_text: str,
+    insights: list[Insight],
+    openai_client: LLMClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+    progress: ProgressFn | None = None,
+) -> list[Match]:
+    """Classify drift across insight batches concurrently.
+
+    classify_drift already splits insights into INSIGHTS_BATCH_SIZE chunks; here
+    we make those chunks the parallel unit instead of letting them serialize.
+    Each batch is an independent call (full doc + its <=30 insights) and is
+    capped at the batch size, so classify_drift does NOT re-batch. Batches are
+    built and reassembled in order, so the output is identical to the sequential
+    version - purely a scheduling change, no context lost (each insight is judged
+    against the full doc exactly as before)."""
+    if not insights:
+        return []
+
+    batches = [
+        insights[start : start + INSIGHTS_BATCH_SIZE]
+        for start in range(0, len(insights), INSIGHTS_BATCH_SIZE)
+    ]
+
+    def one(batch: list[Insight]) -> list[Match]:
+        return classify_drift(
+            [doc_text],
+            batch,
+            openai_client,
+            indication=indication,
+            intervention_class=intervention_class,
+        )
+
+    results = _parallel_map(
+        batches, one, workers=MAX_WORKERS, stage="classify", progress=progress
+    )
+    matches: list[Match] = []
+    for batch_matches in results:
+        matches.extend(batch_matches)
+    return matches
 
 
 def _assess_evidence_all_variables(

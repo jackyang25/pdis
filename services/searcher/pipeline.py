@@ -24,6 +24,8 @@ def run_pipeline(
     max_uses: int = DEFAULT_MAX_USES,
     backends: tuple[str, ...] = ("web",),
     ncbi_api_key: str | None = None,
+    condition: str | None = None,
+    intervention: str | None = None,
     progress_callback=None,
 ) -> list[Finding]:
     """Run retrieval backends for `query` and return deduped Findings.
@@ -37,6 +39,10 @@ def run_pipeline(
         backends: Retrieval backends to union. Defaults to web-only for
             existing callers.
         ncbi_api_key: Optional NCBI API key for PubMed/PMC requests.
+        condition: Optional condition/disease for the ClinicalTrials.gov
+            structured search. Ignored by other backends.
+        intervention: Optional intervention term for the ClinicalTrials.gov
+            structured search. Ignored by other backends.
         progress_callback: Optional callable for streaming progress
             (matches the convention used by other services' pipelines).
 
@@ -58,7 +64,9 @@ def run_pipeline(
         elif backend == "pubmed":
             findings.extend(search_pubmed(query, api_key=ncbi_api_key))
         elif backend == "clinicaltrials":
-            findings.extend(search_clinicaltrials(query))
+            findings.extend(
+                search_clinicaltrials(query, condition=condition, intervention=intervention)
+            )
         else:
             logger.warning("Unknown search backend %r; skipping", backend)
 

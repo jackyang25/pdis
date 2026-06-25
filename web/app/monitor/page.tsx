@@ -273,15 +273,29 @@ export default function MonitorPage() {
 }
 
 function MonitorView({ header }: { header: Header }) {
-  const { result, busy, stage, error, setResult, setBusy, setStage, setError } =
-    useMonitorSession();
+  const {
+    result,
+    busy,
+    stage,
+    progress,
+    error,
+    setResult,
+    setBusy,
+    setStage,
+    setProgress,
+    setError,
+  } = useMonitorSession();
 
   async function handleRun(files: File[]) {
     setBusy(true);
     setError(null);
     setStage(null);
+    setProgress(null);
     try {
-      const res = await runMonitor(files, header, setStage);
+      const res = await runMonitor(files, header, (s, p) => {
+        setStage(s);
+        setProgress(p ?? null);
+      });
       setResult(res);
     } catch (err) {
       setError((err as Error).message);
@@ -298,6 +312,7 @@ function MonitorView({ header }: { header: Header }) {
         onRun={handleRun}
         steps={MONITOR_STEPS}
         currentStage={stage}
+        progress={progress}
       />
       {error && <p className="text-sm text-destructive">{error}</p>}
       {result && <FieldGrid result={result} />}
@@ -405,10 +420,10 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
         } insights · ${updatedCount} updated · ${clearCount} clear`}
         trailing={
           <DownloadButton
-            filename="matches.jsonl"
-            data={matches}
-            format="jsonl"
-            label="Download JSONL"
+            filename="monitor-result.json"
+            data={result}
+            format="json"
+            label="Download JSON"
           />
         }
       >

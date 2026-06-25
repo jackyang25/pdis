@@ -9,8 +9,10 @@ via their public contracts only.
 from __future__ import annotations
 
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Callable, TypeVar
 
 from services.chunker import ContentBlock, run_pipeline as chunker_run
 from services.searcher import Finding, run_pipeline as searcher_run
@@ -40,10 +42,15 @@ FINDINGS_BATCH_SIZE = 40
 SEARCH_MAX_TOKENS = 8000
 SEARCH_MAX_USES = 10
 
-# Parallelism. LLM/web stages are I/O-bound on OpenAI (enterprise rate limits
-# allow generous concurrency). PubMed runs on its own pass; NCBI is globally
-# rate-throttled inside the searcher regardless, so its worker count is modest.
-MAX_WORKERS = 16
+# Parallelism. MAX_WORKERS governs every OpenAI-bound fan-out (query/insight/
+# evidence/conformity/precedent stages AND the web search lane) - they are all
+# I/O-bound on OpenAI, whose enterprise rate limits allow generous concurrency.
+# 32 roughly halves the wall-clock of the web lane (the long pole) versus 16
+# while staying well under enterprise RPM/TPM; push higher only if no 429s
+# appear. PubMed is globally rate-throttled to NCBI's ~9/s ceiling (more workers
+# would just queue behind the throttle) and ClinicalTrials.gov is cached to one
+# fetch per run, so those keep modest, independent worker counts.
+MAX_WORKERS = 32
 PUBMED_WORKERS = 8
 CLINICALTRIALS_WORKERS = 8
 
@@ -99,6 +106,7 @@ def run_pipeline(
         config,
         openai_client,
         indication=indication,
+        progress=progress_callback,
     )
     flat: list[tuple[str, str]] = [
         (attribute_ref, query)
@@ -110,7 +118,13 @@ def run_pipeline(
 
     if progress_callback:
         progress_callback("search")
-    findings_by_query = _search_all(flat, search_client)
+    findings_by_query = _search_all(
+        flat,
+        search_client,
+        indication=indication,
+        intervention_class=intervention_class,
+        progress=progress_callback,
+    )
     if not findings_by_query:
         return _empty_result(queries=len(flat))
 
@@ -134,6 +148,7 @@ def run_pipeline(
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
+        progress=progress_callback,
     )
 
     _stamp(
@@ -163,6 +178,7 @@ def run_pipeline(
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
+        progress=progress_callback,
     )
 
     if progress_callback:
@@ -174,6 +190,7 @@ def run_pipeline(
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
+        progress=progress_callback,
     )
 
     if progress_callback:
@@ -185,6 +202,7 @@ def run_pipeline(
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
+        progress=progress_callback,
     )
 
     stats = FunnelStats(
@@ -228,17 +246,66 @@ def _parse_all_docs(
     return blocks
 
 
+_T = TypeVar("_T")
+_R = TypeVar("_R")
+
+# A progress reporter: progress(stage, completed=int, total=int). Optional - when
+# None, stages run with no per-item reporting. Threaded explicitly (never a
+# global) so concurrent requests can't cross-report.
+ProgressFn = Callable[..., None]
+
+
+def _parallel_map(
+    items: list[_T],
+    fn: Callable[[_T], _R],
+    *,
+    workers: int,
+    stage: str,
+    progress: ProgressFn | None,
+) -> list[_R]:
+    """Run `fn` over `items` concurrently, preserving input order, emitting
+    `progress(stage, completed, total)` as each task FINISHES.
+
+    The completion counter is lock-guarded because tasks finish on worker
+    threads; the streaming queue the callback writes to is itself thread-safe.
+    """
+    total = len(items)
+    if total == 0:
+        return []
+    workers = max(1, min(workers, total))
+    if progress:
+        progress(stage, completed=0, total=total)
+
+    lock = threading.Lock()
+    state = {"done": 0}
+    results: list[_R] = [None] * total  # type: ignore[list-item]
+
+    def run_one(indexed: tuple[int, _T]) -> tuple[int, _R]:
+        idx, item = indexed
+        result = fn(item)
+        if progress:
+            with lock:
+                state["done"] += 1
+                progress(stage, completed=state["done"], total=total)
+        return idx, result
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for idx, result in executor.map(run_one, enumerate(items)):
+            results[idx] = result
+    return results
+
+
 def _extract_queries_all_variables(
     attributes: list[Attribute],
     config: MonitorTypeConfig,
     openai_client: LLMClientProtocol,
     *,
     indication: str,
+    progress: ProgressFn | None = None,
 ) -> dict[str, list[str]]:
     """Run query extraction across attribute variables with bounded concurrency."""
     if not attributes:
         return {}
-    workers = max(1, min(MAX_WORKERS, len(attributes)))
 
     def one(attribute: Attribute) -> tuple[str, list[str]]:
         return attribute.name, extract_queries_for_variable(
@@ -249,8 +316,9 @@ def _extract_queries_all_variables(
             queries_per_variable=config.queries_per_variable,
         )
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(one, attributes))
+    results = _parallel_map(
+        attributes, one, workers=MAX_WORKERS, stage="queries", progress=progress
+    )
     return {name: queries for name, queries in results if queries}
 
 
@@ -261,12 +329,12 @@ def _extract_insights_all_variables(
     *,
     indication: str,
     intervention_class: str,
+    progress: ProgressFn | None = None,
 ) -> list[Insight]:
     """Run insight extraction per attribute with bounded concurrency."""
     items = list(findings_by_attribute.items())
     if not items:
         return []
-    workers = max(1, min(MAX_WORKERS, len(items)))
 
     def one(item: tuple[str, list[Finding]]) -> list[Insight]:
         attribute_ref, findings = item
@@ -279,8 +347,9 @@ def _extract_insights_all_variables(
             intervention_class=intervention_class,
         )
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(one, items))
+    results = _parallel_map(
+        items, one, workers=MAX_WORKERS, stage="insights", progress=progress
+    )
 
     insights: list[Insight] = []
     for variable_insights in results:
@@ -317,6 +386,10 @@ def _extract_insights_for_variable(
 def _search_all(
     attribute_queries: list[tuple[str, str]],
     search_client: SearchClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+    progress: ProgressFn | None = None,
 ) -> dict[tuple[str, str], list[Finding]]:
     """Search all queries and return a mapping from (attribute, query) to findings.
 
@@ -325,16 +398,32 @@ def _search_all(
     rate throttles. Per query, the three backends' findings are unioned (dedup by
     URL). Each backend swallows its own failures, so one lane going dark never
     drops the others.
+
+    Progress is reported as backend-query tasks complete; each query is searched
+    once per lane, so the total is queries x 3 lanes.
     """
     if not attribute_queries:
         return {}
 
+    total = 3 * len(attribute_queries)
+    lock = threading.Lock()
+    state = {"done": 0}
+    if progress:
+        progress("search", completed=0, total=total)
+
+    def report() -> None:
+        if not progress:
+            return
+        with lock:
+            state["done"] += 1
+            progress("search", completed=state["done"], total=total)
+
     with ThreadPoolExecutor(max_workers=3) as outer:
         web_future = outer.submit(
-            _search_backend, attribute_queries, search_client, ("web",), MAX_WORKERS
+            _search_backend, attribute_queries, search_client, ("web",), MAX_WORKERS, report
         )
         pubmed_future = outer.submit(
-            _search_backend, attribute_queries, search_client, ("pubmed",), PUBMED_WORKERS
+            _search_backend, attribute_queries, search_client, ("pubmed",), PUBMED_WORKERS, report
         )
         ctgov_future = outer.submit(
             _search_backend,
@@ -342,6 +431,9 @@ def _search_all(
             search_client,
             ("clinicaltrials",),
             CLINICALTRIALS_WORKERS,
+            report,
+            indication,
+            intervention_class,
         )
         web = web_future.result()
         pubmed = pubmed_future.result()
@@ -369,23 +461,35 @@ def _search_backend(
     search_client: SearchClientProtocol,
     backends: tuple[str, ...],
     max_workers: int,
+    report: Callable[[], None] | None = None,
+    condition: str | None = None,
+    intervention: str | None = None,
 ) -> dict[tuple[str, str], list[Finding]]:
-    """Run one retrieval backend across all queries with bounded concurrency."""
+    """Run one retrieval backend across all queries with bounded concurrency.
+
+    Calls `report()` once per query as it completes, so the shared search
+    counter advances across all three lanes. `condition`/`intervention` are
+    backend-specific hints for the structured ClinicalTrials.gov search; other
+    backends ignore them."""
     workers = max(1, min(max_workers, len(attribute_queries)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        results = list(
-            executor.map(
-                lambda attribute_query: searcher_run(
-                    attribute_query[1],
-                    llm_client=search_client,
-                    max_tokens=SEARCH_MAX_TOKENS,
-                    max_uses=SEARCH_MAX_USES,
-                    backends=backends,
-                    ncbi_api_key=os.getenv("NCBI_API_KEY"),
-                ),
-                attribute_queries,
-            )
+
+    def one(attribute_query: tuple[str, str]) -> list[Finding]:
+        findings = searcher_run(
+            attribute_query[1],
+            llm_client=search_client,
+            max_tokens=SEARCH_MAX_TOKENS,
+            max_uses=SEARCH_MAX_USES,
+            backends=backends,
+            ncbi_api_key=os.getenv("NCBI_API_KEY"),
+            condition=condition,
+            intervention=intervention,
         )
+        if report:
+            report()
+        return findings
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(one, attribute_queries))
     return {
         attribute_query: findings
         for attribute_query, findings in zip(attribute_queries, results)
@@ -400,6 +504,7 @@ def _assess_evidence_all_variables(
     *,
     indication: str,
     intervention_class: str,
+    progress: ProgressFn | None = None,
 ) -> list[EvidenceAssessment]:
     """Assess evidence per attribute with bounded concurrency."""
     insights_by_attribute: dict[str, list[Insight]] = {}
@@ -410,7 +515,6 @@ def _assess_evidence_all_variables(
 
     if not attributes:
         return []
-    workers = max(1, min(MAX_WORKERS, len(attributes)))
 
     def one(attribute: Attribute) -> EvidenceAssessment:
         return assess_evidence(
@@ -422,8 +526,9 @@ def _assess_evidence_all_variables(
             intervention_class=intervention_class,
         )
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        return list(executor.map(one, attributes))
+    return _parallel_map(
+        attributes, one, workers=MAX_WORKERS, stage="evidence", progress=progress
+    )
 
 
 def _score_conformity_all_variables(
@@ -434,6 +539,7 @@ def _score_conformity_all_variables(
     *,
     indication: str,
     intervention_class: str,
+    progress: ProgressFn | None = None,
 ) -> list[ConformityScore]:
     """Score quantitative conformity per attribute with bounded concurrency.
 
@@ -447,7 +553,6 @@ def _score_conformity_all_variables(
 
     if not attributes:
         return []
-    workers = max(1, min(MAX_WORKERS, len(attributes)))
 
     def one(attribute: Attribute) -> ConformityScore | None:
         return score_conformity(
@@ -459,8 +564,9 @@ def _score_conformity_all_variables(
             intervention_class=intervention_class,
         )
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(one, attributes))
+    results = _parallel_map(
+        attributes, one, workers=MAX_WORKERS, stage="conformity", progress=progress
+    )
     return [score for score in results if score is not None]
 
 
@@ -472,6 +578,7 @@ def _classify_precedent_all_variables(
     *,
     indication: str,
     intervention_class: str,
+    progress: ProgressFn | None = None,
 ) -> list[PrecedentSignal]:
     """Classify precedent per attribute with bounded concurrency.
 
@@ -485,7 +592,6 @@ def _classify_precedent_all_variables(
 
     if not attributes:
         return []
-    workers = max(1, min(MAX_WORKERS, len(attributes)))
 
     def one(attribute: Attribute) -> PrecedentSignal | None:
         return classify_precedent(
@@ -497,8 +603,9 @@ def _classify_precedent_all_variables(
             intervention_class=intervention_class,
         )
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(one, attributes))
+    results = _parallel_map(
+        attributes, one, workers=MAX_WORKERS, stage="precedent", progress=progress
+    )
     return [signal for signal in results if signal is not None]
 
 

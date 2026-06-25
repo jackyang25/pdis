@@ -16,6 +16,8 @@ type Props = {
   steps?: Step[];
   /** Backend stage key currently active. Drives ProgressSteps. */
   currentStage?: string | null;
+  /** Optional live item count for the active stage. */
+  progress?: { completed: number; total: number } | null;
   /** Optional label override (default: "Documents") */
   label?: string;
 };
@@ -28,6 +30,7 @@ export function MultiRunPanel({
   extraControls,
   steps,
   currentStage,
+  progress,
   label = "Documents",
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -92,7 +95,12 @@ export function MultiRunPanel({
       </Button>
 
       {steps && (
-        <ProgressSteps steps={steps} busy={!!busy} currentStage={currentStage ?? null} />
+        <ProgressSteps
+          steps={steps}
+          busy={!!busy}
+          currentStage={currentStage ?? null}
+          progress={progress ?? null}
+        />
       )}
     </div>
   );

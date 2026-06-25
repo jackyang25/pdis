@@ -20,6 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from functools import lru_cache
 
 from ..models import Finding
 
@@ -52,30 +53,65 @@ def _throttle() -> None:
         _NEXT_ALLOWED = now + RATE_INTERVAL
 
 
-def search_clinicaltrials(query: str, *, max_results: int = MAX_RESULTS) -> list[Finding]:
+def search_clinicaltrials(
+    query: str,
+    *,
+    condition: str | None = None,
+    intervention: str | None = None,
+    max_results: int = MAX_RESULTS,
+) -> list[Finding]:
     """Search ClinicalTrials.gov and return Findings. Never raises: any problem
-    yields no registry findings, leaving other backends unaffected."""
+    yields no registry findings, leaving other backends unaffected.
+
+    CT.gov is a STRUCTURED registry that keyword-matches: long free-text queries
+    (and non-English ones) return nothing or 400 "too complicated query". So when
+    the caller knows the condition + intervention (the monitor always does), we
+    search those structured fields, which returns the real trial landscape. We
+    fall back to free-text term search only when they are absent (e.g. the
+    standalone searcher tool).
+    """
+    condition = (condition or "").strip()
+    intervention = (intervention or "").strip()
+    term = "" if (condition or intervention) else query.strip()
     try:
-        studies = _fetch_studies(query, max_results=max_results)
-    except Exception:
-        logger.exception("ClinicalTrials.gov retrieval failed for query %r", query)
+        studies = _fetch_studies(condition, intervention, term, max_results)
+    except Exception as exc:  # noqa: BLE001 - one quiet line; the lane degrades gracefully
+        logger.warning("ClinicalTrials.gov retrieval skipped (%s)", exc)
         return []
 
+    # Provenance label: the structured terms actually searched, not the (ignored)
+    # free-text query, so the UI's "searched: ..." reads honestly.
+    label = " ".join(t for t in (condition, intervention) if t) or query
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
     for study in studies:
-        finding = _study_to_finding(study, query, retrieved_at)
+        finding = _study_to_finding(study, label, retrieved_at)
         if finding is not None:
             findings.append(finding)
     return findings
 
 
-def _fetch_studies(query: str, *, max_results: int) -> list[dict]:
-    params = {
-        "query.term": query,
-        "pageSize": str(max_results),
-        "format": "json",
-    }
+@lru_cache(maxsize=512)
+def _fetch_studies(
+    condition: str,
+    intervention: str,
+    term: str,
+    max_results: int,
+) -> list[dict]:
+    """Fetch raw studies for a structured (condition/intervention) or free-text
+    query. Memoized: the monitor issues the SAME (condition, intervention) for
+    every query in a run, so the registry is hit once per product area, not once
+    per query.
+    """
+    if not (condition or intervention or term):
+        return []
+    params = {"pageSize": str(max_results), "format": "json"}
+    if condition:
+        params["query.cond"] = condition
+    if intervention:
+        params["query.intr"] = intervention
+    if term:
+        params["query.term"] = term
     url = f"{API_URL}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(
         url,
@@ -91,10 +127,8 @@ def _fetch_studies(query: str, *, max_results: int) -> list[dict]:
             if exc.code == 429 and attempt < MAX_RETRIES_ON_429:
                 time.sleep(RATE_INTERVAL * (2 ** attempt))
                 continue
-            logger.warning("ClinicalTrials.gov request failed (%s)", exc.code)
             raise
         except (urllib.error.URLError, TimeoutError):
-            logger.warning("ClinicalTrials.gov request failed (network)")
             raise
     raise RuntimeError("unreachable")
 

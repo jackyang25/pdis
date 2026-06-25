@@ -23,19 +23,28 @@ END = object()
 HEARTBEAT_SECONDS = 15
 
 
-def run_with_progress(work: Callable[[Callable[[str], None]], Any]) -> Generator[str, None, None]:
+def run_with_progress(work: Callable[..., Any]) -> Generator[str, None, None]:
     """Run `work(progress_callback)` in a background thread, yielding NDJSON.
 
-    `work` is a callable that takes a `progress_callback(stage_name)` and
-    returns a JSON-serializable result. Events emitted:
+    `work` is a callable that takes `progress_callback(stage, completed=None,
+    total=None)` and returns a JSON-serializable result. `completed`/`total` are
+    optional and let a stage report live per-item progress. Events emitted:
         {"event": "stage", "name": "<stage>"}
+        {"event": "stage", "name": "<stage>", "completed": 12, "total": 54}
         {"event": "complete", "result": {...}}
         {"event": "error", "detail": "<msg>"}
+
+    progress() is thread-safe: it is called from pipeline worker threads, and
+    queue.Queue.put is safe for concurrent producers.
     """
     events: "queue.Queue[Any]" = queue.Queue()
 
-    def progress(stage: str) -> None:
-        events.put({"event": "stage", "name": stage})
+    def progress(stage: str, completed: int | None = None, total: int | None = None) -> None:
+        event: dict[str, Any] = {"event": "stage", "name": stage}
+        if completed is not None and total is not None:
+            event["completed"] = completed
+            event["total"] = total
+        events.put(event)
 
     def runner() -> None:
         try:

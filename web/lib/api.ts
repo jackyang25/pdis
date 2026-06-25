@@ -186,7 +186,8 @@ export type MonitorResponse = {
   stats: FunnelStats;
 };
 
-export type StageEvent = { event: "stage"; name: string };
+export type StageProgress = { completed: number; total: number };
+export type StageEvent = { event: "stage"; name: string; completed?: number; total?: number };
 export type CompleteEvent<T> = { event: "complete"; result: T };
 export type ErrorEvent = { event: "error"; detail: string };
 export type StreamEvent<T> = StageEvent | CompleteEvent<T> | ErrorEvent;
@@ -208,7 +209,7 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
 async function streamRequest<T>(
   path: string,
   body: FormData,
-  onStage?: (stage: string) => void,
+  onStage?: (stage: string, progress?: StageProgress) => void,
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { method: "POST", body });
   if (!res.ok || !res.body) {
@@ -231,7 +232,11 @@ async function streamRequest<T>(
       if (!line) continue;
       const event = JSON.parse(line) as StreamEvent<T>;
       if (event.event === "stage") {
-        onStage?.(event.name);
+        const progress =
+          event.completed != null && event.total != null
+            ? { completed: event.completed, total: event.total }
+            : undefined;
+        onStage?.(event.name, progress);
       } else if (event.event === "complete") {
         result = event.result;
       } else if (event.event === "error") {
@@ -300,7 +305,7 @@ export async function runSearcher(
 export async function runMonitor(
   files: File[],
   header: Header,
-  onStage?: (stage: string) => void,
+  onStage?: (stage: string, progress?: StageProgress) => void,
 ): Promise<MonitorResponse> {
   const form = new FormData();
   for (const file of files) {

@@ -10,9 +10,11 @@ type Props = {
   busy: boolean;
   /** The key of the currently active step (set from a server-sent stage event). */
   currentStage: string | null;
+  /** Optional live item count for the active stage (e.g. searches completed). */
+  progress?: { completed: number; total: number } | null;
 };
 
-export function ProgressSteps({ steps, busy, currentStage }: Props) {
+export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
   if (!busy) return null;
 
   const activeIndex = currentStage
@@ -53,6 +55,19 @@ export function ProgressSteps({ steps, busy, currentStage }: Props) {
             >
               {step.label}
             </span>
+            {isActive && progress && progress.total > 0 && (
+              <span className="ml-auto flex items-center gap-2">
+                <span className="h-1 w-16 overflow-hidden rounded-full bg-muted">
+                  <span
+                    className="block h-full rounded-full bg-foreground/50 transition-all"
+                    style={{ width: `${(progress.completed / progress.total) * 100}%` }}
+                  />
+                </span>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {progress.completed}/{progress.total}
+                </span>
+              </span>
+            )}
           </li>
         );
       })}

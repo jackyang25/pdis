@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from .models import Finding, SearcherLLMClientProtocol
+from .stages.clinicaltrials import search_clinicaltrials
 from .stages.pubmed import search_pubmed
 from .stages.searcher import DEFAULT_MAX_TOKENS, DEFAULT_MAX_USES, search
 
@@ -56,6 +57,8 @@ def run_pipeline(
             )
         elif backend == "pubmed":
             findings.extend(search_pubmed(query, api_key=ncbi_api_key))
+        elif backend == "clinicaltrials":
+            findings.extend(search_clinicaltrials(query))
         else:
             logger.warning("Unknown search backend %r; skipping", backend)
 

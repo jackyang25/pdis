@@ -223,7 +223,9 @@ function SourceList({ findings }: { findings: Finding[] }) {
     <ul className="mt-2 space-y-1">
       {shown.map((f) => {
         const date = formatDate(f.published_at);
-        const meta = [f.source === "pubmed" ? "PubMed" : "Web", date].filter(Boolean).join(" · ");
+        const sourceLabel =
+          f.source === "pubmed" ? "PubMed" : f.source === "clinicaltrials" ? "Registry" : "Web";
+        const meta = [sourceLabel, date].filter(Boolean).join(" · ");
         return (
           <li key={f.url} className="flex items-baseline gap-2 text-xs">
             <a

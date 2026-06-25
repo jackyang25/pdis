@@ -45,6 +45,7 @@ SEARCH_MAX_USES = 10
 # rate-throttled inside the searcher regardless, so its worker count is modest.
 MAX_WORKERS = 16
 PUBMED_WORKERS = 8
+CLINICALTRIALS_WORKERS = 8
 
 
 def run_pipeline(
@@ -319,28 +320,42 @@ def _search_all(
 ) -> dict[tuple[str, str], list[Finding]]:
     """Search all queries and return a mapping from (attribute, query) to findings.
 
-    Web and PubMed run as TWO concurrent passes so the fast web modality is not
-    blocked by PubMed's global NCBI rate throttle. Per query, the two backends'
-    findings are unioned (dedup by URL).
+    Web, PubMed, and ClinicalTrials.gov run as THREE concurrent passes so the
+    fast web modality is not blocked by the literature/registry backends' global
+    rate throttles. Per query, the three backends' findings are unioned (dedup by
+    URL). Each backend swallows its own failures, so one lane going dark never
+    drops the others.
     """
     if not attribute_queries:
         return {}
 
-    with ThreadPoolExecutor(max_workers=2) as outer:
+    with ThreadPoolExecutor(max_workers=3) as outer:
         web_future = outer.submit(
             _search_backend, attribute_queries, search_client, ("web",), MAX_WORKERS
         )
         pubmed_future = outer.submit(
             _search_backend, attribute_queries, search_client, ("pubmed",), PUBMED_WORKERS
         )
+        ctgov_future = outer.submit(
+            _search_backend,
+            attribute_queries,
+            search_client,
+            ("clinicaltrials",),
+            CLINICALTRIALS_WORKERS,
+        )
         web = web_future.result()
         pubmed = pubmed_future.result()
+        ctgov = ctgov_future.result()
 
     merged: dict[tuple[str, str], list[Finding]] = {}
     for attribute_query in attribute_queries:
         seen: set[str] = set()
         out: list[Finding] = []
-        for finding in web.get(attribute_query, []) + pubmed.get(attribute_query, []):
+        for finding in (
+            web.get(attribute_query, [])
+            + pubmed.get(attribute_query, [])
+            + ctgov.get(attribute_query, [])
+        ):
             if finding.url in seen:
                 continue
             seen.add(finding.url)

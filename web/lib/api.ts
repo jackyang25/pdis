@@ -5,7 +5,7 @@ export type Header = {
   indication: string;
 };
 
-export type ToolName = "chunker" | "reviewer" | "monitor";
+export type ToolName = "chunker" | "reviewer" | "scout";
 
 export type DocumentType = {
   key: string;
@@ -26,7 +26,7 @@ export type ContentBlock = {
   section_label: string | null;
 };
 
-export type DimensionName = "completeness" | "adherence";
+export type DimensionName = "completeness" | "adherence" | "rigor";
 
 export type DimensionGrade = {
   grade: string;
@@ -50,18 +50,25 @@ export type SectionGrade = {
   variable_grades: VariableGrade[];
 };
 
+export type CrossSectionFinding = {
+  description: string;
+  sections: string[];
+  recommendation: string;
+};
+
 export type ReviewResult = {
   doc_id: string;
   dimensions: Dimensions;
   top_issues: string[];
   section_grades: SectionGrade[];
+  cross_section_findings: CrossSectionFinding[];
   org: string | null;
   source_type: string | null;
   intervention_class: string | null;
   indication: string | null;
 };
 
-export const DIMENSION_NAMES: DimensionName[] = ["completeness", "adherence"];
+export const DIMENSION_NAMES: DimensionName[] = ["completeness", "adherence", "rigor"];
 
 export const GRADE_LABELS: Record<string, string> = {
   A: "Fully complete",
@@ -173,7 +180,7 @@ export type Variable = {
   description: string;
 };
 
-export type MonitorResponse = {
+export type ScoutResponse = {
   org: string;
   source_type: string;
   intervention_class: string;
@@ -302,15 +309,15 @@ export async function runSearcher(
   return streamRequest("/api/searcher/run", form, onStage);
 }
 
-export async function runMonitor(
+export async function runScout(
   files: File[],
   header: Header,
   onStage?: (stage: string, progress?: StageProgress) => void,
-): Promise<MonitorResponse> {
+): Promise<ScoutResponse> {
   const form = new FormData();
   for (const file of files) {
     form.append("files", file);
   }
   appendHeader(form, header);
-  return streamRequest("/api/monitor/run", form, onStage);
+  return streamRequest("/api/scout/run", form, onStage);
 }

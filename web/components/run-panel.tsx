@@ -16,6 +16,8 @@ type Props = {
   steps?: Step[];
   /** Backend stage key currently active. Drives ProgressSteps. */
   currentStage?: string | null;
+  /** Optional live item count for the active stage. */
+  progress?: { completed: number; total: number } | null;
 };
 
 export function RunPanel({
@@ -26,9 +28,26 @@ export function RunPanel({
   extraControls,
   steps,
   currentStage,
+  progress,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [typeError, setTypeError] = useState<string | null>(null);
+
+  // Single source of truth for supported types: derive both the displayed hint
+  // and the validation from `accept`, so they can never drift apart.
+  const exts = accept.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const acceptHint = exts.map((e) => e.replace(/^\./, "").toUpperCase()).join(", ");
+
+  function chooseFile(picked: File | null) {
+    if (picked && !exts.some((e) => picked.name.toLowerCase().endsWith(e))) {
+      setTypeError(`Unsupported file type. Supports ${acceptHint}.`);
+      setFile(null);
+      return;
+    }
+    setTypeError(null);
+    setFile(picked);
+  }
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-6">
@@ -54,8 +73,10 @@ export function RunPanel({
           type="file"
           accept={accept}
           className="hidden"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          onChange={(e) => chooseFile(e.target.files?.[0] ?? null)}
         />
+        <p className="mt-1.5 text-[11px] text-muted-foreground">Supports {acceptHint}</p>
+        {typeError && <p className="mt-1 text-[11px] text-destructive">{typeError}</p>}
       </div>
 
       {extraControls}
@@ -72,7 +93,12 @@ export function RunPanel({
       </Button>
 
       {steps && (
-        <ProgressSteps steps={steps} busy={!!busy} currentStage={currentStage ?? null} />
+        <ProgressSteps
+          steps={steps}
+          busy={!!busy}
+          currentStage={currentStage ?? null}
+          progress={progress ?? null}
+        />
       )}
     </div>
   );

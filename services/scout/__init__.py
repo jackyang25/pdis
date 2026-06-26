@@ -1,9 +1,9 @@
-"""Monitor - derives doc-aware Matches from uploaded docs + the 4 primitives.
+"""Scout - derives doc-aware Matches from uploaded docs + the 4 primitives.
 
 Public contract: consumers import from this package root only.
 Internals (`stages/`, helpers) are not part of the contract.
 
-Monitor parses docs for drift context, searches per shared attribute
+Scout parses docs for drift context, searches per shared attribute
 variable, and emits doc-aware Matches.
 """
 
@@ -16,8 +16,8 @@ from .models import (
     LLMClientProtocol,
     Match,
     Measurement,
-    MonitorResult,
-    MonitorTypeConfig,
+    ScoutResult,
+    ScoutTypeConfig,
     PrecedentSignal,
     SearchClientProtocol,
     VALID_EVIDENCE_BASIS,
@@ -43,8 +43,8 @@ __all__ = [
     "LLMClientProtocol",
     "Match",
     "Measurement",
-    "MonitorResult",
-    "MonitorTypeConfig",
+    "ScoutResult",
+    "ScoutTypeConfig",
     "PrecedentSignal",
     "SearchClientProtocol",
     "VALID_EVIDENCE_BASIS",

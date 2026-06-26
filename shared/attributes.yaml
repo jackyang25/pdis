@@ -1,5 +1,5 @@
 # Controlled vocabulary: TPP attributes per intervention class.
-# Shared domain vocabulary - NOT owned by any service. Read by monitor
+# Shared domain vocabulary - NOT owned by any service. Read by scout
 # (per-variable search/evaluate loop). Mirrors shared/indications.yaml.
 vaccine:
 - name: vaccine.indication

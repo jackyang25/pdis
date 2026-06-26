@@ -66,7 +66,7 @@ still useful as source attribution.
 ## Architecture
 
 One stage, one shape, one job. Mirrors the layout of other services
-(`chunker`, `reviewer`, `monitor`) but intentionally lighter:
+(`chunker`, `reviewer`, `scout`) but intentionally lighter:
 
 - **No `configs/`** - searcher has no natural per-domain keying.
 - **Minimal API route and UI** - exposed as a debug surface for sanity-checking
@@ -80,7 +80,7 @@ One stage, one shape, one job. Mirrors the layout of other services
 - `pubmed` - NCBI PubMed abstracts plus PMC full text when open-access text is available.
 
 `run_pipeline()` defaults to `backends=("web",)`, so the API route and
-debug UI keep their existing web-only behavior. Callers such as monitor
+debug UI keep their existing web-only behavior. Callers such as scout
 can opt into `("web", "pubmed")` to union both modalities. `NCBI_API_KEY`
 is optional and only increases NCBI rate limits.
 
@@ -92,4 +92,4 @@ Same query -> same output (modulo LLM and web drift). No persistence.
 
 Uses `shared.openai_client.OpenAIClient` by dependency injection for web
 search. PubMed/PMC uses NCBI directly. Does not import from chunker,
-reviewer, or monitor.
+reviewer, or scout.

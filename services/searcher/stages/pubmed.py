@@ -24,7 +24,7 @@ MAX_EXCERPT_CHARS = 6000
 MAX_PMC_FULLTEXT = 5
 
 # NCBI rate limits: ~3 req/s without an API key, ~10 req/s with one. The
-# monitor runs many searcher threads in parallel, so spacing must be enforced
+# scout runs many searcher threads in parallel, so spacing must be enforced
 # PROCESS-WIDE, not per-thread. _throttle holds a single lock and spaces the
 # START of every NCBI request across all threads.
 _RATE_LOCK = threading.Lock()
@@ -222,7 +222,7 @@ def _request_xml(
     interval = RATE_INTERVAL_WITH_KEY if api_key else RATE_INTERVAL_NO_KEY
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "pdis-monitor/0.1 (mailto:devnull@example.com)"},
+        headers={"User-Agent": "pdis-scout/0.1 (mailto:devnull@example.com)"},
     )
     for attempt in range(MAX_RETRIES_ON_429 + 1):
         _throttle(interval)

@@ -2,7 +2,7 @@
 
 Layered system for developing Target Product Profiles (TPPs) faster and
 with better grounding. Documents become structured blocks, rubric grades,
-and monitor signals.
+and scout signals.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ Cross-cutting files live in `shared/`: `openai_client.py`,
 | `services/chunker/` | Chunker | Parse documents into ordered, citable `ContentBlock`s; optionally label sections. | — |
 | `services/reviewer/` | Reviewer | Grade a document against a rubric on completeness and adherence. | chunker |
 | `services/searcher/` | Searcher | Query -> source-attributed `Finding`s via OpenAI web search. | shared/openai_client |
-| `services/monitor/` | Monitor | Files + 4 primitives -> drift `Match` records and evidence assessments over shared TPP attributes. | chunker, searcher |
+| `services/scout/` | Scout | Files + 4 primitives -> drift `Match` records and evidence assessments over shared TPP attributes. | chunker, searcher |
 
 Each service has its own README with the file map and public contract.
 
@@ -52,7 +52,7 @@ Human-maintained domain content lives in YAML.
 |---|---|---|
 | chunker configs | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | Section taxonomy per document format |
 | reviewer configs | `services/reviewer/configs/{org}_{source_type}_{intervention}.yaml` | Rubric per document format |
-| monitor configs | `services/monitor/configs/{org}_{source_type}_{intervention}.yaml` | Query-generation tuning |
+| scout configs | `services/scout/configs/{org}_{source_type}_{intervention}.yaml` | Query-generation tuning |
 | shared indications | `shared/indications.yaml` | Indication vocabulary per intervention |
 | shared attributes | `shared/attributes.yaml` | TPP attribute vocabulary per intervention |
 
@@ -72,7 +72,7 @@ pdis/
     chunker/
     reviewer/
     searcher/
-    monitor/
+    scout/
   api/
     main.py
     routes/
@@ -80,7 +80,7 @@ pdis/
     deps.py
     streaming.py
   web/
-    app/                 routes: /chunker, /reviewer, /searcher, /monitor
+    app/                 routes: /chunker, /reviewer, /searcher, /scout
     components/
     lib/
   data/

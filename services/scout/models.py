@@ -1,7 +1,7 @@
-"""Monitor data shapes, config, and the LLM client contracts it requires.
+"""Scout data shapes, config, and the LLM client contracts it requires.
 
 Public types live here - re-exported by __init__.py. Consumers import
-from `services.monitor`, never from this module directly.
+from `services.scout`, never from this module directly.
 """
 
 from __future__ import annotations
@@ -38,19 +38,19 @@ VALID_PRECEDENT = {
 }
 
 
-def find_config(org: str, source_type: str, intervention_class: str) -> "MonitorTypeConfig":
-    """Load the monitor config for the given (org, source_type, intervention)."""
+def find_config(org: str, source_type: str, intervention_class: str) -> "ScoutTypeConfig":
+    """Load the scout config for the given (org, source_type, intervention)."""
     path = CONFIGS_DIR / f"{org}_{source_type}_{intervention_class}.yaml"
     if not path.exists():
         raise LookupError(
-            f"No monitor config for ({org}, {source_type}, {intervention_class}). "
+            f"No scout config for ({org}, {source_type}, {intervention_class}). "
             f"Expected: {path}"
         )
     return load_config(str(path))
 
 
 class LLMClientProtocol(Protocol):
-    """Contract for monitor's text-LLM stages (query + insight + drift).
+    """Contract for scout's text-LLM stages (query + insight + drift).
 
     Capability-named, not provider-named: any client exposing `call(...)`
     satisfies it. The concrete client (OpenAIClient today) is injected.
@@ -61,7 +61,7 @@ class LLMClientProtocol(Protocol):
 
 
 class SearchClientProtocol(Protocol):
-    """Contract for monitor's web-search calls (delegated to searcher)."""
+    """Contract for scout's web-search calls (delegated to searcher)."""
 
     def search_web(self, query: str, *, max_tokens: int, max_uses: int) -> Any:
         ...
@@ -94,7 +94,7 @@ def load_attributes(intervention_class: str) -> list[Attribute]:
 class Insight:
     """One atomic factual observation from the web, source-attributed.
 
-    Insight is what monitor extracts from web Findings. Each Insight is
+    Insight is what scout extracts from web Findings. Each Insight is
     a single statement backed by one or more supporting Findings.
     """
 
@@ -113,7 +113,7 @@ class Insight:
 class Match:
     """Pairs an Insight (pure web evidence) with its relation to the document.
 
-    Match is the doc-aware primitive monitor emits. Insight stays
+    Match is the doc-aware primitive scout emits. Insight stays
     doc-agnostic - anyone wanting pure web evidence can still consume
     list[Insight] directly.
     """
@@ -203,7 +203,7 @@ class FunnelStats:
 
 
 @dataclass
-class MonitorResult:
+class ScoutResult:
     matches: list[Match]
     assessments: list[EvidenceAssessment]
     stats: FunnelStats
@@ -212,7 +212,7 @@ class MonitorResult:
 
 
 @dataclass
-class MonitorTypeConfig:
+class ScoutTypeConfig:
     type_key: str
     org: str
     source_type: str
@@ -292,8 +292,8 @@ def precedents_to_dicts(signals: list[PrecedentSignal]) -> list[dict]:
     return out
 
 
-def load_config(config_path: str) -> MonitorTypeConfig:
-    """Load a MonitorTypeConfig from YAML."""
+def load_config(config_path: str) -> ScoutTypeConfig:
+    """Load a ScoutTypeConfig from YAML."""
     import yaml
 
     with open(config_path, "r", encoding="utf-8") as f:
@@ -344,7 +344,7 @@ def load_config(config_path: str) -> MonitorTypeConfig:
     if precedent_queries_per_variable < 0:
         raise ValueError("precedent_queries_per_variable must be >= 0")
 
-    return MonitorTypeConfig(
+    return ScoutTypeConfig(
         type_key=data["type_key"],
         org=data["org"],
         source_type=data["source_type"],

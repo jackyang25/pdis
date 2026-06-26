@@ -29,6 +29,7 @@ from services.chunker import ContentBlock
 
 from ..models import (
     DIMENSIONS,
+    CrossSectionFinding,
     DimensionGrade,
     Grade,
     LLMClientProtocol,
@@ -73,6 +74,7 @@ def grade_sections(
             section_blocks=section_blocks,
             llm_client=llm_client,
             max_tokens=max_tokens,
+            grading_guidance=config.grading_guidance,
         )
         if section_spec.variables:
             section_grade.dimensions = _rollup_dimensions(
@@ -101,6 +103,7 @@ def _grade_section(
     section_blocks: list[ContentBlock],
     llm_client: LLMClientProtocol,
     max_tokens: int,
+    grading_guidance: str = "",
 ) -> SectionGrade:
     """Run two independent dimension calls and merge into one SectionGrade."""
 
@@ -114,6 +117,7 @@ def _grade_section(
             section_blocks=section_blocks,
             llm_client=llm_client,
             max_tokens=max_tokens,
+            grading_guidance=grading_guidance,
         )
 
     def call_adherence():
@@ -124,12 +128,25 @@ def _grade_section(
             section_blocks=section_blocks,
             llm_client=llm_client,
             max_tokens=max_tokens,
+            grading_guidance=grading_guidance,
         )
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    def call_rigor():
+        return _call_dimension(
+            dimension="rigor",
+            section_spec=section_spec,
+            blocks_text=blocks_text,
+            section_blocks=section_blocks,
+            llm_client=llm_client,
+            max_tokens=max_tokens,
+            grading_guidance=grading_guidance,
+        )
+
+    with ThreadPoolExecutor(max_workers=len(DIMENSIONS)) as executor:
         futures = {
             "completeness": executor.submit(call_completeness),
             "adherence": executor.submit(call_adherence),
+            "rigor": executor.submit(call_rigor),
         }
         results = {name: future.result() for name, future in futures.items()}
 
@@ -144,6 +161,7 @@ def _call_dimension(
     section_blocks: list[ContentBlock],
     llm_client: LLMClientProtocol,
     max_tokens: int,
+    grading_guidance: str = "",
 ) -> dict[str, Any]:
     """Build the per-dimension prompt, call the LLM, parse the JSON.
 
@@ -170,7 +188,7 @@ def _call_dimension(
           "recommendation": str
         }
     """
-    system_prompt = _build_system_prompt(dimension, section_spec)
+    system_prompt = _build_system_prompt(dimension, section_spec, grading_guidance)
     user_message = _build_user_message(
         section_spec=section_spec,
         blocks_text=blocks_text,
@@ -201,7 +219,9 @@ def _call_dimension(
 # ---------------------------------------------------------------------------
 
 
-def _build_system_prompt(dimension: str, section_spec: SectionSpec) -> str:
+def _build_system_prompt(
+    dimension: str, section_spec: SectionSpec, grading_guidance: str = ""
+) -> str:
     preamble = """You are reviewing a section of a PD document.
 
 Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
@@ -223,12 +243,18 @@ Style for issues and recommendations:
         focus = _build_completeness_focus(section_spec)
     elif dimension == "adherence":
         focus = _build_adherence_focus(section_spec)
+    elif dimension == "rigor":
+        focus = _build_rigor_focus(section_spec)
     else:
         raise ValueError(f"Unknown dimension: {dimension}")
 
     output_schema = _output_schema(dimension, section_spec)
 
-    return "\n\n".join([preamble, focus, output_schema])
+    parts = [preamble]
+    if grading_guidance.strip():
+        parts.append("# GRADING BAR (document stage)\n" + grading_guidance.strip())
+    parts.extend([focus, output_schema])
+    return "\n\n".join(parts)
 
 
 def _build_completeness_focus(section_spec: SectionSpec) -> str:
@@ -280,6 +306,40 @@ def _build_adherence_focus(section_spec: SectionSpec) -> str:
         lines.append("Expected variables for this section:")
         for v in section_spec.variables:
             extra = _format_variable_dimension_rules(v, "adherence")
+            lines.append(f"- {v.name}: {v.description}{extra}")
+    return "\n".join(lines)
+
+
+def _build_rigor_focus(section_spec: SectionSpec) -> str:
+    lines = [
+        "# DIMENSION: RIGOR",
+        "Question: is the content substantively sound - specific, measurable, and meaningful?",
+        "",
+        "This is about QUALITY, not presence (that is completeness) and not formatting (that "
+        "is adherence). Do NOT re-report missing variables, naming, template tokens, or "
+        "structural issues here - only the substantive quality of the content that IS present.",
+        "",
+        "Rules:",
+        "- Measurability: a target should be concrete and testable - a value with units or a "
+        "clear pass/fail - not vague language ('robust', 'adequate', 'best-in-class') that has "
+        "no testable meaning.",
+        "- Specificity: the target should be unambiguous; flag hand-waving or undefined terms.",
+        "- Soundness: the value should be meaningful for the variable; flag filler that is "
+        "technically present but says nothing, or a target that is internally implausible.",
+        "- Judge against the document's stage (see GRADING BAR above): an intervention-stage "
+        "qualitative target can still be rigorous if it is clear and bounded; a candidate-stage "
+        "target should be concretely measured.",
+    ]
+    if section_spec.rigor:
+        lines.append("")
+        lines.append("Additional rules from rubric config:")
+        for key, value in section_spec.rigor.items():
+            lines.append(f"- {key}: {value}")
+    if section_spec.variables:
+        lines.append("")
+        lines.append("Expected variables for this section:")
+        for v in section_spec.variables:
+            extra = _format_variable_dimension_rules(v, "rigor")
             lines.append(f"- {v.name}: {v.description}{extra}")
     return "\n".join(lines)
 
@@ -603,3 +663,115 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _extract_json_array(text: str) -> str:
+    decoder = json.JSONDecoder()
+    for start in range(len(text)):
+        if text[start] != "[":
+            continue
+        try:
+            parsed, end = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, list):
+            return text[start : start + end]
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Cross-section consistency: the one pass that sees ALL sections at once
+# ---------------------------------------------------------------------------
+
+# Whole-doc context cap, in lockstep spirit with the other doc-reading stages so
+# a long document never silently loses its tail in this pass.
+MAX_DOC_CONTEXT_CHARS = 120000
+
+
+def check_cross_section(
+    labeled_blocks: list[ContentBlock],
+    config: ReviewConfig,
+    llm_client: LLMClientProtocol,
+    *,
+    max_tokens: int,
+) -> list[CrossSectionFinding]:
+    """Find consistency problems that span MORE THAN ONE section.
+
+    Per-section grading is deliberately isolated (a section never sees another),
+    so it cannot catch "Section A targets >=80%, Section B says 90%". This pass
+    sees every section together and reports only cross-section conflicts. It is
+    an additive quality layer: any parse failure returns [] and never blocks the
+    report."""
+    blocks_by_section = _group_blocks_by_section(labeled_blocks)
+    if len(blocks_by_section) < 2:
+        return []  # need at least two sections for a cross-section conflict
+
+    system_prompt = _cross_section_system_prompt(config)
+    user_message = _cross_section_user_message(blocks_by_section)
+
+    raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+    findings = _parse_cross_section(raw)
+    if findings is None:
+        raw = llm_client.call(
+            system_prompt,
+            user_message + "\n\nYour previous reply was invalid. Return only a JSON array.",
+            max_tokens=max_tokens,
+        )
+        findings = _parse_cross_section(raw)
+    return findings or []
+
+
+def _cross_section_system_prompt(config: ReviewConfig) -> str:
+    return (
+        f"You check a {config.intervention_class} Target Product Profile for CROSS-SECTION "
+        "consistency: places where TWO DIFFERENT sections state conflicting or mismatched "
+        "claims about the SAME attribute - e.g. one section targets >=80% efficacy and "
+        "another states 90%; the target population, dosing schedule, presentation, or "
+        "timelines disagree between sections.\n\n"
+        "Report ONLY conflicts that span more than one section. Do NOT report problems "
+        "inside a single section, missing content, vague wording, or formatting - those are "
+        "graded elsewhere. If there are no cross-section conflicts, return an empty array.\n\n"
+        "Return ONLY a JSON array. No markdown, no preamble. Each item:\n"
+        '{"description": "the specific conflicting values and what disagrees", '
+        '"sections": ["Section A name", "Section B name"], '
+        '"recommendation": "one short action to reconcile them"}'
+    )
+
+
+def _cross_section_user_message(
+    blocks_by_section: dict[str, list[ContentBlock]],
+) -> str:
+    parts: list[str] = ["Document sections and their content:\n"]
+    for section_name, blocks in blocks_by_section.items():
+        parts.append(f"=== SECTION: {section_name} ===")
+        parts.append(_format_blocks(blocks))
+        parts.append("")
+    body = "\n".join(parts)
+    if len(body) > MAX_DOC_CONTEXT_CHARS:
+        body = body[:MAX_DOC_CONTEXT_CHARS] + "\n...[truncated]"
+    return body + "\nFind cross-section consistency conflicts now."
+
+
+def _parse_cross_section(raw: str) -> list[CrossSectionFinding] | None:
+    text = _strip_markdown_fences(raw).strip()
+    try:
+        parsed = json.loads(_extract_json_array(text))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(parsed, list):
+        return None
+    out: list[CrossSectionFinding] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        description = _string_value(item.get("description"))
+        if not description:
+            continue
+        out.append(
+            CrossSectionFinding(
+                description=description,
+                sections=_string_list(item.get("sections")),
+                recommendation=_string_value(item.get("recommendation")),
+            )
+        )
+    return out

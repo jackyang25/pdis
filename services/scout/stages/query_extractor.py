@@ -1,6 +1,6 @@
 """Stage 1: derive web search queries from one TPP attribute variable.
 
-Each attribute is treated as a self-contained topic. The monitor pipeline
+Each attribute is treated as a self-contained topic. The scout pipeline
 calls this stage once per attribute and feeds the resulting focused queries
 into searcher.
 """
@@ -11,7 +11,7 @@ import json
 import logging
 import re
 
-from ..models import Attribute, LLMClientProtocol, MonitorTypeConfig
+from ..models import Attribute, LLMClientProtocol, ScoutTypeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ DEFAULT_MAX_TOKENS = 5000
 
 def extract_queries_for_variable(
     attribute: Attribute,
-    config: MonitorTypeConfig,
+    config: ScoutTypeConfig,
     llm_client: LLMClientProtocol,
     *,
     indication: str,
@@ -132,7 +132,7 @@ def _run_track(
 
 
 def _system_prompt_for_variable(
-    config: MonitorTypeConfig,
+    config: ScoutTypeConfig,
     *,
     indication: str,
     attribute: Attribute,
@@ -205,7 +205,7 @@ def _user_message_for_variable(attribute: Attribute) -> str:
 
 
 def _system_prompt_for_geographic_variable(
-    config: MonitorTypeConfig,
+    config: ScoutTypeConfig,
     *,
     indication: str,
     attribute: Attribute,
@@ -252,7 +252,7 @@ def _system_prompt_for_geographic_variable(
 
 
 def _system_prompt_for_counterfactual_variable(
-    config: MonitorTypeConfig,
+    config: ScoutTypeConfig,
     *,
     indication: str,
     attribute: Attribute,
@@ -298,7 +298,7 @@ def _system_prompt_for_counterfactual_variable(
 
 
 def _system_prompt_for_precedent_variable(
-    config: MonitorTypeConfig,
+    config: ScoutTypeConfig,
     *,
     indication: str,
     attribute: Attribute,

@@ -2,24 +2,24 @@
 
 import { useRef, useState } from "react";
 import { PageHeader } from "@/components/page-header";
-import { MultiRunPanel } from "@/components/multi-run-panel";
+import { RunPanel } from "@/components/run-panel";
 import { HeaderGuard } from "@/components/header-guard";
 import { EmptyState } from "@/components/empty-state";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { DownloadButton } from "@/components/download-button";
 import {
-  runMonitor,
+  runScout,
   type Conformity,
   type EvidenceAssessment,
   type Finding,
   type Header,
   type Match,
-  type MonitorResponse,
+  type ScoutResponse,
   type PrecedentSignal,
 } from "@/lib/api";
-import { useMonitorSession } from "@/lib/session";
+import { useScoutSession } from "@/lib/session";
 
-const MONITOR_STEPS = [
+const SCOUT_STEPS = [
   { key: "parse", label: "Parsing documents" },
   { key: "queries", label: "Extracting queries" },
   { key: "search", label: "Searching the web" },
@@ -260,19 +260,16 @@ function SourceList({ findings }: { findings: Finding[] }) {
 // Page
 // ---------------------------------------------------------------------------
 
-export default function MonitorPage() {
+export default function ScoutPage() {
   return (
     <>
-      <PageHeader
-        title="Monitor"
-        description="Upload one or more documents. Monitor searches the web for relevant updates and extracts grounded Insights."
-      />
-      <HeaderGuard>{(header) => <MonitorView header={header as Header} />}</HeaderGuard>
+      <PageHeader title="Scout" />
+      <HeaderGuard>{(header) => <ScoutView header={header as Header} />}</HeaderGuard>
     </>
   );
 }
 
-function MonitorView({ header }: { header: Header }) {
+function ScoutView({ header }: { header: Header }) {
   const {
     result,
     busy,
@@ -284,17 +281,17 @@ function MonitorView({ header }: { header: Header }) {
     setStage,
     setProgress,
     setError,
-  } = useMonitorSession();
+  } = useScoutSession();
 
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  async function handleRun(files: File[]) {
+  async function handleRun(file: File) {
     setBusy(true);
     setError(null);
     setStage(null);
     setProgress(null);
     try {
-      const res = await runMonitor(files, header, (s, p) => {
+      const res = await runScout([file], header, (s, p) => {
         setStage(s);
         setProgress(p ?? null);
       });
@@ -306,14 +303,14 @@ function MonitorView({ header }: { header: Header }) {
     }
   }
 
-  // Re-open a previously downloaded result (the full MonitorResponse JSON) and
+  // Re-open a previously downloaded result (the full ScoutResponse JSON) and
   // render it through the same FieldGrid - no re-run, no backend call.
   async function handleImport(file: File) {
     setError(null);
     try {
-      const parsed = JSON.parse(await file.text()) as MonitorResponse;
+      const parsed = JSON.parse(await file.text()) as ScoutResponse;
       if (!parsed || !Array.isArray(parsed.variables) || !Array.isArray(parsed.matches)) {
-        throw new Error("not a monitor result file");
+        throw new Error("not a scout result file");
       }
       setStage(null);
       setProgress(null);
@@ -325,11 +322,11 @@ function MonitorView({ header }: { header: Header }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <MultiRunPanel
+      <RunPanel
         accept=".docx,.pdf"
         busy={busy}
         onRun={handleRun}
-        steps={MONITOR_STEPS}
+        steps={SCOUT_STEPS}
         currentStage={stage}
         progress={progress}
         extraControls={
@@ -360,7 +357,7 @@ function MonitorView({ header }: { header: Header }) {
       {error && <p className="text-sm text-destructive">{error}</p>}
       {result && <FieldGrid result={result} />}
       {!result && !busy && !error && (
-        <EmptyState message="Upload one or more documents to begin." />
+        <EmptyState message="Upload a document to begin." />
       )}
     </div>
   );
@@ -398,7 +395,7 @@ function SignalLegend({
   );
 }
 
-function FieldGrid({ result }: { result: MonitorResponse }) {
+function FieldGrid({ result }: { result: ScoutResponse }) {
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
 
@@ -463,7 +460,7 @@ function FieldGrid({ result }: { result: MonitorResponse }) {
         } insights · ${updatedCount} updated · ${clearCount} clear`}
         trailing={
           <DownloadButton
-            filename="monitor-result.json"
+            filename="scout-result.json"
             data={result}
             format="json"
             label="Download JSON"

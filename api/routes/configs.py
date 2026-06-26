@@ -7,9 +7,9 @@ from pathlib import Path
 import yaml
 from fastapi import APIRouter
 
-from services.monitor import (
-    find_config as find_monitor_config,
-    load_attributes as load_monitor_attributes,
+from services.scout import (
+    find_config as find_scout_config,
+    load_attributes as load_scout_attributes,
 )
 from services.reviewer import find_config as find_reviewer_config
 
@@ -50,7 +50,7 @@ def list_document_types() -> DocumentTypesResponse:
                 supports={
                     "chunker": True,
                     "reviewer": _has_reviewer_config(org, source_type, intervention),
-                    "monitor": _has_monitor_config(org, source_type, intervention),
+                    "scout": _has_scout_config(org, source_type, intervention),
                 },
             )
         )
@@ -71,14 +71,14 @@ def _has_reviewer_config(org: str, source_type: str, intervention: str) -> bool:
     return find_reviewer_config(org, source_type, intervention) is not None
 
 
-def _has_monitor_config(org: str, source_type: str, intervention: str) -> bool:
-    """Monitor is usable only when a config AND non-empty attributes exist.
+def _has_scout_config(org: str, source_type: str, intervention: str) -> bool:
+    """Scout is usable only when a config AND non-empty attributes exist.
 
     A scaffolded config with an empty attribute vocabulary would produce an
     empty grid, so it should not surface as supported.
     """
     try:
-        find_monitor_config(org, source_type, intervention)
+        find_scout_config(org, source_type, intervention)
     except LookupError:
         return False
-    return bool(load_monitor_attributes(intervention))
+    return bool(load_scout_attributes(intervention))

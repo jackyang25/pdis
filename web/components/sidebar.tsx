@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Layers3 } from "lucide-react";
+import { Boxes, ScanSearch } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HeaderPicker } from "./header-picker";
 import { Separator } from "./ui/separator";
@@ -10,8 +10,8 @@ import { Separator } from "./ui/separator";
 // User-facing intelligence tools. Chunker and Searcher are plumbing/debug
 // utilities — their routes still work directly, but they are not surfaced here.
 const NAV = [
-  { href: "/reviewer", label: "Reviewer", description: "Grade completeness & adherence", icon: Layers3 },
-  { href: "/monitor", label: "Monitor", description: "Check targets vs web evidence", icon: Activity },
+  { href: "/reviewer", label: "Reviewer", description: "Grade structure, rigor & consistency", estimate: "~3–5 min", icon: Boxes },
+  { href: "/scout", label: "Scout", description: "Compare targets against evidence", estimate: "~25–30 min", icon: ScanSearch },
 ];
 
 export function Sidebar() {
@@ -41,9 +41,14 @@ export function Sidebar() {
                     : "text-muted-foreground hover:bg-background hover:text-foreground",
                 )}
               >
-                <Icon className="mt-0.5 h-4 w-4" />
-                <div className="flex flex-col">
-                  <span className="font-medium leading-none">{item.label}</span>
+                <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium leading-none">{item.label}</span>
+                    <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+                      {item.estimate}
+                    </span>
+                  </div>
                   <span className="mt-1 text-xs text-muted-foreground">{item.description}</span>
                 </div>
               </Link>

@@ -1,4 +1,4 @@
-"""Stateless monitor pipeline.
+"""Stateless scout pipeline.
 
 Orchestrates: chunker (parse only) -> per-attribute query_extractor
 (LLM) -> searcher (web) -> per-attribute insight_extractor (LLM) ->
@@ -25,8 +25,8 @@ from .models import (
     Insight,
     LLMClientProtocol,
     Match,
-    MonitorResult,
-    MonitorTypeConfig,
+    ScoutResult,
+    ScoutTypeConfig,
     PrecedentSignal,
     SearchClientProtocol,
     load_attributes,
@@ -58,7 +58,7 @@ CLINICALTRIALS_WORKERS = 8
 def run_pipeline(
     file_paths: list[str],
     *,
-    config: MonitorTypeConfig,
+    config: ScoutTypeConfig,
     openai_client: LLMClientProtocol,
     search_client: SearchClientProtocol,
     org: str,
@@ -66,8 +66,8 @@ def run_pipeline(
     intervention_class: str,
     indication: str,
     progress_callback=None,
-) -> MonitorResult:
-    """Run monitor over every shared attribute variable for the intervention."""
+) -> ScoutResult:
+    """Run scout over every shared attribute variable for the intervention."""
     if progress_callback:
         progress_callback("parse")
     blocks = _parse_all_docs(
@@ -83,7 +83,7 @@ def run_pipeline(
 
     attributes = load_attributes(intervention_class)
     if not attributes:
-        return MonitorResult(
+        return ScoutResult(
             matches=[],
             assessments=[],
             stats=FunnelStats(
@@ -214,7 +214,7 @@ def run_pipeline(
         matches=len(matches),
         assessments=len(assessments),
     )
-    return MonitorResult(
+    return ScoutResult(
         matches=matches,
         assessments=assessments,
         stats=stats,
@@ -298,7 +298,7 @@ def _parallel_map(
 
 def _extract_queries_all_variables(
     attributes: list[Attribute],
-    config: MonitorTypeConfig,
+    config: ScoutTypeConfig,
     openai_client: LLMClientProtocol,
     *,
     indication: str,
@@ -651,8 +651,8 @@ def _empty_result(
     findings: int = 0,
     unique_findings: int = 0,
     insights: int = 0,
-) -> MonitorResult:
-    return MonitorResult(
+) -> ScoutResult:
+    return ScoutResult(
         matches=[],
         assessments=[],
         stats=FunnelStats(

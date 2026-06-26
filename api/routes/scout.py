@@ -1,4 +1,4 @@
-"""Monitor route - uploaded docs + 4 primitives -> Matches, streaming progress."""
+"""Scout route - uploaded docs + 4 primitives -> Matches, streaming progress."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from services.monitor import (
+from services.scout import (
     assessments_to_dicts,
     conformity_to_dicts,
     find_config,
@@ -28,7 +28,7 @@ from api.schemas import (
     InsightOut,
     MatchOut,
     MeasurementOut,
-    MonitorRunResponse,
+    ScoutRunResponse,
     PrecedentOut,
     VariableOut,
 )
@@ -38,7 +38,7 @@ router = APIRouter()
 
 
 @router.post("/run")
-async def run_monitor(
+async def run_scout(
     files: list[UploadFile] = File(...),
     org: str = Form(...),
     source_type: str = Form(...),
@@ -77,7 +77,7 @@ async def run_monitor(
             conformity_dicts = conformity_to_dicts(result.conformity)
             precedent_dicts = precedents_to_dicts(result.precedents)
             variables = load_attributes(intervention_class)
-            return MonitorRunResponse(
+            return ScoutRunResponse(
                 org=org,
                 source_type=source_type,
                 intervention_class=intervention_class,

@@ -1,4 +1,4 @@
-# Monitor
+# Scout
 
 Derives doc-aware `Match` records and per-variable `EvidenceAssessment`
 records from uploaded documents + the 4 primitives.
@@ -6,7 +6,7 @@ records from uploaded documents + the 4 primitives.
 ## Public contract
 
 ```python
-from services.monitor import assessments_to_dicts, find_config, matches_to_dicts, run_pipeline
+from services.scout import assessments_to_dicts, find_config, matches_to_dicts, run_pipeline
 from shared.openai_client import OpenAIClient
 
 config = find_config("bmgf", "tpp", "vaccine")
@@ -44,7 +44,7 @@ print(result.stats)
 | `relation` | str | One of `contradicts`, `extends`, `confirms`, `unrelated` |
 | `reason` | str | Short explanation of how the Insight relates to the uploaded document |
 
-`Match` is the doc-aware primitive monitor emits. `Insight` stays useful
+`Match` is the doc-aware primitive scout emits. `Insight` stays useful
 as pure web evidence underneath it.
 
 ## What an `EvidenceAssessment` is
@@ -66,16 +66,16 @@ as pure web evidence underneath it.
 5. **classify** - LLM classifies every Insight against the uploaded doc as `contradicts`, `extends`, `confirms`, or `unrelated`, batching when needed.
 6. **evidence** - LLM assesses the weight of evidence for each attribute variable.
 
-Each step is one stage in `services/monitor/stages/`.
+Each step is one stage in `services/scout/stages/`.
 
-Monitor reads the variable list from `shared/attributes.yaml` for the
+Scout reads the variable list from `shared/attributes.yaml` for the
 run's intervention class. It parses the uploaded document for classifier
 context, then searches per attribute variable so downstream views can
 show which TPP variable is drifting.
 
 ## Config fields
 
-Monitor configs define query-generation guidance:
+Scout configs define query-generation guidance:
 
 | Field | Notes |
 |---|---|
@@ -92,9 +92,9 @@ Monitor configs define query-generation guidance:
 OpenAI (`shared/openai_client.py`) handles query extraction, web search
 via searcher, insight extraction, drift classification, and evidence
 assessment. Searcher also unions NCBI PubMed/PMC literature findings for
-monitor runs.
+scout runs.
 
-Monitor's `run_pipeline` keeps separate `openai_client` and
+Scout's `run_pipeline` keeps separate `openai_client` and
 `search_client` parameters because those are separate contracts, but the
 same `OpenAIClient` satisfies both.
 

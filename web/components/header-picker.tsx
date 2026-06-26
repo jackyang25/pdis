@@ -21,25 +21,25 @@ import { useHeaderStore } from "@/lib/store";
 const PATH_TO_TOOL: Record<string, ToolName> = {
   "/chunker": "chunker",
   "/reviewer": "reviewer",
-  "/monitor": "monitor",
+  "/scout": "scout",
 };
 
-type FieldRole = "selects config" | "tags output" | "scopes search";
+type FieldRole = "selects config" | "labels output" | "scopes search";
 
 const ROLES: Record<ToolName, Record<keyof Roles, FieldRole>> = {
   chunker: {
     org: "selects config",
     source_type: "selects config",
     intervention: "selects config",
-    indication: "tags output",
+    indication: "labels output",
   },
   reviewer: {
     org: "selects config",
     source_type: "selects config",
     intervention: "selects config",
-    indication: "tags output",
+    indication: "labels output",
   },
-  monitor: {
+  scout: {
     org: "selects config",
     source_type: "selects config",
     intervention: "selects config",
@@ -113,10 +113,10 @@ export function HeaderPicker() {
     tool && tool in ROLES
       ? ROLES[tool]
       : {
-          org: "tags output",
-          source_type: "tags output",
-          intervention: "tags output",
-          indication: "tags output",
+          org: "labels output",
+          source_type: "labels output",
+          intervention: "labels output",
+          indication: "labels output",
         };
 
   return (

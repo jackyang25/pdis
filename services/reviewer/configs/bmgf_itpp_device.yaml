@@ -3,6 +3,8 @@ org: bmgf
 source_type: itpp
 intervention_class: device
 display_name: "Medical Device Intervention TPP"
+grading_guidance: |
+  This is an INTERVENTION TPP (ITPP): an early, candidate-agnostic profile that sets targets for the intervention class before any specific candidate is chosen. Calibrate ALL judgments to intervention-stage maturity. Qualitative targets, clear directions, and ranges are appropriate and expected at this stage; candidate-specific numeric precision (exact values, named formulations, specific schedules) is NOT expected yet, so do not treat its absence as a deficiency on any dimension. Assess whether the strategic intent is clear, sound, and well-formed for an early-stage profile.
 
 sections:
   - name: "Instructions for Use"

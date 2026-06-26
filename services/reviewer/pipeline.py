@@ -9,7 +9,7 @@ from services.chunker import (
     run_pipeline as chunker_run_pipeline,
 )
 
-from .stages.grader import grade_sections
+from .stages.grader import check_cross_section, grade_sections
 from .models import (
     BatchReviewResult,
     Grade,
@@ -88,6 +88,15 @@ def review_blocks(
         max_tokens=max_tokens,
     )
     result = build_report_card(blocks, section_grades, config)
+
+    # Whole-document consistency pass - the one place that sees all sections at
+    # once. Additive: failures return [] and never block the report card.
+    if progress_callback:
+        progress_callback("consistency")
+    result.cross_section_findings = check_cross_section(
+        blocks, config, llm_client, max_tokens=max_tokens
+    )
+
     result.org = config.org
     result.source_type = config.source_type
     result.intervention_class = config.intervention_class

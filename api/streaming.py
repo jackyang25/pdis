@@ -18,7 +18,7 @@ END = object()
 
 # Emit a keepalive this often when no real event has occurred, so the HTTP
 # stream never goes idle long enough for a proxy/host to cut it during long
-# silent stages (e.g. monitor's multi-minute search). The frontend ignores
+# silent stages (e.g. scout's multi-minute search). The frontend ignores
 # unknown event types, so `ping` is a safe no-op there.
 HEARTBEAT_SECONDS = 15
 

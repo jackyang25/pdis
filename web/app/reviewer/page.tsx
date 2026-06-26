@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { HeaderGuard } from "@/components/header-guard";
@@ -13,6 +14,7 @@ import {
   runReviewer,
   DIMENSION_NAMES,
   GRADE_LABELS,
+  type CrossSectionFinding,
   type DimensionName,
   type Dimensions,
   type Header,
@@ -26,15 +28,13 @@ const PD_REVIEWER_STEPS = [
   { key: "parse", label: "Parsing document" },
   { key: "label", label: "Labeling sections" },
   { key: "grade", label: "Grading sections" },
+  { key: "consistency", label: "Checking consistency" },
 ];
 
 export default function ReviewerPage() {
   return (
     <>
-      <PageHeader
-        title="Reviewer"
-        description="Grade a document against a TPP rubric."
-      />
+      <PageHeader title="Reviewer" />
       <HeaderGuard>{(header) => <ReviewerView header={header as Header} />}</HeaderGuard>
     </>
   );
@@ -43,6 +43,7 @@ export default function ReviewerPage() {
 function ReviewerView({ header }: { header: Header }) {
   const { result, busy, stage, error, setResult, setBusy, setStage, setError } =
     useReviewerSession();
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   async function handleRun(file: File) {
     setBusy(true);
@@ -58,6 +59,22 @@ function ReviewerView({ header }: { header: Header }) {
     }
   }
 
+  // Re-open a previously downloaded review (the full ReviewerResponse JSON) and
+  // render it - no re-run, no backend call.
+  async function handleImport(file: File) {
+    setError(null);
+    try {
+      const parsed = JSON.parse(await file.text()) as ReviewerResponse;
+      if (!parsed?.review || !Array.isArray(parsed.review.section_grades)) {
+        throw new Error("not a reviewer result file");
+      }
+      setStage(null);
+      setResult(parsed);
+    } catch (err) {
+      setError(`Could not import result: ${(err as Error).message}`);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <RunPanel
@@ -66,16 +83,41 @@ function ReviewerView({ header }: { header: Header }) {
         onRun={handleRun}
         steps={PD_REVIEWER_STEPS}
         currentStage={stage}
+        extraControls={
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Or view a previously downloaded result:</span>
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              disabled={busy}
+              className="underline hover:text-foreground disabled:opacity-50"
+            >
+              Import JSON
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImport(f);
+                e.target.value = "";
+              }}
+            />
+          </div>
+        }
       />
       {error && <p className="text-sm text-destructive">{error}</p>}
       {result && (
         <>
           <OverallCard result={result} />
+          <CrossSectionCard findings={result.review.cross_section_findings ?? []} />
           <SectionsList sections={result.review.section_grades} />
         </>
       )}
       {!result && !busy && !error && (
-        <EmptyState message="Upload a .docx to begin." />
+        <EmptyState message="Upload a document to begin." />
       )}
     </div>
   );
@@ -118,6 +160,43 @@ function DimensionTile({ name, grade }: { name: DimensionName; grade: string }) 
         <span className="font-mono text-2xl font-semibold tabular-nums">{grade}</span>
         <span className="text-xs text-muted-foreground">{GRADE_LABELS[grade] ?? ""}</span>
       </div>
+    </div>
+  );
+}
+
+function CrossSectionCard({ findings }: { findings: CrossSectionFinding[] }) {
+  if (findings.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-6 py-5">
+      <div className="flex items-baseline gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+          Cross-section consistency
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {findings.length} conflict{findings.length === 1 ? "" : "s"} spanning multiple sections
+        </span>
+      </div>
+      <ul className="mt-3 flex flex-col gap-3">
+        {findings.map((f, idx) => (
+          <li key={idx} className="rounded-md border border-border bg-card px-4 py-3">
+            <p className="text-sm leading-relaxed text-foreground">{f.description}</p>
+            {f.sections.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {f.sections.map((s) => (
+                  <Badge key={s} variant="outline">
+                    {s}
+                  </Badge>
+                ))}
+              </div>
+            )}
+            {f.recommendation && (
+              <p className="mt-2 border-l-2 border-amber-500/50 pl-3 text-xs leading-relaxed text-muted-foreground">
+                {f.recommendation}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

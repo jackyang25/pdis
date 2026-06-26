@@ -32,7 +32,7 @@ MAX_RESULTS = 20
 MAX_EXCERPT_CHARS = 6000
 
 # CT.gov publishes no hard rate limit but asks clients to be considerate. The
-# monitor fans out many queries in parallel, so space request STARTS
+# scout fans out many queries in parallel, so space request STARTS
 # process-wide (same pattern as the PubMed backend), not per-thread.
 _RATE_LOCK = threading.Lock()
 _NEXT_ALLOWED = 0.0
@@ -65,7 +65,7 @@ def search_clinicaltrials(
 
     CT.gov is a STRUCTURED registry that keyword-matches: long free-text queries
     (and non-English ones) return nothing or 400 "too complicated query". So when
-    the caller knows the condition + intervention (the monitor always does), we
+    the caller knows the condition + intervention (the scout always does), we
     search those structured fields, which returns the real trial landscape. We
     fall back to free-text term search only when they are absent (e.g. the
     standalone searcher tool).
@@ -99,7 +99,7 @@ def _fetch_studies(
     max_results: int,
 ) -> list[dict]:
     """Fetch raw studies for a structured (condition/intervention) or free-text
-    query. Memoized: the monitor issues the SAME (condition, intervention) for
+    query. Memoized: the scout issues the SAME (condition, intervention) for
     every query in a run, so the registry is hit once per product area, not once
     per query.
     """
@@ -115,7 +115,7 @@ def _fetch_studies(
     url = f"{API_URL}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "pdis-monitor/0.1 (mailto:devnull@example.com)"},
+        headers={"User-Agent": "pdis-scout/0.1 (mailto:devnull@example.com)"},
     )
     for attempt in range(MAX_RETRIES_ON_429 + 1):
         _throttle()

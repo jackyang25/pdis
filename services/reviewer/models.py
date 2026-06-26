@@ -14,16 +14,18 @@ class LLMClientProtocol(Protocol):
 
 
 Grade = Literal["A", "B", "C", "D", "F", "N/A"]
-Dimension = Literal["completeness", "adherence"]
-DIMENSIONS: tuple[Dimension, ...] = ("completeness", "adherence")
+Dimension = Literal["completeness", "adherence", "rigor"]
+DIMENSIONS: tuple[Dimension, ...] = ("completeness", "adherence", "rigor")
 
 
 @dataclass
 class DimensionGrade:
-    """A grade along one of two orthogonal axes.
+    """A grade along one of three orthogonal axes.
 
+    - completeness: are all required variables present/filled in?
     - adherence:    does the draft follow the rubric's structural expectations?
-    - completeness: are all required variables filled in?
+    - rigor:        is the content substantively sound - specific, measurable,
+                    and meaningful (not just present and well-formatted)?
 
     Same shape at every level (variable, section, document). The LLM
     produces these at the variable level; section and document grades
@@ -61,6 +63,21 @@ class SectionGrade:
 
 
 @dataclass
+class CrossSectionFinding:
+    """A consistency problem that spans MORE THAN ONE section.
+
+    Produced by the whole-document consistency pass - the one place that sees
+    all sections at once. Per-section grading cannot catch these by design
+    (sections are graded in isolation), so this is doc-level, not attached to
+    any single section's dimension grade.
+    """
+
+    description: str
+    sections: list[str] = field(default_factory=list)
+    recommendation: str = ""
+
+
+@dataclass
 class ReviewResult:
     """Full report card. Document-level dimensions are rolled up from sections."""
 
@@ -68,6 +85,7 @@ class ReviewResult:
     dimensions: dict[str, DimensionGrade] = field(default_factory=_empty_dimensions)
     top_issues: list[str] = field(default_factory=list)
     section_grades: list[SectionGrade] = field(default_factory=list)
+    cross_section_findings: list[CrossSectionFinding] = field(default_factory=list)
 
     # --- Header (document provenance, stamped by pipeline) ---
     org: str | None = None
@@ -100,6 +118,7 @@ class VariableSpec:
     description: str
     completeness: dict[str, Any] = field(default_factory=dict)
     adherence: dict[str, Any] = field(default_factory=dict)
+    rigor: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -118,6 +137,7 @@ class SectionSpec:
     variables: list[VariableSpec] = field(default_factory=list)
     completeness: dict[str, Any] = field(default_factory=dict)
     adherence: dict[str, Any] = field(default_factory=dict)
+    rigor: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -130,6 +150,10 @@ class ReviewConfig:
     intervention_class: str
     display_name: str
     sections: list[SectionSpec]
+    # Document-wide grading guidance injected into every dimension prompt. Used
+    # for stage calibration (e.g. ITPP grades leniently on numeric specificity,
+    # CTPP strictly). Optional; empty means no extra framing.
+    grading_guidance: str = ""
 
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
@@ -173,6 +197,10 @@ def load_review_config(path: str) -> ReviewConfig:
     _validate_string_field(data, "display_name")
     sections = _parse_sections(data["sections"])
 
+    grading_guidance = data.get("grading_guidance", "") or ""
+    if not isinstance(grading_guidance, str):
+        raise ValueError("Reviewer config field 'grading_guidance' must be a string")
+
     return ReviewConfig(
         type_key=data["type_key"],
         org=data["org"],
@@ -180,6 +208,7 @@ def load_review_config(path: str) -> ReviewConfig:
         intervention_class=data["intervention_class"],
         display_name=data["display_name"],
         sections=sections,
+        grading_guidance=grading_guidance.strip(),
     )
 
 
@@ -237,6 +266,7 @@ def _parse_sections(value: Any) -> list[SectionSpec]:
                 variables=_parse_variables(section_data.get("variables", []), index),
                 completeness=_parse_dimension_block(section_data.get("completeness"), f"sections[{index}].completeness"),
                 adherence=_parse_dimension_block(section_data.get("adherence"), f"sections[{index}].adherence"),
+                rigor=_parse_dimension_block(section_data.get("rigor"), f"sections[{index}].rigor"),
             )
         )
 
@@ -279,6 +309,10 @@ def _parse_variables(value: Any, section_index: int) -> list[VariableSpec]:
                 adherence=_parse_dimension_block(
                     variable_data.get("adherence"),
                     f"sections[{section_index}].variables[{index}].adherence",
+                ),
+                rigor=_parse_dimension_block(
+                    variable_data.get("rigor"),
+                    f"sections[{section_index}].variables[{index}].rigor",
                 ),
             )
         )

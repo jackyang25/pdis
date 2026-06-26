@@ -42,7 +42,7 @@ From `__init__.py`:
 - `find_config`, `blocks_to_dicts`
 - `DEFAULT_MAX_OUTPUT_TOKENS`
 
-External callers (`api/routes/chunker.py`, `reviewer`, `monitor`) import only from this surface.
+External callers (`api/routes/chunker.py`, `reviewer`, `scout`) import only from this surface.
 
 ## Dependencies
 

@@ -31,13 +31,13 @@ Imports flow one way only: `web → api → services → (shared, data)`. **Neve
 | `services/chunker/` | Chunker | Parses `.docx`/`.pdf` → `list[ContentBlock]`. Optionally labels sections via LLM mapper. | — |
 | `services/reviewer/` | Reviewer | Document → `ReviewResult` graded across completeness and adherence. | chunker |
 | `services/searcher/` | Searcher | Query → `list[Finding]`. Web retrieval via OpenAI plus optional literature retrieval via NCBI PubMed/PMC. | shared/openai_client, NCBI |
-| `services/monitor/` | Monitor | Files + 4 primitives → drift `Match` records, evidence assessments, and (for quantitative variables) combined `ConformityScore`s, over attribute variables from `shared/attributes.yaml`. | chunker, searcher |
+| `services/scout/` | Scout | Files + 4 primitives → drift `Match` records, evidence assessments, and (for quantitative variables) combined `ConformityScore`s, over attribute variables from `shared/attributes.yaml`. | chunker, searcher |
 
 ## Cross-cutting (`shared/`)
 
 - `shared/openai_client.py` — OpenAI client (gpt-5.5), including `search_web()`. Used by **all services**.
 - `shared/indications.yaml` — controlled vocabulary of indications per intervention class. Read by `/api/configs/indications` and stamped on every document-derived output. **Indications are NOT owned by any service config.**
-- `shared/attributes.yaml` — controlled vocabulary of TPP attributes per intervention class (e.g. `vaccine.efficacy`, `vaccine.safety`). Read by monitor for its per-variable search loop. **Attributes are NOT owned by any service config** — same principle as indications.
+- `shared/attributes.yaml` — controlled vocabulary of TPP attributes per intervention class (e.g. `vaccine.efficacy`, `vaccine.safety`). Read by scout for its per-variable search loop. **Attributes are NOT owned by any service config** — same principle as indications.
 
 ## The 4 primitives (required for every document tool run)
 
@@ -45,10 +45,10 @@ Every document-tool request stamps these 4 fields on every document-derived outp
 
 | Field | Role |
 |---|---|
-| `org` (`bmgf`, `who`) | chunker/reviewer config key · monitor tag |
-| `source_type` (`tpp`, `ppc`) | chunker/reviewer config key · monitor tag |
+| `org` (`bmgf`, `who`) | chunker/reviewer config key · scout tag |
+| `source_type` (`tpp`, `ppc`) | chunker/reviewer config key · scout tag |
 | `intervention_class` (`vaccine`, `drug`, `diagnostic`, `device`) | config key for document tools |
-| `indication` (`malaria`, `hiv`, `tb`, …) | tag everywhere · scopes monitor search |
+| `indication` (`malaria`, `hiv`, `tb`, …) | tag everywhere · scopes scout search |
 
 Picker is 4 cascading dropdowns; each shows a per-tool role label ("selects config" / "tags output").
 
@@ -58,11 +58,11 @@ Picker is 4 cascading dropdowns; each shows a per-tool role label ("selects conf
 |---|---|---|
 | chunker | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` raises `LookupError` |
 | reviewer | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` returns `None` |
-| monitor | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` raises `LookupError` |
+| scout | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` raises `LookupError` |
 
 Configs declare their own `org`/`source_type`/`intervention_class` as data inside the YAML — the picker reads YAML contents, not filename parts. The vocabulary of valid (org, source_type, intervention) triples emerges from the union of chunker configs.
 
-Monitor configs may also include `priority_sources`, `modalities`, `languages`,
+Scout configs may also include `priority_sources`, `modalities`, `languages`,
 `geographic_emphasis`, and `geographic_queries_per_variable`. These are domain
 vocabulary and additive query budgets injected into per-variable query generation.
 
@@ -79,11 +79,11 @@ Grade scale: `A`/`B`/`C`/`D`/`F`/`N/A`. Same scale per dimension.
 
 ## Naming conventions
 
-- Folders use **action names**: `services/chunker/`, `services/reviewer/`, `services/searcher/`, `services/monitor/`.
+- Folders use **action names**: `services/chunker/`, `services/reviewer/`, `services/searcher/`, `services/scout/`.
 - Data units stay as their nouns: `ContentBlock`, `Finding`, `Insight`, `Match`, `EvidenceAssessment`.
-- UI labels: **Chunker**, **Reviewer**, **Searcher**, **Monitor** (sidebar nav).
-- Web routes: `/chunker`, `/reviewer`, `/searcher`, `/monitor`. (`/` redirects to `/chunker`.)
-- API routes: `/api/chunker/run`, `/api/reviewer/run`, `/api/searcher/run`, `/api/monitor/run`.
+- UI labels: **Chunker**, **Reviewer**, **Searcher**, **Scout** (sidebar nav).
+- Web routes: `/chunker`, `/reviewer`, `/searcher`, `/scout`. (`/` redirects to `/chunker`.)
+- API routes: `/api/chunker/run`, `/api/reviewer/run`, `/api/searcher/run`, `/api/scout/run`.
 - Acronyms (BMGF, WHO, TPP, PPC, HIV, TB, RSV, HPV, COVID19) display uppercase via `displayLabel()` in `web/components/header-picker.tsx`.
 - The field is `indication` (singular) everywhere — **not** `therapeutic_area` (renamed).
 
@@ -128,25 +128,25 @@ services/searcher/pipeline.py    run_pipeline (query -> Findings)
 services/searcher/stages/searcher.py  OpenAI web-search stage
 services/searcher/stages/pubmed.py    NCBI PubMed/PMC literature stage
 services/searcher/models.py      Finding dataclass + protocol
-services/monitor/pipeline.py     run_pipeline (files + primitives -> MonitorResult)
-services/monitor/stages/query_extractor.py    LLM: attribute variables -> search queries
-services/monitor/stages/insight_extractor.py  LLM: findings -> Insights
-services/monitor/stages/drift_classifier.py   LLM: insights x doc -> relations
-services/monitor/stages/evidence_assessor.py  LLM: variable evidence -> strength
-services/monitor/stages/conformity.py          LLM extract numbers + Python combine -> ConformityScore (quantitative vars)
-services/monitor/models.py       Insight + Match + EvidenceAssessment dataclasses + config
+services/scout/pipeline.py     run_pipeline (files + primitives -> ScoutResult)
+services/scout/stages/query_extractor.py    LLM: attribute variables -> search queries
+services/scout/stages/insight_extractor.py  LLM: findings -> Insights
+services/scout/stages/drift_classifier.py   LLM: insights x doc -> relations
+services/scout/stages/evidence_assessor.py  LLM: variable evidence -> strength
+services/scout/stages/conformity.py          LLM extract numbers + Python combine -> ConformityScore (quantitative vars)
+services/scout/models.py       Insight + Match + EvidenceAssessment dataclasses + config
 api/main.py                      FastAPI app + route registration
 api/routes/{chunker,reviewer,configs}.py
 api/routes/searcher.py           POST /api/searcher/run (query -> Findings)
-api/routes/monitor.py            POST /api/monitor/run (files + primitives -> MonitorResult)
-api/schemas.py                   Pydantic wire models (ReviewerRunResponse, MonitorRunResponse, ...)
+api/routes/scout.py            POST /api/scout/run (files + primitives -> ScoutResult)
+api/schemas.py                   Pydantic wire models (ReviewerRunResponse, ScoutRunResponse, ...)
 api/streaming.py                 NDJSON streaming helper (background thread + queue)
-web/lib/api.ts                   typed API client (runChunker, runReviewer, runSearcher, runMonitor)
+web/lib/api.ts                   typed API client (runChunker, runReviewer, runSearcher, runScout)
 web/lib/store.ts                 zustand: useHeaderStore + isHeaderComplete
 web/lib/session.ts               zustand: per-tool result/busy/stage sessions
 web/components/header-picker.tsx 4-primitive cascading picker
 web/components/sidebar.tsx       static title (non-clickable) + nav + picker
 web/app/{chunker,reviewer}/page.tsx  document-tool views
 web/app/searcher/page.tsx        searcher debug UI (no picker)
-web/app/monitor/page.tsx         monitor UI (picker + multi-file upload + field grid)
+web/app/scout/page.tsx         scout UI (picker + multi-file upload + field grid)
 ```

@@ -16,7 +16,7 @@ class DocumentType(BaseModel):
     source_type: str
     intervention_class: str
     display_name: str
-    supports: dict[str, bool]  # {"chunker": true, "reviewer": ..., "monitor": ...}
+    supports: dict[str, bool]  # {"chunker": true, "reviewer": ..., "scout": ...}
 
 
 class DocumentTypesResponse(BaseModel):
@@ -125,7 +125,7 @@ class PrecedentOut(BaseModel):
     supporting_findings: list[FindingOut] = []
 
 
-class MonitorRunResponse(BaseModel):
+class ScoutRunResponse(BaseModel):
     org: str
     source_type: str
     intervention_class: str
@@ -158,11 +158,18 @@ class SectionGradeOut(BaseModel):
     variable_grades: list[VariableGradeOut] = []
 
 
+class CrossSectionFindingOut(BaseModel):
+    description: str
+    sections: list[str] = []
+    recommendation: str = ""
+
+
 class ReviewResultOut(BaseModel):
     doc_id: str
     dimensions: dict[str, DimensionGradeOut]
     top_issues: list[str]
     section_grades: list[SectionGradeOut]
+    cross_section_findings: list[CrossSectionFindingOut] = []
     org: str | None = None
     source_type: str | None = None
     intervention_class: str | None = None

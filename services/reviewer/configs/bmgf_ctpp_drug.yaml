@@ -3,6 +3,8 @@ org: bmgf
 source_type: ctpp
 intervention_class: drug
 display_name: "Drug Candidate TPP"
+grading_guidance: |
+  This is a CANDIDATE TPP (CTPP): a profile of a specific candidate. Calibrate ALL judgments to candidate-stage maturity. Expect concrete, measured values - numeric targets with units, named formulations, and defined schedules. Vague qualitative targets, unspecified ranges, or placeholders fall short at this stage. Hold the document to the standard of a product-specific specification.
 
 sections:
   - name: "Introduction"

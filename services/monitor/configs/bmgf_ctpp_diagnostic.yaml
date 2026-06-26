@@ -1,8 +1,8 @@
-type_key: bmgf_tpp_diagnostic
+type_key: bmgf_ctpp_diagnostic
 org: bmgf
-source_type: tpp
+source_type: ctpp
 intervention_class: diagnostic
-display_name: "BMGF TPP - Diagnostic"
+display_name: "BMGF Candidate TPP - Diagnostic"
 
 # Domain-specific guidance for the per-variable query extractor. Each shared
 # TPP attribute variable gets its own focused queries - these instructions

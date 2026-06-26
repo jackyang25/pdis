@@ -1,0 +1,75 @@
+type_key: bmgf_itpp_diagnostic
+org: bmgf
+source_type: itpp
+intervention_class: diagnostic
+display_name: "BMGF Intervention TPP - Diagnostic"
+
+# Domain-specific guidance for the per-variable query extractor. Each shared
+# TPP attribute variable gets its own focused queries - these instructions
+# apply to ALL variables.
+query_extraction_guidance: |
+  Generate web search queries across THREE axes for a complete global
+  evidence landscape:
+
+  1. Standard of care - current diagnostic methods for the indication, their
+     sensitivity, specificity, time-to-result, cost, and setting (central lab
+     vs. point-of-care). Frame queries around how a new test could win: higher
+     sensitivity/specificity, faster result, lower cost, or decentralized /
+     point-of-care use.
+
+  2. New scientific data - recent assay platforms, comparative performance
+     evaluations, clinical validation studies, and epidemiology trends that
+     change how valuable a test is for this indication.
+
+  3. Global access and regulatory signals - spread queries across global
+     regulators, IVD prequalification, evaluation bodies, LMIC national
+     regulators, procurement, registries, and literature. Include WHO IVD
+     prequalification, FIND evaluations, LMIC approval, access, and uptake
+     signals where relevant.
+
+  Use the indication name and the variable topic in queries. Prefer queries
+  that target named regulators, evaluation bodies, registries, or
+  peer-reviewed literature over generic phrasing. Spread queries across
+  priority sources and configured languages rather than repeatedly naming the
+  same authorities.
+
+priority_sources:
+  - FDA
+  - EMA
+  - WHO
+  - WHO Prequalification (IVD)
+  - FIND
+  - CDC
+  - PubMed
+  - ClinicalTrials.gov
+  - SAHPRA (South Africa)
+  - NMPA (China)
+  - CDSCO (India)
+  - BPOM (Indonesia)
+  - ANVISA (Brazil)
+  - Africa CDC
+  - Unitaid
+
+modalities:
+  - NAAT / PCR
+  - rapid diagnostic test (RDT)
+  - antigen test
+  - serology / ELISA
+  - LAMP
+  - point-of-care molecular
+  - next-generation sequencing
+
+languages:
+  - en
+  - fr
+  - pt
+  - es
+  - zh
+  - id
+
+queries_per_variable: 8
+geographic_emphasis:
+  - global_south
+geographic_queries_per_variable: 4
+counterfactual_queries_per_variable: 3
+precedent_queries_per_variable: 3

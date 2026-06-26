@@ -1,8 +1,8 @@
-type_key: bmgf_tpp_vaccine
+type_key: bmgf_itpp_vaccine
 org: bmgf
-source_type: tpp
+source_type: itpp
 intervention_class: vaccine
-display_name: "Vaccine Target Product Profile"
+display_name: "Vaccine Intervention TPP"
 
 sections:
   - name: "Introduction"

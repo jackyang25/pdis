@@ -1,8 +1,8 @@
-type_key: bmgf_tpp_diagnostic
+type_key: bmgf_itpp_diagnostic
 org: bmgf
-source_type: tpp
+source_type: itpp
 intervention_class: diagnostic
-display_name: "Diagnostic Target Product Profile"
+display_name: "Diagnostic Intervention TPP"
 
 sections:
   - name: "Instructions for Use"

@@ -1,8 +1,8 @@
-type_key: bmgf_tpp_device
+type_key: bmgf_ctpp_device
 org: bmgf
-source_type: tpp
+source_type: ctpp
 intervention_class: device
-display_name: "Medical Device Target Product Profile"
+display_name: "Medical Device Candidate TPP"
 
 sections:
   - name: "Instructions for Use"

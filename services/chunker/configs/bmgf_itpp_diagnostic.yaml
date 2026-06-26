@@ -1,0 +1,49 @@
+type_key: bmgf_itpp_diagnostic
+org: bmgf
+source_type: itpp
+intervention_class: diagnostic
+display_name: "Diagnostic Intervention TPP"
+
+section_taxonomy:
+  - name: "Instructions for Use"
+    description: "Guidance on completing the template. Describes the three main sections (Medical Need/Use Case, Product Requirements with Annotations, Change Management), Minimum/Optimistic criteria framework, annotation conventions, and version numbering."
+
+  - name: "Medical Need / Differentiation Strategy / Use Case"
+    description: "The use case section, typically a single-column table. Contains Medical Need, Intended Use Case Scenario, and Critical Assumptions used to develop the TPP."
+
+  - name: "Annotated Product Requirements"
+    description: "The main diagnostic TPP table with Variable / Minimum / Optimistic / Annotation columns. Variables grouped under categories: Intended Use, Individual/Population Needs and Performance Characteristics, Regulatory/Statutory Needs, Healthcare System Needs (Environment, Instrument and Device, Information and Communication Technology, Reagent handling, Sample Handling, Distribution and Service), Commercial and Sustainability Needs."
+
+  - name: "Change Management"
+    description: "Version history table tracking changes between TPP versions. Columns: Version, Key Changes from Previous Version, Change Made By."
+
+preamble: >
+  This is a Diagnostic Assay/Instrument Target Product Profile (TPP).
+  Diagnostic TPPs define the desired characteristics of a diagnostic test
+  or instrument using minimum and optimistic targets. Structure: instructions
+  for use, medical need/use case (single-column table with medical need,
+  use case scenario, and critical assumptions), annotated product requirements
+  (multi-column table grouped by category - intended use, performance
+  characteristics, regulatory needs, healthcare system needs, commercial needs),
+  and a change management log.
+
+  The annotated product requirements section is a single dense table organized
+  into categorical sub-headers (e.g., "1. Intended Use", "2. Individual or
+  Population Needs"). All rows under all sub-headers belong to the
+  "Annotated Product Requirements" section - do not split sub-categories
+  into separate sections.
+
+disambiguation:
+  - >
+    All variables under category headers like "Intended Use", "Performance
+    Characteristics", "Regulatory Needs", "Healthcare System Needs", or
+    "Commercial Needs" belong to "Annotated Product Requirements", not their
+    own sections.
+  - >
+    The medical need / use case section is often a single-column table.
+    Blocks from this table should be labeled "Medical Need / Differentiation
+    Strategy / Use Case" even though their source_type may be "paragraph"
+    (due to single-column table flattening).
+
+include_metadata_label: true
+include_other_label: true

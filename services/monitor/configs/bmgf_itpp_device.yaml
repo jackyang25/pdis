@@ -1,8 +1,8 @@
-type_key: bmgf_tpp_device
+type_key: bmgf_itpp_device
 org: bmgf
-source_type: tpp
+source_type: itpp
 intervention_class: device
-display_name: "BMGF TPP - Device"
+display_name: "BMGF Intervention TPP - Device"
 
 # Domain-specific guidance for the per-variable query extractor. Each shared
 # TPP attribute variable gets its own focused queries - these instructions

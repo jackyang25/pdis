@@ -1,8 +1,8 @@
-type_key: bmgf_tpp_vaccine
+type_key: bmgf_ctpp_vaccine
 org: bmgf
-source_type: tpp
+source_type: ctpp
 intervention_class: vaccine
-display_name: "BMGF TPP - Vaccine"
+display_name: "BMGF Candidate TPP - Vaccine"
 
 # Domain-specific guidance for the per-variable query extractor. Each
 # shared TPP attribute variable gets its own focused queries - these

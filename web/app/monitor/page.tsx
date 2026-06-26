@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { MultiRunPanel } from "@/components/multi-run-panel";
 import { HeaderGuard } from "@/components/header-guard";
@@ -286,6 +286,8 @@ function MonitorView({ header }: { header: Header }) {
     setError,
   } = useMonitorSession();
 
+  const importInputRef = useRef<HTMLInputElement>(null);
+
   async function handleRun(files: File[]) {
     setBusy(true);
     setError(null);
@@ -304,6 +306,23 @@ function MonitorView({ header }: { header: Header }) {
     }
   }
 
+  // Re-open a previously downloaded result (the full MonitorResponse JSON) and
+  // render it through the same FieldGrid - no re-run, no backend call.
+  async function handleImport(file: File) {
+    setError(null);
+    try {
+      const parsed = JSON.parse(await file.text()) as MonitorResponse;
+      if (!parsed || !Array.isArray(parsed.variables) || !Array.isArray(parsed.matches)) {
+        throw new Error("not a monitor result file");
+      }
+      setStage(null);
+      setProgress(null);
+      setResult(parsed);
+    } catch (err) {
+      setError(`Could not import result: ${(err as Error).message}`);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <MultiRunPanel
@@ -313,6 +332,30 @@ function MonitorView({ header }: { header: Header }) {
         steps={MONITOR_STEPS}
         currentStage={stage}
         progress={progress}
+        extraControls={
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Or view a previously downloaded result:</span>
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              disabled={busy}
+              className="underline hover:text-foreground disabled:opacity-50"
+            >
+              Import JSON
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImport(f);
+                e.target.value = "";
+              }}
+            />
+          </div>
+        }
       />
       {error && <p className="text-sm text-destructive">{error}</p>}
       {result && <FieldGrid result={result} />}

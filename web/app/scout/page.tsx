@@ -17,6 +17,7 @@ import {
   type ScoutResponse,
   type PrecedentSignal,
 } from "@/lib/api";
+import { Ask } from "@/components/assistant/ask";
 import { useScoutSession } from "@/lib/session";
 
 const SCOUT_STEPS = [
@@ -264,12 +265,14 @@ export default function ScoutPage() {
   return (
     <>
       <PageHeader title="Scout" />
-      <HeaderGuard>{(header) => <ScoutView header={header as Header} />}</HeaderGuard>
+      <HeaderGuard>
+        {(header, ready) => <ScoutView header={header as Header} ready={ready} />}
+      </HeaderGuard>
     </>
   );
 }
 
-function ScoutView({ header }: { header: Header }) {
+function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   const {
     result,
     busy,
@@ -329,6 +332,8 @@ function ScoutView({ header }: { header: Header }) {
         steps={SCOUT_STEPS}
         currentStage={stage}
         progress={progress}
+        runDisabled={!ready}
+        hint={ready ? undefined : "Select org, source type & intervention in the sidebar to run."}
         extraControls={
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>Or view a previously downloaded result:</span>
@@ -356,6 +361,7 @@ function ScoutView({ header }: { header: Header }) {
       />
       {error && <p className="text-sm text-destructive">{error}</p>}
       {result && <FieldGrid result={result} />}
+      <Ask resultType="scout" result={result} />
       {!result && !busy && !error && (
         <EmptyState message="Upload a document to begin." />
       )}

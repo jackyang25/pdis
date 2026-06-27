@@ -38,6 +38,32 @@ class OpenAIClient:
         )
         return _response_text(response)
 
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 4000,
+    ) -> Any:
+        """Chat-completions call with optional tool (function) calling.
+
+        Returns the first choice's `message` object; callers read `.content`
+        and `.tool_calls`. Powers the Ask assistant's hand-rolled agent loop.
+        """
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "max_completion_tokens": max_tokens,
+            "messages": messages,
+        }
+        if tools:
+            kwargs["tools"] = tools
+        response = self.client.chat.completions.create(**kwargs)
+        choices = getattr(response, "choices", [])
+        if not choices:
+            logger.warning("OpenAI chat response had no choices")
+            return None
+        return choices[0].message
+
     def search_web(
         self,
         query: str,

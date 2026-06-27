@@ -18,6 +18,11 @@ type Props = {
   currentStage?: string | null;
   /** Optional live item count for the active stage. */
   progress?: { completed: number; total: number } | null;
+  /** Gate only the Run action (e.g. header not selected) while keeping the
+   * file picker and any extraControls (Import) usable. */
+  runDisabled?: boolean;
+  /** Muted hint shown near the Run button (e.g. why Run is gated). */
+  hint?: string;
 };
 
 export function RunPanel({
@@ -29,6 +34,8 @@ export function RunPanel({
   steps,
   currentStage,
   progress,
+  runDisabled,
+  hint,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -81,7 +88,9 @@ export function RunPanel({
 
       {extraControls}
 
-      <Button onClick={() => file && onRun(file)} disabled={disabled || busy || !file}>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+
+      <Button onClick={() => file && onRun(file)} disabled={disabled || busy || !file || runDisabled}>
         {busy ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />

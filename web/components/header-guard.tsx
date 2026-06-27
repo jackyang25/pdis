@@ -1,14 +1,21 @@
 "use client";
 
 import { useHeaderStore, isHeaderComplete } from "@/lib/store";
-import { EmptyState } from "./empty-state";
 
-export function HeaderGuard({ children }: { children: (header: ReturnType<typeof useHeaderStore.getState>["header"]) => React.ReactNode }) {
+/**
+ * Provides the current header + a `ready` flag (all of org/source/intervention
+ * selected). It no longer blocks the page — the header is only required to RUN,
+ * not to view the page or import a saved result. Callers gate the Run action on
+ * `ready`.
+ */
+export function HeaderGuard({
+  children,
+}: {
+  children: (
+    header: ReturnType<typeof useHeaderStore.getState>["header"],
+    ready: boolean,
+  ) => React.ReactNode;
+}) {
   const header = useHeaderStore((s) => s.header);
-  if (!isHeaderComplete(header)) {
-    return (
-      <EmptyState message="Pick org, source type, and intervention in the sidebar to begin." />
-    );
-  }
-  return <>{children(header)}</>;
+  return <>{children(header, isHeaderComplete(header))}</>;
 }

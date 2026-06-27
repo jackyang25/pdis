@@ -292,7 +292,7 @@ export async function runChunker(
 export async function runReviewer(
   file: File,
   header: Header,
-  onStage?: (stage: string) => void,
+  onStage?: (stage: string, progress?: StageProgress) => void,
 ): Promise<ReviewerResponse> {
   const form = new FormData();
   form.append("file", file);
@@ -320,4 +320,20 @@ export async function runScout(
   }
   appendHeader(form, header);
   return streamRequest("/api/scout/run", form, onStage);
+}
+
+// --- Ask: read-only, grounded chat over any result object ---
+export type AskMessage = { role: "user" | "assistant"; content: string };
+
+export async function askAssistant(
+  resultType: string,
+  result: unknown,
+  messages: AskMessage[],
+): Promise<string> {
+  const res = await jsonRequest<{ answer: string }>("/api/assistant/ask", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ result_type: resultType, result, messages }),
+  });
+  return res.answer;
 }

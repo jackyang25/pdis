@@ -22,6 +22,7 @@ import {
   type SectionGrade,
   type VariableGrade,
 } from "@/lib/api";
+import { Ask } from "@/components/assistant/ask";
 import { useReviewerSession } from "@/lib/session";
 
 const PD_REVIEWER_STEPS = [
@@ -35,22 +36,38 @@ export default function ReviewerPage() {
   return (
     <>
       <PageHeader title="Reviewer" />
-      <HeaderGuard>{(header) => <ReviewerView header={header as Header} />}</HeaderGuard>
+      <HeaderGuard>
+        {(header, ready) => <ReviewerView header={header as Header} ready={ready} />}
+      </HeaderGuard>
     </>
   );
 }
 
-function ReviewerView({ header }: { header: Header }) {
-  const { result, busy, stage, error, setResult, setBusy, setStage, setError } =
-    useReviewerSession();
+function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
+  const {
+    result,
+    busy,
+    stage,
+    progress,
+    error,
+    setResult,
+    setBusy,
+    setStage,
+    setProgress,
+    setError,
+  } = useReviewerSession();
   const importInputRef = useRef<HTMLInputElement>(null);
 
   async function handleRun(file: File) {
     setBusy(true);
     setError(null);
     setStage(null);
+    setProgress(null);
     try {
-      const res = await runReviewer(file, header, setStage);
+      const res = await runReviewer(file, header, (s, p) => {
+        setStage(s);
+        setProgress(p ?? null);
+      });
       setResult(res);
     } catch (err) {
       setError((err as Error).message);
@@ -83,6 +100,9 @@ function ReviewerView({ header }: { header: Header }) {
         onRun={handleRun}
         steps={PD_REVIEWER_STEPS}
         currentStage={stage}
+        progress={progress}
+        runDisabled={!ready}
+        hint={ready ? undefined : "Select org, source type & intervention in the sidebar to run."}
         extraControls={
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>Or view a previously downloaded result:</span>
@@ -116,6 +136,7 @@ function ReviewerView({ header }: { header: Header }) {
           <SectionsList sections={result.review.section_grades} />
         </>
       )}
+      <Ask resultType="reviewer" result={result?.review} />
       {!result && !busy && !error && (
         <EmptyState message="Upload a document to begin." />
       )}

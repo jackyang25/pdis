@@ -26,7 +26,7 @@ except ImportError:
 
 import os
 
-from api.routes import chunker, configs, scout, reviewer, searcher
+from api.routes import assistant, chunker, configs, scout, reviewer, searcher
 
 app = FastAPI(title="PDIS API", version="0.1.0")
 
@@ -48,6 +48,7 @@ app.include_router(chunker.router, prefix="/api/chunker", tags=["chunker"])
 app.include_router(reviewer.router, prefix="/api/reviewer", tags=["reviewer"])
 app.include_router(searcher.router, prefix="/api/searcher", tags=["searcher"])
 app.include_router(scout.router, prefix="/api/scout", tags=["scout"])
+app.include_router(assistant.router, prefix="/api/assistant", tags=["assistant"])
 
 
 @app.get("/api/health")

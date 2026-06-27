@@ -86,6 +86,7 @@ def review_blocks(
         config,
         llm_client,
         max_tokens=max_tokens,
+        progress=progress_callback,
     )
     result = build_report_card(blocks, section_grades, config)
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -57,6 +58,7 @@ def grade_sections(
     llm_client: LLMClientProtocol,
     *,
     max_tokens: int,
+    progress=None,
 ) -> list[SectionGrade]:
     blocks_by_section = _group_blocks_by_section(labeled_blocks)
     indexed: list[tuple[int, SectionSpec, list[ContentBlock] | None]] = []
@@ -64,23 +66,34 @@ def grade_sections(
         section_blocks = blocks_by_section.get(section_spec.name, [])
         indexed.append((idx, section_spec, section_blocks or None))
 
+    total = len(indexed)
+    if progress:
+        progress("grade", completed=0, total=total)
+    lock = threading.Lock()
+    done = {"n": 0}
+
     def grade_one(item):
         idx, section_spec, section_blocks = item
         if not section_blocks:
-            return idx, _missing_section_grade(section_spec)
-
-        section_grade = _grade_section(
-            section_spec=section_spec,
-            section_blocks=section_blocks,
-            llm_client=llm_client,
-            max_tokens=max_tokens,
-            grading_guidance=config.grading_guidance,
-        )
-        if section_spec.variables:
-            section_grade.dimensions = _rollup_dimensions(
-                [vg.dimensions for vg in section_grade.variable_grades]
+            out = (idx, _missing_section_grade(section_spec))
+        else:
+            section_grade = _grade_section(
+                section_spec=section_spec,
+                section_blocks=section_blocks,
+                llm_client=llm_client,
+                max_tokens=max_tokens,
+                grading_guidance=config.grading_guidance,
             )
-        return idx, section_grade
+            if section_spec.variables:
+                section_grade.dimensions = _rollup_dimensions(
+                    [vg.dimensions for vg in section_grade.variable_grades]
+                )
+            out = (idx, section_grade)
+        if progress:
+            with lock:
+                done["n"] += 1
+                progress("grade", completed=done["n"], total=total)
+        return out
 
     if len(indexed) <= 1:
         graded = [grade_one(item) for item in indexed]

@@ -7,6 +7,8 @@ wire contract.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -178,3 +180,18 @@ class ReviewResultOut(BaseModel):
 
 class ReviewerRunResponse(BaseModel):
     review: ReviewResultOut
+
+
+class AskMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class AskRequest(BaseModel):
+    result_type: str  # "scout" | "reviewer" | ...
+    result: dict[str, Any]
+    messages: list[AskMessage]
+
+
+class AskResponse(BaseModel):
+    answer: str

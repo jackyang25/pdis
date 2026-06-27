@@ -23,12 +23,14 @@ export default function ChunkerPage() {
         title="Chunker"
         description="Parse a document into ordered content blocks with optional section labels."
       />
-      <HeaderGuard>{(header) => <ChunkerView header={header as Header} />}</HeaderGuard>
+      <HeaderGuard>
+        {(header, ready) => <ChunkerView header={header as Header} ready={ready} />}
+      </HeaderGuard>
     </>
   );
 }
 
-function ChunkerView({ header }: { header: Header }) {
+function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
   const { result, busy, stage, error, setResult, setBusy, setStage, setError } =
     useChunkerSession();
 
@@ -56,6 +58,8 @@ function ChunkerView({ header }: { header: Header }) {
         onRun={handleRun}
         steps={CHUNKER_STEPS}
         currentStage={stage}
+        runDisabled={!ready}
+        hint={ready ? undefined : "Select org, source type & intervention in the sidebar to run."}
       />
       {error && <p className="text-sm text-destructive">{error}</p>}
       {blocks && <BlocksList blocks={blocks} />}

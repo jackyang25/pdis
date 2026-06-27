@@ -1,152 +1,130 @@
-# PDIS — Agent context
+# PDIS — agent context
 
-Load-bearing facts for working on this codebase. Not a tutorial; read the root `README.md` for that.
+Load-bearing facts for working in this codebase. For the overview, read the root `README.md`.
 
 ## Layered architecture
 
 ```
-web/ (Next.js + shadcn/ui)  →  api/ (FastAPI)  →  services/  →  data/
-                                                  shared/ (cross-cutting)
+web/ (Next.js + shadcn/ui)  →  api/ (FastAPI)  →  services/  →  shared/, data/
 ```
 
-Imports flow one way only: `web → api → services → (shared, data)`. **Never** the reverse. Cross-service imports must go through `__init__.py` public contracts — no reaching into `stages/`, `models.py`, or other internals from another service.
+Imports flow one way: web → api → services → (shared, data). Never the reverse. Cross-service calls go through `__init__.py` public contracts only — no reaching into another service's `stages/` or `models.py`.
 
-## File roles (location encodes role)
+## What's domain vs engineering
 
-| Role | Shape | Location | Maintained by |
+Humans own the domain surface: `shared/*.yaml` (controlled vocabularies) and `services/*/configs/*.yaml` (per-service tuning). Engineers own everything else (Python, prompts, scaffolding).
+
+Anything in `shared/` must be vocabulary-shaped — a flat `{name, description}` list keyed by intervention. Service-specific tuning belongs in that service's `configs/`, never in `shared/`.
+
+## Services
+
+| Folder | UI | What it does | Depends on |
 |---|---|---|---|
-| Vocabulary | flat `{name, description}` keyed by intervention | `shared/` | humans (domain) |
-| Service config | that service's own schema | `services/X/configs/` | humans (domain) |
-| Template | mirrors its target's shape | beside what it templates | engineers |
-| Code / scaffold | Python | `services/X/*.py`, `shared/*.py` | engineers |
+| `services/chunker/` | Chunker | `.docx`/`.pdf` → `list[ContentBlock]`; optional LLM section labeling. | — |
+| `services/reviewer/` | Reviewer | Document → `ReviewResult` graded on completeness, adherence, rigor, plus a cross-section consistency pass. | chunker |
+| `services/searcher/` | Searcher | Query → `list[Finding]` across three backends: OpenAI web search, NCBI PubMed/PMC, ClinicalTrials.gov. | openai_client, NCBI |
+| `services/scout/` | Scout | A document's targets vs live evidence: drift `Match`es, evidence assessments, `ConformityScore`s (quantitative vars), and precedent signals, over `shared/attributes.yaml`. | chunker, searcher |
+| `services/assistant/` | Ask | Read-only chat grounded in a result object. Result-agnostic. | openai_client |
 
-**Rule:** anything in `shared/` is a controlled vocabulary and MUST be vocab-shaped (a flat term list). Service-specific tuning lives in that service's `configs/`. Never put a service-shaped config in `shared/`.
+## The four primitives
 
-**Human-maintained domain surface:** `shared/*.yaml` (vocabularies) + `services/*/configs/*.yaml` (per-service configs). Everything else is engineer-maintained.
-
-## Four services
-
-| Folder | UI label | What it does | Depends on |
-|---|---|---|---|
-| `services/chunker/` | Chunker | Parses `.docx`/`.pdf` → `list[ContentBlock]`. Optionally labels sections via LLM mapper. | — |
-| `services/reviewer/` | Reviewer | Document → `ReviewResult` graded across completeness and adherence. | chunker |
-| `services/searcher/` | Searcher | Query → `list[Finding]`. Web retrieval via OpenAI plus optional literature retrieval via NCBI PubMed/PMC. | shared/openai_client, NCBI |
-| `services/scout/` | Scout | Files + 4 primitives → drift `Match` records, evidence assessments, and (for quantitative variables) combined `ConformityScore`s, over attribute variables from `shared/attributes.yaml`. | chunker, searcher |
-
-## Cross-cutting (`shared/`)
-
-- `shared/openai_client.py` — OpenAI client (gpt-5.5), including `search_web()`. Used by **all services**.
-- `shared/indications.yaml` — controlled vocabulary of indications per intervention class. Read by `/api/configs/indications` and stamped on every document-derived output. **Indications are NOT owned by any service config.**
-- `shared/attributes.yaml` — controlled vocabulary of TPP attributes per intervention class (e.g. `vaccine.efficacy`, `vaccine.safety`). Read by scout for its per-variable search loop. **Attributes are NOT owned by any service config** — same principle as indications.
-
-## The 4 primitives (required for every document tool run)
-
-Every document-tool request stamps these 4 fields on every document-derived output. All 4 are required at the UI level (`isHeaderComplete` enforces).
+Every document-tool run stamps these on its output. They're required to run (the picker's `isHeaderComplete`), but the page renders without them so you can still import a saved result.
 
 | Field | Role |
 |---|---|
-| `org` (`bmgf`, `who`) | chunker/reviewer config key · scout tag |
-| `source_type` (`tpp`, `ppc`) | chunker/reviewer config key · scout tag |
-| `intervention_class` (`vaccine`, `drug`, `diagnostic`, `device`) | config key for document tools |
-| `indication` (`malaria`, `hiv`, `tb`, …) | tag everywhere · scopes scout search |
+| `org` (`bmgf`) | config key · output tag |
+| `source_type` (`itpp`, `ctpp`) | config key · output tag |
+| `intervention_class` (`vaccine`, `drug`, `diagnostic`, `device`) | config key |
+| `indication` (`malaria`, `hiv`, `tb`, …) | tag everywhere · scopes Scout's search |
 
-Picker is 4 cascading dropdowns; each shows a per-tool role label ("selects config" / "tags output").
+`itpp` = intervention TPP (candidate-agnostic, early); `ctpp` = candidate TPP (a specific product). The picker is four cascading dropdowns, each labeled with its per-tool role: "selects config", "labels output", or "scopes search".
 
-## Configs And Vocabularies
+## Configs and lookup
 
-| Service | Filename pattern | Lookup |
+| Service | Filename | Lookup |
 |---|---|---|
-| chunker | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` raises `LookupError` |
-| reviewer | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` returns `None` |
-| scout | `{org}_{source_type}_{intervention}.yaml` | `find_config(org, source_type, intervention)` raises `LookupError` |
+| chunker | `{org}_{source_type}_{intervention}.yaml` | `find_config(...)` raises `LookupError` |
+| reviewer | same | `find_config(...)` returns `None` |
+| scout | same | `find_config(...)` raises `LookupError` |
 
-Configs declare their own `org`/`source_type`/`intervention_class` as data inside the YAML — the picker reads YAML contents, not filename parts. The vocabulary of valid (org, source_type, intervention) triples emerges from the union of chunker configs.
+Each config declares its own `org`/`source_type`/`intervention_class` as data; the document-type list is built from the union of chunker configs (the picker reads YAML contents, not filenames). Reviewer configs carry `grading_guidance` (the stage bar — `itpp` grades leniently on numeric specificity, `ctpp` strictly). Scout configs carry `languages`, `priority_sources`, `geographic_emphasis`, and per-track budgets (`geographic_`/`counterfactual_`/`precedent_queries_per_variable`).
 
-Scout configs may also include `priority_sources`, `modalities`, `languages`,
-`geographic_emphasis`, and `geographic_queries_per_variable`. These are domain
-vocabulary and additive query budgets injected into per-variable query generation.
+## Reviewer grading
 
-## Reviewer grading shape
+Three independent LLM calls per section, run in parallel, each seeing only its own rubric inputs:
 
-**Two independent LLM calls per section, parallelized.** Each call sees only its dimension's inputs:
+- completeness — is every required variable present and filled?
+- adherence — does it follow the rubric's structure and format?
+- rigor — is the content specific, measurable, and sound (not just present)?
 
-- **Completeness**: rubric + draft.
-- **Adherence**: rubric + draft.
+Section grades roll up from variables; document grades roll up from sections weighted by `section.weight`. Rollups are plain math, not LLM calls. Grades are `A`–`F` plus `N/A`. After grading, one whole-document pass (`check_cross_section`) finds contradictions that span multiple sections; those are doc-level findings, not attached to any one section.
 
-Section dimensions roll up from variables; document dimensions roll up from sections weighted by `section.weight`. **Rollups are mechanical math, not LLM calls.**
+## Scout shape
 
-Grade scale: `A`/`B`/`C`/`D`/`F`/`N/A`. Same scale per dimension.
+Per attribute variable from `shared/attributes.yaml`:
 
-## Naming conventions
+- Query generation runs four additive tracks — general, Global-South, counterfactual (disconfirming), precedent (prior/adjacent attempts). Tracks add queries; they never replace each other. Dedup by text, capped at the summed budget.
+- Search runs three lanes concurrently — web, PubMed, ClinicalTrials.gov — each emitting `Finding`s into one pool, deduped by URL. CT.gov searches by structured condition + intervention (not the free-text query) and is cached once per run.
+- Findings → insights (LLM, per variable) → four reasoning layers, each answering a distinct question and kept orthogonal:
+  - drift `Match` (relation to the doc: contradicts/extends/confirms/unrelated),
+  - evidence assessment (is the target grounded?),
+  - conformity (quantitative: weighted likelihood the numeric target is met; low can mean an ambitious target, not a failure),
+  - precedent (established/emerging/novel/disconfirmed/unknown).
 
-- Folders use **action names**: `services/chunker/`, `services/reviewer/`, `services/searcher/`, `services/scout/`.
-- Data units stay as their nouns: `ContentBlock`, `Finding`, `Insight`, `Match`, `EvidenceAssessment`.
-- UI labels: **Chunker**, **Reviewer**, **Searcher**, **Scout** (sidebar nav).
-- Web routes: `/chunker`, `/reviewer`, `/searcher`, `/scout`. (`/` redirects to `/chunker`.)
-- API routes: `/api/chunker/run`, `/api/reviewer/run`, `/api/searcher/run`, `/api/scout/run`.
-- Acronyms (BMGF, WHO, TPP, PPC, HIV, TB, RSV, HPV, COVID19) display uppercase via `displayLabel()` in `web/components/header-picker.tsx`.
-- The field is `indication` (singular) everywhere — **not** `therapeutic_area` (renamed).
+## Ask assistant
+
+`services/assistant/` answers questions about a result object, read-only. It's result-agnostic: `navigator.py` walks any result as a JSON tree (`overview`, `get`, `find`, `fetch_source`), and `legends.py` supplies per-result-type meaning. `agent.py` is a small hand-rolled tool-calling loop — no framework. It only fetches URLs already cited in the result (no fresh web search), and it's stateless: the client sends the result plus conversation history each turn. Adding a new result type needs only a legend entry.
+
+## Progress
+
+Parallel fan-out stages report `progress(stage, completed, total)` so the UI shows a live count (Scout's search and per-variable stages; Reviewer's section grading). Single, non-fan-out stages show only a spinner.
+
+## Naming
+
+- Folders are action names: `chunker`, `reviewer`, `searcher`, `scout`, `assistant`.
+- Data units keep their nouns: `ContentBlock`, `Finding`, `Insight`, `Match`, `EvidenceAssessment`, `ConformityScore`, `PrecedentSignal`, `CrossSectionFinding`.
+- Web routes: `/chunker`, `/reviewer`, `/searcher`, `/scout`. API routes: `/api/{tool}/run`, plus `/api/assistant/ask`.
+- `displayLabel()` in `web/components/header-picker.tsx` uppercases acronyms (WHO, TPP, …) and special-cases `iTPP`/`cTPP`.
+- The field is `indication` everywhere, not `therapeutic_area`.
 
 ## Hard rules
 
-1. **One config per domain change.** Adding an (org × source_type × intervention) triple is a YAML drop — no code.
-2. **Services are stateless.** Same input → same output (modulo LLM drift). No persistence in the active path.
-3. **No cross-service internals.** Reach only through `__init__.py`.
-4. **Code = infrastructure, config = domain content.** Prompts live in `stages/*.py`. Domain rubric/query content lives in YAML.
-5. **No speculative fields or stages.** If a feature isn't wired end-to-end, it doesn't get a placeholder slot. Wait for the actual use case.
-6. **Single provider (OpenAI).** All services share `shared/openai_client.py`. Anthropic support was removed; do not add it back without an explicit design discussion.
+1. One config per domain change. A new triple is a YAML drop, no code.
+2. Services are stateless: same input, same output (modulo LLM/web drift).
+3. No cross-service internals — reach only through `__init__.py`.
+4. Code is infrastructure; config is domain content. Prompts in `stages/*.py`, rubric/query content in YAML.
+5. No speculative fields or stages. If it isn't wired end to end, it doesn't get a placeholder.
+6. One provider (OpenAI), via `shared/openai_client.py`. Don't add another without a design discussion.
 
 ## API contract
 
-- All routes return `StreamingResponse` of NDJSON. Each line is one of: `{"event":"stage","name":"..."}`, `{"event":"complete","result":...}`, `{"event":"error","detail":"..."}`. Frontend's `streamRequest` in `web/lib/api.ts` consumes them.
-- Form fields on every tool route: `file`, `org`, `source_type`, `intervention_class`, `indication`. All required.
-- API keys read server-side from `.env` (`OPENAI_API_KEY`; optional `NCBI_API_KEY` for higher PubMed/PMC rate limits). Browser never sees them.
+- Tool routes stream NDJSON. Each line is `{"event":"stage",...}` (optionally with `completed`/`total`), `{"event":"complete","result":...}`, or `{"event":"error","detail":...}`. `streamRequest` in `web/lib/api.ts` consumes them. `/api/assistant/ask` is a plain JSON POST (result + messages → answer).
+- Tool form fields: `file(s)`, `org`, `source_type`, `intervention_class`, `indication`.
+- Keys are read server-side from `.env` (`OPENAI_API_KEY`; optional `NCBI_API_KEY`). The browser never sees them.
 
-## Common pitfalls (don't repeat)
+## Pitfalls (learned the hard way)
 
-- Don't pass `provider` / `model` form fields per request. The document tools use fixed OpenAI defaults; swap by editing `shared/openai_client.py`, not by adding form fields.
-- Don't use Pydantic models with `str | None` defaults on Python 3.9 without `eval-type-backport`. Already pinned in `api/requirements.txt`.
-- Don't run `uvicorn` from the base conda Python; it spawns a worker that won't see venv packages. Use `python -m uvicorn api.main:app --reload --port 8000` so the venv's interpreter handles both.
-- For Next.js dev, frontend hits `http://localhost:8000` directly. **Do not** restore the Next.js rewrite proxy — multipart uploads flake through it.
-- Block IDs in citations look like `b-0032`. If you see `tmp{hash}/b-0032` in the UI, the doc_id is being derived from the temp filename — make sure routes pass `doc_id` (filename stem) into `run_pipeline`.
+- Don't pass `provider`/`model` per request. The tools use fixed OpenAI defaults; change them in `shared/openai_client.py`.
+- Python 3.9 + Pydantic with `str | None` defaults needs `eval-type-backport` (pinned in `api/requirements.txt`).
+- Run uvicorn as `python -m uvicorn api.main:app --reload --port 8000` so the venv interpreter is used (a bare `uvicorn` can spawn a worker that misses venv packages).
+- Frontend hits `http://localhost:8000` directly. Don't restore the Next.js rewrite proxy — multipart uploads flake through it.
+- Block IDs look like `b-0032`. A `tmp{hash}/b-0032` in the UI means the route didn't pass `doc_id` (the filename stem) into `run_pipeline`.
 
-## Theme / typography (web)
-
-Warm cream palette (`hsl(40 38% 97%)` background, warm-dark text, muted yellow accent). Defined in `web/app/globals.css`. Font: Inter via `--font-sans` variable, tightened letter-spacing for an agent-surface feel.
-
-## Where things live (file map for quick lookup)
+## File map
 
 ```
-shared/openai_client.py          OpenAI client (all services, including web_search)
-shared/indications.yaml          indication vocabulary per intervention
-shared/attributes.yaml           attribute taxonomy vocabulary per intervention
-services/chunker/pipeline.py     run_pipeline (parse + optional label)
-services/chunker/stages/         parser_docx, parser_pdf, mapper
-services/reviewer/pipeline.py    run_pipeline (parse + label → grade)
-services/reviewer/stages/grader.py  2-dimension parallel grader
-services/searcher/pipeline.py    run_pipeline (query -> Findings)
-services/searcher/stages/searcher.py  OpenAI web-search stage
-services/searcher/stages/pubmed.py    NCBI PubMed/PMC literature stage
-services/searcher/models.py      Finding dataclass + protocol
-services/scout/pipeline.py     run_pipeline (files + primitives -> ScoutResult)
-services/scout/stages/query_extractor.py    LLM: attribute variables -> search queries
-services/scout/stages/insight_extractor.py  LLM: findings -> Insights
-services/scout/stages/drift_classifier.py   LLM: insights x doc -> relations
-services/scout/stages/evidence_assessor.py  LLM: variable evidence -> strength
-services/scout/stages/conformity.py          LLM extract numbers + Python combine -> ConformityScore (quantitative vars)
-services/scout/models.py       Insight + Match + EvidenceAssessment dataclasses + config
-api/main.py                      FastAPI app + route registration
-api/routes/{chunker,reviewer,configs}.py
-api/routes/searcher.py           POST /api/searcher/run (query -> Findings)
-api/routes/scout.py            POST /api/scout/run (files + primitives -> ScoutResult)
-api/schemas.py                   Pydantic wire models (ReviewerRunResponse, ScoutRunResponse, ...)
-api/streaming.py                 NDJSON streaming helper (background thread + queue)
-web/lib/api.ts                   typed API client (runChunker, runReviewer, runSearcher, runScout)
-web/lib/store.ts                 zustand: useHeaderStore + isHeaderComplete
-web/lib/session.ts               zustand: per-tool result/busy/stage sessions
-web/components/header-picker.tsx 4-primitive cascading picker
-web/components/sidebar.tsx       static title (non-clickable) + nav + picker
-web/app/{chunker,reviewer}/page.tsx  document-tool views
-web/app/searcher/page.tsx        searcher debug UI (no picker)
-web/app/scout/page.tsx         scout UI (picker + multi-file upload + field grid)
+shared/openai_client.py             OpenAI client (text, web_search, tool-calling chat)
+shared/{indications,attributes}.yaml  controlled vocabularies per intervention
+services/chunker/stages/            parser_docx, parser_pdf, mapper
+services/reviewer/stages/grader.py  3-dimension parallel grader + cross-section pass
+services/searcher/stages/           searcher (web), pubmed, clinicaltrials
+services/scout/stages/              query_extractor, insight_extractor, drift_classifier,
+                                    evidence_assessor, conformity, precedent_classifier
+services/assistant/                 navigator, legends, agent (Ask)
+api/main.py                         FastAPI app + route registration
+api/routes/                         chunker, reviewer, searcher, scout, assistant, configs
+api/{schemas,streaming,deps}.py     wire models · NDJSON streaming · client factory
+web/lib/{api,store,session}.ts      typed client · header store · per-tool sessions
+web/components/                     header-picker, sidebar, run-panel, assistant/ask, ...
+web/app/{chunker,reviewer,searcher,scout}/page.tsx
 ```

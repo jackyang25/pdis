@@ -1,115 +1,90 @@
-# PDIS — Product Development Intelligence System
+# PDIS — Product Development Intelligence Suite
 
-Layered system for developing Target Product Profiles (TPPs) faster and
-with better grounding. Documents become structured blocks, rubric grades,
-and scout signals.
+PDIS helps teams write and pressure-test Target Product Profiles (TPPs). You upload a document and it comes back three ways: parsed into citable blocks, graded against a rubric, or tested against real-world evidence from the web. A chat assistant ("Ask") answers questions about any result.
 
 ## Architecture
 
 ```
-web/ (Next.js + shadcn/ui)  →  api/ (FastAPI)  →  services/  →  data/
-                                                  shared/ (cross-cutting)
+web/ (Next.js)  →  api/ (FastAPI)  →  services/  →  shared/, data/
 ```
 
-Imports flow one way only: `web/` -> `api/` -> `services/`.
-Services import from each other only through `__init__.py` public
-contracts.
+Imports go one direction only: web → api → services → (shared, data), never the reverse. Services reach each other only through their `__init__.py` public contract — not into another service's `stages/` or `models.py`.
 
-Cross-cutting files live in `shared/`: `openai_client.py`,
-`indications.yaml`, and `attributes.yaml`.
+`shared/` holds the cross-cutting pieces: the OpenAI client and two controlled vocabularies (`indications.yaml`, `attributes.yaml`).
 
 ## Services
 
-| Folder | UI name | One-line job | Depends on |
+| Folder | UI | What it does | Depends on |
 |---|---|---|---|
-| `services/chunker/` | Chunker | Parse documents into ordered, citable `ContentBlock`s; optionally label sections. | — |
-| `services/reviewer/` | Reviewer | Grade a document against a rubric on completeness and adherence. | chunker |
-| `services/searcher/` | Searcher | Query -> source-attributed `Finding`s via OpenAI web search. | shared/openai_client |
-| `services/scout/` | Scout | Files + 4 primitives -> drift `Match` records and evidence assessments over shared TPP attributes. | chunker, searcher |
+| `chunker` | Chunker | Parse `.docx`/`.pdf` into ordered, citable `ContentBlock`s; optionally label sections. | — |
+| `reviewer` | Reviewer | Grade a document against its rubric on completeness, adherence, and rigor, then check consistency across sections. | chunker |
+| `searcher` | Searcher | Turn a query into source-attributed `Finding`s across three backends: web search, PubMed, and ClinicalTrials.gov. | openai_client, NCBI |
+| `scout` | Scout | Test a TPP's targets against live evidence — drift, evidence weight, conformity, and precedent — over the shared attribute list. | chunker, searcher |
+| `assistant` | Ask | Read-only chat grounded in a Scout or Reviewer result; navigates the result and can open the sources it already cites. | openai_client |
 
-Each service has its own README with the file map and public contract.
+Each service has its own README with its file map and public contract.
 
-## Required inputs
+## The four inputs
 
-Document tools use the same four primitives, picked once in the sidebar:
+Document tools take four fields, chosen once in the sidebar:
 
-| Field | Purpose |
+| Field | What it's for |
 |---|---|
-| `org` | Publisher of the source document (e.g., bmgf, who) |
-| `source_type` | Document format (tpp, ppc, paper, ...) |
-| `intervention_class` | Product class (vaccine, drug, diagnostic, device) |
-| `indication` | Disease scope (malaria, rsv, ...) |
+| `org` | who published the source (e.g. `bmgf`) |
+| `source_type` | TPP stage: `itpp` (intervention, candidate-agnostic) or `ctpp` (a specific candidate) |
+| `intervention_class` | `vaccine`, `drug`, `diagnostic`, `device` |
+| `indication` | disease, e.g. `malaria`, `hiv`, `tb` |
 
-The first three select configs where applicable. All four are stamped on
-document-derived outputs. Searcher is query-based and does not use these
-document headers.
+The first three select configs; all four are stamped on every output, and `indication` also scopes Scout's search. You only need them to *run* — the page loads without them, so you can import a saved result anytime. Searcher is query-only and ignores these.
 
 ## Configs and vocabularies
 
-Human-maintained domain content lives in YAML.
+Domain content lives in YAML, maintained by hand:
 
-| Surface | Filename | Role |
+| Surface | Path | Role |
 |---|---|---|
-| chunker configs | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | Section taxonomy per document format |
-| reviewer configs | `services/reviewer/configs/{org}_{source_type}_{intervention}.yaml` | Rubric per document format |
-| scout configs | `services/scout/configs/{org}_{source_type}_{intervention}.yaml` | Query-generation tuning |
-| shared indications | `shared/indications.yaml` | Indication vocabulary per intervention |
-| shared attributes | `shared/attributes.yaml` | TPP attribute vocabulary per intervention |
+| chunker config | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | section taxonomy |
+| reviewer config | `services/reviewer/configs/…` | grading rubric + stage bar (`grading_guidance`) |
+| scout config | `services/scout/configs/…` | query-generation tuning (languages, priority sources, per-track budgets) |
+| indications | `shared/indications.yaml` | indication vocabulary per intervention |
+| attributes | `shared/attributes.yaml` | TPP attribute vocabulary per intervention |
 
-Add a new `(org × source_type × intervention)` by dropping YAMLs into
-the matching `configs/` folders. No code changes are needed for ordinary
-domain additions.
+Adding an `(org × source_type × intervention)` is a YAML drop into the matching `configs/` folders. No code changes for ordinary domain additions.
 
 ## Repository layout
 
 ```
 pdis/
-  shared/
-    openai_client.py
-    indications.yaml
-    attributes.yaml
-  services/
-    chunker/
-    reviewer/
-    searcher/
-    scout/
-  api/
-    main.py
-    routes/
-    schemas.py
-    deps.py
-    streaming.py
-  web/
-    app/                 routes: /chunker, /reviewer, /searcher, /scout
-    components/
-    lib/
+  shared/        openai_client.py, indications.yaml, attributes.yaml
+  services/      chunker/  reviewer/  searcher/  scout/  assistant/
+  api/           main.py, routes/, schemas.py, deps.py, streaming.py
+  web/           app/ (routes: /chunker, /reviewer, /searcher, /scout), components/, lib/
   data/
 ```
 
 ## Design rules
 
-1. **One config per domain change.** Adding an `(org × source_type × intervention)` is YAML only.
-2. **Services are stateless.** Same input -> same output, modulo LLM/web drift.
-3. **Cross-service calls go through `__init__.py`.** No reaching into `stages/` or internals.
-4. **Code = infrastructure, config = domain content.** Domain rubric/query content lives in YAML.
-5. **Single provider.** All services share `shared/openai_client.py`.
+1. One config per domain change — adding a triple is YAML only.
+2. Services are stateless: same input, same output (modulo LLM/web drift). No persistence in the active path.
+3. Cross-service calls go through `__init__.py` — never reach into `stages/` or other internals.
+4. Code is infrastructure, config is domain content. Prompts live in `stages/*.py`; rubric and query content live in YAML.
+5. One provider. All services share `shared/openai_client.py`.
 
 ## Running locally
 
-Two processes: FastAPI gateway and Next.js dev server.
+Two processes: the FastAPI gateway and the Next.js dev server.
 
 ```bash
 # Backend
 source .venv/bin/activate
 pip install -r api/requirements.txt
-cp .env.example .env   # set OPENAI_API_KEY
+cp .env.example .env        # set OPENAI_API_KEY (optional NCBI_API_KEY for faster PubMed)
 python -m uvicorn api.main:app --reload --port 8000
 
 # Frontend
 cd web
 npm install
-npm run dev          # http://localhost:3000
+npm run dev                 # http://localhost:3000
 ```
 
-The frontend calls the gateway at `http://localhost:8000`. API keys are
-read server-side from `.env`; the browser never sees them.
+The frontend calls the gateway at `http://localhost:8000`. API keys are read server-side from `.env`; the browser never sees them.

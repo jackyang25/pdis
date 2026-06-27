@@ -401,6 +401,22 @@ function SignalLegend({
   );
 }
 
+/** True count of DISTINCT sources cited anywhere in the result (by URL).
+ * Unlike stats.unique_findings (per-variable findings summed, which double-counts
+ * a source cited under several variables), this counts each source once. */
+function distinctSourceCount(result: ScoutResponse): number {
+  const urls = new Set<string>();
+  for (const m of result.matches ?? [])
+    for (const f of m.insight.supporting_findings ?? []) if (f.url) urls.add(f.url);
+  for (const a of result.assessments ?? [])
+    for (const f of a.supporting_findings ?? []) if (f.url) urls.add(f.url);
+  for (const p of result.precedents ?? [])
+    for (const f of p.supporting_findings ?? []) if (f.url) urls.add(f.url);
+  for (const c of result.conformity ?? [])
+    for (const meas of c.measurements ?? []) if (meas.url) urls.add(meas.url);
+  return urls.size;
+}
+
 function FieldGrid({ result }: { result: ScoutResponse }) {
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
@@ -461,7 +477,9 @@ function FieldGrid({ result }: { result: ScoutResponse }) {
     <div className="flex flex-col gap-4">
       <CollapsibleCard
         title={`${variables.length} fields`}
-        subtitle={`${result.stats?.unique_findings ?? 0} sources · ${
+        subtitle={`${(result.stats?.findings ?? 0).toLocaleString()} → ${distinctSourceCount(
+          result,
+        ).toLocaleString()} sources · ${
           result.stats?.insights ?? 0
         } insights · ${updatedCount} updated · ${clearCount} clear`}
         trailing={

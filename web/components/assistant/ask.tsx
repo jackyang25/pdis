@@ -77,7 +77,7 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
             key={i}
             className={
               m.role === "user"
-                ? "ml-auto max-w-[85%] rounded-lg bg-secondary px-3 py-2 text-sm"
+                ? "ml-auto w-fit max-w-[85%] rounded-lg bg-secondary px-3 py-2 text-sm"
                 : "max-w-[92%] text-sm text-foreground"
             }
           >

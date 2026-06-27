@@ -245,8 +245,6 @@ const ACRONYMS = new Set([
   "who",
   "bmgf",
   "tpp",
-  "itpp",
-  "ctpp",
   "ppc",
   "hiv",
   "tb",
@@ -255,8 +253,16 @@ const ACRONYMS = new Set([
   "covid19",
 ]);
 
+// Tokens with non-uniform casing (lowercase prefix + uppercase acronym).
+const SPECIAL_LABELS: Record<string, string> = {
+  itpp: "iTPP",
+  ctpp: "cTPP",
+};
+
 function displayLabel(value: string): string {
-  if (ACRONYMS.has(value.toLowerCase())) return value.toUpperCase();
+  const lower = value.toLowerCase();
+  if (SPECIAL_LABELS[lower]) return SPECIAL_LABELS[lower];
+  if (ACRONYMS.has(lower)) return value.toUpperCase();
   return value
     .split("_")
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))

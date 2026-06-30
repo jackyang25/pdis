@@ -44,3 +44,10 @@ disambiguation:
 # Optional flags (default true). Drop these unless you want to disable.
 include_metadata_label: true
 include_other_label: true
+
+# Optional. When set, the pipeline extracts embedded raster images (.docx only)
+# and replaces each with an LLM-generated textual description, using this string
+# as the lens (what to look for). Omit or leave empty to skip images entirely
+# (the default - output is identical to a text-only parse). Use it for document
+# types whose figures carry information, e.g. IPDP development timelines.
+image_lens: ""

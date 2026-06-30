@@ -1,0 +1,96 @@
+type_key: bmgf_ipdp_drug
+org: bmgf
+source_type: ipdp
+intervention_class: drug
+display_name: "Drug Integrated Product Development Plan"
+
+section_taxonomy:
+  - name: "General Information"
+    description: "Project and investment administrative table: investment title, grantee, investment scope, investment total and duration, program officer, forecasted approval/end dates, opportunity/contract ID, and submission information (dates, submitter name and contact)."
+
+  - name: "Development Team"
+    description: "The grantee development team roster, listing the named lead for each function: project leader, project manager, research, regulatory, clinical, CMC, global access, partner management, delivery, legal/IP, QA, and finance."
+
+  - name: "Change History"
+    description: "Version-history table tracking changes between IPDP versions. Columns: date, version, description of changes, change made by."
+
+  - name: "Executive Summary and Objectives"
+    description: "The IPDP executive summary: overall product-development objectives for the project and a summary of the integrated plan for the candidate, including strategic fit and the rationale for the development approach."
+
+  - name: "Integrated Development Timeline"
+    description: "The end-to-end integrated development timeline (from Discovery to Launch and Delivery) and the detailed one-page timeline of critical activities from preclinical candidate development to proof of concept. Often presented as Gantt-style figures with phases, milestones, and stage gates."
+
+  - name: "Decision Criteria"
+    description: "Go / No-Go decision criteria for candidate progression to the next stage gate, and how planned activities provide the data needed to make those decisions."
+
+  - name: "Integrated Project Risks"
+    description: "High-impact integrated project risks, typically a table with columns: functional domain, risk factor, probability of occurrence, likely impact, magnitude of impact, and mitigation plan. At least one risk per functional area."
+
+  - name: "Non-Clinical Development Strategy"
+    description: "Critical non-clinical development approach to support licensure, including animal pharmacology, toxicology, PK/PD, and major assumptions."
+
+  - name: "Regulatory Strategy"
+    description: "Proposed regulatory pathway through licensure and WHO PQ; the intended countries for product introduction (with regulatory authority, special considerations, timeline, WHO PQ applicability); and regulatory communication history and plan (e.g. pre-IND, IND, end-of-Phase-2, pre-licensure) with outcomes."
+
+  - name: "Clinical Development Strategy"
+    description: "Proposed clinical development strategy and major assumptions, plus the list of critical-path clinical studies (phase, identifier, status, cost, CRO, trial locations, patient population, number of subjects, treatment arms, primary and key secondary outcomes)."
+
+  - name: "CMC Strategy"
+    description: "Chemistry, Manufacturing & Controls development strategy through WHO PQ and launch, including manufacturability, scalability, manufacturer commitment to availability/affordability, and major assumptions."
+
+  - name: "Global Access Strategy"
+    description: "Approach to securing manufacturer commitment to the availability, accessibility, and affordability of the product in intended markets, consistent with the foundation's Global Access expectations."
+
+  - name: "Partner Management Strategy"
+    description: "Approach to selecting and managing partners involved in grant execution (CROs, CMOs, service providers, commercial partners), typically a table by function with partner and engagement approach."
+
+  - name: "Launch and Delivery Strategy"
+    description: "Target countries for product introduction and the critical requirements for successful product launch, delivery, and uptake."
+
+  - name: "Progress Analysis"
+    description: "Foundation-staff section analyzing significant project variances and key learnings that inform portfolio discussions against strategic goals."
+
+preamble: >
+  This is a Drug Integrated Product Development Plan (IPDP): a grantee's
+  high-level plan describing the critical path across functional domains
+  (non-clinical, regulatory, clinical, CMC, partner management, launch and
+  delivery), anticipated risks, decision criteria, and an integrated timeline
+  from discovery through launch and delivery.
+
+  The document is built largely from tables. Some are administrative key/value
+  tables (general information, development team, change history); some are
+  registers where each row is a distinct item (the risk table, the intended
+  countries table, the critical-path clinical studies table, the partner table);
+  and many functional-domain sections are single-cell narrative summaries.
+  Label all rows of a given table under the same section - do not split
+  individual rows into different sections. Integrated development timelines
+  often appear as figures; label them under "Integrated Development Timeline".
+
+disambiguation:
+  - >
+    Risk rows naming a functional domain (e.g. "Non-Clinical Development:
+    tox finding") belong to "Integrated Project Risks", not to that functional
+    domain's own strategy section.
+  - >
+    The intended-countries table and the regulatory communication history table
+    both belong to "Regulatory Strategy".
+  - >
+    The critical-path clinical studies table belongs to "Clinical Development
+    Strategy".
+  - >
+    The partner table (function / partner / approach) belongs to "Partner
+    Management Strategy".
+  - >
+    Both the end-to-end timeline and the detailed timeline to proof of concept
+    belong to "Integrated Development Timeline".
+
+image_lens: >
+  Figures in this document are integrated product-development timelines
+  (Gantt-style charts): phases and activities across functional domains
+  (non-clinical, clinical, regulatory, CMC, launch and delivery) plotted over
+  time from discovery to launch. Capture every phase label, functional
+  swimlane, activity, milestone, stage gate, decision point, and any date or
+  duration shown, and describe the sequence and dependencies between them.
+
+include_metadata_label: true
+include_other_label: true

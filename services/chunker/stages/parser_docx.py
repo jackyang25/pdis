@@ -11,14 +11,24 @@ from docx.text.paragraph import Paragraph
 
 from ..models import ContentBlock
 
+# Content stamped on an image block until (and unless) the describer replaces it.
+# Non-empty so the block is never dropped by content filters or the mapper.
+IMAGE_PLACEHOLDER = "[image]"
 
-def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
+
+def parse_docx(
+    file_path: str, doc_id: str, *, extract_images: bool = False
+) -> list[ContentBlock]:
     """
     Parse a .docx file into an ordered list of ContentBlocks.
 
     Args:
         file_path: Path to the .docx file
         doc_id: Identifier for this document (used in block IDs)
+        extract_images: when True, emit an `image` block (with the embedded
+            image's relationship id) for each inline picture, in document order.
+            Default False keeps output identical to a text-only parse - the
+            describer stage is what later fills these in.
 
     Returns:
         List of ContentBlock objects in document order
@@ -38,7 +48,16 @@ def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
             current_paragraph_index = paragraph_index
             paragraph_index += 1
 
+            image_rels = _paragraph_image_rels(paragraph) if extract_images else []
+
             if not paragraph_text.strip():
+                for rel_id in image_rels:
+                    blocks.append(
+                        _make_image_block(
+                            doc_id, rel_id, heading_stack,
+                            {"paragraph_index": current_paragraph_index},
+                        )
+                    )
                 continue
 
             heading_level = _heading_level(paragraph)
@@ -62,27 +81,43 @@ def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
                         style_hint=_paragraph_style_hint(paragraph),
                     )
                 )
-                continue
-
-            blocks.append(
-                _make_block(
-                    doc_id=doc_id,
-                    block_type="paragraph",
-                    content=paragraph_text,
-                    heading_stack=_stack_text(heading_stack),
-                    structural_meta={"paragraph_index": current_paragraph_index},
-                    style_hint=_paragraph_style_hint(paragraph),
+            else:
+                blocks.append(
+                    _make_block(
+                        doc_id=doc_id,
+                        block_type="paragraph",
+                        content=paragraph_text,
+                        heading_stack=_stack_text(heading_stack),
+                        structural_meta={"paragraph_index": current_paragraph_index},
+                        style_hint=_paragraph_style_hint(paragraph),
+                    )
                 )
-            )
+
+            for rel_id in image_rels:
+                blocks.append(
+                    _make_image_block(
+                        doc_id, rel_id, heading_stack,
+                        {"paragraph_index": current_paragraph_index},
+                    )
+                )
 
         elif child.tag == qn("w:tbl"):
             table = Table(child, doc)
-            blocks.extend(_parse_table(table, doc_id, table_index, heading_stack))
+            blocks.extend(
+                _parse_table(
+                    table, doc_id, table_index, heading_stack,
+                    extract_images=extract_images,
+                )
+            )
             table_index += 1
 
+    image_ordinal = 0
     for ordinal, block in enumerate(blocks):
         block.ordinal = ordinal
         block.id = f"{doc_id}/b-{ordinal:04d}"
+        if block.block_type == "image":
+            block.structural_meta["image_index"] = image_ordinal
+            image_ordinal += 1
 
     return blocks
 
@@ -112,20 +147,31 @@ def _parse_table(
     doc_id: str,
     table_index: int,
     heading_stack: list[tuple[int, str]],
+    *,
+    extract_images: bool = False,
 ) -> list[ContentBlock]:
+    image_blocks: list[ContentBlock] = []
+    if extract_images:
+        image_blocks = [
+            _make_image_block(
+                doc_id, rel_id, heading_stack, {"table_index": table_index}
+            )
+            for rel_id in _table_image_rels(table)
+        ]
+
     rows = [[_cell_text(cell) for cell in row.cells] for row in table.rows]
     if not rows:
-        return []
+        return image_blocks
 
     column_count = max((len(row) for row in rows), default=0)
     if column_count == 0:
-        return []
+        return image_blocks
 
     if len(rows) == 1 and column_count == 1:
         text = rows[0][0]
         if not text.strip():
-            return []
-        return [
+            return image_blocks
+        return image_blocks + [
             _make_block(
                 doc_id=doc_id,
                 block_type="paragraph",
@@ -155,9 +201,9 @@ def _parse_table(
                     style_hint={"source": "single_column_table"},
                 )
             )
-        return blocks
+        return image_blocks + blocks
 
-    return _parse_multi_column_table(
+    return image_blocks + _parse_multi_column_table(
         rows,
         doc_id,
         table_index,
@@ -262,6 +308,47 @@ def _make_block(
         structural_meta=structural_meta,
         style_hint=style_hint,
     )
+
+
+def _paragraph_image_rels(paragraph: Paragraph) -> list[str]:
+    """Relationship ids of inline images in this paragraph, in document order.
+
+    Reads DrawingML blips (`a:blip/@r:embed`) - how Word stores inserted
+    pictures. The describer resolves each id back to image bytes via the
+    document part's related_parts.
+    """
+    rels: list[str] = []
+    for blip in paragraph._element.findall(".//" + qn("a:blip")):
+        embed = blip.get(qn("r:embed"))
+        if embed:
+            rels.append(embed)
+    return rels
+
+
+def _make_image_block(
+    doc_id: str,
+    rel_id: str,
+    heading_stack: list[tuple[int, str]],
+    position: dict[str, Any],
+) -> ContentBlock:
+    return _make_block(
+        doc_id=doc_id,
+        block_type="image",
+        content=IMAGE_PLACEHOLDER,
+        heading_stack=_stack_text(heading_stack),
+        structural_meta={**position, "image_rel_id": rel_id},
+        style_hint={"source": "docx_image"},
+    )
+
+
+def _table_image_rels(table: Table) -> list[str]:
+    """Relationship ids of images embedded anywhere in a table, in order."""
+    rels: list[str] = []
+    for blip in table._tbl.findall(".//" + qn("a:blip")):
+        embed = blip.get(qn("r:embed"))
+        if embed:
+            rels.append(embed)
+    return rels
 
 
 def _paragraph_style_hint(paragraph: Paragraph) -> dict[str, str | bool]:

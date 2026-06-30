@@ -1,4 +1,4 @@
-"""Stage 1: derive web search queries from one TPP attribute variable.
+"""Stage 1: derive web search queries from one document unit (attribute/claim).
 
 Each attribute is treated as a self-contained topic. The scout pipeline
 calls this stage once per attribute and feeds the resulting focused queries
@@ -27,7 +27,7 @@ def extract_queries_for_variable(
     queries_per_variable: int,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[str]:
-    """Generate web search queries for one TPP variable across additive tracks.
+    """Generate web search queries for one variable across additive tracks.
 
     Tracks are additive (each adds queries, never replaces another) and unioned
     losslessly: general coverage, optional Global-South emphasis, and optional
@@ -140,10 +140,10 @@ def _system_prompt_for_variable(
 ) -> str:
     parts = [
         "You generate web search queries to surface up-to-date information "
-        f"relevant to ONE TPP variable: {attribute.name}.",
+        f"relevant to ONE variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
-        "SCOPE: Every query must be about the specific TPP variable named above and "
+        "SCOPE: Every query must be about the specific variable named above and "
         "nothing else. This document has separate variables for efficacy, safety, "
         "dosing, duration, cost, etc. - do NOT pull those topics into this variable's "
         "queries unless THIS variable IS that topic. The domain guidance below tells you "
@@ -198,7 +198,7 @@ def _system_prompt_for_variable(
 
 def _user_message_for_variable(attribute: Attribute) -> str:
     return (
-        f"TPP variable: {attribute.name}\n"
+        f"variable: {attribute.name}\n"
         f"What this variable covers: {attribute.description}\n\n"
         "Generate the queries for this variable now."
     )
@@ -212,9 +212,9 @@ def _system_prompt_for_geographic_variable(
     geographic_queries_per_variable: int,
 ) -> str:
     parts = [
-        "You generate ADDITIVE Global-South web search queries for ONE TPP variable. "
+        "You generate ADDITIVE Global-South web search queries for ONE variable. "
         "These queries are added to the general query set, never substituted for it.",
-        f"TPP variable: {attribute.name}.",
+        f"variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
@@ -259,11 +259,11 @@ def _system_prompt_for_counterfactual_variable(
     counterfactual_queries_per_variable: int,
 ) -> str:
     parts = [
-        "You generate ADDITIVE COUNTERFACTUAL web search queries for ONE TPP variable. "
+        "You generate ADDITIVE COUNTERFACTUAL web search queries for ONE variable. "
         "These actively seek evidence that DISPUTES, WEAKENS, or CONTRADICTS the "
         "document's target for this variable. They are added to the general query set, "
         "never substituted for it.",
-        f"TPP variable: {attribute.name}.",
+        f"variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
@@ -305,12 +305,12 @@ def _system_prompt_for_precedent_variable(
     precedent_queries_per_variable: int,
 ) -> str:
     parts = [
-        "You generate ADDITIVE PRECEDENT web search queries for ONE TPP variable. "
+        "You generate ADDITIVE PRECEDENT web search queries for ONE variable. "
         "These seek evidence of whether this variable's target/approach has been "
         "ATTEMPTED BEFORE - so a downstream classifier can tell a genuinely novel "
         "target apart from one that has prior precedent. They are added to the general "
         "query set, never substituted for it.",
-        f"TPP variable: {attribute.name}.",
+        f"variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "

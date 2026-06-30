@@ -245,6 +245,7 @@ const ACRONYMS = new Set([
   "who",
   "bmgf",
   "tpp",
+  "ipdp",
   "ppc",
   "hiv",
   "tb",

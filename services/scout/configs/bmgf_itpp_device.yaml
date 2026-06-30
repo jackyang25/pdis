@@ -65,3 +65,13 @@ geographic_emphasis:
 geographic_queries_per_variable: 4
 counterfactual_queries_per_variable: 3
 precedent_queries_per_variable: 3
+unit_provider: vocabulary
+
+# Interpretive stance for the drift / precedent reasoning - the TPP
+# aspirational-target framing, externalized from the engine (was a default).
+drift_framing: |
+  You compare web-derived insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.
+
+  IMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.
+precedent_framing: |
+  A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.

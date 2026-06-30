@@ -1,6 +1,6 @@
 # PDIS — Product Development Intelligence Suite
 
-PDIS helps teams write and pressure-test Target Product Profiles (TPPs). You upload a document and it comes back three ways: parsed into citable blocks, graded against a rubric, or tested against real-world evidence from the web. A chat assistant ("Ask") answers questions about any result.
+PDIS helps teams write and pressure-test product-development documents — Target Product Profiles (TPPs) and Integrated Product Development Plans (IPDPs). You upload a document and it comes back three ways: parsed into citable blocks, graded against a rubric, or tested against real-world evidence from the web. A chat assistant ("Ask") answers questions about any result.
 
 ## Architecture
 
@@ -16,10 +16,10 @@ Imports go one direction only: web → api → services → (shared, data), neve
 
 | Folder | UI | What it does | Depends on |
 |---|---|---|---|
-| `chunker` | Chunker | Parse `.docx`/`.pdf` into ordered, citable `ContentBlock`s; optionally label sections. | — |
+| `chunker` | Chunker | Parse `.docx`/`.pdf` into ordered, citable `ContentBlock`s; optionally label sections and describe embedded figures. | — |
 | `reviewer` | Reviewer | Grade a document against its rubric on completeness, adherence, and rigor, then check consistency across sections. | chunker |
 | `searcher` | Searcher | Turn a query into source-attributed `Finding`s across three backends: web search, PubMed, and ClinicalTrials.gov. | openai_client, NCBI |
-| `scout` | Scout | Test a TPP's targets against live evidence — drift, evidence weight, conformity, and precedent — over the shared attribute list. | chunker, searcher |
+| `scout` | Scout | Test a document's targets against live evidence — drift, evidence weight, conformity, and precedent. Targets come from a fixed attribute list (TPP) or are extracted from the document (IPDP). | chunker, searcher |
 | `assistant` | Ask | Read-only chat grounded in a Scout or Reviewer result; navigates the result and can open the sources it already cites. | openai_client |
 
 Each service has its own README with its file map and public contract.
@@ -31,7 +31,7 @@ Document tools take four fields, chosen once in the sidebar:
 | Field | What it's for |
 |---|---|
 | `org` | who published the source (e.g. `bmgf`) |
-| `source_type` | TPP stage: `itpp` (intervention, candidate-agnostic) or `ctpp` (a specific candidate) |
+| `source_type` | document type: `itpp` (intervention TPP), `ctpp` (candidate TPP), or `ipdp` (integrated product development plan) |
 | `intervention_class` | `vaccine`, `drug`, `diagnostic`, `device` |
 | `indication` | disease, e.g. `malaria`, `hiv`, `tb` |
 
@@ -43,11 +43,11 @@ Domain content lives in YAML, maintained by hand:
 
 | Surface | Path | Role |
 |---|---|---|
-| chunker config | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | section taxonomy |
+| chunker config | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | section taxonomy + optional `image_lens` |
 | reviewer config | `services/reviewer/configs/…` | grading rubric + stage bar (`grading_guidance`) |
-| scout config | `services/scout/configs/…` | query-generation tuning (languages, priority sources, per-track budgets) |
+| scout config | `services/scout/configs/…` | query tuning (languages, priority sources, per-track budgets) + `unit_provider` |
 | indications | `shared/indications.yaml` | indication vocabulary per intervention |
-| attributes | `shared/attributes.yaml` | TPP attribute vocabulary per intervention |
+| attributes | `shared/attributes.yaml` | TPP attribute vocabulary per intervention (used when `unit_provider: vocabulary`) |
 
 Adding an `(org × source_type × intervention)` is a YAML drop into the matching `configs/` folders. No code changes for ordinary domain additions.
 

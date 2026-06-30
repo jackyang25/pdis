@@ -13,7 +13,6 @@ from services.scout import (
     assessments_to_dicts,
     conformity_to_dicts,
     find_config,
-    load_attributes,
     matches_to_dicts,
     precedents_to_dicts,
     run_pipeline,
@@ -76,7 +75,9 @@ async def run_scout(
             assessment_dicts = assessments_to_dicts(result.assessments)
             conformity_dicts = conformity_to_dicts(result.conformity)
             precedent_dicts = precedents_to_dicts(result.precedents)
-            variables = load_attributes(intervention_class)
+            # Units actually investigated (vocabulary for TPP, extracted for IPDP) -
+            # read from the result, not re-derived from the shared vocabulary.
+            variables = result.variables
             return ScoutRunResponse(
                 org=org,
                 source_type=source_type,

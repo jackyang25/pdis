@@ -13,6 +13,7 @@ import { useChunkerSession } from "@/lib/session";
 
 const CHUNKER_STEPS = [
   { key: "parse", label: "Parsing document" },
+  { key: "describe", label: "Describing figures" },
   { key: "label", label: "Labeling sections" },
 ];
 

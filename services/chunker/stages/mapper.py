@@ -89,7 +89,7 @@ def _final_taxonomy(config: DocumentTypeConfig) -> list[dict[str, str]]:
                 "description": (
                     "Page numbers, version stamps, headers, footers, template "
                     "metadata, and other formatting artifacts that are about "
-                    "the document itself, not the TPP content."
+                    "the document itself, not its substantive content."
                 ),
             }
         )

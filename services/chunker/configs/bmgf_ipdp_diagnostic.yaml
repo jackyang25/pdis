@@ -1,0 +1,112 @@
+type_key: bmgf_ipdp_diagnostic
+org: bmgf
+source_type: ipdp
+intervention_class: diagnostic
+display_name: "Diagnostic Integrated Product Development Plan"
+
+section_taxonomy:
+  - name: "General Information"
+    description: "Project and investment administrative table: investment title, grantee, investment total and duration, program officer, forecasted approval/end dates, opportunity/contract ID, and submission information (dates, submitter name and contact)."
+
+  - name: "Development Team"
+    description: "The grantee development team roster, listing the named lead for each function: project leader, project manager, research, regulatory, clinical, development, manufacturing, global access, partner management, delivery, legal/IP, quality, and finance."
+
+  - name: "Change History"
+    description: "Version-history table tracking changes between IPDP versions. Columns: date, version, description of changes, change made by."
+
+  - name: "Executive Summary and Objectives"
+    description: "Objectives statement and the IPDP executive summary: overall product-development objectives for the project and a summary of the integrated plan for the candidate, including strategic fit and the rationale for the development approach."
+
+  - name: "Integrated Development Timeline"
+    description: "The high-level end-to-end integrated development timeline from feasibility to regulatory approval, spanning key activities across functional domains. Often presented as a Gantt-style figure with phases, milestones, and stage gates."
+
+  - name: "Decision Criteria"
+    description: "Go / No-Go decision criteria for program progression to the next stage gate, typically a table by functional criterion (research, development, clinical, regulatory, manufacturing, quality, delivery, global access, partner management) with the key criteria and status."
+
+  - name: "Integrated Project Risks"
+    description: "High-impact integrated project risks, typically a table with columns: functional domain, risk factor, probability of occurrence, likely impact, magnitude of impact, and mitigation plan. At least one risk per functional area."
+
+  - name: "Future Landscape"
+    description: "High-level summary of the future competitive landscape the product will launch into, including competitive products on the market or in development."
+
+  - name: "Key Stakeholders"
+    description: "Key external stakeholders across the product-development program, spanning regulatory, clinical, manufacturing, access, and delivery functions."
+
+  - name: "Research Output Strategy"
+    description: "Key data supporting the product concept and the research output summary underpinning the diagnostic's intended performance."
+
+  - name: "Regulatory Strategy"
+    description: "Proposed regulatory pathway through approval and WHO PQ/endorsement; the intended countries for product introduction (with regulatory authority, special considerations, timeline, WHO PQ/endorsement applicability); and regulatory communication history and plan with outcomes."
+
+  - name: "Clinical Development Strategy"
+    description: "Strategy for clinical development of the diagnostic through WHO PQ, including clinical performance evaluation approach and major assumptions."
+
+  - name: "Development Strategy"
+    description: "Strategy for product development through WHO PQ and launch, including reagents, assay/instrument development, design, and verification/validation."
+
+  - name: "Manufacturing Strategy"
+    description: "Strategy for manufacturing through WHO PQ and launch, including manufacturability, scalability, and transfer."
+
+  - name: "Quality Management Strategy"
+    description: "The Quality Management Plan through WHO PQ and launch (quality system, design controls, and quality reporting), typically a pointer to a standalone QMP."
+
+  - name: "Global Access Strategy"
+    description: "Approach to securing manufacturer commitment to the availability, accessibility, and affordability of the product in intended markets, consistent with the foundation's Global Access expectations."
+
+  - name: "Partner Management Strategy"
+    description: "Approach to selecting and managing partners involved in grant execution (key suppliers, CROs, CMOs, service providers, distributors, commercial partners), typically a table by function with partner and engagement approach."
+
+  - name: "Delivery Strategy"
+    description: "Approach to delivering the product to the target population: target countries, beneficiary profile, and the per-topic delivery plan (partnership coordination, user/market assessment and demand, country implementation and decision support, supply chain, service and support/training, financing, global policy, communications and advocacy, monitoring and evaluation), plus delivery metrics (countries launched, target coverage, procurement price per test, unit cost to deliver)."
+
+  - name: "Progress Analysis"
+    description: "Foundation-staff section analyzing significant project variances and key learnings that inform portfolio discussions against strategic goals."
+
+preamble: >
+  This is a Diagnostic Integrated Product Development Plan (IPDP): a grantee's
+  high-level plan describing the critical path across functional domains
+  (research, regulatory, clinical, development, manufacturing, quality, global
+  access, partner management, delivery), anticipated risks, decision criteria,
+  and an integrated timeline from feasibility through regulatory approval and
+  WHO PQ/endorsement.
+
+  The document is built largely from tables. Some are administrative key/value
+  tables (general information, development team, change history); some are
+  registers where each row is a distinct item (the decision-criteria table, the
+  risk table, the intended countries table, the partner table, delivery
+  metrics); and many functional-domain sections are single-cell narrative
+  summaries. Label all rows of a given table under the same section - do not
+  split individual rows into different sections. Integrated development
+  timelines often appear as figures; label them under "Integrated Development
+  Timeline".
+
+disambiguation:
+  - >
+    Risk rows naming a functional domain (e.g. "Manufacturing: scale-up risk")
+    belong to "Integrated Project Risks", not to that functional domain's own
+    strategy section.
+  - >
+    The decision-criteria table organized by functional criterion belongs to
+    "Decision Criteria", not to each functional domain's own strategy section.
+  - >
+    The intended-countries table and the regulatory communication history table
+    both belong to "Regulatory Strategy".
+  - >
+    Diagnostics separate "Development Strategy" (assay/reagent/instrument
+    development), "Manufacturing Strategy", and "Quality Management Strategy";
+    keep each under its own section rather than merging them.
+  - >
+    Delivery-topic rows and the delivery metrics table both belong to
+    "Delivery Strategy".
+
+image_lens: >
+  Figures in this document are integrated product-development timelines
+  (Gantt-style charts): phases and activities across functional domains
+  (research, development, clinical, regulatory, manufacturing, quality,
+  delivery) plotted over time from feasibility to regulatory approval. Capture
+  every phase label, functional swimlane, activity, milestone, stage gate,
+  decision point, and any date or duration shown, and describe the sequence and
+  dependencies between them.
+
+include_metadata_label: true
+include_other_label: true

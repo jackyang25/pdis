@@ -72,13 +72,16 @@ def _has_reviewer_config(org: str, source_type: str, intervention: str) -> bool:
 
 
 def _has_scout_config(org: str, source_type: str, intervention: str) -> bool:
-    """Scout is usable only when a config AND non-empty attributes exist.
+    """Scout is usable when a config exists and the config can produce units.
 
-    A scaffolded config with an empty attribute vocabulary would produce an
-    empty grid, so it should not surface as supported.
+    A 'vocabulary' config needs non-empty shared attributes (an empty list would
+    produce an empty grid). An 'extract' config pulls units from the document
+    itself, so it does not depend on the shared vocabulary.
     """
     try:
-        find_scout_config(org, source_type, intervention)
+        config = find_scout_config(org, source_type, intervention)
     except LookupError:
         return False
+    if config.unit_provider == "extract":
+        return True
     return bool(load_scout_attributes(intervention))

@@ -1,0 +1,98 @@
+type_key: bmgf_ipdp_drug
+org: bmgf
+source_type: ipdp
+intervention_class: drug
+display_name: "Drug Integrated Product Development Plan"
+grading_guidance: |
+  This is an INTEGRATED PRODUCT DEVELOPMENT PLAN (IPDP): a high-level plan a grantee submits at investment and updates at each stage gate. Calibrate ALL judgments to a strategic development plan - NOT to a candidate specification or a TPP. Each functional domain is intentionally a high-level summary (the template limits most to ~1 page), so do not treat appropriate brevity as a deficiency. What matters: the critical path is articulated end to end (including the detailed timeline to proof of concept); key risks are identified per functional area with probability/impact ratings and credible mitigations; Go / No-Go decision criteria are explicit and tied to the data the planned activities will produce; and the regulatory, clinical, non-clinical, CMC, partner, and launch/delivery strategies are present and mutually consistent (timeline <-> clinical studies <-> risks <-> decision criteria). Numeric specifics ARE expected where the template asks for them (study sizes, costs, dates); narrative is appropriate for strategy summaries. Reward internal consistency and a coherent, feasible plan over exhaustive detail.
+
+sections:
+  - name: "Executive Summary and Objectives"
+    description: "Overall product-development objectives and a summary of the integrated plan, including strategic fit."
+    weight: 0.10
+    variables:
+      - name: "Objectives Statement"
+        description: "Clear statement of the product-development objectives for the project."
+      - name: "Integrated Plan Summary"
+        description: "A coherent summary of the integrated development plan for the candidate."
+      - name: "Strategic Fit"
+        description: "How the program fits the foundation's strategy and the unmet need."
+
+  - name: "Integrated Development Timeline"
+    description: "End-to-end timeline from discovery to launch plus the detailed timeline to proof of concept, with milestones and stage gates."
+    weight: 0.14
+    variables:
+      - name: "End-to-End Timeline"
+        description: "A high-level timeline from discovery through launch and delivery is present."
+      - name: "Detailed Timeline to PoC"
+        description: "A detailed one-page timeline of critical activities from preclinical candidate development to proof of concept."
+      - name: "Milestones and Stage Gates"
+        description: "Critical milestones, stage gates, and decision points are identified with timing."
+
+  - name: "Decision Criteria"
+    description: "Go / No-Go criteria for progression to the next stage gate and the data that informs them."
+    weight: 0.10
+    variables:
+      - name: "Go/No-Go Criteria"
+        description: "Explicit, decision-ready Go / No-Go criteria for candidate progression."
+      - name: "Data Linkage"
+        description: "How planned activities produce the data needed to make each decision."
+
+  - name: "Integrated Project Risks"
+    description: "High-impact risks across functional areas with probability, impact, and mitigation plans."
+    weight: 0.15
+    variables:
+      - name: "Risk Coverage"
+        description: "At least one moderate-to-high-impact risk per functional area is identified."
+      - name: "Probability and Impact"
+        description: "Each risk is rated for probability of occurrence and magnitude of impact."
+      - name: "Mitigation Plans"
+        description: "Each risk has a credible, specific mitigation plan."
+
+  - name: "Non-Clinical Development Strategy"
+    description: "Non-clinical approach supporting licensure."
+    weight: 0.07
+    variables:
+      - name: "Non-Clinical Approach"
+        description: "Critical non-clinical development approach (pharmacology, toxicology, PK/PD) and major assumptions."
+
+  - name: "Regulatory Strategy"
+    description: "Regulatory pathway through licensure and WHO PQ, intended countries, and regulatory communications."
+    weight: 0.12
+    variables:
+      - name: "Regulatory Pathway"
+        description: "Proposed pathway through licensure and WHO PQ, with major assumptions."
+      - name: "Intended Countries"
+        description: "Intended countries for introduction with authority, special considerations, timeline, and WHO PQ applicability."
+      - name: "Regulatory Communications"
+        description: "History and plan for key regulatory communications, with outcomes as available."
+
+  - name: "Clinical Development Strategy"
+    description: "Clinical strategy and the critical-path clinical studies."
+    weight: 0.13
+    variables:
+      - name: "Clinical Strategy"
+        description: "Proposed clinical development strategy and major assumptions."
+      - name: "Critical-Path Studies"
+        description: "Phase 1-3 critical-path studies with design parameters (population, subjects, arms, endpoints, cost, location)."
+
+  - name: "CMC Strategy"
+    description: "Chemistry, Manufacturing & Controls strategy through WHO PQ and launch."
+    weight: 0.09
+    variables:
+      - name: "CMC Strategy"
+        description: "CMC development strategy through WHO PQ and launch, including manufacturability, scalability, and manufacturer commitment."
+
+  - name: "Partner Management Strategy"
+    description: "Selection and management of partners involved in grant execution."
+    weight: 0.05
+    variables:
+      - name: "Partner Approach"
+        description: "Approach to selecting and managing CROs, CMOs, service providers, and commercial partners by function."
+
+  - name: "Launch and Delivery Strategy"
+    description: "Target countries and critical requirements for successful product launch, delivery, and uptake."
+    weight: 0.05
+    variables:
+      - name: "Launch and Delivery Approach"
+        description: "Target countries for introduction and the critical requirements for successful launch, delivery, and uptake."

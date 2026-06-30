@@ -37,6 +37,7 @@ from .stages.evidence_assessor import assess_evidence
 from .stages.insight_extractor import extract_insights
 from .stages.precedent_classifier import classify_precedent
 from .stages.query_extractor import extract_queries_for_variable
+from .stages.unit_extractor import extract_units
 
 FINDINGS_BATCH_SIZE = 40
 SEARCH_MAX_TOKENS = 8000
@@ -81,7 +82,9 @@ def run_pipeline(
         block.content for block in blocks if getattr(block, "content", "")
     )
 
-    attributes = load_attributes(intervention_class)
+    attributes = _resolve_units(
+        config, doc_text, openai_client, indication=indication
+    )
     if not attributes:
         return ScoutResult(
             matches=[],
@@ -167,6 +170,7 @@ def run_pipeline(
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
+        framing=config.drift_framing,
         progress=progress_callback,
     )
 
@@ -203,6 +207,7 @@ def run_pipeline(
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
+        framing=config.precedent_framing,
         progress=progress_callback,
     )
 
@@ -220,7 +225,31 @@ def run_pipeline(
         stats=stats,
         conformity=conformity,
         precedents=precedents,
+        variables=attributes,
     )
+
+
+def _resolve_units(
+    config: ScoutTypeConfig,
+    doc_text: str,
+    openai_client: LLMClientProtocol,
+    *,
+    indication: str,
+) -> list[Attribute]:
+    """Get the units to investigate, per the config's unit_provider.
+
+    'vocabulary' (default) reads the fixed shared attribute list; 'extract' pulls
+    units from the document. Both return `list[Attribute]`, so nothing downstream
+    changes."""
+    if config.unit_provider == "extract":
+        return extract_units(
+            doc_text,
+            intervention_class=config.intervention_class,
+            source_type=config.source_type,
+            indication=indication,
+            llm_client=openai_client,
+        )
+    return load_attributes(config.intervention_class)
 
 
 def _parse_all_docs(
@@ -495,6 +524,7 @@ def _classify_drift_all(
     *,
     indication: str,
     intervention_class: str,
+    framing: str = "",
     progress: ProgressFn | None = None,
 ) -> list[Match]:
     """Classify drift across insight batches concurrently.
@@ -521,6 +551,7 @@ def _classify_drift_all(
             openai_client,
             indication=indication,
             intervention_class=intervention_class,
+            framing=framing,
         )
 
     results = _parallel_map(
@@ -614,6 +645,7 @@ def _classify_precedent_all_variables(
     *,
     indication: str,
     intervention_class: str,
+    framing: str = "",
     progress: ProgressFn | None = None,
 ) -> list[PrecedentSignal]:
     """Classify precedent per attribute with bounded concurrency.
@@ -637,6 +669,7 @@ def _classify_precedent_all_variables(
             openai_client,
             indication=indication,
             intervention_class=intervention_class,
+            framing=framing,
         )
 
     results = _parallel_map(

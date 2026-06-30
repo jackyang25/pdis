@@ -1,13 +1,15 @@
-"""Stage: classify the precedent / novelty of one TPP attribute variable.
+"""Stage: classify the precedent / novelty of one document unit.
 
-Resolves the ambiguity in a low evidence assessment. A target with little or no
+Resolves the ambiguity in a low evidence assessment. A unit with little or no
 supporting evidence can be one of two OPPOSITE things:
 
-  - NOVEL (white space): nobody has tried this approach yet. For a TPP - which
-    exists to specify aspirational, often first-in-class products - this is
-    expected and frequently intended, NOT a deficiency.
+  - NOVEL (white space): nobody has tried this approach yet.
   - DISCONFIRMED: the approach HAS been tried and failed / been contradicted.
     This is a genuine caution.
+
+How to READ a novel result is doc-type-specific and supplied by the config's
+`precedent_framing`: for a TPP, white space is expected and often intended; for
+an IPDP, an unprecedented plan commitment is a feasibility risk to surface.
 
 The evidence dimension alone cannot tell these apart (both score low). This
 stage reads the SAME per-variable insights - including the disconfirming
@@ -51,6 +53,7 @@ def classify_precedent(
     *,
     indication: str,
     intervention_class: str,
+    framing: str = "",
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> PrecedentSignal | None:
     """Classify whether this variable's target/approach has precedent.
@@ -68,6 +71,7 @@ def classify_precedent(
         attribute=attribute,
         indication=indication,
         intervention_class=intervention_class,
+        framing=framing,
     )
     user_message = _user_message(attribute, doc_text, insights)
 
@@ -101,22 +105,35 @@ def classify_precedent(
     )
 
 
+# Generic, doc-agnostic fallback. The real interpretive stance is supplied per
+# document type by the config's `precedent_framing`; this is only used if a
+# config omits it. No doc-type-specific assumptions live here.
+_GENERIC_PRECEDENT_FRAMING = (
+    "Where supporting evidence is thin, distinguish genuine novelty (no prior "
+    "attempt at this target/approach) from a target that has been tried and failed."
+)
+
+
 def _system_prompt(
     *,
     attribute: Attribute,
     indication: str,
     intervention_class: str,
+    framing: str = "",
 ) -> str:
+    framing = (
+        (framing.strip() or _GENERIC_PRECEDENT_FRAMING)
+        .replace("{intervention_class}", intervention_class)
+        .replace("{indication}", indication)
+    )
     return (
-        "You classify the PRECEDENT of ONE TPP variable's target/approach: has it "
+        "You classify the PRECEDENT of ONE variable's target/approach: has it "
         "been attempted before, and if the evidence is thin, is that because the "
         "approach is genuinely new or because it has been tried and failed?\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}\n"
         f"Definition: {attribute.description}\n\n"
-        "A TPP specifies aspirational, often first-in-class products. A target with "
-        "little supporting evidence is NOT automatically weak - it may be deliberately "
-        "novel. Your job is to say which.\n\n"
+        + framing + "\n\n"
         "Choose exactly ONE precedent label:\n"
         "- established: prior products/approaches already pursue this target/method for "
         "this (or a closely comparable) indication.\n"

@@ -37,6 +37,7 @@ def classify_drift(
     *,
     indication: str,
     intervention_class: str,
+    framing: str = "",
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[Match]:
     if not insights:
@@ -52,12 +53,17 @@ def classify_drift(
                     llm_client,
                     indication=indication,
                     intervention_class=intervention_class,
+                    framing=framing,
                     max_tokens=max_tokens,
                 )
             )
         return matches
 
-    system_prompt = _system_prompt(indication=indication, intervention_class=intervention_class)
+    system_prompt = _system_prompt(
+        indication=indication,
+        intervention_class=intervention_class,
+        framing=framing,
+    )
     user_message = _user_message(doc_excerpts, insights)
 
     raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
@@ -86,22 +92,35 @@ def classify_drift(
     return matches
 
 
-def _system_prompt(*, indication: str, intervention_class: str) -> str:
+# Generic, doc-agnostic fallback. The real interpretive stance is supplied per
+# document type by the config's `drift_framing`; this is only used if a config
+# omits it. No doc-type-specific assumptions live here.
+_GENERIC_DRIFT_FRAMING = (
+    "You compare web-derived insights against a {intervention_class} "
+    "product-development document targeting {indication}. The document states "
+    "intended targets or plans; treat external evidence about current or "
+    "standard-of-care products as context for assessing them."
+)
+
+
+def _system_prompt(
+    *, indication: str, intervention_class: str, framing: str = ""
+) -> str:
+    framing = (
+        (framing.strip() or _GENERIC_DRIFT_FRAMING)
+        .replace("{intervention_class}", intervention_class)
+        .replace("{indication}", indication)
+    )
     return (
-        f"You compare web-derived insights against a Target Product Profile (TPP) "
-        f"document for a {intervention_class} targeting {indication}.\n\n"
-        "IMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS "
-        "for a desired product, NOT claims about products that already exist. Evidence "
-        "about a current or standard-of-care product is the BASELINE the target aims to "
-        "improve on - it does not refute the target.\n\n"
+        framing + "\n\n"
         "For each Insight, choose ONE relation describing how the Insight relates to "
         "the document content:\n"
         "  - contradicts : the Insight shows a doc TARGET is unachievable, has been tried "
         "and FAILED, or is otherwise disproven; OR it disputes a FACTUAL statement in the "
         "doc (background, standard of care, epidemiology, regulatory status). A genuine conflict.\n"
         "  - extends     : the Insight adds on-topic factual info the doc lacks - INCLUDING "
-        "evidence that an existing/standard product DIFFERS FROM or FALLS SHORT OF an "
-        "aspirational target. A target being ahead of the current standard is a GAP, not a "
+        "evidence that an existing/standard product DIFFERS FROM or FALLS SHORT OF a "
+        "stated target. A target being ahead of the current standard is a GAP, not a "
         "contradiction.\n"
         "  - confirms    : the Insight supports a claim in the doc, or shows a target is met "
         "or achievable.\n"

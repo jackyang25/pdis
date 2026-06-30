@@ -209,6 +209,10 @@ class ScoutResult:
     stats: FunnelStats
     conformity: list[ConformityScore] = field(default_factory=list)
     precedents: list[PrecedentSignal] = field(default_factory=list)
+    # The units actually investigated this run - the fixed vocabulary (TPP) or
+    # the doc-extracted units (IPDP). Consumers read this rather than re-deriving
+    # from the shared vocabulary, which would be wrong for the extract provider.
+    variables: list[Attribute] = field(default_factory=list)
 
 
 @dataclass
@@ -227,6 +231,17 @@ class ScoutTypeConfig:
     geographic_queries_per_variable: int = 0
     counterfactual_queries_per_variable: int = 0
     precedent_queries_per_variable: int = 0
+    # Where the units to investigate come from:
+    #   "vocabulary" - the fixed shared attribute list (TPP).
+    #   "extract"    - an LLM pulls units (claims/targets) from the document (e.g. IPDP).
+    # Engines downstream are unit-agnostic; only this switch differs per doc type.
+    unit_provider: str = "vocabulary"
+    # Doc-type interpretive stance injected into the reasoning prompts: how to
+    # read this document's units (a TPP's aspirational targets vs an IPDP's plan
+    # commitments). One per reasoning layer that needs it. Empty => the engine's
+    # generic, doc-agnostic fallback. May use {intervention_class} / {indication}.
+    drift_framing: str = ""
+    precedent_framing: str = ""
 
 
 def matches_to_dicts(matches: list[Match]) -> list[dict]:
@@ -343,6 +358,13 @@ def load_config(config_path: str) -> ScoutTypeConfig:
     precedent_queries_per_variable = int(data.get("precedent_queries_per_variable", 0))
     if precedent_queries_per_variable < 0:
         raise ValueError("precedent_queries_per_variable must be >= 0")
+    unit_provider = str(data.get("unit_provider", "vocabulary")).strip().lower()
+    if unit_provider not in {"vocabulary", "extract"}:
+        raise ValueError("unit_provider must be 'vocabulary' or 'extract'")
+    drift_framing = data.get("drift_framing", "") or ""
+    precedent_framing = data.get("precedent_framing", "") or ""
+    if not isinstance(drift_framing, str) or not isinstance(precedent_framing, str):
+        raise ValueError("drift_framing and precedent_framing must be strings")
 
     return ScoutTypeConfig(
         type_key=data["type_key"],
@@ -359,4 +381,7 @@ def load_config(config_path: str) -> ScoutTypeConfig:
         geographic_queries_per_variable=geographic_queries_per_variable,
         counterfactual_queries_per_variable=counterfactual_queries_per_variable,
         precedent_queries_per_variable=precedent_queries_per_variable,
+        unit_provider=unit_provider,
+        drift_framing=drift_framing.strip(),
+        precedent_framing=precedent_framing.strip(),
     )

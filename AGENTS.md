@@ -20,10 +20,10 @@ Anything in `shared/` must be vocabulary-shaped — a flat `{name, description}`
 
 | Folder | UI | What it does | Depends on |
 |---|---|---|---|
-| `services/chunker/` | Chunker | `.docx`/`.pdf` → `list[ContentBlock]`; optional LLM section labeling. | — |
+| `services/chunker/` | Chunker | `.docx`/`.pdf` → `list[ContentBlock]`; optional LLM section labeling, and optional image description (config-gated). | — |
 | `services/reviewer/` | Reviewer | Document → `ReviewResult` graded on completeness, adherence, rigor, plus a cross-section consistency pass. | chunker |
 | `services/searcher/` | Searcher | Query → `list[Finding]` across three backends: OpenAI web search, NCBI PubMed/PMC, ClinicalTrials.gov. | openai_client, NCBI |
-| `services/scout/` | Scout | A document's targets vs live evidence: drift `Match`es, evidence assessments, `ConformityScore`s (quantitative vars), and precedent signals, over `shared/attributes.yaml`. | chunker, searcher |
+| `services/scout/` | Scout | A document's targets vs live evidence: drift `Match`es, evidence assessments, `ConformityScore`s (quantitative vars), and precedent signals. Units come from a fixed vocabulary or are extracted from the doc (per config). | chunker, searcher |
 | `services/assistant/` | Ask | Read-only chat grounded in a result object. Result-agnostic. | openai_client |
 
 ## The four primitives
@@ -33,11 +33,11 @@ Every document-tool run stamps these on its output. They're required to run (the
 | Field | Role |
 |---|---|
 | `org` (`bmgf`) | config key · output tag |
-| `source_type` (`itpp`, `ctpp`) | config key · output tag |
+| `source_type` (`itpp`, `ctpp`, `ipdp`) | config key · output tag |
 | `intervention_class` (`vaccine`, `drug`, `diagnostic`, `device`) | config key |
 | `indication` (`malaria`, `hiv`, `tb`, …) | tag everywhere · scopes Scout's search |
 
-`itpp` = intervention TPP (candidate-agnostic, early); `ctpp` = candidate TPP (a specific product). The picker is four cascading dropdowns, each labeled with its per-tool role: "selects config", "labels output", or "scopes search".
+`itpp` = intervention TPP (candidate-agnostic, early); `ctpp` = candidate TPP (a specific product); `ipdp` = integrated product development plan (the development plan itself — timelines, risks, decision criteria, functional-domain strategies). The picker is four cascading dropdowns, each labeled with its per-tool role: "selects config", "labels output", or "scopes search".
 
 ## Configs and lookup
 
@@ -47,7 +47,7 @@ Every document-tool run stamps these on its output. They're required to run (the
 | reviewer | same | `find_config(...)` returns `None` |
 | scout | same | `find_config(...)` raises `LookupError` |
 
-Each config declares its own `org`/`source_type`/`intervention_class` as data; the document-type list is built from the union of chunker configs (the picker reads YAML contents, not filenames). Reviewer configs carry `grading_guidance` (the stage bar — `itpp` grades leniently on numeric specificity, `ctpp` strictly). Scout configs carry `languages`, `priority_sources`, `geographic_emphasis`, and per-track budgets (`geographic_`/`counterfactual_`/`precedent_queries_per_variable`).
+Each config declares its own `org`/`source_type`/`intervention_class` as data; the document-type list is built from the union of chunker configs (the picker reads YAML contents, not filenames). Reviewer configs carry `grading_guidance` (the stage bar — `itpp` grades leniently on numeric specificity, `ctpp` strictly, `ipdp` to a high-level plan). Scout configs carry `languages`, `priority_sources`, `geographic_emphasis`, per-track budgets (`geographic_`/`counterfactual_`/`precedent_queries_per_variable`), `unit_provider` (`vocabulary` for TPPs, `extract` for IPDP), and `drift_framing` / `precedent_framing` — the per-doc-type interpretive stance for the drift and precedent reasoning (empty = a generic doc-agnostic fallback; TPP configs carry the aspirational-target framing, IPDP the plan-commitment framing). The engine holds no doc-type-specific framing. Chunker configs carry an optional `image_lens`; set it to describe embedded figures (IPDP timelines), omit it to skip images.
 
 ## Reviewer grading
 
@@ -61,7 +61,7 @@ Section grades roll up from variables; document grades roll up from sections wei
 
 ## Scout shape
 
-Per attribute variable from `shared/attributes.yaml`:
+Per unit. Units are `Attribute`s (name + description); where they come from is the config's `unit_provider`: `vocabulary` reads the fixed `shared/attributes.yaml` list (TPPs); `extract` has an LLM pull the document's own checkable claims — milestones, timelines, cost/feasibility assumptions (IPDP). Both yield `list[Attribute]`, so everything below is identical regardless of source. Per unit:
 
 - Query generation runs four additive tracks — general, Global-South, counterfactual (disconfirming), precedent (prior/adjacent attempts). Tracks add queries; they never replace each other. Dedup by text, capped at the summed budget.
 - Search runs three lanes concurrently — web, PubMed, ClinicalTrials.gov — each emitting `Finding`s into one pool, deduped by URL. CT.gov searches by structured condition + intervention (not the free-text query) and is cached once per run.
@@ -113,13 +113,14 @@ Parallel fan-out stages report `progress(stage, completed, total)` so the UI sho
 ## File map
 
 ```
-shared/openai_client.py             OpenAI client (text, web_search, tool-calling chat)
+shared/openai_client.py             OpenAI client (text, web_search, tool-calling chat, vision describe_image)
 shared/{indications,attributes}.yaml  controlled vocabularies per intervention
-services/chunker/stages/            parser_docx, parser_pdf, mapper
+services/chunker/stages/            parser_docx, parser_pdf, mapper, image_describer
 services/reviewer/stages/grader.py  3-dimension parallel grader + cross-section pass
 services/searcher/stages/           searcher (web), pubmed, clinicaltrials
-services/scout/stages/              query_extractor, insight_extractor, drift_classifier,
-                                    evidence_assessor, conformity, precedent_classifier
+services/scout/stages/              query_extractor, unit_extractor, insight_extractor,
+                                    drift_classifier, evidence_assessor, conformity,
+                                    precedent_classifier
 services/assistant/                 navigator, legends, agent (Ask)
 api/main.py                         FastAPI app + route registration
 api/routes/                         chunker, reviewer, searcher, scout, assistant, configs

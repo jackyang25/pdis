@@ -1,4 +1,4 @@
-"""Stage: assess weight of evidence for one TPP attribute variable."""
+"""Stage: assess weight of evidence for one document unit (attribute/claim)."""
 
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ def _system_prompt(
     intervention_class: str,
 ) -> str:
     return (
-        "You assess weight of evidence for ONE TPP variable.\n\n"
+        "You assess weight of evidence for ONE variable.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}\n"
         f"Definition: {attribute.description}\n\n"

@@ -80,7 +80,7 @@ def _system_prompt(
     return (
         f"You extract atomic factual insights from web search findings about "
         f"a {intervention_class} for {indication}.\n\n"
-        "You are extracting insights for ONE specific TPP variable:\n"
+        "You are extracting insights for ONE specific variable:\n"
         f"Variable: {attribute_ref or 'unknown'}\n"
         f"Definition: {attribute_description or 'No definition provided.'}\n\n"
         "Relevance rule:\n"

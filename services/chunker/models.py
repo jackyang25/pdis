@@ -78,6 +78,12 @@ class DocumentTypeConfig:
     disambiguation: list[str]
     include_metadata_label: bool = True
     include_other_label: bool = True
+    # When non-empty, the pipeline extracts embedded raster images and replaces
+    # each with an LLM-generated textual description (the "encoded" image),
+    # using this string as the description lens. Empty (default) => images are
+    # skipped entirely, exactly as before. Domain content lives here; the
+    # describer stage stays doc-type-agnostic.
+    image_lens: str = ""
 
 
 def blocks_to_dicts(blocks: list[ContentBlock]) -> list[dict]:
@@ -121,6 +127,10 @@ def load_config(config_path: str) -> DocumentTypeConfig:
     _validate_bool_field(data, "include_metadata_label")
     _validate_bool_field(data, "include_other_label")
 
+    image_lens = data.get("image_lens", "") or ""
+    if not isinstance(image_lens, str):
+        raise ValueError("Config field 'image_lens' must be a string")
+
     return DocumentTypeConfig(
         type_key=data["type_key"],
         org=data["org"],
@@ -132,6 +142,7 @@ def load_config(config_path: str) -> DocumentTypeConfig:
         disambiguation=data["disambiguation"],
         include_metadata_label=data.get("include_metadata_label", True),
         include_other_label=data.get("include_other_label", True),
+        image_lens=image_lens.strip(),
     )
 
 

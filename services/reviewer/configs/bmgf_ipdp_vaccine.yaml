@@ -1,0 +1,107 @@
+type_key: bmgf_ipdp_vaccine
+org: bmgf
+source_type: ipdp
+intervention_class: vaccine
+display_name: "Vaccine Integrated Product Development Plan"
+grading_guidance: |
+  This is an INTEGRATED PRODUCT DEVELOPMENT PLAN (IPDP): a high-level plan a grantee submits at investment and updates at each stage gate. Calibrate ALL judgments to a strategic development plan - NOT to a candidate specification or a TPP. Each functional domain is intentionally a high-level summary (the template limits most to ~1 page), so do not treat appropriate brevity as a deficiency. What matters: the critical path is articulated end to end; key risks are identified per functional area with probability/impact ratings and credible mitigations; Go / No-Go decision criteria are explicit and tied to the data the planned activities will produce; and the regulatory, clinical, non-clinical, CMC, access, and delivery strategies are present and mutually consistent (timeline <-> clinical studies <-> risks <-> decision criteria). Numeric specifics ARE expected where the template asks for them (study sizes, costs, dates, delivery metrics); narrative is appropriate for strategy summaries. Reward internal consistency and a coherent, feasible plan over exhaustive detail.
+
+sections:
+  - name: "Executive Summary and Objectives"
+    description: "Overall product-development objectives and a summary of the integrated plan, including strategic fit."
+    weight: 0.10
+    variables:
+      - name: "Objectives Statement"
+        description: "Clear statement of the product-development objectives for the project."
+      - name: "Integrated Plan Summary"
+        description: "A coherent summary of the integrated development plan for the candidate."
+      - name: "Strategic Fit"
+        description: "How the program fits the foundation's strategy and the unmet need."
+
+  - name: "Integrated Development Timeline"
+    description: "End-to-end timeline from preclinical development to licensure, spanning functional domains, with milestones and stage gates."
+    weight: 0.12
+    variables:
+      - name: "End-to-End Timeline"
+        description: "A high-level timeline from preclinical development through licensure and WHO PQ is present."
+      - name: "Cross-Functional Activities"
+        description: "Key activities across functions (non-clinical, clinical, regulatory, CMC, delivery) are placed on the timeline."
+      - name: "Milestones and Stage Gates"
+        description: "Critical milestones, stage gates, and decision points are identified with timing."
+
+  - name: "Decision Criteria"
+    description: "Go / No-Go criteria for progression to the next stage gate and the data that informs them."
+    weight: 0.10
+    variables:
+      - name: "Go/No-Go Criteria"
+        description: "Explicit, decision-ready Go / No-Go criteria for candidate progression."
+      - name: "Data Linkage"
+        description: "How planned activities produce the data needed to make each decision."
+
+  - name: "Integrated Project Risks"
+    description: "High-impact risks across functional areas with probability, impact, and mitigation plans."
+    weight: 0.15
+    variables:
+      - name: "Risk Coverage"
+        description: "At least one moderate-to-high-impact risk per functional area is identified."
+      - name: "Probability and Impact"
+        description: "Each risk is rated for probability of occurrence and magnitude of impact."
+      - name: "Mitigation Plans"
+        description: "Each risk has a credible, specific mitigation plan."
+
+  - name: "Regulatory Strategy"
+    description: "Regulatory pathway through licensure and WHO PQ, intended countries, and regulatory communications."
+    weight: 0.12
+    variables:
+      - name: "Regulatory Pathway"
+        description: "Proposed pathway through licensure and WHO PQ, with major assumptions."
+      - name: "Intended Countries"
+        description: "Intended countries for introduction with authority, special considerations, timeline, and WHO PQ applicability."
+      - name: "Regulatory Communications"
+        description: "History and plan for key regulatory communications, with outcomes as available."
+
+  - name: "Clinical Development Strategy"
+    description: "Clinical strategy and the critical-path clinical studies."
+    weight: 0.12
+    variables:
+      - name: "Clinical Strategy"
+        description: "Proposed clinical development strategy and major assumptions."
+      - name: "Critical-Path Studies"
+        description: "Phase 1-3 critical-path studies with design parameters (population, subjects, arms, endpoints, cost, location)."
+
+  - name: "Non-Clinical Development Strategy"
+    description: "Non-clinical approach supporting licensure."
+    weight: 0.06
+    variables:
+      - name: "Non-Clinical Approach"
+        description: "Critical non-clinical development approach (animal models, immunogenicity/challenge) and major assumptions."
+
+  - name: "CMC Strategy"
+    description: "Chemistry, Manufacturing & Controls strategy through WHO PQ and launch."
+    weight: 0.08
+    variables:
+      - name: "CMC Strategy"
+        description: "CMC development strategy through WHO PQ and launch, including manufacturability and scalability."
+
+  - name: "Global Access Strategy"
+    description: "Approach to availability, accessibility, and affordability in intended markets."
+    weight: 0.05
+    variables:
+      - name: "Access Commitment"
+        description: "Approach to securing manufacturer commitment to availability, accessibility, and affordability."
+
+  - name: "Partner Management Strategy"
+    description: "Selection and management of partners involved in grant execution."
+    weight: 0.05
+    variables:
+      - name: "Partner Approach"
+        description: "Approach to selecting and managing CROs, CMOs, service providers, and commercial partners."
+
+  - name: "Delivery Strategy"
+    description: "Approach to delivering the product to the target population, with delivery metrics."
+    weight: 0.05
+    variables:
+      - name: "Delivery Approach"
+        description: "Target countries and the per-topic plan for product uptake (demand, financing, policy, country support, M&E)."
+      - name: "Delivery Metrics"
+        description: "Targets for delivery metrics (countries launched, target coverage, procurement price, unit cost to deliver)."

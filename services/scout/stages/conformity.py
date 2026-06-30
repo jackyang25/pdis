@@ -290,7 +290,7 @@ def _extract_measurements(
 
 def _system_prompt(attribute: Attribute, indication: str, intervention_class: str) -> str:
     return (
-        "You extract structured numeric evidence for ONE TPP variable so a "
+        "You extract structured numeric evidence for ONE variable so a "
         "downstream calculator can combine it.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}\n"
@@ -300,7 +300,7 @@ def _system_prompt(attribute: Attribute, indication: str, intervention_class: st
         "numeric target with a clear direction (e.g. efficacy >= 80%, cost <= $1.50, "
         "duration >= 12 months). If it is not numeric, set is_quantitative=false.\n"
         "2. If quantitative, pick the SINGLE most binding target to score against. "
-        "TPPs often list several (e.g. pediatric vs adult, optimal vs threshold). "
+        "Documents often state several (e.g. pediatric vs adult, optimal vs threshold). "
         "Choose the broadest/threshold (go/no-go) value, give its value, its comparator "
         "(\">=\" when higher is better, \"<=\" when lower is better), the unit, and a short "
         "target_label naming exactly which target you chose (e.g. \"adult threshold <=1.0 mL\").\n"

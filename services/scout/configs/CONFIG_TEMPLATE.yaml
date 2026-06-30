@@ -46,3 +46,13 @@ geographic_emphasis:
 geographic_queries_per_variable: 4
 counterfactual_queries_per_variable: 3
 precedent_queries_per_variable: 3
+unit_provider: vocabulary  # vocabulary = fixed shared attribute list; extract = pull units from the document
+
+# Interpretive stance injected into the drift / precedent reasoning - how to read
+# this document's units. Empty => a generic, doc-agnostic fallback in the engine.
+# TPP configs supply the aspirational-target framing; an IPDP supplies
+# plan-commitment framing. May reference {intervention_class} and {indication}.
+# (If one stance serves both layers, anchor it: `drift_framing: &f |` ... then
+# `precedent_framing: *f`.)
+drift_framing: ""
+precedent_framing: ""

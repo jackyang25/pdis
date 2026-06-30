@@ -64,6 +64,43 @@ class OpenAIClient:
             return None
         return choices[0].message
 
+    def describe_image(
+        self,
+        image_bytes: bytes,
+        *,
+        prompt: str,
+        mime_type: str = "image/png",
+        max_tokens: int = 12000,
+        reasoning_effort: str = "low",
+    ) -> str:
+        """Describe a raster image in text (vision). Powers the chunker's
+        image-describer stage, which turns an embedded figure into its textual
+        record. The caller supplies the lens via `prompt`; this method is
+        domain-agnostic. Returns "" on an empty response.
+
+        Transcription is a low-reasoning task, so `reasoning_effort` defaults to
+        "low" with a generous token ceiling: dense figures otherwise spend the
+        whole budget reasoning and emit no text (a length-capped empty reply).
+        """
+        import base64
+
+        data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        response = self.client.chat.completions.create(
+            model=self.model,
+            max_completion_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                }
+            ],
+        )
+        return _response_text(response)
+
     def search_web(
         self,
         query: str,

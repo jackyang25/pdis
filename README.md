@@ -1,4 +1,19 @@
+![PDIS — Product Development Intelligence Suite](docs/banner.png)
+
 # PDIS — Product Development Intelligence Suite
+
+<p align="center">
+  <img alt="Python 3.11" src="https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white">
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=nextdotjs&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white">
+</p>
+<p align="center">
+  <img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-412991?style=flat-square&logo=openai&logoColor=white">
+  <img alt="PubMed / NCBI E-utilities" src="https://img.shields.io/badge/PubMed-NCBI%20E--utilities-326295?style=flat-square">
+  <img alt="ClinicalTrials.gov API v2" src="https://img.shields.io/badge/ClinicalTrials.gov-API%20v2-2A6EBB?style=flat-square">
+  <img alt="LibreOffice (headless figure rasterization)" src="https://img.shields.io/badge/LibreOffice-headless-18A303?style=flat-square&logo=libreoffice&logoColor=white">
+</p>
 
 PDIS helps teams write and pressure-test product-development documents — Target Product Profiles (TPPs) and Integrated Product Development Plans (IPDPs). You upload a document and it comes back three ways: parsed into citable blocks, graded against a rubric, or tested against real-world evidence from the web. A chat assistant ("Ask") answers questions about any result.
 
@@ -72,19 +87,22 @@ pdis/
 
 ## Running locally
 
-Two processes: the FastAPI gateway and the Next.js dev server.
+Backend + frontend as two processes. Keys are read server-side from `.env` (`OPENAI_API_KEY`, optional `NCBI_API_KEY`); the browser never sees them.
 
 ```bash
-# Backend
+# Backend (fast dev loop)
 source .venv/bin/activate
-pip install -r api/requirements.txt
-cp .env.example .env        # set OPENAI_API_KEY (optional NCBI_API_KEY for faster PubMed)
+pip install -r requirements.txt
+cp .env.example .env
 python -m uvicorn api.main:app --reload --port 8000
 
 # Frontend
-cd web
-npm install
-npm run dev                 # http://localhost:3000
+cd web && npm install && npm run dev   # http://localhost:3000
 ```
 
-The frontend calls the gateway at `http://localhost:8000`. API keys are read server-side from `.env`; the browser never sees them.
+**Backend in Docker** — only needed to describe embedded figures (EMF/WMF), which requires LibreOffice. This is also how it deploys to Render (see `Dockerfile`); native runs everything *except* figure conversion.
+
+```bash
+docker build -t pdis-api .
+docker run --rm -p 8000:8000 --env-file .env pdis-api
+```

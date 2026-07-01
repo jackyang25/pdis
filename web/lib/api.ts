@@ -24,6 +24,8 @@ export type ContentBlock = {
   content: string;
   heading_stack: string[];
   section_label: string | null;
+  structural_meta: Record<string, unknown>;
+  style_hint: Record<string, unknown>;
 };
 
 export type DimensionName = "completeness" | "adherence" | "rigor";
@@ -302,10 +304,12 @@ export async function runReviewer(
 
 export async function runSearcher(
   query: string,
+  backends: string[],
   onStage?: (stage: string) => void,
 ): Promise<SearcherResponse> {
   const form = new FormData();
   form.append("query", query);
+  form.append("backends", backends.join(","));
   return streamRequest("/api/searcher/run", form, onStage);
 }
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DocumentType(BaseModel):
@@ -37,6 +37,11 @@ class ContentBlockOut(BaseModel):
     content: str
     heading_stack: list[str]
     section_label: str | None = None
+    # Parser provenance, surfaced for debugging/inspection: structural_meta holds
+    # paragraph/table/row index, page, column headers, image rel-id; style_hint
+    # holds the source style name, bold flag, and parser source tag.
+    structural_meta: dict[str, Any] = Field(default_factory=dict)
+    style_hint: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChunkerRunResponse(BaseModel):

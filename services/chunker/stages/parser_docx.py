@@ -150,66 +150,91 @@ def _parse_table(
     *,
     extract_images: bool = False,
 ) -> list[ContentBlock]:
-    image_blocks: list[ContentBlock] = []
-    if extract_images:
-        image_blocks = [
-            _make_image_block(
-                doc_id, rel_id, heading_stack, {"table_index": table_index}
-            )
-            for rel_id in _table_image_rels(table)
-        ]
-
     rows = [[_cell_text(cell) for cell in row.cells] for row in table.rows]
-    if not rows:
-        return image_blocks
-
     column_count = max((len(row) for row in rows), default=0)
     if column_count == 0:
-        return image_blocks
-
-    if len(rows) == 1 and column_count == 1:
-        text = rows[0][0]
-        if not text.strip():
-            return image_blocks
-        return image_blocks + [
-            _make_block(
-                doc_id=doc_id,
-                block_type="paragraph",
-                content=text,
-                heading_stack=_stack_text(heading_stack),
-                structural_meta={"table_index": table_index, "row_index": 0},
-                style_hint={"source": "single_cell_table"},
-            )
-        ]
+        return []
 
     if column_count == 1:
+        # Single-column "text box" layout: parse each cell like body content -
+        # one block per paragraph, with any image in its in-flow position -
+        # instead of flattening the whole cell into one block. Reduces to the
+        # old single-block output when a cell holds just one paragraph, so
+        # simple cells are unchanged; only multi-paragraph cells now split.
+        source = "single_cell_table" if len(rows) == 1 else "single_column_table"
         blocks: list[ContentBlock] = []
-        for row_index, row in enumerate(rows):
-            text = row[0] if row else ""
-            if not text.strip():
-                continue
+        for row_index, row in enumerate(table.rows):
+            for cell in row.cells:
+                blocks.extend(
+                    _parse_cell(
+                        cell,
+                        doc_id,
+                        table_index,
+                        row_index,
+                        heading_stack,
+                        source,
+                        extract_images,
+                    )
+                )
+        return blocks
+
+    # Multi-column data grid: the ROW is the unit, so keep table_row blocks.
+    # Images in a data cell (rare) are emitted at the table's position.
+    image_blocks: list[ContentBlock] = (
+        [
+            _make_image_block(doc_id, rel_id, heading_stack, {"table_index": table_index})
+            for rel_id in _table_image_rels(table)
+        ]
+        if extract_images
+        else []
+    )
+    return image_blocks + _parse_multi_column_table(
+        rows, doc_id, table_index, heading_stack, column_count
+    )
+
+
+def _parse_cell(
+    cell: Any,
+    doc_id: str,
+    table_index: int,
+    row_index: int,
+    heading_stack: list[tuple[int, str]],
+    source: str,
+    extract_images: bool,
+) -> list[ContentBlock]:
+    """Parse one table cell into blocks - one per paragraph, images in position.
+
+    Mirrors how the document body treats paragraphs, so a cell used as a text
+    box (common in IPDPs) keeps its structure instead of collapsing into a
+    single block. A single-paragraph cell yields exactly one block, identical
+    to the previous flattened output.
+    """
+    stack = _stack_text(heading_stack)
+    blocks: list[ContentBlock] = []
+    for paragraph in cell.paragraphs:
+        text = paragraph.text
+        image_rels = _paragraph_image_rels(paragraph) if extract_images else []
+        if text.strip():
             blocks.append(
                 _make_block(
                     doc_id=doc_id,
                     block_type="paragraph",
                     content=text,
-                    heading_stack=_stack_text(heading_stack),
-                    structural_meta={
-                        "table_index": table_index,
-                        "row_index": row_index,
-                    },
-                    style_hint={"source": "single_column_table"},
+                    heading_stack=stack,
+                    structural_meta={"table_index": table_index, "row_index": row_index},
+                    style_hint={"source": source},
                 )
             )
-        return image_blocks + blocks
-
-    return image_blocks + _parse_multi_column_table(
-        rows,
-        doc_id,
-        table_index,
-        heading_stack,
-        column_count,
-    )
+        for rel_id in image_rels:
+            blocks.append(
+                _make_image_block(
+                    doc_id,
+                    rel_id,
+                    heading_stack,
+                    {"table_index": table_index, "row_index": row_index},
+                )
+            )
+    return blocks
 
 
 def _parse_multi_column_table(

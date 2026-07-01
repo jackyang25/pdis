@@ -69,6 +69,8 @@ async def run_chunker(
                         content=b.content,
                         heading_stack=b.heading_stack,
                         section_label=b.section_label,
+                        structural_meta=b.structural_meta,
+                        style_hint=b.style_hint,
                     )
                     for b in blocks
                 ],

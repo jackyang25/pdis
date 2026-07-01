@@ -534,7 +534,7 @@ function FieldRow({
   const counts = relationCounts(matches);
 
   return (
-    <details className={`group border-b border-b-border border-l-4 ${statusMeta.stripe}`}>
+    <details className={`group/field border-b border-b-border border-l-4 ${statusMeta.stripe}`}>
       <summary className="flex cursor-pointer items-start justify-between gap-4 px-6 py-4 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
@@ -571,8 +571,8 @@ function FieldRow({
             {description}
           </p>
         </div>
-        <span className="shrink-0 text-xs text-muted-foreground group-open:hidden">Expand</span>
-        <span className="hidden shrink-0 text-xs text-muted-foreground group-open:inline">
+        <span className="shrink-0 text-xs text-muted-foreground group-open/field:hidden">Expand</span>
+        <span className="hidden shrink-0 text-xs text-muted-foreground group-open/field:inline">
           Collapse
         </span>
       </summary>

@@ -1,6 +1,8 @@
-"""Searcher route - run a web search query, stream progress, return Findings."""
+"""Searcher route - run a query across selected backends, return Findings."""
 
 from __future__ import annotations
+
+import os
 
 from fastapi import APIRouter, Form
 from fastapi.responses import StreamingResponse
@@ -13,14 +15,28 @@ from api.streaming import run_with_progress
 
 router = APIRouter()
 
+# The retrieval lanes the searcher service supports. The UI mirrors this list;
+# unknown values are dropped so a typo can't silently run nothing.
+VALID_BACKENDS = ("web", "pubmed", "clinicaltrials")
+
 
 @router.post("/run")
-async def run_searcher(query: str = Form(...)) -> StreamingResponse:
+async def run_searcher(
+    query: str = Form(...),
+    backends: str = Form("web"),
+) -> StreamingResponse:
+    selected = tuple(
+        b.strip() for b in backends.split(",") if b.strip() in VALID_BACKENDS
+    ) or ("web",)
+    ncbi_api_key = os.environ.get("NCBI_API_KEY")
+
     def work(progress):
         llm_client = get_openai_client()
         findings = run_pipeline(
             query,
             llm_client=llm_client,
+            backends=selected,
+            ncbi_api_key=ncbi_api_key,
             progress_callback=progress,
         )
         return SearcherRunResponse(

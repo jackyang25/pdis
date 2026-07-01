@@ -44,8 +44,11 @@ def extract_insights(
 
     raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
     parsed = _parse_insights(raw)
-    if not parsed:
-        logger.warning("insight_extractor produced no parsable insights; retrying once")
+    if not parsed and raw.strip():
+        # A non-empty but unparseable reply is a transient formatting glitch -
+        # worth one retry. An EMPTY reply means the model found nothing to
+        # extract or the prompt was refused by content policy; that won't
+        # change on retry, so skip it quietly instead of spamming + re-calling.
         raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
         parsed = _parse_insights(raw)
 

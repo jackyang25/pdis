@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from functools import lru_cache
@@ -47,6 +48,21 @@ def _throttle(min_interval: float) -> None:
         _NEXT_ALLOWED = now + min_interval
 
 
+# Web-search operators a query written for the web lane may carry (e.g.
+# "site:clinicaltrials.gov ..."). PubMed's term search rejects them (HTTP 400),
+# so strip them before searching. Doc-type-agnostic - PubMed simply doesn't
+# speak this syntax, so every caller (TPP, IPDP, standalone) benefits.
+_WEB_OPERATORS = re.compile(
+    r"\b(?:site|filetype|inurl|intitle|related|cache|url):\S+", re.IGNORECASE
+)
+_BARE_URL = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
+def _sanitize_pubmed_query(query: str) -> str:
+    cleaned = _BARE_URL.sub(" ", _WEB_OPERATORS.sub(" ", query))
+    return " ".join(cleaned.split()).strip()
+
+
 def search_pubmed(
     query: str,
     *,
@@ -58,14 +74,17 @@ def search_pubmed(
     This backend is deliberately robust: any HTTP/parse/rate-limit problem
     returns no PubMed findings, leaving other search backends unaffected.
     """
+    query = _sanitize_pubmed_query(query)
+    if not query:
+        return []  # query was only web operators - nothing to search on PubMed
     try:
         pmids = _esearch(query, max_results=max_results, api_key=api_key)
         if not pmids:
             return []
         records = _efetch_pubmed(pmids, api_key=api_key)
         pmc_texts = _fetch_pmc_texts(records, api_key=api_key)
-    except Exception:
-        logger.exception("PubMed retrieval failed for query %r", query)
+    except Exception as exc:  # noqa: BLE001 - lane degrades; reason already logged
+        logger.warning("PubMed unavailable for query %r: %s", query, exc)
         return []
 
     retrieved_at = datetime.now(timezone.utc)

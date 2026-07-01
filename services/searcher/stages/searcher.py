@@ -83,11 +83,9 @@ def _parse_response_to_findings(
                 )
 
     if not findings_by_url:
-        logger.warning(
-            "Web search returned no url_citation annotations. The model "
-            "may not have invoked the web_search tool, or the response "
-            "shape has changed. Inspect `response.output` to diagnose."
-        )
+        # Normal for niche/very-specific/non-English queries - the model searched
+        # but found nothing citable. Not an error; just no web sources this query.
+        logger.info("Web search: no citable sources for query %r", query)
     return list(findings_by_url.values())
 
 

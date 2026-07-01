@@ -28,14 +28,20 @@ class OpenAIClient:
         self.model = model or DEFAULT_MODEL
 
     def call(self, system_prompt: str, user_message: str, max_tokens: int) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            max_completion_tokens=max_tokens,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-        )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                max_completion_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade on content refusal, re-raise the rest
+            if _is_content_refusal(exc):
+                logger.warning("Prompt refused by content policy; returning empty text.")
+                return ""
+            raise
         return _response_text(response)
 
     def chat(
@@ -57,7 +63,13 @@ class OpenAIClient:
         }
         if tools:
             kwargs["tools"] = tools
-        response = self.client.chat.completions.create(**kwargs)
+        try:
+            response = self.client.chat.completions.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - degrade on content refusal, re-raise the rest
+            if _is_content_refusal(exc):
+                logger.warning("Chat prompt refused by content policy; returning None.")
+                return None
+            raise
         choices = getattr(response, "choices", [])
         if not choices:
             logger.warning("OpenAI chat response had no choices")
@@ -85,20 +97,26 @@ class OpenAIClient:
         import base64
 
         data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
-        response = self.client.chat.completions.create(
-            model=self.model,
-            max_completion_tokens=max_tokens,
-            reasoning_effort=reasoning_effort,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": data_url}},
-                    ],
-                }
-            ],
-        )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                max_completion_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": data_url}},
+                        ],
+                    }
+                ],
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade on content refusal, re-raise the rest
+            if _is_content_refusal(exc):
+                logger.warning("Image-description prompt refused by content policy; returning empty.")
+                return ""
+            raise
         return _response_text(response)
 
     def search_web(
@@ -119,20 +137,42 @@ class OpenAIClient:
         """
         from openai import BadRequestError  # type: ignore[reportMissingImports]
 
+        def _create(tool: str):
+            return self.client.responses.create(
+                model=self.model,
+                input=query,
+                tools=[{"type": tool}],
+                max_output_tokens=max_tokens,
+            )
+
         try:
-            return self.client.responses.create(
-                model=self.model,
-                input=query,
-                tools=[{"type": "web_search"}],
-                max_output_tokens=max_tokens,
-            )
-        except BadRequestError:
-            return self.client.responses.create(
-                model=self.model,
-                input=query,
-                tools=[{"type": "web_search_preview"}],
-                max_output_tokens=max_tokens,
-            )
+            return _create("web_search")
+        except Exception as exc:  # noqa: BLE001
+            if _is_content_refusal(exc):
+                logger.warning("Web search prompt refused by content policy; skipping this query.")
+                return None
+            # A plain BadRequestError is usually the older tool name - retry once.
+            if isinstance(exc, BadRequestError):
+                try:
+                    return _create("web_search_preview")
+                except Exception as exc2:  # noqa: BLE001
+                    if _is_content_refusal(exc2):
+                        logger.warning("Web search prompt refused by content policy; skipping this query.")
+                        return None
+                    raise
+            raise
+
+
+def _is_content_refusal(exc: Exception) -> bool:
+    """True if this is an OpenAI content-policy refusal (dual-use / biosecurity
+    'invalid_prompt'). These cannot succeed on retry, so callers skip the prompt
+    and degrade gracefully rather than failing the whole run. Any other error
+    (network, auth, rate limit) returns False and is re-raised by the caller.
+    """
+    if getattr(exc, "code", None) == "invalid_prompt":
+        return True
+    text = str(exc)
+    return "invalid_prompt" in text or "limited access to this content" in text
 
 
 def _response_text(response: Any) -> str:

@@ -13,8 +13,13 @@ from .models import (
     SearcherLLMClientProtocol,
     findings_to_dicts,
 )
+from .net import prefer_ipv4
 from .pipeline import run_pipeline
 from .stages.searcher import DEFAULT_MAX_TOKENS, DEFAULT_MAX_USES
+
+# Make the direct-HTTP lanes (PubMed, ClinicalTrials.gov) resilient in
+# IPv6-less containers - see net.py. Cheap, idempotent, applied on import.
+prefer_ipv4()
 
 __all__ = [
     "DEFAULT_MAX_TOKENS",

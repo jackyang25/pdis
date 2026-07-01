@@ -5,10 +5,10 @@ Load-bearing facts for working in this codebase. For the overview, read the root
 ## Layered architecture
 
 ```
-web/ (Next.js + shadcn/ui)  →  api/ (FastAPI)  →  services/  →  shared/, data/
+web/ (Next.js + shadcn/ui)  →  api/ (FastAPI)  →  services/  →  shared/
 ```
 
-Imports flow one way: web → api → services → (shared, data). Never the reverse. Cross-service calls go through `__init__.py` public contracts only — no reaching into another service's `stages/` or `models.py`.
+Imports flow one way: web → api → services → shared. Never the reverse. Cross-service calls go through `__init__.py` public contracts only — no reaching into another service's `stages/` or `models.py`.
 
 ## What's domain vs engineering
 

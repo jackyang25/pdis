@@ -20,10 +20,10 @@ PDIS helps teams write and pressure-test product-development documents — Targe
 ## Architecture
 
 ```
-web/ (Next.js)  →  api/ (FastAPI)  →  services/  →  shared/, data/
+web/ (Next.js)  →  api/ (FastAPI)  →  services/  →  shared/
 ```
 
-Imports go one direction only: web → api → services → (shared, data), never the reverse. Services reach each other only through their `__init__.py` public contract — not into another service's `stages/` or `models.py`.
+Imports go one direction only: web → api → services → shared, never the reverse. Services reach each other only through their `__init__.py` public contract — not into another service's `stages/` or `models.py`.
 
 `shared/` holds the cross-cutting pieces: the OpenAI client and two controlled vocabularies (`indications.yaml`, `attributes.yaml`).
 
@@ -74,7 +74,6 @@ pdis/
   services/      chunker/  reviewer/  searcher/  scout/  assistant/
   api/           main.py, routes/, schemas.py, deps.py, streaming.py
   web/           app/ (routes: /chunker, /reviewer, /searcher, /scout), components/, lib/
-  data/
 ```
 
 ## Design rules

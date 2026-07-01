@@ -18,7 +18,11 @@ from ..models import Finding
 logger = logging.getLogger(__name__)
 
 EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-REQUEST_TIMEOUT_SECONDS = 20
+# Generous: NCBI is usually sub-second, but PMC full-text fetches and extra
+# latency (e.g. a corporate tunnel like Cloudflare WARP) can push a call past a
+# tight limit. 35s recovers those rare slow-but-valid responses; timed-out
+# queries still just skip that lane.
+REQUEST_TIMEOUT_SECONDS = 35
 MAX_EXCERPT_CHARS = 6000
 # Full-text PMC fetches per query — each is its own NCBI request, so cap the
 # fan-out. Articles beyond this fall back to their abstract.

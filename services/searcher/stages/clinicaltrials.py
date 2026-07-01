@@ -27,7 +27,7 @@ from ..models import Finding
 logger = logging.getLogger(__name__)
 
 API_URL = "https://clinicaltrials.gov/api/v2/studies"
-REQUEST_TIMEOUT_SECONDS = 20
+REQUEST_TIMEOUT_SECONDS = 35  # match PubMed: tolerate rare slow calls (e.g. WARP latency)
 MAX_RESULTS = 20
 MAX_EXCERPT_CHARS = 6000
 

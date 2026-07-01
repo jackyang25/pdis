@@ -202,36 +202,50 @@ def _parse_cell(
     source: str,
     extract_images: bool,
 ) -> list[ContentBlock]:
-    """Parse one table cell into blocks - one per paragraph, images in position.
+    """Parse one table cell into blocks, in document order.
 
-    Mirrors how the document body treats paragraphs, so a cell used as a text
-    box (common in IPDPs) keeps its structure instead of collapsing into a
-    single block. A single-paragraph cell yields exactly one block, identical
-    to the previous flattened output.
+    Mirrors the document body loop over a cell's block-level children: one block
+    per paragraph (with images in position), and recursion into any table nested
+    inside the cell (otherwise its content would be silently dropped). A cell
+    that is only paragraphs yields exactly the same blocks as reading
+    `cell.paragraphs`, so cells without a nested table are unchanged.
     """
     stack = _stack_text(heading_stack)
     blocks: list[ContentBlock] = []
-    for paragraph in cell.paragraphs:
-        text = paragraph.text
-        image_rels = _paragraph_image_rels(paragraph) if extract_images else []
-        if text.strip():
-            blocks.append(
-                _make_block(
-                    doc_id=doc_id,
-                    block_type="paragraph",
-                    content=text,
-                    heading_stack=stack,
-                    structural_meta={"table_index": table_index, "row_index": row_index},
-                    style_hint={"source": source},
+    for child in cell._tc.iterchildren():
+        if child.tag == qn("w:p"):
+            paragraph = Paragraph(child, cell)
+            text = paragraph.text
+            image_rels = _paragraph_image_rels(paragraph) if extract_images else []
+            if text.strip():
+                blocks.append(
+                    _make_block(
+                        doc_id=doc_id,
+                        block_type="paragraph",
+                        content=text,
+                        heading_stack=stack,
+                        structural_meta={"table_index": table_index, "row_index": row_index},
+                        style_hint={"source": source},
+                    )
                 )
-            )
-        for rel_id in image_rels:
-            blocks.append(
-                _make_image_block(
+            for rel_id in image_rels:
+                blocks.append(
+                    _make_image_block(
+                        doc_id,
+                        rel_id,
+                        heading_stack,
+                        {"table_index": table_index, "row_index": row_index},
+                    )
+                )
+        elif child.tag == qn("w:tbl"):
+            nested = Table(child, cell)
+            blocks.extend(
+                _parse_table(
+                    nested,
                     doc_id,
-                    rel_id,
+                    table_index,
                     heading_stack,
-                    {"table_index": table_index, "row_index": row_index},
+                    extract_images=extract_images,
                 )
             )
     return blocks

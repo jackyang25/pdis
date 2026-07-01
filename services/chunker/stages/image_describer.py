@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..models import ContentBlock, DocumentTypeConfig
+from .emf_converter import convert_to_png
 
 logger = logging.getLogger(__name__)
 
@@ -80,19 +81,28 @@ def describe_images(
         if part is None:
             continue
         content_type = (getattr(part, "content_type", "") or "").lower()
-        if content_type not in DESCRIBABLE_TYPES:
-            block.content = f"[image: {content_type or 'unknown format'}, not described]"
-            continue
         try:
             blob = part.blob
         except Exception as exc:  # noqa: BLE001 - a bad part shouldn't fail the run
             logger.warning("Could not read image bytes for %s: %s", block.id, exc)
             continue
 
+        mime = content_type
+        if content_type not in DESCRIBABLE_TYPES:
+            # Vector formats (EMF/WMF) can't be read directly; rasterize to PNG
+            # first (LibreOffice, where available). Falls back to an honest
+            # placeholder if that's not possible - the figure's caption, legend,
+            # and surrounding prose are still captured as their own blocks.
+            png = convert_to_png(blob, content_type)
+            if png is None:
+                block.content = f"[image: {content_type or 'unknown format'}, not described]"
+                continue
+            blob, mime = png, "image/png"
+
         prompt = _build_prompt(config, block)
         try:
             description = llm_client.describe_image(
-                blob, prompt=prompt, mime_type=content_type, max_tokens=max_tokens
+                blob, prompt=prompt, mime_type=mime, max_tokens=max_tokens
             )
         except Exception as exc:  # noqa: BLE001 - vision failure is non-fatal
             logger.warning("Image description failed for %s: %s", block.id, exc)

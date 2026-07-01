@@ -4,15 +4,14 @@
 # redeploy the frontend (NEXT_PUBLIC_* is baked at build time).
 services:
   # ---- Backend: FastAPI gateway over all services ----
+  # Docker (not the native python runtime) so the image can include LibreOffice,
+  # which the chunker uses to rasterize EMF/WMF figures. See ./Dockerfile.
   - type: web
     name: pdis-api
-    runtime: python
+    runtime: docker
     plan: starter          # starter avoids free-tier spin-down (cold starts)
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    dockerfilePath: ./Dockerfile
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.11"
       - key: OPENAI_API_KEY
         sync: false        # set in dashboard (secret)
       - key: NCBI_API_KEY

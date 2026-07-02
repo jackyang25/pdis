@@ -15,10 +15,12 @@ SCOUT_LEGEND = """This is a SCOUT result: a TPP's targets tested against real-wo
     contradicts = evidence shows the target is disproven/unachievable, or a stated fact is wrong;
     extends = adds info / the current standard differs from an aspirational target (a gap, not a failure);
     confirms = supports the target; unrelated = off-topic. Each insight carries supporting_findings (url, title, excerpt, source).
+    (The UI rolls a field's matches up into one "Doc check" verdict: Confirmed / Updates / Conflict / Clear.)
 - conformity[]: per quantitative variable, a 0-1 likelihood the target is MET by current evidence (with lower/upper band, verdict, measurements). LOW is not "bad" - it often means an ambitious/stretch target above today's evidence.
-- precedents[]: per variable, whether the approach has been tried: established / emerging / novel (white space) / disconfirmed (tried & failed) / unknown.
-- assessments[]: per variable, weight-of-evidence strength (well_grounded/partial/thin/unsupported/unknown) + basis + doc_target.
-- stats: funnel counts."""
+- precedents[]: per variable, whether the approach has been tried: established / emerging / novel (white space) / disconfirmed (shown in the UI as "Tried & failed": attempted before and didn't pan out) / unknown.
+- assessments[]: per variable, weight-of-evidence strength (well_grounded/partial/thin/unsupported/unknown; shown as Well grounded/Partial/Thin/Unsupported/Unknown) + basis + doc_target.
+- stats: funnel counts.
+Note: a field's "Doc check" (from matches) and "Precedent" answer DIFFERENT questions and can differ without contradicting each other - Doc check = does evidence back what the document CLAIMS; Precedent = does the underlying APPROACH have a track record. So "Confirmed" together with "Tried & failed" on one field is consistent: the plan is real, but that approach has failed before."""
 
 REVIEWER_LEGEND = """This is a REVIEWER result: a document graded inward against its rubric. Shape:
 - dimensions: document-level grades (A-F) on completeness (is content present?), adherence (does it follow the rubric's structure/format?), rigor (is the content specific, measurable, sound?).

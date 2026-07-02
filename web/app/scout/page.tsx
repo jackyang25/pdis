@@ -63,8 +63,8 @@ const STATUS_META: Record<Status, { label: string; dot: string; stripe: string }
 
 const EVIDENCE_META: Record<EvidenceAssessment["strength"], { label: string; dot: string }> = {
   well_grounded: { label: "Well grounded", dot: "bg-emerald-500" },
-  partial: { label: "Partial evidence", dot: "bg-blue-500" },
-  thin: { label: "Thin evidence", dot: "bg-amber-400" },
+  partial: { label: "Partial", dot: "bg-blue-500" },
+  thin: { label: "Thin", dot: "bg-amber-400" },
   unsupported: { label: "Unsupported", dot: "bg-red-500" },
   unknown: { label: "Unknown", dot: NEUTRAL_DOT },
 };
@@ -109,9 +109,9 @@ const CONFORMITY_DOT = "bg-slate-400";
 const PRECEDENT_META: Record<PrecedentSignal["precedent"], { label: string; dot: string }> = {
   established: { label: "Established", dot: NEUTRAL_DOT },
   emerging: { label: "Emerging", dot: NEUTRAL_DOT },
-  novel: { label: "Novel / white space", dot: NEUTRAL_DOT },
-  disconfirmed: { label: "Disconfirmed", dot: "bg-amber-400" },
-  unknown: { label: "Precedent unknown", dot: NEUTRAL_DOT },
+  novel: { label: "Novel (white space)", dot: NEUTRAL_DOT },
+  disconfirmed: { label: "Tried & failed", dot: "bg-amber-400" },
+  unknown: { label: "Unknown", dot: NEUTRAL_DOT },
 };
 
 function formatDate(iso: string | null): string | null {
@@ -137,14 +137,20 @@ function statusFor(matches: Match[]): Status {
 // Shared primitives
 // ---------------------------------------------------------------------------
 
-/** One consistent chip for every signal (status / evidence / conformity /
- * relation). A dot carries severity; the shell is identical everywhere. */
+/** One consistent chip for every signal (doc check / evidence / precedent /
+ * conformity / relation). A dot carries severity; the shell is identical
+ * everywhere. `category` prefixes the value with its layer (muted) so a chip
+ * reads as a self-contained verdict in the collapsed row ("Doc · Confirmed");
+ * omit it inside an expanded block, where the section header already names the
+ * layer. */
 function SignalChip({
   dot,
+  category,
   title,
   children,
 }: {
   dot: string;
+  category?: string;
   title?: string;
   children: React.ReactNode;
 }) {
@@ -154,6 +160,7 @@ function SignalChip({
       className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-background px-2 py-0.5 text-xs text-foreground"
     >
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+      {category && <span className="text-muted-foreground">{category}</span>}
       {children}
     </span>
   );
@@ -192,7 +199,7 @@ function relationSummary(counts: RelationCounts): string {
     .join(" · ");
 }
 
-/** Thin stacked bar showing the field's relation mix, so the worst-case Status
+/** Thin stacked bar showing the field's relation mix, so the worst-case Doc-check
  * label can't hide the distribution (1-of-18 vs 15-of-18 contradicts). */
 function RelationBar({ counts }: { counts: RelationCounts }) {
   const total = RELATION_BAR_ORDER.reduce((sum, { key }) => sum + counts[key], 0);
@@ -379,7 +386,7 @@ function SignalLegend({
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-6 py-2.5 text-[11px] text-muted-foreground">
       <span>
-        <span className="font-medium text-foreground">Status</span> — change vs your doc
+        <span className="font-medium text-foreground">Doc check</span> — how evidence lines up with your doc&apos;s claim
       </span>
       <span>
         <span className="font-medium text-foreground">Evidence</span> — how grounded the target is
@@ -395,7 +402,7 @@ function SignalLegend({
         </span>
       )}
       <span className="text-muted-foreground/70">
-        Status, Evidence &amp; Precedent are AI judgments; Conformity is calculated.
+        Doc check, Evidence &amp; Precedent are AI judgments; Conformity is calculated.
       </span>
     </div>
   );
@@ -544,26 +551,31 @@ function FieldRow({
             </span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <SignalChip dot={statusMeta.dot} title="Status — change vs your document (worst-case across the matches below)">
+            <SignalChip
+              category="Doc"
+              dot={statusMeta.dot}
+              title="Doc check — how outside evidence lines up with your document's claim (worst-case across the matches below)"
+            >
               {statusMeta.label}
             </SignalChip>
             {matches.length > 0 && <RelationBar counts={counts} />}
             {assessment && evidenceMeta && (
-              <SignalChip dot={evidenceMeta.dot} title="Evidence — how grounded the target is (AI)">
+              <SignalChip category="Evidence" dot={evidenceMeta.dot} title="Evidence — how grounded the target is (AI)">
                 {evidenceMeta.label}
               </SignalChip>
             )}
             {precedent && precedentMeta && (
-              <SignalChip dot={precedentMeta.dot} title="Precedent — has this target/approach been tried before? (AI)">
+              <SignalChip category="Precedent" dot={precedentMeta.dot} title="Precedent — has this target/approach been tried before? (AI)">
                 {precedentMeta.label}
               </SignalChip>
             )}
             {conformity && (
               <SignalChip
+                category="Conformity"
                 dot={CONFORMITY_DOT}
                 title="Conformity — target vs current evidence; low = ambitious, not bad (computed)"
               >
-                {Math.round(conformity.conformity * 100)}% conformity
+                {Math.round(conformity.conformity * 100)}%
               </SignalChip>
             )}
           </div>
@@ -732,8 +744,9 @@ function PrecedentBlock({
       <p className="mt-0.5 text-[11px] text-muted-foreground/80">
         Has this target/approach been tried before? Separates a genuinely{" "}
         <span className="text-foreground">novel</span> target (white space — expected for a TPP)
-        from a <span className="text-foreground">disconfirmed</span> one (tried &amp; failed). It
-        reads disconfirming evidence too, so low evidence isn&apos;t mistaken for a gap.
+        from a <span className="text-foreground">tried &amp; failed</span> one (attempted before,
+        didn&apos;t pan out). It reads disconfirming evidence too, so low evidence isn&apos;t
+        mistaken for a gap.
       </p>
       {precedent.reason && (
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{precedent.reason}</p>

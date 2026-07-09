@@ -21,5 +21,14 @@ router = APIRouter()
 def ask(request: AskRequest) -> AskResponse:
     client = get_openai_client()
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
-    text = assistant_answer(client, request.result, request.result_type, messages)
+    document = (
+        [block.model_dump() for block in request.document] if request.document else None
+    )
+    text = assistant_answer(
+        client,
+        request.result,
+        request.result_type,
+        messages,
+        document=document,
+    )
     return AskResponse(answer=text)

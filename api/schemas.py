@@ -143,6 +143,9 @@ class ScoutRunResponse(BaseModel):
     precedents: list[PrecedentOut] = []
     assessments: list[EvidenceAssessmentOut]
     stats: FunnelStatsOut
+    # The parsed source document, carried so the Ask assistant can read the full
+    # document behind the distilled analysis. Not used by the Scout UI itself.
+    blocks: list[ContentBlockOut] = []
 
 
 class DimensionGradeOut(BaseModel):
@@ -181,6 +184,9 @@ class ReviewResultOut(BaseModel):
     source_type: str | None = None
     intervention_class: str | None = None
     indication: str | None = None
+    # The parsed source document, carried so the Ask assistant can read the full
+    # document behind the grades. Not used by the Reviewer UI itself.
+    blocks: list[ContentBlockOut] = []
 
 
 class ReviewerRunResponse(BaseModel):
@@ -196,6 +202,9 @@ class AskRequest(BaseModel):
     result_type: str  # "scout" | "reviewer" | ...
     result: dict[str, Any]
     messages: list[AskMessage]
+    # The source document behind the result (parsed blocks), if available. Lets
+    # the assistant cross-compare the distilled result against the full document.
+    document: list[ContentBlockOut] | None = None
 
 
 class AskResponse(BaseModel):

@@ -15,6 +15,7 @@ import json
 import logging
 from typing import Any, Protocol
 
+from . import document as document_reader
 from . import navigator
 from .legends import legend_for
 
@@ -83,13 +84,18 @@ def answer(
     result_type: str,
     messages: list[dict[str, Any]],
     *,
+    document: list[dict[str, Any]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> str:
     """Answer the latest user turn. `messages` is the prior conversation
-    (roles user/assistant); the system prompt + tool loop are added here."""
+    (roles user/assistant); the system prompt + tool loop are added here.
+
+    `document` is the source document behind the result (parsed blocks). When
+    present it is given whole in the system prompt so the assistant can
+    cross-compare the distilled result against the full document."""
     allowed_urls = navigator.collect_urls(result)
     work: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt(result, result_type)},
+        {"role": "system", "content": _system_prompt(result, result_type, document)},
         *messages,
     ]
 
@@ -147,21 +153,49 @@ def _assistant_msg(message: Any, tool_calls: Any) -> dict[str, Any]:
     }
 
 
-def _system_prompt(result: dict[str, Any], result_type: str) -> str:
+def _system_prompt(
+    result: dict[str, Any],
+    result_type: str,
+    document: list[dict[str, Any]] | None = None,
+) -> str:
+    has_doc = bool(document)
+    grounding = (
+        "the full text behind sources it already cites"
+        + (", and the SOURCE DOCUMENT below" if has_doc else "")
+    )
+    two_sources = (
+        "\n\nTWO SOURCES, TWO ROLES - keep them distinct:\n"
+        "- The RESULT (and the web sources it cites) is EVIDENCE: what the outside world shows.\n"
+        "- The SOURCE DOCUMENT is the author's CLAIMS: what the document asserts, NOT verified. "
+        "Never treat a document claim as established fact - attribute it ('the document states...').\n"
+        "- Cross-comparison is the point: line the document's claims up against the result's "
+        "evidence and say where they agree, differ, or go unaddressed.\n"
+        if has_doc
+        else ""
+    )
+    document_section = (
+        f"\n\nSOURCE DOCUMENT (the author's claims; cite blocks by their [id]):\n"
+        f"{document_reader.render(document)}"
+        if has_doc
+        else ""
+    )
     return (
         "You are Ask: a read-only assistant that answers questions about ONE analysis "
-        "result the user just produced. You are grounded: answer ONLY from this result and "
-        "the full text behind sources it already cites. You never run new web searches and "
-        "never change anything.\n\n"
+        f"result the user just produced. You are grounded: answer ONLY from this result and "
+        f"{grounding}. You never run new web searches and never change anything.\n\n"
         f"WHAT THIS RESULT IS:\n{legend_for(result_type)}\n\n"
         "HOW TO READ IT - use the tools:\n"
         "- get(path): read a subtree. find(keyword): locate paths. fetch_source(url): open the "
         "FULL text of an already-cited URL when the stored excerpt is not enough.\n"
-        "- Don't guess paths; use the OVERVIEW below and find() to locate things.\n\n"
-        "RULES:\n"
-        "- Ground every claim in the result (or a fetched cited source). If something isn't in "
-        "the results, say so plainly - do not invent it.\n"
+        "- Don't guess paths; use the OVERVIEW below and find() to locate things."
+        + (" The full document is already inline below - read it directly, no tool needed." if has_doc else "")
+        + two_sources
+        + "\n\nRULES:\n"
+        "- Ground every claim in the result, a fetched cited source"
+        + (", or the source document" if has_doc else "")
+        + ". If something isn't there, say so plainly - do not invent it.\n"
         "- Cite the source URL(s) for evidence-based answers so the user can click through.\n"
         "- Be concise and specific; quote the relevant values/paths.\n\n"
         f"OVERVIEW OF THIS RESULT:\n{navigator.overview(result)}"
+        + document_section
     )

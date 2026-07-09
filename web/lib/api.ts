@@ -68,6 +68,8 @@ export type ReviewResult = {
   source_type: string | null;
   intervention_class: string | null;
   indication: string | null;
+  // The parsed source document behind the grades (for the Ask assistant).
+  blocks: ContentBlock[];
 };
 
 export const DIMENSION_NAMES: DimensionName[] = ["completeness", "adherence", "rigor"];
@@ -193,6 +195,8 @@ export type ScoutResponse = {
   conformity: Conformity[];
   precedents: PrecedentSignal[];
   stats: FunnelStats;
+  // The parsed source document behind the analysis (for the Ask assistant).
+  blocks: ContentBlock[];
 };
 
 export type StageProgress = { completed: number; total: number };
@@ -333,11 +337,12 @@ export async function askAssistant(
   resultType: string,
   result: unknown,
   messages: AskMessage[],
+  document?: ContentBlock[],
 ): Promise<string> {
   const res = await jsonRequest<{ answer: string }>("/api/assistant/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ result_type: resultType, result, messages }),
+    body: JSON.stringify({ result_type: resultType, result, messages, document }),
   });
   return res.answer;
 }

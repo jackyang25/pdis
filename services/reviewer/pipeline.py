@@ -102,6 +102,7 @@ def review_blocks(
     result.source_type = config.source_type
     result.intervention_class = config.intervention_class
     result.indication = indication
+    result.blocks = blocks
     return result
 
 

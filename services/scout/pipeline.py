@@ -97,6 +97,7 @@ def run_pipeline(
                 matches=0,
                 assessments=0,
             ),
+            blocks=blocks,
         )
     attribute_descriptions = {
         attribute.name: attribute.description for attribute in attributes
@@ -117,7 +118,7 @@ def run_pipeline(
         for query in queries
     ]
     if not flat:
-        return _empty_result()
+        return _empty_result(blocks=blocks)
 
     if progress_callback:
         progress_callback("search")
@@ -129,7 +130,7 @@ def run_pipeline(
         progress=progress_callback,
     )
     if not findings_by_query:
-        return _empty_result(queries=len(flat))
+        return _empty_result(queries=len(flat), blocks=blocks)
 
     findings_by_attribute: dict[str, list[Finding]] = {}
     total_findings = 0
@@ -226,6 +227,7 @@ def run_pipeline(
         conformity=conformity,
         precedents=precedents,
         variables=attributes,
+        blocks=blocks,
     )
 
 
@@ -684,6 +686,7 @@ def _empty_result(
     findings: int = 0,
     unique_findings: int = 0,
     insights: int = 0,
+    blocks: list[ContentBlock] | None = None,
 ) -> ScoutResult:
     return ScoutResult(
         matches=[],
@@ -696,6 +699,7 @@ def _empty_result(
             matches=0,
             assessments=0,
         ),
+        blocks=blocks or [],
     )
 
 

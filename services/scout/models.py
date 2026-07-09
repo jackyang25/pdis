@@ -8,9 +8,12 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from services.searcher import Finding
+
+if TYPE_CHECKING:
+    from services.chunker import ContentBlock
 
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
@@ -213,6 +216,10 @@ class ScoutResult:
     # the doc-extracted units (IPDP). Consumers read this rather than re-deriving
     # from the shared vocabulary, which would be wrong for the extract provider.
     variables: list[Attribute] = field(default_factory=list)
+    # The parsed source document (ordered, citable blocks). Carried so downstream
+    # consumers (e.g. the Ask assistant) can read the full document behind the
+    # distilled analysis. Not used by the analysis itself.
+    blocks: list["ContentBlock"] = field(default_factory=list)
 
 
 @dataclass
@@ -305,6 +312,11 @@ def precedents_to_dicts(signals: list[PrecedentSignal]) -> list[dict]:
                 finding["published_at"] = finding["published_at"].isoformat()
         out.append(d)
     return out
+
+
+def blocks_to_dicts(blocks: list["ContentBlock"]) -> list[dict]:
+    """Convert the parsed source ContentBlocks to plain dictionaries."""
+    return [asdict(block) for block in blocks]
 
 
 def load_config(config_path: str) -> ScoutTypeConfig:

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import yaml
+
+if TYPE_CHECKING:
+    from services.chunker import ContentBlock
 
 
 class LLMClientProtocol(Protocol):
@@ -92,6 +95,11 @@ class ReviewResult:
     source_type: str | None = None
     intervention_class: str | None = None
     indication: str | None = None
+
+    # The parsed source document (ordered, citable blocks). Carried so downstream
+    # consumers (e.g. the Ask assistant) can read the full document behind the
+    # grades. Not used by the grading itself.
+    blocks: list["ContentBlock"] = field(default_factory=list)
 
 
 @dataclass

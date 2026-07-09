@@ -2,8 +2,26 @@
 
 import { useState } from "react";
 import { Loader2, MessageCircle, Send, X } from "lucide-react";
-import { askAssistant, type AskMessage } from "@/lib/api";
+import { askAssistant, type AskMessage, type ContentBlock } from "@/lib/api";
 import { Button } from "../ui/button";
+
+/**
+ * Split the source document (parsed blocks) out of an analysis result. The
+ * agent reads the analysis lazily via tools and the document whole, so the two
+ * stay decoupled: the document never pollutes the navigable result tree.
+ */
+function splitDocument(result: unknown): { analysis: unknown; document?: ContentBlock[] } {
+  if (result && typeof result === "object" && "blocks" in result) {
+    const { blocks, ...analysis } = result as Record<string, unknown> & {
+      blocks?: ContentBlock[];
+    };
+    return {
+      analysis,
+      document: Array.isArray(blocks) && blocks.length > 0 ? blocks : undefined,
+    };
+  }
+  return { analysis: result };
+}
 
 /**
  * Ask: a read-only, grounded chat over a result object. Self-contained and
@@ -28,7 +46,8 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
     setBusy(true);
     setError(null);
     try {
-      const answer = await askAssistant(resultType, result, next);
+      const { analysis, document } = splitDocument(result);
+      const answer = await askAssistant(resultType, analysis, next, document);
       setMessages([...next, { role: "assistant", content: answer }]);
     } catch (err) {
       setError((err as Error).message);

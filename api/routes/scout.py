@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from services.scout import (
     assessments_to_dicts,
+    blocks_to_dicts,
     conformity_to_dicts,
     find_config,
     matches_to_dicts,
@@ -21,6 +22,7 @@ from services.scout import (
 from api.deps import get_openai_client
 from api.schemas import (
     ConformityOut,
+    ContentBlockOut,
     EvidenceAssessmentOut,
     FindingOut,
     FunnelStatsOut,
@@ -160,6 +162,9 @@ async def run_scout(
                     matches=result.stats.matches,
                     assessments=result.stats.assessments,
                 ),
+                blocks=[
+                    ContentBlockOut(**block) for block in blocks_to_dicts(result.blocks)
+                ],
             ).model_dump()
         finally:
             for path in temp_paths:

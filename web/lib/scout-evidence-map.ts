@@ -21,6 +21,12 @@ export type EvidenceMapSignal = {
   tone: EvidenceMapSignalTone;
 };
 
+export type EvidenceMapSource = {
+  title: string;
+  url: string;
+  meta: string;
+};
+
 export type EvidenceMapNode = {
   id: string;
   kind: EvidenceMapNodeKind;
@@ -34,6 +40,7 @@ export type EvidenceMapNode = {
   blockIds?: string[];
   queries?: string[];
   signals?: EvidenceMapSignal[];
+  sources?: EvidenceMapSource[];
 };
 
 export type EvidenceMapEdgeKind =
@@ -59,13 +66,6 @@ export type EvidenceMapProjection = {
   shownInsights: number;
   totalSources: number;
   shownSources: number;
-};
-
-const RELATION_ORDER: Record<Match["relation"], number> = {
-  contradicts: 0,
-  extends: 1,
-  confirms: 2,
-  unrelated: 3,
 };
 
 const RELATION_LABEL: Record<Match["relation"], string> = {
@@ -184,7 +184,7 @@ function uniqueFindings(findings: Finding[]): Finding[] {
   return Array.from(byUrl.values());
 }
 
-function citedInsightIds(result: ScoutResponse, attributeRef: string): Set<string> {
+function analysisInsightIds(result: ScoutResponse, attributeRef: string): Set<string> {
   const ids = new Set<string>();
   const assessment = result.assessments?.find(
     (item) => item.attribute_ref === attributeRef,
@@ -205,6 +205,89 @@ function citedInsightIds(result: ScoutResponse, attributeRef: string): Set<strin
     if (measurement.insight_id) ids.add(measurement.insight_id);
   }
   return ids;
+}
+
+function selectVisibleMatches(
+  matches: Match[],
+  selectedByAnalysis: Set<string>,
+  limit: number,
+): Match[] {
+  const related = matches.filter((match) => match.relation !== "unrelated");
+  const pool = related.length > 0 ? related : matches;
+  const selected: Match[] = [];
+  const selectedKeys = new Set<string>();
+
+  const addFirst = (predicate: (match: Match) => boolean) => {
+    const match = pool.find(
+      (candidate) =>
+        !selectedKeys.has(insightKey(candidate)) && predicate(candidate),
+    );
+    if (!match || selected.length >= limit) return;
+    selected.push(match);
+    selectedKeys.add(insightKey(match));
+  };
+
+  // Preserve the signals a reader needs to see first: disagreement, evidence
+  // used by aggregate judgments, agreement, and relevant additional context.
+  // This is deterministic and preserves pipeline order within each category.
+  addFirst((match) => match.relation === "contradicts");
+  addFirst(
+    (match) => Boolean(match.insight.id && selectedByAnalysis.has(match.insight.id)),
+  );
+  addFirst((match) => match.relation === "confirms");
+  addFirst((match) => match.relation === "extends");
+
+  for (const match of pool) {
+    if (selected.length >= limit) break;
+    const key = insightKey(match);
+    if (
+      !selectedKeys.has(key) &&
+      match.insight.id &&
+      selectedByAnalysis.has(match.insight.id)
+    ) {
+      selected.push(match);
+      selectedKeys.add(key);
+    }
+  }
+  for (const match of pool) {
+    if (selected.length >= limit) break;
+    const key = insightKey(match);
+    if (!selectedKeys.has(key)) {
+      selected.push(match);
+      selectedKeys.add(key);
+    }
+  }
+  return selected;
+}
+
+function cleanInlineMarkdown(value: string): string {
+  return value
+    .replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g, "$1")
+    .replace(/[`*_#>]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanSourceExcerpt(value: string | null): string {
+  if (!value) return "";
+  const cleaned = cleanInlineMarkdown(value);
+  const compact = cleaned.replace(/[()[\]\s,;:]+/g, "");
+  if (/^(?:www\.)?[\w-]+(?:\.[\w-]+)+\/?$/i.test(compact)) return "";
+  return cleaned.length > 480 ? `${cleaned.slice(0, 477).trimEnd()}…` : cleaned;
+}
+
+function cleanSourceTitle(value: string, url: string): string {
+  const cleaned = cleanInlineMarkdown(value);
+  if (cleaned && !/^https?:\/\//i.test(cleaned)) return cleaned;
+  try {
+    const parsed = new URL(url);
+    const filename = decodeURIComponent(
+      parsed.pathname.split("/").filter(Boolean).at(-1) ?? "",
+    );
+    return filename ? `${parsed.hostname} · ${filename}` : parsed.hostname;
+  } catch {
+    return cleaned || url;
+  }
 }
 
 function collectSourceSample(matches: Match[], limit: number): Finding[] {
@@ -246,23 +329,18 @@ export function buildScoutEvidenceMap(
     };
   }
 
-  const citedIds = citedInsightIds(result, attributeRef);
+  const selectedByAnalysis = analysisInsightIds(result, attributeRef);
   const allMatches = (result.matches ?? [])
-    .filter((match) => match.insight.attribute_ref === attributeRef)
-    .sort((left, right) => {
-      const leftCited = left.insight.id ? citedIds.has(left.insight.id) : false;
-      const rightCited = right.insight.id ? citedIds.has(right.insight.id) : false;
-      return (
-        Number(rightCited) - Number(leftCited) ||
-        RELATION_ORDER[left.relation] - RELATION_ORDER[right.relation] ||
-        left.insight.statement.localeCompare(right.insight.statement)
-      );
-    });
+    .filter((match) => match.insight.attribute_ref === attributeRef);
 
   const uniqueMatches = Array.from(
     new Map(allMatches.map((match) => [insightKey(match), match])).values(),
   );
-  const visibleMatches = uniqueMatches.slice(0, insightLimit);
+  const visibleMatches = selectVisibleMatches(
+    uniqueMatches,
+    selectedByAnalysis,
+    insightLimit,
+  );
   const allSources = uniqueFindings(
     uniqueMatches.flatMap((match) => match.insight.supporting_findings ?? []),
   );
@@ -340,6 +418,20 @@ export function buildScoutEvidenceMap(
     const key = insightKey(match);
     const insightId = `insight:${key}`;
     const findings = uniqueFindings(match.insight.supporting_findings ?? []);
+    const sources = findings.map((finding) => {
+      const lanes = Array.from(
+        new Set(
+          finding.source_lanes?.length ? finding.source_lanes : [finding.source],
+        ),
+      );
+      return {
+        title: cleanSourceTitle(finding.title || finding.url, finding.url),
+        url: finding.url,
+        meta: lanes
+          .map((lane) => sourceDisplayLabel(lane, finding.source_labels))
+          .join(" + "),
+      };
+    });
     nodes.push({
       id: insightId,
       kind: "insight",
@@ -351,6 +443,7 @@ export function buildScoutEvidenceMap(
       relation: match.relation,
       blockIds: match.doc_block_ids,
       queries: match.insight.query ? [match.insight.query] : [],
+      sources,
     });
     edges.push({
       id: `${fieldId}->${insightId}`,
@@ -382,8 +475,10 @@ export function buildScoutEvidenceMap(
       id: `source:${stableHash(finding.url)}`,
       kind: "source",
       eyebrow: "Cited source",
-      title: finding.title || finding.url,
-      summary: finding.excerpt || "Open the cited record for source detail.",
+      title: cleanSourceTitle(finding.title || finding.url, finding.url),
+      summary:
+        cleanSourceExcerpt(finding.excerpt) ||
+        "No source excerpt was retained for this record.",
       meta: laneLabels.join(" + "),
       href: finding.url,
       queries: finding.queries?.length ? finding.queries : [finding.query].filter(Boolean),

@@ -10,6 +10,8 @@ import {
   MarkerType,
   Position,
   ReactFlow,
+  useNodesInitialized,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeProps,
@@ -155,7 +157,13 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
     marginy: 24,
   });
 
-  for (const node of nodes) graph.setNode(node.id, NODE_SIZE[node.kind]);
+  for (const node of nodes) {
+    const size = NODE_SIZE[node.kind];
+    // Dagre writes x/y coordinates onto the node label object. Each node must
+    // receive its own dimensions object or same-kind nodes share coordinates
+    // and render directly on top of one another.
+    graph.setNode(node.id, { width: size.width, height: size.height });
+  }
   for (const edge of edges) graph.setEdge(edge.source, edge.target);
   dagre.layout(graph);
 
@@ -170,7 +178,7 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
         x: position.x - size.width / 2,
         y: position.y - size.height / 2,
       },
-      style: size,
+      style: { width: size.width, height: size.height },
       draggable: false,
       connectable: false,
       selectable: true,
@@ -203,6 +211,27 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
   });
 
   return { nodes: flowNodes, edges: flowEdges };
+}
+
+function FitGraphToView({ layoutKey }: { layoutKey: string }) {
+  const nodesInitialized = useNodesInitialized();
+  const { fitView } = useReactFlow();
+
+  useEffect(() => {
+    if (!nodesInitialized) return;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        void fitView({ padding: 0.22, maxZoom: 1, duration: 180 });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [fitView, layoutKey, nodesInitialized]);
+
+  return null;
 }
 
 function Inspector({ node }: { node: EvidenceMapNode }) {
@@ -259,6 +288,37 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
           <p className="mt-1 break-words font-mono text-[10px] leading-relaxed text-muted-foreground">
             {node.blockIds.join(" · ")}
           </p>
+        </div>
+      )}
+
+      {node.sources && node.sources.length > 0 && (
+        <div className="mt-4 border-t border-border/70 pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              All cited sources
+            </p>
+            <span className="text-[10px] tabular-nums text-muted-foreground/70">
+              {node.sources.length}
+            </span>
+          </div>
+          <ul className="mt-2 space-y-2">
+            {node.sources.map((source) => (
+              <li key={source.url} className="min-w-0">
+                <a
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={source.title}
+                  className="block min-w-0 text-[11px] leading-snug text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <span className="block truncate">{source.title}</span>
+                  <span className="mt-0.5 block text-[10px] text-muted-foreground/60">
+                    {source.meta}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -376,11 +436,12 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
             edgesFocusable={false}
             elementsSelectable
             fitView
-            fitViewOptions={{ padding: 0.14, maxZoom: 1 }}
+            fitViewOptions={{ padding: 0.22, maxZoom: 1 }}
             minZoom={0.28}
             maxZoom={1.4}
             proOptions={{ hideAttribution: true }}
           >
+            <FitGraphToView layoutKey={attributeRef} />
             <Background
               variant={BackgroundVariant.Dots}
               gap={20}
@@ -391,7 +452,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
           </ReactFlow>
           {hasHiddenNodes && (
             <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-card/95 px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm backdrop-blur">
-              Showing a focused trace · full evidence remains in Fields
+              Focused trace · select an insight for all its sources
             </div>
           )}
         </div>

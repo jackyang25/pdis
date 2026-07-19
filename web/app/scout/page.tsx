@@ -32,6 +32,11 @@ import { useScoutSession } from "@/lib/session";
 import { packScoutResult, unpackScoutResult } from "@/lib/result-file";
 import { displayAttributeLabel } from "@/lib/scout-evidence-map";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ScoutSignalHelp,
+  ScoutSignalLabel,
+  type ScoutSignalTopic,
+} from "@/components/scout-signal-help";
 
 const ScoutEvidenceMap = dynamic(
   () =>
@@ -195,15 +200,23 @@ function SignalSummary({
   value,
   detail,
   dot,
+  helpTopic,
 }: {
   label: string;
   value: string;
   detail?: string;
   dot?: string;
+  helpTopic?: ScoutSignalTopic;
 }) {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+      <p className="text-[11px] font-medium text-muted-foreground">
+        {helpTopic ? (
+          <ScoutSignalLabel topic={helpTopic}>{label}</ScoutSignalLabel>
+        ) : (
+          label
+        )}
+      </p>
       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
         {dot && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />}
         <span className="truncate font-medium text-foreground">{value}</span>
@@ -540,18 +553,21 @@ function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnal
               >
                 <SelectTrigger className="h-8 w-full bg-card sm:w-40">
                   <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All relations</SelectItem>
+              </SelectTrigger>
+              <SelectContent>
+                  <SelectItem value="all">All relationships</SelectItem>
                   <SelectItem value="contradicts">Conflicts</SelectItem>
                   <SelectItem value="extends">Adds context</SelectItem>
                   <SelectItem value="confirms">Supports</SelectItem>
                   <SelectItem value="unrelated">Unrelated</SelectItem>
                 </SelectContent>
               </Select>
-              <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
-                {visibleRows.length} of {rows.length}
-              </span>
+              <div className="flex w-full items-center justify-between gap-3 sm:ml-auto sm:w-auto sm:justify-start">
+                <ScoutSignalHelp />
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {visibleRows.length} of {rows.length}
+                </span>
+              </div>
             </div>
             {visibleRows.map((row) => (
               <FieldRow
@@ -608,24 +624,31 @@ function FieldRow({
             {description}
           </p>
           <div className="mt-2.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
-            <SignalSummary label="Match relations" value={relationSummary(counts)} />
+            <SignalSummary
+              label="Evidence relationships"
+              value={relationSummary(counts)}
+              helpTopic="relationships"
+            />
             <SignalSummary
               label="Evidence · Grounding"
               value={assessment && evidenceMeta ? evidenceMeta.label : "—"}
               detail={assessment ? countLabel(assessment.supporting_findings.length, "source") : undefined}
               dot={assessment && evidenceMeta ? evidenceMeta.dot : undefined}
+              helpTopic="grounding"
             />
             <SignalSummary
               label="Evidence · Target alignment"
               value={conformity ? `${Math.round(conformity.conformity * 100)}/100` : "—"}
               detail={conformity ? countLabel(conformity.measurements.length, "measurement") : undefined}
               dot={conformity ? TARGET_ALIGNMENT_DOT : undefined}
+              helpTopic="alignment"
             />
             <SignalSummary
               label="Precedent"
               value={precedent && precedentMeta ? `${precedentMeta.coverage} · ${precedentMeta.outcome}` : "—"}
               detail={precedent ? countLabel(precedent.supporting_findings.length, "source") : undefined}
               dot={precedent && precedentMeta ? precedentMeta.dot : undefined}
+              helpTopic="precedent"
             />
           </div>
         </div>
@@ -881,7 +904,7 @@ function MatchesBlock({ matches }: { matches: Match[] }) {
   }
   return (
     <section>
-      <SectionLabel>Match relations · AI judgment · {relationSummary(relationCounts(matches))}</SectionLabel>
+      <SectionLabel>Evidence relationships · AI judgment · {relationSummary(relationCounts(matches))}</SectionLabel>
       <ul className="mt-2 space-y-3">
         {matches.map((match, index) => (
           <li key={index} className="rounded-lg border border-border/80 bg-card p-4">

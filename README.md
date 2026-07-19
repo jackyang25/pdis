@@ -39,6 +39,15 @@ Imports go one direction only: web → api → services → shared, never the re
 
 Each service has its own README with its file map and public contract.
 
+## Portable results
+
+Reviewer and Scout downloads use a versioned `pdis.result` envelope with three
+separate concerns: `analysis`, `source_documents` (parsed, citable blocks), and
+artifact metadata (`version` and `result_type`). The original PDF/DOCX binary is
+not embedded. Imports remain backward-compatible with legacy result JSON that
+stored `blocks` directly on the analysis; legacy files without blocks still
+render, but Ask is analysis-only until the document is run again.
+
 ## The four inputs
 
 Document tools take four fields, chosen once in the sidebar:

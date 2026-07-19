@@ -205,7 +205,7 @@ export type CompleteEvent<T> = { event: "complete"; result: T };
 export type ErrorEvent = { event: "error"; detail: string };
 export type StreamEvent<T> = StageEvent | CompleteEvent<T> | ErrorEvent;
 
-const API_BASE = process.env.NEXT_PUBLIC_PDIS_API_URL || "http://localhost:8000";
+export const API_BASE = process.env.NEXT_PUBLIC_PDIS_API_URL || "http://localhost:8000";
 
 async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);

@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Protocol
+from types import SimpleNamespace
+from typing import Any, Iterator, Protocol
 
 from . import document as document_reader
 from . import navigator
@@ -35,6 +36,19 @@ class ChatLLMProtocol(Protocol):
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = 4000,
     ) -> Any:
+        ...
+
+
+class StreamingChatLLMProtocol(ChatLLMProtocol, Protocol):
+    """Ask streaming contract (satisfied by OpenAIClient.chat_stream)."""
+
+    def chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 4000,
+    ) -> Iterator[Any]:
         ...
 
 
@@ -123,6 +137,120 @@ def answer(
     return (getattr(message, "content", "") or "") if message else ""
 
 
+def answer_stream(
+    client: StreamingChatLLMProtocol,
+    result: dict[str, Any],
+    result_type: str,
+    messages: list[dict[str, Any]],
+    *,
+    document: list[dict[str, Any]] | None = None,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> Iterator[str]:
+    """Stream the final grounded answer while keeping tool turns server-side.
+
+    OpenAI emits function-call deltas before their arguments. Those turns are
+    accumulated, executed, and appended to the private working conversation.
+    Text-only turns are forwarded immediately to the caller.
+    """
+    allowed_urls = navigator.collect_urls(result)
+    work: list[dict[str, Any]] = [
+        {"role": "system", "content": _system_prompt(result, result_type, document)},
+        *messages,
+    ]
+
+    for _ in range(MAX_STEPS):
+        content_parts: list[str] = []
+        tool_parts: dict[int, dict[str, str]] = {}
+        emitted_text = False
+
+        for chunk in client.chat_stream(work, tools=TOOLS, max_tokens=max_tokens):
+            choices = getattr(chunk, "choices", [])
+            if not choices:
+                continue
+            delta = getattr(choices[0], "delta", None)
+            if delta is None:
+                continue
+
+            for fragment in getattr(delta, "tool_calls", None) or []:
+                index = getattr(fragment, "index", 0) or 0
+                part = tool_parts.setdefault(
+                    index,
+                    {"id": "", "name": "", "arguments": ""},
+                )
+                call_id = getattr(fragment, "id", None)
+                if call_id:
+                    part["id"] = call_id
+                function = getattr(fragment, "function", None)
+                name = getattr(function, "name", None) if function else None
+                arguments = getattr(function, "arguments", None) if function else None
+                if name:
+                    part["name"] += name
+                if arguments:
+                    part["arguments"] += arguments
+
+            content = getattr(delta, "content", None)
+            if content:
+                content_parts.append(content)
+                # Function-call turns normally contain no visible text. If a
+                # model emits a short preamble first, forwarding it is still
+                # preferable to delaying every normal answer until completion.
+                if not tool_parts:
+                    emitted_text = True
+                    yield content
+
+        tool_calls = _assembled_tool_calls(tool_parts)
+        if not tool_calls:
+            if not emitted_text:
+                yield "Sorry - I couldn't generate a response."
+            return
+
+        if emitted_text:
+            logger.warning("Assistant emitted text before a tool call; continuing the grounded turn.")
+        work.append(
+            _assistant_msg(
+                SimpleNamespace(content="".join(content_parts)),
+                tool_calls,
+            )
+        )
+        for call in tool_calls:
+            work.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": _run_tool(call, result, allowed_urls),
+                }
+            )
+
+    work.append({"role": "user", "content": "Answer now using what you've gathered."})
+    emitted_text = False
+    for chunk in client.chat_stream(work, max_tokens=max_tokens):
+        choices = getattr(chunk, "choices", [])
+        if not choices:
+            continue
+        delta = getattr(choices[0], "delta", None)
+        content = getattr(delta, "content", None) if delta else None
+        if content:
+            emitted_text = True
+            yield content
+    if not emitted_text:
+        yield "Sorry - I couldn't generate a response."
+
+
+def _assembled_tool_calls(parts: dict[int, dict[str, str]]) -> list[Any]:
+    """Turn streamed tool-call fragments into the shape used by _run_tool."""
+    return [
+        SimpleNamespace(
+            id=part["id"] or f"tool-{index}",
+            function=SimpleNamespace(
+                name=part["name"],
+                arguments=part["arguments"],
+            ),
+        )
+        for index, part in sorted(parts.items())
+        if part["name"]
+    ]
+
+
 def _run_tool(call: Any, result: dict[str, Any], allowed_urls: set[str]) -> str:
     name = call.function.name
     try:
@@ -164,7 +292,14 @@ def _system_prompt(
         + (", and the SOURCE DOCUMENT below" if has_doc else "")
     )
     two_sources = (
-        "\n\nTWO SOURCES, TWO ROLES - keep them distinct:\n"
+        "\n\nDOCUMENT ACCESS - IMPORTANT:\n"
+        "- You DO have direct access to the uploaded source document's parsed text below.\n"
+        "- You may inspect, quote, compare, and cite that text using its [block ids].\n"
+        "- Never claim that you can only see the analysis result or cannot inspect arbitrary "
+        "document passages. You can inspect all parsed text supplied below.\n"
+        "- Be precise about the boundary: you have the parsed document content, not the original "
+        "binary file or formatting that was not preserved by parsing.\n\n"
+        "TWO SOURCES, TWO ROLES - keep them distinct:\n"
         "- The RESULT (and the web sources it cites) is EVIDENCE: what the outside world shows.\n"
         "- The SOURCE DOCUMENT is the author's CLAIMS: what the document asserts, NOT verified. "
         "Never treat a document claim as established fact - attribute it ('the document states...').\n"
@@ -174,7 +309,8 @@ def _system_prompt(
         else ""
     )
     document_section = (
-        f"\n\nSOURCE DOCUMENT (the author's claims; cite blocks by their [id]):\n"
+        f"\n\nSOURCE DOCUMENT — {len(document or [])} PARSED BLOCKS "
+        "(the author's claims; cite blocks by their [id]):\n"
         f"{document_reader.render(document)}"
         if has_doc
         else ""

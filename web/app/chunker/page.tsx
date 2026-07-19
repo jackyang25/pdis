@@ -21,7 +21,7 @@ const CHUNKER_STEPS = [
 export default function ChunkerPage() {
   return (
     <>
-      <PageHeader title="Chunker" />
+      <PageHeader title="Chunker" description="Transform source documents into structured, citable content blocks for downstream intelligence workflows." />
       <HeaderGuard>
         {(header, ready) => <ChunkerView header={header as Header} ready={ready} />}
       </HeaderGuard>
@@ -75,13 +75,13 @@ function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
         runDisabled={!ready}
         hint={ready ? undefined : "Select org, source type & intervention in the sidebar to run."}
         extraControls={
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>Or view a previously downloaded result:</span>
             <button
               type="button"
               onClick={() => importInputRef.current?.click()}
               disabled={busy}
-              className="underline hover:text-foreground disabled:opacity-50"
+              className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
             >
               Import JSON
             </button>
@@ -148,9 +148,9 @@ function BlocksList({ result }: { result: ChunkerResult }) {
         />
       }
     >
-      <ul className="-mx-6 divide-y divide-border">
+      <ul className="-mx-5 divide-y divide-border">
         {blocks.map((block: ContentBlock) => (
-          <li key={block.id} className="px-6 py-4">
+          <li key={block.id} className="px-5 py-4">
             <details className="group/block">
               <summary className="flex cursor-pointer flex-wrap items-center gap-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
                 <Badge variant="outline">{block.block_type}</Badge>

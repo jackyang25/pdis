@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,43 @@ class OpenAIClient:
             logger.warning("OpenAI chat response had no choices")
             return None
         return choices[0].message
+
+    def chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 4000,
+    ) -> Iterator[Any]:
+        """Stream chat-completion chunks with optional function calling.
+
+        This is the streaming counterpart to :meth:`chat`. The assistant owns
+        tool execution; this wrapper deliberately exposes the provider chunks
+        without embedding any agent or UI semantics in the shared client.
+        """
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "max_completion_tokens": max_tokens,
+            "messages": messages,
+            "stream": True,
+        }
+        if tools:
+            kwargs["tools"] = tools
+
+        stream = None
+        try:
+            stream = self.client.chat.completions.create(**kwargs)
+            for chunk in stream:
+                yield chunk
+        except Exception as exc:  # noqa: BLE001 - same refusal behavior as chat()
+            if _is_content_refusal(exc):
+                logger.warning("Streaming chat prompt refused by content policy.")
+                return
+            raise
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
 
     def describe_image(
         self,

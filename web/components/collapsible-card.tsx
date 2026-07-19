@@ -11,6 +11,7 @@ type Props = {
   defaultOpen?: boolean;
   children: React.ReactNode;
   className?: string;
+  contentClassName?: string;
 };
 
 /**
@@ -25,29 +26,32 @@ export function CollapsibleCard({
   defaultOpen = true,
   children,
   className,
+  contentClassName,
 }: Props) {
   return (
     <details
       open={defaultOpen}
       className={cn(
-        "group rounded-lg border border-border bg-card [&_summary]:list-none",
+        "group overflow-hidden rounded-xl border border-border/90 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.025)] [&_summary]:list-none",
         className,
       )}
     >
-      <summary className="flex cursor-pointer items-center justify-between gap-4 px-6 py-4">
-        <div className="flex flex-col gap-0.5">
-          <h2 className="text-sm font-semibold">{title}</h2>
+      <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-4 px-5 py-[18px] transition-colors hover:bg-muted/25 sm:px-6">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[15px] font-semibold tracking-tight">{title}</h2>
           {subtitle && (
-            <p className="text-xs text-muted-foreground">{subtitle}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
           )}
         </div>
-        <div className="flex items-center gap-3">
-          {trailing}
+        <div className="ml-auto flex items-center gap-3">
+          <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+            {trailing}
+          </div>
           <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
         </div>
       </summary>
       <Separator />
-      <div className="px-6 py-4">{children}</div>
+      <div className={cn("px-5 py-4 sm:px-6", contentClassName)}>{children}</div>
     </details>
   );
 }

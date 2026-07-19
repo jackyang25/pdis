@@ -30,7 +30,7 @@ export function DownloadButton({ filename, data, format = "json", label = "Downl
 
   return (
     <Button variant="outline" size="sm" onClick={handleClick}>
-      <Download className="mr-2 h-3.5 w-3.5" />
+      <Download className="mr-2 h-3.5 w-3.5" strokeWidth={1.8} />
       {label}
     </Button>
   );

@@ -24,6 +24,7 @@ import {
 } from "@/lib/api";
 import { Ask } from "@/components/assistant/ask";
 import { useReviewerSession } from "@/lib/session";
+import { packReviewerResult, unpackReviewerResult } from "@/lib/result-file";
 
 const PD_REVIEWER_STEPS = [
   { key: "parse", label: "Parsing document" },
@@ -35,7 +36,7 @@ const PD_REVIEWER_STEPS = [
 export default function ReviewerPage() {
   return (
     <>
-      <PageHeader title="Reviewer" />
+      <PageHeader title="Reviewer" description="Evaluate completeness, adherence, rigor, and cross-section consistency against the selected rubric." />
       <HeaderGuard>
         {(header, ready) => <ReviewerView header={header as Header} ready={ready} />}
       </HeaderGuard>
@@ -81,7 +82,7 @@ function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
   async function handleImport(file: File) {
     setError(null);
     try {
-      const parsed = JSON.parse(await file.text()) as ReviewerResponse;
+      const parsed = unpackReviewerResult(JSON.parse(await file.text()));
       if (!parsed?.review || !Array.isArray(parsed.review.section_grades)) {
         throw new Error("not a reviewer result file");
       }
@@ -104,13 +105,13 @@ function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
         runDisabled={!ready}
         hint={ready ? undefined : "Select org, source type & intervention in the sidebar to run."}
         extraControls={
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>Or view a previously downloaded result:</span>
             <button
               type="button"
               onClick={() => importInputRef.current?.click()}
               disabled={busy}
-              className="underline hover:text-foreground disabled:opacity-50"
+              className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
             >
               Import JSON
             </button>
@@ -147,8 +148,8 @@ function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
 function OverallCard({ result }: { result: ReviewerResponse }) {
   const dims = result.review.dimensions;
   return (
-    <div className="rounded-lg border border-border bg-card px-6 py-5">
-      <div className="flex items-start justify-between">
+    <div className="rounded-lg border border-border bg-card px-5 py-5">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
         <div>
           <div className="text-xs uppercase tracking-wide text-muted-foreground">
             Overall grades
@@ -157,12 +158,12 @@ function OverallCard({ result }: { result: ReviewerResponse }) {
         </div>
         <DownloadButton
           filename={`${result.review.doc_id}_review.json`}
-          data={result}
+          data={packReviewerResult(result)}
           format="json"
           label="Download JSON"
         />
       </div>
-      <div className="mt-5 grid grid-cols-3 gap-3">
+      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {DIMENSION_NAMES.map((d) => (
           <DimensionTile key={d} name={d} grade={dims[d].grade} />
         ))}
@@ -173,7 +174,7 @@ function OverallCard({ result }: { result: ReviewerResponse }) {
 
 function DimensionTile({ name, grade }: { name: DimensionName; grade: string }) {
   return (
-    <div className="rounded-md border border-border bg-secondary/30 px-4 py-3">
+    <div className="rounded-md border border-border bg-muted/30 px-4 py-3">
       <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         {name}
       </div>
@@ -188,8 +189,8 @@ function DimensionTile({ name, grade }: { name: DimensionName; grade: string }) 
 function CrossSectionCard({ findings }: { findings: CrossSectionFinding[] }) {
   if (findings.length === 0) return null;
   return (
-    <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-6 py-5">
-      <div className="flex items-baseline gap-2">
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.04] px-5 py-5">
+      <div className="flex flex-wrap items-baseline gap-2">
         <span className="text-xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
           Cross-section consistency
         </span>

@@ -25,17 +25,17 @@ export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
     : 0;
 
   return (
-    <ol className="flex flex-col gap-2 rounded-md border border-border bg-secondary/30 p-4">
+    <ol className="flex flex-col gap-1 border-t border-border pt-3">
       {steps.map((step, idx) => {
         const isDone = idx < activeIndex;
         const isActive = idx === activeIndex;
         return (
-          <li key={step.key} className="flex items-center gap-3 text-sm">
+          <li key={step.key} className="flex items-center gap-3 py-1 text-sm">
             <span
               className={cn(
-                "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border font-mono",
                 isDone && "border-foreground bg-foreground text-background",
-                isActive && "border-foreground",
+                isActive && "border-foreground text-foreground",
                 !isDone && !isActive && "border-border text-muted-foreground",
               )}
             >
@@ -49,7 +49,7 @@ export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
             </span>
             <span
               className={cn(
-                isActive ? "text-foreground" : "text-muted-foreground",
+                isActive ? "font-medium text-foreground" : "text-muted-foreground",
                 isDone && "text-muted-foreground",
               )}
             >
@@ -59,7 +59,7 @@ export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
               <span className="ml-auto flex items-center gap-2">
                 <span className="h-1 w-16 overflow-hidden rounded-full bg-muted">
                   <span
-                    className="block h-full rounded-full bg-foreground/50 transition-all"
+                    className="block h-full rounded-full bg-foreground transition-all"
                     style={{ width: `${(progress.completed / progress.total) * 100}%` }}
                   />
                 </span>

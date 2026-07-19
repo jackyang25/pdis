@@ -107,7 +107,7 @@ export function HeaderPicker() {
   );
 
   if (error) return <p className="text-xs text-destructive">{error}</p>;
-  if (!docTypes) return <p className="text-xs text-muted-foreground">Loading...</p>;
+  if (!docTypes) return <p className="text-xs text-muted-foreground">Loading context…</p>;
 
   const roles: Roles =
     tool && tool in ROLES
@@ -120,8 +120,8 @@ export function HeaderPicker() {
         };
 
   return (
-    <div className="flex flex-col gap-4">
-      <Field label="Org" role={roles.org}>
+    <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex">
+      <Field label="Organization" role={roles.org}>
         <Select
           value={header.org}
           onValueChange={(value) =>
@@ -231,10 +231,10 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className={disabled ? "opacity-60" : undefined}>
+    <div className={disabled ? "min-w-0 opacity-50" : "min-w-0"}>
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
         <Label>{label}</Label>
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{role}</span>
+        <span className="text-[9px] text-muted-foreground/70">{role}</span>
       </div>
       {children}
     </div>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { HeaderGuard } from "@/components/header-guard";
@@ -18,7 +19,16 @@ import {
   type PrecedentSignal,
 } from "@/lib/api";
 import { Ask } from "@/components/assistant/ask";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useScoutSession } from "@/lib/session";
+import { packScoutResult, unpackScoutResult } from "@/lib/result-file";
 
 const SCOUT_STEPS = [
   { key: "parse", label: "Parsing documents" },
@@ -40,26 +50,8 @@ const RELATION_ORDER: Record<Match["relation"], number> = {
   unrelated: 3,
 };
 
-type Status = "conflict" | "updates" | "confirmed" | "clear";
-
-const STATUS_RANK: Record<Status, number> = {
-  conflict: 0,
-  updates: 1,
-  confirmed: 2,
-  clear: 3,
-};
-
-// --- Tone tokens: one dot color per signal value. Only the field stripe is
-// "filled" color; every chip uses the same shape + a small dot, so appearance
-// encodes severity without competing fills. ---
+// Tone tokens are reserved for direct signal values, never derived UI grades.
 const NEUTRAL_DOT = "bg-muted-foreground/40";
-
-const STATUS_META: Record<Status, { label: string; dot: string; stripe: string }> = {
-  conflict: { label: "Conflict", dot: "bg-red-500", stripe: "border-l-red-500" },
-  updates: { label: "Updates", dot: "bg-amber-400", stripe: "border-l-amber-400" },
-  confirmed: { label: "Confirmed", dot: "bg-emerald-500", stripe: "border-l-emerald-500" },
-  clear: { label: "Clear", dot: NEUTRAL_DOT, stripe: "border-l-border" },
-};
 
 const EVIDENCE_META: Record<EvidenceAssessment["strength"], { label: string; dot: string }> = {
   well_grounded: { label: "Well grounded", dot: "bg-emerald-500" },
@@ -123,46 +115,64 @@ function formatDate(iso: string | null): string | null {
 
 function attributeLabel(ref: string) {
   const local = ref.includes(".") ? ref.split(".").slice(1).join(".") : ref;
-  return local.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  const acronyms = new Set(["cmv", "fda", "gcp", "glp", "gmp", "hiv", "hpv", "poc", "rct", "rsv", "tb", "who"]);
+  return local
+    .replace(/_/g, " ")
+    .split(" ")
+    .map((word) =>
+      acronyms.has(word.toLowerCase())
+        ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+    )
+    .join(" ");
 }
 
-function statusFor(matches: Match[]): Status {
-  if (matches.some((m) => m.relation === "contradicts")) return "conflict";
-  if (matches.some((m) => m.relation === "extends")) return "updates";
-  if (matches.some((m) => m.relation === "confirms")) return "confirmed";
-  return "clear";
+function leadingRelation(matches: Match[]): Match["relation"] {
+  return RELATION_ORDERED_KEYS.find((relation) =>
+    matches.some((match) => match.relation === relation),
+  ) ?? "unrelated";
 }
 
 // ---------------------------------------------------------------------------
 // Shared primitives
 // ---------------------------------------------------------------------------
 
-/** One consistent chip for every signal (doc check / evidence / precedent /
- * conformity / relation). A dot carries severity; the shell is identical
- * everywhere. `category` prefixes the value with its layer (muted) so a chip
- * reads as a self-contained verdict in the collapsed row ("Doc · Confirmed");
- * omit it inside an expanded block, where the section header already names the
- * layer. */
+/** Compact value marker used inside expanded detail sections. */
 function SignalChip({
   dot,
-  category,
-  title,
   children,
 }: {
   dot: string;
-  category?: string;
-  title?: string;
   children: React.ReactNode;
 }) {
   return (
-    <span
-      title={title}
-      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-background px-2 py-0.5 text-xs text-foreground"
-    >
+    <span className="inline-flex h-5 items-center gap-1.5 whitespace-nowrap text-[11px] font-medium text-foreground">
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-      {category && <span className="text-muted-foreground">{category}</span>}
       {children}
     </span>
+  );
+}
+
+function SignalSummary({
+  label,
+  value,
+  detail,
+  dot,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  dot?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
+        {dot && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />}
+        <span className="truncate font-medium text-foreground">{value}</span>
+        {detail && <span className="shrink-0 text-muted-foreground">· {detail}</span>}
+      </div>
+    </div>
   );
 }
 
@@ -176,11 +186,11 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 type RelationCounts = Record<Match["relation"], number>;
 
-const RELATION_BAR_ORDER: { key: Match["relation"]; color: string }[] = [
-  { key: "contradicts", color: "bg-red-500" },
-  { key: "extends", color: "bg-amber-400" },
-  { key: "confirms", color: "bg-emerald-500" },
-  { key: "unrelated", color: "bg-muted-foreground/30" },
+const RELATION_ORDERED_KEYS: Match["relation"][] = [
+  "contradicts",
+  "extends",
+  "confirms",
+  "unrelated",
 ];
 
 function relationCounts(matches: Match[]): RelationCounts {
@@ -194,30 +204,13 @@ function relationCounts(matches: Match[]): RelationCounts {
 }
 
 function relationSummary(counts: RelationCounts): string {
-  return RELATION_BAR_ORDER.filter(({ key }) => counts[key] > 0)
-    .map(({ key }) => `${counts[key]} ${key}`)
-    .join(" · ");
+  const values = RELATION_ORDERED_KEYS.filter((key) => counts[key] > 0)
+    .map((key) => `${attributeLabel(key)} ${counts[key]}`);
+  return values.length > 0 ? values.join(" · ") : "No matches";
 }
 
-/** Thin stacked bar showing the field's relation mix, so the worst-case Doc-check
- * label can't hide the distribution (1-of-18 vs 15-of-18 contradicts). */
-function RelationBar({ counts }: { counts: RelationCounts }) {
-  const total = RELATION_BAR_ORDER.reduce((sum, { key }) => sum + counts[key], 0);
-  if (total === 0) return null;
-  return (
-    <span
-      title={relationSummary(counts)}
-      className="inline-flex h-1.5 w-20 overflow-hidden rounded-full bg-muted"
-    >
-      {RELATION_BAR_ORDER.filter(({ key }) => counts[key] > 0).map(({ key, color }) => (
-        <span
-          key={key}
-          className={color}
-          style={{ width: `${(counts[key] / total) * 100}%` }}
-        />
-      ))}
-    </span>
-  );
+function countLabel(count: number, singular: string): string {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
 }
 
 /** Tidy, one-line-per-row source list. Titles truncate (never wrap), metadata
@@ -228,20 +221,20 @@ function SourceList({ findings }: { findings: Finding[] }) {
   if (findings.length === 0) return null;
   const shown = showAll ? findings : findings.slice(0, SOURCE_LIST_LIMIT);
   return (
-    <ul className="mt-2 space-y-1">
+    <ul className="mt-3 space-y-1.5">
       {shown.map((f) => {
         const date = formatDate(f.published_at);
         const sourceLabel =
           f.source === "pubmed" ? "PubMed" : f.source === "clinicaltrials" ? "Registry" : "Web";
         const meta = [sourceLabel, date].filter(Boolean).join(" · ");
         return (
-          <li key={f.url} className="flex items-baseline gap-2 text-xs">
+          <li key={f.url} className="flex items-baseline gap-3 text-xs">
             <a
               href={f.url}
               target="_blank"
               rel="noreferrer"
               title={f.title || f.url}
-              className="min-w-0 flex-1 truncate text-muted-foreground underline hover:text-foreground"
+              className="min-w-0 flex-1 truncate text-muted-foreground transition-colors hover:text-foreground hover:underline"
             >
               {f.title || f.url}
             </a>
@@ -271,7 +264,7 @@ function SourceList({ findings }: { findings: Finding[] }) {
 export default function ScoutPage() {
   return (
     <>
-      <PageHeader title="Scout" />
+      <PageHeader title="Scout" description="Pressure-test document targets against live evidence, precedent, and quantitative conformity signals." />
       <HeaderGuard>
         {(header, ready) => <ScoutView header={header as Header} ready={ready} />}
       </HeaderGuard>
@@ -294,6 +287,11 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   } = useScoutSession();
 
   const importInputRef = useRef<HTMLInputElement>(null);
+  const [showRunPanel, setShowRunPanel] = useState(!result);
+
+  useEffect(() => {
+    if (result) setShowRunPanel(false);
+  }, [result]);
 
   async function handleRun(file: File) {
     setBusy(true);
@@ -318,7 +316,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   async function handleImport(file: File) {
     setError(null);
     try {
-      const parsed = JSON.parse(await file.text()) as ScoutResponse;
+      const parsed = unpackScoutResult(JSON.parse(await file.text()));
       if (!parsed || !Array.isArray(parsed.variables) || !Array.isArray(parsed.matches)) {
         throw new Error("not a scout result file");
       }
@@ -332,78 +330,48 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <RunPanel
-        accept=".docx,.pdf"
-        busy={busy}
-        onRun={handleRun}
-        steps={SCOUT_STEPS}
-        currentStage={stage}
-        progress={progress}
-        runDisabled={!ready}
-        hint={ready ? undefined : "Select org, source type & intervention in the sidebar to run."}
-        extraControls={
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>Or view a previously downloaded result:</span>
-            <button
-              type="button"
-              onClick={() => importInputRef.current?.click()}
-              disabled={busy}
-              className="underline hover:text-foreground disabled:opacity-50"
-            >
-              Import JSON
-            </button>
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleImport(f);
-                e.target.value = "";
-              }}
-            />
-          </div>
-        }
-      />
+      {(!result || showRunPanel) && (
+        <RunPanel
+          accept=".docx,.pdf"
+          busy={busy}
+          onRun={handleRun}
+          steps={SCOUT_STEPS}
+          currentStage={stage}
+          progress={progress}
+          runDisabled={!ready}
+          hint={ready ? undefined : "Select org, source type & intervention in the sidebar to run."}
+          extraControls={
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>Or view a previously downloaded result:</span>
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                disabled={busy}
+                className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
+              >
+                Import JSON
+              </button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleImport(f);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+          }
+        />
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {result && <FieldGrid result={result} />}
+      {result && <FieldGrid result={result} onNewAnalysis={() => setShowRunPanel(true)} />}
       <Ask resultType="scout" result={result} />
       {!result && !busy && !error && (
         <EmptyState message="Upload a document to begin." />
       )}
-    </div>
-  );
-}
-
-function SignalLegend({
-  hasConformity,
-  hasPrecedent,
-}: {
-  hasConformity: boolean;
-  hasPrecedent: boolean;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-6 py-2.5 text-[11px] text-muted-foreground">
-      <span>
-        <span className="font-medium text-foreground">Doc check</span> — how evidence lines up with your doc&apos;s claim
-      </span>
-      <span>
-        <span className="font-medium text-foreground">Evidence</span> — how grounded the target is
-      </span>
-      {hasPrecedent && (
-        <span>
-          <span className="font-medium text-foreground">Precedent</span> — tried before? novel = white space, not a gap
-        </span>
-      )}
-      {hasConformity && (
-        <span>
-          <span className="font-medium text-foreground">Conformity</span> — target vs current evidence; low = ambitious, not bad (computed)
-        </span>
-      )}
-      <span className="text-muted-foreground/70">
-        Doc check, Evidence &amp; Precedent are AI judgments; Conformity is calculated.
-      </span>
     </div>
   );
 }
@@ -424,9 +392,11 @@ function distinctSourceCount(result: ScoutResponse): number {
   return urls.size;
 }
 
-function FieldGrid({ result }: { result: ScoutResponse }) {
+function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnalysis: () => void }) {
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
+  const [query, setQuery] = useState("");
+  const [relationFilter, setRelationFilter] = useState<"all" | Match["relation"]>("all");
 
   if (variables.length === 0) {
     return <EmptyState message="No variables were returned for this intervention." />;
@@ -461,7 +431,7 @@ function FieldGrid({ result }: { result: ScoutResponse }) {
       return {
         variable,
         matches: sortedMatches,
-        status: statusFor(sortedMatches),
+        leadingRelation: leadingRelation(sortedMatches),
         assessment: assessmentsByVariable.get(variable.name) ?? null,
         conformity: conformityByVariable.get(variable.name) ?? null,
         precedent: precedentByVariable.get(variable.name) ?? null,
@@ -469,49 +439,90 @@ function FieldGrid({ result }: { result: ScoutResponse }) {
     })
     .sort(
       (a, b) =>
-        STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
+        RELATION_ORDER[a.leadingRelation] - RELATION_ORDER[b.leadingRelation] ||
         attributeLabel(a.variable.name).localeCompare(attributeLabel(b.variable.name)),
     );
 
-  const updatedCount = rows.filter(
-    (r) => r.status === "conflict" || r.status === "updates",
-  ).length;
-  const clearCount = rows.filter((r) => r.status === "clear").length;
-  const hasConformity = rows.some((r) => r.conformity);
-  const hasPrecedent = rows.some((r) => r.precedent);
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleRows = rows.filter((row) => {
+    const matchesSearch =
+      !normalizedQuery ||
+      attributeLabel(row.variable.name).toLowerCase().includes(normalizedQuery) ||
+      row.variable.description.toLowerCase().includes(normalizedQuery);
+    const matchesRelation =
+      relationFilter === "all" ||
+      row.matches.some((match) => match.relation === relationFilter);
+    return matchesSearch && matchesRelation;
+  });
 
   return (
     <div className="flex flex-col gap-4">
       <CollapsibleCard
         title={`${variables.length} fields`}
-        subtitle={`${(result.stats?.findings ?? 0).toLocaleString()} → ${distinctSourceCount(
-          result,
-        ).toLocaleString()} sources · ${
+        subtitle={`${distinctSourceCount(result).toLocaleString()} sources · ${
           result.stats?.insights ?? 0
-        } insights · ${updatedCount} updated · ${clearCount} clear`}
+        } insights`}
+        contentClassName="p-0"
         trailing={
-          <DownloadButton
-            filename="scout-result.json"
-            data={result}
-            format="json"
-            label="Download JSON"
-          />
+          <>
+            <Button variant="ghost" size="sm" onClick={onNewAnalysis}>New analysis</Button>
+            <DownloadButton
+              filename="scout-result.json"
+              data={packScoutResult(result)}
+              format="json"
+              label="Download JSON"
+            />
+          </>
         }
       >
-        <div className="-mx-6">
-          <SignalLegend hasConformity={hasConformity} hasPrecedent={hasPrecedent} />
-          {rows.map((row) => (
+        <div>
+          <div className="flex flex-col gap-2 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+            <label className="relative min-w-0 flex-1 sm:max-w-xs">
+              <span className="sr-only">Search fields</span>
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Find a field…"
+                className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10"
+              />
+            </label>
+            <Select
+              value={relationFilter}
+              onValueChange={(value) => setRelationFilter(value as "all" | Match["relation"])}
+            >
+              <SelectTrigger className="h-8 w-full bg-card sm:w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All relations</SelectItem>
+                <SelectItem value="contradicts">Contradicts</SelectItem>
+                <SelectItem value="extends">Extends</SelectItem>
+                <SelectItem value="confirms">Confirms</SelectItem>
+                <SelectItem value="unrelated">Unrelated</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
+              {visibleRows.length} of {rows.length}
+            </span>
+          </div>
+          {visibleRows.map((row) => (
             <FieldRow
               key={row.variable.name}
               name={row.variable.name}
               description={row.variable.description}
-              status={row.status}
               matches={row.matches}
               assessment={row.assessment}
               conformity={row.conformity}
               precedent={row.precedent}
             />
           ))}
+          {visibleRows.length === 0 && (
+            <p className="px-6 py-10 text-center text-sm text-muted-foreground">
+              No fields match this view.
+            </p>
+          )}
         </div>
       </CollapsibleCard>
     </div>
@@ -521,7 +532,6 @@ function FieldGrid({ result }: { result: ScoutResponse }) {
 function FieldRow({
   name,
   description,
-  status,
   matches,
   assessment,
   conformity,
@@ -529,69 +539,52 @@ function FieldRow({
 }: {
   name: string;
   description: string;
-  status: Status;
   matches: Match[];
   assessment: EvidenceAssessment | null;
   conformity: Conformity | null;
   precedent: PrecedentSignal | null;
 }) {
-  const statusMeta = STATUS_META[status];
   const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
   const precedentMeta = precedent ? PRECEDENT_META[precedent.precedent] : null;
   const counts = relationCounts(matches);
-
   return (
-    <details className={`group/field border-b border-b-border border-l-4 ${statusMeta.stripe}`}>
-      <summary className="flex cursor-pointer items-start justify-between gap-4 px-6 py-4 [&::-webkit-details-marker]:hidden">
+    <details className="group/field border-b border-border/80 last:border-b-0">
+      <summary className="flex cursor-pointer items-start justify-between gap-4 px-5 py-4 transition-colors hover:bg-muted/25 sm:px-6 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2">
+          <div className="flex flex-wrap items-center gap-x-2">
             <h3 className="text-sm font-semibold text-foreground">{attributeLabel(name)}</h3>
-            <span className="text-xs text-muted-foreground">
-              {matches.length} match{matches.length === 1 ? "" : "es"}
-            </span>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <SignalChip
-              category="Doc"
-              dot={statusMeta.dot}
-              title="Doc check — how outside evidence lines up with your document's claim (worst-case across the matches below)"
-            >
-              {statusMeta.label}
-            </SignalChip>
-            {matches.length > 0 && <RelationBar counts={counts} />}
-            {assessment && evidenceMeta && (
-              <SignalChip category="Evidence" dot={evidenceMeta.dot} title="Evidence — how grounded the target is (AI)">
-                {evidenceMeta.label}
-              </SignalChip>
-            )}
-            {precedent && precedentMeta && (
-              <SignalChip category="Precedent" dot={precedentMeta.dot} title="Precedent — has this target/approach been tried before? (AI)">
-                {precedentMeta.label}
-              </SignalChip>
-            )}
-            {conformity && (
-              <SignalChip
-                category="Conformity"
-                dot={CONFORMITY_DOT}
-                title="Conformity — target vs current evidence; low = ambitious, not bad (computed)"
-              >
-                {Math.round(conformity.conformity * 100)}%
-              </SignalChip>
-            )}
-          </div>
-          <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-1 line-clamp-1 text-xs leading-relaxed text-muted-foreground">
             {description}
           </p>
+          <div className="mt-2.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+            <SignalSummary label="Match relations" value={relationSummary(counts)} />
+            <SignalSummary
+              label="Evidence"
+              value={assessment && evidenceMeta ? evidenceMeta.label : "—"}
+              detail={assessment ? countLabel(assessment.supporting_findings.length, "source") : undefined}
+              dot={assessment && evidenceMeta ? evidenceMeta.dot : undefined}
+            />
+            <SignalSummary
+              label="Precedent"
+              value={precedent && precedentMeta ? precedentMeta.label : "—"}
+              detail={precedent ? countLabel(precedent.supporting_findings.length, "source") : undefined}
+              dot={precedent && precedentMeta ? precedentMeta.dot : undefined}
+            />
+            <SignalSummary
+              label="Conformity"
+              value={conformity ? `${Math.round(conformity.conformity * 100)}%` : "—"}
+              detail={conformity ? countLabel(conformity.measurements.length, "measurement") : undefined}
+              dot={conformity ? CONFORMITY_DOT : undefined}
+            />
+          </div>
         </div>
-        <span className="shrink-0 text-xs text-muted-foreground group-open/field:hidden">Expand</span>
-        <span className="hidden shrink-0 text-xs text-muted-foreground group-open/field:inline">
-          Collapse
-        </span>
+        <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/field:rotate-180" />
       </summary>
 
-      <div className="space-y-4 px-6 pb-5">
+      <div className="space-y-3 border-t border-border/70 bg-muted/15 px-5 py-5 sm:px-6">
         {assessment?.doc_target && (
-          <div className="rounded-md border border-border bg-muted/40 px-4 py-3">
+          <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
             <SectionLabel>From your document</SectionLabel>
             <p className="mt-1 text-sm leading-relaxed text-foreground">
               {assessment.doc_target}
@@ -623,7 +616,7 @@ function ConformityBlock({ conformity }: { conformity: Conformity }) {
     `${conformity.comparator} ${conformity.target_value}${conformity.unit}`;
 
   return (
-    <section className="rounded-md border border-border bg-card p-4">
+    <section className="rounded-lg border border-border/80 bg-card p-4">
       <SectionLabel>Conformity · computed</SectionLabel>
       <p className="mt-0.5 text-[11px] text-muted-foreground/80">
         How much current evidence supports your target — weighted by source quality &amp; recency.
@@ -674,7 +667,7 @@ function ConformityBlock({ conformity }: { conformity: Conformity }) {
                     href={m.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="min-w-0 flex-1 truncate underline hover:text-foreground"
+                    className="min-w-0 flex-1 truncate hover:text-foreground hover:underline"
                   >
                     {SOURCE_TYPE_LABELS[m.source_type] ?? m.source_type}
                   </a>
@@ -706,7 +699,7 @@ function EvidenceBlock({
   evidenceMeta: { label: string; dot: string };
 }) {
   return (
-    <section className="rounded-md border border-border bg-card p-4">
+    <section className="rounded-lg border border-border/80 bg-card p-4">
       <div className="flex items-center justify-between gap-2">
         <SectionLabel>Evidence quality · AI judgment</SectionLabel>
         <SignalChip dot={evidenceMeta.dot}>{evidenceMeta.label}</SignalChip>
@@ -736,7 +729,7 @@ function PrecedentBlock({
   precedentMeta: { label: string; dot: string };
 }) {
   return (
-    <section className="rounded-md border border-border bg-card p-4">
+    <section className="rounded-lg border border-border/80 bg-card p-4">
       <div className="flex items-center justify-between gap-2">
         <SectionLabel>Precedent · AI judgment</SectionLabel>
         <SignalChip dot={precedentMeta.dot}>{precedentMeta.label}</SignalChip>
@@ -765,8 +758,8 @@ function MatchesBlock({ matches }: { matches: Match[] }) {
       <SectionLabel>Matches · {relationSummary(relationCounts(matches))}</SectionLabel>
       <ul className="mt-2 space-y-3">
         {matches.map((match, index) => (
-          <li key={index} className="rounded-md border border-border bg-card p-4">
-            <SignalChip dot={RELATION_DOT[match.relation]}>{match.relation}</SignalChip>
+          <li key={index} className="rounded-lg border border-border/80 bg-card p-4">
+            <SignalChip dot={RELATION_DOT[match.relation]}>{attributeLabel(match.relation)}</SignalChip>
             <p className="mt-3 text-sm font-medium leading-relaxed text-foreground">
               {match.insight.statement}
             </p>

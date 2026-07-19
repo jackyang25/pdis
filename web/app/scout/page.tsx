@@ -36,8 +36,8 @@ const SCOUT_STEPS = [
   { key: "search", label: "Searching the web" },
   { key: "insights", label: "Extracting insights" },
   { key: "classify", label: "Detecting drift" },
-  { key: "evidence", label: "Assessing evidence" },
-  { key: "conformity", label: "Scoring conformity" },
+  { key: "evidence", label: "Assessing evidence grounding" },
+  { key: "conformity", label: "Calculating target likelihood" },
   { key: "precedent", label: "Checking precedent" },
 ];
 
@@ -88,11 +88,11 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   other: "Other source",
 };
 
-// Conformity is a position (target vs current evidence), NOT a good/bad grade:
+// Target likelihood is a position (target vs current evidence), NOT a good/bad grade:
 // a low score often reflects an intentional stretch target, not a failure. So
 // its chip uses a single neutral tone rather than green/red, to avoid being
 // read as a pass/fail score.
-const CONFORMITY_DOT = "bg-slate-400";
+const TARGET_LIKELIHOOD_DOT = "bg-slate-400";
 
 // Precedent is also NOT a good/bad grade - a novel target is exactly what a TPP
 // is for. So established/emerging/novel/unknown share a neutral dot (the label
@@ -264,7 +264,7 @@ function SourceList({ findings }: { findings: Finding[] }) {
 export default function ScoutPage() {
   return (
     <>
-      <PageHeader title="Scout" description="Pressure-test document targets against live evidence, precedent, and quantitative conformity signals." />
+      <PageHeader title="Scout" description="Pressure-test document targets against live evidence, precedent, and quantitative target likelihood." />
       <HeaderGuard>
         {(header, ready) => <ScoutView header={header as Header} ready={ready} />}
       </HeaderGuard>
@@ -560,22 +560,22 @@ function FieldRow({
           <div className="mt-2.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
             <SignalSummary label="Match relations" value={relationSummary(counts)} />
             <SignalSummary
-              label="Evidence"
+              label="Evidence · Grounding"
               value={assessment && evidenceMeta ? evidenceMeta.label : "—"}
               detail={assessment ? countLabel(assessment.supporting_findings.length, "source") : undefined}
               dot={assessment && evidenceMeta ? evidenceMeta.dot : undefined}
+            />
+            <SignalSummary
+              label="Evidence · Target likelihood"
+              value={conformity ? `${Math.round(conformity.conformity * 100)}%` : "—"}
+              detail={conformity ? countLabel(conformity.measurements.length, "measurement") : undefined}
+              dot={conformity ? TARGET_LIKELIHOOD_DOT : undefined}
             />
             <SignalSummary
               label="Precedent"
               value={precedent && precedentMeta ? precedentMeta.label : "—"}
               detail={precedent ? countLabel(precedent.supporting_findings.length, "source") : undefined}
               dot={precedent && precedentMeta ? precedentMeta.dot : undefined}
-            />
-            <SignalSummary
-              label="Conformity"
-              value={conformity ? `${Math.round(conformity.conformity * 100)}%` : "—"}
-              detail={conformity ? countLabel(conformity.measurements.length, "measurement") : undefined}
-              dot={conformity ? CONFORMITY_DOT : undefined}
             />
           </div>
         </div>
@@ -617,7 +617,7 @@ function ConformityBlock({ conformity }: { conformity: Conformity }) {
 
   return (
     <section className="rounded-lg border border-border/80 bg-card p-4">
-      <SectionLabel>Conformity · computed</SectionLabel>
+      <SectionLabel>Evidence · target likelihood · calculated</SectionLabel>
       <p className="mt-0.5 text-[11px] text-muted-foreground/80">
         How much current evidence supports your target — weighted by source quality &amp; recency.
         A <span className="text-foreground">low</span> score means your target sits above today&apos;s
@@ -647,7 +647,7 @@ function ConformityBlock({ conformity }: { conformity: Conformity }) {
       </div>
 
       <div className="mt-3">
-        <SignalChip dot={CONFORMITY_DOT}>{conformity.verdict}</SignalChip>
+        <SignalChip dot={TARGET_LIKELIHOOD_DOT}>{conformity.verdict}</SignalChip>
       </div>
 
       {conformity.measurements.length > 0 && (
@@ -701,7 +701,7 @@ function EvidenceBlock({
   return (
     <section className="rounded-lg border border-border/80 bg-card p-4">
       <div className="flex items-center justify-between gap-2">
-        <SectionLabel>Evidence quality · AI judgment</SectionLabel>
+        <SectionLabel>Evidence · grounding · AI assessment</SectionLabel>
         <SignalChip dot={evidenceMeta.dot}>{evidenceMeta.label}</SignalChip>
       </div>
       <p className="mt-0.5 text-[11px] text-muted-foreground/80">

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Asterisk, Boxes, ChevronRight, Layers3, ScanSearch, Search, Settings2 } from "lucide-react";
+import { Boxes, ChevronRight, Layers3, ScanSearch, Search, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HeaderPicker } from "./header-picker";
 
@@ -113,11 +113,16 @@ export function Sidebar() {
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <div className={cn("flex h-16 items-center gap-2.5", compact ? "h-auto" : "border-b border-border/80 px-5")}>
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background shadow-sm">
-        <Asterisk className="h-4 w-4 text-background/75" strokeWidth={2} />
-      </div>
-      <span className="text-[15px] font-semibold tracking-[-0.025em]">PDIS</span>
+    <div className={cn("flex h-16 items-center", compact ? "h-auto" : "border-b border-border/80 px-5")}>
+      {compact ? (
+        <span className="text-base font-semibold tracking-[-0.03em]">PDIS</span>
+      ) : (
+        <span className="text-[13px] font-semibold leading-[1.25] tracking-[-0.02em]">
+          Product Development
+          <br />
+          Intelligence Suite
+        </span>
+      )}
     </div>
   );
 }

@@ -1,42 +1,53 @@
-"""Searcher route - run a query across selected backends, return Findings."""
+"""Searcher routes - discover adapters and run a query across selected sources."""
 
 from __future__ import annotations
 
-import os
-
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import StreamingResponse
 
-from services.searcher import findings_to_dicts, run_pipeline
+from services.searcher import (
+    findings_to_dicts,
+    run_pipeline,
+    source_specs,
+    validate_source_keys,
+)
 
-from api.deps import get_openai_client
-from api.schemas import FindingOut, SearcherRunResponse
+from api.deps import get_search_runtime
+from api.schemas import FindingOut, SearcherRunResponse, SearchSourceOut
 from api.streaming import run_with_progress
 
 router = APIRouter()
 
-# The retrieval lanes the searcher service supports. The UI mirrors this list;
-# unknown values are dropped so a typo can't silently run nothing.
-VALID_BACKENDS = ("web", "pubmed", "clinicaltrials")
+@router.get("/sources", response_model=list[SearchSourceOut])
+def list_sources() -> list[SearchSourceOut]:
+    """Expose registered source metadata so clients do not mirror an allowlist."""
+    return [
+        SearchSourceOut(
+            key=source.key,
+            label=source.label,
+            default_enabled=source.default_enabled,
+        )
+        for source in source_specs()
+    ]
 
 
 @router.post("/run")
 async def run_searcher(
     query: str = Form(...),
-    backends: str = Form("web"),
+    sources: str = Form(""),
 ) -> StreamingResponse:
-    selected = tuple(
-        b.strip() for b in backends.split(",") if b.strip() in VALID_BACKENDS
-    ) or ("web",)
-    ncbi_api_key = os.environ.get("NCBI_API_KEY")
-
+    requested = tuple(source.strip() for source in sources.split(",") if source.strip())
+    try:
+        selected = validate_source_keys(requested) if requested else tuple(
+            source.key for source in source_specs() if source.default_enabled
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     def work(progress):
-        llm_client = get_openai_client()
         findings = run_pipeline(
             query,
-            llm_client=llm_client,
-            backends=selected,
-            ncbi_api_key=ncbi_api_key,
+            runtime=get_search_runtime(),
+            sources=selected,
             progress_callback=progress,
         )
         return SearcherRunResponse(

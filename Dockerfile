@@ -1,9 +1,9 @@
 # Backend image for the PDIS FastAPI gateway.
 #
 # Uses Docker (not Render's native Python runtime) for one reason: it lets us
-# install LibreOffice, which the chunker's image describer shells out to in
-# order to rasterize EMF/WMF vector figures (common in pasted IPDP diagrams) so
-# the vision model can read them. Everything else is a standard slim-Python app.
+# install LibreOffice, which Chunker uses only to rasterize uncommon EMF/WMF/SVG
+# vector figures into portable PNG image assets. Everything else is a standard
+# slim-Python app.
 # The converter is self-gating, so the app also runs fine without LibreOffice.
 FROM python:3.11-slim
 

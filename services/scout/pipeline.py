@@ -1,22 +1,29 @@
 """Stateless scout pipeline.
 
-Orchestrates: chunker (parse only) -> per-attribute query_extractor
-(LLM) -> searcher (web) -> per-attribute insight_extractor (LLM) ->
-drift_classifier + evidence_assessor (LLM). Reuses chunker and searcher
-via their public contracts only.
+Orchestrates: chunker (parse only) -> per-unit query generation (LLM) ->
+lane-native retrieval routing -> searcher -> per-unit insight extraction (LLM)
+-> four independent reasoning layers. Reuses chunker and searcher through their
+public contracts only.
 """
 
 from __future__ import annotations
 
-import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, TypeVar
 
 from services.chunker import ContentBlock, run_pipeline as chunker_run
-from services.searcher import Finding, run_pipeline as searcher_run
+from services.searcher import (
+    Finding,
+    SearchRequest,
+    SearchRuntime,
+    merge_findings,
+    plan_requests,
+    run_requests,
+)
 
+from .context import render_document_context, select_attribute_context
 from .models import (
     Attribute,
     ConformityScore,
@@ -28,40 +35,37 @@ from .models import (
     ScoutResult,
     ScoutTypeConfig,
     PrecedentSignal,
-    SearchClientProtocol,
+    QueryIntent,
+    SearchTrace,
     load_attributes,
 )
 from .stages.conformity import score_conformity
 from .stages.drift_classifier import INSIGHTS_BATCH_SIZE, classify_drift
 from .stages.evidence_assessor import assess_evidence
-from .stages.insight_extractor import extract_insights
+from .stages.insight_extractor import extract_insights, merge_duplicate_insights
 from .stages.precedent_classifier import classify_precedent
 from .stages.query_extractor import extract_queries_for_variable
+from .stages.source_router import build_retrieval_intents
 from .stages.unit_extractor import extract_units
 
 FINDINGS_BATCH_SIZE = 40
+FINDINGS_BATCH_CHARS = 240_000
+QUERY_CONTEXT_CHARS = 20_000
 SEARCH_MAX_TOKENS = 8000
 SEARCH_MAX_USES = 10
 
-# Parallelism. MAX_WORKERS governs every OpenAI-bound fan-out (query/insight/
-# evidence/conformity/precedent stages AND the web search lane) - they are all
-# I/O-bound on OpenAI, whose enterprise rate limits allow generous concurrency.
-# 32 roughly halves the wall-clock of the web lane (the long pole) versus 16
-# while staying well under enterprise RPM/TPM; push higher only if no 429s
-# appear. PubMed is globally rate-throttled to NCBI's ~9/s ceiling (more workers
-# would just queue behind the throttle) and ClinicalTrials.gov is cached to one
-# fetch per run, so those keep modest, independent worker counts.
+# Parallelism for Scout's LLM reasoning fan-outs. Retrieval concurrency belongs
+# to each Searcher source adapter and is not duplicated here.
 MAX_WORKERS = 32
-PUBMED_WORKERS = 8
-CLINICALTRIALS_WORKERS = 8
 
 
 def run_pipeline(
     file_paths: list[str],
     *,
+    doc_ids: list[str] | None = None,
     config: ScoutTypeConfig,
     openai_client: LLMClientProtocol,
-    search_client: SearchClientProtocol,
+    retrieval_runtime: SearchRuntime,
     org: str,
     source_type: str,
     intervention_class: str,
@@ -73,17 +77,18 @@ def run_pipeline(
         progress_callback("parse")
     blocks = _parse_all_docs(
         file_paths,
+        doc_ids=doc_ids,
         org=org,
         source_type=source_type,
         intervention_class=intervention_class,
         indication=indication,
     )
-    doc_text = "\n".join(
-        block.content for block in blocks if getattr(block, "content", "")
-    )
+    # Preserve block IDs through every doc-aware stage. The model may cite only
+    # these markers; each stage validates returned IDs against its input context.
+    doc_text = render_document_context(blocks)
 
     attributes = _resolve_units(
-        config, doc_text, openai_client, indication=indication
+        config, doc_text, blocks, openai_client, indication=indication
     )
     if not attributes:
         return ScoutResult(
@@ -102,6 +107,24 @@ def run_pipeline(
     attribute_descriptions = {
         attribute.name: attribute.description for attribute in attributes
     }
+    attribute_contexts = {
+        attribute.name: select_attribute_context(blocks, attribute)
+        for attribute in attributes
+    }
+    attribute_images = {
+        attribute.name: [
+            {"block_id": block.id, "data_url": block.image.data_url()}
+            for block in blocks
+            if block.image and block.id in set(attribute.block_ids)
+        ]
+        for attribute in attributes
+    }
+    query_contexts = {
+        attribute.name: select_attribute_context(
+            blocks, attribute, max_chars=QUERY_CONTEXT_CHARS
+        )
+        for attribute in attributes
+    }
 
     if progress_callback:
         progress_callback("queries")
@@ -109,46 +132,55 @@ def run_pipeline(
         attributes,
         config,
         openai_client,
+        query_contexts=query_contexts,
         indication=indication,
         progress=progress_callback,
     )
-    flat: list[tuple[str, str]] = [
+    flat: list[tuple[str, QueryIntent]] = [
         (attribute_ref, query)
         for attribute_ref, queries in attribute_queries.items()
         for query in queries
     ]
     if not flat:
-        return _empty_result(blocks=blocks)
+        return _empty_result(blocks=blocks, variables=attributes)
 
     if progress_callback:
         progress_callback("search")
-    findings_by_query = _search_all(
-        flat,
-        search_client,
+    retrieval_intents = build_retrieval_intents(
+        attribute_queries,
+        attributes,
         indication=indication,
         intervention_class=intervention_class,
+    )
+    search_tasks = plan_requests(retrieval_intents, sources=config.sources)
+    findings_by_attribute, total_findings, search_plan = _search_all(
+        search_tasks,
+        retrieval_runtime,
         progress=progress_callback,
     )
-    if not findings_by_query:
-        return _empty_result(queries=len(flat), blocks=blocks)
+    if not findings_by_attribute:
+        return _empty_result(
+            queries=len(flat),
+            blocks=blocks,
+            variables=attributes,
+            search_plan=search_plan,
+        )
 
-    findings_by_attribute: dict[str, list[Finding]] = {}
-    total_findings = 0
-    for (attribute_ref, _query), findings in findings_by_query.items():
-        total_findings += len(findings)
-        findings_by_attribute.setdefault(attribute_ref, [])
-        for finding in findings:
-            if not any(
-                existing.url == finding.url
-                for existing in findings_by_attribute[attribute_ref]
-            ):
-                findings_by_attribute[attribute_ref].append(finding)
+    query_tracks_by_attribute: dict[str, dict[str, list[str]]] = {}
+    for task in search_tasks:
+        if not task.tracks:
+            continue
+        track_map = query_tracks_by_attribute.setdefault(task.scope_ref, {})
+        track_map[task.query] = list(
+            dict.fromkeys([*track_map.get(task.query, []), *task.tracks])
+        )
 
     if progress_callback:
         progress_callback("insights")
     insights = _extract_insights_all_variables(
         findings_by_attribute,
         attribute_descriptions,
+        query_tracks_by_attribute,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
@@ -166,12 +198,13 @@ def run_pipeline(
     if progress_callback:
         progress_callback("classify")
     matches = _classify_drift_all(
-        doc_text,
+        attribute_contexts,
         insights,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
         framing=config.drift_framing,
+        attribute_images=attribute_images,
         progress=progress_callback,
     )
 
@@ -179,11 +212,13 @@ def run_pipeline(
         progress_callback("evidence")
     assessments = _assess_evidence_all_variables(
         attributes,
-        doc_text,
+        attribute_contexts,
         insights,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
+        framing=config.evidence_framing,
+        attribute_images=attribute_images,
         progress=progress_callback,
     )
 
@@ -191,11 +226,13 @@ def run_pipeline(
         progress_callback("conformity")
     conformity = _score_conformity_all_variables(
         attributes,
-        doc_text,
+        attribute_contexts,
         insights,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
+        framing=config.conformity_framing,
+        attribute_images=attribute_images,
         progress=progress_callback,
     )
 
@@ -203,12 +240,13 @@ def run_pipeline(
         progress_callback("precedent")
     precedents = _classify_precedent_all_variables(
         attributes,
-        doc_text,
+        attribute_contexts,
         insights,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
         framing=config.precedent_framing,
+        attribute_images=attribute_images,
         progress=progress_callback,
     )
 
@@ -226,6 +264,7 @@ def run_pipeline(
         stats=stats,
         conformity=conformity,
         precedents=precedents,
+        search_plan=search_plan,
         variables=attributes,
         blocks=blocks,
     )
@@ -234,6 +273,7 @@ def run_pipeline(
 def _resolve_units(
     config: ScoutTypeConfig,
     doc_text: str,
+    blocks: list[ContentBlock],
     openai_client: LLMClientProtocol,
     *,
     indication: str,
@@ -250,6 +290,11 @@ def _resolve_units(
             source_type=config.source_type,
             indication=indication,
             llm_client=openai_client,
+            images_by_block_id={
+                block.id: block.image.data_url()
+                for block in blocks
+                if block.image
+            },
         )
     return load_attributes(config.intervention_class)
 
@@ -257,15 +302,18 @@ def _resolve_units(
 def _parse_all_docs(
     file_paths: list[str],
     *,
+    doc_ids: list[str] | None = None,
     org: str,
     source_type: str,
     intervention_class: str,
     indication: str,
 ) -> list[ContentBlock]:
     """Parse each doc via chunker without section-label mapping."""
+    if doc_ids is not None and len(doc_ids) != len(file_paths):
+        raise ValueError("doc_ids must have the same length as file_paths")
     blocks: list[ContentBlock] = []
-    for file_path in file_paths:
-        doc_id = Path(file_path).stem
+    for index, file_path in enumerate(file_paths):
+        doc_id = doc_ids[index] if doc_ids is not None else Path(file_path).stem
         doc_blocks = chunker_run(
             file_path,
             doc_id,
@@ -332,20 +380,22 @@ def _extract_queries_all_variables(
     config: ScoutTypeConfig,
     openai_client: LLMClientProtocol,
     *,
+    query_contexts: dict[str, str],
     indication: str,
     progress: ProgressFn | None = None,
-) -> dict[str, list[str]]:
+) -> dict[str, list[QueryIntent]]:
     """Run query extraction across attribute variables with bounded concurrency."""
     if not attributes:
         return {}
 
-    def one(attribute: Attribute) -> tuple[str, list[str]]:
+    def one(attribute: Attribute) -> tuple[str, list[QueryIntent]]:
         return attribute.name, extract_queries_for_variable(
             attribute,
             config,
             openai_client,
             indication=indication,
             queries_per_variable=config.queries_per_variable,
+            document_context=query_contexts.get(attribute.name, ""),
         )
 
     results = _parallel_map(
@@ -357,6 +407,7 @@ def _extract_queries_all_variables(
 def _extract_insights_all_variables(
     findings_by_attribute: dict[str, list[Finding]],
     attribute_descriptions: dict[str, str],
+    query_tracks_by_attribute: dict[str, dict[str, list[str]]],
     openai_client: LLMClientProtocol,
     *,
     indication: str,
@@ -366,21 +417,19 @@ def _extract_insights_all_variables(
     """Run insight extraction concurrently across all (variable, finding-batch)
     units.
 
-    Findings are split into the same per-variable 40-finding batches as before,
-    but every batch from every variable is scheduled into one worker pool - so a
-    finding-heavy variable's batches no longer serialize behind each other. Tasks
-    are built in (variable, batch) order and _parallel_map preserves input order,
-    so the concatenated output is identical to the sequential version. Each batch
-    keeps its own attribute_ref (single-variable), so nothing is cross-mixed."""
+    Every finding is retained. Batches are bounded by both item count and rendered
+    character size so one unusually large source cannot crowd the model context.
+    Each task remains single-variable and results are deterministically merged,
+    preventing duplicate insights created at batch boundaries."""
     items = list(findings_by_attribute.items())
     if not items:
         return []
 
-    # Flatten to independent (attribute_ref, batch) units, in (variable, batch) order.
+    # Flatten to independent (attribute_ref, batch) units in document-variable order.
     batch_tasks: list[tuple[str, list[Finding]]] = [
-        (attribute_ref, findings[start : start + FINDINGS_BATCH_SIZE])
+        (attribute_ref, batch)
         for attribute_ref, findings in items
-        for start in range(0, len(findings), FINDINGS_BATCH_SIZE)
+        for batch in _finding_batches(findings)
     ]
     if not batch_tasks:
         return []
@@ -394,6 +443,7 @@ def _extract_insights_all_variables(
             intervention_class=intervention_class,
             attribute_ref=attribute_ref,
             attribute_description=attribute_descriptions.get(attribute_ref, ""),
+            query_tracks=query_tracks_by_attribute.get(attribute_ref, {}),
         )
 
     results = _parallel_map(
@@ -403,161 +453,135 @@ def _extract_insights_all_variables(
     insights: list[Insight] = []
     for batch_insights in results:
         insights.extend(batch_insights)
-    return insights
+    return merge_duplicate_insights(insights)
+
+
+def _finding_batches(findings: list[Finding]) -> list[list[Finding]]:
+    """Partition findings without dropping any source or overfilling one prompt."""
+    batches: list[list[Finding]] = []
+    current: list[Finding] = []
+    current_chars = 0
+    for finding in findings:
+        size = (
+            len(finding.title or "")
+            + len(finding.excerpt or "")
+            + len(finding.url or "")
+            + sum(len(query) for query in finding.queries)
+        )
+        if current and (
+            len(current) >= FINDINGS_BATCH_SIZE
+            or current_chars + size > FINDINGS_BATCH_CHARS
+        ):
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(finding)
+        current_chars += size
+    if current:
+        batches.append(current)
+    return batches
 
 
 def _search_all(
-    attribute_queries: list[tuple[str, str]],
-    search_client: SearchClientProtocol,
+    tasks: list[SearchRequest],
+    runtime: SearchRuntime,
     *,
-    indication: str,
-    intervention_class: str,
     progress: ProgressFn | None = None,
-) -> dict[tuple[str, str], list[Finding]]:
-    """Search all queries and return a mapping from (attribute, query) to findings.
-
-    Web, PubMed, and ClinicalTrials.gov run as THREE concurrent passes so the
-    fast web modality is not blocked by the literature/registry backends' global
-    rate throttles. Per query, the three backends' findings are unioned (dedup by
-    URL). Each backend swallows its own failures, so one lane going dark never
-    drops the others.
-
-    Progress is reported as backend-query tasks complete; each query is searched
-    once per lane, so the total is queries x 3 lanes.
-    """
-    if not attribute_queries:
-        return {}
-
-    total = 3 * len(attribute_queries)
-    lock = threading.Lock()
-    state = {"done": 0}
-    if progress:
-        progress("search", completed=0, total=total)
-
-    def report() -> None:
-        if not progress:
-            return
-        with lock:
-            state["done"] += 1
-            progress("search", completed=state["done"], total=total)
-
-    with ThreadPoolExecutor(max_workers=3) as outer:
-        web_future = outer.submit(
-            _search_backend, attribute_queries, search_client, ("web",), MAX_WORKERS, report
+) -> tuple[dict[str, list[Finding]], int, list[SearchTrace]]:
+    """Run Searcher's controller and merge normalized findings per Scout unit."""
+    if not tasks:
+        return {}, 0, []
+    outcomes = run_requests(
+        tasks,
+        runtime=runtime,
+        max_tokens=SEARCH_MAX_TOKENS,
+        max_uses=SEARCH_MAX_USES,
+        progress=(
+            lambda completed, total: progress(
+                "search", completed=completed, total=total
+            )
         )
-        pubmed_future = outer.submit(
-            _search_backend, attribute_queries, search_client, ("pubmed",), PUBMED_WORKERS, report
-        )
-        ctgov_future = outer.submit(
-            _search_backend,
-            attribute_queries,
-            search_client,
-            ("clinicaltrials",),
-            CLINICALTRIALS_WORKERS,
-            report,
-            indication,
-            intervention_class,
-        )
-        web = web_future.result()
-        pubmed = pubmed_future.result()
-        ctgov = ctgov_future.result()
+        if progress
+        else None,
+    )
 
-    merged: dict[tuple[str, str], list[Finding]] = {}
-    for attribute_query in attribute_queries:
-        seen: set[str] = set()
-        out: list[Finding] = []
-        for finding in (
-            web.get(attribute_query, [])
-            + pubmed.get(attribute_query, [])
-            + ctgov.get(attribute_query, [])
-        ):
-            if finding.url in seen:
+    findings_by_attribute: dict[str, list[Finding]] = {}
+    by_attribute_url: dict[str, dict[str, Finding]] = {}
+    total_findings = 0
+    for outcome in outcomes:
+        task = outcome.request
+        findings = outcome.findings
+        total_findings += len(findings)
+        output = findings_by_attribute.setdefault(task.scope_ref, [])
+        by_url = by_attribute_url.setdefault(task.scope_ref, {})
+        for finding in findings:
+            if finding.url in by_url:
+                merge_findings(by_url[finding.url], finding)
                 continue
-            seen.add(finding.url)
-            out.append(finding)
-        merged[attribute_query] = out
-    return merged
+            by_url[finding.url] = finding
+            output.append(finding)
 
-
-def _search_backend(
-    attribute_queries: list[tuple[str, str]],
-    search_client: SearchClientProtocol,
-    backends: tuple[str, ...],
-    max_workers: int,
-    report: Callable[[], None] | None = None,
-    condition: str | None = None,
-    intervention: str | None = None,
-) -> dict[tuple[str, str], list[Finding]]:
-    """Run one retrieval backend across all queries with bounded concurrency.
-
-    Calls `report()` once per query as it completes, so the shared search
-    counter advances across all three lanes. `condition`/`intervention` are
-    backend-specific hints for the structured ClinicalTrials.gov search; other
-    backends ignore them."""
-    workers = max(1, min(max_workers, len(attribute_queries)))
-
-    def one(attribute_query: tuple[str, str]) -> list[Finding]:
-        findings = searcher_run(
-            attribute_query[1],
-            llm_client=search_client,
-            max_tokens=SEARCH_MAX_TOKENS,
-            max_uses=SEARCH_MAX_USES,
-            backends=backends,
-            ncbi_api_key=os.getenv("NCBI_API_KEY"),
-            condition=condition,
-            intervention=intervention,
+    def trace_for(outcome) -> SearchTrace:
+        task = outcome.request
+        return SearchTrace(
+            attribute_ref=task.scope_ref,
+            lane=task.source,
+            query=task.query,
+            tracks=list(task.tracks),
+            doc_block_ids=list(task.document_refs),
+            status=outcome.status,
+            error=outcome.error,
+            finding_count=len(outcome.findings),
+            source_urls=[finding.url for finding in outcome.findings],
         )
-        if report:
-            report()
-        return findings
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(one, attribute_queries))
-    return {
-        attribute_query: findings
-        for attribute_query, findings in zip(attribute_queries, results)
-    }
+    search_plan = [trace_for(outcome) for outcome in outcomes]
+    return (
+        {attribute: findings for attribute, findings in findings_by_attribute.items() if findings},
+        total_findings,
+        search_plan,
+    )
 
 
 def _classify_drift_all(
-    doc_text: str,
+    attribute_contexts: dict[str, str],
     insights: list[Insight],
     openai_client: LLMClientProtocol,
     *,
     indication: str,
     intervention_class: str,
     framing: str = "",
+    attribute_images: dict[str, list[dict[str, str]]] | None = None,
     progress: ProgressFn | None = None,
 ) -> list[Match]:
-    """Classify drift across insight batches concurrently.
-
-    classify_drift already splits insights into INSIGHTS_BATCH_SIZE chunks; here
-    we make those chunks the parallel unit instead of letting them serialize.
-    Each batch is an independent call (full doc + its <=30 insights) and is
-    capped at the batch size, so classify_drift does NOT re-batch. Batches are
-    built and reassembled in order, so the output is identical to the sequential
-    version - purely a scheduling change, no context lost (each insight is judged
-    against the full doc exactly as before)."""
+    """Classify drift in single-variable batches against that variable's context."""
     if not insights:
         return []
 
-    batches = [
-        insights[start : start + INSIGHTS_BATCH_SIZE]
-        for start in range(0, len(insights), INSIGHTS_BATCH_SIZE)
+    grouped: dict[str, list[Insight]] = {}
+    for insight in insights:
+        if insight.attribute_ref:
+            grouped.setdefault(insight.attribute_ref, []).append(insight)
+    tasks = [
+        (attribute_ref, attribute_contexts.get(attribute_ref, ""), variable_insights[start : start + INSIGHTS_BATCH_SIZE])
+        for attribute_ref, variable_insights in grouped.items()
+        for start in range(0, len(variable_insights), INSIGHTS_BATCH_SIZE)
     ]
 
-    def one(batch: list[Insight]) -> list[Match]:
+    def one(task: tuple[str, str, list[Insight]]) -> list[Match]:
+        attribute_ref, context, batch = task
         return classify_drift(
-            [doc_text],
+            [context],
             batch,
             openai_client,
             indication=indication,
             intervention_class=intervention_class,
             framing=framing,
+            images=(attribute_images or {}).get(attribute_ref) or None,
         )
 
     results = _parallel_map(
-        batches, one, workers=MAX_WORKERS, stage="classify", progress=progress
+        tasks, one, workers=MAX_WORKERS, stage="classify", progress=progress
     )
     matches: list[Match] = []
     for batch_matches in results:
@@ -567,12 +591,14 @@ def _classify_drift_all(
 
 def _assess_evidence_all_variables(
     attributes: list[Attribute],
-    doc_text: str,
+    attribute_contexts: dict[str, str],
     insights: list[Insight],
     openai_client: LLMClientProtocol,
     *,
     indication: str,
     intervention_class: str,
+    framing: str = "",
+    attribute_images: dict[str, list[dict[str, str]]] | None = None,
     progress: ProgressFn | None = None,
 ) -> list[EvidenceAssessment]:
     """Assess evidence per attribute with bounded concurrency."""
@@ -588,11 +614,13 @@ def _assess_evidence_all_variables(
     def one(attribute: Attribute) -> EvidenceAssessment:
         return assess_evidence(
             attribute,
-            doc_text,
+            attribute_contexts.get(attribute.name, ""),
             insights_by_attribute.get(attribute.name, []),
             openai_client,
             indication=indication,
             intervention_class=intervention_class,
+            framing=framing,
+            images=(attribute_images or {}).get(attribute.name) or None,
         )
 
     return _parallel_map(
@@ -602,12 +630,14 @@ def _assess_evidence_all_variables(
 
 def _score_conformity_all_variables(
     attributes: list[Attribute],
-    doc_text: str,
+    attribute_contexts: dict[str, str],
     insights: list[Insight],
     openai_client: LLMClientProtocol,
     *,
     indication: str,
     intervention_class: str,
+    framing: str = "",
+    attribute_images: dict[str, list[dict[str, str]]] | None = None,
     progress: ProgressFn | None = None,
 ) -> list[ConformityScore]:
     """Score quantitative conformity per attribute with bounded concurrency.
@@ -626,11 +656,13 @@ def _score_conformity_all_variables(
     def one(attribute: Attribute) -> ConformityScore | None:
         return score_conformity(
             attribute,
-            doc_text,
+            attribute_contexts.get(attribute.name, ""),
             insights_by_attribute.get(attribute.name, []),
             openai_client,
             indication=indication,
             intervention_class=intervention_class,
+            framing=framing,
+            images=(attribute_images or {}).get(attribute.name) or None,
         )
 
     results = _parallel_map(
@@ -641,18 +673,19 @@ def _score_conformity_all_variables(
 
 def _classify_precedent_all_variables(
     attributes: list[Attribute],
-    doc_text: str,
+    attribute_contexts: dict[str, str],
     insights: list[Insight],
     openai_client: LLMClientProtocol,
     *,
     indication: str,
     intervention_class: str,
     framing: str = "",
+    attribute_images: dict[str, list[dict[str, str]]] | None = None,
     progress: ProgressFn | None = None,
 ) -> list[PrecedentSignal]:
     """Classify precedent per attribute with bounded concurrency.
 
-    Self-gating: returns a signal only for variables with web evidence
+    Self-gating: returns a signal only for variables with external evidence
     (classify_precedent returns None otherwise)."""
     insights_by_attribute: dict[str, list[Insight]] = {}
     for insight in insights:
@@ -666,12 +699,13 @@ def _classify_precedent_all_variables(
     def one(attribute: Attribute) -> PrecedentSignal | None:
         return classify_precedent(
             attribute,
-            doc_text,
+            attribute_contexts.get(attribute.name, ""),
             insights_by_attribute.get(attribute.name, []),
             openai_client,
             indication=indication,
             intervention_class=intervention_class,
             framing=framing,
+            images=(attribute_images or {}).get(attribute.name) or None,
         )
 
     results = _parallel_map(
@@ -687,6 +721,8 @@ def _empty_result(
     unique_findings: int = 0,
     insights: int = 0,
     blocks: list[ContentBlock] | None = None,
+    variables: list[Attribute] | None = None,
+    search_plan: list[SearchTrace] | None = None,
 ) -> ScoutResult:
     return ScoutResult(
         matches=[],
@@ -699,6 +735,8 @@ def _empty_result(
             matches=0,
             assessments=0,
         ),
+        variables=variables or [],
+        search_plan=search_plan or [],
         blocks=blocks or [],
     )
 

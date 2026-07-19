@@ -60,6 +60,7 @@ BLOCK_COLUMNS = [
     "heading_stack_json",
     "structural_meta_json",
     "style_hint_json",
+    "image_json",
     "section_label",
 ]
 
@@ -267,6 +268,7 @@ def _block_row(block: dict[str, Any], doc_key: str, header: dict[str, Any]) -> d
         "heading_stack_json": _json_value(block["heading_stack"]),
         "structural_meta_json": _json_value(block["structural_meta"]),
         "style_hint_json": _json_value(block["style_hint"]),
+        "image_json": _json_value(block.get("image")),
         "section_label": block["section_label"],
     }
 

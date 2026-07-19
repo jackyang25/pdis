@@ -90,14 +90,5 @@ disambiguation:
     Go / No-Go criteria belong to "Decision Criteria" even when organized by
     functional area; do not file them under each functional domain.
 
-image_lens: >
-  Figures in this document are integrated product-development timelines
-  (Gantt-style charts): phases and activities across functional domains
-  (non-clinical, clinical, regulatory, CMC, manufacturing, delivery) plotted
-  over time toward licensure and WHO prequalification. Capture every phase
-  label, functional swimlane, activity, milestone, stage gate, decision point,
-  and any date or duration shown, and describe the sequence and dependencies
-  between them.
-
 include_metadata_label: true
 include_other_label: true

@@ -1,13 +1,9 @@
 """Stage: classify the precedent / novelty of one document unit.
 
-Resolves the ambiguity in a low evidence assessment. A unit with little or no
-supporting evidence can be one of two OPPOSITE things:
+Resolves the ambiguity in a low evidence assessment by keeping two questions
+orthogonal: how direct the prior work is, and what happened to that prior work.
 
-  - NOVEL (white space): nobody has tried this approach yet.
-  - DISCONFIRMED: the approach HAS been tried and failed / been contradicted.
-    This is a genuine caution.
-
-How to READ a novel result is doc-type-specific and supplied by the config's
+How to READ absent precedent is doc-type-specific and supplied by the config's
 `precedent_framing`: for a TPP, white space is expected and often intended; for
 an IPDP, an unprecedented plan commitment is a feasibility risk to surface.
 
@@ -17,8 +13,8 @@ insights surfaced by the counterfactual query track - and labels which story
 applies.
 
 One LLM call per variable. Self-gating: returns None when there are no insights,
-because absence of retrieved evidence is NOT proof of novelty (it may be a
-search miss), so we decline to guess rather than fake a 'novel' verdict.
+because absence of retrieved evidence is NOT proof that no precedent exists (it
+may be a search miss), so we decline to guess.
 """
 
 from __future__ import annotations
@@ -29,12 +25,14 @@ import re
 
 from services.searcher import Finding
 
+from ..context import document_block_ids, limit_document_context, validated_block_ids
 from ..models import (
     Attribute,
     Insight,
     LLMClientProtocol,
     PrecedentSignal,
     VALID_PRECEDENT,
+    VALID_PRECEDENT_OUTCOMES,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,7 +40,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_TOKENS = 16000
 # Lockstep with the other doc-reading stages so a target near the end of a long
 # doc is never cut off in one stage but not another.
-MAX_DOC_CONTEXT_CHARS = 120000
 
 
 def classify_precedent(
@@ -54,19 +51,17 @@ def classify_precedent(
     indication: str,
     intervention_class: str,
     framing: str = "",
+    images: list[dict[str, str]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> PrecedentSignal | None:
     """Classify whether this variable's target/approach has precedent.
 
-    Returns None for variables with no web evidence: with nothing retrieved we
-    cannot distinguish genuine novelty from a search miss, so we decline to
-    label rather than invent a 'novel' verdict."""
+    Returns None for variables with no external evidence: with nothing retrieved we
+    cannot distinguish absent precedent from a search miss, so we decline to
+    label rather than invent coverage."""
     if not insights:
         return None
 
-    supporting_findings = _dedupe_findings(
-        finding for insight in insights for finding in insight.supporting_findings
-    )
     system_prompt = _system_prompt(
         attribute=attribute,
         indication=indication,
@@ -75,32 +70,63 @@ def classify_precedent(
     )
     user_message = _user_message(attribute, doc_text, insights)
 
-    raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+    raw = llm_client.call(
+        system_prompt, user_message, max_tokens=max_tokens, images=images
+    )
     parsed = _parse(raw)
-    if not parsed:
+    if not parsed or not _has_valid_lineage(parsed, insights):
         logger.warning(
             "precedent_classifier produced no parsable JSON for %s; retrying once",
             attribute.name,
         )
-        raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+        raw = llm_client.call(
+            system_prompt, user_message, max_tokens=max_tokens, images=images
+        )
         parsed = _parse(raw)
 
-    if not parsed:
+    if not parsed or not _has_valid_lineage(parsed, insights):
         return PrecedentSignal(
             attribute_ref=attribute.name,
             precedent="unknown",
+            outcome="unknown",
             reason="classification failed",
-            supporting_findings=supporting_findings,
+            supporting_findings=[],
         )
 
     precedent = str(parsed.get("precedent", "")).strip().lower()
     if precedent not in VALID_PRECEDENT:
         precedent = "unknown"
+    outcome = str(parsed.get("outcome", "")).strip().lower()
+    if outcome not in VALID_PRECEDENT_OUTCOMES:
+        outcome = "unknown"
     reason = str(parsed.get("reason", "")).strip() or "no rationale returned"
+    coverage_insights = _selected_insights(
+        parsed, insights, key="coverage_insight_indices"
+    )
+    outcome_insights = _selected_insights(
+        parsed, insights, key="outcome_insight_indices"
+    )
+    selected: list[Insight] = []
+    selected_ids: set[str] = set()
+    for insight in [*coverage_insights, *outcome_insights]:
+        if insight.id in selected_ids:
+            continue
+        selected_ids.add(insight.id)
+        selected.append(insight)
+    supporting_findings = _dedupe_findings(
+        finding for insight in selected for finding in insight.supporting_findings
+    )
     return PrecedentSignal(
         attribute_ref=attribute.name,
         precedent=precedent,
+        outcome=outcome,
         reason=reason,
+        doc_block_ids=validated_block_ids(
+            parsed.get("doc_block_ids"), document_block_ids(doc_text)
+        ),
+        coverage_insight_ids=[insight.id for insight in coverage_insights],
+        outcome_insight_ids=[insight.id for insight in outcome_insights],
+        supporting_insight_ids=[insight.id for insight in selected],
         supporting_findings=supporting_findings,
     )
 
@@ -109,8 +135,8 @@ def classify_precedent(
 # document type by the config's `precedent_framing`; this is only used if a
 # config omits it. No doc-type-specific assumptions live here.
 _GENERIC_PRECEDENT_FRAMING = (
-    "Where supporting evidence is thin, distinguish genuine novelty (no prior "
-    "attempt at this target/approach) from a target that has been tried and failed."
+    "Assess how directly prior work covers this target or approach, then assess "
+    "the outcome of that prior work separately."
 )
 
 
@@ -127,36 +153,42 @@ def _system_prompt(
         .replace("{indication}", indication)
     )
     return (
-        "You classify the PRECEDENT of ONE variable's target/approach: has it "
-        "been attempted before, and if the evidence is thin, is that because the "
-        "approach is genuinely new or because it has been tried and failed?\n\n"
+        "You classify TWO PRECEDENT AXES for ONE variable's target/approach: "
+        "how directly prior work covers it, and what outcomes that prior work had.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}\n"
         f"Definition: {attribute.description}\n\n"
         + framing + "\n\n"
-        "Choose exactly ONE precedent label:\n"
-        "- established: prior products/approaches already pursue this target/method for "
-        "this (or a closely comparable) indication.\n"
-        "- emerging: no direct precedent for this exact target, but adjacent or analogous "
-        "evidence exists (e.g. the same platform/mechanism proven elsewhere).\n"
-        "- novel: the surrounding area appears in the evidence, but there is NO prior "
-        "attempt at this specific target/approach AND no evidence it has failed - genuine "
-        "white space. Use this only when the insights give enough context to be confident "
-        "the approach is absent, not merely unsearched.\n"
-        "- disconfirmed: the evidence shows this target/approach HAS been tried and failed, "
-        "stalled, or been contradicted (null/failed trials, withdrawals, waning, safety "
-        "signals). This is the one caution flag.\n"
-        "- unknown: the insights are too sparse or off-point to judge precedent.\n\n"
+        "Return TWO independent labels. Do not collapse them into one axis.\n"
+        "precedent (coverage):\n"
+        "- direct: prior comparable attempts pursue this target/approach in this or a "
+        "closely comparable indication.\n"
+        "- adjacent: only analogous evidence exists, such as the platform in another indication.\n"
+        "- none: the evidence covers the area but shows no prior attempt at this target/approach.\n"
+        "- unknown: the evidence is too sparse or off-point to judge coverage.\n\n"
+        "outcome (what happened to prior work):\n"
+        "- favorable: prior attempts materially support feasibility or success.\n"
+        "- mixed: prior outcomes conflict or show meaningful successes and limitations.\n"
+        "- unfavorable: prior attempts failed, stalled, were withdrawn, or revealed material "
+        "safety, durability, feasibility, or regulatory problems.\n"
+        "- unknown: there is no usable prior outcome, including when precedent=none.\n\n"
         "Honesty rules:\n"
-        "- Absence of evidence is NOT proof of novelty. If you simply found little, prefer "
-        "'unknown' over 'novel'. Reserve 'novel' for when the evidence covers the space yet "
-        "shows no prior attempt.\n"
-        "- 'disconfirmed' requires actual counter-evidence, not merely weak support.\n"
+        "- Absence of evidence is NOT proof of no precedent. Prefer unknown unless the "
+        "retrieved evidence actually covers the space.\n"
+        "- unfavorable requires actual negative outcomes, not merely weak support.\n"
         "- Judge the target/approach, not whether the number is ambitious.\n\n"
         "reason: one sentence (<=25 words) citing the specific evidence (or its telling "
         "absence) behind your label.\n\n"
+        "Return doc_block_ids containing the exact [block:<id>] markers for the document "
+        "target/approach you assessed. Return coverage_insight_indices and "
+        "outcome_insight_indices separately, containing ONLY the numbered insights used "
+        "for each axis. outcome_insight_indices may be empty when outcome=unknown.\n\n"
+        "Discovery-track labels are retrieval provenance only; classify the stated evidence, "
+        "not the track name.\n\n"
         "Return ONLY JSON. No markdown, no commentary. Format:\n"
-        '{"precedent": "novel", "reason": "..."}'
+        '{"precedent": "none", "outcome": "unknown", "reason": "...", '
+        '"doc_block_ids": ["b-0001"], '
+        '"coverage_insight_indices": [0, 2], "outcome_insight_indices": []}'
     )
 
 
@@ -165,8 +197,7 @@ def _user_message(
     doc_text: str,
     insights: list[Insight],
 ) -> str:
-    if len(doc_text) > MAX_DOC_CONTEXT_CHARS:
-        doc_text = doc_text[:MAX_DOC_CONTEXT_CHARS] + "\n...[truncated]"
+    doc_text = limit_document_context(doc_text)
     lines = [
         "Document text:",
         doc_text,
@@ -174,11 +205,13 @@ def _user_message(
         f"Variable: {attribute.name}",
         f"Definition: {attribute.description}",
         "",
-        "Web insights for this variable:",
+        "External-evidence insights for this variable:",
     ]
     for i, insight in enumerate(insights):
         urls = ", ".join(f.url for f in insight.supporting_findings)
-        lines.append(f"[{i}] {insight.statement}")
+        lines.append(f"[{i}] ({insight.id}) {insight.statement}")
+        if insight.query_tracks:
+            lines.append(f"    discovery tracks: {', '.join(insight.query_tracks)}")
         if urls:
             lines.append(f"    sources: {urls}")
     lines.append("\nClassify the precedent now.")
@@ -194,6 +227,37 @@ def _dedupe_findings(findings) -> list[Finding]:
         seen.add(finding.url)
         out.append(finding)
     return out
+
+
+def _selected_insights(
+    parsed: dict,
+    insights: list[Insight],
+    *,
+    key: str,
+) -> list[Insight]:
+    raw = parsed.get(key, []) or []
+    indices = list(
+        dict.fromkeys(
+            item
+            for item in raw
+            if isinstance(item, int)
+            and not isinstance(item, bool)
+            and 0 <= item < len(insights)
+        )
+    )
+    return [insights[index] for index in indices]
+
+
+def _has_valid_lineage(parsed: dict, insights: list[Insight]) -> bool:
+    precedent = str(parsed.get("precedent", "")).strip().lower()
+    outcome = str(parsed.get("outcome", "")).strip().lower()
+    coverage_valid = precedent == "unknown" or bool(
+        _selected_insights(parsed, insights, key="coverage_insight_indices")
+    )
+    outcome_valid = outcome == "unknown" or bool(
+        _selected_insights(parsed, insights, key="outcome_insight_indices")
+    )
+    return coverage_valid and outcome_valid
 
 
 def _parse(raw: str) -> dict:

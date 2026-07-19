@@ -7,9 +7,7 @@ from .parser_docx import parse_docx
 from .parser_pdf import parse_pdf
 
 
-def parse_document(
-    file_path: str, doc_id: str, *, extract_images: bool = False
-) -> list[ContentBlock]:
+def parse_document(file_path: str, doc_id: str) -> list[ContentBlock]:
     """
     Parse a document into an ordered list of ContentBlocks.
 
@@ -34,7 +32,7 @@ def parse_document(
     """
     suffix = Path(file_path).suffix.lower()
     if suffix == ".docx":
-        return parse_docx(file_path, doc_id, extract_images=extract_images)
+        return parse_docx(file_path, doc_id)
     if suffix == ".pdf":
         return parse_pdf(file_path, doc_id)  # image extraction is docx-only at MVP
     raise ValueError(

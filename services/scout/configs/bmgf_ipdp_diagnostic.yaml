@@ -3,11 +3,17 @@ org: bmgf
 source_type: ipdp
 intervention_class: diagnostic
 display_name: "BMGF Integrated Product Development Plan - Diagnostic"
+sources: [web, pubmed, clinicaltrials]
 
 # IPDP units are extracted from the document (milestones, timelines, cost and
 # feasibility assumptions, regulatory expectations, study designs, manufacturing
 # and access plans), not read from the fixed TPP attribute vocabulary.
 unit_provider: extract
+
+evidence_framing: |
+  This is an integrated product development plan. Assess whether the stated plan commitment or assumption is externally supported and feasible. Thin precedent is uncertainty or execution risk, not intentional product ambition.
+conformity_framing: |
+  This is an integrated product development plan. The numeric value may be a milestone, timeline, cost, capacity, or feasibility assumption. Compare like with like and score whether external benchmarks support that specific commitment.
 
 # Interpretive stance injected into the drift and precedent reasoning. An IPDP's
 # units are plan commitments to be pressure-tested for feasibility, not
@@ -29,7 +35,7 @@ query_extraction_guidance: |
   Each unit is a concrete plan assertion from a diagnostic development plan - a
   milestone with a date, a development timeline, a cost or volume projection, a
   regulatory expectation, a clinical performance study design, or a
-  manufacturing/access assumption. Generate web search queries that test
+  manufacturing/access assumption. Generate retrieval intents that test
   whether the assertion is realistic and has precedent:
 
   1. Feasibility precedent - has a comparable milestone, timeline, or approach

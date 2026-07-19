@@ -16,7 +16,7 @@ from .models import (
     LLMClientProtocol,
     PipelineResult,
 )
-from .stages.image_describer import describe_images
+from .stages.image_assets import attach_image_assets
 from .stages.mapper import label_blocks
 from .stages.parser import parse_document
 
@@ -45,14 +45,9 @@ def run_pipeline(
     Raises on parse or mapping failure. For batch use with per-document
     error capture, call `run_pipeline_batch`.
     """
-    describe = bool(config and config.image_lens and llm_client)
     if progress_callback:
         progress_callback("parse")
-    blocks = parse_document(file_path, doc_id, extract_images=describe)
-    if describe:
-        if progress_callback:
-            progress_callback("describe")
-        blocks = describe_images(blocks, file_path, config, llm_client)
+    blocks = attach_image_assets(parse_document(file_path, doc_id), file_path)
     if config is not None and llm_client is not None:
         if progress_callback:
             progress_callback("label")
@@ -137,9 +132,10 @@ def _run_one(
     indication: str | None = None,
 ) -> PipelineResult:
     result = PipelineResult(file_path=file_path, doc_id=doc_id)
-    describe = bool(config and config.image_lens and llm_client_factory)
     try:
-        result.blocks = parse_document(file_path, doc_id, extract_images=describe)
+        result.blocks = attach_image_assets(
+            parse_document(file_path, doc_id), file_path
+        )
     except Exception as exc:
         result.parse_error = str(exc)
         return result
@@ -147,10 +143,6 @@ def _run_one(
     if config is not None and llm_client_factory is not None:
         try:
             llm_client = llm_client_factory()
-            if describe:
-                result.blocks = describe_images(
-                    result.blocks, file_path, config, llm_client
-                )
             result.blocks = label_blocks(
                 result.blocks, config, llm_client, max_tokens=max_tokens
             )

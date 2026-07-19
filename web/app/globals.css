@@ -61,6 +61,32 @@
   }
 }
 
+@layer components {
+  .evidence-map .react-flow__controls {
+    overflow: hidden;
+    border: 1px solid hsl(var(--border));
+    border-radius: calc(var(--radius) - 2px);
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+  }
+
+  .evidence-map .react-flow__controls-button {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--card));
+    fill: hsl(var(--muted-foreground));
+  }
+
+  .evidence-map .react-flow__controls-button:last-child {
+    border-bottom: 0;
+  }
+
+  .evidence-map .react-flow__controls-button:hover {
+    background: hsl(var(--accent));
+  }
+}
+
 @layer base {
   * {
     @apply border-border;

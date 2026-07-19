@@ -5,10 +5,10 @@ Matches in the same order as the input Insights - each Insight gets
 exactly one Match (relation + reason).
 
 Relations (closed enum):
-  - contradicts : web finding disagrees with what the doc says
-  - extends     : web finding adds new info the doc lacks
-  - confirms    : web finding supports what the doc says
-  - unrelated   : web finding doesn't speak to anything in the doc
+  - contradicts : external finding disagrees with what the doc says
+  - extends     : external finding adds new info the doc lacks
+  - confirms    : external finding supports what the doc says
+  - unrelated   : external finding doesn't speak to anything in the doc
 
 If parsing fails, every Insight is wrapped as Match(insight, "unrelated",
 "classifier failed"). The pipeline never raises here - drift is a quality
@@ -21,12 +21,12 @@ import json
 import logging
 import re
 
+from ..context import document_block_ids, limit_document_context, validated_block_ids
 from ..models import Insight, LLMClientProtocol, Match, VALID_RELATIONS
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 24000
-MAX_DOC_CONTEXT_CHARS = 120000
 INSIGHTS_BATCH_SIZE = 30
 
 
@@ -38,6 +38,7 @@ def classify_drift(
     indication: str,
     intervention_class: str,
     framing: str = "",
+    images: list[dict[str, str]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[Match]:
     if not insights:
@@ -54,6 +55,7 @@ def classify_drift(
                     indication=indication,
                     intervention_class=intervention_class,
                     framing=framing,
+                    images=images,
                     max_tokens=max_tokens,
                 )
             )
@@ -66,19 +68,24 @@ def classify_drift(
     )
     user_message = _user_message(doc_excerpts, insights)
 
-    raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+    raw = llm_client.call(
+        system_prompt, user_message, max_tokens=max_tokens, images=images
+    )
     parsed = _parse(raw)
     if len(parsed) != len(insights):
         logger.warning(
             "drift_classifier expected %d entries, got %d; retrying once",
             len(insights), len(parsed),
         )
-        raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+        raw = llm_client.call(
+            system_prompt, user_message, max_tokens=max_tokens, images=images
+        )
         parsed = _parse(raw)
 
     by_index: dict[int, dict] = {
         p["index"]: p for p in parsed if isinstance(p.get("index"), int)
     }
+    allowed_block_ids = document_block_ids("\n".join(doc_excerpts))
 
     matches: list[Match] = []
     for i, insight in enumerate(insights):
@@ -88,7 +95,16 @@ def classify_drift(
         if relation not in VALID_RELATIONS:
             relation = "unrelated"
             reason = reason or "classifier failed"
-        matches.append(Match(insight=insight, relation=relation, reason=reason))
+        matches.append(
+            Match(
+                insight=insight,
+                relation=relation,
+                reason=reason,
+                doc_block_ids=validated_block_ids(
+                    entry.get("doc_block_ids"), allowed_block_ids
+                ),
+            )
+        )
     return matches
 
 
@@ -96,7 +112,7 @@ def classify_drift(
 # document type by the config's `drift_framing`; this is only used if a config
 # omits it. No doc-type-specific assumptions live here.
 _GENERIC_DRIFT_FRAMING = (
-    "You compare web-derived insights against a {intervention_class} "
+    "You compare external-evidence insights against a {intervention_class} "
     "product-development document targeting {indication}. The document states "
     "intended targets or plans; treat external evidence about current or "
     "standard-of-care products as context for assessing them."
@@ -135,27 +151,32 @@ def _system_prompt(
         "target itself cannot be achieved / has failed, or that a stated FACT is wrong.\n"
         "- Reason is one short sentence (max ~25 words) explaining the choice and citing "
         "the relevant doc topic concisely.\n"
+        "- doc_block_ids must contain the exact [block:<id>] markers from the document "
+        "that the relation compares against. Use an empty list only when no document block applies.\n"
         "- Prefer 'extends' over 'unrelated' when the Insight is on-topic for the "
         "product class and indication, even if the document doesn't explicitly "
         "mention it. Reserve 'unrelated' for genuinely off-topic findings: "
         "a different disease, a different product class, or administrative noise.\n"
         "- Do not invent doc content not present in the excerpts.\n\n"
+        "- Discovery-track labels are retrieval provenance only; they never determine the relation.\n\n"
         "Return ONLY valid JSON. No markdown, no preamble. Format:\n"
         "[\n"
-        '  {"index": 0, "relation": "contradicts", "reason": "..."},\n'
-        '  {"index": 1, "relation": "extends", "reason": "..."}\n'
+        '  {"index": 0, "relation": "contradicts", "reason": "...", "doc_block_ids": ["b-0001"]},\n'
+        '  {"index": 1, "relation": "extends", "reason": "...", "doc_block_ids": ["b-0008"]}\n'
         "]\n"
         "Every Insight index from the input MUST appear exactly once in the output."
     )
 
 
 def _user_message(doc_excerpts: list[str], insights: list[Insight]) -> str:
-    doc_text = "\n\n=== DOC ===\n".join(doc_excerpts)
-    if len(doc_text) > MAX_DOC_CONTEXT_CHARS:
-        doc_text = doc_text[:MAX_DOC_CONTEXT_CHARS] + "\n...[truncated]"
+    doc_text = limit_document_context("\n\n=== DOC ===\n".join(doc_excerpts))
     lines = ["Document excerpts:", doc_text, "", "Insights:"]
     for i, ins in enumerate(insights):
-        lines.append(f"[{i}] {ins.statement}")
+        lines.append(
+            f"[{i}] ({ins.id}; variable={ins.attribute_ref or 'unknown'}) {ins.statement}"
+        )
+        if ins.query_tracks:
+            lines.append(f"    discovery tracks: {', '.join(ins.query_tracks)}")
     lines.append("\nClassify each Insight now.")
     return "\n".join(lines)
 

@@ -26,6 +26,12 @@ export type ContentBlock = {
   section_label: string | null;
   structural_meta: Record<string, unknown>;
   style_hint: Record<string, unknown>;
+  image?: {
+    media_type: string;
+    data_base64: string;
+    sha256: string;
+    source_media_type: string;
+  } | null;
 };
 
 export type DimensionName = "completeness" | "adherence" | "rigor";
@@ -95,6 +101,13 @@ export type Finding = {
   excerpt: string | null;
   published_at: string | null;
   source: string;
+  queries?: string[];
+  source_lanes?: string[];
+  source_labels?: Record<string, string>;
+  retrieval_paths?: { query: string; lane: string }[];
+  title_source_lane?: string;
+  excerpt_source_lane?: string;
+  published_source_lane?: string;
 };
 
 export type SearcherResponse = {
@@ -102,9 +115,17 @@ export type SearcherResponse = {
   findings: Finding[];
 };
 
+export type SearchSource = {
+  key: string;
+  label: string;
+  default_enabled: boolean;
+};
+
 export type Insight = {
+  id?: string;
   statement: string;
   query: string;
+  query_tracks?: string[];
   supporting_findings: Finding[];
   org: string | null;
   source_type: string | null;
@@ -117,6 +138,7 @@ export type Match = {
   insight: Insight;
   relation: "contradicts" | "extends" | "confirms" | "unrelated";
   reason: string;
+  doc_block_ids?: string[];
 };
 
 export type EvidenceStrength =
@@ -129,9 +151,10 @@ export type EvidenceStrength =
 export type EvidenceAssessment = {
   attribute_ref: string;
   strength: EvidenceStrength;
-  basis: string[];
   reason: string;
   doc_target: string;
+  doc_block_ids: string[];
+  supporting_insight_ids: string[];
   supporting_findings: Finding[];
 };
 
@@ -144,10 +167,26 @@ export type FunnelStats = {
   assessments: number;
 };
 
+export type SearchTrace = {
+  attribute_ref: string;
+  lane: string;
+  query: string;
+  tracks: string[];
+  doc_block_ids: string[];
+  status: "complete" | "failed";
+  error: string;
+  finding_count: number;
+  source_urls: string[];
+};
+
 export type Measurement = {
   value: number;
-  source_type: string;
+  unit: string;
+  evidence_form: string;
+  source_record_type: string;
+  development_phase: string;
   url: string;
+  insight_id: string;
   age_months: number | null;
   weight: number;
 };
@@ -162,26 +201,32 @@ export type Conformity = {
   lower: number;
   upper: number;
   verdict: string;
+  doc_block_ids?: string[];
   measurements: Measurement[];
 };
 
 export type PrecedentLabel =
-  | "established"
-  | "emerging"
-  | "novel"
-  | "disconfirmed"
+  | "direct"
+  | "adjacent"
+  | "none"
   | "unknown";
 
 export type PrecedentSignal = {
   attribute_ref: string;
   precedent: PrecedentLabel;
+  outcome: "favorable" | "mixed" | "unfavorable" | "unknown";
   reason: string;
+  doc_block_ids: string[];
+  coverage_insight_ids: string[];
+  outcome_insight_ids: string[];
+  supporting_insight_ids: string[];
   supporting_findings: Finding[];
 };
 
 export type Variable = {
   name: string;
   description: string;
+  block_ids?: string[];
 };
 
 export type ScoutResponse = {
@@ -190,6 +235,7 @@ export type ScoutResponse = {
   intervention_class: string;
   indication: string;
   variables: Variable[];
+  search_plan?: SearchTrace[];
   matches: Match[];
   assessments: EvidenceAssessment[];
   conformity: Conformity[];
@@ -308,13 +354,17 @@ export async function runReviewer(
 
 export async function runSearcher(
   query: string,
-  backends: string[],
+  sources: string[],
   onStage?: (stage: string) => void,
 ): Promise<SearcherResponse> {
   const form = new FormData();
   form.append("query", query);
-  form.append("backends", backends.join(","));
+  form.append("sources", sources.join(","));
   return streamRequest("/api/searcher/run", form, onStage);
+}
+
+export async function fetchSearchSources(): Promise<SearchSource[]> {
+  return jsonRequest<SearchSource[]>("/api/searcher/sources");
 }
 
 export async function runScout(

@@ -21,7 +21,7 @@ EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 # Generous: NCBI is usually sub-second, but PMC full-text fetches and extra
 # latency (e.g. a corporate tunnel like Cloudflare WARP) can push a call past a
 # tight limit. 35s recovers those rare slow-but-valid responses; timed-out
-# queries still just skip that lane.
+# queries are isolated by the source controller.
 REQUEST_TIMEOUT_SECONDS = 35
 MAX_EXCERPT_CHARS = 6000
 # Full-text PMC fetches per query — each is its own NCBI request, so cap the
@@ -75,8 +75,8 @@ def search_pubmed(
 ) -> list[Finding]:
     """Search PubMed and enrich open-access PMC records with full text.
 
-    This backend is deliberately robust: any HTTP/parse/rate-limit problem
-    returns no PubMed findings, leaving other search backends unaffected.
+    Transport/parse failures propagate to the source controller, which records
+    a failed outcome without affecting other adapters.
     """
     query = _sanitize_pubmed_query(query)
     if not query:
@@ -89,7 +89,7 @@ def search_pubmed(
         pmc_texts = _fetch_pmc_texts(records, api_key=api_key)
     except Exception as exc:  # noqa: BLE001 - lane degrades; reason already logged
         logger.warning("PubMed unavailable for query %r: %s", query, exc)
-        return []
+        raise
 
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []

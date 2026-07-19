@@ -1,0 +1,33 @@
+# Methodology-only tuning for quantitative source weighting. These are not
+# product-domain labels: the LLM classifies three separately named axes, then
+# the deterministic combiner applies these weights.
+evidence_form_weights:
+  evidence_synthesis: 0.95
+  randomized_trial: 0.85
+  nonrandomized_trial: 0.70
+  observational_study: 0.65
+  implementation_evidence: 0.60
+  regulatory_review: 0.90
+  registry_record: 0.60
+  other: 0.50
+
+development_phase_multipliers:
+  phase_1: 0.85
+  phase_2: 1.00
+  phase_3: 1.10
+  phase_4: 1.05
+  not_applicable: 1.00
+  unknown: 0.90
+
+source_record_multipliers:
+  peer_reviewed: 1.00
+  preprint: 0.75
+  regulatory: 1.00
+  registry: 0.90
+  company_report: 0.65
+  unknown: 0.80
+
+recency_halflife_months: 36.0
+neutral_recency: 0.50
+relative_measurement_sd: 0.10
+evidence_saturation: 2.0

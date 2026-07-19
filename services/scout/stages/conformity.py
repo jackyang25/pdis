@@ -4,12 +4,12 @@ A transparent, reproducible complement to the qualitative `evidence_assessor`.
 Where sources report comparable numbers against a doc-stated target (e.g.
 efficacy >= 80%), this:
 
-  1. (LLM) extracts the doc target + comparator and each source's reported value
-     and source type.
-  2. (math) weights each source by reliability (source type) x recency (publish
-     date), converts each reported value into a probability the true value meets
-     the target (normal model around the threshold), and combines them into one
-     conformity probability with an uncertainty band and a verdict.
+  1. (LLM) extracts the doc target + comparator, each source's reported value,
+     evidence form, development phase, and source-record type.
+  2. (math) weights each source from those orthogonal axes x recency (publish
+     date), converts each reported value into directional alignment with the
+     target (normal model around the threshold), and combines them into one
+     non-calibrated alignment score with an uncertainty band and verdict.
 
 Self-gating: returns None for non-quantitative variables or when no comparable
 measurements are found. Pure stdlib (statistics.NormalDist) - no R, no numpy.
@@ -26,10 +26,14 @@ import json
 import logging
 import math
 import re
+from pathlib import Path
 from statistics import NormalDist
+
+import yaml
 
 from services.searcher import Finding
 
+from ..context import document_block_ids, limit_document_context, validated_block_ids
 from ..models import Attribute, ConformityScore, Insight, LLMClientProtocol, Measurement
 
 logger = logging.getLogger(__name__)
@@ -39,29 +43,24 @@ MAX_MEASUREMENTS = 40
 # Keep in lockstep with drift_classifier / evidence_assessor so all three
 # doc-reading stages see the SAME baseline and a target near the end of a long
 # doc is never cut off in one stage but not another.
-MAX_DOC_CONTEXT_CHARS = 120000
 
-# Reliability weight per source type (evidence hierarchy). Human-owned domain
-# numbers: strongest direct evidence ~1.0, weakest/indirect ~0.4. The LLM
-# classifies each source into one of these types; unknown -> "other".
-SOURCE_WEIGHTS: dict[str, float] = {
-    "systematic_review_meta_analysis": 0.95,
-    "rct_phase3": 0.95,
-    "regulatory_assessment": 0.90,
-    "rct_phase2": 0.80,
-    "clinical_trial_registry": 0.70,
-    "observational_study": 0.65,
-    "program_effectiveness": 0.60,
-    "preprint": 0.55,
-    "other": 0.50,
-    "press_release": 0.40,
-}
-VALID_SOURCE_TYPES = set(SOURCE_WEIGHTS)
+_METHODOLOGY_PATH = Path(__file__).resolve().parents[1] / "configs" / "evidence_methodology.yaml"
+with _METHODOLOGY_PATH.open("r", encoding="utf-8") as _methodology_file:
+    _METHODOLOGY = yaml.safe_load(_methodology_file) or {}
 
-RECENCY_HALFLIFE_MONTHS = 36.0       # recency weight halves ~every 3 years
-NEUTRAL_RECENCY = 0.5               # recency weight when a source has no date (don't fake an age)
-RELATIVE_MEASUREMENT_SD = 0.10      # per-source noise ~10% of target, scaled by reliability
-EVIDENCE_SATURATION = 2.0            # total weight at which evidence is "enough"
+EVIDENCE_FORM_WEIGHTS: dict[str, float] = _METHODOLOGY["evidence_form_weights"]
+PHASE_MULTIPLIERS: dict[str, float] = _METHODOLOGY["development_phase_multipliers"]
+SOURCE_RECORD_MULTIPLIERS: dict[str, float] = _METHODOLOGY[
+    "source_record_multipliers"
+]
+VALID_EVIDENCE_FORMS = set(EVIDENCE_FORM_WEIGHTS)
+VALID_PHASES = set(PHASE_MULTIPLIERS)
+VALID_SOURCE_RECORD_TYPES = set(SOURCE_RECORD_MULTIPLIERS)
+
+RECENCY_HALFLIFE_MONTHS = float(_METHODOLOGY["recency_halflife_months"])
+NEUTRAL_RECENCY = float(_METHODOLOGY["neutral_recency"])
+RELATIVE_MEASUREMENT_SD = float(_METHODOLOGY["relative_measurement_sd"])
+EVIDENCE_SATURATION = float(_METHODOLOGY["evidence_saturation"])
 
 
 def score_conformity(
@@ -72,6 +71,8 @@ def score_conformity(
     *,
     indication: str,
     intervention_class: str,
+    framing: str = "",
+    images: list[dict[str, str]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> ConformityScore | None:
     """Return a combined conformity score, or None if the variable is not
@@ -86,30 +87,44 @@ def score_conformity(
         llm_client,
         indication=indication,
         intervention_class=intervention_class,
+        framing=framing,
+        images=images,
         max_tokens=max_tokens,
     )
     if extracted is None:
         return None
 
-    target_value, comparator, unit, target_label, measurements = extracted
+    target_value, comparator, unit, target_label, doc_block_ids, measurements = extracted
     measurements = _dedupe_measurements(measurements)
     if not measurements:
         return None
 
     _attach_weights(measurements, insights)
     return _combine(
-        attribute.name, target_value, comparator, unit, target_label, measurements
+        attribute.name,
+        target_value,
+        comparator,
+        unit,
+        target_label,
+        doc_block_ids,
+        measurements,
     )
 
 
 def _dedupe_measurements(measurements: list[Measurement]) -> list[Measurement]:
     """Collapse duplicate sources so one source can't be counted multiple times
     (which would inflate confidence). Dedup by URL when present, else by
-    (value, source_type)."""
+    (value, study-design axes)."""
     seen: set = set()
     out: list[Measurement] = []
     for m in measurements:
-        key = m.url or (m.value, m.source_type)
+        key = m.url or (
+            m.value,
+            m.unit,
+            m.evidence_form,
+            m.development_phase,
+            m.source_record_type,
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -128,6 +143,7 @@ def _combine(
     comparator: str,
     unit: str,
     target_label: str,
+    doc_block_ids: list[str],
     measurements: list[Measurement],
 ) -> ConformityScore:
     sd = max(abs(target_value) * RELATIVE_MEASUREMENT_SD, 1e-6)
@@ -136,7 +152,7 @@ def _combine(
     probs: list[float] = []
     for m in measurements:
         # Per-source noise: stronger sources are tighter around their value.
-        quality = SOURCE_WEIGHTS.get(m.source_type, SOURCE_WEIGHTS["other"])
+        quality = _methodology_weight(m)
         source_sd = sd / math.sqrt(max(quality, 0.1))
         probs.append(_p_conform(m.value, target_value, comparator, source_sd))
         weights.append(max(m.weight, 1e-6))
@@ -165,6 +181,7 @@ def _combine(
         lower=round(lower, 3),
         upper=round(upper, 3),
         verdict=_verdict(conformity),
+        doc_block_ids=doc_block_ids,
         measurements=measurements,
     )
 
@@ -179,14 +196,14 @@ def _p_conform(value: float, target: float, comparator: str, sd: float) -> float
 
 def _verdict(conformity: float) -> str:
     if conformity >= 0.75:
-        return "Strong evidence the target is met"
+        return "Strong alignment with the target"
     if conformity >= 0.55:
-        return "Moderate evidence the target is met"
+        return "Moderate alignment with the target"
     if conformity <= 0.25:
-        return "Strong evidence the target is NOT met"
+        return "Strong misalignment with the target"
     if conformity <= 0.45:
-        return "Moderate evidence the target is NOT met"
-    return "Mixed / indeterminate evidence"
+        return "Moderate misalignment with the target"
+    return "Mixed / indeterminate alignment"
 
 
 def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -212,8 +229,21 @@ def _attach_weights(measurements: list[Measurement], insights: list[Insight]) ->
             if m.age_months is None
             else math.exp(-m.age_months / RECENCY_HALFLIFE_MONTHS)
         )
-        reliability = SOURCE_WEIGHTS.get(m.source_type, SOURCE_WEIGHTS["other"])
+        reliability = _methodology_weight(m)
         m.weight = round(reliability * recency, 4)
+
+
+def _methodology_weight(measurement: Measurement) -> float:
+    evidence_form = EVIDENCE_FORM_WEIGHTS.get(
+        measurement.evidence_form, EVIDENCE_FORM_WEIGHTS["other"]
+    )
+    phase = PHASE_MULTIPLIERS.get(
+        measurement.development_phase, PHASE_MULTIPLIERS["unknown"]
+    )
+    source_record = SOURCE_RECORD_MULTIPLIERS.get(
+        measurement.source_record_type, SOURCE_RECORD_MULTIPLIERS["unknown"]
+    )
+    return min(1.0, evidence_form * phase * source_record)
 
 
 def _age_months(published) -> float | None:
@@ -246,12 +276,18 @@ def _extract_measurements(
     *,
     indication: str,
     intervention_class: str,
+    framing: str,
+    images: list[dict[str, str]] | None,
     max_tokens: int,
-) -> tuple[float, str, str, str, list[Measurement]] | None:
-    system_prompt = _system_prompt(attribute, indication, intervention_class)
+) -> tuple[float, str, str, str, list[str], list[Measurement]] | None:
+    system_prompt = _system_prompt(
+        attribute, indication, intervention_class, framing=framing
+    )
     user_message = _user_message(attribute, doc_text, insights)
 
-    raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+    raw = llm_client.call(
+        system_prompt, user_message, max_tokens=max_tokens, images=images
+    )
     parsed = _parse(raw)
     if parsed is None:
         return None
@@ -263,7 +299,12 @@ def _extract_measurements(
     if not isinstance(target, (int, float)) or comparator not in {">=", "<="}:
         return None
     unit = str(parsed.get("unit", "")).strip()
+    if not unit:
+        return None
     target_label = str(parsed.get("target_label", "")).strip()
+    target_block_ids = validated_block_ids(
+        parsed.get("doc_block_ids"), document_block_ids(doc_text)
+    )
 
     measurements: list[Measurement] = []
     for item in parsed.get("measurements", []) or []:
@@ -272,40 +313,92 @@ def _extract_measurements(
         value = item.get("value")
         if not isinstance(value, (int, float)):
             continue
-        source_type = str(item.get("source_type", "other")).strip().lower()
-        if source_type not in VALID_SOURCE_TYPES:
-            source_type = "other"
+        measurement_unit = str(item.get("unit", "")).strip()
+        # Never silently convert dimensional values. Incompatible units remain
+        # visible in the source insight but cannot enter the numeric combiner.
+        if (
+            not measurement_unit
+            or _canonical_unit(measurement_unit) != _canonical_unit(unit)
+        ):
+            continue
+        insight_index = item.get("insight_index")
+        if (
+            not isinstance(insight_index, int)
+            or isinstance(insight_index, bool)
+            or not 0 <= insight_index < len(insights)
+        ):
+            continue
+        insight = insights[insight_index]
+        url = str(item.get("url", "")).strip()
+        allowed_urls = {finding.url for finding in insight.supporting_findings}
+        if not url or url not in allowed_urls:
+            continue
+        evidence_form = str(item.get("evidence_form", "other")).strip().lower()
+        if evidence_form not in VALID_EVIDENCE_FORMS:
+            evidence_form = "other"
+        development_phase = str(
+            item.get("development_phase", "unknown")
+        ).strip().lower()
+        if development_phase not in VALID_PHASES:
+            development_phase = "unknown"
+        source_record_type = str(
+            item.get("source_record_type", "unknown")
+        ).strip().lower()
+        if source_record_type not in VALID_SOURCE_RECORD_TYPES:
+            source_record_type = "unknown"
         measurements.append(
             Measurement(
                 value=float(value),
-                source_type=source_type,
-                url=str(item.get("url", "")).strip(),
+                unit=measurement_unit,
+                evidence_form=evidence_form,
+                development_phase=development_phase,
+                source_record_type=source_record_type,
+                url=url,
+                insight_id=insight.id,
             )
         )
         if len(measurements) >= MAX_MEASUREMENTS:
             break
 
-    return float(target), comparator, unit, target_label, measurements
+    return float(target), comparator, unit, target_label, target_block_ids, measurements
 
 
-def _system_prompt(attribute: Attribute, indication: str, intervention_class: str) -> str:
+def _system_prompt(
+    attribute: Attribute,
+    indication: str,
+    intervention_class: str,
+    *,
+    framing: str = "",
+) -> str:
+    framing = (
+        framing.strip()
+        or "Interpret the numeric statement according to the uploaded document's own role; "
+        "do not assume it is either an aspirational target or a plan commitment."
+    ).replace("{intervention_class}", intervention_class).replace(
+        "{indication}", indication
+    )
     return (
         "You extract structured numeric evidence for ONE variable so a "
         "downstream calculator can combine it.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}\n"
         f"Definition: {attribute.description}\n\n"
+        f"Document-specific interpretation:\n{framing}\n\n"
         "Task:\n"
         "1. Decide if this variable is QUANTITATIVE - i.e. the document states a "
         "numeric target with a clear direction (e.g. efficacy >= 80%, cost <= $1.50, "
         "duration >= 12 months). If it is not numeric, set is_quantitative=false.\n"
-        "2. If quantitative, pick the SINGLE most binding target to score against. "
-        "Documents often state several (e.g. pediatric vs adult, optimal vs threshold). "
-        "Choose the broadest/threshold (go/no-go) value, give its value, its comparator "
+        "2. If quantitative, pick the SINGLE most decision-relevant binding value for this "
+        "unit. Documents may state several population-specific, optimal/threshold, timeline, "
+        "cost, or capacity values. Follow the document-specific interpretation above and "
+        "choose the go/no-go constraint; give its value, its comparator "
         "(\">=\" when higher is better, \"<=\" when lower is better), the unit, and a short "
         "target_label naming exactly which target you chose (e.g. \"adult threshold <=1.0 mL\").\n"
-        "3. From the web insights, extract each source's reported numeric value for "
-        "THIS variable (same unit as the target). Count ONLY values that measure THIS "
+        "Return doc_block_ids containing the exact [block:<id>] markers for that target.\n"
+        "3. From the external-evidence insights, extract each source's reported numeric value for "
+        "THIS variable. Count ONLY values already expressed in the SAME unit as the target; "
+        "do not convert units or percentages, and include that unit on every measurement. "
+        "The deterministic parser rejects a measurement whose unit differs. Count ONLY values that measure THIS "
         "product/indication's target. Do NOT include a value from a DIFFERENT indication, "
         "disease, or product class even when the unit matches (e.g. the same platform's "
         "result in another disease) - that is analogous precedent, not a measurement of "
@@ -314,37 +407,47 @@ def _system_prompt(attribute: Attribute, indication: str, intervention_class: st
         "announcement across languages, mirror/republished pages, and a PubMed record "
         "and its PMC full-text into ONE measurement (do not count it multiple times). "
         "Emit separate measurements ONLY for genuinely independent sources. Skip "
-        "insights with no comparable number. Classify each source into one source_type "
-        "from this list:\n"
-        "   systematic_review_meta_analysis, rct_phase3, rct_phase2, "
-        "regulatory_assessment, clinical_trial_registry, observational_study, "
-        "program_effectiveness, preprint, press_release, other.\n"
-        "   Include the source URL for each measurement.\n\n"
+        "insights with no comparable number. Label each source on THREE separately defined axes:\n"
+        "   evidence_form: evidence_synthesis, randomized_trial, nonrandomized_trial, "
+        "observational_study, implementation_evidence, regulatory_review, registry_record, other.\n"
+        "   development_phase: phase_1, phase_2, phase_3, phase_4, not_applicable, unknown.\n"
+        "   source_record_type: peer_reviewed, preprint, regulatory, registry, "
+        "company_report, unknown.\n"
+        "Do not collapse these axes: a Phase 3 randomized trial can be a preprint, and a "
+        "registry record may describe any phase.\n"
+        "   Include the source URL and insight_index for each measurement. The URL MUST "
+        "appear under that numbered insight; never invent or rewrite a URL.\n\n"
+        "Discovery-track labels are retrieval provenance only and must not affect extraction.\n\n"
         "Return ONLY JSON. No markdown, no commentary. Format:\n"
         '{"is_quantitative": true, "target_value": 80, "comparator": ">=", '
-        '"unit": "%", "target_label": "threshold >=80%", '
-        '"measurements": [{"value": 75, "source_type": "rct_phase3", '
-        '"url": "https://..."}]}\n'
+        '"unit": "%", "target_label": "threshold >=80%", "doc_block_ids": ["b-0001"], '
+        '"measurements": [{"value": 75, "unit": "%", "evidence_form": "randomized_trial", '
+        '"development_phase": "phase_3", "source_record_type": "peer_reviewed", '
+        '"insight_index": 0, "url": "https://..."}]}\n'
         "If not quantitative: {\"is_quantitative\": false}"
     )
 
 
 def _user_message(attribute: Attribute, doc_text: str, insights: list[Insight]) -> str:
-    if len(doc_text) > MAX_DOC_CONTEXT_CHARS:
-        doc_text = doc_text[:MAX_DOC_CONTEXT_CHARS] + "\n...[truncated]"
+    doc_text = limit_document_context(doc_text)
     lines = [
         "Document text:",
         doc_text,
         "",
         f"Variable: {attribute.name}",
         "",
-        "Web insights for this variable:",
+        "External-evidence insights for this variable:",
     ]
     for i, insight in enumerate(insights):
-        urls = ", ".join(f.url for f in insight.supporting_findings)
-        lines.append(f"[{i}] {insight.statement}")
-        if urls:
-            lines.append(f"    sources: {urls}")
+        lines.append(f"[{i}] ({insight.id}) {insight.statement}")
+        if insight.query_tracks:
+            lines.append(f"    discovery tracks: {', '.join(insight.query_tracks)}")
+        for finding in insight.supporting_findings:
+            published = finding.published_at.isoformat() if finding.published_at else "unknown"
+            lines.append(
+                f"    source: {finding.url} | lane={finding.source} | published={published} "
+                f"| title={finding.title}"
+            )
     lines.append("\nExtract the structured numeric evidence now.")
     return "\n".join(lines)
 
@@ -356,6 +459,19 @@ def _parse(raw: str) -> dict | None:
     except (json.JSONDecodeError, ValueError):
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _canonical_unit(unit: str) -> str:
+    """Normalize spelling only; never perform dimensional conversion."""
+    normalized = re.sub(r"[\s._-]+", "", unit.strip().lower())
+    aliases = {
+        "percent": "%",
+        "percentage": "%",
+        "pct": "%",
+        "us$": "usd",
+        "$": "usd",
+    }
+    return aliases.get(normalized, normalized)
 
 
 def _strip_fences(s: str) -> str:

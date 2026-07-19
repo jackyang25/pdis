@@ -1,4 +1,4 @@
-"""Stage 2: extract atomic Insights from web Findings.
+"""Stage 2: extract atomic Insights from external retrieval Findings.
 
 Given a flat list of Findings (collected across all queries), the LLM
 extracts atomic factual statements, each tied to one or more supporting
@@ -18,6 +18,7 @@ from ..models import Insight, LLMClientProtocol
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 24000
+MAX_FINDING_EXCERPT_CHARS = 6000
 
 
 def extract_insights(
@@ -28,6 +29,7 @@ def extract_insights(
     intervention_class: str,
     attribute_ref: str | None = None,
     attribute_description: str = "",
+    query_tracks: dict[str, list[str]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[Insight]:
     """Return Insights extracted from the supplied Findings."""
@@ -40,7 +42,7 @@ def extract_insights(
         attribute_ref=attribute_ref,
         attribute_description=attribute_description,
     )
-    user_message = _user_message(findings)
+    user_message = _user_message(findings, query_tracks=query_tracks)
 
     raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
     parsed = _parse_insights(raw)
@@ -62,11 +64,20 @@ def extract_insights(
             continue
         # Use the query of the first supporting finding (best available attribution)
         query = supporting[0].query
+        tracks = list(
+            dict.fromkeys(
+                track
+                for finding in supporting
+                for finding_query in (finding.queries or [finding.query])
+                for track in (query_tracks or {}).get(finding_query, [])
+            )
+        )
         insights.append(
             Insight(
                 statement=statement,
                 supporting_findings=supporting,
                 query=query,
+                query_tracks=tracks,
                 attribute_ref=attribute_ref,
             )
         )
@@ -81,7 +92,7 @@ def _system_prompt(
     attribute_description: str,
 ) -> str:
     return (
-        f"You extract atomic factual insights from web search findings about "
+        f"You extract atomic factual insights from external search findings about "
         f"a {intervention_class} for {indication}.\n\n"
         "You are extracting insights for ONE specific variable:\n"
         f"Variable: {attribute_ref or 'unknown'}\n"
@@ -124,15 +135,63 @@ def _system_prompt(
     )
 
 
-def _user_message(findings: list[Finding]) -> str:
+def _user_message(
+    findings: list[Finding],
+    *,
+    query_tracks: dict[str, list[str]] | None = None,
+) -> str:
     lines = ["Findings:"]
     for f in findings:
         lines.append(f"\n--- {f.url} ---")
         lines.append(f"title: {f.title}")
+        lines.append(f"source lane: {f.source}")
+        if f.published_at:
+            lines.append(f"published: {f.published_at.isoformat()}")
+        queries = getattr(f, "queries", None) or [f.query]
+        lines.append(f"discovered by: {' | '.join(q for q in queries if q)}")
+        tracks = list(
+            dict.fromkeys(
+                track for query in queries for track in (query_tracks or {}).get(query, [])
+            )
+        )
+        if tracks:
+            lines.append(f"coverage tracks: {', '.join(tracks)}")
         if f.excerpt:
-            lines.append(f"excerpt: {f.excerpt}")
+            excerpt = f.excerpt[:MAX_FINDING_EXCERPT_CHARS]
+            if len(f.excerpt) > MAX_FINDING_EXCERPT_CHARS:
+                excerpt += "...[source excerpt clipped]"
+            lines.append(f"excerpt: {excerpt}")
     lines.append("\nExtract insights now.")
     return "\n".join(lines)
+
+
+def merge_duplicate_insights(insights: list[Insight]) -> list[Insight]:
+    """Merge exact/near-exact statements emitted by separate finding batches.
+
+    The LLM deduplicates within each batch. This deterministic second pass keeps
+    batch parallelism from duplicating the same atomic fact across batches while
+    preserving the union of every cited Finding.
+    """
+    by_statement: dict[tuple[str, str], Insight] = {}
+    out: list[Insight] = []
+    for insight in insights:
+        normalized = re.sub(r"[^a-z0-9]+", " ", insight.statement.lower()).strip()
+        key = (insight.attribute_ref or "", normalized)
+        existing = by_statement.get(key)
+        if existing is None:
+            by_statement[key] = insight
+            out.append(insight)
+            continue
+        seen_urls = {finding.url for finding in existing.supporting_findings}
+        for finding in insight.supporting_findings:
+            if finding.url not in seen_urls:
+                existing.supporting_findings.append(finding)
+                seen_urls.add(finding.url)
+        existing.query_tracks = list(
+            dict.fromkeys([*existing.query_tracks, *insight.query_tracks])
+        )
+        existing.refresh_id()
+    return out
 
 
 def _parse_insights(raw: str) -> list[dict]:

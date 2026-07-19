@@ -1,34 +1,40 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { ExternalLink, Loader2, Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { runSearcher } from "@/lib/api";
+import { fetchSearchSources, runSearcher, type SearchSource } from "@/lib/api";
 import { useSearcherSession } from "@/lib/session";
-
-// Mirrors the backend's VALID_BACKENDS. The searcher service unions these lanes.
-const BACKENDS = [
-  { id: "web", label: "Web" },
-  { id: "pubmed", label: "PubMed" },
-  { id: "clinicaltrials", label: "ClinicalTrials.gov" },
-] as const;
-
-const SOURCE_LABEL: Record<string, string> = {
-  web: "Web",
-  pubmed: "PubMed",
-  clinicaltrials: "ClinicalTrials.gov",
-};
 
 export default function SearcherPage() {
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(
-    new Set(BACKENDS.map((b) => b.id)),
-  );
+  const [sources, setSources] = useState<SearchSource[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const { result, busy, stage, error, setResult, setBusy, setStage, setError } =
     useSearcherSession();
+
+  useEffect(() => {
+    let active = true;
+    fetchSearchSources()
+      .then((available) => {
+        if (!active) return;
+        setSources(available);
+        setSelected(
+          new Set(
+            available.filter((source) => source.default_enabled).map((source) => source.key),
+          ),
+        );
+      })
+      .catch((cause) => {
+        if (active) setError((cause as Error).message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [setError]);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -61,7 +67,7 @@ export default function SearcherPage() {
 
   return (
     <>
-      <PageHeader title="Searcher" description="Search trusted web, literature, and clinical-trial sources through one evidence workspace." />
+      <PageHeader title="Searcher" description="Search registered evidence sources through one normalized workspace." />
       <div className="flex flex-col gap-6">
         <form onSubmit={onSubmit} className="rounded-lg border border-border bg-card p-5">
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -89,13 +95,13 @@ export default function SearcherPage() {
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <span className="mr-1 text-xs text-muted-foreground">Sources</span>
-            {BACKENDS.map((b) => {
-              const on = selected.has(b.id);
+            {sources.map((source) => {
+              const on = selected.has(source.key);
               return (
                 <button
-                  key={b.id}
+                  key={source.key}
                   type="button"
-                  onClick={() => toggle(b.id)}
+                  onClick={() => toggle(source.key)}
                   disabled={busy}
                   aria-pressed={on}
                   className={cn(
@@ -105,12 +111,12 @@ export default function SearcherPage() {
                       : "border-border bg-background text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {b.label}
+                  {source.label}
                 </button>
               );
             })}
             {selected.size === 0 && (
-              <span className="text-xs text-destructive">Select at least one backend.</span>
+              <span className="text-xs text-destructive">Select at least one source.</span>
             )}
           </div>
         </form>
@@ -123,19 +129,20 @@ export default function SearcherPage() {
         )}
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        {result && <Findings result={result} />}
+        {result && <Findings result={result} sources={sources} />}
       </div>
     </>
   );
 }
 
-function Findings({ result }: { result: { query: string; findings: Array<{ url: string; title: string; excerpt: string | null; source: string }> } }) {
+function Findings({ result, sources }: { result: { query: string; findings: Array<{ url: string; title: string; excerpt: string | null; source: string }> }; sources: SearchSource[] }) {
+  const labels = new Map(sources.map((source) => [source.key, source.label]));
   const counts = result.findings.reduce<Record<string, number>>((acc, f) => {
     acc[f.source] = (acc[f.source] ?? 0) + 1;
     return acc;
   }, {});
   const breakdown = Object.entries(counts)
-    .map(([src, n]) => `${SOURCE_LABEL[src] ?? src} ${n}`)
+    .map(([src, n]) => `${labels.get(src) ?? humanizeSource(src)} ${n}`)
     .join(" · ");
 
   return (
@@ -149,7 +156,7 @@ function Findings({ result }: { result: { query: string; findings: Array<{ url: 
       {result.findings.map((finding) => (
         <article key={finding.url} className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-start gap-3">
-            <Badge variant="muted">{SOURCE_LABEL[finding.source] ?? finding.source}</Badge>
+            <Badge variant="muted">{labels.get(finding.source) ?? humanizeSource(finding.source)}</Badge>
             <a
               href={finding.url}
               target="_blank"
@@ -172,4 +179,10 @@ function Findings({ result }: { result: { query: string; findings: Array<{ url: 
       ))}
     </div>
   );
+}
+
+function humanizeSource(source: string): string {
+  return source
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }

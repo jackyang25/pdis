@@ -4,11 +4,18 @@ source_type: tpp
 intervention_class: vaccine
 display_name: "Example Template"
 
+# Registered Searcher adapters enabled for this document type. Adding a new
+# source is an adapter + registry entry; opt in here without pipeline changes.
+sources:
+  - web
+  - pubmed
+  - clinicaltrials
+
 # Domain-specific guidance for the per-variable query extractor. Each
 # shared TPP attribute variable gets its own focused queries - these
 # instructions apply to ALL variables.
 query_extraction_guidance: |
-  Generate web search queries across three axes:
+  Generate retrieval intents across three axes:
   (1) standard of care - current options, their efficacy/safety numbers,
   and how a new product could win; and (2) new scientific data - recent
   trial readouts, new entrants, platform/manufacturing advances, and
@@ -47,6 +54,11 @@ geographic_queries_per_variable: 4
 counterfactual_queries_per_variable: 3
 precedent_queries_per_variable: 3
 unit_provider: vocabulary  # vocabulary = fixed shared attribute list; extract = pull units from the document
+
+# Responsibility-specific document framing. Keep each focused on the named
+# reasoning layer; do not put product-domain vocabulary in engine code.
+evidence_framing: ""
+conformity_framing: ""
 
 # Interpretive stance injected into the drift / precedent reasoning - how to read
 # this document's units. Empty => a generic, doc-agnostic fallback in the engine.

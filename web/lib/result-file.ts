@@ -1,7 +1,8 @@
 import type { ContentBlock, ReviewerResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 1 as const;
+const RESULT_VERSION = 4 as const;
+type ResultVersion = 1 | 2 | 3 | typeof RESULT_VERSION;
 
 type ResultType = "reviewer" | "scout";
 
@@ -12,7 +13,7 @@ type SourceDocument = {
 
 type ResultFile<TResultType extends ResultType, TAnalysis> = {
   schema: typeof RESULT_SCHEMA;
-  version: typeof RESULT_VERSION;
+  version: ResultVersion;
   result_type: TResultType;
   analysis: TAnalysis;
   source_documents: SourceDocument[];
@@ -53,11 +54,16 @@ export function packReviewerResult(
 export function unpackScoutResult(value: unknown): ScoutResponse {
   if (isResultFile(value)) {
     assertResultType(value, "scout");
-    const analysis = value.analysis as ScoutAnalysis;
-    return { ...analysis, blocks: flattenDocuments(value.source_documents) };
+    return normalizeScoutResult(
+      value.analysis,
+      flattenDocuments(value.source_documents),
+    );
   }
-  const legacy = value as ScoutResponse;
-  return { ...legacy, blocks: Array.isArray(legacy?.blocks) ? legacy.blocks : [] };
+  const raw = value as Partial<ScoutResponse>;
+  return normalizeScoutResult(
+    value,
+    Array.isArray(raw?.blocks) ? raw.blocks : [],
+  );
 }
 
 export function unpackReviewerResult(value: unknown): ReviewerResponse {
@@ -104,7 +110,7 @@ function isResultFile(value: unknown): value is ResultFile<ResultType, unknown> 
   const candidate = value as Partial<ResultFile<ResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    candidate.version === RESULT_VERSION &&
+    ([1, 2, 3, RESULT_VERSION] as const).includes(candidate.version as ResultVersion) &&
     (candidate.result_type === "reviewer" || candidate.result_type === "scout") &&
     candidate.analysis != null &&
     Array.isArray(candidate.source_documents)
@@ -136,4 +142,108 @@ function groupDocuments(blocks: ContentBlock[]): SourceDocument[] {
 
 function flattenDocuments(documents: SourceDocument[]): ContentBlock[] {
   return documents.flatMap((document) => document.blocks ?? []);
+}
+
+/** Migrate old result files once at the import boundary. Runtime components
+ * consume only the current contract and contain no legacy branches. */
+function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResponse {
+  const raw = (value ?? {}) as Record<string, any>;
+  return {
+    ...raw,
+    assessments: (raw.assessments ?? []).map((assessment: Record<string, any>) => {
+      const { basis: _removedBasis, ...current } = assessment;
+      return {
+        ...current,
+        doc_target: current.doc_target ?? "",
+        doc_block_ids: current.doc_block_ids ?? [],
+        supporting_insight_ids: current.supporting_insight_ids ?? [],
+        supporting_findings: current.supporting_findings ?? [],
+      };
+    }),
+    conformity: (raw.conformity ?? []).map((score: Record<string, any>) => ({
+      ...score,
+      doc_block_ids: score.doc_block_ids ?? [],
+      measurements: (score.measurements ?? []).map(
+        (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
+      ),
+    })),
+    precedents: (raw.precedents ?? []).map(normalizePrecedent),
+    search_plan: (raw.search_plan ?? []).map((trace: Record<string, any>) => ({
+      ...trace,
+      tracks: trace.tracks ?? [],
+      doc_block_ids: trace.doc_block_ids ?? [],
+      status: trace.status ?? "complete",
+      error: trace.error ?? "",
+      source_urls: trace.source_urls ?? [],
+    })),
+    variables: raw.variables ?? [],
+    matches: raw.matches ?? [],
+    blocks,
+  } as ScoutResponse;
+}
+
+function normalizeMeasurement(
+  measurement: Record<string, any>,
+  targetUnit: unknown,
+): Record<string, unknown> {
+  const {
+    study_design: studyDesign,
+    publication_status: publicationStatus,
+    evidence_type: evidenceType,
+    source_type: sourceType,
+    ...current
+  } = measurement;
+  const legacy = legacyMeasurementAxes(evidenceType ?? sourceType);
+  return {
+    ...current,
+    unit: current.unit ?? (typeof targetUnit === "string" ? targetUnit : ""),
+    evidence_form: current.evidence_form ?? studyDesign ?? legacy.evidenceForm,
+    development_phase: current.development_phase ?? legacy.developmentPhase,
+    source_record_type:
+      current.source_record_type ?? publicationStatus ?? legacy.sourceRecordType,
+    insight_id: current.insight_id ?? "",
+  };
+}
+
+function legacyMeasurementAxes(value: unknown): {
+  evidenceForm: string;
+  developmentPhase: string;
+  sourceRecordType: string;
+} {
+  const mappings: Record<string, [string, string, string]> = {
+    systematic_review_meta_analysis: ["evidence_synthesis", "not_applicable", "peer_reviewed"],
+    rct_phase3: ["randomized_trial", "phase_3", "peer_reviewed"],
+    rct_phase2: ["randomized_trial", "phase_2", "peer_reviewed"],
+    regulatory_assessment: ["regulatory_review", "not_applicable", "regulatory"],
+    clinical_trial_registry: ["registry_record", "unknown", "registry"],
+    observational_study: ["observational_study", "not_applicable", "peer_reviewed"],
+    program_effectiveness: ["implementation_evidence", "not_applicable", "unknown"],
+    preprint: ["other", "unknown", "preprint"],
+    press_release: ["other", "unknown", "company_report"],
+  };
+  const [evidenceForm, developmentPhase, sourceRecordType] =
+    mappings[String(value ?? "")] ?? ["other", "unknown", "unknown"];
+  return { evidenceForm, developmentPhase, sourceRecordType };
+}
+
+function normalizePrecedent(signal: Record<string, any>): Record<string, unknown> {
+  const legacy: Record<string, [string, string]> = {
+    established: ["direct", "unknown"],
+    emerging: ["adjacent", "unknown"],
+    novel: ["none", "unknown"],
+    disconfirmed: ["direct", "unfavorable"],
+  };
+  const [precedent, legacyOutcome] =
+    legacy[String(signal.precedent)] ?? [signal.precedent ?? "unknown", "unknown"];
+  return {
+    ...signal,
+    precedent,
+    outcome: signal.outcome ?? legacyOutcome,
+    doc_block_ids: signal.doc_block_ids ?? [],
+    coverage_insight_ids:
+      signal.coverage_insight_ids ?? signal.supporting_insight_ids ?? [],
+    outcome_insight_ids: signal.outcome_insight_ids ?? [],
+    supporting_insight_ids: signal.supporting_insight_ids ?? [],
+    supporting_findings: signal.supporting_findings ?? [],
+  };
 }

@@ -7,17 +7,18 @@ records from uploaded documents + the 4 primitives.
 
 ```python
 from services.scout import assessments_to_dicts, find_config, matches_to_dicts, run_pipeline
+from services.searcher import SearchRuntime
 from shared.openai_client import OpenAIClient
 
-config = find_config("bmgf", "tpp", "vaccine")
+config = find_config("bmgf", "itpp", "vaccine")
 client = OpenAIClient()
 result = run_pipeline(
     ["/path/to/doc1.docx"],
     config=config,
     openai_client=client,
-    search_client=client,
+    retrieval_runtime=SearchRuntime(llm_client=client),
     org="bmgf",
-    source_type="tpp",
+    source_type="itpp",
     intervention_class="vaccine",
     indication="rsv",
 )
@@ -30,48 +31,57 @@ print(result.stats)
 
 | Field | Type | Notes |
 |---|---|---|
-| `statement` | str | One atomic factual observation |
+| `id` | str | Stable pipeline-derived lineage key |
+| `statement` | str | One atomic factual observation from external evidence |
 | `supporting_findings` | list[Finding] | Sources backing the statement |
 | `query` | str | The search query that surfaced the supporting evidence |
 | `org` / `source_type` / `intervention_class` / `indication` | str \| None | Stamped from inputs |
-| `attribute_ref` | str \| None | Shared TPP attribute variable this Insight relates to |
+| `attribute_ref` | str \| None | Vocabulary or document-extracted unit this Insight relates to |
 
 ## What a `Match` is
 
 | Field | Type | Notes |
 |---|---|---|
-| `insight` | Insight | The pure web evidence being compared |
+| `insight` | Insight | The external evidence being compared |
 | `relation` | str | One of `contradicts`, `extends`, `confirms`, `unrelated` |
 | `reason` | str | Short explanation of how the Insight relates to the uploaded document |
+| `doc_block_ids` | list[str] | Exact document blocks used for the comparison |
 
 `Match` is the doc-aware primitive scout emits. `Insight` stays useful
-as pure web evidence underneath it.
+as external evidence underneath it.
 
 ## What an `EvidenceAssessment` is
 
 | Field | Type | Notes |
 |---|---|---|
-| `attribute_ref` | str | Shared TPP attribute variable |
+| `attribute_ref` | str | Vocabulary or document-extracted unit |
 | `strength` | str | One of `well_grounded`, `partial`, `thin`, `unsupported`, `unknown` |
-| `basis` | list[str] | Supported evidence bases: `standard_of_care`, `modeling`, `study_strength`, `regulatory_precedent` |
 | `reason` | str | One-sentence explanation |
-| `supporting_findings` | list[Finding] | Deduped sources backing the assessment |
+| `doc_target` / `doc_block_ids` | str / list[str] | Document target and its exact source blocks |
+| `supporting_insight_ids` | list[str] | Exact insights used by the aggregate judgment |
+| `supporting_findings` | list[Finding] | Sources reachable from those selected insights only |
 
 ## Pipeline
 
 1. **parse** - chunker parses each uploaded doc without section mapping.
-2. **per-variable queries** - LLM extracts focused web queries for each shared attribute variable across content, source, and language axes, then adds any configured geographic-emphasis query budget.
-3. **search** - searcher runs all variable queries in parallel against web and PubMed/PMC literature backends; findings are grouped back by attribute and deduped by URL.
-4. **per-variable insights** - LLM extracts atomic Insights per attribute across all findings, batching when needed, and stamps `attribute_ref`.
-5. **classify** - LLM classifies every Insight against the uploaded doc as `contradicts`, `extends`, `confirms`, or `unrelated`, batching when needed.
-6. **evidence** - LLM assesses the weight of evidence for each attribute variable.
+2. **per-unit query intents** - LLM generates document-aware intents for each vocabulary or extracted unit across general, geographic, counterfactual, and precedent tracks.
+3. **route + search** - Scout converts units to Searcher's neutral `RetrievalIntent`; enabled Searcher adapters independently create native requests and the Searcher controller executes them with adapter-owned concurrency. `search_plan` retains every request, status, document block, track, result count, and source URL. URL dedupe preserves every retrieval path and the exact lanes supplying title, excerpt, and publication date.
+4. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs.
+5. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
+6. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources.
+7. **conformity** - quantitative targets are extracted with document blocks; every measurement URL must belong to its selected insight and retain the same unit as the target (no silent conversion). The LLM separately labels evidence form, development phase, and source-record type; deterministic methodology config supplies weights.
+8. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and document blocks.
+
+Long documents are not truncated from the end. Vocabulary units receive a
+relevance-selected context with neighboring blocks and a document-wide safety
+net; extracted units additionally seed their originating blocks. Parallel calls
+are isolated by variable and `_parallel_map` preserves input order.
 
 Each step is one stage in `services/scout/stages/`.
 
-Scout reads the variable list from `shared/attributes.yaml` for the
-run's intervention class. It parses the uploaded document for classifier
-context, then searches per attribute variable so downstream views can
-show which TPP variable is drifting.
+For TPP runs Scout reads units from `shared/attributes.yaml`; for IPDP runs it
+extracts checkable claims from the uploaded document. Both become the same
+`Attribute` shape before retrieval, so downstream processing stays symmetric.
 
 ## Config fields
 
@@ -79,24 +89,31 @@ Scout configs define query-generation guidance:
 
 | Field | Notes |
 |---|---|
+| `sources` | Registered Searcher adapter keys enabled for this document type |
 | `query_extraction_guidance` | Domain guidance injected into per-variable query generation |
 | `queries_per_variable` | Number of focused queries generated for each shared attribute variable |
 | `geographic_emphasis` | Optional emphasis groups, such as `global_south`, that add a separate query group |
 | `geographic_queries_per_variable` | Additive geographic query budget per variable |
 | `priority_sources` | Optional authoritative sources to name in generated queries |
 | `modalities` | Optional platform technologies the query generator considers |
-| `languages` | Optional query languages for native-language web searches |
+| `languages` | Optional languages for native-language retrieval intents |
+| `drift_framing` | How Match relations interpret this document type |
+| `evidence_framing` | How grounding interprets targets versus plan commitments |
+| `conformity_framing` | How quantitative values are selected and compared |
+| `precedent_framing` | How absence or presence of prior work should be read |
+
+`configs/evidence_methodology.yaml` contains only cross-domain quantitative
+weighting policy; product/document guidance remains in each triple-specific config.
 
 ## One LLM client
 
-OpenAI (`shared/openai_client.py`) handles query extraction, web search
-via searcher, insight extraction, drift classification, and evidence
-assessment. Searcher also unions NCBI PubMed/PMC literature findings for
-scout runs.
+OpenAI (`shared/openai_client.py`) handles Scout's LLM stages and Searcher's web
+adapter. Other Searcher adapters use their own non-LLM APIs and normalize into
+the same `Finding` contract.
 
-Scout's `run_pipeline` keeps separate `openai_client` and
-`search_client` parameters because those are separate contracts, but the
-same `OpenAIClient` satisfies both.
+Scout receives its reasoning client and a generic `SearchRuntime` separately.
+The API composes that runtime once, including source credentials and optional
+connector integrations, so Scout never knows which adapters are enabled.
 
 ## Stateless
 

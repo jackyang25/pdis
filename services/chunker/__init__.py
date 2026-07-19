@@ -12,6 +12,7 @@ wire protocol — keep it small and stable.
 from .models import (
     ContentBlock,
     DocumentTypeConfig,
+    ImageAsset,
     PipelineResult,
     blocks_to_dicts,
     find_config,
@@ -27,6 +28,7 @@ __all__ = [
     "ContentBlock",
     "DEFAULT_MAX_OUTPUT_TOKENS",
     "DocumentTypeConfig",
+    "ImageAsset",
     "PipelineResult",
     "blocks_to_dicts",
     "find_config",

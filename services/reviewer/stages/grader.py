@@ -206,7 +206,10 @@ def _call_dimension(
         section_spec=section_spec,
         blocks_text=blocks_text,
     )
-    raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+    images = _image_inputs(section_blocks)
+    raw = llm_client.call(
+        system_prompt, user_message, max_tokens=max_tokens, images=images or None
+    )
     try:
         return _parse_dimension_response(raw, section_spec, section_blocks)
     except ValueError as first_error:
@@ -214,7 +217,12 @@ def _call_dimension(
             f"{user_message}\n\nYour previous response was invalid JSON. "
             "Return only one valid JSON object matching the requested schema."
         )
-        raw = llm_client.call(system_prompt, retry_message, max_tokens=max_tokens)
+        raw = llm_client.call(
+            system_prompt,
+            retry_message,
+            max_tokens=max_tokens,
+            images=images or None,
+        )
         try:
             return _parse_dimension_response(raw, section_spec, section_blocks)
         except ValueError:
@@ -640,6 +648,14 @@ def _format_block(block: ContentBlock) -> str:
     )
 
 
+def _image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
+    return [
+        {"block_id": block.id, "data_url": block.image.data_url()}
+        for block in blocks
+        if block.image
+    ]
+
+
 def _strip_markdown_fences(raw: str) -> str:
     match = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", raw, re.DOTALL)
     if match:
@@ -722,13 +738,17 @@ def check_cross_section(
     system_prompt = _cross_section_system_prompt(config)
     user_message = _cross_section_user_message(blocks_by_section)
 
-    raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+    images = _image_inputs(labeled_blocks)
+    raw = llm_client.call(
+        system_prompt, user_message, max_tokens=max_tokens, images=images or None
+    )
     findings = _parse_cross_section(raw)
     if findings is None:
         raw = llm_client.call(
             system_prompt,
             user_message + "\n\nYour previous reply was invalid. Return only a JSON array.",
             max_tokens=max_tokens,
+            images=images or None,
         )
         findings = _parse_cross_section(raw)
     return findings or []

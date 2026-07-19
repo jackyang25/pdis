@@ -11,25 +11,17 @@ from docx.text.paragraph import Paragraph
 
 from ..models import ContentBlock
 
-# Content stamped on an image block until (and unless) the describer replaces it.
-# Non-empty so the block is never dropped by content filters or the mapper.
+# Text stages use this stable marker; the visual payload lives in `block.image`.
 IMAGE_PLACEHOLDER = "[image]"
 
 
-def parse_docx(
-    file_path: str, doc_id: str, *, extract_images: bool = False
-) -> list[ContentBlock]:
+def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
     """
     Parse a .docx file into an ordered list of ContentBlocks.
 
     Args:
         file_path: Path to the .docx file
         doc_id: Identifier for this document (used in block IDs)
-        extract_images: when True, emit an `image` block (with the embedded
-            image's relationship id) for each inline picture, in document order.
-            Default False keeps output identical to a text-only parse - the
-            describer stage is what later fills these in.
-
     Returns:
         List of ContentBlock objects in document order
     """
@@ -48,7 +40,7 @@ def parse_docx(
             current_paragraph_index = paragraph_index
             paragraph_index += 1
 
-            image_rels = _paragraph_image_rels(paragraph) if extract_images else []
+            image_rels = _paragraph_image_rels(paragraph)
 
             if not paragraph_text.strip():
                 for rel_id in image_rels:
@@ -104,10 +96,7 @@ def parse_docx(
         elif child.tag == qn("w:tbl"):
             table = Table(child, doc)
             blocks.extend(
-                _parse_table(
-                    table, doc_id, table_index, heading_stack,
-                    extract_images=extract_images,
-                )
+                _parse_table(table, doc_id, table_index, heading_stack)
             )
             table_index += 1
 
@@ -147,8 +136,6 @@ def _parse_table(
     doc_id: str,
     table_index: int,
     heading_stack: list[tuple[int, str]],
-    *,
-    extract_images: bool = False,
 ) -> list[ContentBlock]:
     rows = [[_cell_text(cell) for cell in row.cells] for row in table.rows]
     column_count = max((len(row) for row in rows), default=0)
@@ -173,21 +160,16 @@ def _parse_table(
                         row_index,
                         heading_stack,
                         source,
-                        extract_images,
                     )
                 )
         return blocks
 
     # Multi-column data grid: the ROW is the unit, so keep table_row blocks.
     # Images in a data cell (rare) are emitted at the table's position.
-    image_blocks: list[ContentBlock] = (
-        [
-            _make_image_block(doc_id, rel_id, heading_stack, {"table_index": table_index})
-            for rel_id in _table_image_rels(table)
-        ]
-        if extract_images
-        else []
-    )
+    image_blocks = [
+        _make_image_block(doc_id, rel_id, heading_stack, {"table_index": table_index})
+        for rel_id in _table_image_rels(table)
+    ]
     return image_blocks + _parse_multi_column_table(
         rows, doc_id, table_index, heading_stack, column_count
     )
@@ -200,7 +182,6 @@ def _parse_cell(
     row_index: int,
     heading_stack: list[tuple[int, str]],
     source: str,
-    extract_images: bool,
 ) -> list[ContentBlock]:
     """Parse one table cell into blocks, in document order.
 
@@ -216,7 +197,7 @@ def _parse_cell(
         if child.tag == qn("w:p"):
             paragraph = Paragraph(child, cell)
             text = paragraph.text
-            image_rels = _paragraph_image_rels(paragraph) if extract_images else []
+            image_rels = _paragraph_image_rels(paragraph)
             if text.strip():
                 blocks.append(
                     _make_block(
@@ -240,13 +221,7 @@ def _parse_cell(
         elif child.tag == qn("w:tbl"):
             nested = Table(child, cell)
             blocks.extend(
-                _parse_table(
-                    nested,
-                    doc_id,
-                    table_index,
-                    heading_stack,
-                    extract_images=extract_images,
-                )
+                _parse_table(nested, doc_id, table_index, heading_stack)
             )
     return blocks
 
@@ -353,8 +328,8 @@ def _paragraph_image_rels(paragraph: Paragraph) -> list[str]:
     """Relationship ids of inline images in this paragraph, in document order.
 
     Reads DrawingML blips (`a:blip/@r:embed`) - how Word stores inserted
-    pictures. The describer resolves each id back to image bytes via the
-    document part's related_parts.
+    pictures. The asset stage resolves each id to image bytes via the document
+    part's related parts.
     """
     rels: list[str] = []
     for blip in paragraph._element.findall(".//" + qn("a:blip")):

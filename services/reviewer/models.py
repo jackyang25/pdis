@@ -12,7 +12,14 @@ if TYPE_CHECKING:
 
 class LLMClientProtocol(Protocol):
     """Contract reviewer requires from any injected LLM client."""
-    def call(self, system_prompt: str, user_message: str, max_tokens: int) -> str:
+    def call(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int,
+        *,
+        images: list[dict[str, str]] | None = None,
+    ) -> str:
         ...
 
 

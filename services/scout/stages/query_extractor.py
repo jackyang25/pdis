@@ -1,4 +1,4 @@
-"""Stage 1: derive web search queries from one document unit (attribute/claim).
+"""Stage 1: derive source-neutral retrieval intents from one document unit.
 
 Each attribute is treated as a self-contained topic. The scout pipeline
 calls this stage once per attribute and feeds the resulting focused queries
@@ -11,7 +11,8 @@ import json
 import logging
 import re
 
-from ..models import Attribute, LLMClientProtocol, ScoutTypeConfig
+from ..context import document_block_ids, validated_block_ids
+from ..models import Attribute, LLMClientProtocol, QueryIntent, ScoutTypeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +26,16 @@ def extract_queries_for_variable(
     *,
     indication: str,
     queries_per_variable: int,
+    document_context: str = "",
     max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> list[str]:
-    """Generate web search queries for one variable across additive tracks.
+) -> list[QueryIntent]:
+    """Generate retrieval intents for one variable across additive tracks.
 
     Tracks are additive (each adds queries, never replaces another) and unioned
     losslessly: general coverage, optional Global-South emphasis, and optional
     counterfactual (disconfirming) evidence.
     """
-    user_message = _user_message_for_variable(attribute)
+    user_message = _user_message_for_variable(attribute, document_context)
 
     queries = _run_track(
         _system_prompt_for_variable(
@@ -48,6 +50,7 @@ def extract_queries_for_variable(
         cap=queries_per_variable,
         attribute_name=attribute.name,
         track="general",
+        allowed_block_ids=document_block_ids(document_context),
     )
 
     if config.geographic_emphasis and config.geographic_queries_per_variable > 0:
@@ -64,6 +67,7 @@ def extract_queries_for_variable(
             cap=config.geographic_queries_per_variable,
             attribute_name=attribute.name,
             track="geographic",
+            allowed_block_ids=document_block_ids(document_context),
         )
 
     if config.counterfactual_queries_per_variable > 0:
@@ -80,6 +84,7 @@ def extract_queries_for_variable(
             cap=config.counterfactual_queries_per_variable,
             attribute_name=attribute.name,
             track="counterfactual",
+            allowed_block_ids=document_block_ids(document_context),
         )
 
     if config.precedent_queries_per_variable > 0:
@@ -96,6 +101,7 @@ def extract_queries_for_variable(
             cap=config.precedent_queries_per_variable,
             attribute_name=attribute.name,
             track="precedent",
+            allowed_block_ids=document_block_ids(document_context),
         )
 
     total = (
@@ -116,10 +122,11 @@ def _run_track(
     cap: int,
     attribute_name: str,
     track: str,
-) -> list[str]:
+    allowed_block_ids: set[str],
+) -> list[QueryIntent]:
     """Run one query-generation track (call + parse, retry once on empty)."""
     raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
-    queries = _parse_queries(raw)
+    queries = _parse_queries(raw, allowed_block_ids)
     if not queries:
         logger.warning(
             "query_extractor produced no parsable %s queries for %r; retrying once",
@@ -127,7 +134,9 @@ def _run_track(
             attribute_name,
         )
         raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
-        queries = _parse_queries(raw)
+        queries = _parse_queries(raw, allowed_block_ids)
+    for query in queries:
+        query.tracks = [track]
     return queries[:cap]
 
 
@@ -139,7 +148,7 @@ def _system_prompt_for_variable(
     queries_per_variable: int,
 ) -> str:
     parts = [
-        "You generate web search queries to surface up-to-date information "
+        "You generate source-neutral retrieval query intents to surface up-to-date information "
         f"relevant to ONE variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
@@ -152,7 +161,7 @@ def _system_prompt_for_variable(
         "disease/target-population scope (e.g. which products are indicated for the "
         "disease) - not efficacy percentages or dosing schedules.",
         "Favor recent developments (roughly the last 1-2 years). Do NOT hardcode a "
-        "specific calendar year in the query text - the live web search stays current "
+        "specific calendar year in the query text - downstream retrieval stays current "
         "on its own. Use relative terms like \"recent\" or \"latest\", or omit the year "
         "entirely.",
         "Generate a diverse query set across THREE axes: content, source, and language. "
@@ -187,19 +196,24 @@ def _system_prompt_for_variable(
         )
     parts.append(
         f"Return EXACTLY {queries_per_variable} quer"
-        f"{'y' if queries_per_variable == 1 else 'ies'} as a JSON array of strings. "
+        f"{'y' if queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
         "No markdown, no commentary. Each query 5-15 words. The set must be diverse "
         "across content angles, priority sources, and configured languages. Each query "
-        f"must be specific to the {attribute.name} variable. Example:\n"
-        '["latest WHO RSV vaccine efficacy evidence"]'
+        f"must be specific to the {attribute.name} variable. doc_block_ids must contain "
+        "the exact uploaded-document blocks whose claim shaped that query; use [] only "
+        "for a general coverage query not tied to one document claim. Example:\n"
+        '[{"query": "latest WHO RSV vaccine efficacy evidence", '
+        '"doc_block_ids": ["document/b-0004"]}]'
     )
     return "\n\n".join(parts)
 
 
-def _user_message_for_variable(attribute: Attribute) -> str:
+def _user_message_for_variable(attribute: Attribute, document_context: str) -> str:
     return (
         f"variable: {attribute.name}\n"
         f"What this variable covers: {attribute.description}\n\n"
+        "Relevant uploaded-document blocks (claims to test, not external evidence):\n"
+        f"{document_context or '(no relevant document text found)'}\n\n"
         "Generate the queries for this variable now."
     )
 
@@ -212,7 +226,7 @@ def _system_prompt_for_geographic_variable(
     geographic_queries_per_variable: int,
 ) -> str:
     parts = [
-        "You generate ADDITIVE Global-South web search queries for ONE variable. "
+        "You generate ADDITIVE Global-South retrieval intents for ONE variable. "
         "These queries are added to the general query set, never substituted for it.",
         f"variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
@@ -245,8 +259,10 @@ def _system_prompt_for_geographic_variable(
         )
     parts.append(
         f"Return EXACTLY {geographic_queries_per_variable} quer"
-        f"{'y' if geographic_queries_per_variable == 1 else 'ies'} as a JSON array of strings. "
-        "No markdown, no commentary. Each query 5-15 words."
+        f"{'y' if geographic_queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
+        "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
+        "Use only block IDs supplied in the document context. No markdown or commentary. "
+        "Each query 5-15 words."
     )
     return "\n\n".join(parts)
 
@@ -259,7 +275,7 @@ def _system_prompt_for_counterfactual_variable(
     counterfactual_queries_per_variable: int,
 ) -> str:
     parts = [
-        "You generate ADDITIVE COUNTERFACTUAL web search queries for ONE variable. "
+        "You generate ADDITIVE COUNTERFACTUAL retrieval intents for ONE variable. "
         "These actively seek evidence that DISPUTES, WEAKENS, or CONTRADICTS the "
         "document's target for this variable. They are added to the general query set, "
         "never substituted for it.",
@@ -291,8 +307,10 @@ def _system_prompt_for_counterfactual_variable(
         )
     parts.append(
         f"Return EXACTLY {counterfactual_queries_per_variable} quer"
-        f"{'y' if counterfactual_queries_per_variable == 1 else 'ies'} as a JSON array of strings. "
-        "No markdown, no commentary. Each query 5-15 words."
+        f"{'y' if counterfactual_queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
+        "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
+        "Use only block IDs supplied in the document context. No markdown or commentary. "
+        "Each query 5-15 words."
     )
     return "\n\n".join(parts)
 
@@ -305,7 +323,7 @@ def _system_prompt_for_precedent_variable(
     precedent_queries_per_variable: int,
 ) -> str:
     parts = [
-        "You generate ADDITIVE PRECEDENT web search queries for ONE variable. "
+        "You generate ADDITIVE PRECEDENT retrieval intents for ONE variable. "
         "These seek evidence of whether this variable's target/approach has been "
         "ATTEMPTED BEFORE - so a downstream classifier can tell a genuinely novel "
         "target apart from one that has prior precedent. They are added to the general "
@@ -339,28 +357,40 @@ def _system_prompt_for_precedent_variable(
         )
     parts.append(
         f"Return EXACTLY {precedent_queries_per_variable} quer"
-        f"{'y' if precedent_queries_per_variable == 1 else 'ies'} as a JSON array of strings. "
-        "No markdown, no commentary. Each query 5-15 words."
+        f"{'y' if precedent_queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
+        "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
+        "Use only block IDs supplied in the document context. No markdown or commentary. "
+        "Each query 5-15 words."
     )
     return "\n\n".join(parts)
 
 
-def _dedupe_queries(queries: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
+def _dedupe_queries(queries: list[QueryIntent]) -> list[QueryIntent]:
+    by_text: dict[str, QueryIntent] = {}
+    out: list[QueryIntent] = []
     for query in queries:
-        normalized = " ".join(query.split()).strip()
+        normalized = " ".join(query.text.split()).strip()
         if not normalized:
             continue
         key = normalized.lower()
-        if key in seen:
+        existing = by_text.get(key)
+        if existing is not None:
+            existing.tracks = list(dict.fromkeys([*existing.tracks, *query.tracks]))
+            existing.doc_block_ids = list(
+                dict.fromkeys([*existing.doc_block_ids, *query.doc_block_ids])
+            )
             continue
-        seen.add(key)
-        out.append(normalized)
+        intent = QueryIntent(
+            text=normalized,
+            tracks=list(dict.fromkeys(query.tracks)),
+            doc_block_ids=list(dict.fromkeys(query.doc_block_ids)),
+        )
+        by_text[key] = intent
+        out.append(intent)
     return out
 
 
-def _parse_queries(raw: str) -> list[str]:
+def _parse_queries(raw: str, allowed_block_ids: set[str]) -> list[QueryIntent]:
     text = _strip_fences(raw).strip()
     try:
         parsed = json.loads(_extract_json_array(text))
@@ -368,7 +398,19 @@ def _parse_queries(raw: str) -> list[str]:
         return []
     if not isinstance(parsed, list):
         return []
-    return [str(q).strip() for q in parsed if str(q).strip()]
+    out: list[QueryIntent] = []
+    for item in parsed:
+        if isinstance(item, str):
+            query = item.strip()
+            block_ids: list[str] = []
+        elif isinstance(item, dict):
+            query = str(item.get("query", "")).strip()
+            block_ids = validated_block_ids(item.get("doc_block_ids"), allowed_block_ids)
+        else:
+            continue
+        if query:
+            out.append(QueryIntent(text=query, doc_block_ids=block_ids))
+    return out
 
 
 def _strip_fences(s: str) -> str:

@@ -15,7 +15,7 @@
   <img alt="LibreOffice (headless figure rasterization)" src="https://img.shields.io/badge/LibreOffice-headless-18A303?style=flat-square&logo=libreoffice&logoColor=white">
 </p>
 
-PDIS helps teams write and pressure-test product-development documents — Target Product Profiles (TPPs) and Integrated Product Development Plans (IPDPs). You upload a document and it comes back three ways: parsed into citable blocks, graded against a rubric, or tested against real-world evidence from the web. A chat assistant ("Ask") answers questions about any result.
+PDIS helps teams write and pressure-test product-development documents — Target Product Profiles (TPPs) and Integrated Product Development Plans (IPDPs). You upload a document and it comes back three ways: parsed into citable blocks, graded against a rubric, or tested against external evidence. A chat assistant ("Ask") answers questions about any result.
 
 ## Architecture
 
@@ -31,9 +31,9 @@ Imports go one direction only: web → api → services → shared, never the re
 
 | Folder | UI | What it does | Depends on |
 |---|---|---|---|
-| `chunker` | Chunker | Parse `.docx`/`.pdf` into ordered, citable `ContentBlock`s; optionally label sections and describe embedded figures. | — |
+| `chunker` | Chunker | Parse `.docx`/`.pdf` into ordered, citable `ContentBlock`s, retain embedded images, and optionally label sections. | — |
 | `reviewer` | Reviewer | Grade a document against its rubric on completeness, adherence, and rigor, then check consistency across sections. | chunker |
-| `searcher` | Searcher | Turn a query into source-attributed `Finding`s across three backends: web search, PubMed, and ClinicalTrials.gov. | openai_client, NCBI |
+| `searcher` | Searcher | Turn neutral intent into source-attributed `Finding`s through registered source adapters and a source-agnostic controller. | adapter-specific |
 | `scout` | Scout | Test a document's targets against live evidence — drift, evidence weight, conformity, and precedent. Targets come from a fixed attribute list (TPP) or are extracted from the document (IPDP). | chunker, searcher |
 | `assistant` | Ask | Read-only chat grounded in a Scout or Reviewer result; navigates the result and can open the sources it already cites. | openai_client |
 
@@ -44,7 +44,7 @@ Each service has its own README with its file map and public contract.
 Reviewer and Scout downloads use a versioned `pdis.result` envelope with three
 separate concerns: `analysis`, `source_documents` (parsed, citable blocks), and
 artifact metadata (`version` and `result_type`). The original PDF/DOCX binary is
-not embedded. Imports remain backward-compatible with legacy result JSON that
+not embedded; extracted DOCX visuals are embedded on their image blocks. Imports remain backward-compatible with legacy result JSON that
 stored `blocks` directly on the analysis; legacy files without blocks still
 render, but Ask is analysis-only until the document is run again.
 
@@ -67,7 +67,7 @@ Domain content lives in YAML, maintained by hand:
 
 | Surface | Path | Role |
 |---|---|---|
-| chunker config | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | section taxonomy + optional `image_lens` |
+| chunker config | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | section taxonomy and mapper guidance |
 | reviewer config | `services/reviewer/configs/…` | grading rubric + stage bar (`grading_guidance`) |
 | scout config | `services/scout/configs/…` | query tuning (languages, priority sources, per-track budgets) + `unit_provider` |
 | indications | `shared/indications.yaml` | indication vocabulary per intervention |
@@ -108,7 +108,7 @@ python -m uvicorn api.main:app --reload --port 8000
 cd web && npm install && npm run dev   # http://localhost:3000
 ```
 
-**Backend in Docker** — only needed to describe embedded figures (EMF/WMF), which requires LibreOffice. This is also how it deploys to Render (see `Dockerfile`); native runs everything *except* figure conversion.
+**Backend in Docker** — packages LibreOffice for the uncommon EMF/WMF/SVG figures that require PNG rasterization. Standard raster images need no converter. Native runs everything except those vector conversions unless LibreOffice is installed locally.
 
 ```bash
 docker build -t pdis-api .

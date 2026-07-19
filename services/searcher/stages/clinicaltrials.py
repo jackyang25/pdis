@@ -6,8 +6,8 @@ particular: a TERMINATED / WITHDRAWN trial (with its why-stopped reason) is
 direct disconfirming/precedent evidence, and reported phase + status helps
 ground conformity.
 
-Deliberately robust: any HTTP/parse problem returns no findings, leaving the
-other backends unaffected (mirrors the PubMed backend's contract).
+Transport/parse failures propagate to the source controller, which records a
+failed outcome without affecting other adapters.
 """
 
 from __future__ import annotations
@@ -60,28 +60,28 @@ def search_clinicaltrials(
     intervention: str | None = None,
     max_results: int = MAX_RESULTS,
 ) -> list[Finding]:
-    """Search ClinicalTrials.gov and return Findings. Never raises: any problem
-    yields no registry findings, leaving other backends unaffected.
+    """Search ClinicalTrials.gov and return normalized Findings.
 
-    CT.gov is a STRUCTURED registry that keyword-matches: long free-text queries
-    (and non-English ones) return nothing or 400 "too complicated query". So when
-    the caller knows the condition + intervention (the scout always does), we
-    search those structured fields, which returns the real trial landscape. We
-    fall back to free-text term search only when they are absent (e.g. the
-    standalone searcher tool).
+    Failures propagate to the source controller for structured isolation.
+
+    CT.gov is a STRUCTURED registry that rejects web-style queries. Callers such
+    as Scout therefore pass a compact unit topic, which is combined with the
+    structured condition and intervention fields. Standalone callers may use
+    the term without those structured filters.
     """
     condition = (condition or "").strip()
     intervention = (intervention or "").strip()
-    term = "" if (condition or intervention) else query.strip()
+    # The free-text term is the caller's lane-native topic. It complements the
+    # structured condition/intervention filters instead of being discarded.
+    term = query.strip()
     try:
         studies = _fetch_studies(condition, intervention, term, max_results)
     except Exception as exc:  # noqa: BLE001 - one quiet line; the lane degrades gracefully
         logger.warning("ClinicalTrials.gov retrieval skipped (%s)", exc)
-        return []
+        raise
 
-    # Provenance label: the structured terms actually searched, not the (ignored)
-    # free-text query, so the UI's "searched: ..." reads honestly.
-    label = " ".join(t for t in (condition, intervention) if t) or query
+    # Provenance label contains every term actually submitted.
+    label = " ".join(t for t in (condition, intervention, term) if t)
     retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
     for study in studies:
@@ -99,9 +99,7 @@ def _fetch_studies(
     max_results: int,
 ) -> list[dict]:
     """Fetch raw studies for a structured (condition/intervention) or free-text
-    query. Memoized: the scout issues the SAME (condition, intervention) for
-    every query in a run, so the registry is hit once per product area, not once
-    per query.
+    query. Memoized by the full structured request.
     """
     if not (condition or intervention or term):
         return []

@@ -19,7 +19,7 @@ from services.scout import (
     run_pipeline,
 )
 
-from api.deps import get_openai_client
+from api.deps import get_openai_client, get_search_runtime
 from api.schemas import (
     ConformityOut,
     ContentBlockOut,
@@ -30,6 +30,7 @@ from api.schemas import (
     MatchOut,
     MeasurementOut,
     ScoutRunResponse,
+    SearchTraceOut,
     PrecedentOut,
     VariableOut,
 )
@@ -52,21 +53,32 @@ async def run_scout(
         raise HTTPException(status_code=404, detail=str(exc))
 
     temp_paths: list[str] = []
+    doc_ids: list[str] = []
+    used_doc_ids: set[str] = set()
     for upload in files:
         suffix = Path(upload.filename or "upload").suffix or ".docx"
         contents = await upload.read()
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
             temp_file.write(contents)
             temp_paths.append(temp_file.name)
+        base_doc_id = Path(upload.filename or "document").stem or "document"
+        doc_id = base_doc_id
+        suffix_number = 2
+        while doc_id in used_doc_ids:
+            doc_id = f"{base_doc_id}-{suffix_number}"
+            suffix_number += 1
+        used_doc_ids.add(doc_id)
+        doc_ids.append(doc_id)
 
     def work(progress):
         try:
             openai_client = get_openai_client()
             result = run_pipeline(
                 temp_paths,
+                doc_ids=doc_ids,
                 config=config,
                 openai_client=openai_client,
-                search_client=openai_client,
+                retrieval_runtime=get_search_runtime(openai_client),
                 org=org,
                 source_type=source_type,
                 intervention_class=intervention_class,
@@ -86,14 +98,34 @@ async def run_scout(
                 intervention_class=intervention_class,
                 indication=indication,
                 variables=[
-                    VariableOut(name=variable.name, description=variable.description)
+                    VariableOut(
+                        name=variable.name,
+                        description=variable.description,
+                        block_ids=variable.block_ids,
+                    )
                     for variable in variables
+                ],
+                search_plan=[
+                    SearchTraceOut(
+                        attribute_ref=trace.attribute_ref,
+                        lane=trace.lane,
+                        query=trace.query,
+                        tracks=trace.tracks,
+                        doc_block_ids=trace.doc_block_ids,
+                        status=trace.status,
+                        error=trace.error,
+                        finding_count=trace.finding_count,
+                        source_urls=trace.source_urls,
+                    )
+                    for trace in result.search_plan
                 ],
                 matches=[
                     MatchOut(
                         insight=InsightOut(
+                            id=md["insight"].get("id", ""),
                             statement=md["insight"]["statement"],
                             query=md["insight"]["query"],
+                            query_tracks=md["insight"].get("query_tracks", []),
                             supporting_findings=[
                                 FindingOut(**f)
                                 for f in md["insight"]["supporting_findings"]
@@ -108,6 +140,7 @@ async def run_scout(
                         ),
                         relation=md["relation"],
                         reason=md["reason"],
+                        doc_block_ids=md.get("doc_block_ids", []),
                     )
                     for md in match_dicts
                 ],
@@ -115,9 +148,12 @@ async def run_scout(
                     EvidenceAssessmentOut(
                         attribute_ref=assessment["attribute_ref"],
                         strength=assessment["strength"],
-                        basis=assessment["basis"],
                         reason=assessment["reason"],
                         doc_target=assessment.get("doc_target", ""),
+                        doc_block_ids=assessment.get("doc_block_ids", []),
+                        supporting_insight_ids=assessment.get(
+                            "supporting_insight_ids", []
+                        ),
                         supporting_findings=[
                             FindingOut(**finding)
                             for finding in assessment["supporting_findings"]
@@ -136,6 +172,7 @@ async def run_scout(
                         lower=score["lower"],
                         upper=score["upper"],
                         verdict=score["verdict"],
+                        doc_block_ids=score.get("doc_block_ids", []),
                         measurements=[
                             MeasurementOut(**m) for m in score["measurements"]
                         ],
@@ -146,7 +183,16 @@ async def run_scout(
                     PrecedentOut(
                         attribute_ref=signal["attribute_ref"],
                         precedent=signal["precedent"],
+                        outcome=signal.get("outcome", "unknown"),
                         reason=signal["reason"],
+                        doc_block_ids=signal.get("doc_block_ids", []),
+                        coverage_insight_ids=signal.get(
+                            "coverage_insight_ids", []
+                        ),
+                        outcome_insight_ids=signal.get("outcome_insight_ids", []),
+                        supporting_insight_ids=signal.get(
+                            "supporting_insight_ids", []
+                        ),
                         supporting_findings=[
                             FindingOut(**finding)
                             for finding in signal["supporting_findings"]

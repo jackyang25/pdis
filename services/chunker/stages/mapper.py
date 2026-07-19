@@ -40,7 +40,14 @@ def label_blocks(
         logger.warning("Labeling %s blocks at once may degrade results", len(blocks))
 
     system_prompt, user_message = build_prompts(blocks, config)
-    raw_response = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+    images = [
+        {"block_id": block.id, "data_url": block.image.data_url()}
+        for block in blocks
+        if block.image
+    ]
+    raw_response = llm_client.call(
+        system_prompt, user_message, max_tokens=max_tokens, images=images or None
+    )
 
     try:
         labels = _parse_label_response(raw_response)
@@ -50,6 +57,7 @@ def label_blocks(
             system_prompt,
             user_message,
             max_tokens=max_tokens,
+            images=images or None,
         )
         try:
             labels = _parse_label_response(raw_response)

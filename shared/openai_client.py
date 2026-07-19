@@ -27,14 +27,43 @@ class OpenAIClient:
         self.client = OpenAI(api_key=api_key)
         self.model = model or DEFAULT_MODEL
 
-    def call(self, system_prompt: str, user_message: str, max_tokens: int) -> str:
+    def call(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int,
+        *,
+        images: list[dict[str, str]] | None = None,
+    ) -> str:
+        user_content: Any = user_message
+        if images:
+            user_content = [
+                {"type": "text", "text": user_message},
+                *[
+                    item
+                    for image in images
+                    for item in (
+                        {
+                            "type": "text",
+                            "text": f"Visual for document block [{image['block_id']}]:",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image["data_url"],
+                                "detail": "high",
+                            },
+                        },
+                    )
+                ],
+            ]
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 max_completion_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
+                    {"role": "user", "content": user_content},
                 ],
             )
         except Exception as exc:  # noqa: BLE001 - degrade on content refusal, re-raise the rest
@@ -112,49 +141,6 @@ class OpenAIClient:
             close = getattr(stream, "close", None)
             if callable(close):
                 close()
-
-    def describe_image(
-        self,
-        image_bytes: bytes,
-        *,
-        prompt: str,
-        mime_type: str = "image/png",
-        max_tokens: int = 12000,
-        reasoning_effort: str = "low",
-    ) -> str:
-        """Describe a raster image in text (vision). Powers the chunker's
-        image-describer stage, which turns an embedded figure into its textual
-        record. The caller supplies the lens via `prompt`; this method is
-        domain-agnostic. Returns "" on an empty response.
-
-        Transcription is a low-reasoning task, so `reasoning_effort` defaults to
-        "low" with a generous token ceiling: dense figures otherwise spend the
-        whole budget reasoning and emit no text (a length-capped empty reply).
-        """
-        import base64
-
-        data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                max_completion_tokens=max_tokens,
-                reasoning_effort=reasoning_effort,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": data_url}},
-                        ],
-                    }
-                ],
-            )
-        except Exception as exc:  # noqa: BLE001 - degrade on content refusal, re-raise the rest
-            if _is_content_refusal(exc):
-                logger.warning("Image-description prompt refused by content policy; returning empty.")
-                return ""
-            raise
-        return _response_text(response)
 
     def search_web(
         self,

@@ -16,9 +16,12 @@ decoupled: a new result type needs only a legend, no changes here.
 from __future__ import annotations
 
 import json
+import ipaddress
 import re
+import socket
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 from typing import Any
 
 MAX_GET_CHARS = 12000
@@ -125,9 +128,12 @@ def fetch_source(url: str, allowed_urls: set[str]) -> str:
             "Refused: that URL is not one of the sources cited in this result. "
             "I can only open links that already appear in the results."
         )
+    if not _is_public_http_url(url):
+        return "Refused: cited source URL does not resolve to a public HTTP endpoint."
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "pdis-ask/0.1"})
-        with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
+        opener = urllib.request.build_opener(_PublicRedirectHandler())
+        with opener.open(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
             raw = response.read(2_000_000).decode("utf-8", "replace")
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as exc:
         return f"Could not open this source ({exc}). Fall back to the excerpt in the result."
@@ -156,3 +162,30 @@ def _strip_html(html: str) -> str:
     html = re.sub(r"(?is)<(script|style)\b.*?>.*?</\1>", " ", html)
     text = re.sub(r"(?s)<[^>]+>", " ", html)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _is_public_http_url(url: str) -> bool:
+    """Prevent imported result JSON from turning fetch_source into an SSRF hop."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return False
+        default_port = 443 if parsed.scheme == "https" else 80
+        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or default_port)
+        return bool(addresses) and all(
+            ipaddress.ip_address(sockaddr[0]).is_global
+            for *_, sockaddr in addresses
+        )
+    except (OSError, ValueError):
+        return False
+
+
+class _PublicRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Apply the same public-endpoint check to every redirect target."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        if not _is_public_http_url(newurl):
+            raise urllib.error.HTTPError(
+                newurl, code, "redirect to non-public endpoint refused", headers, fp
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)

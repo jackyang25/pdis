@@ -1,0 +1,402 @@
+import type {
+  EvidenceAssessment,
+  Finding,
+  Match,
+  PrecedentSignal,
+  ScoutResponse,
+} from "./api";
+
+export type EvidenceMapNodeKind = "document" | "field" | "insight" | "source";
+
+export type EvidenceMapSignalTone =
+  | "neutral"
+  | "blue"
+  | "amber"
+  | "red"
+  | "green";
+
+export type EvidenceMapSignal = {
+  label: string;
+  value: string;
+  tone: EvidenceMapSignalTone;
+};
+
+export type EvidenceMapNode = {
+  id: string;
+  kind: EvidenceMapNodeKind;
+  eyebrow: string;
+  title: string;
+  summary: string;
+  detail?: string;
+  meta?: string;
+  relation?: Match["relation"];
+  href?: string;
+  blockIds?: string[];
+  queries?: string[];
+  signals?: EvidenceMapSignal[];
+};
+
+export type EvidenceMapEdgeKind =
+  | "defines"
+  | "contradicts"
+  | "extends"
+  | "confirms"
+  | "unrelated"
+  | "supported_by";
+
+export type EvidenceMapEdge = {
+  id: string;
+  source: string;
+  target: string;
+  kind: EvidenceMapEdgeKind;
+};
+
+export type EvidenceMapProjection = {
+  attributeRef: string;
+  nodes: EvidenceMapNode[];
+  edges: EvidenceMapEdge[];
+  totalInsights: number;
+  shownInsights: number;
+  totalSources: number;
+  shownSources: number;
+};
+
+const RELATION_ORDER: Record<Match["relation"], number> = {
+  contradicts: 0,
+  extends: 1,
+  confirms: 2,
+  unrelated: 3,
+};
+
+const RELATION_LABEL: Record<Match["relation"], string> = {
+  contradicts: "Conflicts",
+  extends: "Adds context",
+  confirms: "Supports",
+  unrelated: "Unrelated",
+};
+
+const GROUNDING_LABEL: Record<EvidenceAssessment["strength"], string> = {
+  well_grounded: "Well grounded",
+  partial: "Partial",
+  thin: "Thin",
+  unsupported: "Unsupported",
+  unknown: "Unknown",
+};
+
+const GROUNDING_TONE: Record<
+  EvidenceAssessment["strength"],
+  EvidenceMapSignalTone
+> = {
+  well_grounded: "green",
+  partial: "blue",
+  thin: "amber",
+  unsupported: "red",
+  unknown: "neutral",
+};
+
+const PRECEDENT_LABEL: Record<PrecedentSignal["precedent"], string> = {
+  direct: "Direct",
+  adjacent: "Adjacent",
+  none: "None found",
+  unknown: "Unknown",
+};
+
+const OUTCOME_LABEL: Record<PrecedentSignal["outcome"], string> = {
+  favorable: "Favorable",
+  mixed: "Mixed",
+  unfavorable: "Unfavorable",
+  unknown: "Unknown",
+};
+
+const OUTCOME_TONE: Record<
+  PrecedentSignal["outcome"],
+  EvidenceMapSignalTone
+> = {
+  favorable: "green",
+  mixed: "amber",
+  unfavorable: "red",
+  unknown: "neutral",
+};
+
+const ACRONYMS = new Set([
+  "cmv",
+  "fda",
+  "gcp",
+  "glp",
+  "gmp",
+  "hiv",
+  "hpv",
+  "poc",
+  "rct",
+  "rsv",
+  "tb",
+  "who",
+]);
+
+export function displayAttributeLabel(ref: string): string {
+  const local = ref.includes(".") ? ref.split(".").slice(1).join(".") : ref;
+  return local
+    .replace(/_/g, " ")
+    .split(" ")
+    .map((word) =>
+      ACRONYMS.has(word.toLowerCase())
+        ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+    )
+    .join(" ");
+}
+
+function sourceDisplayLabel(source: string, labels?: Record<string, string>): string {
+  return (
+    labels?.[source] ??
+    source
+      .replace(/[_-]+/g, " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase())
+  );
+}
+
+function stableHash(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function insightKey(match: Match): string {
+  return (
+    match.insight.id ||
+    `legacy-${stableHash(
+      `${match.insight.attribute_ref ?? ""}|${match.insight.statement}|${(match.insight.supporting_findings ?? [])
+        .map((finding) => finding.url)
+        .sort()
+        .join("|")}`,
+    )}`
+  );
+}
+
+function uniqueFindings(findings: Finding[]): Finding[] {
+  const byUrl = new Map<string, Finding>();
+  for (const finding of findings) {
+    if (finding.url && !byUrl.has(finding.url)) byUrl.set(finding.url, finding);
+  }
+  return Array.from(byUrl.values());
+}
+
+function citedInsightIds(result: ScoutResponse, attributeRef: string): Set<string> {
+  const ids = new Set<string>();
+  const assessment = result.assessments?.find(
+    (item) => item.attribute_ref === attributeRef,
+  );
+  for (const id of assessment?.supporting_insight_ids ?? []) ids.add(id);
+
+  const precedent = result.precedents?.find(
+    (item) => item.attribute_ref === attributeRef,
+  );
+  for (const id of precedent?.coverage_insight_ids ?? []) ids.add(id);
+  for (const id of precedent?.outcome_insight_ids ?? []) ids.add(id);
+  for (const id of precedent?.supporting_insight_ids ?? []) ids.add(id);
+
+  const conformity = result.conformity?.find(
+    (item) => item.attribute_ref === attributeRef,
+  );
+  for (const measurement of conformity?.measurements ?? []) {
+    if (measurement.insight_id) ids.add(measurement.insight_id);
+  }
+  return ids;
+}
+
+function collectSourceSample(matches: Match[], limit: number): Finding[] {
+  const perInsight = matches.map((match) =>
+    uniqueFindings(match.insight.supporting_findings ?? []),
+  );
+  const selected = new Map<string, Finding>();
+  const longest = Math.max(0, ...perInsight.map((findings) => findings.length));
+
+  // Round-robin keeps one prolific insight from consuming the entire source
+  // budget and gives every visible insight a chance to show its provenance.
+  for (let offset = 0; offset < longest && selected.size < limit; offset += 1) {
+    for (const findings of perInsight) {
+      const finding = findings[offset];
+      if (finding?.url && !selected.has(finding.url)) selected.set(finding.url, finding);
+      if (selected.size >= limit) break;
+    }
+  }
+  return Array.from(selected.values());
+}
+
+export function buildScoutEvidenceMap(
+  result: ScoutResponse,
+  attributeRef: string,
+  limits: { insights?: number; sources?: number } = {},
+): EvidenceMapProjection {
+  const insightLimit = limits.insights ?? 4;
+  const sourceLimit = limits.sources ?? 5;
+  const variable = result.variables.find((item) => item.name === attributeRef);
+  if (!variable) {
+    return {
+      attributeRef,
+      nodes: [],
+      edges: [],
+      totalInsights: 0,
+      shownInsights: 0,
+      totalSources: 0,
+      shownSources: 0,
+    };
+  }
+
+  const citedIds = citedInsightIds(result, attributeRef);
+  const allMatches = (result.matches ?? [])
+    .filter((match) => match.insight.attribute_ref === attributeRef)
+    .sort((left, right) => {
+      const leftCited = left.insight.id ? citedIds.has(left.insight.id) : false;
+      const rightCited = right.insight.id ? citedIds.has(right.insight.id) : false;
+      return (
+        Number(rightCited) - Number(leftCited) ||
+        RELATION_ORDER[left.relation] - RELATION_ORDER[right.relation] ||
+        left.insight.statement.localeCompare(right.insight.statement)
+      );
+    });
+
+  const uniqueMatches = Array.from(
+    new Map(allMatches.map((match) => [insightKey(match), match])).values(),
+  );
+  const visibleMatches = uniqueMatches.slice(0, insightLimit);
+  const allSources = uniqueFindings(
+    uniqueMatches.flatMap((match) => match.insight.supporting_findings ?? []),
+  );
+  const visibleSources = collectSourceSample(visibleMatches, sourceLimit);
+  const visibleSourceUrls = new Set(visibleSources.map((finding) => finding.url));
+
+  const assessment = result.assessments?.find(
+    (item) => item.attribute_ref === attributeRef,
+  );
+  const conformity = result.conformity?.find(
+    (item) => item.attribute_ref === attributeRef,
+  );
+  const precedent = result.precedents?.find(
+    (item) => item.attribute_ref === attributeRef,
+  );
+
+  const fieldId = `field:${attributeRef}`;
+  const signals: EvidenceMapSignal[] = [];
+  if (assessment) {
+    signals.push({
+      label: "Grounding",
+      value: GROUNDING_LABEL[assessment.strength],
+      tone: GROUNDING_TONE[assessment.strength],
+    });
+  }
+  if (conformity) {
+    signals.push({
+      label: "Alignment",
+      value: `${Math.round(conformity.conformity * 100)}/100`,
+      tone: "neutral",
+    });
+  }
+  if (precedent) {
+    signals.push({
+      label: "Precedent",
+      value: `${PRECEDENT_LABEL[precedent.precedent]} · ${OUTCOME_LABEL[precedent.outcome]}`,
+      tone: OUTCOME_TONE[precedent.outcome],
+    });
+  }
+
+  const nodes: EvidenceMapNode[] = [
+    {
+      id: fieldId,
+      kind: "field",
+      eyebrow: "Evaluated field",
+      title: displayAttributeLabel(attributeRef),
+      summary: variable.description,
+      meta: `${uniqueMatches.length} insight${uniqueMatches.length === 1 ? "" : "s"}`,
+      blockIds: variable.block_ids,
+      signals,
+    },
+  ];
+  const edges: EvidenceMapEdge[] = [];
+
+  if (assessment?.doc_target) {
+    const documentId = `document:${attributeRef}`;
+    nodes.push({
+      id: documentId,
+      kind: "document",
+      eyebrow: "Document target",
+      title: "Extracted target",
+      summary: assessment.doc_target,
+      meta: `${assessment.doc_block_ids.length} block${assessment.doc_block_ids.length === 1 ? "" : "s"}`,
+      blockIds: assessment.doc_block_ids,
+    });
+    edges.push({
+      id: `${documentId}->${fieldId}`,
+      source: documentId,
+      target: fieldId,
+      kind: "defines",
+    });
+  }
+
+  for (const match of visibleMatches) {
+    const key = insightKey(match);
+    const insightId = `insight:${key}`;
+    const findings = uniqueFindings(match.insight.supporting_findings ?? []);
+    nodes.push({
+      id: insightId,
+      kind: "insight",
+      eyebrow: "Evidence insight",
+      title: RELATION_LABEL[match.relation],
+      summary: match.insight.statement,
+      detail: match.reason,
+      meta: `${findings.length} source${findings.length === 1 ? "" : "s"}`,
+      relation: match.relation,
+      blockIds: match.doc_block_ids,
+      queries: match.insight.query ? [match.insight.query] : [],
+    });
+    edges.push({
+      id: `${fieldId}->${insightId}`,
+      source: fieldId,
+      target: insightId,
+      kind: match.relation,
+    });
+
+    for (const finding of findings) {
+      if (!visibleSourceUrls.has(finding.url)) continue;
+      const sourceId = `source:${stableHash(finding.url)}`;
+      edges.push({
+        id: `${insightId}->${sourceId}`,
+        source: insightId,
+        target: sourceId,
+        kind: "supported_by",
+      });
+    }
+  }
+
+  for (const finding of visibleSources) {
+    const lanes = Array.from(
+      new Set(finding.source_lanes?.length ? finding.source_lanes : [finding.source]),
+    );
+    const laneLabels = lanes.map((lane) =>
+      sourceDisplayLabel(lane, finding.source_labels),
+    );
+    nodes.push({
+      id: `source:${stableHash(finding.url)}`,
+      kind: "source",
+      eyebrow: "Cited source",
+      title: finding.title || finding.url,
+      summary: finding.excerpt || "Open the cited record for source detail.",
+      meta: laneLabels.join(" + "),
+      href: finding.url,
+      queries: finding.queries?.length ? finding.queries : [finding.query].filter(Boolean),
+    });
+  }
+
+  return {
+    attributeRef,
+    nodes,
+    edges,
+    totalInsights: uniqueMatches.length,
+    shownInsights: visibleMatches.length,
+    totalSources: allSources.length,
+    shownSources: visibleSources.length,
+  };
+}

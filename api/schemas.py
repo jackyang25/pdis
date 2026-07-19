@@ -29,6 +29,13 @@ class IndicationsResponse(BaseModel):
     indications: list[str]
 
 
+class ImageAssetOut(BaseModel):
+    media_type: str
+    data_base64: str
+    sha256: str
+    source_media_type: str
+
+
 class ContentBlockOut(BaseModel):
     id: str
     doc_id: str
@@ -38,15 +45,21 @@ class ContentBlockOut(BaseModel):
     heading_stack: list[str]
     section_label: str | None = None
     # Parser provenance, surfaced for debugging/inspection: structural_meta holds
-    # paragraph/table/row index, page, column headers, image rel-id; style_hint
+    # paragraph/table/row index, page, column headers, image index; style_hint
     # holds the source style name, bold flag, and parser source tag.
     structural_meta: dict[str, Any] = Field(default_factory=dict)
     style_hint: dict[str, Any] = Field(default_factory=dict)
+    image: ImageAssetOut | None = None
 
 
 class ChunkerRunResponse(BaseModel):
     doc_id: str
     blocks: list[ContentBlockOut]
+
+
+class RetrievalPathOut(BaseModel):
+    query: str
+    lane: str
 
 
 class FindingOut(BaseModel):
@@ -56,7 +69,14 @@ class FindingOut(BaseModel):
     retrieved_at: str
     excerpt: str | None = None
     published_at: str | None = None
-    source: str = "web"
+    source: str = "unknown"
+    queries: list[str] = Field(default_factory=list)
+    source_lanes: list[str] = Field(default_factory=list)
+    source_labels: dict[str, str] = Field(default_factory=dict)
+    retrieval_paths: list[RetrievalPathOut] = Field(default_factory=list)
+    title_source_lane: str = ""
+    excerpt_source_lane: str = ""
+    published_source_lane: str = ""
 
 
 class SearcherRunResponse(BaseModel):
@@ -64,9 +84,17 @@ class SearcherRunResponse(BaseModel):
     findings: list[FindingOut]
 
 
+class SearchSourceOut(BaseModel):
+    key: str
+    label: str
+    default_enabled: bool
+
+
 class InsightOut(BaseModel):
+    id: str = ""
     statement: str
     query: str
+    query_tracks: list[str] = Field(default_factory=list)
     supporting_findings: list[FindingOut]
     org: str | None = None
     source_type: str | None = None
@@ -79,14 +107,16 @@ class MatchOut(BaseModel):
     insight: InsightOut
     relation: str
     reason: str
+    doc_block_ids: list[str] = Field(default_factory=list)
 
 
 class EvidenceAssessmentOut(BaseModel):
     attribute_ref: str
     strength: str
-    basis: list[str]
     reason: str
     doc_target: str = ""
+    doc_block_ids: list[str] = Field(default_factory=list)
+    supporting_insight_ids: list[str] = Field(default_factory=list)
     supporting_findings: list[FindingOut]
 
 
@@ -99,15 +129,32 @@ class FunnelStatsOut(BaseModel):
     assessments: int
 
 
+class SearchTraceOut(BaseModel):
+    attribute_ref: str
+    lane: str
+    query: str
+    tracks: list[str] = Field(default_factory=list)
+    doc_block_ids: list[str] = Field(default_factory=list)
+    status: str = "complete"
+    error: str = ""
+    finding_count: int = 0
+    source_urls: list[str] = Field(default_factory=list)
+
+
 class VariableOut(BaseModel):
     name: str
     description: str
+    block_ids: list[str] = Field(default_factory=list)
 
 
 class MeasurementOut(BaseModel):
     value: float
-    source_type: str
+    unit: str = ""
+    evidence_form: str = "other"
+    development_phase: str = "unknown"
+    source_record_type: str = "unknown"
     url: str = ""
+    insight_id: str = ""
     age_months: float | None = None
     weight: float = 0.0
 
@@ -122,14 +169,20 @@ class ConformityOut(BaseModel):
     lower: float
     upper: float
     verdict: str
-    measurements: list[MeasurementOut] = []
+    doc_block_ids: list[str] = Field(default_factory=list)
+    measurements: list[MeasurementOut] = Field(default_factory=list)
 
 
 class PrecedentOut(BaseModel):
     attribute_ref: str
-    precedent: str  # established | emerging | novel | disconfirmed | unknown
+    precedent: str  # direct | adjacent | none | unknown
+    outcome: str = "unknown"  # favorable | mixed | unfavorable | unknown
     reason: str = ""
-    supporting_findings: list[FindingOut] = []
+    doc_block_ids: list[str] = Field(default_factory=list)
+    coverage_insight_ids: list[str] = Field(default_factory=list)
+    outcome_insight_ids: list[str] = Field(default_factory=list)
+    supporting_insight_ids: list[str] = Field(default_factory=list)
+    supporting_findings: list[FindingOut] = Field(default_factory=list)
 
 
 class ScoutRunResponse(BaseModel):
@@ -138,14 +191,15 @@ class ScoutRunResponse(BaseModel):
     intervention_class: str
     indication: str
     variables: list[VariableOut]
+    search_plan: list[SearchTraceOut] = Field(default_factory=list)
     matches: list[MatchOut]
-    conformity: list[ConformityOut] = []
-    precedents: list[PrecedentOut] = []
+    conformity: list[ConformityOut] = Field(default_factory=list)
+    precedents: list[PrecedentOut] = Field(default_factory=list)
     assessments: list[EvidenceAssessmentOut]
     stats: FunnelStatsOut
     # The parsed source document, carried so the Ask assistant can read the full
     # document behind the distilled analysis. Not used by the Scout UI itself.
-    blocks: list[ContentBlockOut] = []
+    blocks: list[ContentBlockOut] = Field(default_factory=list)
 
 
 class DimensionGradeOut(BaseModel):

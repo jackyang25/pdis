@@ -14,7 +14,6 @@ import { useChunkerSession, type ChunkerResult } from "@/lib/session";
 
 const CHUNKER_STEPS = [
   { key: "parse", label: "Parsing document" },
-  { key: "describe", label: "Describing figures" },
   { key: "label", label: "Labeling sections" },
 ];
 
@@ -172,7 +171,17 @@ function BlocksList({ result }: { result: ChunkerResult }) {
                 <MetaLine label="style" meta={block.style_hint} />
               </div>
             </details>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{block.content}</p>
+            {block.image ? (
+              <figure className="mt-3 overflow-hidden rounded-md border border-border bg-muted/20 p-2">
+                <img
+                  src={`data:${block.image.media_type};base64,${block.image.data_base64}`}
+                  alt={`Document figure ${block.structural_meta.image_index ?? block.ordinal}`}
+                  className="mx-auto max-h-[36rem] max-w-full object-contain"
+                />
+              </figure>
+            ) : (
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{block.content}</p>
+            )}
           </li>
         ))}
       </ul>

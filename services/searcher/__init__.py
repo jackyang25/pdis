@@ -1,17 +1,32 @@
-"""Searcher - web and literature retrieval service.
+"""Searcher - pluggable external-evidence retrieval service.
 
 Public contract: consumers import from this package root only.
 Internals (`stages/`, helpers) are not part of the contract.
 
-Searcher can union OpenAI web_search findings with NCBI PubMed/PMC
-literature findings. The public surface below is the wire protocol -
-keep it small and stable.
+Source adapters plan native requests and normalize them to Findings. The public
+surface below is the cross-service contract; consumers never reach into an
+adapter or stage.
 """
 
 from .models import (
     Finding,
+    RetrievalIntent,
+    RetrievalPath,
+    SearchOutcome,
+    SearchRequest,
+    SearchRuntime,
     SearcherLLMClientProtocol,
+    SourceQueryIntent,
+    SourceSpec,
     findings_to_dicts,
+    merge_findings,
+)
+from .controller import (
+    plan_requests,
+    run_requests,
+    source_keys,
+    source_specs,
+    validate_source_keys,
 )
 from .net import prefer_ipv4
 from .pipeline import run_pipeline
@@ -25,7 +40,20 @@ __all__ = [
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_MAX_USES",
     "Finding",
+    "RetrievalIntent",
+    "RetrievalPath",
+    "SearchOutcome",
+    "SearchRequest",
+    "SearchRuntime",
     "SearcherLLMClientProtocol",
+    "SourceQueryIntent",
+    "SourceSpec",
     "findings_to_dicts",
+    "merge_findings",
+    "plan_requests",
+    "run_requests",
     "run_pipeline",
+    "source_keys",
+    "source_specs",
+    "validate_source_keys",
 ]

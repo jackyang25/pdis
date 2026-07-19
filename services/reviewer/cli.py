@@ -28,7 +28,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from services.chunker import ContentBlock  # noqa: E402
+from services.chunker import ContentBlock, ImageAsset  # noqa: E402
 from shared.openai_client import OpenAIClient  # noqa: E402
 
 from .models import ReviewConfig, ReviewResult, SectionGrade, find_config  # noqa: E402
@@ -245,6 +245,7 @@ def _blocks_by_doc(block_rows: list[dict[str, Any]]) -> dict[str, list[ContentBl
 
 
 def _row_to_content_block(row: dict[str, Any]) -> ContentBlock:
+    image_data = _json_object(row.get("image_json"))
     return ContentBlock(
         id=row["block_id"],
         doc_id=row["doc_key"],
@@ -254,6 +255,7 @@ def _row_to_content_block(row: dict[str, Any]) -> ContentBlock:
         heading_stack=_json_list(row.get("heading_stack_json")),
         structural_meta=_json_object(row.get("structural_meta_json")),
         style_hint=_json_object(row.get("style_hint_json")),
+        image=ImageAsset(**image_data) if image_data else None,
         section_label=row.get("section_label") or None,
         org=row.get("org") or None,
         source_type=row.get("source_type") or None,

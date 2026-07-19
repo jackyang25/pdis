@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -71,6 +72,7 @@ async def run_chunker(
                         section_label=b.section_label,
                         structural_meta=b.structural_meta,
                         style_hint=b.style_hint,
+                        image=asdict(b.image) if b.image else None,
                     )
                     for b in blocks
                 ],

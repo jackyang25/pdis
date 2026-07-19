@@ -68,6 +68,49 @@ TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "find_document",
+            "description": "Find source-document blocks whose heading or content contains a keyword. Returns exact block IDs and snippets; use before read_document when you do not know the block IDs.",
+            "parameters": {
+                "type": "object",
+                "properties": {"keyword": {"type": "string"}},
+                "required": ["keyword"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_document",
+            "description": "Read exact parsed source-document blocks by ID. For a very large block, follow the returned next start_char to continue reading it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "block_ids": {"type": "array", "items": {"type": "string"}},
+                    "start_char": {"type": "integer", "minimum": 0},
+                },
+                "required": ["block_ids"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_document_range",
+            "description": "Read an ordered range of blocks from one source document. Use for broad review or summarization; follow the returned next start value to continue.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "doc_id": {"type": "string"},
+                    "start": {"type": "integer", "minimum": 0},
+                    "count": {"type": "integer", "minimum": 1, "maximum": 25},
+                },
+                "required": ["doc_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "find",
             "description": "Return paths whose key or value contains a keyword (case-insensitive). Use to locate where something lives before get().",
             "parameters": {
@@ -104,14 +147,11 @@ def answer(
     """Answer the latest user turn. `messages` is the prior conversation
     (roles user/assistant); the system prompt + tool loop are added here.
 
-    `document` is the source document behind the result (parsed blocks). When
-    present it is given whole in the system prompt so the assistant can
-    cross-compare the distilled result against the full document."""
+    `document` is the source document behind the result (parsed blocks). A map
+    is placed in the system prompt; exact text stays available through bounded
+    document navigation tools."""
     allowed_urls = navigator.collect_urls(result)
-    work: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt(result, result_type, document)},
-        *messages,
-    ]
+    work = _initial_messages(result, result_type, messages, document)
 
     for _ in range(MAX_STEPS):
         message = client.chat(work, tools=TOOLS, max_tokens=max_tokens)
@@ -127,7 +167,7 @@ def answer(
                 {
                     "role": "tool",
                     "tool_call_id": call.id,
-                    "content": _run_tool(call, result, allowed_urls),
+                    "content": _run_tool(call, result, allowed_urls, document),
                 }
             )
 
@@ -153,10 +193,7 @@ def answer_stream(
     Text-only turns are forwarded immediately to the caller.
     """
     allowed_urls = navigator.collect_urls(result)
-    work: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt(result, result_type, document)},
-        *messages,
-    ]
+    work = _initial_messages(result, result_type, messages, document)
 
     for _ in range(MAX_STEPS):
         content_parts: list[str] = []
@@ -217,7 +254,7 @@ def answer_stream(
                 {
                     "role": "tool",
                     "tool_call_id": call.id,
-                    "content": _run_tool(call, result, allowed_urls),
+                    "content": _run_tool(call, result, allowed_urls, document),
                 }
             )
 
@@ -251,7 +288,12 @@ def _assembled_tool_calls(parts: dict[int, dict[str, str]]) -> list[Any]:
     ]
 
 
-def _run_tool(call: Any, result: dict[str, Any], allowed_urls: set[str]) -> str:
+def _run_tool(
+    call: Any,
+    result: dict[str, Any],
+    allowed_urls: set[str],
+    document: list[dict[str, Any]] | None = None,
+) -> str:
     name = call.function.name
     try:
         args = json.loads(call.function.arguments or "{}")
@@ -261,6 +303,32 @@ def _run_tool(call: Any, result: dict[str, Any], allowed_urls: set[str]) -> str:
         return navigator.get(result, str(args.get("path", "")))
     if name == "find":
         return navigator.find(result, str(args.get("keyword", "")))
+    if name == "find_document":
+        if not document:
+            return "Source document unavailable."
+        return document_reader.find(document, str(args.get("keyword", "")))
+    if name == "read_document":
+        if not document:
+            return "Source document unavailable."
+        raw_ids = args.get("block_ids", [])
+        block_ids = raw_ids if isinstance(raw_ids, list) else []
+        start_char = args.get("start_char", 0)
+        return document_reader.get(
+            document,
+            block_ids,
+            start_char=start_char if isinstance(start_char, int) else 0,
+        )
+    if name == "read_document_range":
+        if not document:
+            return "Source document unavailable."
+        start = args.get("start", 0)
+        count = args.get("count", 25)
+        return document_reader.get_range(
+            document,
+            str(args.get("doc_id", "")),
+            start=start if isinstance(start, int) else 0,
+            count=count if isinstance(count, int) else 25,
+        )
     if name == "fetch_source":
         return navigator.fetch_source(str(args.get("url", "")), allowed_urls)
     return f"Unknown tool: {name}"
@@ -281,6 +349,60 @@ def _assistant_msg(message: Any, tool_calls: Any) -> dict[str, Any]:
     }
 
 
+def _initial_messages(
+    result: dict[str, Any],
+    result_type: str,
+    messages: list[dict[str, Any]],
+    document: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    work: list[dict[str, Any]] = [
+        {"role": "system", "content": _system_prompt(result, result_type, document)}
+    ]
+    visuals: list[dict[str, Any]] = []
+    for block in document or []:
+        image = block.get("image")
+        if not isinstance(image, dict):
+            continue
+        media_type = str(image.get("media_type") or "")
+        data = str(image.get("data_base64") or "")
+        if not media_type or not data:
+            continue
+        visuals.extend(
+            [
+                {
+                    "type": "text",
+                    "text": f"Source-document visual for block [{block.get('id', '')}]:",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{media_type};base64,{data}",
+                        "detail": "high",
+                    },
+                },
+            ]
+        )
+    if visuals:
+        work.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Reference material only: these are source-document visuals "
+                            "labeled by their exact block IDs. Use them with the parsed "
+                            "text when answering the user's final question."
+                        ),
+                    },
+                    *visuals,
+                ],
+            }
+        )
+    work.extend(messages)
+    return work
+
+
 def _system_prompt(
     result: dict[str, Any],
     result_type: str,
@@ -289,16 +411,17 @@ def _system_prompt(
     has_doc = bool(document)
     grounding = (
         "the full text behind sources it already cites"
-        + (", and the SOURCE DOCUMENT below" if has_doc else "")
+        + (", and every parsed text or visual block in the SOURCE DOCUMENT" if has_doc else "")
     )
     two_sources = (
         "\n\nDOCUMENT ACCESS - IMPORTANT:\n"
-        "- You DO have direct access to the uploaded source document's parsed text below.\n"
-        "- You may inspect, quote, compare, and cite that text using its [block ids].\n"
+        "- You DO have direct access to every parsed source-document block through "
+        "find_document and read_document.\n"
+        "- You may inspect, quote, compare, and cite parsed text and retained visuals using their block IDs.\n"
         "- Never claim that you can only see the analysis result or cannot inspect arbitrary "
-        "document passages. You can inspect all parsed text supplied below.\n"
+        "document passages. You can inspect all parsed text through those tools.\n"
         "- Be precise about the boundary: you have the parsed document content, not the original "
-        "binary file or formatting that was not preserved by parsing.\n\n"
+        "binary file; parsed text and extracted visuals are preserved, while other formatting may not be.\n\n"
         "TWO SOURCES, TWO ROLES - keep them distinct:\n"
         "- The RESULT (and the web sources it cites) is EVIDENCE: what the outside world shows.\n"
         "- The SOURCE DOCUMENT is the author's CLAIMS: what the document asserts, NOT verified. "
@@ -309,9 +432,8 @@ def _system_prompt(
         else ""
     )
     document_section = (
-        f"\n\nSOURCE DOCUMENT — {len(document or [])} PARSED BLOCKS "
-        "(the author's claims; cite blocks by their [id]):\n"
-        f"{document_reader.render(document)}"
+        "\n\nSOURCE DOCUMENT MAP (the author's claims; cite exact block IDs):\n"
+        f"{document_reader.overview(document or [])}"
         if has_doc
         else ""
     )
@@ -321,10 +443,13 @@ def _system_prompt(
         f"{grounding}. You never run new web searches and never change anything.\n\n"
         f"WHAT THIS RESULT IS:\n{legend_for(result_type)}\n\n"
         "HOW TO READ IT - use the tools:\n"
-        "- get(path): read a subtree. find(keyword): locate paths. fetch_source(url): open the "
+        "- get(path): read a result subtree. find(keyword): locate result paths. "
+        "find_document(keyword): locate document blocks. read_document(block_ids): read exact "
+        "document text. read_document_range(doc_id): scan an ordered document. "
+        "fetch_source(url): open the "
         "FULL text of an already-cited URL when the stored excerpt is not enough.\n"
         "- Don't guess paths; use the OVERVIEW below and find() to locate things."
-        + (" The full document is already inline below - read it directly, no tool needed." if has_doc else "")
+        + (" Use the document map and document tools whenever the answer depends on the upload." if has_doc else "")
         + two_sources
         + "\n\nRULES:\n"
         "- Ground every claim in the result, a fetched cited source"

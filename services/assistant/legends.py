@@ -9,18 +9,18 @@ Adding a new doc type = add one entry here. No navigator/agent changes.
 
 from __future__ import annotations
 
-SCOUT_LEGEND = """This is a SCOUT result: a TPP's targets tested against real-world web/literature/registry evidence. Shape:
-- variables[]: the TPP attributes analyzed (name, description).
-- matches[]: each is one web-derived insight + its relation to the document:
+SCOUT_LEGEND = """This is a SCOUT result: a document's product targets or plan commitments tested against external web/literature/registry evidence. Shape:
+- variables[]: the units analyzed (name, description, and originating block_ids for document-extracted units).
+- search_plan[]: every lane-native retrieval request (web/PubMed/registry), its coverage tracks, originating document block_ids, finding_count, and all retrieved source_urls (including sources that produced no accepted insight).
+- matches[]: each is one external-evidence insight + its relation to the document:
     contradicts = evidence shows the target is disproven/unachievable, or a stated fact is wrong;
     extends = adds info / the current standard differs from an aspirational target (a gap, not a failure);
-    confirms = supports the target; unrelated = off-topic. Each insight carries supporting_findings (url, title, excerpt, source).
-    (The UI rolls a field's matches up into one "Doc check" verdict: Confirmed / Updates / Conflict / Clear.)
-- conformity[]: per quantitative variable, a 0-1 likelihood the target is MET by current evidence (with lower/upper band, verdict, measurements). LOW is not "bad" - it often means an ambitious/stretch target above today's evidence.
-- precedents[]: per variable, whether the approach has been tried: established / emerging / novel (white space) / disconfirmed (shown in the UI as "Tried & failed": attempted before and didn't pan out) / unknown.
-- assessments[]: per variable, weight-of-evidence strength (well_grounded/partial/thin/unsupported/unknown; shown as Well grounded/Partial/Thin/Unsupported/Unknown) + basis + doc_target.
+    confirms = supports the target; unrelated = off-topic. Each insight has a stable id and exact supporting_findings; each match has the document block_ids it compares against.
+- conformity[]: per quantitative variable, a 0-1 weighted evidence-alignment score with lower/upper band and measurements. It is not a calibrated forecast probability. Each measurement points to its source insight_id, retains its unit, and separately labels evidence_form, development_phase, and source_record_type. Measurements with units unlike the target are excluded rather than silently converted.
+- precedents[]: two independent axes per variable: precedent coverage (direct/adjacent/none/unknown) and prior outcome (favorable/mixed/unfavorable/unknown), each with its own supporting insight IDs plus document block_ids.
+- assessments[]: per variable, weight-of-evidence strength (well_grounded/partial/thin/unsupported/unknown), doc_target, exact document block_ids, and only the supporting_insight_ids/findings actually used.
 - stats: funnel counts.
-Note: a field's "Doc check" (from matches) and "Precedent" answer DIFFERENT questions and can differ without contradicting each other - Doc check = does evidence back what the document CLAIMS; Precedent = does the underlying APPROACH have a track record. So "Confirmed" together with "Tried & failed" on one field is consistent: the plan is real, but that approach has failed before."""
+Note: Match relations and Precedent answer DIFFERENT questions and can differ without contradicting each other: relations compare each fact with the document, while precedent asks whether the underlying approach has a track record."""
 
 REVIEWER_LEGEND = """This is a REVIEWER result: a document graded inward against its rubric. Shape:
 - dimensions: document-level grades (A-F) on completeness (is content present?), adherence (does it follow the rubric's structure/format?), rigor (is the content specific, measurable, sound?).

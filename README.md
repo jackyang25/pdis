@@ -11,7 +11,7 @@
 </p>
 
 PDIS turns product-development documents into traceable, citable analysis. It
-parses DOCX/PDF files, reviews them against a document-specific rubric,
+parses DOCX/PDF/PPTX files, reviews them against a document-specific rubric,
 pressure-tests their targets against live external evidence, and supports
 grounded follow-up questions over the saved result and source document.
 
@@ -23,7 +23,7 @@ vaccines, drugs, diagnostics, and devices.
 
 | Surface | Responsibility | Output |
 |---|---|---|
-| **Chunker** | Parse a document into ordered, citable blocks while retaining embedded DOCX visuals. | `ContentBlock[]` |
+| **Chunker** | Parse DOCX, PDF, or PPTX into ordered, citable blocks while retaining visuals. | `ContentBlock[]` |
 | **Reviewer** | Grade completeness, adherence, and rigor independently, then report cross-section conflicts. | `ReviewResult` |
 | **Scout** | Compare document targets with live evidence, quantitative alignment, and precedent. | `ScoutResult` |
 | **Searcher** | Debug or use the registered retrieval sources directly with a free-text query. | `Finding[]` |
@@ -120,11 +120,12 @@ The first three select YAML configs; all four are stamped on outputs. The API
 passes the original upload filename stem as `doc_id`, so temporary upload names
 never leak into block IDs.
 
-Chunker emits ordered `ContentBlock`s with stable IDs. Embedded DOCX images are
-canonical `image` blocks carrying media type, base64 bytes, SHA-256, and source
-media type. Supported raster bytes are retained; Pillow normalizes other raster
-formats; LibreOffice is only an optional fallback for EMF/WMF/SVG conversion.
-Images remain tied to their exact block IDs in Mapper, Reviewer, Scout, and Ask.
+Chunker emits ordered `ContentBlock`s with stable IDs. Embedded DOCX images and
+rendered PPTX slides are canonical `image` blocks carrying media type, base64
+bytes, SHA-256, and source media type. Supported raster bytes are retained;
+Pillow normalizes other raster formats; LibreOffice handles vector fallback and
+PPTX slide rendering. Images remain tied to their exact block IDs in Mapper,
+Reviewer, Scout, and Ask.
 
 ## Canonical Scout field model
 
@@ -317,9 +318,9 @@ schema + version + result_type
     └── ordered ContentBlocks (including embedded image bytes)
 ```
 
-The original PDF/DOCX binary is not embedded. Parsed blocks and DOCX image
-assets are embedded, which keeps Ask portable and stateless but can make result
-files larger. Backward compatibility lives only in the import normalizer. Old
+The original PDF/DOCX/PPTX binary is not embedded. Parsed blocks and portable
+image assets are embedded, which keeps Ask portable and stateless but can make
+result files larger. Backward compatibility lives only in the import normalizer. Old
 results remain viewable, but missing images, canonical-field metadata, query
 lineage, or retrieval provenance cannot be reconstructed; rerun the analysis
 for a fully current artifact.

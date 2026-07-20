@@ -70,7 +70,7 @@ class ContentBlock:
     id: str
     doc_id: str
     ordinal: int
-    block_type: str  # "paragraph", "heading", "table_row" — the kind of parser output
+    block_type: str  # "paragraph", "heading", "table_row", or "image"
     content: str
     heading_stack: list[str]
     structural_meta: dict[str, Any]

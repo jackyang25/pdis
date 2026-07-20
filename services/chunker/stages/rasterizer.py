@@ -1,4 +1,4 @@
-"""Rasterize unsupported document image formats through headless LibreOffice.
+"""Rasterize document visuals through the optional office boundary.
 
 This is the only optional system-binary boundary in Chunker. It is invoked only
 for formats that cannot be carried directly as a browser/model image.
@@ -11,10 +11,13 @@ import os
 import shutil
 import subprocess
 import tempfile
+from io import BytesIO
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 CONVERT_TIMEOUT_SECONDS = 60
+PRESENTATION_TIMEOUT_SECONDS = 120
 SUFFIX_BY_MEDIA_TYPE = {
     "image/x-emf": ".emf",
     "image/emf": ".emf",
@@ -69,3 +72,68 @@ def rasterize_to_png(data: bytes, media_type: str) -> bytes | None:
     except (subprocess.SubprocessError, OSError) as exc:
         logger.warning("Image rasterization failed: %s", exc)
         return None
+
+
+def render_presentation_slides(file_path: str) -> dict[int, bytes]:
+    """Render a PPTX into one PNG per slide, keyed by one-based slide number.
+
+    Rendering is best-effort. Text and table parsing remains available without
+    LibreOffice or PDFium; callers can retain embedded pictures as a fallback.
+    """
+    soffice = _soffice_path()
+    if not soffice:
+        logger.info("Presentation rendering skipped: LibreOffice is unavailable")
+        return {}
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        logger.warning("Presentation rendering skipped: pypdfium2 is unavailable")
+        return {}
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="pdis-pptx-") as directory:
+            profile = f"file://{os.path.join(directory, 'profile')}"
+            subprocess.run(
+                [
+                    soffice,
+                    f"-env:UserInstallation={profile}",
+                    "--headless",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    directory,
+                    file_path,
+                ],
+                check=True,
+                timeout=PRESENTATION_TIMEOUT_SECONDS,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            pdf_path = os.path.join(
+                directory, f"{Path(file_path).stem}.pdf"
+            )
+            if not os.path.exists(pdf_path):
+                return {}
+
+            document = pdfium.PdfDocument(pdf_path)
+            rendered: dict[int, bytes] = {}
+            try:
+                for page_index in range(len(document)):
+                    page = document[page_index]
+                    try:
+                        bitmap = page.render(scale=1.5)
+                        try:
+                            image = bitmap.to_pil()
+                            output = BytesIO()
+                            image.save(output, format="PNG", optimize=True)
+                            rendered[page_index + 1] = output.getvalue()
+                        finally:
+                            bitmap.close()
+                    finally:
+                        page.close()
+            finally:
+                document.close()
+            return rendered
+    except (subprocess.SubprocessError, OSError, RuntimeError) as exc:
+        logger.warning("Presentation rendering failed: %s", exc)
+        return {}

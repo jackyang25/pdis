@@ -1,4 +1,4 @@
-"""Attach deterministic, portable image assets to parsed DOCX image blocks."""
+"""Build deterministic portable assets for document visual blocks."""
 
 from __future__ import annotations
 
@@ -55,25 +55,35 @@ def attach_image_assets(
             block.content = "[image unavailable]"
             continue
 
-        media_type = "image/jpeg" if source_media_type == "image/jpg" else source_media_type
-        if source_media_type not in PASSTHROUGH_TYPES:
-            converted = _convert_raster_to_png(image_bytes) or rasterize_to_png(
-                image_bytes, source_media_type
-            )
-            if converted is None:
-                block.content = f"[image unavailable: {source_media_type or 'unknown format'}]"
-                continue
-            image_bytes = converted
-            media_type = "image/png"
-
-        block.image = ImageAsset(
-            media_type=media_type,
-            data_base64=base64.b64encode(image_bytes).decode("ascii"),
-            sha256=hashlib.sha256(image_bytes).hexdigest(),
-            source_media_type=source_media_type or media_type,
-        )
+        block.image = image_asset_from_bytes(image_bytes, source_media_type)
+        if block.image is None:
+            block.content = f"[image unavailable: {source_media_type or 'unknown format'}]"
+            continue
         block.content = "[image]"
     return blocks
+
+
+def image_asset_from_bytes(data: bytes, source_media_type: str) -> ImageAsset | None:
+    """Normalize arbitrary visual bytes into the one portable image contract."""
+    if not data:
+        return None
+    source_media_type = (source_media_type or "").lower()
+    media_type = "image/jpeg" if source_media_type == "image/jpg" else source_media_type
+    image_bytes = data
+    if source_media_type not in PASSTHROUGH_TYPES:
+        converted = _convert_raster_to_png(data) or rasterize_to_png(
+            data, source_media_type
+        )
+        if converted is None:
+            return None
+        image_bytes = converted
+        media_type = "image/png"
+    return ImageAsset(
+        media_type=media_type,
+        data_base64=base64.b64encode(image_bytes).decode("ascii"),
+        sha256=hashlib.sha256(image_bytes).hexdigest(),
+        source_media_type=source_media_type or media_type,
+    )
 
 
 def _convert_raster_to_png(data: bytes) -> bytes | None:

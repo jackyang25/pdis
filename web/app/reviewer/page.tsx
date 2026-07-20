@@ -96,7 +96,7 @@ function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
   return (
     <div className="flex flex-col gap-6">
       <RunPanel
-        accept=".docx,.pdf"
+        accept=".docx,.pdf,.pptx"
         busy={busy}
         onRun={handleRun}
         steps={PD_REVIEWER_STEPS}

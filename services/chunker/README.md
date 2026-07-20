@@ -1,14 +1,15 @@
 # Chunker
 
-Parses documents (`.docx`, `.pdf`) into ordered, citable `ContentBlock`s.
-Embedded DOCX visuals become portable image assets; an optional LLM mapper
-labels sections without replacing visuals with generated text.
+Parses documents (`.docx`, `.pdf`, `.pptx`) into ordered, citable
+`ContentBlock`s. Embedded DOCX visuals and rendered PPTX slides become portable
+image assets; an optional LLM mapper labels sections without replacing visuals
+with generated text.
 
 ## Inputs and outputs
 
 | | |
 |---|---|
-| Input | One document (`.docx` or `.pdf`) + header `(org, source_type, intervention_class, indication)` |
+| Input | One document (`.docx`, `.pdf`, or `.pptx`) + header `(org, source_type, intervention_class, indication)` |
 | Output | `list[ContentBlock]` — each block stamped with the header |
 
 The caller must pass the original filename stem as `doc_id` when parsing a
@@ -25,11 +26,12 @@ Ask receive those visuals as block-labeled multimodal inputs.
 |---|---|
 | `models.py` | `ContentBlock` and `DocumentTypeConfig` dataclasses; YAML loader. |
 | `pipeline.py` | `run_pipeline(file, doc_id, ...)` — parse → optional label. |
-| `stages/parser.py` | Dispatcher: `.docx` → `parser_docx`, `.pdf` → `parser_pdf`. |
+| `stages/parser.py` | Format dispatcher for DOCX, PDF, and PPTX. |
 | `stages/parser_docx.py` | Walks Word XML in body order; populates `heading_stack` from heading styles. |
 | `stages/parser_pdf.py` | `pdfplumber`-based; populates `structural_meta.page`. |
+| `stages/parser_pptx.py` | Extracts slide titles, text, tables, notes, positions, and portable visuals. |
 | `stages/image_assets.py` | Resolves DOCX image relationships and attaches portable raster assets. |
-| `stages/rasterizer.py` | Optional LibreOffice boundary for EMF/WMF/SVG → PNG. |
+| `stages/rasterizer.py` | Optional LibreOffice boundary for vectors and PPTX slide rendering. |
 | `stages/mapper.py` | LLM section-labeler; constrained to the config's `section_taxonomy`. |
 | `cli.py` | Headless batch export to CSV/JSONL. |
 | `configs/` | One YAML per `(org, source_type, intervention)` combination. |
@@ -55,5 +57,7 @@ External callers (`api/routes/chunker.py`, `reviewer`, `scout`) import only from
 ## Dependencies
 
 Chunker is the root of the service graph and imports from no service. Standard
-raster images need no system dependency. LibreOffice is an optional runtime
-dependency used only to convert unsupported vector formats to PNG.
+raster images need no system dependency. LibreOffice Draw converts unsupported
+vector formats; LibreOffice Impress plus PDFium renders complete PPTX slides.
+When rendering is unavailable, PPTX text/tables still parse and embedded
+pictures are retained as the visual fallback.

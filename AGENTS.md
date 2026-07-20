@@ -41,8 +41,10 @@ config framing, not engine conditionals.
   never leak into block IDs.
 - Embedded DOCX visuals are `block_type="image"` blocks carrying a typed
   `ImageAsset` (`media_type`, base64 bytes, SHA-256, source media type).
+- PPTX slides emit ordered text/table blocks plus one rendered full-slide image;
+  if slide rendering is unavailable, embedded pictures are retained instead.
 - Supported raster bytes are retained; Pillow normalizes other raster formats;
-  LibreOffice is an optional fallback only for EMF/WMF/SVG → PNG.
+  LibreOffice handles EMF/WMF/SVG fallback and full-slide PPTX rendering.
 - Images are canonical visual data. Do not replace them with generated prose,
   restore `image_lens`, or add a separate image-description stage.
 - Multimodal calls label every image with its exact block ID. Mapper, Reviewer,

@@ -5,6 +5,7 @@ from pathlib import Path
 from ..models import ContentBlock
 from .parser_docx import parse_docx
 from .parser_pdf import parse_pdf
+from .parser_pptx import parse_pptx
 
 
 def parse_document(file_path: str, doc_id: str) -> list[ContentBlock]:
@@ -19,6 +20,7 @@ def parse_document(file_path: str, doc_id: str) -> list[ContentBlock]:
     Supported formats:
         .docx  -> parser_docx.parse_docx (semantic-tag-driven)
         .pdf   -> parser_pdf.parse_pdf   (text + table extraction via pdfplumber)
+        .pptx  -> parser_pptx.parse_pptx (slide text, tables, and visuals)
 
     Args:
         file_path: Path to the source file.
@@ -34,7 +36,9 @@ def parse_document(file_path: str, doc_id: str) -> list[ContentBlock]:
     if suffix == ".docx":
         return parse_docx(file_path, doc_id)
     if suffix == ".pdf":
-        return parse_pdf(file_path, doc_id)  # image extraction is docx-only at MVP
+        return parse_pdf(file_path, doc_id)
+    if suffix == ".pptx":
+        return parse_pptx(file_path, doc_id)
     raise ValueError(
-        f"Unsupported file format '{suffix}'. Supported: .docx, .pdf"
+        f"Unsupported file format '{suffix}'. Supported: .docx, .pdf, .pptx"
     )

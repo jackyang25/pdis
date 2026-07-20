@@ -389,7 +389,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     <div className="flex flex-col gap-6">
       {(!result || showRunPanel) && (
         <RunPanel
-          accept=".docx,.pdf"
+          accept=".docx,.pdf,.pptx"
           busy={busy}
           onRun={handleRun}
           steps={SCOUT_STEPS}

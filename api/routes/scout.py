@@ -24,6 +24,7 @@ from api.schemas import (
     ConformityOut,
     ContentBlockOut,
     EvidenceAssessmentOut,
+    EvidenceEntityOut,
     FindingOut,
     FunnelStatsOut,
     InsightOut,
@@ -102,6 +103,18 @@ async def run_scout(
                         name=variable.name,
                         description=variable.description,
                         block_ids=variable.block_ids,
+                        document_target=variable.document_target,
+                        definition_mode=variable.definition_mode,
+                        target_resolved=variable.target_resolved,
+                        evidence_domain=variable.evidence_domain,
+                        entities=[
+                            EvidenceEntityOut(
+                                name=entity.name,
+                                entity_type=entity.entity_type,
+                                identifier=entity.identifier,
+                            )
+                            for entity in variable.entities
+                        ],
                     )
                     for variable in variables
                 ],
@@ -110,8 +123,15 @@ async def run_scout(
                         attribute_ref=trace.attribute_ref,
                         lane=trace.lane,
                         query=trace.query,
+                        connector=trace.connector,
+                        operation=trace.operation,
+                        request_options=trace.request_options,
                         tracks=trace.tracks,
                         doc_block_ids=trace.doc_block_ids,
+                        intent_ids=trace.intent_ids,
+                        input_queries=trace.input_queries,
+                        applicability=trace.applicability,
+                        applicability_reason=trace.applicability_reason,
                         status=trace.status,
                         error=trace.error,
                         finding_count=trace.finding_count,

@@ -3,111 +3,147 @@
 # (per-variable search/evaluate loop). Mirrors shared/indications.yaml.
 vaccine:
 - name: vaccine.indication
+  evidence_domain: clinical
   description: |
     The disease or condition the vaccine is intended to prevent or treat. Claims about the target disease, pathogen, or clinical condition.
 - name: vaccine.product
+  evidence_domain: biological
   description: |
     The vaccine candidate or class — antigens, platform (mRNA, protein subunit, viral vector, etc.), and formulation.
 - name: vaccine.use_case
+  evidence_domain: product
   description: |
     Specific product use case when a document defines more than one (e.g., WHO PPCs may cover blood-stage prevention vs. transmission reduction as separate use cases within the same document).
 - name: vaccine.target_population
+  evidence_domain: clinical
   description: |
     Demographic and clinical characteristics of intended recipients — age range, geography (LMIC vs. global), pregnancy status, comorbidities, risk factors.
 - name: vaccine.target_countries
+  evidence_domain: commercial_access
   description: |
     Geographic markets and tiers (LMIC focus, WHO regions, Gavi-eligible countries, specific country lists).
 - name: vaccine.target_setting
+  evidence_domain: clinical
   description: |
     Transmission setting or epidemiological context where the vaccine is intended to be used (e.g., high vs. low transmission, endemic vs. epidemic).
 - name: vaccine.efficacy
+  evidence_domain: clinical
   description: |
     Required protective efficacy against the primary clinical endpoint. Typically expressed as percent reduction in disease incidence over a defined follow-up period. Includes Minimum and Preferred / Optimistic target values from the source document.
 - name: vaccine.efficacy_against_severe_disease
+  evidence_domain: clinical
   description: |
     Protective efficacy specifically against severe disease, hospitalization, or death. Often tracked separately from prevention of mild/moderate disease.
 - name: vaccine.duration_of_protection
+  evidence_domain: clinical
   description: |
     How long protective immunity persists after immunization. Typically months or years. Claims about waning, booster requirements, durability.
 - name: vaccine.onset_of_immunity
+  evidence_domain: clinical
   description: |
     Time from immunization (or completion of series) to protective immunity. Typically days or weeks.
 - name: vaccine.transmission_reduction
+  evidence_domain: clinical
   description: |
     Impact on transmission of the pathogen — indirect (herd) effects, reduction in onward infection, community-level impact.
 - name: vaccine.safety
+  evidence_domain: safety
   description: |
     Overall safety profile — acceptable rates of serious adverse events, contraindications, post-licensure pharmacovigilance expectations. Benchmarked against WHO / regulatory safety standards.
 - name: vaccine.reactogenicity
+  evidence_domain: safety
   description: |
     Local and systemic reactogenicity (injection-site reactions, fever, malaise). Tracked separately from serious adverse events because it affects acceptability and EPI integration.
 - name: vaccine.anticipated_safety_profile
+  evidence_domain: safety
   description: |
     Expected adverse events based on platform characteristics or prior data from comparable products. Forward-looking projection.
 - name: vaccine.presentation
+  evidence_domain: product
   description: |
     Vial size, doses per vial, formulation (liquid vs. lyophilized), primary container.
 - name: vaccine.dose_volume
+  evidence_domain: product
   description: |
     Volume per dose in mL.
 - name: vaccine.dosing_schedule
+  evidence_domain: clinical
   description: |
     Number of doses, interval between doses, timing relative to age or EPI schedule.
 - name: vaccine.route_of_administration
+  evidence_domain: clinical
   description: |
     Route (intramuscular, intradermal, subcutaneous, oral, intranasal).
 - name: vaccine.thermostability
+  evidence_domain: manufacturing
   description: |
     Stability profile across temperature ranges. Controlled Temperature Chain (CTC) eligibility, out-of-cold-chain excursion tolerance, freeze sensitivity.
 - name: vaccine.shelf_life
+  evidence_domain: manufacturing
   description: |
     Shelf life at recommended storage temperatures (typically 2–8°C).
 - name: vaccine.cold_chain_requirements
+  evidence_domain: manufacturing
   description: |
     Cold chain storage and transport requirements — required temperature range, special handling, in-country cold-chain footprint.
 - name: vaccine.coadministration
+  evidence_domain: clinical
   description: |
     Compatibility with other vaccines in the routine immunization schedule without interference.
 - name: vaccine.combination_potential
+  evidence_domain: product
   description: |
     Potential for combination with other antigens into a multivalent product (e.g., combined with measles or DTP).
 - name: vaccine.registration_path
+  evidence_domain: regulatory
   description: |
     Regulatory pathway — WHO Prequalification + stringent regulatory authority (SRA) + national authorities of high-burden countries.
 - name: vaccine.who_prequalification_target
+  evidence_domain: regulatory
   description: |
     Target year/timeline for WHO Prequalification. PQ is the gateway to Gavi procurement.
 - name: vaccine.clinical_endpoint
+  evidence_domain: clinical
   description: |
     Primary clinical endpoint required for licensure (e.g., reduction in lab-confirmed disease, hospitalization, seroconversion).
 - name: vaccine.programmatic_suitability
+  evidence_domain: delivery
   description: |
     Suitability for the intended deployment model — EPI integration, mass campaigns, outbreak response. Operational feasibility at scale.
 - name: vaccine.delivery_strategy
+  evidence_domain: delivery
   description: |
     Primary delivery channel — routine EPI, supplementary campaigns, catch-up, outbreak response, private market.
 - name: vaccine.equity_and_access
+  evidence_domain: commercial_access
   description: |
     Equity considerations — access pricing for LMICs, Gavi procurement eligibility, supply allocation, regional manufacturing.
 - name: vaccine.cogs
+  evidence_domain: manufacturing
   description: |
     Cost of goods per dose at scale. Quantitative targets like "less than $X per dose at Y doses/year volume."
 - name: vaccine.procurement_price
+  evidence_domain: commercial_access
   description: |
     Target price per dose paid by procurers (Gavi, UNICEF, country governments). Distinct from COGS.
 - name: vaccine.total_per_patient_cost
+  evidence_domain: commercial_access
   description: |
     Full cost per immunized person including delivery, cold chain, administration, wastage.
 - name: vaccine.supply_and_manufacturing
+  evidence_domain: manufacturing
   description: |
     Annual production capacity needed at scale, manufacturing footprint, tech transfer, regional diversification.
 - name: vaccine.special_populations
+  evidence_domain: clinical
   description: |
     Considerations for pregnancy, immunocompromised individuals, infants, elderly, or other subgroups. Subgroup-specific efficacy, safety, or dosing adjustments.
 - name: vaccine.regimen_compliance_risk
+  evidence_domain: delivery
   description: |
     Risks to completing the dosing schedule — series drop-off, cold chain access at point of care, scheduling barriers.
 - name: vaccine.companion_diagnostic
+  evidence_domain: product
   description: |
     Whether a companion test is needed (e.g., to screen recipients or monitor response).
 
@@ -120,294 +156,390 @@ vaccine:
 
 drug:
 - name: drug.indication
+  evidence_domain: clinical
   description: |
     The disease or condition the drug is intended to treat. Should be specific and aligned with regulatory language.
 - name: drug.product
+  evidence_domain: biological
   description: |
     Drug name and mechanism of action (Candidate TPP only).
 - name: drug.target_population
+  evidence_domain: clinical
   description: |
     Demographic and clinical characteristics of patients. Specify age range, geography, disease stage, and any risk factors.
 - name: drug.target_countries
+  evidence_domain: commercial_access
   description: |
     Geographic markets and tiers (LMIC focus). Should reference WHO regions or specific country lists with rationale.
 - name: drug.efficacy
+  evidence_domain: clinical
   description: |
     Primary efficacy endpoints and target levels. Quantitative target like 'at least X% reduction in mortality at Y months.' Should reference comparable interventions.
 - name: drug.safety
+  evidence_domain: safety
   description: |
     Primary safety endpoints and target levels. Quantitative target with acceptable adverse event rates. Reference WHO/regulatory benchmarks.
 - name: drug.formulation_dosage_and_administration
+  evidence_domain: product
   description: |
     Target formulation, route of administration, dose strengths, and regimen. Specify rationale and reference supporting data.
 - name: drug.stability_shelf_life
+  evidence_domain: manufacturing
   description: |
     Target duration of stability and storage conditions. Quantitative target like 'X months at 2-8 C, Y months at 25 C.' Specify cold chain tolerance.
 - name: drug.product_presentation
+  evidence_domain: product
   description: |
     How the product is presented (tablet, vial, etc.). Address registration requirements and access considerations.
 - name: drug.product_registration_pathway_s
+  evidence_domain: regulatory
   description: |
     Regulatory pathway: country focus, intended path (Fast to POC, Launch, Experimental), anticipated challenges.
 - name: drug.who_prequalification_date
+  evidence_domain: regulatory
   description: |
     Target year/timeframe for WHO PQ. Quantitative timeframe.
 - name: drug.national_policy_recommendation_needs
+  evidence_domain: regulatory
   description: |
     Targeted policy requirements and timeframe based on focus countries.
 - name: drug.primary_target_delivery_channel
+  evidence_domain: delivery
   description: |
     Intended delivery channels - direct to consumer, health care facility, public/private funding, campaign mode.
 - name: drug.target_affordable_pricing_procurement
+  evidence_domain: commercial_access
   description: |
     Fixed costs and country for manufacturing. Pricing rationale and regulatory considerations.
 - name: drug.cogs
+  evidence_domain: manufacturing
   description: |
     Target cost of goods. Quantitative target like 'less than $X per dose.' Should include rationale and source data.
 - name: drug.special_populations
+  evidence_domain: clinical
   description: |
     Considerations for pregnancy, immunocompromised, elderly, pediatric subgroups.
 - name: drug.population_segment_unlikely_to_be_treated_i_e_ddi
+  evidence_domain: safety
   description: |
     Patient populations or segments unlikely to be treated, including drug-drug interactions and contraindications (renal/hepatic dysfunction).
 - name: drug.treatment_adherence_risks
+  evidence_domain: delivery
   description: |
     Minimally acceptable and optimistic treatment adherence risks. How adherence affects safety and efficacy.
 - name: drug.is_companion_diagnostic_needed_for_use
+  evidence_domain: product
   description: |
     Whether use is conditional on a companion diagnostic test or follow-up testing.
 - name: drug.target_procurement_price
+  evidence_domain: commercial_access
   description: |
     Target wholesale price for procurement (Gavi, UNICEF, country governments). Quantitative.
 - name: drug.total_per_patient_costs_delivered
+  evidence_domain: commercial_access
   description: |
     Full cost including delivery, cold chain, administration, and treatment regimen. Quantitative.
 - name: drug.expected_financing_source
+  evidence_domain: commercial_access
   description: |
     Expected financing - subsidized, consumer-paid, donor-funded, government-funded. Cost sharing across country income categories.
 - name: drug.clinical_endpoint_for_licensure
+  evidence_domain: clinical
   description: |
     Primary endpoint required for regulatory approval. Specify the measure and target.
 - name: drug.user_benefits
+  evidence_domain: delivery
   description: |
     Benefits the product offers the primary user and key stakeholders.
 - name: drug.user_barriers
+  evidence_domain: delivery
   description: |
     Barriers preventing the primary user, influencers, and stakeholders from adopting the product.
 
 diagnostic:
 - name: diagnostic.intended_detection_target
+  evidence_domain: biological
   description: |
     What the test detects - target organism or molecular component. Should specify variants, genotypes, or subtypes to be detected or avoided.
 - name: diagnostic.intended_use_population
+  evidence_domain: clinical
   description: |
     Population for which the test is intended. Should specify demographics and clinical criteria.
 - name: diagnostic.actionable_result
+  evidence_domain: clinical
   description: |
     What the information is used for - diagnosis, screening, prognosis, monitoring, surveillance, IUO, or RUO.
 - name: diagnostic.specimen_type
+  evidence_domain: biological
   description: |
     Type of specimens to be tested (blood, plasma, swab, etc.).
 - name: diagnostic.test_type
+  evidence_domain: product
   description: |
     Whether the test is qualitative or quantitative.
 - name: diagnostic.platform_technology
+  evidence_domain: biological
   description: |
     Type of platform or technology used (PCR, lateral flow, ELISA, etc.).
 - name: diagnostic.clinical_sensitivity
+  evidence_domain: clinical
   description: |
     Quantitative target for clinical sensitivity. Reference WHO benchmarks where applicable.
 - name: diagnostic.clinical_specificity
+  evidence_domain: clinical
   description: |
     Quantitative target for clinical specificity. Reference WHO benchmarks where applicable.
 - name: diagnostic.analytical_specificity_cross_reactivity
+  evidence_domain: biological
   description: |
     Target for analytical specificity and cross-reactivity with related organisms.
 - name: diagnostic.analytical_sensitivity
+  evidence_domain: biological
   description: |
     Target for limit of detection (LOD).
 - name: diagnostic.precision_and_reproducibility
+  evidence_domain: product
   description: |
     Targets for precision (within-run, between-run) and reproducibility across labs/users.
 - name: diagnostic.test_robustness
+  evidence_domain: product
   description: |
     Targets for interference, cross-contamination, and validity controls.
 - name: diagnostic.risk_of_inaccurate_result
+  evidence_domain: safety
   description: |
     Risk assessment for inaccurate results and assay/system features to minimize risk.
 - name: diagnostic.regulatory_approvals_and_standards
+  evidence_domain: regulatory
   description: |
     Regulatory approvals needed (WHO PQ, FDA QSR, ISO 13485) before commercialization in target countries.
 - name: diagnostic.promotional_materials
+  evidence_domain: commercial_access
   description: |
     Permitted promotional, educational, marketing, and sales materials.
 - name: diagnostic.environment_location_of_use
+  evidence_domain: delivery
   description: |
     Where the test is performed - health care level, environmental conditions.
 - name: diagnostic.instrument_and_device_characteristics
+  evidence_domain: product
   description: |
     Physical dimensions, modularity, weight, automation level, power and water requirements, reliability, throughput, waste management, and biosafety.
 - name: diagnostic.information_and_communication_technology
+  evidence_domain: product
   description: |
     User interface, data input/output, security, storage, connectivity requirements, result transmission.
 - name: diagnostic.reagent_and_control_handling
+  evidence_domain: manufacturing
   description: |
     Reagent and cartridge storage, packaging requirements.
 - name: diagnostic.sample_handling
+  evidence_domain: product
   description: |
     Specimen tracking, sample types and volumes, collection and transport, sample preparation.
 - name: diagnostic.distribution_service_support_training
+  evidence_domain: delivery
   description: |
     Who runs the test, training and support, quality control system, instrument and supply reliability, service response time.
 - name: diagnostic.commercial_launch_and_funding
+  evidence_domain: commercial_access
   description: |
     Launch countries, government priority alignment, funding agencies, IP/global access issues, commercial channels.
 - name: diagnostic.pricing
+  evidence_domain: commercial_access
   description: |
     Total end-user price per test, maximum cost of instrumentation.
 
 device:
 - name: device.indication
+  evidence_domain: clinical
   description: |
     The condition the device is intended to address. Should match regulatory language.
 - name: device.product
+  evidence_domain: product
   description: |
     Device name and mechanism of action (Candidate TPP only).
 - name: device.target_population
+  evidence_domain: clinical
   description: |
     Demographic and clinical characteristics of patients. Specify age range, geography, and condition severity.
 - name: device.special_populations
+  evidence_domain: clinical
   description: |
     Considerations for pediatric, pregnant, immunocompromised, or elderly populations.
 - name: device.population_segment_unlikely_to_be_treated
+  evidence_domain: safety
   description: |
     Patient populations or segments unlikely to be treated, including device contraindications.
 - name: device.target_countries
+  evidence_domain: commercial_access
   description: |
     Geographic markets and tiers. Should reference WHO regions or specific country lists with rationale.
 - name: device.efficacy
+  evidence_domain: clinical
   description: |
     Primary efficacy endpoints and target levels. Quantitative target with rationale.
 - name: device.clinical_endpoint_for_licensure
+  evidence_domain: clinical
   description: |
     Clinical endpoint required for regulatory approval.
 - name: device.safety
+  evidence_domain: safety
   description: |
     Primary safety endpoints and target levels. Quantitative.
 - name: device.shelf_life
+  evidence_domain: manufacturing
   description: |
     Target duration of storage and required conditions. Quantitative target.
 - name: device.product_presentation
+  evidence_domain: product
   description: |
     How the product is presented. Registration and access considerations.
 - name: device.product_registration_pathway_s
+  evidence_domain: regulatory
   description: |
     Regulatory pathway: country focus, intended path, anticipated challenges.
 - name: device.who_prequalification_date
+  evidence_domain: regulatory
   description: |
     Target year/timeframe for WHO PQ.
 - name: device.national_policy_recommendation_needs
+  evidence_domain: regulatory
   description: |
     Targeted policy requirements and timeframe based on focus countries.
 - name: device.primary_target_delivery_channel
+  evidence_domain: delivery
   description: |
     Intended delivery channels - direct to consumer, health care facility, public/private funding.
 - name: device.target_affordable_pricing_procurement
+  evidence_domain: commercial_access
   description: |
     Affordable price for the end user in target countries.
 - name: device.cogs
+  evidence_domain: manufacturing
   description: |
     Target manufacturing cost. Quantitative target with rationale.
 - name: device.target_procurement_price
+  evidence_domain: commercial_access
   description: |
     Target wholesale procurement price (USAID, World Bank, Global Fund). Quantitative.
 - name: device.total_per_patient_costs_delivered
+  evidence_domain: commercial_access
   description: |
     Full cost including delivery and treatment regimen. Quantitative.
 - name: device.expected_financing_source
+  evidence_domain: commercial_access
   description: |
     Expected financing mechanism - donor, government, consumer.
 - name: device.volume_estimates
+  evidence_domain: commercial_access
   description: |
     1 to 5 year demand forecast post-approval.
 - name: device.packaging
+  evidence_domain: manufacturing
   description: |
     How the product will be packaged - components and consumables together or separately.
 - name: device.shipping
+  evidence_domain: manufacturing
   description: |
     Mode of transportation, temperature and monitoring requirements.
 - name: device.device_type
+  evidence_domain: regulatory
   description: |
     Device type by anticipated risk to patient (e.g. class II FDA device).
 - name: device.device_format
+  evidence_domain: product
   description: |
     Physical format of the device.
 - name: device.is_companion_diagnostic_needed_for_use
+  evidence_domain: product
   description: |
     Whether use is conditional on a companion diagnostic test.
 - name: device.ease_of_operation
+  evidence_domain: delivery
   description: |
     Skills and training required to operate the device, appropriate for defined user groups.
 - name: device.user_preference
+  evidence_domain: product
   description: |
     Design parameters addressing end user preferences (size, weight, format, left/right-handed use).
 - name: device.tamper_evidence
+  evidence_domain: safety
   description: |
     Tamper-evidence indicators or barriers to entry.
 - name: device.reusability
+  evidence_domain: product
   description: |
     Components intended as consumables vs. non-consumables, single use vs. reusable.
 - name: device.user_error
+  evidence_domain: safety
   description: |
     Protocols ensuring proper device usage; risk of user error and detectable user-related hazards.
 - name: device.robustness
+  evidence_domain: product
   description: |
     Target durability and robustness test requirements.
 - name: device.components
+  evidence_domain: product
   description: |
     Major components and sub-components of the device.
 - name: device.environmental_description
+  evidence_domain: delivery
   description: |
     Whether the device can be operated in low-infrastructure environments.
 - name: device.construction_materials
+  evidence_domain: manufacturing
   description: |
     Materials used; safety parameters for material leachability and foreign particulate matter.
 - name: device.manufacturing_process
+  evidence_domain: manufacturing
   description: |
     Manufacturing process details.
 - name: device.development_standards
+  evidence_domain: regulatory
   description: |
     Quality systems and documentation per regulatory guidance and standards.
 - name: device.disposal
+  evidence_domain: delivery
   description: |
     Disposal requirements for the device and patient samples.
 - name: device.power_and_it_requirements
+  evidence_domain: product
   description: |
     Power source, battery life, charging time, digital requirements.
 - name: device.size_weight
+  evidence_domain: product
   description: |
     Size and weight relative to comparable devices.
 - name: device.device_performance
+  evidence_domain: product
   description: |
     Conformance to recognized FDA consensus standards.
 - name: device.orientation
+  evidence_domain: product
   description: |
     Device performance impact due to changes in orientation.
 - name: device.shelf_life_device_specific_performance
+  evidence_domain: manufacturing
   description: |
     Sterilization requirements and product property retention through storage and use.
 - name: device.impurities_and_degradation_products
+  evidence_domain: safety
   description: |
     Impurities and degradation products controlled within toxicological limits.
 - name: device.foreign_particulate_matter
+  evidence_domain: safety
   description: |
     Acceptance criteria for foreign particulate matter.
 - name: device.microbial_standards
+  evidence_domain: safety
   description: |
     Microbial standards applying to the treatment process.
 - name: device.biocompatibility_requirements
+  evidence_domain: safety
   description: |
     Biological acceptability criteria for device use (cytotoxicity, sensitization, hemocompatibility, pyrogenicity, genotoxicity, carcinogenicity, reproductive toxicity).
 - name: device.leachables
+  evidence_domain: safety
   description: |
     Target level for leachables under normal use, application, or storage conditions.

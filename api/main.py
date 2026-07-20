@@ -30,10 +30,22 @@ from api.routes import assistant, chunker, configs, scout, reviewer, searcher
 
 app = FastAPI(title="PDIS API", version="0.1.0")
 
-# Allowed browser origins. Comma-separated env var for deploys; defaults to
-# local dev. e.g. CORS_ALLOW_ORIGINS="https://pdis-web.onrender.com"
-_origins = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000")
-allow_origins = [o.strip() for o in _origins.split(",") if o.strip()]
+def _cors_origins() -> list[str]:
+    """Resolve explicit origins or Render-injected external hostnames."""
+    explicit = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+    if explicit:
+        return [origin.strip() for origin in explicit.split(",") if origin.strip()]
+    hosts = os.getenv("CORS_ALLOW_HOSTS", "").strip()
+    if hosts:
+        return [
+            host if "://" in host else f"https://{host}"
+            for host in (item.strip() for item in hosts.split(","))
+            if host
+        ]
+    return ["http://localhost:3000"]
+
+
+allow_origins = _cors_origins()
 
 app.add_middleware(
     CORSMiddleware,

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from .controller import run_requests, validate_source_keys
+from .controller import plan_requests, run_requests, validate_source_keys
 from .models import (
     Finding,
-    SearchRequest,
+    RetrievalIntent,
     SearchRuntime,
+    SourceQueryIntent,
     merge_findings,
 )
 from .stages.searcher import DEFAULT_MAX_TOKENS, DEFAULT_MAX_USES
@@ -49,20 +50,20 @@ def run_pipeline(
     `raise_source_errors` is true.
     """
     selected = validate_source_keys(sources)
-    options = tuple(
-        (key, value)
-        for key, value in (("condition", condition), ("intervention", intervention))
-        if value
+    intent = RetrievalIntent(
+        scope_ref="query",
+        topic=query,
+        description="",
+        indication=condition or "",
+        intervention_class=intervention or "",
+        queries=(
+            SourceQueryIntent(
+                text=query,
+                tracks=("general",),
+            ),
+        ),
     )
-    requests = [
-        SearchRequest(
-            scope_ref="query",
-            source=source,
-            query=query,
-            options=options,
-        )
-        for source in selected
-    ]
+    requests = plan_requests([intent], sources=selected)
     outcomes = run_requests(
         requests,
         runtime=runtime,

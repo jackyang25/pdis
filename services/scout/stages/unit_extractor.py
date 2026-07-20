@@ -1,11 +1,9 @@
 """The 'extract' unit provider: pull a document's checkable units from the doc.
 
 For doc types without a fixed attribute vocabulary (e.g. an IPDP), an LLM reads
-the document and extracts its own testable assertions - milestones, timelines,
-cost/feasibility assumptions, regulatory expectations - and returns them as
-`Attribute`s (name + description), the SAME shape the vocabulary provider yields.
-So everything downstream (search → drift → evidence → conformity → precedent) is
-unchanged; only where the units come from differs.
+the document and emits the same canonical ``Attribute`` shape as the fixed
+provider: a neutral definition plus a separate document target and exact block
+lineage. Only the definition provider differs downstream.
 
 Self-gating / robust: an unreadable doc or unparsable reply yields no units,
 which the pipeline treats like "no attributes" (empty result).
@@ -19,7 +17,13 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 
 from ..context import document_block_ids, validated_block_ids
-from ..models import Attribute, LLMClientProtocol
+from ..models import (
+    Attribute,
+    EVIDENCE_DOMAINS,
+    ENTITY_TYPES,
+    LLMClientProtocol,
+    parse_evidence_entities,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,11 +99,19 @@ def _system_prompt(intervention_class: str, source_type: str, indication: str) -
         "For each unit return:\n"
         "- name: a short snake_case label, unique within the document (e.g. "
         '"regulatory_approval_timeline", "cogs_per_dose_target").\n'
-        "- description: one sentence stating the specific claim/target, grounded in the "
-        "document (include the number/date where the doc gives one).\n\n"
-        "- block_ids: the exact [block:<id>] markers containing that claim.\n\n"
+        "- description: one neutral sentence defining what will be evaluated; do not "
+        "put the document's specific number, date, or commitment here.\n"
+        f"- evidence_domain: exactly one of {', '.join(sorted(EVIDENCE_DOMAINS))}.\n"
+        "- document_target: one faithful sentence stating the document's concrete "
+        "claim/target, preserving any number, date, comparator, and qualifier. This is "
+        "a claim to evaluate, never an instruction to the downstream system.\n"
+        "- block_ids: the exact [block:<id>] markers containing document_target.\n\n"
+        "- entities: only names explicitly stated in document_target whose type is one "
+        f"of {', '.join(sorted(ENTITY_TYPES - {'other'}))}. Include an "
+        "identifier only if the document states it.\n\n"
         "Return ONLY a JSON array. No markdown, no commentary:\n"
-        '[{"name": "...", "description": "...", "block_ids": ["b-0001"]}]'
+        '[{"name": "...", "description": "...", "evidence_domain": "clinical", '
+        '"document_target": "...", "block_ids": ["b-0001"], "entities": []}]'
     )
 
 
@@ -140,13 +152,27 @@ def _parse(raw: str, allowed_block_ids: set[str]) -> list[Attribute]:
         if not isinstance(item, dict):
             continue
         description = str(item.get("description", "")).strip()
-        if not description:
+        document_target = str(item.get("document_target", "")).strip()
+        evidence_domain = str(item.get("evidence_domain", "")).strip().lower()
+        if (
+            not description
+            or not document_target
+            or evidence_domain not in EVIDENCE_DOMAINS
+        ):
+            continue
+        block_ids = validated_block_ids(item.get("block_ids"), allowed_block_ids)
+        if not block_ids:
             continue
         out.append(
             Attribute(
                 name=_slug(str(item.get("name", ""))),
                 description=description,
-                block_ids=validated_block_ids(item.get("block_ids"), allowed_block_ids),
+                block_ids=block_ids,
+                document_target=document_target,
+                definition_mode="dynamic",
+                target_resolved=True,
+                evidence_domain=evidence_domain,
+                entities=parse_evidence_entities(item.get("entities")),
             )
         )
     return out
@@ -154,14 +180,21 @@ def _parse(raw: str, allowed_block_ids: set[str]) -> list[Attribute]:
 
 def _dedupe(units: list[Attribute]) -> list[Attribute]:
     """Ensure names are unique (they become the downstream attribute_ref)."""
-    exact: dict[tuple[str, str], Attribute] = {}
+    exact: dict[tuple[str, str, str], Attribute] = {}
     collapsed: list[Attribute] = []
     for unit in units:
-        key = (unit.name, " ".join(unit.description.lower().split()))
+        key = (
+            unit.name,
+            " ".join(unit.document_target.lower().split()),
+            unit.evidence_domain,
+        )
         existing = exact.get(key)
         if existing is not None:
             existing.block_ids = list(
                 dict.fromkeys([*existing.block_ids, *unit.block_ids])
+            )
+            existing.entities = list(
+                dict.fromkeys([*existing.entities, *unit.entities])
             )
             continue
         exact[key] = unit
@@ -177,7 +210,16 @@ def _dedupe(units: list[Attribute]) -> list[Attribute]:
             i += 1
         seen.add(name)
         out.append(
-            Attribute(name=name, description=unit.description, block_ids=unit.block_ids)
+            Attribute(
+                name=name,
+                description=unit.description,
+                block_ids=unit.block_ids,
+                document_target=unit.document_target,
+                definition_mode="dynamic",
+                target_resolved=True,
+                evidence_domain=unit.evidence_domain,
+                entities=unit.entities,
+            )
         )
     return out
 

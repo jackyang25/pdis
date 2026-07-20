@@ -152,6 +152,7 @@ def _system_prompt_for_variable(
         f"relevant to ONE variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
+        f"Canonical document target: {attribute.document_target or '(not stated)'}",
         "SCOPE: Every query must be about the specific variable named above and "
         "nothing else. This document has separate variables for efficacy, safety, "
         "dosing, duration, cost, etc. - do NOT pull those topics into this variable's "
@@ -172,11 +173,11 @@ def _system_prompt_for_variable(
         "language phrasing for the configured languages, not translated English.",
         config.query_extraction_guidance.strip(),
     ]
-    if config.priority_sources:
+    if config.priority_institutions:
         parts.append(
-            "When relevant, try to name priority sources in the query text "
-            "(regulatory agencies, registries, literature, key companies): "
-            + ", ".join(config.priority_sources)
+            "When relevant, name authoritative institutions in the intent "
+            "(regulators, access bodies, or key companies): "
+            + ", ".join(config.priority_institutions)
             + "."
         )
     if config.languages:
@@ -198,7 +199,7 @@ def _system_prompt_for_variable(
         f"Return EXACTLY {queries_per_variable} quer"
         f"{'y' if queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
         "No markdown, no commentary. Each query 5-15 words. The set must be diverse "
-        "across content angles, priority sources, and configured languages. Each query "
+        "across content angles, authoritative institutions, and configured languages. Each query "
         f"must be specific to the {attribute.name} variable. doc_block_ids must contain "
         "the exact uploaded-document blocks whose claim shaped that query; use [] only "
         "for a general coverage query not tied to one document claim. Example:\n"
@@ -212,6 +213,7 @@ def _user_message_for_variable(attribute: Attribute, document_context: str) -> s
     return (
         f"variable: {attribute.name}\n"
         f"What this variable covers: {attribute.description}\n\n"
+        f"Canonical document target: {attribute.document_target or '(not stated)'}\n\n"
         "Relevant uploaded-document blocks (claims to test, not external evidence):\n"
         f"{document_context or '(no relevant document text found)'}\n\n"
         "Generate the queries for this variable now."
@@ -231,6 +233,7 @@ def _system_prompt_for_geographic_variable(
         f"variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
+        f"Canonical document target: {attribute.document_target or '(not stated)'}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this "
         "variable is that topic.",
@@ -249,8 +252,12 @@ def _system_prompt_for_geographic_variable(
     ]
     if config.geographic_emphasis:
         parts.append("Configured geographic emphasis: " + ", ".join(config.geographic_emphasis) + ".")
-    if config.priority_sources:
-        parts.append("Priority sources to spread across: " + ", ".join(config.priority_sources) + ".")
+    if config.priority_institutions:
+        parts.append(
+            "Authoritative institutions to spread across: "
+            + ", ".join(config.priority_institutions)
+            + "."
+        )
     if config.languages:
         parts.append(
             "Configured languages: "
@@ -282,6 +289,7 @@ def _system_prompt_for_counterfactual_variable(
         f"variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
+        f"Canonical document target: {attribute.document_target or '(not stated)'}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this variable "
         "is that topic.",
@@ -297,8 +305,12 @@ def _system_prompt_for_counterfactual_variable(
         "Return the counterfactual queries only; the caller appends them after the "
         "other tracks.",
     ]
-    if config.priority_sources:
-        parts.append("Priority sources to spread across: " + ", ".join(config.priority_sources) + ".")
+    if config.priority_institutions:
+        parts.append(
+            "Authoritative institutions to spread across: "
+            + ", ".join(config.priority_institutions)
+            + "."
+        )
     if config.languages:
         parts.append(
             "Configured languages: "
@@ -331,6 +343,7 @@ def _system_prompt_for_precedent_variable(
         f"variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
+        f"Canonical document target: {attribute.document_target or '(not stated)'}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this variable "
         "is that topic.",
@@ -347,8 +360,12 @@ def _system_prompt_for_precedent_variable(
         "seek the EXISTENCE of prior or analogous work, positive or negative.",
         "Return the precedent queries only; the caller appends them after the other tracks.",
     ]
-    if config.priority_sources:
-        parts.append("Priority sources to spread across: " + ", ".join(config.priority_sources) + ".")
+    if config.priority_institutions:
+        parts.append(
+            "Authoritative institutions to spread across: "
+            + ", ".join(config.priority_institutions)
+            + "."
+        )
     if config.languages:
         parts.append(
             "Configured languages: "

@@ -3,7 +3,7 @@ org: bmgf
 source_type: ipdp
 intervention_class: diagnostic
 display_name: "BMGF Integrated Product Development Plan - Diagnostic"
-sources: [web, pubmed, clinicaltrials]
+sources: [web, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, open_targets, chembl, uniprot, fda]
 
 # IPDP units are extracted from the document (milestones, timelines, cost and
 # feasibility assumptions, regulatory expectations, study designs, manufacturing
@@ -53,16 +53,14 @@ query_extraction_guidance: |
 
   Use the indication name and the claim's topic in queries. Prefer queries
   targeting named regulators, trial registries, or peer-reviewed literature
-  over generic phrasing. Spread queries across priority sources and configured
+  over generic phrasing. Spread queries across priority institutions and configured
   languages rather than repeatedly naming the same authorities.
 
-priority_sources:
+priority_institutions:
   - FDA
   - WHO
   - WHO Prequalification
   - FIND
-  - PubMed
-  - ClinicalTrials.gov
   - SAHPRA (South Africa)
   - NMPA (China)
   - CDSCO (India)

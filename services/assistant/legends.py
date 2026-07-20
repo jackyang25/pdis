@@ -11,7 +11,7 @@ from __future__ import annotations
 
 SCOUT_LEGEND = """This is a SCOUT result: a document's product targets or plan commitments tested against external web/literature/registry evidence. Shape:
 - variables[]: the units analyzed (name, description, and originating block_ids for document-extracted units).
-- search_plan[]: every lane-native retrieval request (web/PubMed/registry), its coverage tracks, originating document block_ids, finding_count, and all retrieved source_urls (including sources that produced no accepted insight).
+- search_plan[]: every lane-native retrieval request, the exact intent_ids/input_queries compiled into it, its coverage tracks, originating document block_ids, finding_count, and all retrieved source_urls (including sources that produced no accepted insight).
 - matches[]: each is one external-evidence insight + its relation to the document:
     contradicts = evidence shows the target is disproven/unachievable, or a stated fact is wrong;
     extends = adds info / the current standard differs from an aspirational target (a gap, not a failure);

@@ -19,7 +19,9 @@ web/ → api/ → services/ → shared/
   Do not add per-request provider/model switches.
 - Engineering behavior belongs in Python/TypeScript. Human-owned domain content
   belongs in `services/*/configs/*.yaml`; controlled vocabularies belong in
-  `shared/*.yaml` as flat `{name, description}` lists keyed by intervention.
+  `shared/*.yaml` as flat records keyed by intervention. Scout attributes also
+  carry their authored `evidence_domain`; do not infer fixed-field domains in
+  code.
 - Adding an `(org, source_type, intervention_class)` product configuration is a
   YAML change, not a code branch.
 
@@ -61,7 +63,14 @@ config framing, not engine conditionals.
 
 Scout operates per `Attribute`. TPP attributes come from
 `shared/attributes.yaml`; IPDP attributes are checkable claims extracted from
-the document. Both must converge to the same `Attribute` shape before retrieval.
+the document. Both must converge before retrieval to the same document-bound
+`Attribute`: stable name, neutral definition, canonical `document_target`, exact
+block IDs, resolved status, one closed `evidence_domain`, and zero or more
+document-stated typed entities. `definition_mode` (`fixed | dynamic`) records
+only how the definition was supplied; downstream fields must not change meaning
+by document type. Fixed domains are authored in `shared/attributes.yaml`;
+dynamic domains and entities are extracted into the same closed contract. No
+reasoning layer may independently rewrite a resolved document target.
 
 The retrieval flow is deliberately split:
 
@@ -83,19 +92,43 @@ Preserve these invariants:
   budgets come from Scout config; deduplication must not erase track lineage.
 - Scout owns document meaning. Searcher adapters own source-specific query
   grammar, credentials, concurrency, execution, and response normalization.
+- Every enabled adapter receives the complete neutral intent bundle for a
+  field. Native requests may consolidate intents, but each request must carry
+  the exact `intent_ids` and input query texts it compiled; the controller must
+  reject silent omissions or altered lineage.
 - The static adapter registry is engineering code. Enabled source keys are
   dynamic Scout config. API and UI discover registry metadata rather than
   mirroring source allowlists or labels.
+- Source-specific public attribution belongs in `SourceSpec` and travels on
+  normalized `Finding` provenance. UI surfaces render it generically; do not
+  add provider-name conditionals to views.
 - The generic Searcher controller validates keys, isolates source failures,
-  preserves request order, and emits `SearchOutcome`s. Unknown keys must fail
-  explicitly.
+  preserves request order, schedules source queues fairly, and emits
+  `SearchOutcome`s. A slow or rate-constrained lane must not block runnable
+  work in another lane. Unknown keys must fail explicitly.
+- Source applicability is deterministic metadata matching: compare the unit's
+  closed evidence domain and document-stated entity types with `SourceSpec`
+  capabilities. Never use another LLM router. A non-applicable enabled lane
+  must emit a traced `skipped` outcome with the full neutral intent lineage and
+  must not call its connector.
 - URL deduplication must retain every query, source lane, retrieval path, and
-  field-level source lane. `SearchTrace` records the request, track, document
-  blocks, status/error, count, and returned URLs.
+  field-level source lane. `SearchTrace` records the native request, compiled
+  intent IDs/input queries, track, document blocks, status/error, count, and
+  returned URLs.
 - Adding a source means: implement an adapter, register it, inject its connector
   through `SearchRuntime.integrations`, and opt configs into its key. Do not add
   source branches to Scout, API schemas, Ask, or UI.
-- ToolUniverse is not integrated yet; only its extension seam exists.
+- ToolUniverse is an optional authenticated HTTP connector injected through
+  `SearchRuntime.integrations`. Each ToolUniverse-backed database remains its
+  own registered source adapter and user-facing lane; adapters use a static
+  tool allowlist and traces record the connector, exact operation, arguments,
+  and URLs. Do not introduce autonomous tool routing or a generic
+  `tooluniverse` evidence lane.
+- Structured source tools may retrieve a bounded condition/intervention
+  candidate set and rank it deterministically against every neutral input
+  query. The request must retain the full intent bundle and record the native
+  filters and ranking policy; never describe a broad provider filter as though
+  it were the generated field query.
 
 Scout's four result axes are intentionally orthogonal:
 
@@ -118,7 +151,7 @@ weights, deduplication, and rollups. Do not restore holistic “basis” tags.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Reviewer/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 4, separating analysis from
+  (`web/lib/result-file.ts`), currently version 7, separating analysis from
   `source_documents`.
 - Backward compatibility belongs only in the import normalizer. Runtime UI and
   services consume the current contract without legacy branches.
@@ -135,8 +168,9 @@ weights, deduplication, and rollups. Do not restore holistic “basis” tags.
   proxy.
 - Ask has JSON `/api/assistant/ask` and plain-text streaming
   `/api/assistant/ask/stream` endpoints.
-- Secrets remain server-side: `OPENAI_API_KEY`, optional `NCBI_API_KEY`, and any
-  future connector credentials.
+- Secrets remain server-side: `OPENAI_API_KEY`, optional `NCBI_API_KEY`, the
+  ToolUniverse bearer token, and provider credentials held by that private
+  connector service.
 
 ## Change checklist
 

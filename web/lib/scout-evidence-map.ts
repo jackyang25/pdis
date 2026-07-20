@@ -44,7 +44,7 @@ export type EvidenceMapNode = {
 };
 
 export type EvidenceMapEdgeKind =
-  | "defines"
+  | "has_target"
   | "contradicts"
   | "extends"
   | "confirms"
@@ -394,23 +394,24 @@ export function buildScoutEvidenceMap(
     },
   ];
   const edges: EvidenceMapEdge[] = [];
+  let documentId: string | null = null;
 
-  if (assessment?.doc_target) {
-    const documentId = `document:${attributeRef}`;
+  if (variable.document_target) {
+    documentId = `document:${attributeRef}`;
     nodes.push({
       id: documentId,
       kind: "document",
       eyebrow: "Document target",
       title: "Extracted target",
-      summary: assessment.doc_target,
-      meta: `${assessment.doc_block_ids.length} block${assessment.doc_block_ids.length === 1 ? "" : "s"}`,
-      blockIds: assessment.doc_block_ids,
+      summary: variable.document_target,
+      meta: `${variable.block_ids?.length ?? 0} block${variable.block_ids?.length === 1 ? "" : "s"}`,
+      blockIds: variable.block_ids,
     });
     edges.push({
-      id: `${documentId}->${fieldId}`,
-      source: documentId,
-      target: fieldId,
-      kind: "defines",
+      id: `${fieldId}->${documentId}`,
+      source: fieldId,
+      target: documentId,
+      kind: "has_target",
     });
   }
 
@@ -446,8 +447,8 @@ export function buildScoutEvidenceMap(
       sources,
     });
     edges.push({
-      id: `${fieldId}->${insightId}`,
-      source: fieldId,
+      id: `${documentId ?? fieldId}->${insightId}`,
+      source: documentId ?? fieldId,
       target: insightId,
       kind: match.relation,
     });

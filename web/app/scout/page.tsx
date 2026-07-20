@@ -37,6 +37,7 @@ import {
   ScoutSignalLabel,
   type ScoutSignalTopic,
 } from "@/components/scout-signal-help";
+import { SourceAttributions } from "@/components/source-attributions";
 
 const ScoutEvidenceMap = dynamic(
   () =>
@@ -55,6 +56,7 @@ const ScoutEvidenceMap = dynamic(
 
 const SCOUT_STEPS = [
   { key: "parse", label: "Parsing documents" },
+  { key: "targets", label: "Resolving document targets" },
   { key: "queries", label: "Extracting queries" },
   { key: "search", label: "Searching evidence sources" },
   { key: "insights", label: "Extracting insights" },
@@ -444,6 +446,20 @@ function distinctSourceCount(result: ScoutResponse): number {
   return urls.size;
 }
 
+function resultFindings(result: ScoutResponse): Finding[] {
+  return [
+    ...(result.matches ?? []).flatMap(
+      (match) => match.insight.supporting_findings ?? [],
+    ),
+    ...(result.assessments ?? []).flatMap(
+      (assessment) => assessment.supporting_findings ?? [],
+    ),
+    ...(result.precedents ?? []).flatMap(
+      (precedent) => precedent.supporting_findings ?? [],
+    ),
+  ];
+}
+
 function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnalysis: () => void }) {
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
@@ -590,6 +606,10 @@ function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnal
             <ScoutEvidenceMap result={result} />
           </TabsContent>
         </Tabs>
+        <SourceAttributions
+          findings={resultFindings(result)}
+          className="border-t border-border/80 px-5 py-3 sm:px-6"
+        />
       </CollapsibleCard>
     </div>
   );

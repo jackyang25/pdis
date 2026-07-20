@@ -7,7 +7,7 @@ wire contract.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -60,6 +60,14 @@ class ChunkerRunResponse(BaseModel):
 class RetrievalPathOut(BaseModel):
     query: str
     lane: str
+    connector: str = ""
+    operation: str = ""
+
+
+class SourceAttributionOut(BaseModel):
+    label: str
+    url: str
+    prefix: str = "Source data provided by"
 
 
 class FindingOut(BaseModel):
@@ -73,6 +81,7 @@ class FindingOut(BaseModel):
     queries: list[str] = Field(default_factory=list)
     source_lanes: list[str] = Field(default_factory=list)
     source_labels: dict[str, str] = Field(default_factory=dict)
+    source_attributions: dict[str, SourceAttributionOut] = Field(default_factory=dict)
     retrieval_paths: list[RetrievalPathOut] = Field(default_factory=list)
     title_source_lane: str = ""
     excerpt_source_lane: str = ""
@@ -88,6 +97,10 @@ class SearchSourceOut(BaseModel):
     key: str
     label: str
     default_enabled: bool
+    configured: bool = True
+    attribution: SourceAttributionOut | None = None
+    evidence_domains: list[str] = Field(default_factory=list)
+    required_entity_types: list[str] = Field(default_factory=list)
 
 
 class InsightOut(BaseModel):
@@ -133,18 +146,36 @@ class SearchTraceOut(BaseModel):
     attribute_ref: str
     lane: str
     query: str
+    connector: str = ""
+    operation: str = ""
+    request_options: dict[str, str] = Field(default_factory=dict)
     tracks: list[str] = Field(default_factory=list)
     doc_block_ids: list[str] = Field(default_factory=list)
+    intent_ids: list[str] = Field(default_factory=list)
+    input_queries: list[str] = Field(default_factory=list)
+    applicability: str = "applicable"
+    applicability_reason: str = ""
     status: str = "complete"
     error: str = ""
     finding_count: int = 0
     source_urls: list[str] = Field(default_factory=list)
 
 
+class EvidenceEntityOut(BaseModel):
+    name: str
+    entity_type: str
+    identifier: str = ""
+
+
 class VariableOut(BaseModel):
     name: str
     description: str
     block_ids: list[str] = Field(default_factory=list)
+    document_target: str = ""
+    definition_mode: Literal["fixed", "dynamic"] = "fixed"
+    target_resolved: bool = False
+    evidence_domain: str = "general"
+    entities: list[EvidenceEntityOut] = Field(default_factory=list)
 
 
 class MeasurementOut(BaseModel):

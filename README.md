@@ -95,7 +95,27 @@ pdis/
 
 ## Running locally
 
-Backend + frontend as two processes. Keys are read server-side from `.env` (`OPENAI_API_KEY`, optional `NCBI_API_KEY`); the browser never sees them.
+For the closest match to production, keep API credentials in `.env`, put only
+ToolUniverse provider credentials in `.env.tooluniverse`, and keep browser-safe
+configuration in `web/.env.local`. These files are Git-ignored. Then start all
+three isolated services through Docker Compose:
+
+```bash
+cp .env.example .env
+cp .env.tooluniverse.example .env.tooluniverse
+cp web/.env.local.example web/.env.local
+# Fill the two server-side files once, then:
+docker compose up --build
+```
+
+After the first build, `docker compose up` is sufficient. Docker Desktop can
+also start and stop the saved `pdis` stack without re-entering credentials.
+The API receives `TOOLUNIVERSE_API_TOKEN` from `.env`; Compose injects that same
+value into ToolUniverse without duplicating it in another file. Only
+`SEMANTIC_SCHOLAR_API_KEY` belongs in `.env.tooluniverse`.
+
+For the faster native development loop, run the backend and frontend as two
+processes. Keys are read server-side from `.env`; the browser never sees them.
 
 ```bash
 # Backend (fast dev loop)
@@ -114,3 +134,41 @@ cd web && npm install && npm run dev   # http://localhost:3000
 docker build -t pdis-api .
 docker run --rm -p 8000:8000 --env-file .env pdis-api
 ```
+
+### ToolUniverse sources
+
+PDIS connects to ToolUniverse through its authenticated HTTP API rather than
+installing the full scientific/agent SDK into the API image. The official
+package is pinned in `deploy/tooluniverse/Dockerfile`. To build or start only
+that local service while retaining the same environment wiring, use Compose:
+
+```bash
+docker compose up --build tooluniverse
+```
+
+Registered ToolUniverse-backed lanes are `semantic_scholar`, `ctis`, `isrctn`,
+`open_targets`, `chembl`, `uniprot`, and `fda`. Each is a separate PDIS source
+with its own label, capabilities, execution policy, normalizer, attribution,
+and allowlisted operation; ToolUniverse is never shown as a generic evidence
+source. Scout configs opt into those lanes alongside the direct sources. The
+controller runs broad literature lanes for every field and invokes specialized
+lanes only when the field's closed evidence domain and document-stated entities
+match their capabilities. Every non-applicable lane is retained as a traced
+skip. `SEMANTIC_SCHOLAR_API_KEY` belongs in the ToolUniverse server environment,
+not the browser or PDIS API. The configured CTIS, ISRCTN, Open Targets, ChEMBL,
+UniProt, and FDA operations do not require additional credentials.
+
+## Deploying on Render
+
+`render.yaml` defines three independently deployed services:
+
+- `pdis-web`: public Next.js service.
+- `pdis-api`: public Docker service.
+- `pdis-tooluniverse`: private Docker service reachable only over Render's
+  internal network.
+
+Create a Render Blueprint from this repository. Render derives the web/API
+addresses, private ToolUniverse host and port, and a shared 256-bit bearer
+token automatically. Enter only the provider credentials requested during the
+initial Blueprint setup: `OPENAI_API_KEY`, optional `NCBI_API_KEY`, and
+`SEMANTIC_SCHOLAR_API_KEY`. They persist in Render and are never committed.

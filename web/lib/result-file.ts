@@ -1,8 +1,8 @@
 import type { ContentBlock, ReviewerResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 4 as const;
-type ResultVersion = 1 | 2 | 3 | typeof RESULT_VERSION;
+const RESULT_VERSION = 7 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | typeof RESULT_VERSION;
 
 type ResultType = "reviewer" | "scout";
 
@@ -110,7 +110,9 @@ function isResultFile(value: unknown): value is ResultFile<ResultType, unknown> 
   const candidate = value as Partial<ResultFile<ResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, RESULT_VERSION] as const).includes(candidate.version as ResultVersion) &&
+    ([1, 2, 3, 4, 5, 6, RESULT_VERSION] as const).includes(
+      candidate.version as ResultVersion,
+    ) &&
     (candidate.result_type === "reviewer" || candidate.result_type === "scout") &&
     candidate.analysis != null &&
     Array.isArray(candidate.source_documents)
@@ -148,6 +150,12 @@ function flattenDocuments(documents: SourceDocument[]): ContentBlock[] {
  * consume only the current contract and contain no legacy branches. */
 function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResponse {
   const raw = (value ?? {}) as Record<string, any>;
+  const assessmentsByAttribute = new Map<string, Record<string, any>>(
+    (raw.assessments ?? []).map((assessment: Record<string, any>) => [
+      String(assessment.attribute_ref ?? ""),
+      assessment,
+    ]),
+  );
   return {
     ...raw,
     assessments: (raw.assessments ?? []).map((assessment: Record<string, any>) => {
@@ -170,13 +178,43 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
     precedents: (raw.precedents ?? []).map(normalizePrecedent),
     search_plan: (raw.search_plan ?? []).map((trace: Record<string, any>) => ({
       ...trace,
+      connector: trace.connector ?? "",
+      operation: trace.operation ?? "",
+      request_options: trace.request_options ?? {},
       tracks: trace.tracks ?? [],
       doc_block_ids: trace.doc_block_ids ?? [],
+      intent_ids: trace.intent_ids ?? [],
+      input_queries: trace.input_queries ?? [],
+      applicability: trace.applicability ?? "applicable",
+      applicability_reason: trace.applicability_reason ?? "",
       status: trace.status ?? "complete",
       error: trace.error ?? "",
       source_urls: trace.source_urls ?? [],
     })),
-    variables: raw.variables ?? [],
+    variables: (raw.variables ?? []).map((variable: Record<string, any>) => {
+      const assessment = assessmentsByAttribute.get(String(variable.name ?? ""));
+      const documentTarget = variable.document_target ?? assessment?.doc_target ?? "";
+      const blockIds = variable.block_ids?.length
+        ? variable.block_ids
+        : assessment?.doc_block_ids ?? [];
+      const inferredMode = raw.source_type === "ipdp" ? "dynamic" : "fixed";
+      const definitionMode =
+        variable.definition_mode === "fixed" || variable.definition_mode === "dynamic"
+          ? variable.definition_mode
+          : inferredMode;
+      return {
+        ...variable,
+        block_ids: blockIds,
+        document_target: documentTarget,
+        definition_mode: definitionMode,
+        evidence_domain: variable.evidence_domain ?? "general",
+        entities: Array.isArray(variable.entities) ? variable.entities : [],
+        target_resolved:
+          typeof variable.target_resolved === "boolean"
+            ? variable.target_resolved
+            : Boolean(documentTarget || assessment),
+      };
+    }),
     matches: raw.matches ?? [],
     blocks,
   } as ScoutResponse;

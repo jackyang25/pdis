@@ -196,7 +196,7 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
       type: "smoothstep",
       style: {
         stroke: color,
-        strokeWidth: edge.kind === "supported_by" || edge.kind === "defines" ? 1 : 1.35,
+        strokeWidth: edge.kind === "supported_by" || edge.kind === "has_target" ? 1 : 1.35,
         opacity: edge.kind === "unrelated" ? 0.55 : 0.82,
       },
       markerEnd: {
@@ -418,7 +418,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
           </Select>
         </div>
         <p className="text-[11px] tabular-nums text-muted-foreground">
-          {projection.shownInsights} of {projection.totalInsights} insights · {projection.shownSources} of {projection.totalSources} sources
+          {projection.shownInsights} of {projection.totalInsights} insights · {projection.shownSources} of {projection.totalSources} cited sources
         </p>
       </div>
 
@@ -452,7 +452,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
           </ReactFlow>
           {hasHiddenNodes && (
             <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-card/95 px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm backdrop-blur">
-              Focused trace · select an insight for all its sources
+              Focused trace · select a node for full details
             </div>
           )}
         </div>

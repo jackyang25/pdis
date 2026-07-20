@@ -8,13 +8,21 @@ from pathlib import Path
 from services.chunker import ContentBlock
 from services.assistant import document as document_reader
 from services.scout.context import select_attribute_context
-from services.scout.models import Attribute, Insight, QueryIntent, load_config
+from services.scout.models import (
+    EVIDENCE_DOMAINS,
+    Attribute,
+    Insight,
+    QueryIntent,
+    load_attributes,
+    load_config,
+)
 from services.scout.stages.conformity import score_conformity
 from services.scout.stages.drift_classifier import classify_drift
 from services.scout.stages.evidence_assessor import assess_evidence
 from services.scout.stages.precedent_classifier import classify_precedent
 from services.scout.stages.query_extractor import _parse_queries
-from services.scout.stages.source_router import build_retrieval_intents
+from services.scout.stages.intent_builder import build_retrieval_intents
+from services.scout.stages.target_resolver import resolve_document_target
 from services.scout.stages.unit_extractor import _document_chunks, extract_units
 from services.searcher import Finding, merge_findings, plan_requests, source_keys
 
@@ -79,6 +87,14 @@ class SearchProvenanceTests(unittest.TestCase):
 
 
 class RetrievalPlanningTests(unittest.TestCase):
+    def test_every_fixed_attribute_has_an_authored_evidence_domain(self) -> None:
+        for intervention_class in ("vaccine", "drug", "diagnostic", "device"):
+            attributes = load_attributes(intervention_class)
+            self.assertTrue(attributes, intervention_class)
+            for attribute in attributes:
+                self.assertIn(attribute.evidence_domain, EVIDENCE_DOMAINS)
+                self.assertNotEqual(attribute.evidence_domain, "general")
+
     def test_every_product_config_has_responsibility_specific_framing(self) -> None:
         config_dir = Path(__file__).resolve().parents[1] / "services" / "scout" / "configs"
         for path in config_dir.glob("bmgf_*.yaml"):
@@ -91,7 +107,11 @@ class RetrievalPlanningTests(unittest.TestCase):
             self.assertTrue(set(config.sources).issubset(set(source_keys())), path.name)
 
     def test_router_uses_lane_native_query_shapes(self) -> None:
-        attribute = Attribute("dose_regimen", "Number and timing of doses")
+        attribute = Attribute(
+            "dose_regimen",
+            "Number and timing of doses",
+            evidence_domain="clinical",
+        )
         intents = [
             QueryIntent(
                 "latest WHO malaria vaccine doses site:who.int",
@@ -99,6 +119,11 @@ class RetrievalPlanningTests(unittest.TestCase):
                 ["doc/b-0002"],
             ),
             QueryIntent("malaria vaccine dosing failure", ["counterfactual"], ["doc/b-0002"]),
+            QueryIntent(
+                "malaria vaccine schedule adherence limitations",
+                ["counterfactual"],
+                ["doc/b-0003"],
+            ),
         ]
 
         retrieval_intents = build_retrieval_intents(
@@ -112,9 +137,9 @@ class RetrievalPlanningTests(unittest.TestCase):
             sources=("web", "pubmed", "clinicaltrials"),
         )
 
-        self.assertEqual(sum(task.source == "web" for task in tasks), 2)
+        self.assertEqual(sum(task.source == "web" for task in tasks), 3)
         self.assertEqual(sum(task.source == "pubmed" for task in tasks), 2)
-        self.assertEqual(sum(task.source == "clinicaltrials" for task in tasks), 1)
+        self.assertEqual(sum(task.source == "clinicaltrials" for task in tasks), 2)
         literature = next(
             task
             for task in tasks
@@ -123,9 +148,26 @@ class RetrievalPlanningTests(unittest.TestCase):
         self.assertIn("latest WHO malaria vaccine doses", literature.query)
         self.assertNotIn("site:", literature.query)
         registry = next(task for task in tasks if task.source == "clinicaltrials")
-        self.assertIn("dose regimen", registry.query)
         self.assertIn("malaria vaccine doses", registry.query)
         self.assertEqual(registry.document_refs, ("doc/b-0002",))
+        counterfactual_literature = next(
+            task
+            for task in tasks
+            if task.source == "pubmed" and task.tracks == ("counterfactual",)
+        )
+        self.assertEqual(len(counterfactual_literature.intent_ids), 2)
+        self.assertEqual(
+            counterfactual_literature.input_queries,
+            (
+                "malaria vaccine dosing failure",
+                "malaria vaccine schedule adherence limitations",
+            ),
+        )
+        self.assertIn("schedule adherence limitations", counterfactual_literature.query)
+        self.assertEqual(
+            counterfactual_literature.document_refs,
+            ("doc/b-0002", "doc/b-0003"),
+        )
 
         literature_only = plan_requests(retrieval_intents, sources=("pubmed",))
         self.assertTrue(literature_only)
@@ -145,6 +187,37 @@ class RetrievalPlanningTests(unittest.TestCase):
 
         self.assertEqual(intents[0].doc_block_ids, ["doc/b-0002"])
 
+    def test_plain_text_literature_plan_covers_every_variant(self) -> None:
+        attribute = Attribute("durability", "Duration of protection")
+        variants = [
+            QueryIntent(
+                f"malaria vaccine durability concept{index}",
+                ["general"],
+                [f"doc/b-{index:04d}"],
+            )
+            for index in range(5)
+        ]
+        retrieval_intents = build_retrieval_intents(
+            {attribute.name: variants},
+            [attribute],
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+
+        requests = plan_requests(
+            retrieval_intents,
+            sources=("semantic_scholar",),
+        )
+
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(len(requests[0].intent_ids), 5)
+        self.assertEqual(requests[0].input_queries, tuple(item.text for item in variants))
+        self.assertIn("concept4", requests[0].query)
+        self.assertEqual(
+            requests[0].document_refs,
+            tuple(f"doc/b-{index:04d}" for index in range(5)),
+        )
+
 
 class DocumentContextTests(unittest.TestCase):
     def test_unit_extraction_receives_block_labeled_visuals(self) -> None:
@@ -152,7 +225,16 @@ class DocumentContextTests(unittest.TestCase):
             [
                 {
                     "name": "timeline",
-                    "description": "Approval is targeted for 2030.",
+                    "description": "Regulatory approval timing and feasibility.",
+                    "evidence_domain": "regulatory",
+                    "document_target": "Approval is targeted for 2030.",
+                    "entities": [
+                        {
+                            "name": "RTS,S",
+                            "entity_type": "vaccine",
+                            "identifier": "",
+                        }
+                    ],
                     "block_ids": ["document/b-0002"],
                 }
             ]
@@ -168,6 +250,16 @@ class DocumentContextTests(unittest.TestCase):
         )
 
         self.assertEqual(units[0].block_ids, ["document/b-0002"])
+        self.assertEqual(units[0].definition_mode, "dynamic")
+        self.assertEqual(
+            units[0].description,
+            "Regulatory approval timing and feasibility.",
+        )
+        self.assertEqual(units[0].document_target, "Approval is targeted for 2030.")
+        self.assertEqual(units[0].evidence_domain, "regulatory")
+        self.assertEqual(units[0].entities[0].name, "RTS,S")
+        self.assertEqual(units[0].entities[0].entity_type, "vaccine")
+        self.assertTrue(units[0].target_resolved)
         self.assertEqual(
             client.image_calls[0],
             [
@@ -177,6 +269,50 @@ class DocumentContextTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_fixed_and_dynamic_units_converge_to_the_same_bound_shape(self) -> None:
+        fixed_client = StaticClient(
+            {
+                "document_target": "Complete Phase 2 by 2028.",
+                "block_ids": ["document/b-0002", "invented/b-9999"],
+            }
+        )
+        fixed = resolve_document_target(
+            Attribute(
+                name="clinical_development_timeline",
+                description="Timing and feasibility of clinical development milestones.",
+                definition_mode="fixed",
+            ),
+            "[block:document/b-0002]\nComplete Phase 2 by 2028.",
+            fixed_client,
+        )
+        dynamic_client = StaticClient({"unexpected": True})
+        dynamic = resolve_document_target(
+            Attribute(
+                name="clinical_development_timeline",
+                description="Timing and feasibility of clinical development milestones.",
+                block_ids=["document/b-0002"],
+                document_target="Complete Phase 2 by 2028.",
+                definition_mode="dynamic",
+                target_resolved=True,
+            ),
+            "[block:document/b-0002]\nComplete Phase 2 by 2028.",
+            dynamic_client,
+        )
+
+        for unit in (fixed, dynamic):
+            self.assertEqual(unit.name, "clinical_development_timeline")
+            self.assertEqual(
+                unit.description,
+                "Timing and feasibility of clinical development milestones.",
+            )
+            self.assertEqual(unit.document_target, "Complete Phase 2 by 2028.")
+            self.assertEqual(unit.block_ids, ["document/b-0002"])
+            self.assertTrue(unit.target_resolved)
+        self.assertEqual(fixed.definition_mode, "fixed")
+        self.assertEqual(dynamic.definition_mode, "dynamic")
+        self.assertEqual(fixed_client.calls, 1)
+        self.assertEqual(dynamic_client.calls, 0)
 
     def test_extracted_unit_origin_survives_bounded_selection(self) -> None:
         blocks = [block(i, "generic content " * 15) for i in range(20)]
@@ -301,6 +437,37 @@ class ReasoningLineageTests(unittest.TestCase):
         )
 
         self.assertEqual(result.strength, "unknown")
+        self.assertEqual(result.doc_target, "at least 80% efficacy")
+        self.assertEqual(result.doc_block_ids, ["document/b-0003"])
+
+    def test_reasoning_cannot_rewrite_a_resolved_document_target(self) -> None:
+        attribute = Attribute(
+            name="efficacy",
+            description="Target product efficacy",
+            block_ids=["document/b-0003"],
+            document_target="at least 80% efficacy",
+            definition_mode="dynamic",
+            target_resolved=True,
+        )
+        client = StaticClient(
+            {
+                "strength": "partial",
+                "doc_target": "a different invented target",
+                "doc_block_ids": ["invented/b-9999"],
+                "supporting_insight_indices": [0],
+                "reason": "Some directly comparable evidence is available.",
+            }
+        )
+
+        result = assess_evidence(
+            attribute,
+            self.document,
+            [self.first],
+            client,
+            indication="test",
+            intervention_class="vaccine",
+        )
+
         self.assertEqual(result.doc_target, "at least 80% efficacy")
         self.assertEqual(result.doc_block_ids, ["document/b-0003"])
 

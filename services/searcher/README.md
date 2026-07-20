@@ -60,7 +60,8 @@ for f in findings:
 | `published_at` | datetime \| None | Only set when reliably known |
 | `source` / `source_lanes` | str / list[str] | Adapter key and every lane that retrieved a merged URL |
 | `source_labels` | dict[str, str] | Adapter-owned display metadata; clients do not mirror source names |
-| `retrieval_paths` | list[RetrievalPath] | Exact query + source path for every retrieval |
+| `source_attributions` | dict[str, SourceAttribution] | Optional adapter-owned public attribution notices, retained through deduplication and saved results |
+| `retrieval_paths` | list[RetrievalPath] | Exact query, source, connector, and operation path for every retrieval |
 
 **Why excerpt is optional:** OpenAI's web_search response includes cited
 URLs as annotations on the model output. When a cited text span is
@@ -77,7 +78,18 @@ The stable boundary is intent/request/outcome, not a fixed backend list:
   stores those keys in its per-document-type config.
 - **Adapter-owned behavior** - native query grammar, concurrency, dependencies,
   and response normalization live with the source.
-- **Controller-owned execution** - orchestration has no source `if/elif` branch.
+- **Lossless planning contract** - every adapter sees the complete neutral
+  bundle. It may consolidate intents into fewer native requests, but each
+  request records the exact intent IDs and original texts it compiled; the
+  controller rejects silent omissions.
+- **Controller-owned execution** - orchestration has no source `if/elif`
+  branch. Fair source queues enforce the global cap and per-adapter concurrency
+  without letting a slow lane occupy another lane's runnable capacity.
+- **Deterministic applicability** - adapters declare supported evidence domains
+  and any required entity types. The controller compares those capabilities to
+  the canonical unit metadata, records non-applicable lanes as traced skips,
+  and never calls their connector. Free-query Searcher remains explicitly
+  source-selected and bypasses document-field applicability.
 - **Minimal API route and UI** - exposed as a debug surface for sanity-checking
   retrieval; both discover registered source metadata dynamically.
 - **No 4-primitive stamping** - those are document-centric; a freeform
@@ -88,13 +100,43 @@ The stable boundary is intent/request/outcome, not a fixed backend list:
 - `web` - OpenAI Responses API `web_search` via `OpenAIClient.search_web()`.
 - `pubmed` - NCBI PubMed abstracts plus PMC full text when open-access text is available.
 - `clinicaltrials` - structured ClinicalTrials.gov condition/intervention/topic retrieval.
+- `ctis` - structured EU Clinical Trials Information System retrieval through
+  ToolUniverse, followed by deterministic field-query ranking.
+- `isrctn` - structured ISRCTN condition/intervention retrieval through
+  ToolUniverse, followed by deterministic field-query ranking.
+- `semantic_scholar` - plain-text relevance search through the optional, injected
+  ToolUniverse HTTP connector. It remains off by default on the free-query
+  Searcher surface; Scout configs opt into it explicitly. Its registered
+  execution policy spaces request starts by 1.1 seconds to remain below the
+  issued 1 RPS cumulative limit.
+- `open_targets` - disease, drug, and target entity discovery through Open
+  Targets for fields in the biological evidence domain.
+- `chembl` - compound and molecular-target records for document-stated drug,
+  compound, protein, gene, antigen, or biomarker entities in biological fields.
+- `uniprot` - protein records for document-stated protein, gene, antigen, or
+  biomarker entities in biological fields.
+- `fda` - FDA regulatory retrieval through ToolUniverse. The adapter chooses
+  FDA drug labels for drugs/vaccines and 510(k) records for devices/diagnostics.
+
+Native request counts intentionally differ by lane. Web executes each generated
+variant. PubMed compiles all variants in a track into one Boolean query.
+Semantic Scholar creates one focused plain-text query per track using terms from
+every variant because its relevance endpoint has no special query syntax.
+ClinicalTrials.gov compiles every track's variants into its Boolean term syntax
+and retains condition/intervention as structured filters. CTIS, ISRCTN, and FDA
+issue one structured candidate request per field and rank the returned records
+deterministically against every neutral query carried by that request. Rate
+limits affect when requests run, never which neutral intents are retained.
+Specialized sources may be intentionally skipped before native planning. Their
+skip trace still carries every neutral intent ID/text and document block, so
+"not applicable" is distinguishable from an empty search and a source failure.
 
 `run_pipeline()` defaults to `sources=("web",)` for direct library callers.
 The API and debug UI discover the registry and select adapters marked
 `default_enabled`; Scout uses the explicit source set in its config.
 `NCBI_API_KEY` is optional and only increases NCBI rate limits.
 
-## Adding ToolUniverse or another source
+## Adding a ToolUniverse-backed or direct source
 
 1. Add an adapter under `sources/` implementing `SourceAdapter.plan()` and
    `SourceAdapter.search()`. It receives neutral context (`topic`, description,
@@ -102,12 +144,21 @@ The API and debug UI discover the registry and select adapters marked
 2. Register it once in `sources/__init__.py` with its key, label, and worker limit.
 3. Inject its connector through `SearchRuntime.integrations`; do not import it
    into Scout or shared domain code.
-4. Opt selected Scout configs into the new key through `sources: [...]`.
+4. Map every received intent into one or more native requests and populate its
+   intent IDs/input texts. Planning fails if any intent disappears silently.
+5. Opt selected Scout configs into the new key through `sources: [...]`.
 
-No Scout pipeline, API allowlist, result schema, Ask logic, or source-label UI
-branch changes are required. A ToolUniverse adapter may choose among its own
-tools dynamically, but that choice remains inside the adapter and every output
-must normalize to `Finding` with exact retrieval provenance.
+No Scout pipeline, API allowlist, Ask logic, or source-label UI branch changes
+are required. A ToolUniverse adapter declares a static operation allowlist and
+selects deterministically within it; do not delegate source or tool selection to
+ToolUniverse's agent/tool-finder layer. Every output normalizes to `Finding`,
+while `SearchTrace` and `RetrievalPath` retain the connector and exact operation.
+
+PDIS uses ToolUniverse's official HTTP boundary. The full SDK runs separately;
+`api/deps.py` creates a minimal `ToolUniverseHTTPConnector` from an explicit
+`TOOLUNIVERSE_BASE_URL` locally or Render-injected private host/port values.
+`TOOLUNIVERSE_API_TOKEN` authenticates that connection. Database-specific
+credentials belong on the ToolUniverse server.
 
 ## Stateless
 
@@ -116,6 +167,9 @@ Same query -> same output (modulo LLM and web drift). No persistence.
 ## Dependencies
 
 Dependencies are adapter-owned and injected through `SearchRuntime`: the web
-adapter uses `OpenAIClient`, PubMed uses NCBI, and future connectors such as
-ToolUniverse use `integrations`. Searcher does not import from chunker,
-reviewer, or scout.
+adapter uses `OpenAIClient`, PubMed uses NCBI, and ToolUniverse-backed adapters
+reuse `integrations["tooluniverse"]`. Searcher does not import from chunker,
+reviewer, or scout. The controller enforces adapter request spacing,
+adapter-owned worker limits, and one global worker cap. Provider endpoints
+invoked multiple times inside one adapter request retain their finer throttle
+inside that adapter's stage.

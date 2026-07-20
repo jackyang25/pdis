@@ -104,10 +104,22 @@ export type Finding = {
   queries?: string[];
   source_lanes?: string[];
   source_labels?: Record<string, string>;
-  retrieval_paths?: { query: string; lane: string }[];
+  source_attributions?: Record<string, SourceAttribution>;
+  retrieval_paths?: {
+    query: string;
+    lane: string;
+    connector?: string;
+    operation?: string;
+  }[];
   title_source_lane?: string;
   excerpt_source_lane?: string;
   published_source_lane?: string;
+};
+
+export type SourceAttribution = {
+  label: string;
+  url: string;
+  prefix: string;
 };
 
 export type SearcherResponse = {
@@ -119,6 +131,10 @@ export type SearchSource = {
   key: string;
   label: string;
   default_enabled: boolean;
+  configured: boolean;
+  evidence_domains: string[];
+  required_entity_types: string[];
+  attribution?: SourceAttribution | null;
 };
 
 export type Insight = {
@@ -171,9 +187,16 @@ export type SearchTrace = {
   attribute_ref: string;
   lane: string;
   query: string;
+  connector?: string;
+  operation?: string;
+  request_options?: Record<string, string>;
   tracks: string[];
   doc_block_ids: string[];
-  status: "complete" | "failed";
+  intent_ids: string[];
+  input_queries: string[];
+  applicability: "applicable" | "not_applicable";
+  applicability_reason: string;
+  status: "complete" | "failed" | "skipped";
   error: string;
   finding_count: number;
   source_urls: string[];
@@ -227,6 +250,24 @@ export type Variable = {
   name: string;
   description: string;
   block_ids?: string[];
+  document_target: string;
+  definition_mode: "fixed" | "dynamic";
+  target_resolved: boolean;
+  evidence_domain:
+    | "general"
+    | "biological"
+    | "clinical"
+    | "safety"
+    | "regulatory"
+    | "product"
+    | "manufacturing"
+    | "delivery"
+    | "commercial_access";
+  entities: Array<{
+    name: string;
+    entity_type: string;
+    identifier: string;
+  }>;
 };
 
 export type ScoutResponse = {
@@ -251,7 +292,12 @@ export type CompleteEvent<T> = { event: "complete"; result: T };
 export type ErrorEvent = { event: "error"; detail: string };
 export type StreamEvent<T> = StageEvent | CompleteEvent<T> | ErrorEvent;
 
-export const API_BASE = process.env.NEXT_PUBLIC_PDIS_API_URL || "http://localhost:8000";
+const configuredApiUrl = process.env.NEXT_PUBLIC_PDIS_API_URL?.replace(/\/+$/, "");
+const configuredApiHost = process.env.NEXT_PUBLIC_PDIS_API_HOST?.trim();
+
+export const API_BASE =
+  configuredApiUrl ||
+  (configuredApiHost ? `https://${configuredApiHost}` : "http://localhost:8000");
 
 async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);

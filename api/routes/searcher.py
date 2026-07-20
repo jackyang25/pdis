@@ -9,23 +9,43 @@ from services.searcher import (
     findings_to_dicts,
     run_pipeline,
     source_specs,
+    unconfigured_source_keys,
     validate_source_keys,
 )
 
-from api.deps import get_search_runtime
-from api.schemas import FindingOut, SearcherRunResponse, SearchSourceOut
+from api.deps import get_search_integrations, get_search_runtime
+from api.schemas import (
+    FindingOut,
+    SearcherRunResponse,
+    SearchSourceOut,
+    SourceAttributionOut,
+)
 from api.streaming import run_with_progress
 
 router = APIRouter()
 
+
 @router.get("/sources", response_model=list[SearchSourceOut])
 def list_sources() -> list[SearchSourceOut]:
     """Expose registered source metadata so clients do not mirror an allowlist."""
+    integrations = get_search_integrations()
     return [
         SearchSourceOut(
             key=source.key,
             label=source.label,
             default_enabled=source.default_enabled,
+            configured=(not source.integration_key or source.integration_key in integrations),
+            evidence_domains=list(source.evidence_domains),
+            required_entity_types=list(source.required_entity_types),
+            attribution=(
+                SourceAttributionOut(
+                    label=source.attribution.label,
+                    url=source.attribution.url,
+                    prefix=source.attribution.prefix,
+                )
+                if source.attribution
+                else None
+            ),
         )
         for source in source_specs()
     ]
@@ -43,10 +63,18 @@ async def run_searcher(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    runtime = get_search_runtime()
+    missing = unconfigured_source_keys(selected, runtime)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unconfigured retrieval source(s): {', '.join(missing)}",
+        )
+
     def work(progress):
         findings = run_pipeline(
             query,
-            runtime=get_search_runtime(),
+            runtime=runtime,
             sources=selected,
             progress_callback=progress,
         )

@@ -9,24 +9,31 @@ adapter or stage.
 """
 
 from .models import (
+    EVIDENCE_DOMAINS,
+    ENTITY_TYPES,
     Finding,
+    RetrievalEntity,
     RetrievalIntent,
     RetrievalPath,
     SearchOutcome,
     SearchRequest,
     SearchRuntime,
     SearcherLLMClientProtocol,
+    SourceAttribution,
     SourceQueryIntent,
     SourceSpec,
     findings_to_dicts,
     merge_findings,
 )
+from .connectors import ToolUniverseHTTPConnector
 from .controller import (
+    integration_operations,
     plan_requests,
     run_requests,
     source_keys,
     source_specs,
     validate_source_keys,
+    unconfigured_source_keys,
 )
 from .net import prefer_ipv4
 from .pipeline import run_pipeline
@@ -39,16 +46,22 @@ prefer_ipv4()
 __all__ = [
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_MAX_USES",
+    "EVIDENCE_DOMAINS",
+    "ENTITY_TYPES",
     "Finding",
+    "RetrievalEntity",
     "RetrievalIntent",
     "RetrievalPath",
     "SearchOutcome",
     "SearchRequest",
     "SearchRuntime",
     "SearcherLLMClientProtocol",
+    "SourceAttribution",
     "SourceQueryIntent",
     "SourceSpec",
+    "ToolUniverseHTTPConnector",
     "findings_to_dicts",
+    "integration_operations",
     "merge_findings",
     "plan_requests",
     "run_requests",
@@ -56,4 +69,5 @@ __all__ = [
     "source_keys",
     "source_specs",
     "validate_source_keys",
+    "unconfigured_source_keys",
 ]

@@ -6,9 +6,48 @@ should import from `services.searcher`, never from this module directly.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Mapping, Protocol
+
+EVIDENCE_DOMAINS = frozenset(
+    {
+        "general",
+        "biological",
+        "clinical",
+        "safety",
+        "regulatory",
+        "product",
+        "manufacturing",
+        "delivery",
+        "commercial_access",
+    }
+)
+ENTITY_TYPES = frozenset(
+    {
+        "disease",
+        "pathogen",
+        "protein",
+        "gene",
+        "antigen",
+        "vaccine",
+        "drug",
+        "compound",
+        "biomarker",
+        "device",
+        "other",
+    }
+)
+
+
+@dataclass(frozen=True)
+class SourceAttribution:
+    """Optional public attribution notice owned by a retrieval source."""
+
+    label: str
+    url: str
+    prefix: str = "Source data provided by"
 
 
 @dataclass(frozen=True)
@@ -18,7 +57,33 @@ class SourceSpec:
     key: str
     label: str
     worker_limit: int
+    # Minimum spacing between adapter request starts. This is appropriate when
+    # one adapter request maps to one provider request (for example Semantic
+    # Scholar). Sources that fan one adapter request into several provider
+    # calls retain endpoint-level throttling inside their adapter stage.
+    request_interval_seconds: float = 0.0
     default_enabled: bool = True
+    integration_key: str = ""
+    operations: tuple[str, ...] = ()
+    attribution: SourceAttribution | None = None
+    evidence_domains: tuple[str, ...] = ()
+    required_entity_types: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.worker_limit < 1:
+            raise ValueError("source worker_limit must be positive")
+        if self.request_interval_seconds < 0:
+            raise ValueError("source request interval cannot be negative")
+        unknown_domains = set(self.evidence_domains) - EVIDENCE_DOMAINS
+        if unknown_domains:
+            raise ValueError(
+                f"unknown source evidence domain(s): {', '.join(sorted(unknown_domains))}"
+            )
+        unknown_entities = set(self.required_entity_types) - ENTITY_TYPES
+        if unknown_entities:
+            raise ValueError(
+                f"unknown required entity type(s): {', '.join(sorted(unknown_entities))}"
+            )
 
 
 @dataclass(frozen=True)
@@ -28,6 +93,32 @@ class SourceQueryIntent:
     text: str
     tracks: tuple[str, ...] = ()
     document_refs: tuple[str, ...] = ()
+    intent_id: str = ""
+
+    def __post_init__(self) -> None:
+        if self.intent_id:
+            return
+        material = "\n".join(
+            (self.text, *self.tracks, *self.document_refs)
+        )
+        object.__setattr__(
+            self,
+            "intent_id",
+            "q-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16],
+        )
+
+
+@dataclass(frozen=True)
+class RetrievalEntity:
+    name: str
+    entity_type: str
+    identifier: str = ""
+
+    def __post_init__(self) -> None:
+        if self.entity_type not in ENTITY_TYPES:
+            raise ValueError(f"unknown retrieval entity type: {self.entity_type}")
+        if not self.name.strip():
+            raise ValueError("retrieval entity name cannot be empty")
 
 
 @dataclass(frozen=True)
@@ -40,6 +131,14 @@ class RetrievalIntent:
     indication: str
     intervention_class: str
     queries: tuple[SourceQueryIntent, ...]
+    document_target: str = ""
+    definition_mode: str = "fixed"
+    evidence_domain: str = ""
+    entities: tuple[RetrievalEntity, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.evidence_domain and self.evidence_domain not in EVIDENCE_DOMAINS:
+            raise ValueError(f"unknown retrieval evidence domain: {self.evidence_domain}")
 
 
 @dataclass(frozen=True)
@@ -51,7 +150,16 @@ class SearchRequest:
     query: str
     tracks: tuple[str, ...] = ()
     document_refs: tuple[str, ...] = ()
+    # Exact neutral intents compiled into this native request. These fields are
+    # deliberately carried beside the native query so compaction can never
+    # erase or overstate its input coverage.
+    intent_ids: tuple[str, ...] = ()
+    input_queries: tuple[str, ...] = ()
+    connector: str = ""
+    operation: str = ""
     options: tuple[tuple[str, str], ...] = ()
+    applicability: str = "applicable"  # applicable | not_applicable
+    applicability_reason: str = ""
 
     def option(self, name: str, default: str = "") -> str:
         return dict(self.options).get(name, default)
@@ -63,7 +171,7 @@ class SearchOutcome:
 
     request: SearchRequest
     findings: list["Finding"] = field(default_factory=list)
-    status: str = "complete"
+    status: str = "complete"  # complete | failed | skipped
     error: str = ""
 
 
@@ -74,6 +182,7 @@ class SearchRuntime:
     llm_client: "SearcherLLMClientProtocol"
     ncbi_api_key: str | None = None
     integrations: Mapping[str, Any] = field(default_factory=dict)
+    global_worker_limit: int = 48
 
 
 @dataclass(frozen=True)
@@ -82,6 +191,8 @@ class RetrievalPath:
 
     query: str
     lane: str
+    connector: str = ""
+    operation: str = ""
 
 
 @dataclass
@@ -106,6 +217,7 @@ class Finding:
     queries: list[str] = field(default_factory=list)
     source_lanes: list[str] = field(default_factory=list)
     source_labels: dict[str, str] = field(default_factory=dict)
+    source_attributions: dict[str, SourceAttribution] = field(default_factory=dict)
     retrieval_paths: list[RetrievalPath] = field(default_factory=list)
     title_source_lane: str = ""
     excerpt_source_lane: str = ""
@@ -166,6 +278,10 @@ def merge_findings(existing: Finding, incoming: Finding) -> Finding:
     existing.source_labels = {
         **existing.source_labels,
         **incoming.source_labels,
+    }
+    existing.source_attributions = {
+        **existing.source_attributions,
+        **incoming.source_attributions,
     }
     existing.retrieval_paths = list(
         dict.fromkeys([*existing.retrieval_paths, *incoming.retrieval_paths])

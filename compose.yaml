@@ -1,0 +1,59 @@
+name: pdis
+
+services:
+  tooluniverse:
+    container_name: pdis-tooluniverse
+    build:
+      context: ./deploy/tooluniverse
+    env_file:
+      - .env.tooluniverse
+    environment:
+      PORT: 8080
+      TOOLUNIVERSE_API_TOKEN: ${TOOLUNIVERSE_API_TOKEN:?Set TOOLUNIVERSE_API_TOKEN in .env}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  api:
+    container_name: pdis-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      PORT: 8000
+      CORS_ALLOW_ORIGINS: http://localhost:3000
+      TOOLUNIVERSE_BASE_URL: http://tooluniverse:8080
+    depends_on:
+      tooluniverse:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  web:
+    container_name: pdis-web
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_PDIS_API_URL: http://localhost:8000
+    environment:
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    restart: unless-stopped

@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { fetchSearchSources, runSearcher, type SearchSource } from "@/lib/api";
 import { useSearcherSession } from "@/lib/session";
+import { SourceAttributions } from "@/components/source-attributions";
+import type { Finding } from "@/lib/api";
 
 export default function SearcherPage() {
   const [query, setQuery] = useState("");
@@ -37,6 +39,7 @@ export default function SearcherPage() {
   }, [setError]);
 
   function toggle(id: string) {
+    if (!sources.find((source) => source.key === id)?.configured) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -102,7 +105,8 @@ export default function SearcherPage() {
                   key={source.key}
                   type="button"
                   onClick={() => toggle(source.key)}
-                  disabled={busy}
+                  disabled={busy || !source.configured}
+                  title={source.configured ? undefined : "Backend connector not configured"}
                   aria-pressed={on}
                   className={cn(
                     "h-8 rounded-full border px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50",
@@ -135,7 +139,7 @@ export default function SearcherPage() {
   );
 }
 
-function Findings({ result, sources }: { result: { query: string; findings: Array<{ url: string; title: string; excerpt: string | null; source: string }> }; sources: SearchSource[] }) {
+function Findings({ result, sources }: { result: { query: string; findings: Finding[] }; sources: SearchSource[] }) {
   const labels = new Map(sources.map((source) => [source.key, source.label]));
   const counts = result.findings.reduce<Record<string, number>>((acc, f) => {
     acc[f.source] = (acc[f.source] ?? 0) + 1;
@@ -177,6 +181,7 @@ function Findings({ result, sources }: { result: { query: string; findings: Arra
           )}
         </article>
       ))}
+      <SourceAttributions findings={result.findings} />
     </div>
   );
 }

@@ -59,7 +59,7 @@ def classify_precedent(
     Returns None for variables with no external evidence: with nothing retrieved we
     cannot distinguish absent precedent from a search miss, so we decline to
     label rather than invent coverage."""
-    if not insights:
+    if not insights or (attribute.target_resolved and not attribute.document_target):
         return None
 
     system_prompt = _system_prompt(
@@ -121,8 +121,12 @@ def classify_precedent(
         precedent=precedent,
         outcome=outcome,
         reason=reason,
-        doc_block_ids=validated_block_ids(
-            parsed.get("doc_block_ids"), document_block_ids(doc_text)
+        doc_block_ids=(
+            list(attribute.block_ids)
+            if attribute.target_resolved
+            else validated_block_ids(
+                parsed.get("doc_block_ids"), document_block_ids(doc_text)
+            )
         ),
         coverage_insight_ids=[insight.id for insight in coverage_insights],
         outcome_insight_ids=[insight.id for insight in outcome_insights],
@@ -157,7 +161,9 @@ def _system_prompt(
         "how directly prior work covers it, and what outcomes that prior work had.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}\n"
-        f"Definition: {attribute.description}\n\n"
+        f"Definition: {attribute.description}\n"
+        f"Canonical document target: {attribute.document_target or '(not stated)'}\n"
+        f"Canonical target blocks: {', '.join(attribute.block_ids) or '(none)'}\n\n"
         + framing + "\n\n"
         "Return TWO independent labels. Do not collapse them into one axis.\n"
         "precedent (coverage):\n"
@@ -204,6 +210,8 @@ def _user_message(
         "",
         f"Variable: {attribute.name}",
         f"Definition: {attribute.description}",
+        f"Canonical document target: {attribute.document_target or '(not stated)'}",
+        f"Canonical target blocks: {', '.join(attribute.block_ids) or '(none)'}",
         "",
         "External-evidence insights for this variable:",
     ]

@@ -3,7 +3,7 @@ org: bmgf
 source_type: ctpp
 intervention_class: device
 display_name: "BMGF Candidate TPP - Device"
-sources: [web, pubmed, clinicaltrials]
+sources: [web, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, open_targets, chembl, uniprot, fda]
 
 # Domain-specific guidance for the per-variable query extractor. Each shared
 # TPP attribute variable gets its own focused queries - these instructions
@@ -30,17 +30,15 @@ query_extraction_guidance: |
   Use the indication name and the variable topic in queries. Prefer queries
   that target named regulators, technical specifications, registries, or
   peer-reviewed literature over generic phrasing. Spread queries across
-  priority sources and configured languages rather than repeatedly naming the
+  priority institutions and configured languages rather than repeatedly naming the
   same authorities.
 
-priority_sources:
+priority_institutions:
   - FDA (510(k) / PMA)
   - EMA
   - WHO
   - WHO Prequalification
   - CDC
-  - PubMed
-  - ClinicalTrials.gov
   - SAHPRA (South Africa)
   - NMPA (China)
   - CDSCO (India)

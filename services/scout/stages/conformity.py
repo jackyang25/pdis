@@ -77,7 +77,9 @@ def score_conformity(
 ) -> ConformityScore | None:
     """Return a combined conformity score, or None if the variable is not
     quantitative / has no comparable numeric evidence."""
-    if not insights:
+    if not insights or (
+        attribute.target_resolved and not attribute.document_target
+    ):
         return None
 
     extracted = _extract_measurements(
@@ -302,8 +304,12 @@ def _extract_measurements(
     if not unit:
         return None
     target_label = str(parsed.get("target_label", "")).strip()
-    target_block_ids = validated_block_ids(
-        parsed.get("doc_block_ids"), document_block_ids(doc_text)
+    target_block_ids = (
+        list(attribute.block_ids)
+        if attribute.target_resolved
+        else validated_block_ids(
+            parsed.get("doc_block_ids"), document_block_ids(doc_text)
+        )
     )
 
     measurements: list[Measurement] = []
@@ -382,10 +388,12 @@ def _system_prompt(
         "downstream calculator can combine it.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}\n"
-        f"Definition: {attribute.description}\n\n"
+        f"Definition: {attribute.description}\n"
+        f"Canonical document target: {attribute.document_target or '(not stated)'}\n"
+        f"Canonical target blocks: {', '.join(attribute.block_ids) or '(none)'}\n\n"
         f"Document-specific interpretation:\n{framing}\n\n"
         "Task:\n"
-        "1. Decide if this variable is QUANTITATIVE - i.e. the document states a "
+        "1. Decide if the canonical document target is QUANTITATIVE - i.e. it states a "
         "numeric target with a clear direction (e.g. efficacy >= 80%, cost <= $1.50, "
         "duration >= 12 months). If it is not numeric, set is_quantitative=false.\n"
         "2. If quantitative, pick the SINGLE most decision-relevant binding value for this "
@@ -435,6 +443,9 @@ def _user_message(attribute: Attribute, doc_text: str, insights: list[Insight]) 
         doc_text,
         "",
         f"Variable: {attribute.name}",
+        f"Definition: {attribute.description}",
+        f"Canonical document target: {attribute.document_target or '(not stated)'}",
+        f"Canonical target blocks: {', '.join(attribute.block_ids) or '(none)'}",
         "",
         "External-evidence insights for this variable:",
     ]

@@ -64,13 +64,14 @@ as external evidence underneath it.
 ## Pipeline
 
 1. **parse** - chunker parses each uploaded doc without section mapping.
-2. **per-unit query intents** - LLM generates document-aware intents for each vocabulary or extracted unit across general, geographic, counterfactual, and precedent tracks.
-3. **route + search** - Scout converts units to Searcher's neutral `RetrievalIntent`; enabled Searcher adapters independently create native requests and the Searcher controller executes them with adapter-owned concurrency. `search_plan` retains every request, status, document block, track, result count, and source URL. URL dedupe preserves every retrieval path and the exact lanes supplying title, excerpt, and publication date.
-4. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs.
-5. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
-6. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources.
-7. **conformity** - quantitative targets are extracted with document blocks; every measurement URL must belong to its selected insight and retain the same unit as the target (no silent conversion). The LLM separately labels evidence form, development phase, and source-record type; deterministic methodology config supplies weights.
-8. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and document blocks.
+2. **resolve targets** - fixed TPP definitions are bound to the document's exact target, blocks, and explicitly stated entities; dynamic IPDP units arrive already bound. Both have the same canonical shape, including one closed evidence domain, with `definition_mode` preserving only their provider provenance. Fixed domains are authored in the shared vocabulary; dynamic domains are selected from the same enum.
+3. **per-unit query intents** - LLM generates document-aware intents from the canonical definition and target across general, geographic, counterfactual, and precedent tracks.
+4. **plan + search** - Scout converts units to Searcher's neutral `RetrievalIntent`. The generic controller compares the unit's evidence domain and document-stated entity types with each enabled adapter's declared capabilities. Applicable adapters receive the complete bundle and independently compile source-native requests; non-applicable adapters emit explicit traced skips without connector calls. The controller verifies complete intent coverage, then executes fair per-source queues with adapter-owned rate/concurrency policy. `search_plan` retains every native request or skip, its exact input intent IDs/texts, applicability reason, status, document blocks, track, result count, and source URLs. URL dedupe preserves every retrieval path and the exact lanes supplying title, excerpt, and publication date.
+5. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs.
+6. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
+7. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources without allowing the canonical target to drift.
+8. **conformity** - quantitative values are extracted from the canonical target; every measurement URL must belong to its selected insight and retain the same unit as the target (no silent conversion). The LLM separately labels evidence form, development phase, and source-record type; deterministic methodology config supplies weights.
+9. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and canonical document blocks.
 
 Long documents are not truncated from the end. Vocabulary units receive a
 relevance-selected context with neighboring blocks and a document-wide safety
@@ -79,9 +80,11 @@ are isolated by variable and `_parallel_map` preserves input order.
 
 Each step is one stage in `services/scout/stages/`.
 
-For TPP runs Scout reads units from `shared/attributes.yaml`; for IPDP runs it
-extracts checkable claims from the uploaded document. Both become the same
-`Attribute` shape before retrieval, so downstream processing stays symmetric.
+For TPP runs Scout reads fixed definitions from `shared/attributes.yaml` and
+binds them to document targets. For IPDP runs it dynamically extracts neutral
+definitions and their checkable document claims together. Both become the same
+resolved `Attribute` shape before retrieval, so downstream processing stays
+symmetric.
 
 ## Config fields
 
@@ -94,7 +97,7 @@ Scout configs define query-generation guidance:
 | `queries_per_variable` | Number of focused queries generated for each shared attribute variable |
 | `geographic_emphasis` | Optional emphasis groups, such as `global_south`, that add a separate query group |
 | `geographic_queries_per_variable` | Additive geographic query budget per variable |
-| `priority_sources` | Optional authoritative sources to name in generated queries |
+| `priority_institutions` | Optional authoritative institutions to name in neutral intents; never adapter/database keys |
 | `modalities` | Optional platform technologies the query generator considers |
 | `languages` | Optional languages for native-language retrieval intents |
 | `drift_framing` | How Match relations interpret this document type |

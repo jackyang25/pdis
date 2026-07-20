@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from services.searcher import Finding, source_keys
+from services.searcher import EVIDENCE_DOMAINS, ENTITY_TYPES, Finding, source_keys
 
 if TYPE_CHECKING:
     from services.chunker import ContentBlock
@@ -74,15 +74,79 @@ class LLMClientProtocol(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class EvidenceEntity:
+    """One document-stated entity usable by structured evidence sources."""
+
+    name: str
+    entity_type: str
+    identifier: str = ""
+
+    def __post_init__(self) -> None:
+        if self.entity_type not in ENTITY_TYPES:
+            raise ValueError(f"unknown evidence entity type: {self.entity_type}")
+        object.__setattr__(self, "name", self.name.strip())
+        object.__setattr__(self, "identifier", self.identifier.strip())
+        if not self.name:
+            raise ValueError("evidence entity name cannot be empty")
+
+
+def parse_evidence_entities(raw: object) -> list[EvidenceEntity]:
+    """Validate model-produced entities against the one closed vocabulary."""
+    if not isinstance(raw, list):
+        return []
+    entities: list[EvidenceEntity] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        entity_type = str(item.get("entity_type", "")).strip().lower()
+        if not name or entity_type not in ENTITY_TYPES:
+            continue
+        entity = EvidenceEntity(
+            name=name,
+            entity_type=entity_type,
+            identifier=str(item.get("identifier", "")).strip(),
+        )
+        if entity not in entities:
+            entities.append(entity)
+    return entities
+
+
 @dataclass
 class Attribute:
-    """One investigation unit, from a vocabulary or extracted document claim."""
+    """One canonical document-bound investigation unit.
+
+    Fixed vocabularies and dynamic extraction are interchangeable providers of
+    this shape. ``description`` always defines what is being evaluated;
+    ``document_target`` always contains the document's concrete target or
+    commitment. Neither field changes meaning by document type.
+    """
 
     name: str
     description: str
-    # Populated when the unit is extracted from a document; vocabulary units
-    # intentionally have no document provenance until a target is located.
+    # Exact document blocks supporting ``document_target``.
     block_ids: list[str] = field(default_factory=list)
+    document_target: str = ""
+    # The only intentional TPP/IPDP distinction: how the definition was
+    # supplied. All downstream stages consume the same bound shape.
+    definition_mode: str = "fixed"  # fixed | dynamic
+    # Distinguishes an intentionally absent target from a unit not yet bound to
+    # its document. Runtime pipeline units are always resolved before search.
+    target_resolved: bool = False
+    evidence_domain: str = "general"
+    entities: list[EvidenceEntity] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.definition_mode not in {"fixed", "dynamic"}:
+            raise ValueError("definition_mode must be 'fixed' or 'dynamic'")
+        if self.evidence_domain not in EVIDENCE_DOMAINS:
+            raise ValueError(f"unknown evidence domain: {self.evidence_domain}")
+        self.name = self.name.strip()
+        self.description = self.description.strip()
+        self.document_target = self.document_target.strip()
+        self.block_ids = list(dict.fromkeys(self.block_ids))
+        self.entities = list(dict.fromkeys(self.entities))
 
 
 @dataclass
@@ -101,9 +165,16 @@ class SearchTrace:
     attribute_ref: str
     lane: str
     query: str
+    connector: str = ""
+    operation: str = ""
+    request_options: dict[str, str] = field(default_factory=dict)
     tracks: list[str] = field(default_factory=list)
     doc_block_ids: list[str] = field(default_factory=list)
-    status: str = "complete"  # complete | failed
+    intent_ids: list[str] = field(default_factory=list)
+    input_queries: list[str] = field(default_factory=list)
+    applicability: str = "applicable"
+    applicability_reason: str = ""
+    status: str = "complete"  # complete | failed | skipped
     error: str = ""
     finding_count: int = 0
     source_urls: list[str] = field(default_factory=list)
@@ -119,7 +190,12 @@ def load_attributes(intervention_class: str) -> list[Attribute]:
         data = yaml.safe_load(f) or {}
     items = data.get(intervention_class) or []
     return [
-        Attribute(name=item["name"], description=item["description"])
+        Attribute(
+            name=item["name"],
+            description=item["description"],
+            definition_mode="fixed",
+            evidence_domain=item.get("evidence_domain", "general"),
+        )
         for item in items
     ]
 
@@ -183,7 +259,9 @@ class EvidenceAssessment:
     attribute_ref: str
     strength: str
     reason: str = ""
-    doc_target: str = ""  # what the uploaded document states for this field
+    # Read-only projection of the canonical Attribute binding for result/UI
+    # locality; the evidence model cannot redefine it.
+    doc_target: str = ""
     doc_block_ids: list[str] = field(default_factory=list)
     supporting_insight_ids: list[str] = field(default_factory=list)
     supporting_findings: list[Finding] = field(default_factory=list)
@@ -273,9 +351,8 @@ class ScoutResult:
     conformity: list[ConformityScore] = field(default_factory=list)
     precedents: list[PrecedentSignal] = field(default_factory=list)
     search_plan: list[SearchTrace] = field(default_factory=list)
-    # The units actually investigated this run - the fixed vocabulary (TPP) or
-    # the doc-extracted units (IPDP). Consumers read this rather than re-deriving
-    # from the shared vocabulary, which would be wrong for the extract provider.
+    # Canonical, document-bound units actually investigated this run. Consumers
+    # read this rather than re-deriving provider-specific definitions.
     variables: list[Attribute] = field(default_factory=list)
     # The parsed source document (ordered, citable blocks). Carried so downstream
     # consumers (e.g. the Ask assistant) can read the full document behind the
@@ -293,7 +370,7 @@ class ScoutTypeConfig:
     query_extraction_guidance: str
     sources: list[str]
     queries_per_variable: int = 1
-    priority_sources: list[str] = field(default_factory=list)
+    priority_institutions: list[str] = field(default_factory=list)
     modalities: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
     geographic_emphasis: list[str] = field(default_factory=list)
@@ -407,15 +484,15 @@ def load_config(config_path: str) -> ScoutTypeConfig:
     if missing:
         raise ValueError(f"Config missing required fields: {', '.join(sorted(missing))}")
 
-    priority_sources = data.get("priority_sources", []) or []
+    priority_institutions = data.get("priority_institutions", []) or []
     modalities = data.get("modalities", []) or []
     languages = data.get("languages", []) or []
     geographic_emphasis = data.get("geographic_emphasis", []) or []
     sources = data.get("sources", []) or []
-    if not isinstance(priority_sources, list) or not all(
-        isinstance(source, str) for source in priority_sources
+    if not isinstance(priority_institutions, list) or not all(
+        isinstance(institution, str) for institution in priority_institutions
     ):
-        raise ValueError("priority_sources must be a list of strings")
+        raise ValueError("priority_institutions must be a list of strings")
     if not isinstance(modalities, list) or not all(
         isinstance(modality, str) for modality in modalities
     ):
@@ -464,7 +541,7 @@ def load_config(config_path: str) -> ScoutTypeConfig:
         query_extraction_guidance=data["query_extraction_guidance"],
         sources=list(dict.fromkeys(sources)),
         queries_per_variable=queries_per_variable,
-        priority_sources=priority_sources,
+        priority_institutions=priority_institutions,
         modalities=modalities,
         languages=languages,
         geographic_emphasis=geographic_emphasis,

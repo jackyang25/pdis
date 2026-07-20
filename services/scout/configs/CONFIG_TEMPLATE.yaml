@@ -10,6 +10,13 @@ sources:
   - web
   - pubmed
   - clinicaltrials
+  - ctis
+  - isrctn
+  - semantic_scholar
+  - open_targets
+  - chembl
+  - uniprot
+  - fda
 
 # Domain-specific guidance for the per-variable query extractor. Each
 # shared TPP attribute variable gets its own focused queries - these
@@ -22,17 +29,15 @@ query_extraction_guidance: |
   epidemiology trends; and (3) global access/regulatory signals across
   global and LMIC authorities, procurement bodies, registries, and
   literature. Use the variable topic in every query and spread queries
-  across configured sources and languages.
+  across configured institutions and languages.
 
-# Authoritative sources to name in generated queries (regulatory agencies,
-# registries, literature, key companies). Optional - omit for none.
-priority_sources:
+# Authoritative institutions to name in neutral intents (regulators, access
+# bodies, key companies). Retrieval adapter/database names do not belong here.
+priority_institutions:
   - FDA
   - EMA
   - WHO
   - WHO Prequalification
-  - PubMed
-  - ClinicalTrials.gov
   - Africa CDC
   - Gavi
 

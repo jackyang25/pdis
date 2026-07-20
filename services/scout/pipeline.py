@@ -1,9 +1,9 @@
 """Stateless scout pipeline.
 
-Orchestrates: chunker (parse only) -> per-unit query generation (LLM) ->
-lane-native retrieval routing -> searcher -> per-unit insight extraction (LLM)
--> four independent reasoning layers. Reuses chunker and searcher through their
-public contracts only.
+Orchestrates: chunker (parse only) -> canonical target binding -> per-unit query
+generation (LLM) -> lane-native retrieval routing -> searcher -> per-unit insight
+extraction (LLM) -> four independent reasoning layers. Reuses chunker and
+searcher through their public contracts only.
 """
 
 from __future__ import annotations
@@ -23,7 +23,11 @@ from services.searcher import (
     run_requests,
 )
 
-from .context import render_document_context, select_attribute_context
+from .context import (
+    document_block_ids,
+    render_document_context,
+    select_attribute_context,
+)
 from .models import (
     Attribute,
     ConformityScore,
@@ -45,12 +49,14 @@ from .stages.evidence_assessor import assess_evidence
 from .stages.insight_extractor import extract_insights, merge_duplicate_insights
 from .stages.precedent_classifier import classify_precedent
 from .stages.query_extractor import extract_queries_for_variable
-from .stages.source_router import build_retrieval_intents
+from .stages.intent_builder import build_retrieval_intents
+from .stages.target_resolver import resolve_document_target
 from .stages.unit_extractor import extract_units
 
 FINDINGS_BATCH_SIZE = 40
 FINDINGS_BATCH_CHARS = 240_000
 QUERY_CONTEXT_CHARS = 20_000
+TARGET_CONTEXT_CHARS = 40_000
 SEARCH_MAX_TOKENS = 8000
 SEARCH_MAX_USES = 10
 
@@ -104,6 +110,25 @@ def run_pipeline(
             ),
             blocks=blocks,
         )
+
+    # Provider-specific work ends here. Fixed definitions are bound to their
+    # document target; dynamically extracted units arrive already bound. Every
+    # later stage receives the same resolved Attribute contract.
+    seed_contexts = {
+        attribute.name: select_attribute_context(
+            blocks,
+            attribute,
+            max_chars=TARGET_CONTEXT_CHARS,
+        )
+        for attribute in attributes
+    }
+    attributes = _resolve_targets_all(
+        attributes,
+        seed_contexts,
+        blocks,
+        openai_client,
+        progress=progress_callback,
+    )
     attribute_descriptions = {
         attribute.name: attribute.description for attribute in attributes
     }
@@ -111,14 +136,7 @@ def run_pipeline(
         attribute.name: select_attribute_context(blocks, attribute)
         for attribute in attributes
     }
-    attribute_images = {
-        attribute.name: [
-            {"block_id": block.id, "data_url": block.image.data_url()}
-            for block in blocks
-            if block.image and block.id in set(attribute.block_ids)
-        ]
-        for attribute in attributes
-    }
+    attribute_images = _images_for_contexts(attribute_contexts, blocks)
     query_contexts = {
         attribute.name: select_attribute_context(
             blocks, attribute, max_chars=QUERY_CONTEXT_CHARS
@@ -278,11 +296,12 @@ def _resolve_units(
     *,
     indication: str,
 ) -> list[Attribute]:
-    """Get the units to investigate, per the config's unit_provider.
+    """Get definitions from the configured provider.
 
-    'vocabulary' (default) reads the fixed shared attribute list; 'extract' pulls
-    units from the document. Both return `list[Attribute]`, so nothing downstream
-    changes."""
+    ``vocabulary`` reads fixed definitions; ``extract`` returns dynamically
+    defined units already bound to their document targets. The next stage binds
+    fixed definitions so provider-specific semantics end before retrieval.
+    """
     if config.unit_provider == "extract":
         return extract_units(
             doc_text,
@@ -402,6 +421,53 @@ def _extract_queries_all_variables(
         attributes, one, workers=MAX_WORKERS, stage="queries", progress=progress
     )
     return {name: queries for name, queries in results if queries}
+
+
+def _resolve_targets_all(
+    attributes: list[Attribute],
+    contexts: dict[str, str],
+    blocks: list[ContentBlock],
+    openai_client: LLMClientProtocol,
+    *,
+    progress: ProgressFn | None = None,
+) -> list[Attribute]:
+    """Resolve fixed and dynamic definitions to one document-bound shape."""
+    images_by_attribute = _images_for_contexts(contexts, blocks)
+
+    def one(attribute: Attribute) -> Attribute:
+        return resolve_document_target(
+            attribute,
+            contexts.get(attribute.name, ""),
+            openai_client,
+            images=images_by_attribute.get(attribute.name) or None,
+        )
+
+    return _parallel_map(
+        attributes,
+        one,
+        workers=MAX_WORKERS,
+        stage="targets",
+        progress=progress,
+    )
+
+
+def _images_for_contexts(
+    contexts: dict[str, str],
+    blocks: list[ContentBlock],
+) -> dict[str, list[dict[str, str]]]:
+    """Attach visuals by the exact block IDs present in each bounded context."""
+    output: dict[str, list[dict[str, str]]] = {}
+    for attribute_ref, context in contexts.items():
+        context_ids = document_block_ids(context)
+        output[attribute_ref] = [
+            {
+                "block_id": block.id,
+                "data_url": block.image.data_url(),
+            }
+            for block in blocks
+            if block.image and block.id in context_ids
+        ]
+    return output
 
 
 def _extract_insights_all_variables(
@@ -527,8 +593,15 @@ def _search_all(
             attribute_ref=task.scope_ref,
             lane=task.source,
             query=task.query,
+            connector=task.connector,
+            operation=task.operation,
+            request_options=dict(task.options),
             tracks=list(task.tracks),
             doc_block_ids=list(task.document_refs),
+            intent_ids=list(task.intent_ids),
+            input_queries=list(task.input_queries),
+            applicability=task.applicability,
+            applicability_reason=task.applicability_reason,
             status=outcome.status,
             error=outcome.error,
             finding_count=len(outcome.findings),

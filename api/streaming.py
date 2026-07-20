@@ -9,12 +9,14 @@ event carrying the result (or an `error` event with the message).
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import threading
 from typing import Any, Callable, Generator
 
 
 END = object()
+logger = logging.getLogger(__name__)
 
 # Emit a keepalive this often when no real event has occurred, so the HTTP
 # stream never goes idle long enough for a proxy/host to cut it during long
@@ -38,8 +40,12 @@ def run_with_progress(work: Callable[..., Any]) -> Generator[str, None, None]:
     queue.Queue.put is safe for concurrent producers.
     """
     events: "queue.Queue[Any]" = queue.Queue()
+    stage_lock = threading.Lock()
+    current_stage = {"name": "startup"}
 
     def progress(stage: str, completed: int | None = None, total: int | None = None) -> None:
+        with stage_lock:
+            current_stage["name"] = stage
         event: dict[str, Any] = {"event": "stage", "name": stage}
         if completed is not None and total is not None:
             event["completed"] = completed
@@ -51,7 +57,15 @@ def run_with_progress(work: Callable[..., Any]) -> Generator[str, None, None]:
             result = work(progress)
             events.put({"event": "complete", "result": result})
         except Exception as exc:  # noqa: BLE001
-            events.put({"event": "error", "detail": str(exc)})
+            with stage_lock:
+                failed_stage = current_stage["name"]
+            logger.exception("Streaming work failed during stage %s", failed_stage)
+            events.put(
+                {
+                    "event": "error",
+                    "detail": f"{failed_stage}: {exc}",
+                }
+            )
         finally:
             events.put(END)
 

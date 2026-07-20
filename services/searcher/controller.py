@@ -197,15 +197,15 @@ def run_requests(
     if progress:
         progress(0, total)
     lock = threading.Lock()
-    completed = 0
+    completed_count = 0
 
     def report() -> None:
-        nonlocal completed
+        nonlocal completed_count
         if not progress:
             return
         with lock:
-            completed += 1
-            progress(completed, total)
+            completed_count += 1
+            progress(completed_count, total)
 
     def execute(request: SearchRequest) -> SearchOutcome:
         adapter = SOURCE_REGISTRY[request.source]
@@ -324,8 +324,8 @@ def run_requests(
 
         fill()
         while in_flight:
-            completed, _ = wait(in_flight, return_when=FIRST_COMPLETED)
-            for future in completed:
+            done_futures, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+            for future in done_futures:
                 index, source = in_flight.pop(future)
                 active[source] -= 1
                 results[index] = future.result()

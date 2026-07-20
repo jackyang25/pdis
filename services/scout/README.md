@@ -1,7 +1,25 @@
 # Scout
 
-Derives doc-aware `Match` records and per-variable `EvidenceAssessment`
-records from uploaded documents + the 4 primitives.
+Pressure-tests document targets against live evidence. Scout derives canonical
+document-bound fields, traced retrieval, atomic evidence insights, target
+relationships, grounding, quantitative alignment, and precedent signals.
+
+## Canonical field contract
+
+TPP definitions and IPDP claims converge to one `Attribute` before retrieval:
+
+| Field | Meaning |
+|---|---|
+| `name` | Stable downstream reference |
+| `description` | Neutral definition of the field |
+| `document_target` | Faithful document claim or commitment |
+| `block_ids` | Exact blocks supporting the target |
+| `definition_mode` | `fixed` vocabulary or `dynamic` extraction provenance |
+| `target_resolved` | Binding completed, including an intentionally absent target |
+| `evidence_domain` | Closed source-applicability domain |
+| `entities` | Explicit document-stated typed entities |
+
+No reasoning stage may rewrite this canonical target.
 
 ## Public contract
 
@@ -12,11 +30,13 @@ from shared.openai_client import OpenAIClient
 
 config = find_config("bmgf", "itpp", "vaccine")
 client = OpenAIClient()
+# `integrations` is a precomposed connector mapping for config.sources.
+runtime = SearchRuntime(llm_client=client, integrations=integrations)
 result = run_pipeline(
     ["/path/to/doc1.docx"],
     config=config,
     openai_client=client,
-    retrieval_runtime=SearchRuntime(llm_client=client),
+    retrieval_runtime=runtime,
     org="bmgf",
     source_type="itpp",
     intervention_class="vaccine",
@@ -85,6 +105,20 @@ binds them to document targets. For IPDP runs it dynamically extracts neutral
 definitions and their checkable document claims together. Both become the same
 resolved `Attribute` shape before retrieval, so downstream processing stays
 symmetric.
+
+## Evidence map
+
+The web evidence map is a bounded, deterministic projection of a Scout result:
+
+```text
+evaluated field → canonical document target → evidence insight → cited source
+```
+
+It uses the canonical `Attribute.document_target` and its exact block IDs.
+Relationship edges attach to that target. The map intentionally omits most
+retrieval requests and displays a readable subset; `search_plan` remains the
+complete request/skip/failure trace and the Fields view retains all analyzed
+evidence.
 
 ## Config fields
 

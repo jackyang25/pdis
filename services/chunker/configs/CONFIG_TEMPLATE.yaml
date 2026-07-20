@@ -7,9 +7,9 @@
 # The mapper LLM uses this config to assign each ContentBlock a
 # `section_label` matching one of the names in `section_taxonomy`.
 
-type_key: document_template_v0
+type_key: example_org_itpp_vaccine
 org: example_org
-source_type: example_type
+source_type: itpp
 intervention_class: vaccine
 display_name: "Template Document Type"
 

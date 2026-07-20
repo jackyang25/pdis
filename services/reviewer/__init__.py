@@ -1,7 +1,7 @@
 """Reviewer — rubric grading app.
 
-Consumes services (chunker for parsing/labeling, evidence for claims) and
-produces a ReviewResult per document. Public contract below; internals
+Consumes Chunker's public parsing/labeling contract and produces a ReviewResult
+per document. Public contract below; internals
 (`stages/`, `cli.py`) are not part of the contract.
 """
 

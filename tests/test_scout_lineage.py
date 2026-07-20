@@ -22,7 +22,10 @@ from services.scout.stages.evidence_assessor import assess_evidence
 from services.scout.stages.precedent_classifier import classify_precedent
 from services.scout.stages.query_extractor import _parse_queries
 from services.scout.stages.intent_builder import build_retrieval_intents
-from services.scout.stages.target_resolver import resolve_document_target
+from services.scout.stages.target_resolver import (
+    DEFAULT_MAX_TOKENS as TARGET_RESOLVER_MAX_TOKENS,
+    resolve_document_target,
+)
 from services.scout.stages.unit_extractor import _document_chunks, extract_units
 from services.searcher import Finding, merge_findings, plan_requests, source_keys
 
@@ -32,6 +35,7 @@ class StaticClient:
         self.response = response
         self.calls = 0
         self.image_calls: list[list[dict[str, str]]] = []
+        self.token_budgets: list[int] = []
 
     def call(
         self,
@@ -43,6 +47,7 @@ class StaticClient:
     ) -> str:
         self.calls += 1
         self.image_calls.append(images or [])
+        self.token_budgets.append(max_tokens)
         return json.dumps(self.response)
 
 
@@ -139,7 +144,7 @@ class RetrievalPlanningTests(unittest.TestCase):
 
         self.assertEqual(sum(task.source == "web" for task in tasks), 3)
         self.assertEqual(sum(task.source == "pubmed" for task in tasks), 2)
-        self.assertEqual(sum(task.source == "clinicaltrials" for task in tasks), 2)
+        self.assertEqual(sum(task.source == "clinicaltrials" for task in tasks), 1)
         literature = next(
             task
             for task in tasks
@@ -148,8 +153,14 @@ class RetrievalPlanningTests(unittest.TestCase):
         self.assertIn("latest WHO malaria vaccine doses", literature.query)
         self.assertNotIn("site:", literature.query)
         registry = next(task for task in tasks if task.source == "clinicaltrials")
-        self.assertIn("malaria vaccine doses", registry.query)
-        self.assertEqual(registry.document_refs, ("doc/b-0002",))
+        self.assertEqual(registry.query, "condition:malaria AND intervention:vaccine")
+        self.assertEqual(registry.tracks, ("general", "counterfactual"))
+        self.assertEqual(len(registry.intent_ids), 3)
+        self.assertEqual(
+            registry.document_refs,
+            ("doc/b-0002", "doc/b-0003"),
+        )
+        self.assertEqual(registry.option("ranking"), "all_input_queries")
         counterfactual_literature = next(
             task
             for task in tasks
@@ -312,6 +323,10 @@ class DocumentContextTests(unittest.TestCase):
         self.assertEqual(fixed.definition_mode, "fixed")
         self.assertEqual(dynamic.definition_mode, "dynamic")
         self.assertEqual(fixed_client.calls, 1)
+        self.assertEqual(
+            fixed_client.token_budgets,
+            [TARGET_RESOLVER_MAX_TOKENS],
+        )
         self.assertEqual(dynamic_client.calls, 0)
 
     def test_extracted_unit_origin_survives_bounded_selection(self) -> None:

@@ -1,6 +1,8 @@
 # Chunker
 
-Parses documents (`.docx`, `.pdf`) into ordered, citable `ContentBlock`s. Embedded DOCX visuals become portable image assets; an optional LLM mapper labels sections without replacing visuals with generated text.
+Parses documents (`.docx`, `.pdf`) into ordered, citable `ContentBlock`s.
+Embedded DOCX visuals become portable image assets; an optional LLM mapper
+labels sections without replacing visuals with generated text.
 
 ## Inputs and outputs
 
@@ -9,7 +11,10 @@ Parses documents (`.docx`, `.pdf`) into ordered, citable `ContentBlock`s. Embedd
 | Input | One document (`.docx` or `.pdf`) + header `(org, source_type, intervention_class, indication)` |
 | Output | `list[ContentBlock]` — each block stamped with the header |
 
-The header is stamped on every block so downstream tools can route by provenance.
+The caller must pass the original filename stem as `doc_id` when parsing a
+temporary upload. Stable IDs are derived from this value, so temporary names
+must never reach downstream citations. The header is stamped on every block so
+downstream tools can route by provenance.
 Image blocks carry a typed image payload (`media_type`, base64 bytes, hash, and
 source media type). The mapper, Reviewer, Scout's document-reasoning stages, and
 Ask receive those visuals as block-labeled multimodal inputs.
@@ -31,12 +36,10 @@ Ask receive those visuals as block-labeled multimodal inputs.
 
 ## Configs
 
-Filename: `{org}_{source_type}_{intervention}.yaml`. Each file declares the section taxonomy the mapper labels against. Bundled:
-
-- `bmgf_tpp_vaccine.yaml`
-- `bmgf_tpp_drug.yaml`
-- `bmgf_tpp_diagnostic.yaml`
-- `bmgf_tpp_device.yaml`
+Filename: `{org}_{source_type}_{intervention}.yaml`. Each file declares the
+section taxonomy the mapper labels against. Bundled BMGF configs cover `itpp`
+and `ctpp` for vaccine, drug, diagnostic, and device, plus `ipdp` for vaccine,
+drug, and diagnostic. `CONFIG_TEMPLATE.yaml` documents the extension shape.
 
 ## Public contract
 

@@ -35,6 +35,7 @@ MAX_EXCERPT_CHARS = 6000
 # scout fans out many queries in parallel, so space request STARTS
 # process-wide (same pattern as the PubMed backend), not per-thread.
 _RATE_LOCK = threading.Lock()
+_FETCH_LOCK = threading.Lock()
 _NEXT_ALLOWED = 0.0
 RATE_INTERVAL = 0.12  # ~8 requests/sec across all threads
 MAX_RETRIES_ON_429 = 2
@@ -75,20 +76,41 @@ def search_clinicaltrials(
     # structured condition/intervention filters instead of being discarded.
     term = query.strip()
     try:
-        studies = _fetch_studies(condition, intervention, term, max_results)
+        studies = fetch_clinicaltrials_studies(
+            condition=condition,
+            intervention=intervention,
+            term=term,
+            max_results=max_results,
+        )
     except Exception as exc:  # noqa: BLE001 - one quiet line; the lane degrades gracefully
         logger.warning("ClinicalTrials.gov retrieval skipped (%s)", exc)
         raise
 
     # Provenance label contains every term actually submitted.
     label = " ".join(t for t in (condition, intervention, term) if t)
-    retrieved_at = datetime.now(timezone.utc)
     findings: list[Finding] = []
     for study in studies:
-        finding = _study_to_finding(study, label, retrieved_at)
+        finding = clinicaltrial_to_finding(study, label)
         if finding is not None:
             findings.append(finding)
     return findings
+
+
+def fetch_clinicaltrials_studies(
+    *,
+    condition: str,
+    intervention: str,
+    term: str,
+    max_results: int,
+) -> list[dict]:
+    """Return a bounded structured candidate set.
+
+    The lock makes the memoized fetch single-flight. Scout plans one request per
+    field, but fields in one run usually share the same registry filters; only
+    the first request should reach the provider.
+    """
+    with _FETCH_LOCK:
+        return _fetch_studies(condition, intervention, term, max_results)
 
 
 @lru_cache(maxsize=512)
@@ -131,7 +153,9 @@ def _fetch_studies(
     raise RuntimeError("unreachable")
 
 
-def _study_to_finding(study: dict, query: str, retrieved_at: datetime) -> Finding | None:
+def clinicaltrial_to_finding(study: dict, query: str) -> Finding | None:
+    """Normalize one ClinicalTrials.gov record with exact request provenance."""
+    retrieved_at = datetime.now(timezone.utc)
     protocol = study.get("protocolSection") or {}
     ident = protocol.get("identificationModule") or {}
     nct_id = (ident.get("nctId") or "").strip()

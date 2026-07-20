@@ -8,33 +8,14 @@ queries carried by ``SearchRequest``.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
 from ..models import SearchRequest, SearchRuntime
+from ..relevance import query_terms, rank_records, score_text, value_text
 
 TOOLUNIVERSE_INTEGRATION = "tooluniverse"
 MAX_EXCERPT_CHARS = 16_000
-
-_TERM = re.compile(r"[^\W_]+(?:['’][^\W_]+)?", re.UNICODE)
-_LOW_SIGNAL = {
-    "about",
-    "and",
-    "clinical",
-    "current",
-    "evidence",
-    "for",
-    "from",
-    "latest",
-    "recent",
-    "research",
-    "study",
-    "the",
-    "trial",
-    "with",
-}
-
 
 def run_tool(
     runtime: SearchRuntime,
@@ -78,15 +59,7 @@ def ranked_records(
     condition + intervention). This deterministic second pass preserves field
     specificity without introducing another model or an untraced router.
     """
-    terms = query_terms(request.input_queries)
-    indexed = list(enumerate(records))
-    indexed.sort(
-        key=lambda item: (
-            -_score(_value_text(item[1]).casefold(), terms),
-            item[0],
-        )
-    )
-    return [record for _, record in indexed[:limit]]
+    return rank_records(records, request.input_queries, limit=limit)
 
 
 def relevant_excerpt(
@@ -100,11 +73,11 @@ def relevant_excerpt(
     terms = query_terms(request.input_queries)
     candidates: list[tuple[int, int, str]] = []
     for index, (field, label) in enumerate(fields):
-        text = _value_text(record.get(field)).strip()
+        text = value_text(record.get(field)).strip()
         if not text:
             continue
         candidates.append(
-            (_score(text.casefold(), terms), index, f"{label}: {text}")
+            (score_text(text, terms), index, f"{label}: {text}")
         )
     candidates.sort(key=lambda item: (-item[0], item[1]))
     output: list[str] = []
@@ -119,20 +92,6 @@ def relevant_excerpt(
         if len(rendered) < len(text):
             break
     return "\n".join(output) or None
-
-
-def query_terms(queries: Iterable[str]) -> tuple[str, ...]:
-    """Return stable, non-generic terms used only for local record ranking."""
-    terms: list[str] = []
-    seen: set[str] = set()
-    for query in queries:
-        for term in _TERM.findall(query):
-            folded = term.casefold()
-            if len(folded) < 3 or folded in _LOW_SIGNAL or folded in seen:
-                continue
-            seen.add(folded)
-            terms.append(folded)
-    return tuple(terms)
 
 
 def parse_datetime(value: Any, *formats: str) -> datetime | None:
@@ -157,10 +116,6 @@ def text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _score(haystack: str, terms: Sequence[str]) -> int:
-    return sum(1 for term in terms if term in haystack)
-
-
 def _first_collection(
     value: Mapping[str, Any],
     preferred_keys: Sequence[str],
@@ -170,21 +125,3 @@ def _first_collection(
         if isinstance(candidate, list):
             return candidate
     return None
-
-
-def _value_text(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return " ".join(value.split())
-    if isinstance(value, (int, float, bool)):
-        return str(value)
-    if isinstance(value, Mapping):
-        return "; ".join(
-            f"{key}: {_value_text(item)}"
-            for key, item in value.items()
-            if _value_text(item)
-        )
-    if isinstance(value, (list, tuple)):
-        return "; ".join(text for item in value if (text := _value_text(item)))
-    return str(value)

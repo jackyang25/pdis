@@ -664,6 +664,41 @@ class ToolUniverseConnectorTests(unittest.TestCase):
 
         self.assertEqual(connector.max_active, 2)
 
+    def test_progress_counter_survives_multiple_scheduler_waves(self) -> None:
+        connector = _FakeToolUniverse()
+        runtime = SearchRuntime(
+            llm_client=_NoopLLM(),
+            integrations={"tooluniverse": connector},
+            global_worker_limit=1,
+        )
+        requests = plan_requests(
+            [
+                RetrievalIntent(
+                    scope_ref=f"field-{index}",
+                    topic="efficacy",
+                    description="",
+                    indication="malaria",
+                    intervention_class="vaccine",
+                    queries=(SourceQueryIntent(text=f"query {index}"),),
+                )
+                for index in range(2)
+            ],
+            sources=("semantic_scholar",),
+        )
+        updates: list[tuple[int, int]] = []
+
+        with patch("services.searcher.controller._wait_for_source_start"):
+            outcomes = run_requests(
+                requests,
+                runtime=runtime,
+                max_tokens=100,
+                max_uses=1,
+                progress=lambda completed, total: updates.append((completed, total)),
+            )
+
+        self.assertEqual(len(outcomes), 2)
+        self.assertEqual(updates, [(0, 2), (1, 2), (2, 2)])
+
     def test_slow_lane_does_not_occupy_fast_lane_worker(self) -> None:
         web_started = threading.Event()
         connector = _CoordinatedToolUniverse(web_started)

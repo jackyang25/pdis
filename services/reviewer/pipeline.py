@@ -226,7 +226,7 @@ def build_report_card(
     section_grades: list[SectionGrade],
     config: ReviewConfig,
 ) -> ReviewResult:
-    """Roll section grades up into a full report card across two dimensions."""
+    """Roll section grades up into a full report card across three dimensions."""
     doc_id = labeled_blocks[0].doc_id if labeled_blocks else ""
     return ReviewResult(
         doc_id=doc_id,

@@ -23,7 +23,11 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TOKENS = 2000
+# GPT-5 reasoning tokens share the completion budget with visible JSON.  A
+# 2,000-token cap can therefore end during reasoning before the model emits a
+# single character.  Keep this aligned with Scout's other bounded document
+# reasoning stages; the value is a ceiling, not a requested output length.
+DEFAULT_MAX_TOKENS = 16000
 
 
 def resolve_document_target(

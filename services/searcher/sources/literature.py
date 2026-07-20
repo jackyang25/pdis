@@ -133,18 +133,6 @@ def build_semantic_scholar_query(
     return " ".join(output)
 
 
-def build_registry_query(queries: list[SourceQueryIntent]) -> str:
-    """Compile all variants into ClinicalTrials.gov's Boolean term syntax."""
-    clauses = list(
-        dict.fromkeys(
-            cleaned
-            for query in queries
-            if (cleaned := clean_query_text(query.text))
-        )
-    )
-    return " OR ".join(f"({clause})" for clause in clauses)
-
-
 def _unique_terms(text: str) -> list[str]:
     terms: list[str] = []
     seen: set[str] = set()

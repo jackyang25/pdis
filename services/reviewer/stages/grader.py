@@ -1,17 +1,18 @@
-"""Two-dimension grader.
+"""Three-dimension grader.
 
-Each section is graded by TWO independent LLM calls - one per dimension
-(completeness, adherence). Each call's prompt contains only the
+Each section is graded by three independent LLM calls - one per dimension
+(completeness, adherence, rigor). Each call's prompt contains only the
 rules and inputs that dimension needs:
 
 - completeness call: rubric + draft.
 - adherence call:    rubric + draft.
+- rigor call:         rubric + draft.
 
-The two results are merged into a single SectionGrade (or VariableGrade
+The three results are merged into a single SectionGrade (or VariableGrade
 list) with the same `dimensions` shape the rest of the system already
 consumes. The I/O contract is unchanged.
 
-Sections grade in parallel, and the two dimension calls within each
+Sections grade in parallel, and the three dimension calls within each
 section also run in parallel — so total wall-clock stays close to the
 slowest individual LLM call.
 """
@@ -106,7 +107,7 @@ def grade_sections(
 
 
 # ---------------------------------------------------------------------------
-# Per-section grading: two parallel dimension calls
+# Per-section grading: three parallel dimension calls
 # ---------------------------------------------------------------------------
 
 
@@ -118,7 +119,7 @@ def _grade_section(
     max_tokens: int,
     grading_guidance: str = "",
 ) -> SectionGrade:
-    """Run two independent dimension calls and merge into one SectionGrade."""
+    """Run three independent dimension calls and merge into one SectionGrade."""
 
     blocks_text = _format_blocks(section_blocks)
 

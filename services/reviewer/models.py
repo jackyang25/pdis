@@ -53,7 +53,7 @@ def _empty_dimensions() -> dict[str, DimensionGrade]:
 
 @dataclass
 class VariableGrade:
-    """Atomic graded unit: one rubric variable, two dimension grades."""
+    """Atomic graded unit: one rubric variable, three dimension grades."""
 
     variable_name: str
     dimensions: dict[str, DimensionGrade] = field(default_factory=_empty_dimensions)
@@ -122,7 +122,7 @@ class BatchReviewResult:
 class VariableSpec:
     """Rubric expectations for one variable within a section.
 
-    `completeness` and `adherence` are optional per-dimension
+    `completeness`, `adherence`, and `rigor` are optional per-dimension
     rule hints (free-form dicts). The grader uses each block only when
     grading that dimension — no cross-dimension leakage. The blocks are
     informational; the grader reads them into the dimension's prompt

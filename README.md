@@ -7,168 +7,386 @@
   <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white">
   <img alt="Next.js" src="https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=nextdotjs&logoColor=white">
   <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white">
-</p>
-<p align="center">
   <img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-412991?style=flat-square&logo=openai&logoColor=white">
-  <img alt="PubMed / NCBI E-utilities" src="https://img.shields.io/badge/PubMed-NCBI%20E--utilities-326295?style=flat-square">
-  <img alt="ClinicalTrials.gov API v2" src="https://img.shields.io/badge/ClinicalTrials.gov-API%20v2-2A6EBB?style=flat-square">
-  <img alt="LibreOffice (headless figure rasterization)" src="https://img.shields.io/badge/LibreOffice-headless-18A303?style=flat-square&logo=libreoffice&logoColor=white">
 </p>
 
-PDIS helps teams write and pressure-test product-development documents — Target Product Profiles (TPPs) and Integrated Product Development Plans (IPDPs). You upload a document and it comes back three ways: parsed into citable blocks, graded against a rubric, or tested against external evidence. A chat assistant ("Ask") answers questions about any result.
+PDIS turns product-development documents into traceable, citable analysis. It
+parses DOCX/PDF files, reviews them against a document-specific rubric,
+pressure-tests their targets against live external evidence, and supports
+grounded follow-up questions over the saved result and source document.
 
-## Architecture
+PDIS currently supports intervention and candidate Target Product Profiles
+(`itpp`, `ctpp`) and Integrated Product Development Plans (`ipdp`) across
+vaccines, drugs, diagnostics, and devices.
 
-```
-web/ (Next.js)  →  api/ (FastAPI)  →  services/  →  shared/
-```
+## Product surfaces
 
-Imports go one direction only: web → api → services → shared, never the reverse. Services reach each other only through their `__init__.py` public contract — not into another service's `stages/` or `models.py`.
-
-`shared/` holds the cross-cutting pieces: the OpenAI client and two controlled vocabularies (`indications.yaml`, `attributes.yaml`).
-
-## Services
-
-| Folder | UI | What it does | Depends on |
-|---|---|---|---|
-| `chunker` | Chunker | Parse `.docx`/`.pdf` into ordered, citable `ContentBlock`s, retain embedded images, and optionally label sections. | — |
-| `reviewer` | Reviewer | Grade a document against its rubric on completeness, adherence, and rigor, then check consistency across sections. | chunker |
-| `searcher` | Searcher | Turn neutral intent into source-attributed `Finding`s through registered source adapters and a source-agnostic controller. | adapter-specific |
-| `scout` | Scout | Test a document's targets against live evidence — drift, evidence weight, conformity, and precedent. Targets come from a fixed attribute list (TPP) or are extracted from the document (IPDP). | chunker, searcher |
-| `assistant` | Ask | Read-only chat grounded in a Scout or Reviewer result; navigates the result and can open the sources it already cites. | openai_client |
-
-Each service has its own README with its file map and public contract.
-
-## Portable results
-
-Reviewer and Scout downloads use a versioned `pdis.result` envelope with three
-separate concerns: `analysis`, `source_documents` (parsed, citable blocks), and
-artifact metadata (`version` and `result_type`). The original PDF/DOCX binary is
-not embedded; extracted DOCX visuals are embedded on their image blocks. Imports remain backward-compatible with legacy result JSON that
-stored `blocks` directly on the analysis; legacy files without blocks still
-render, but Ask is analysis-only until the document is run again.
-
-## The four inputs
-
-Document tools take four fields, chosen once in the sidebar:
-
-| Field | What it's for |
-|---|---|
-| `org` | who published the source (e.g. `bmgf`) |
-| `source_type` | document type: `itpp` (intervention TPP), `ctpp` (candidate TPP), or `ipdp` (integrated product development plan) |
-| `intervention_class` | `vaccine`, `drug`, `diagnostic`, `device` |
-| `indication` | disease, e.g. `malaria`, `hiv`, `tb` |
-
-The first three select configs; all four are stamped on every output, and `indication` also scopes Scout's search. You only need them to *run* — the page loads without them, so you can import a saved result anytime. Searcher is query-only and ignores these.
-
-## Configs and vocabularies
-
-Domain content lives in YAML, maintained by hand:
-
-| Surface | Path | Role |
+| Surface | Responsibility | Output |
 |---|---|---|
-| chunker config | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | section taxonomy and mapper guidance |
-| reviewer config | `services/reviewer/configs/…` | grading rubric + stage bar (`grading_guidance`) |
-| scout config | `services/scout/configs/…` | query tuning (languages, priority sources, per-track budgets) + `unit_provider` |
-| indications | `shared/indications.yaml` | indication vocabulary per intervention |
-| attributes | `shared/attributes.yaml` | TPP attribute vocabulary per intervention (used when `unit_provider: vocabulary`) |
+| **Chunker** | Parse a document into ordered, citable blocks while retaining embedded DOCX visuals. | `ContentBlock[]` |
+| **Reviewer** | Grade completeness, adherence, and rigor independently, then report cross-section conflicts. | `ReviewResult` |
+| **Scout** | Compare document targets with live evidence, quantitative alignment, and precedent. | `ScoutResult` |
+| **Searcher** | Debug or use the registered retrieval sources directly with a free-text query. | `Finding[]` |
+| **Ask** | Answer read-only questions from a Reviewer/Scout result, its parsed document, and already-cited URLs. | Streamed text |
 
-Adding an `(org × source_type × intervention)` is a YAML drop into the matching `configs/` folders. No code changes for ordinary domain additions.
+Scout is intentionally named as an evidence reconnaissance tool: it surfaces
+and structures evidence signals without claiming definitive verification.
 
-## Repository layout
+## Quick start
 
-```
-pdis/
-  shared/        openai_client.py, indications.yaml, attributes.yaml
-  services/      chunker/  reviewer/  searcher/  scout/  assistant/
-  api/           main.py, routes/, schemas.py, deps.py, streaming.py
-  web/           app/ (routes: /chunker, /reviewer, /searcher, /scout), components/, lib/
-```
-
-## Design rules
-
-1. One config per domain change — adding a triple is YAML only.
-2. Services are stateless: same input, same output (modulo LLM/web drift). No persistence in the active path.
-3. Cross-service calls go through `__init__.py` — never reach into `stages/` or other internals.
-4. Code is infrastructure, config is domain content. Prompts live in `stages/*.py`; rubric and query content live in YAML.
-5. One provider. All services share `shared/openai_client.py`.
-
-## Running locally
-
-For the closest match to production, keep API credentials in `.env`, put only
-ToolUniverse provider credentials in `.env.tooluniverse`, and keep browser-safe
-configuration in `web/.env.local`. These files are Git-ignored. Then start all
-three isolated services through Docker Compose:
+The production-like local setup runs the web app, API, and private
+ToolUniverse service as separate containers.
 
 ```bash
 cp .env.example .env
 cp .env.tooluniverse.example .env.tooluniverse
 cp web/.env.local.example web/.env.local
-# Fill the two server-side files once, then:
+
+# Fill the copied files once, then start the stack.
 docker compose up --build
 ```
 
-After the first build, `docker compose up` is sufficient. Docker Desktop can
-also start and stop the saved `pdis` stack without re-entering credentials.
-The API receives `TOOLUNIVERSE_API_TOKEN` from `.env`; Compose injects that same
-value into ToolUniverse without duplicating it in another file. Only
-`SEMANTIC_SCHOLAR_API_KEY` belongs in `.env.tooluniverse`.
+Open:
 
-For the faster native development loop, run the backend and frontend as two
-processes. Keys are read server-side from `.env`; the browser never sees them.
+- Web: <http://localhost:3000>
+- API health: <http://localhost:8000/api/health>
+- API documentation: <http://localhost:8000/docs>
+
+After the first build, `docker compose up` is sufficient. Docker Desktop can
+start and stop the saved `pdis` stack without re-entering credentials.
+
+For a faster native development loop, keep ToolUniverse in Docker and run the
+API/web processes locally:
 
 ```bash
-# Backend (fast dev loop)
+docker compose up -d tooluniverse
+
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
 python -m uvicorn api.main:app --reload --port 8000
 
-# Frontend
-cd web && npm install && npm run dev   # http://localhost:3000
+cd web
+npm install
+npm run dev
 ```
 
-**Backend in Docker** — packages LibreOffice for the uncommon EMF/WMF/SVG figures that require PNG rasterization. Standard raster images need no converter. Native runs everything except those vector conversions unless LibreOffice is installed locally.
+## Architecture
 
-```bash
-docker build -t pdis-api .
-docker run --rm -p 8000:8000 --env-file .env pdis-api
+```text
+Browser
+  │
+  ▼
+web/ (Next.js)
+  │  multipart + streamed NDJSON/plain text
+  ▼
+api/ (FastAPI composition boundary)
+  │
+  ├── services/chunker
+  ├── services/reviewer ──▶ chunker public contract
+  ├── services/scout ─────▶ chunker + searcher public contracts
+  ├── services/searcher ──▶ direct APIs + injected ToolUniverse connector
+  └── services/assistant
+          │
+          ▼
+shared/ (OpenAI client + controlled vocabularies)
 ```
 
-### ToolUniverse sources
+Imports flow only `web → api → services → shared`. Services use another
+service only through its package `__init__.py`; they never import another
+service's stages or models. The API constructs the shared OpenAI client and
+connector integrations. Services remain stateless—live retrieval and model
+outputs can vary, but no hidden server session is required.
 
-PDIS connects to ToolUniverse through its authenticated HTTP API rather than
-installing the full scientific/agent SDK into the API image. The official
-package is pinned in `deploy/tooluniverse/Dockerfile`. To build or start only
-that local service while retaining the same environment wiring, use Compose:
+Detailed service contracts:
 
-```bash
-docker compose up --build tooluniverse
+- [Chunker](services/chunker/README.md)
+- [Reviewer](services/reviewer/README.md)
+- [Searcher](services/searcher/README.md)
+- [Scout](services/scout/README.md)
+- [Ask](services/assistant/README.md)
+
+## Document identity and provenance
+
+Document tools use four primitives:
+
+| Field | Meaning |
+|---|---|
+| `org` | Publishing organization, such as `bmgf` |
+| `source_type` | `itpp`, `ctpp`, or `ipdp` |
+| `intervention_class` | `vaccine`, `drug`, `diagnostic`, or `device` |
+| `indication` | Disease or condition that scopes retrieval |
+
+The first three select YAML configs; all four are stamped on outputs. The API
+passes the original upload filename stem as `doc_id`, so temporary upload names
+never leak into block IDs.
+
+Chunker emits ordered `ContentBlock`s with stable IDs. Embedded DOCX images are
+canonical `image` blocks carrying media type, base64 bytes, SHA-256, and source
+media type. Supported raster bytes are retained; Pillow normalizes other raster
+formats; LibreOffice is only an optional fallback for EMF/WMF/SVG conversion.
+Images remain tied to their exact block IDs in Mapper, Reviewer, Scout, and Ask.
+
+## Canonical Scout field model
+
+Scout evaluates one canonical `Attribute` shape regardless of document type:
+
+| Field | Meaning |
+|---|---|
+| `name` | Stable field identifier |
+| `description` | Neutral definition of what is evaluated |
+| `document_target` | Exact document claim, constraint, or commitment |
+| `block_ids` | Document blocks supporting that target |
+| `definition_mode` | `fixed` for vocabulary TPP fields or `dynamic` for extracted IPDP claims |
+| `target_resolved` | Whether document binding has completed, including an intentionally absent target |
+| `evidence_domain` | One closed domain used for deterministic source applicability |
+| `entities` | Explicitly document-stated typed entities and optional stated identifiers |
+
+TPP fields come from `shared/attributes.yaml` and are bound to document targets.
+IPDP fields are dynamically extracted checkable claims. Both converge to the
+same shape before query generation; downstream reasoning cannot rewrite the
+canonical target.
+
+Evidence domains are `general`, `biological`, `clinical`, `safety`,
+`regulatory`, `product`, `manufacturing`, `delivery`, and
+`commercial_access`. Entity types are also closed and validated: disease,
+pathogen, protein, gene, antigen, vaccine, drug, compound, biomarker, device,
+and `other`.
+
+## Scout pipeline
+
+```text
+parse document blocks and visuals
+→ resolve canonical fields and targets
+→ generate source-neutral query intents with block lineage
+→ determine source applicability from closed metadata
+→ compile source-native requests in each adapter
+→ execute fair concurrent source queues
+→ normalize and deduplicate Findings without losing retrieval paths
+→ extract atomic Insights
+→ classify target relationship
+→ assess grounding
+→ calculate compatible quantitative alignment
+→ assess precedent coverage and outcome
 ```
 
-Registered ToolUniverse-backed lanes are `semantic_scholar`, `ctis`, `isrctn`,
-`open_targets`, `chembl`, `uniprot`, and `fda`. Each is a separate PDIS source
-with its own label, capabilities, execution policy, normalizer, attribution,
-and allowlisted operation; ToolUniverse is never shown as a generic evidence
-source. Scout configs opt into those lanes alongside the direct sources. The
-controller runs broad literature lanes for every field and invokes specialized
-lanes only when the field's closed evidence domain and document-stated entities
-match their capabilities. Every non-applicable lane is retained as a traced
-skip. `SEMANTIC_SCHOLAR_API_KEY` belongs in the ToolUniverse server environment,
-not the browser or PDIS API. The configured CTIS, ISRCTN, Open Targets, ChEMBL,
-UniProt, and FDA operations do not require additional credentials.
+General, geographic, counterfactual, and precedent query tracks are additive.
+Each generated intent retains the exact document block IDs that shaped it.
+Every native request records its compiled intent IDs/texts, tracks, options,
+connector operation, status, result count, and URLs.
 
-## Deploying on Render
+## Retrieval sources
 
-`render.yaml` defines three independently deployed services:
+Searcher owns source grammar, credentials, execution policy, and response
+normalization. Scout only supplies neutral intent and chooses enabled adapter
+keys through config.
+
+| Source key | Execution | Intended coverage |
+|---|---|---|
+| `web` | OpenAI web search | Broad current evidence |
+| `pubmed` | Direct NCBI API | Biomedical literature and available PMC text |
+| `clinicaltrials` | Direct ClinicalTrials.gov API v2 | Clinical and safety trials |
+| `ctis` | ToolUniverse | EU clinical and safety trials |
+| `isrctn` | ToolUniverse | International clinical and safety trials |
+| `semantic_scholar` | ToolUniverse | Cross-disciplinary literature discovery |
+| `open_targets` | ToolUniverse | Disease, drug, and target discovery for biological fields |
+| `chembl` | ToolUniverse | Compounds and molecular targets for document-stated entities |
+| `uniprot` | ToolUniverse | Proteins, genes, antigens, and biomarkers |
+| `fda` | ToolUniverse | Drug labels and device 510(k) regulatory records |
+
+Broad web/literature lanes can serve every field. Specialized lanes declare
+supported evidence domains and, where needed, required entity types. The
+generic controller makes a deterministic metadata match—there is no second LLM
+router. A non-applicable enabled lane produces a traced `skipped` outcome and
+does not call its connector. Empty successful searches and source failures stay
+distinct from skips.
+
+Native request counts intentionally differ by source. Web can execute each
+intent; PubMed can compile track variants into Boolean queries; Semantic
+Scholar creates focused plain-text requests; structured registries retrieve a
+bounded candidate set and rank it deterministically against the full neutral
+intent bundle. Rate limits change scheduling, never which upstream intents are
+silently retained or discarded.
+
+### ToolUniverse boundary
+
+PDIS calls an authenticated private ToolUniverse HTTP service instead of
+installing its full scientific SDK in the API image. ToolUniverse standardizes
+execution; each PDIS adapter still owns the database-specific request and
+normalized response contract. There is no generic “ToolUniverse” evidence lane
+and no autonomous tool selection.
+
+The package is pinned in `deploy/tooluniverse/Dockerfile`. Registered operations
+are allowlisted from adapter metadata. `TOOLUNIVERSE_API_TOKEN` protects the
+PDIS-to-ToolUniverse connection; database credentials remain in the
+ToolUniverse environment.
+
+Open Targets, ChEMBL, UniProt, CTIS, ISRCTN, and the configured FDA operations
+do not require additional provider credentials. Semantic Scholar uses the key
+owned by the ToolUniverse service.
+
+## Scout result semantics
+
+The four primary axes are independent:
+
+| Axis | Values | Ownership |
+|---|---|---|
+| Target relationship | `contradicts`, `extends`, `confirms`, `unrelated` | LLM over one insight and cited document blocks |
+| Grounding | `well_grounded`, `partial`, `thin`, `unsupported`, `unknown` | LLM selection over closed labels; cited insight IDs resolved deterministically |
+| Quantitative alignment | Score, interval, verdict | Deterministic calculation over validated comparable measurements; incompatible units are not silently converted |
+| Precedent | Coverage: `direct`, `adjacent`, `none`, `unknown`; outcome tracked separately | LLM selection over distinct closed labels with deterministic lineage validation |
+
+LLMs may classify or select only within closed vocabularies. Code validates
+document IDs, insight IDs, URLs, units, provenance, deduplication, weights, and
+rollups. Holistic “basis” tags are intentionally not part of the result model.
+
+### Evidence map
+
+The Scout evidence map is a focused projection, not the complete retrieval
+trace:
+
+```text
+evaluated field → canonical document target → evidence insight → cited source
+```
+
+Relationship colors attach to the document target. Target text and blocks come
+from the canonical field, never a downstream assessment copy. The map shows a
+deterministic, bounded sample for readability; selecting an insight exposes all
+of its cited sources. The Fields view retains the complete analyzed evidence,
+while `search_plan` in the downloaded result retains requests, skips, failures,
+and full retrieval lineage.
+
+## Reviewer semantics
+
+Reviewer makes three independent judgments per rubric unit:
+
+- **Completeness:** required content is present and substantive.
+- **Adherence:** structure and rubric rules are followed.
+- **Rigor:** content is specific, measurable, meaningful, and technically sound.
+
+Variable → section → document grades are deterministic rollups. The only
+whole-document model pass reports cross-section conflicts. Grades remain
+`A`, `B`, `C`, `D`, `F`, or `N/A` for all three dimensions.
+
+## Ask semantics
+
+Ask is a stateless, read-only assistant. Each turn sends the result, parsed
+source-document blocks, and conversation history. Ask can navigate the result,
+search/read exact document blocks (including retained images), and fetch full
+text only for URLs already cited in the result. It never runs a fresh evidence
+search and never mutates analysis.
+
+The API exposes both JSON `/api/assistant/ask` and plain-text streaming
+`/api/assistant/ask/stream`; the web UI consumes the streaming endpoint through
+the AI SDK client.
+
+## API and progress
+
+Document tool routes stream NDJSON events: `stage`, `complete`, or `error`.
+Parallel fan-out stages include `completed` and `total`; single stages use an
+indeterminate spinner. Browser uploads go directly to the FastAPI origin rather
+than through a Next.js rewrite proxy. Ask uses its separate plain-text stream so
+tool execution remains private while final tokens render incrementally.
+
+## Portable result files
+
+Reviewer and Scout downloads use the versioned `pdis.result` envelope, currently
+version **7**:
+
+```text
+schema + version + result_type
+├── analysis
+└── source_documents[]
+    └── ordered ContentBlocks (including embedded image bytes)
+```
+
+The original PDF/DOCX binary is not embedded. Parsed blocks and DOCX image
+assets are embedded, which keeps Ask portable and stateless but can make result
+files larger. Backward compatibility lives only in the import normalizer. Old
+results remain viewable, but missing images, canonical-field metadata, query
+lineage, or retrieval provenance cannot be reconstructed; rerun the analysis
+for a fully current artifact.
+
+## Configuration and extension
+
+Human-owned domain content lives in YAML:
+
+| Surface | Path | Responsibility |
+|---|---|---|
+| Chunker | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | Section taxonomy and mapping guidance |
+| Reviewer | `services/reviewer/configs/…` | Rubric, weights, dimension guidance |
+| Scout | `services/scout/configs/…` | Enabled sources, query budgets, domain framing, unit provider |
+| Indications | `shared/indications.yaml` | Indication choices by intervention |
+| TPP fields | `shared/attributes.yaml` | Fixed definitions and authored evidence domains |
+
+Adding an ordinary `(org, source_type, intervention_class)` product
+configuration is a YAML change, not an engine branch. `itpp`, `ctpp`, and
+`ipdp` differences belong in config framing and unit providers.
+
+Adding a retrieval source requires one adapter, one registry entry, injected
+connector capability if needed, and config opt-in. Scout, Ask, API schemas, and
+UI source labels must not gain provider-specific branches; they discover source
+metadata and consume normalized contracts.
+
+## Environment variables
+
+| File/service | Variable | Required | Purpose |
+|---|---|---:|---|
+| `.env` / API | `OPENAI_API_KEY` | Yes | Section mapping, review, Scout reasoning, Ask, and web search |
+| `.env` / API | `NCBI_API_KEY` | No | Higher NCBI request limits |
+| `.env` / API | `TOOLUNIVERSE_BASE_URL` | For local ToolUniverse | Private connector address |
+| `.env` / API | `TOOLUNIVERSE_API_TOKEN` | With ToolUniverse | Shared bearer token |
+| `.env` / API | `TOOLUNIVERSE_TIMEOUT_SECONDS` | No | Connector timeout |
+| `.env` / API | `SEARCH_GLOBAL_WORKER_LIMIT` | No | Shared retrieval worker cap |
+| `.env.tooluniverse` | `SEMANTIC_SCHOLAR_API_KEY` | For Semantic Scholar | Provider credential owned by ToolUniverse |
+| `web/.env.local` | `NEXT_PUBLIC_PDIS_API_URL` | Local web | Browser-visible API origin; never place secrets here |
+
+Secrets are server-side and the populated files are Git-ignored.
+
+## Render deployment
+
+`render.yaml` defines three services:
 
 - `pdis-web`: public Next.js service.
 - `pdis-api`: public Docker service.
-- `pdis-tooluniverse`: private Docker service reachable only over Render's
-  internal network.
+- `pdis-tooluniverse`: private Docker service on Render's internal network.
 
-Create a Render Blueprint from this repository. Render derives the web/API
-addresses, private ToolUniverse host and port, and a shared 256-bit bearer
-token automatically. Enter only the provider credentials requested during the
-initial Blueprint setup: `OPENAI_API_KEY`, optional `NCBI_API_KEY`, and
-`SEMANTIC_SCHOLAR_API_KEY`. They persist in Render and are never committed.
+Create a Render Blueprint from this repository. Render derives the API/web
+addresses, private ToolUniverse host/port, and a shared generated bearer token.
+Enter `OPENAI_API_KEY`, optional `NCBI_API_KEY`, and
+`SEMANTIC_SCHOLAR_API_KEY` when prompted. Render persists them; they are never
+committed or exposed to the browser.
+
+## Validation
+
+Run the same checks expected for cross-layer changes:
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/pdis-pycache \
+  .venv/bin/python -m compileall -q shared services api tests
+.venv/bin/python -m unittest discover -s tests -v
+npm --prefix web run test:evidence-map
+npm --prefix web run typecheck
+npm --prefix web run build
+git diff --check
+```
+
+## Repository layout
+
+```text
+pdis/
+├── api/                     FastAPI schemas, routes, streaming, composition
+├── deploy/tooluniverse/     Pinned private ToolUniverse image and health check
+├── services/
+│   ├── assistant/           Read-only grounded Ask agent
+│   ├── chunker/             Document parsing, images, section mapping
+│   ├── reviewer/            Rubric grading and deterministic rollups
+│   ├── scout/               Document-bound evidence reasoning pipeline
+│   └── searcher/            Source registry, planning, execution, Findings
+├── shared/                  OpenAI client and controlled vocabularies
+├── tests/                   Python contract and lineage tests
+├── web/                     Next.js UI, result import/export, evidence map
+├── compose.yaml             Local three-service stack
+└── render.yaml              Render Blueprint
+```
+
+Implementation invariants for coding agents live in [AGENTS.md](AGENTS.md).

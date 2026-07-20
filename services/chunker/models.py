@@ -82,7 +82,7 @@ class ContentBlock:
 
     # --- Header (document provenance, stamped by pipeline after parsing) ---
     org: str | None = None
-    source_type: str | None = None  # document format: "tpp", "ppc", "paper"
+    source_type: str | None = None  # product document type: itpp, ctpp, ipdp
     intervention_class: str | None = None
     indication: str | None = None
 

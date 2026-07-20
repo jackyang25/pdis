@@ -8,11 +8,16 @@
 # determine how each section contributes to the overall grade. Variables
 # within a section let the grader call out specific gaps.
 
-type_key: rubric_template_v0
+type_key: example_org_itpp_vaccine
 org: example_org
-source_type: example_type
+source_type: itpp
 intervention_class: vaccine
 display_name: "Template Rubric"
+
+# Optional document-stage calibration applied independently inside each
+# dimension prompt (for example, ITPP versus CTPP specificity expectations).
+grading_guidance: |
+  Replace with concise stage-specific grading guidance.
 
 # The chunker config used for parsing/labeling is resolved automatically
 # from (org, source_type, intervention_class) — same triple as this file.
@@ -31,6 +36,12 @@ sections:
     variables:
       - name: "Variable Name"
         description: "What this variable should contain. The grader uses this to detect missing or template-token (<<...>>) content."
+        completeness:
+          expectations: "Required elements that must be present."
+        adherence:
+          expectations: "Structural or rubric rules this variable must follow."
+        rigor:
+          expectations: "Specificity, measurability, and technical quality expected."
       - name: "Another Variable"
         description: "Quantitative target, source citation, both Minimum and Optimistic columns filled — whatever the rubric expects."
 

@@ -1,56 +1,83 @@
 # Reviewer
 
-Grades a document against a TPP rubric across two independent dimensions:
-**completeness** and **adherence**.
-
-> Folder: `services/reviewer/` · User-facing name: **Reviewer**
+Grades a parsed product-development document against its configured rubric on
+three independent dimensions: completeness, adherence, and rigor.
 
 ## Inputs and outputs
 
 | | |
 |---|---|
-| Input | One document + header `(org, source_type, intervention_class, indication)` |
-| Output | `ReviewResult` — document-, section-, and variable-level grades across the two dimensions |
+| Input | One document or pre-parsed `ContentBlock[]`, a `ReviewConfig`, indication, and injected LLM client |
+| Output | `ReviewResult` with variable-, section-, and document-level grades plus cross-section conflicts |
 
-Pipeline: parse + label (chunker) -> grade.
+Grades are always `A`, `B`, `C`, `D`, `F`, or `N/A`.
 
-## Two grading dimensions
+## Three grading dimensions
 
-| Dimension | Question | Inputs |
-|---|---|---|
-| `completeness` | Are required variables filled with substantive content? | Rubric + draft |
-| `adherence` | Does it follow the rubric's structural rules? | Rubric + draft |
+| Dimension | Question |
+|---|---|
+| `completeness` | Is every required element present and substantive? |
+| `adherence` | Does the document follow the rubric's structural and formatting expectations? |
+| `rigor` | Is the content specific, measurable, meaningful, and technically sound? |
 
-Each dimension is graded by its own LLM call with scoped inputs.
+Each dimension is produced by its own responsibility-scoped LLM call. A call
+receives only that dimension's rubric guidance and the relevant document
+blocks. The three outputs are merged into a common `dimensions` shape.
+
+## Pipeline
+
+```text
+Chunker parse + section mapping
+→ grade rubric sections in parallel
+  → grade completeness, adherence, and rigor independently
+→ deterministic variable → section rollups
+→ deterministic section → document rollups
+→ one whole-document consistency pass for cross-section conflicts only
+```
+
+Variable-bearing sections are graded at the variable level. Prose-only sections
+are graded directly. Missing sections and variables receive deterministic
+handling. No extra model call synthesizes section or document grades.
+
+Embedded visuals are supplied with their exact block IDs to each applicable
+dimension call. Returned block IDs are validated against the section input.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `models.py` | `ReviewConfig`, `SectionSpec`, `VariableSpec`, `ReviewResult`, `SectionGrade`, `VariableGrade`, `DimensionGrade`. YAML loader. |
-| `pipeline.py` | `run_pipeline(file, ...)` and `review_blocks(blocks, ...)`. Section grades roll up to document grades via section weights. |
-| `stages/grader.py` | Two parallel dimension calls per section; merges into `SectionGrade.dimensions`. |
-| `cli.py` | Headless batch export to CSV. |
-| `configs/` | One YAML per `(org, source_type, intervention)`. |
+| `models.py` | Rubric, grade, result, and YAML contracts. |
+| `pipeline.py` | Parse/grade orchestration, deterministic rollups, and batch entry points. |
+| `stages/grader.py` | Independent dimension calls and cross-section consistency pass. |
+| `configs/` | One rubric per `(org, source_type, intervention_class)`. |
+| `cli.py` | Headless batch export. |
 
-## Configs
+## Configuration
 
-Filename: `{org}_{source_type}_{intervention}.yaml`. Each file declares
-the rubric: sections with weights, variables, and optional per-dimension
-hint blocks (`completeness:`, `adherence:`).
+Filename: `{org}_{source_type}_{intervention}.yaml`. Each rubric declares
+sections, weights, optional variables, document-stage grading guidance, and
+optional responsibility-specific blocks:
 
-Bundled: `bmgf_tpp_vaccine.yaml`, `bmgf_tpp_drug.yaml`,
-`bmgf_tpp_diagnostic.yaml`, `bmgf_tpp_device.yaml`.
+```yaml
+completeness: {}
+adherence: {}
+rigor: {}
+```
+
+Bundled BMGF configs cover `itpp` and `ctpp` for vaccine, drug, diagnostic, and
+device, plus `ipdp` for vaccine, drug, and diagnostic.
 
 ## Public contract
 
-From `__init__.py`:
+Consumers import only from `services.reviewer`:
 
-- `run_pipeline`, `run_pipeline_batch`, `review_blocks`, `review_blocks_batch`
+- `run_pipeline`, `run_pipeline_batch`
+- `review_blocks`, `review_blocks_batch`
 - `ReviewResult`, `ReviewConfig`, `BatchReviewResult`
 - `find_config`, `review_result_to_dict`
 - `DEFAULT_MAX_OUTPUT_TOKENS`
 
-## Dependencies
+## Dependency boundary
 
-Imports `chunker` for parse + label. Never imported by chunker.
+Reviewer depends on Chunker only through `services.chunker`. It does not search
+external evidence and is never imported by Chunker.

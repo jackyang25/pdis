@@ -1,6 +1,6 @@
-type_key: example_template
-org: bmgf
-source_type: tpp
+type_key: example_org_itpp_vaccine
+org: example_org
+source_type: itpp
 intervention_class: vaccine
 display_name: "Example Template"
 

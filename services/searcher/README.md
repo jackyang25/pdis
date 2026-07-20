@@ -7,10 +7,12 @@ native requests and normalize every response to source-attributed `Finding`s.
 
 | | |
 |---|---|
-| Input | One free-text query + an injected `SearcherLLMClientProtocol` implementation |
+| Input | A free-text query, or canonical `RetrievalIntent[]` from an upstream service, plus injected runtime capabilities |
 | Output | `list[Finding]` - each finding is a source URL, page title, optional excerpt, original query, retrieval timestamp, and source modality |
 
-Searcher does not use document headers or the four primitives. A query is not a document.
+Free-query Searcher does not use document headers or the four primitives. Scout
+supplies indication/intervention context and document lineage through the
+neutral `RetrievalIntent` contract rather than exposing its own models.
 
 ## Files
 
@@ -19,6 +21,7 @@ Searcher does not use document headers or the four primitives. A query is not a 
 | `models.py` | Stable intent, request, outcome, source metadata, and `Finding` contracts. |
 | `controller.py` | Source-agnostic planning, validation, concurrency, and failure isolation. |
 | `sources/` | One adapter per source plus the explicit engineering registry. |
+| `connectors/` | Injected integration clients, currently the authenticated ToolUniverse HTTP boundary. |
 | `pipeline.py` | Free-query Searcher facade over the same controller. |
 | `stages/searcher.py` | OpenAI web-search call and citation parser. |
 | `stages/pubmed.py` | Direct NCBI PubMed/PMC retrieval. |
@@ -90,6 +93,9 @@ The stable boundary is intent/request/outcome, not a fixed backend list:
   the canonical unit metadata, records non-applicable lanes as traced skips,
   and never calls their connector. Free-query Searcher remains explicitly
   source-selected and bypasses document-field applicability.
+- **One closed vocabulary** - evidence domains and entity types are owned by
+  Searcher's public neutral contract and reused by Scout and adapter metadata;
+  misspelled capabilities fail during construction.
 - **Minimal API route and UI** - exposed as a debug surface for sanity-checking
   retrieval; both discover registered source metadata dynamically.
 - **No 4-primitive stamping** - those are document-centric; a freeform
@@ -99,7 +105,8 @@ The stable boundary is intent/request/outcome, not a fixed backend list:
 
 - `web` - OpenAI Responses API `web_search` via `OpenAIClient.search_web()`.
 - `pubmed` - NCBI PubMed abstracts plus PMC full text when open-access text is available.
-- `clinicaltrials` - structured ClinicalTrials.gov condition/intervention/topic retrieval.
+- `clinicaltrials` - structured ClinicalTrials.gov condition/intervention candidate
+  retrieval, followed by deterministic field-query ranking.
 - `ctis` - structured EU Clinical Trials Information System retrieval through
   ToolUniverse, followed by deterministic field-query ranking.
 - `isrctn` - structured ISRCTN condition/intervention retrieval through
@@ -122,11 +129,10 @@ Native request counts intentionally differ by lane. Web executes each generated
 variant. PubMed compiles all variants in a track into one Boolean query.
 Semantic Scholar creates one focused plain-text query per track using terms from
 every variant because its relevance endpoint has no special query syntax.
-ClinicalTrials.gov compiles every track's variants into its Boolean term syntax
-and retains condition/intervention as structured filters. CTIS, ISRCTN, and FDA
-issue one structured candidate request per field and rank the returned records
-deterministically against every neutral query carried by that request. Rate
-limits affect when requests run, never which neutral intents are retained.
+ClinicalTrials.gov, CTIS, ISRCTN, and FDA issue one structured candidate request
+per field and rank the returned records deterministically against every neutral
+query carried by that request. Rate limits affect when requests run, never which
+neutral intents are retained.
 Specialized sources may be intentionally skipped before native planning. Their
 skip trace still carries every neutral intent ID/text and document block, so
 "not applicable" is distinguishable from an empty search and a source failure.

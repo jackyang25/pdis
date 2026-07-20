@@ -14,7 +14,7 @@ def parse_document(file_path: str, doc_id: str) -> list[ContentBlock]:
 
     Dispatches by file extension to a format-specific parser. The output
     shape is uniform across formats; downstream consumers (mapper,
-    evidence, reviewer) read ContentBlocks without caring about source
+    evidence, Inspector) read ContentBlocks without caring about source
     format.
 
     Supported formats:

@@ -2,7 +2,7 @@
 # Keyed by intervention_class. Each entry is the set of valid indication
 # tags for that intervention. Read by:
 #   - the header picker (drives the Indication dropdown)
-#   - Reviewer (filters peer claims by indication)
+#   - Inspector (labels the inspected document)
 # Stamped on every output (block, claim, review result).
 
 vaccine:

@@ -1,8 +1,8 @@
-"""CLI: grade a chunker package against a Reviewer rubric.
+"""CLI: grade a chunker package against an Inspector rubric.
 
 Reads a chunker package (documents.csv + content_blocks.csv produced by
 `python -m chunker.cli`) and grades every successfully-mapped document.
-Outputs review CSVs + manifest.
+Outputs inspection CSVs + manifest.
 
 The header (org, source_type, intervention_class) is read from the chunker
 package contents (every row carries the header columns). Indication
@@ -31,8 +31,8 @@ if str(ROOT_DIR) not in sys.path:
 from services.chunker import ContentBlock, ImageAsset  # noqa: E402
 from shared.openai_client import OpenAIClient  # noqa: E402
 
-from .models import ReviewConfig, ReviewResult, SectionGrade, find_config  # noqa: E402
-from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, GRADE_TO_SCORE, review_blocks_batch  # noqa: E402
+from .models import InspectionConfig, InspectionResult, SectionGrade, find_config  # noqa: E402
+from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, GRADE_TO_SCORE, inspect_blocks_batch  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
@@ -51,8 +51,8 @@ DOCUMENT_SCORE_COLUMNS = [
     "sections_present",
     "sections_missing",
     "top_issues_json",
-    "review_status",
-    "review_error",
+    "inspection_status",
+    "inspection_error",
 ]
 
 SECTION_GRADE_COLUMNS = [
@@ -92,7 +92,7 @@ class _DocumentRecord:
     blocks: list[ContentBlock]
 
 
-def export_review_package(
+def export_inspection_package(
     input_dir: str,
     output_dir: str,
     *,
@@ -101,7 +101,7 @@ def export_review_package(
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     indication: str | None = None,
 ) -> None:
-    """Run Reviewer over a chunker package and write review tables."""
+    """Run Inspector over a chunker package and write inspection tables."""
     input_path = Path(input_dir).expanduser().resolve()
     output_path = Path(output_dir).expanduser().resolve()
     if not input_path.is_dir():
@@ -127,8 +127,8 @@ def export_review_package(
     if config is None:
         org, src, iv = header["org"], header["source_type"], header["intervention_class"]
         raise ValueError(
-            f"No Reviewer rubric for ({org}, {src}, {iv}). "
-            f"Expected: reviewer/configs/{org}_{src}_{iv}.yaml"
+            f"No Inspector rubric for ({org}, {src}, {iv}). "
+            f"Expected: inspector/configs/{org}_{src}_{iv}.yaml"
         )
 
     llm_client = OpenAIClient(api_key=api_key)
@@ -144,7 +144,7 @@ def export_review_package(
     variable_rows: list[dict[str, Any]] = []
 
     jobs = [(record.doc_key, record.blocks) for record in records]
-    batch_results = review_blocks_batch(
+    batch_results = inspect_blocks_batch(
         jobs,
         config=config,
         llm_client_factory=lambda: llm_client,
@@ -159,7 +159,7 @@ def export_review_package(
             logger.exception("Review failed for %s: %s", record.doc_key, batch_result.error)
             doc_score_rows.append(_failed_document_row(record, batch_result.error))
             continue
-        result = batch_result.review
+        result = batch_result.inspection
         doc_score_rows.append(_document_score_row(record, result, config))
         section_rows.extend(_section_rows(record, result, config))
         variable_rows.extend(_variable_rows(record, result))
@@ -266,8 +266,8 @@ def _row_to_content_block(row: dict[str, Any]) -> ContentBlock:
 
 def _document_score_row(
     record: _DocumentRecord,
-    result: ReviewResult,
-    config: ReviewConfig,
+    result: InspectionResult,
+    config: InspectionConfig,
 ) -> dict[str, Any]:
     sections_present = sum(1 for grade in result.section_grades if grade.is_present)
     return {
@@ -280,8 +280,8 @@ def _document_score_row(
         "sections_present": sections_present,
         "sections_missing": len(config.sections) - sections_present,
         "top_issues_json": json.dumps(result.top_issues, ensure_ascii=False),
-        "review_status": "ok",
-        "review_error": "",
+        "inspection_status": "ok",
+        "inspection_error": "",
     }
 
 
@@ -296,15 +296,15 @@ def _failed_document_row(record: _DocumentRecord, error: str) -> dict[str, Any]:
         "sections_present": "",
         "sections_missing": "",
         "top_issues_json": "[]",
-        "review_status": "error",
-        "review_error": error,
+        "inspection_status": "error",
+        "inspection_error": error,
     }
 
 
 def _section_rows(
     record: _DocumentRecord,
-    result: ReviewResult,
-    config: ReviewConfig,
+    result: InspectionResult,
+    config: InspectionConfig,
 ) -> list[dict[str, Any]]:
     weight_by_section = {spec.name: spec.weight for spec in config.sections}
     rows: list[dict[str, Any]] = []
@@ -329,7 +329,7 @@ def _section_rows(
 
 def _variable_rows(
     record: _DocumentRecord,
-    result: ReviewResult,
+    result: InspectionResult,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for section_grade in result.section_grades:
@@ -352,7 +352,7 @@ def _variable_rows(
 
 def _weighted_score(
     section_grades: list[SectionGrade],
-    config: ReviewConfig,
+    config: InspectionConfig,
 ) -> float | str:
     grades_by_section = {grade.section_name: grade.grade for grade in section_grades}
     weighted = 0.0
@@ -379,7 +379,7 @@ def _write_manifest(
     max_tokens: int,
     doc_score_rows: list[dict[str, Any]],
 ) -> None:
-    status_counts = Counter(row["review_status"] for row in doc_score_rows)
+    status_counts = Counter(row["inspection_status"] for row in doc_score_rows)
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "org": header["org"],
@@ -414,7 +414,7 @@ def _write_summary(
     section_rows: list[dict[str, Any]],
     header: dict[str, Any],
 ) -> None:
-    status_counts = Counter(row["review_status"] for row in doc_score_rows)
+    status_counts = Counter(row["inspection_status"] for row in doc_score_rows)
     grade_counts = Counter(row["overall_grade"] for row in doc_score_rows if row["overall_grade"])
     section_grade_counts = Counter(row["grade"] for row in section_rows)
     scored = [row["weighted_score"] for row in doc_score_rows if isinstance(row["weighted_score"], (int, float))]
@@ -476,10 +476,10 @@ def _json_object(value: Any) -> dict:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Export a Reviewer package from a chunker package."
+        description="Export an Inspector package from a chunker package."
     )
     parser.add_argument("input_dir", help="Folder containing a parsed + mapped chunker package")
-    parser.add_argument("output_dir", help="Folder where review CSVs are written")
+    parser.add_argument("output_dir", help="Folder where inspection CSVs are written")
     parser.add_argument("--indication", default=None)
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--max-workers", type=int, default=4)
@@ -489,7 +489,7 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = _parse_args()
-    export_review_package(
+    export_inspection_package(
         args.input_dir,
         args.output_dir,
         api_key=args.api_key,

@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { AlertTriangle, ChevronDown, Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
+import { ConfigurationFields } from "@/components/configuration-fields";
 import { HeaderGuard } from "@/components/header-guard";
 import { EmptyState } from "@/components/empty-state";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -389,6 +390,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     <div className="flex flex-col gap-6">
       {(!result || showRunPanel) && (
         <RunPanel
+          configuration={<ConfigurationFields />}
           accept=".docx,.pdf,.pptx"
           busy={busy}
           onRun={handleRun}
@@ -396,7 +398,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
           currentStage={stage}
           progress={progress}
           runDisabled={!ready}
-          hint={ready ? undefined : "Select org, source type & intervention in the sidebar to run."}
+          hint={ready ? undefined : "Complete the configuration to run."}
           extraControls={
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span>Or view a previously downloaded result:</span>
@@ -426,10 +428,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
       {error && <p className="text-sm text-destructive">{error}</p>}
       {result && <ContextValidationNotice result={result} />}
       {result && <FieldGrid result={result} onNewAnalysis={() => setShowRunPanel(true)} />}
-      <Ask resultType="scout" result={result} />
-      {!result && !busy && !error && (
-        <EmptyState message="Upload a document to begin." />
-      )}
+      {result && <Ask resultType="scout" result={result} />}
     </div>
   );
 }

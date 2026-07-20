@@ -1,4 +1,4 @@
-"""Reviewer route - grade a document against its rubric, streaming progress."""
+"""Inspector route - inspect a document against its rubric, streaming progress."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from services.reviewer import find_config, run_pipeline
+from services.inspector import find_config, run_pipeline
 
 from api.deps import get_openai_client
-from api.schemas import ReviewerRunResponse, ReviewResultOut
+from api.schemas import InspectionResultOut, InspectorRunResponse
 from api.streaming import run_with_progress
 
 router = APIRouter()
@@ -23,7 +23,7 @@ DEFAULT_MAX_TOKENS = 32000
 
 
 @router.post("/run")
-async def run_reviewer(
+async def run_inspector(
     file: UploadFile = File(...),
     org: str = Form(...),
     source_type: str = Form(...),
@@ -34,7 +34,7 @@ async def run_reviewer(
     if config is None:
         raise HTTPException(
             status_code=404,
-            detail=f"No reviewer config for ({org}, {source_type}, {intervention_class}).",
+            detail=f"No Inspector config for ({org}, {source_type}, {intervention_class}).",
         )
 
     suffix = Path(file.filename or "upload").suffix or ".docx"
@@ -59,8 +59,8 @@ async def run_reviewer(
                 doc_id=doc_id,
             )
 
-            return ReviewerRunResponse(
-                review=ReviewResultOut(**asdict(result)),
+            return InspectorRunResponse(
+                inspection=InspectionResultOut(**asdict(result)),
             ).model_dump()
         finally:
             if temp_path and os.path.exists(temp_path):

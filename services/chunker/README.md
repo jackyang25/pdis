@@ -17,7 +17,7 @@ temporary upload. Stable IDs are derived from this value, so temporary names
 must never reach downstream citations. The header is stamped on every block so
 downstream tools can route by provenance.
 Image blocks carry a typed image payload (`media_type`, base64 bytes, hash, and
-source media type). The mapper, Reviewer, Scout's document-reasoning stages, and
+source media type). The mapper, Inspector, Scout's document-reasoning stages, and
 Ask receive those visuals as block-labeled multimodal inputs.
 
 ## Files
@@ -52,7 +52,7 @@ From `__init__.py`:
 - `find_config`, `blocks_to_dicts`
 - `DEFAULT_MAX_OUTPUT_TOKENS`
 
-External callers (`api/routes/chunker.py`, `reviewer`, `scout`) import only from this surface.
+External callers (`api/routes/chunker.py`, `inspector`, `scout`) import only from this surface.
 
 ## Dependencies
 

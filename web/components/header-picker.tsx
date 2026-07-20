@@ -20,38 +20,8 @@ import { useHeaderStore } from "@/lib/store";
 
 const PATH_TO_TOOL: Record<string, ToolName> = {
   "/chunker": "chunker",
-  "/reviewer": "reviewer",
+  "/inspector": "inspector",
   "/scout": "scout",
-};
-
-type FieldRole = "selects config" | "labels output" | "scopes search";
-
-const ROLES: Record<ToolName, Record<keyof Roles, FieldRole>> = {
-  chunker: {
-    org: "selects config",
-    source_type: "selects config",
-    intervention: "selects config",
-    indication: "labels output",
-  },
-  reviewer: {
-    org: "selects config",
-    source_type: "selects config",
-    intervention: "selects config",
-    indication: "labels output",
-  },
-  scout: {
-    org: "selects config",
-    source_type: "selects config",
-    intervention: "selects config",
-    indication: "scopes search",
-  },
-};
-
-type Roles = {
-  org: FieldRole;
-  source_type: FieldRole;
-  intervention: FieldRole;
-  indication: FieldRole;
 };
 
 export function HeaderPicker() {
@@ -106,22 +76,18 @@ export function HeaderPicker() {
     [supported, header.org, header.source_type],
   );
 
-  if (error) return <p className="text-xs text-destructive">{error}</p>;
-  if (!docTypes) return <p className="text-xs text-muted-foreground">Loading context…</p>;
-
-  const roles: Roles =
-    tool && tool in ROLES
-      ? ROLES[tool]
-      : {
-          org: "labels output",
-          source_type: "labels output",
-          intervention: "labels output",
-          indication: "labels output",
-        };
+  if (error) {
+    return (
+      <div className="flex min-h-[264px] items-center sm:min-h-[124px] lg:min-h-[264px]">
+        <p className="text-xs leading-5 text-destructive">Could not load configuration: {error}</p>
+      </div>
+    );
+  }
+  if (!docTypes) return <ConfigurationPlaceholder />;
 
   return (
     <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex">
-      <Field label="Organization" role={roles.org}>
+      <Field label="Organization">
         <Select
           value={header.org}
           onValueChange={(value) =>
@@ -147,7 +113,7 @@ export function HeaderPicker() {
         </Select>
       </Field>
 
-      <Field label="Source type" role={roles.source_type} disabled={!header.org}>
+      <Field label="Source type" disabled={!header.org}>
         <Select
           value={header.source_type}
           onValueChange={(value) =>
@@ -172,7 +138,7 @@ export function HeaderPicker() {
         </Select>
       </Field>
 
-      <Field label="Intervention" role={roles.intervention} disabled={!header.source_type}>
+      <Field label="Intervention" disabled={!header.source_type}>
         <Select
           value={header.intervention_class}
           onValueChange={(value) =>
@@ -195,7 +161,6 @@ export function HeaderPicker() {
 
       <Field
         label="Indication"
-        role={roles.indication}
         disabled={!header.intervention_class}
       >
         <Select
@@ -219,22 +184,35 @@ export function HeaderPicker() {
   );
 }
 
+function ConfigurationPlaceholder() {
+  return (
+    <div
+      className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex"
+      aria-busy="true"
+      aria-label="Loading configuration"
+    >
+      {["Organization", "Source type", "Intervention", "Indication"].map((label) => (
+        <Field key={label} label={label} disabled>
+          <div className="h-9 rounded-md border border-input bg-muted/40" aria-hidden="true" />
+        </Field>
+      ))}
+    </div>
+  );
+}
+
 function Field({
   label,
-  role,
   disabled,
   children,
 }: {
   label: string;
-  role: FieldRole;
   disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className={disabled ? "min-w-0 opacity-50" : "min-w-0"}>
-      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+      <div className="mb-1.5">
         <Label>{label}</Label>
-        <span className="text-[9px] text-muted-foreground/70">{role}</span>
       </div>
       {children}
     </div>

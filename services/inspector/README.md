@@ -1,4 +1,4 @@
-# Reviewer
+# Inspector
 
 Grades a parsed product-development document against its configured rubric on
 three independent dimensions: completeness, adherence, and rigor.
@@ -7,10 +7,19 @@ three independent dimensions: completeness, adherence, and rigor.
 
 | | |
 |---|---|
-| Input | One document or pre-parsed `ContentBlock[]`, a `ReviewConfig`, indication, and injected LLM client |
-| Output | `ReviewResult` with variable-, section-, and document-level grades plus cross-section conflicts |
+| Input | One document or pre-parsed `ContentBlock[]`, an `InspectionConfig`, indication, and injected LLM client |
+| Output | `InspectionResult` with variable-, section-, and document-level grades plus cross-section conflicts |
 
 Grades are always `A`, `B`, `C`, `D`, `F`, or `N/A`.
+
+## Scope boundary
+
+Inspector is document quality assurance, not investment evaluation. It checks
+whether required risks, mitigations, and decision criteria are documented and
+usable when the rubric calls for them. It does not independently assign program
+risk levels, validate real-world feasibility, recommend funding decisions, or
+produce an investment roadmap. Scout separately tests targets against external
+evidence.
 
 ## Three grading dimensions
 
@@ -18,7 +27,7 @@ Grades are always `A`, `B`, `C`, `D`, `F`, or `N/A`.
 |---|---|
 | `completeness` | Is every required element present and substantive? |
 | `adherence` | Does the document follow the rubric's structural and formatting expectations? |
-| `rigor` | Is the content specific, measurable, meaningful, and technically sound? |
+| `rigor` | Is the stated content specific, measurable, meaningful, and internally sound? |
 
 Each dimension is produced by its own responsibility-scoped LLM call. A call
 receives only that dimension's rubric guidance and the relevant document
@@ -69,15 +78,15 @@ device, plus `ipdp` for vaccine, drug, and diagnostic.
 
 ## Public contract
 
-Consumers import only from `services.reviewer`:
+Consumers import only from `services.inspector`:
 
 - `run_pipeline`, `run_pipeline_batch`
-- `review_blocks`, `review_blocks_batch`
-- `ReviewResult`, `ReviewConfig`, `BatchReviewResult`
-- `find_config`, `review_result_to_dict`
+- `inspect_blocks`, `inspect_blocks_batch`
+- `InspectionResult`, `InspectionConfig`, `BatchInspectionResult`
+- `find_config`, `inspection_result_to_dict`
 - `DEFAULT_MAX_OUTPUT_TOKENS`
 
 ## Dependency boundary
 
-Reviewer depends on Chunker only through `services.chunker`. It does not search
+Inspector depends on Chunker only through `services.chunker`. It does not search
 external evidence and is never imported by Chunker.

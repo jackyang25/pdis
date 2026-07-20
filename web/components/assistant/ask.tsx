@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { TextStreamChatTransport, type UIMessage } from "ai";
-import { Check, Copy, Loader2, Send, Sparkles, Square, X } from "lucide-react";
+import { Check, Copy, Loader2, MessageSquareText, Send, Square, X } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 import { splitResultContext } from "@/lib/result-file";
 import { Button } from "../ui/button";
@@ -16,7 +16,7 @@ function messageText(message: UIMessage): string {
 }
 
 const SUGGESTIONS: Record<string, string[]> = {
-  reviewer: ["What needs the most attention?", "Summarize the cross-section conflicts."],
+  inspector: ["What needs the most attention?", "Summarize the cross-section conflicts."],
   scout: ["Which targets conflict with current evidence?", "Where is the evidence weakest?"],
 };
 
@@ -93,36 +93,44 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
 
   if (!open) {
     return (
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={() => setOpen(true)}
-        className="fixed bottom-5 right-5 z-50 flex h-11 items-center gap-2 rounded-full bg-foreground px-[18px] text-sm font-medium text-background shadow-[0_8px_24px_rgba(15,23,42,0.18)] ring-1 ring-black/10 transition-all hover:-translate-y-0.5 hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2 sm:bottom-6 sm:right-6"
+        aria-expanded="false"
+        aria-controls="result-assistant"
+        className="fixed bottom-5 right-5 z-50 h-10 gap-2 bg-card px-3.5 text-xs shadow-[0_8px_24px_rgba(15,23,42,0.10)] sm:bottom-6 sm:right-6"
       >
-        <Sparkles className="h-4 w-4 text-background/70" />
-        Ask
-      </button>
+        <MessageSquareText className="h-3.5 w-3.5 text-muted-foreground" />
+        Ask result
+      </Button>
     );
   }
 
   const suggestions = SUGGESTIONS[resultType] ?? ["Summarize these results."];
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex h-[min(38rem,calc(100vh-2rem))] w-[26rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border/90 bg-card shadow-[0_24px_64px_rgba(15,23,42,0.16)] sm:bottom-6 sm:right-6">
+    <div
+      id="result-assistant"
+      className="fixed bottom-4 right-4 z-50 flex h-[min(38rem,calc(100vh-2rem))] w-[26rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-[0_16px_48px_rgba(15,23,42,0.12)] sm:bottom-6 sm:right-6"
+    >
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div>
-          <span className="block text-sm font-semibold">Ask</span>
+          <span className="block text-sm font-semibold">Ask this result</span>
           <span className="mt-0.5 block text-[10px] text-muted-foreground">
             {hasDocument ? "Result + source document" : "Result only · source document unavailable"}
           </span>
         </div>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
           onClick={() => setOpen(false)}
           aria-label="Close"
-          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+          className="h-8 w-8 text-muted-foreground"
         >
           <X className="h-4 w-4" />
-        </button>
+        </Button>
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
@@ -146,7 +154,7 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
                   key={suggestion}
                   type="button"
                   onClick={() => send(suggestion)}
-                  className="rounded-full border border-border bg-background px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                 >
                   {suggestion}
                 </button>
@@ -166,7 +174,7 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
               key={message.id}
               className={
                 message.role === "user"
-                  ? "ml-auto w-fit max-w-[85%] rounded-lg bg-muted px-3 py-2 text-sm"
+                  ? "ml-auto w-fit max-w-[85%] rounded-md bg-muted px-3 py-2 text-sm"
                   : "group max-w-[94%] text-sm text-foreground"
               }
             >
@@ -295,7 +303,8 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
     if (match.index > last) {
       nodes.push(<span key={`${keyPrefix}-${i++}`}>{text.slice(last, match.index)}</span>);
     }
-    const linkClass = "break-all text-blue-600 underline hover:text-blue-700 dark:text-blue-400";
+    const linkClass =
+      "break-all font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground";
     if (match[2] != null) {
       nodes.push(<strong key={`${keyPrefix}-${i++}`}>{match[2]}</strong>);
     } else if (match[4] != null) {

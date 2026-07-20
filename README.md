@@ -24,10 +24,10 @@ vaccines, drugs, diagnostics, and devices.
 | Surface | Responsibility | Output |
 |---|---|---|
 | **Chunker** | Parse DOCX, PDF, or PPTX into ordered, citable blocks while retaining visuals. | `ContentBlock[]` |
-| **Reviewer** | Grade completeness, adherence, and rigor independently, then report cross-section conflicts. | `ReviewResult` |
+| **Inspector** | Check document completeness, rubric adherence, rigor, and cross-section consistency. | `InspectionResult` |
 | **Scout** | Compare document targets with live evidence, quantitative alignment, and precedent. | `ScoutResult` |
 | **Searcher** | Debug or use the registered retrieval sources directly with a free-text query. | `Finding[]` |
-| **Ask** | Answer read-only questions from a Reviewer/Scout result, its parsed document, and already-cited URLs. | Streamed text |
+| **Ask** | Answer read-only questions from an Inspector/Scout result, its parsed document, and already-cited URLs. | Streamed text |
 
 Scout is intentionally named as an evidence reconnaissance tool: it surfaces
 and structures evidence signals without claiming definitive verification.
@@ -82,7 +82,7 @@ web/ (Next.js)
 api/ (FastAPI composition boundary)
   │
   ├── services/chunker
-  ├── services/reviewer ──▶ chunker public contract
+  ├── services/inspector ─▶ chunker public contract
   ├── services/scout ─────▶ chunker + searcher public contracts
   ├── services/searcher ──▶ direct APIs + injected ToolUniverse connector
   └── services/assistant
@@ -100,7 +100,7 @@ outputs can vary, but no hidden server session is required.
 Detailed service contracts:
 
 - [Chunker](services/chunker/README.md)
-- [Reviewer](services/reviewer/README.md)
+- [Inspector](services/inspector/README.md)
 - [Searcher](services/searcher/README.md)
 - [Scout](services/scout/README.md)
 - [Ask](services/assistant/README.md)
@@ -125,7 +125,7 @@ rendered PPTX slides are canonical `image` blocks carrying media type, base64
 bytes, SHA-256, and source media type. Supported raster bytes are retained;
 Pillow normalizes other raster formats; LibreOffice handles vector fallback and
 PPTX slide rendering. Images remain tied to their exact block IDs in Mapper,
-Reviewer, Scout, and Ask.
+Inspector, Scout, and Ask.
 
 ## Canonical Scout field model
 
@@ -274,9 +274,9 @@ exposes all of its cited sources. The Fields view retains the complete analyzed
 evidence, while `search_plan` in the downloaded result retains requests, skips,
 failures, and full retrieval lineage.
 
-## Reviewer semantics
+## Inspector semantics
 
-Reviewer makes three independent judgments per rubric unit:
+Inspector makes three independent judgments per rubric unit:
 
 - **Completeness:** required content is present and substantive.
 - **Adherence:** structure and rubric rules are followed.
@@ -285,6 +285,11 @@ Reviewer makes three independent judgments per rubric unit:
 Variable → section → document grades are deterministic rollups. The only
 whole-document model pass reports cross-section conflicts. Grades remain
 `A`, `B`, `C`, `D`, `F`, or `N/A` for all three dimensions.
+
+Inspector evaluates document quality against an authored rubric. It may check
+whether risks and mitigations are documented, but it does not assign program
+risk levels, assess real-world feasibility, recommend funding decisions, or
+produce an investment roadmap. Those are separate decision-support concerns.
 
 ## Ask semantics
 
@@ -308,8 +313,8 @@ tool execution remains private while final tokens render incrementally.
 
 ## Portable result files
 
-Reviewer and Scout downloads use the versioned `pdis.result` envelope, currently
-version **9**:
+Inspector and Scout downloads use the versioned `pdis.result` envelope, currently
+version **10**:
 
 ```text
 schema + version + result_type
@@ -332,7 +337,7 @@ Human-owned domain content lives in YAML:
 | Surface | Path | Responsibility |
 |---|---|---|
 | Chunker | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | Section taxonomy and mapping guidance |
-| Reviewer | `services/reviewer/configs/…` | Rubric, weights, dimension guidance |
+| Inspector | `services/inspector/configs/…` | Rubric, weights, dimension guidance |
 | Scout | `services/scout/configs/…` | Enabled sources, query budgets, domain framing, unit provider |
 | Indications | `shared/indications.yaml` | Indication choices by intervention |
 | TPP fields | `shared/attributes.yaml` | Fixed definitions and authored evidence domains |
@@ -398,7 +403,7 @@ pdis/
 ├── services/
 │   ├── assistant/           Read-only grounded Ask agent
 │   ├── chunker/             Document parsing, images, section mapping
-│   ├── reviewer/            Rubric grading and deterministic rollups
+│   ├── inspector/           Rubric inspection and deterministic rollups
 │   ├── scout/               Document-bound evidence reasoning pipeline
 │   └── searcher/            Source registry, planning, execution, Findings
 ├── shared/                  OpenAI client and controlled vocabularies

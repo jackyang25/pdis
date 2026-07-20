@@ -1,6 +1,6 @@
 # Ask
 
-Read-only, grounded chat over an existing Reviewer or Scout result and its
+Read-only, grounded chat over an existing Inspector or Scout result and its
 parsed source document.
 
 ## Contract

@@ -35,7 +35,7 @@ from ..models import (
     DimensionGrade,
     Grade,
     LLMClientProtocol,
-    ReviewConfig,
+    InspectionConfig,
     SectionGrade,
     SectionSpec,
     VariableGrade,
@@ -55,7 +55,7 @@ GRADE_TO_SCORE = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
 
 def grade_sections(
     labeled_blocks: list[ContentBlock],
-    config: ReviewConfig,
+    config: InspectionConfig,
     llm_client: LLMClientProtocol,
     *,
     max_tokens: int,
@@ -244,7 +244,13 @@ def _call_dimension(
 def _build_system_prompt(
     dimension: str, section_spec: SectionSpec, grading_guidance: str = ""
 ) -> str:
-    preamble = """You are reviewing a section of a PD document.
+    preamble = """You are inspecting a section of a product-development document against its authored rubric.
+
+Scope boundary:
+- Judge the quality and usability of what the document states; do not assess real-world program feasibility or investment merit.
+- If the rubric expects risks, judge whether the document identifies, rates, and mitigates them. Do not independently assign program risk levels.
+- Do not recommend funding decisions, prioritize an investment portfolio, or propose organizational support.
+- Do not assume external facts or evidence that are absent from the supplied document and rubric.
 
 Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
 
@@ -347,7 +353,7 @@ def _build_rigor_focus(section_spec: SectionSpec) -> str:
         "no testable meaning.",
         "- Specificity: the target should be unambiguous; flag hand-waving or undefined terms.",
         "- Soundness: the value should be meaningful for the variable; flag filler that is "
-        "technically present but says nothing, or a target that is internally implausible.",
+        "technically present but says nothing, or content that is internally incoherent.",
         "- Judge against the document's stage (see GRADING BAR above): an intervention-stage "
         "qualitative target can still be rigorous if it is clear and bounded; a candidate-stage "
         "target should be concretely measured.",
@@ -720,7 +726,7 @@ MAX_DOC_CONTEXT_CHARS = 120000
 
 def check_cross_section(
     labeled_blocks: list[ContentBlock],
-    config: ReviewConfig,
+    config: InspectionConfig,
     llm_client: LLMClientProtocol,
     *,
     max_tokens: int,
@@ -755,9 +761,9 @@ def check_cross_section(
     return findings or []
 
 
-def _cross_section_system_prompt(config: ReviewConfig) -> str:
+def _cross_section_system_prompt(config: InspectionConfig) -> str:
     return (
-        f"You check a {config.intervention_class} Target Product Profile for CROSS-SECTION "
+        f"You check a {config.intervention_class} product-development document for CROSS-SECTION "
         "consistency: places where TWO DIFFERENT sections state conflicting or mismatched "
         "claims about the SAME attribute - e.g. one section targets >=80% efficacy and "
         "another states 90%; the target population, dosing schedule, presentation, or "

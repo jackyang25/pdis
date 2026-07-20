@@ -5,7 +5,7 @@ export type Header = {
   indication: string;
 };
 
-export type ToolName = "chunker" | "reviewer" | "scout";
+export type ToolName = "chunker" | "inspector" | "scout";
 
 export type DocumentType = {
   key: string;
@@ -64,7 +64,7 @@ export type CrossSectionFinding = {
   recommendation: string;
 };
 
-export type ReviewResult = {
+export type InspectionResult = {
   doc_id: string;
   dimensions: Dimensions;
   top_issues: string[];
@@ -89,8 +89,8 @@ export const GRADE_LABELS: Record<string, string> = {
   "N/A": "Not applicable",
 };
 
-export type ReviewerResponse = {
-  review: ReviewResult;
+export type InspectorResponse = {
+  inspection: InspectionResult;
 };
 
 export type Finding = {
@@ -439,15 +439,15 @@ export async function runChunker(
   return streamRequest("/api/chunker/run", form, onStage);
 }
 
-export async function runReviewer(
+export async function runInspector(
   file: File,
   header: Header,
   onStage?: (stage: string, progress?: StageProgress) => void,
-): Promise<ReviewerResponse> {
+): Promise<InspectorResponse> {
   const form = new FormData();
   form.append("file", file);
   appendHeader(form, header);
-  return streamRequest("/api/reviewer/run", form, onStage);
+  return streamRequest("/api/inspector/run", form, onStage);
 }
 
 export async function runSearcher(

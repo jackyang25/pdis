@@ -18,7 +18,7 @@ class DocumentType(BaseModel):
     source_type: str
     intervention_class: str
     display_name: str
-    supports: dict[str, bool]  # {"chunker": true, "reviewer": ..., "scout": ...}
+    supports: dict[str, bool]  # {"chunker": true, "inspector": ..., "scout": ...}
 
 
 class DocumentTypesResponse(BaseModel):
@@ -318,7 +318,7 @@ class CrossSectionFindingOut(BaseModel):
     recommendation: str = ""
 
 
-class ReviewResultOut(BaseModel):
+class InspectionResultOut(BaseModel):
     doc_id: str
     dimensions: dict[str, DimensionGradeOut]
     top_issues: list[str]
@@ -329,12 +329,12 @@ class ReviewResultOut(BaseModel):
     intervention_class: str | None = None
     indication: str | None = None
     # The parsed source document, carried so the Ask assistant can read the full
-    # document behind the grades. Not used by the Reviewer UI itself.
+    # document behind the grades. Not used by the Inspector UI itself.
     blocks: list[ContentBlockOut] = []
 
 
-class ReviewerRunResponse(BaseModel):
-    review: ReviewResultOut
+class InspectorRunResponse(BaseModel):
+    inspection: InspectionResultOut
 
 
 class AskMessage(BaseModel):
@@ -343,7 +343,7 @@ class AskMessage(BaseModel):
 
 
 class AskRequest(BaseModel):
-    result_type: str  # "scout" | "reviewer" | ...
+    result_type: str  # "scout" | "inspector" | ...
     result: dict[str, Any]
     messages: list[AskMessage]
     # The source document behind the result (parsed blocks), if available. Lets

@@ -14,8 +14,9 @@ import type { Finding } from "@/lib/api";
 export default function SearcherPage() {
   const [query, setQuery] = useState("");
   const [sources, setSources] = useState<SearchSource[]>([]);
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const { result, busy, stage, error, setResult, setBusy, setStage, setError } =
+  const { result, busy, error, setResult, setBusy, setStage, setError } =
     useSearcherSession();
 
   useEffect(() => {
@@ -32,6 +33,9 @@ export default function SearcherPage() {
       })
       .catch((cause) => {
         if (active) setError((cause as Error).message);
+      })
+      .finally(() => {
+        if (active) setSourcesLoaded(true);
       });
     return () => {
       active = false;
@@ -85,7 +89,7 @@ export default function SearcherPage() {
                 disabled={busy}
               />
             </div>
-            <Button type="submit" disabled={!canRun}>
+            <Button className="min-w-[6.5rem]" type="submit" disabled={!canRun}>
               {busy ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -96,8 +100,15 @@ export default function SearcherPage() {
               )}
             </Button>
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="mt-4 flex min-h-8 flex-wrap items-center gap-2">
             <span className="mr-1 text-xs text-muted-foreground">Sources</span>
+            {!sourcesLoaded && (
+              <>
+                <span className="h-8 w-20 rounded-md border border-border bg-muted/40" />
+                <span className="h-8 w-24 rounded-md border border-border bg-muted/40" />
+                <span className="h-8 w-16 rounded-md border border-border bg-muted/40" />
+              </>
+            )}
             {sources.map((source) => {
               const on = selected.has(source.key);
               return (
@@ -109,7 +120,7 @@ export default function SearcherPage() {
                   title={source.configured ? undefined : "Backend connector not configured"}
                   aria-pressed={on}
                   className={cn(
-                    "h-8 rounded-full border px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50",
+                    "h-8 rounded-md border px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50",
                     on
                       ? "border-foreground bg-foreground text-background"
                       : "border-border bg-background text-muted-foreground hover:text-foreground",
@@ -119,18 +130,12 @@ export default function SearcherPage() {
                 </button>
               );
             })}
-            {selected.size === 0 && (
+            {sourcesLoaded && selected.size === 0 && (
               <span className="text-xs text-destructive">Select at least one source.</span>
             )}
           </div>
         </form>
 
-        {busy && stage && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Searching across {selected.size} source lanes…
-          </div>
-        )}
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         {result && <Findings result={result} sources={sources} />}

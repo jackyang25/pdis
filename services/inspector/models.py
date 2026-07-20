@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class LLMClientProtocol(Protocol):
-    """Contract reviewer requires from any injected LLM client."""
+    """Contract Inspector requires from any injected LLM client."""
     def call(
         self,
         system_prompt: str,
@@ -88,7 +88,7 @@ class CrossSectionFinding:
 
 
 @dataclass
-class ReviewResult:
+class InspectionResult:
     """Full report card. Document-level dimensions are rolled up from sections."""
 
     doc_id: str
@@ -110,11 +110,11 @@ class ReviewResult:
 
 
 @dataclass
-class BatchReviewResult:
-    """Per-document result of review_blocks_batch."""
+class BatchInspectionResult:
+    """Per-document result of inspect_blocks_batch."""
 
     doc_key: str
-    review: ReviewResult | None = None
+    inspection: InspectionResult | None = None
     error: str | None = None
 
 
@@ -156,8 +156,8 @@ class SectionSpec:
 
 
 @dataclass
-class ReviewConfig:
-    """All document-type-specific configuration for Reviewer."""
+class InspectionConfig:
+    """All document-type-specific configuration for Inspector."""
 
     type_key: str
     org: str
@@ -174,23 +174,23 @@ class ReviewConfig:
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
 
 
-def find_config(org: str, source_type: str, intervention_class: str) -> "ReviewConfig | None":
-    """Load the reviewer config for the given triple. Returns None if not found
-    (reviewer rubrics are optional per triple)."""
+def find_config(org: str, source_type: str, intervention_class: str) -> "InspectionConfig | None":
+    """Load the Inspector config for the given triple. Returns None if not found
+    (Inspector rubrics are optional per triple)."""
     path = CONFIGS_DIR / f"{org}_{source_type}_{intervention_class}.yaml"
     if not path.exists():
         return None
-    return load_review_config(str(path))
+    return load_inspection_config(str(path))
 
 
-def load_review_config(path: str) -> ReviewConfig:
-    """Load a ReviewConfig from YAML. Validates required fields."""
+def load_inspection_config(path: str) -> InspectionConfig:
+    """Load an InspectionConfig from YAML. Validates required fields."""
     config_path = Path(path).expanduser().resolve()
     with open(config_path, "r", encoding="utf-8") as config_file:
         data = yaml.safe_load(config_file)
 
     if not isinstance(data, dict):
-        raise ValueError("Reviewer config file must contain a YAML mapping")
+        raise ValueError("Inspector config file must contain a YAML mapping")
 
     required_fields = {
         "type_key",
@@ -203,7 +203,7 @@ def load_review_config(path: str) -> ReviewConfig:
     missing_fields = required_fields - data.keys()
     if missing_fields:
         missing = ", ".join(sorted(missing_fields))
-        raise ValueError(f"Reviewer config missing required fields: {missing}")
+        raise ValueError(f"Inspector config missing required fields: {missing}")
 
     _validate_string_field(data, "type_key")
     _validate_string_field(data, "org")
@@ -214,9 +214,9 @@ def load_review_config(path: str) -> ReviewConfig:
 
     grading_guidance = data.get("grading_guidance", "") or ""
     if not isinstance(grading_guidance, str):
-        raise ValueError("Reviewer config field 'grading_guidance' must be a string")
+        raise ValueError("Inspector config field 'grading_guidance' must be a string")
 
-    return ReviewConfig(
+    return InspectionConfig(
         type_key=data["type_key"],
         org=data["org"],
         source_type=data["source_type"],
@@ -227,8 +227,8 @@ def load_review_config(path: str) -> ReviewConfig:
     )
 
 
-def review_result_to_dict(result: ReviewResult) -> dict[str, Any]:
-    """Convert a ReviewResult to JSON-serializable dictionaries."""
+def inspection_result_to_dict(result: InspectionResult) -> dict[str, Any]:
+    """Convert an InspectionResult to JSON-serializable dictionaries."""
     return asdict(result)
 
 
@@ -252,7 +252,7 @@ def _resolve_path(config_path: Path, raw_path: str) -> Path:
 
 def _validate_string_field(data: dict[str, Any], field_name: str) -> None:
     if not isinstance(data[field_name], str) or not data[field_name].strip():
-        raise ValueError(f"Reviewer config field '{field_name}' must be a string")
+        raise ValueError(f"Inspector config field '{field_name}' must be a string")
 
 
 def _parse_sections(value: Any) -> list[SectionSpec]:

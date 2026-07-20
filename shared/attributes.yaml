@@ -149,7 +149,7 @@ vaccine:
 
 
 # ---------------------------------------------------------------------------
-# Seeded from the reviewer rubrics (services/reviewer/configs/) as a first
+# Seeded from the Inspector rubrics (services/inspector/configs/) as a first
 # draft. Domain owners should refine wording/granularity over time. Mirrors
 # the vaccine block above. Human-maintained; owned by no service.
 # ---------------------------------------------------------------------------

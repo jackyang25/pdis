@@ -3,48 +3,48 @@
 import { useRef } from "react";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
+import { ConfigurationFields } from "@/components/configuration-fields";
 import { HeaderGuard } from "@/components/header-guard";
-import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { DownloadButton } from "@/components/download-button";
 import { LabeledItem } from "@/components/labeled-item";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  runReviewer,
+  runInspector,
   DIMENSION_NAMES,
   GRADE_LABELS,
   type CrossSectionFinding,
   type DimensionName,
   type Dimensions,
   type Header,
-  type ReviewerResponse,
+  type InspectorResponse,
   type SectionGrade,
   type VariableGrade,
 } from "@/lib/api";
 import { Ask } from "@/components/assistant/ask";
-import { useReviewerSession } from "@/lib/session";
-import { packReviewerResult, unpackReviewerResult } from "@/lib/result-file";
+import { useInspectorSession } from "@/lib/session";
+import { packInspectorResult, unpackInspectorResult } from "@/lib/result-file";
 
-const PD_REVIEWER_STEPS = [
+const INSPECTOR_STEPS = [
   { key: "parse", label: "Parsing document" },
   { key: "label", label: "Labeling sections" },
   { key: "grade", label: "Grading sections" },
   { key: "consistency", label: "Checking consistency" },
 ];
 
-export default function ReviewerPage() {
+export default function InspectorPage() {
   return (
     <>
-      <PageHeader title="Reviewer" description="Evaluate completeness, adherence, rigor, and cross-section consistency against the selected rubric." />
+      <PageHeader title="Inspector" description="Check completeness, adherence, rigor, and cross-section consistency against the selected rubric." />
       <HeaderGuard>
-        {(header, ready) => <ReviewerView header={header as Header} ready={ready} />}
+        {(header, ready) => <InspectorView header={header as Header} ready={ready} />}
       </HeaderGuard>
     </>
   );
 }
 
-function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
+function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
   const {
     result,
     busy,
@@ -56,7 +56,7 @@ function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
     setStage,
     setProgress,
     setError,
-  } = useReviewerSession();
+  } = useInspectorSession();
   const importInputRef = useRef<HTMLInputElement>(null);
 
   async function handleRun(file: File) {
@@ -65,7 +65,7 @@ function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
     setStage(null);
     setProgress(null);
     try {
-      const res = await runReviewer(file, header, (s, p) => {
+      const res = await runInspector(file, header, (s, p) => {
         setStage(s);
         setProgress(p ?? null);
       });
@@ -77,14 +77,14 @@ function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
     }
   }
 
-  // Re-open a previously downloaded review (the full ReviewerResponse JSON) and
+  // Re-open a previously downloaded inspection and
   // render it - no re-run, no backend call.
   async function handleImport(file: File) {
     setError(null);
     try {
-      const parsed = unpackReviewerResult(JSON.parse(await file.text()));
-      if (!parsed?.review || !Array.isArray(parsed.review.section_grades)) {
-        throw new Error("not a reviewer result file");
+      const parsed = unpackInspectorResult(JSON.parse(await file.text()));
+      if (!parsed?.inspection || !Array.isArray(parsed.inspection.section_grades)) {
+        throw new Error("not an Inspector result file");
       }
       setStage(null);
       setResult(parsed);
@@ -96,14 +96,15 @@ function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
   return (
     <div className="flex flex-col gap-6">
       <RunPanel
+        configuration={<ConfigurationFields />}
         accept=".docx,.pdf,.pptx"
         busy={busy}
         onRun={handleRun}
-        steps={PD_REVIEWER_STEPS}
+        steps={INSPECTOR_STEPS}
         currentStage={stage}
         progress={progress}
         runDisabled={!ready}
-        hint={ready ? undefined : "Select org, source type & intervention in the sidebar to run."}
+        hint={ready ? undefined : "Complete the configuration to run."}
         extraControls={
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>Or view a previously downloaded result:</span>
@@ -133,20 +134,17 @@ function ReviewerView({ header, ready }: { header: Header; ready: boolean }) {
       {result && (
         <>
           <OverallCard result={result} />
-          <CrossSectionCard findings={result.review.cross_section_findings ?? []} />
-          <SectionsList sections={result.review.section_grades} />
+          <CrossSectionCard findings={result.inspection.cross_section_findings ?? []} />
+          <SectionsList sections={result.inspection.section_grades} />
         </>
       )}
-      <Ask resultType="reviewer" result={result?.review} />
-      {!result && !busy && !error && (
-        <EmptyState message="Upload a document to begin." />
-      )}
+      {result && <Ask resultType="inspector" result={result.inspection} />}
     </div>
   );
 }
 
-function OverallCard({ result }: { result: ReviewerResponse }) {
-  const dims = result.review.dimensions;
+function OverallCard({ result }: { result: InspectorResponse }) {
+  const dims = result.inspection.dimensions;
   return (
     <div className="rounded-lg border border-border bg-card px-5 py-5">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
@@ -154,11 +152,11 @@ function OverallCard({ result }: { result: ReviewerResponse }) {
           <div className="text-xs uppercase tracking-wide text-muted-foreground">
             Overall grades
           </div>
-          <div className="mt-1 font-mono text-sm">{result.review.doc_id}</div>
+          <div className="mt-1 font-mono text-sm">{result.inspection.doc_id}</div>
         </div>
         <DownloadButton
-          filename={`${result.review.doc_id}_review.json`}
-          data={packReviewerResult(result)}
+          filename={`${result.inspection.doc_id}_inspection.json`}
+          data={packInspectorResult(result)}
           format="json"
           label="Download JSON"
         />

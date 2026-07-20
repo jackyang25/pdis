@@ -11,11 +11,11 @@ from services.chunker import (
 
 from .stages.grader import check_cross_section, grade_sections
 from .models import (
-    BatchReviewResult,
+    BatchInspectionResult,
     Grade,
+    InspectionConfig,
+    InspectionResult,
     LLMClientProtocol,
-    ReviewConfig,
-    ReviewResult,
     SectionGrade,
     VariableSpec,
 )
@@ -31,14 +31,14 @@ MISSING_VARIABLE_SEVERITY = -1
 def run_pipeline(
     file_path: str,
     *,
-    config: ReviewConfig,
+    config: InspectionConfig,
     llm_client: LLMClientProtocol,
     indication: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     progress_callback=None,
     doc_id: str | None = None,
-) -> ReviewResult:
-    """End-to-end PD document review: parse → label → grade → report.
+) -> InspectionResult:
+    """End-to-end document inspection: parse → label → grade → report.
 
     `doc_id` is stamped on every block. Pass the original filename stem
     when `file_path` points to a temp file (e.g., from an HTTP upload),
@@ -58,7 +58,7 @@ def run_pipeline(
         max_tokens=max_tokens,
         progress_callback=progress_callback,
     )
-    return review_blocks(
+    return inspect_blocks(
         labeled_blocks,
         config=config,
         llm_client=llm_client,
@@ -68,15 +68,15 @@ def run_pipeline(
     )
 
 
-def review_blocks(
+def inspect_blocks(
     blocks: list[ContentBlock],
     *,
-    config: ReviewConfig,
+    config: InspectionConfig,
     llm_client: LLMClientProtocol,
     indication: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     progress_callback=None,
-) -> ReviewResult:
+) -> InspectionResult:
     """Grade + report a document whose blocks have already been parsed and labeled.
     """
     if progress_callback:
@@ -109,12 +109,12 @@ def review_blocks(
 def run_pipeline_batch(
     jobs: list[tuple[str, str]],
     *,
-    config: ReviewConfig,
+    config: InspectionConfig,
     llm_client_factory,
     indication: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
-) -> list[BatchReviewResult]:
+) -> list[BatchInspectionResult]:
     """Run `run_pipeline` (parse → label → grade) over many documents in parallel."""
     if not jobs:
         return []
@@ -139,43 +139,43 @@ def _run_pipeline_one_batch(
     file_path: str,
     doc_key: str,
     *,
-    config: ReviewConfig,
+    config: InspectionConfig,
     llm_client_factory,
     indication: str | None,
     max_tokens: int,
-) -> BatchReviewResult:
+) -> BatchInspectionResult:
     try:
         llm_client = llm_client_factory()
-        review = run_pipeline(
+        inspection = run_pipeline(
             file_path,
             config=config,
             llm_client=llm_client,
             indication=indication,
             max_tokens=max_tokens,
         )
-        review.doc_id = doc_key
-        return BatchReviewResult(doc_key=doc_key, review=review)
+        inspection.doc_id = doc_key
+        return BatchInspectionResult(doc_key=doc_key, inspection=inspection)
     except Exception as exc:
-        return BatchReviewResult(doc_key=doc_key, error=str(exc))
+        return BatchInspectionResult(doc_key=doc_key, error=str(exc))
 
 
-def review_blocks_batch(
+def inspect_blocks_batch(
     jobs: list[tuple[str, list[ContentBlock]]],
     *,
-    config: ReviewConfig,
+    config: InspectionConfig,
     llm_client_factory,
     indication: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     max_workers: int = 4,
-) -> list[BatchReviewResult]:
-    """Run `review_blocks` over many already-parsed documents in parallel.
+) -> list[BatchInspectionResult]:
+    """Run `inspect_blocks` over many already-parsed documents in parallel.
 
     Args:
         jobs: list of (doc_key, blocks) pairs.
         llm_client_factory: zero-arg callable returning a fresh OpenAIClient per worker.
 
     Returns:
-        list[BatchReviewResult] in the same order as `jobs`.
+        list[BatchInspectionResult] in the same order as `jobs`.
     """
     if not jobs:
         return []
@@ -183,7 +183,7 @@ def review_blocks_batch(
     with ThreadPoolExecutor(max_workers=workers) as executor:
         return list(
             executor.map(
-                lambda job: _review_one_batch(
+                lambda job: _inspect_one_batch(
                     job[0],
                     job[1],
                     config=config,
@@ -196,27 +196,27 @@ def review_blocks_batch(
         )
 
 
-def _review_one_batch(
+def _inspect_one_batch(
     doc_key: str,
     blocks: list[ContentBlock],
     *,
-    config: ReviewConfig,
+    config: InspectionConfig,
     llm_client_factory,
     indication: str | None,
     max_tokens: int,
-) -> BatchReviewResult:
+) -> BatchInspectionResult:
     try:
         llm_client = llm_client_factory()
-        review = review_blocks(
+        inspection = inspect_blocks(
             blocks,
             config=config,
             llm_client=llm_client,
             indication=indication,
             max_tokens=max_tokens,
         )
-        return BatchReviewResult(doc_key=doc_key, review=review)
+        return BatchInspectionResult(doc_key=doc_key, inspection=inspection)
     except Exception as exc:
-        return BatchReviewResult(doc_key=doc_key, error=str(exc))
+        return BatchInspectionResult(doc_key=doc_key, error=str(exc))
 
 
 
@@ -224,11 +224,11 @@ def _review_one_batch(
 def build_report_card(
     labeled_blocks: list[ContentBlock],
     section_grades: list[SectionGrade],
-    config: ReviewConfig,
-) -> ReviewResult:
+    config: InspectionConfig,
+) -> InspectionResult:
     """Roll section grades up into a full report card across three dimensions."""
     doc_id = labeled_blocks[0].doc_id if labeled_blocks else ""
-    return ReviewResult(
+    return InspectionResult(
         doc_id=doc_id,
         dimensions=_document_dimensions(section_grades, config),
         top_issues=_top_issues(section_grades, config),
@@ -238,7 +238,7 @@ def build_report_card(
 
 def _document_dimensions(
     section_grades: list[SectionGrade],
-    config: ReviewConfig,
+    config: InspectionConfig,
 ) -> dict[str, "DimensionGrade"]:
     """Weighted roll-up of section dimension grades into document-level dimensions."""
     from .models import DIMENSIONS, DimensionGrade
@@ -287,7 +287,7 @@ def _score_to_grade(score: float) -> Grade:
 
 def _top_issues(
     section_grades: list[SectionGrade],
-    config: ReviewConfig,
+    config: InspectionConfig,
     limit: int = 5,
 ) -> list[str]:
     """Pick the most severe issues across sections and variables, across all dimensions.
@@ -347,7 +347,7 @@ def _top_issues(
 def _format_missing_variable_issue(
     variable_name: str,
     section_name: str,
-    config: ReviewConfig,
+    config: InspectionConfig,
 ) -> str:
     recommendation = _missing_variable_recommendation(variable_name, section_name, config)
     return f"{variable_name} missing - {recommendation}"
@@ -356,7 +356,7 @@ def _format_missing_variable_issue(
 def _missing_variable_recommendation(
     variable_name: str,
     section_name: str,
-    config: ReviewConfig,
+    config: InspectionConfig,
 ) -> str:
     variable_spec = _find_variable_spec(variable_name, section_name, config)
     if variable_spec is not None:
@@ -367,7 +367,7 @@ def _missing_variable_recommendation(
 def _find_variable_spec(
     variable_name: str,
     section_name: str,
-    config: ReviewConfig,
+    config: InspectionConfig,
 ) -> VariableSpec | None:
     for section_spec in config.sections:
         if section_spec.name != section_name:

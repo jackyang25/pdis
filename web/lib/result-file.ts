@@ -1,17 +1,18 @@
-import type { ContentBlock, ReviewerResponse, ScoutResponse } from "./api";
+import type { ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 9 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | typeof RESULT_VERSION;
+const RESULT_VERSION = 10 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | typeof RESULT_VERSION;
 
-type ResultType = "reviewer" | "scout";
+type ResultType = "inspector" | "scout";
+type StoredResultType = ResultType | "reviewer";
 
 type SourceDocument = {
   doc_id: string;
   blocks: ContentBlock[];
 };
 
-type ResultFile<TResultType extends ResultType, TAnalysis> = {
+type ResultFile<TResultType extends StoredResultType, TAnalysis> = {
   schema: typeof RESULT_SCHEMA;
   version: ResultVersion;
   result_type: TResultType;
@@ -20,8 +21,11 @@ type ResultFile<TResultType extends ResultType, TAnalysis> = {
 };
 
 type ScoutAnalysis = Omit<ScoutResponse, "blocks">;
-type ReviewerAnalysis = {
-  review: Omit<ReviewerResponse["review"], "blocks">;
+type InspectorAnalysis = {
+  inspection: Omit<InspectorResponse["inspection"], "blocks">;
+};
+type LegacyReviewerAnalysis = {
+  review: Omit<InspectorResponse["inspection"], "blocks">;
 };
 
 /** Build a portable artifact without coupling the analysis tree to document text. */
@@ -36,15 +40,15 @@ export function packScoutResult(result: ScoutResponse): ResultFile<"scout", Scou
   };
 }
 
-export function packReviewerResult(
-  result: ReviewerResponse,
-): ResultFile<"reviewer", ReviewerAnalysis> {
-  const { blocks, ...review } = result.review;
+export function packInspectorResult(
+  result: InspectorResponse,
+): ResultFile<"inspector", InspectorAnalysis> {
+  const { blocks, ...inspection } = result.inspection;
   return {
     schema: RESULT_SCHEMA,
     version: RESULT_VERSION,
-    result_type: "reviewer",
-    analysis: { review },
+    result_type: "inspector",
+    analysis: { inspection },
     source_documents: groupDocuments(blocks),
   };
 }
@@ -66,24 +70,42 @@ export function unpackScoutResult(value: unknown): ScoutResponse {
   );
 }
 
-export function unpackReviewerResult(value: unknown): ReviewerResponse {
+export function unpackInspectorResult(value: unknown): InspectorResponse {
   if (isResultFile(value)) {
-    assertResultType(value, "reviewer");
-    const analysis = value.analysis as ReviewerAnalysis;
-    return {
-      ...analysis,
-      review: {
-        ...analysis.review,
-        blocks: flattenDocuments(value.source_documents),
-      },
-    };
+    const blocks = flattenDocuments(value.source_documents);
+    if (value.result_type === "inspector") {
+      const analysis = value.analysis as InspectorAnalysis;
+      return {
+        inspection: {
+          ...analysis.inspection,
+          blocks,
+        },
+      };
+    }
+    // Import-only migration for saved files produced before Reviewer was
+    // renamed to Inspector. Runtime components never consume this old shape.
+    if (value.result_type === "reviewer") {
+      const analysis = value.analysis as LegacyReviewerAnalysis;
+      return {
+        inspection: {
+          ...analysis.review,
+          blocks,
+        },
+      };
+    }
+    throw new Error(`expected an inspector result, received ${value.result_type}`);
   }
-  const legacy = value as ReviewerResponse;
+  const raw = value as Partial<InspectorResponse> & {
+    review?: InspectorResponse["inspection"];
+  };
+  const inspection = raw.inspection ?? raw.review;
+  if (!inspection) {
+    throw new Error("not an Inspector result file");
+  }
   return {
-    ...legacy,
-    review: {
-      ...legacy.review,
-      blocks: Array.isArray(legacy?.review?.blocks) ? legacy.review.blocks : [],
+    inspection: {
+      ...inspection,
+      blocks: Array.isArray(inspection.blocks) ? inspection.blocks : [],
     },
   };
 }
@@ -105,22 +127,24 @@ export function splitResultContext(result: unknown): {
   return { analysis: result };
 }
 
-function isResultFile(value: unknown): value is ResultFile<ResultType, unknown> {
+function isResultFile(value: unknown): value is ResultFile<StoredResultType, unknown> {
   if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<ResultFile<ResultType, unknown>>;
+  const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
-    (candidate.result_type === "reviewer" || candidate.result_type === "scout") &&
+    (candidate.result_type === "inspector" ||
+      candidate.result_type === "reviewer" ||
+      candidate.result_type === "scout") &&
     candidate.analysis != null &&
     Array.isArray(candidate.source_documents)
   );
 }
 
 function assertResultType(
-  result: ResultFile<ResultType, unknown>,
+  result: ResultFile<StoredResultType, unknown>,
   expected: ResultType,
 ): void {
   if (result.result_type !== expected) {

@@ -32,7 +32,7 @@ export function CollapsibleCard({
     <details
       open={defaultOpen}
       className={cn(
-        "group overflow-hidden rounded-xl border border-border/90 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.025)] [&_summary]:list-none",
+        "group overflow-hidden rounded-lg border border-border bg-card [&_summary]:list-none",
         className,
       )}
     >

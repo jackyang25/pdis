@@ -11,7 +11,7 @@ from services.scout import (
     find_config as find_scout_config,
     load_attributes as load_scout_attributes,
 )
-from services.reviewer import find_config as find_reviewer_config
+from services.inspector import find_config as find_inspector_config
 
 from api.schemas import (
     DocumentType,
@@ -49,7 +49,7 @@ def list_document_types() -> DocumentTypesResponse:
                 display_name=data.get("display_name", path.stem),
                 supports={
                     "chunker": True,
-                    "reviewer": _has_reviewer_config(org, source_type, intervention),
+                    "inspector": _has_inspector_config(org, source_type, intervention),
                     "scout": _has_scout_config(org, source_type, intervention),
                 },
             )
@@ -67,8 +67,8 @@ def list_indications(intervention: str) -> IndicationsResponse:
     return IndicationsResponse(indications=list(data.get(intervention, []) or []))
 
 
-def _has_reviewer_config(org: str, source_type: str, intervention: str) -> bool:
-    return find_reviewer_config(org, source_type, intervention) is not None
+def _has_inspector_config(org: str, source_type: str, intervention: str) -> bool:
+    return find_inspector_config(org, source_type, intervention) is not None
 
 
 def _has_scout_config(org: str, source_type: str, intervention: str) -> bool:

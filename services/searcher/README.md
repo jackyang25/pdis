@@ -183,7 +183,7 @@ Same query -> same output (modulo LLM and web drift). No persistence.
 Dependencies are adapter-owned and injected through `SearchRuntime`: the web
 adapter uses `OpenAIClient`, PubMed uses NCBI, and ToolUniverse-backed adapters
 reuse `integrations["tooluniverse"]`. Searcher does not import from chunker,
-reviewer, or scout. The controller enforces adapter request spacing,
+Inspector, or Scout. The controller enforces adapter request spacing,
 adapter-owned worker limits, and one global worker cap. Provider endpoints
 invoked multiple times inside one adapter request retain their finer throttle
 inside that adapter's stage.

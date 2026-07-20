@@ -4,7 +4,7 @@ import { create } from "zustand";
 import type {
   ContentBlock,
   ScoutResponse,
-  ReviewerResponse,
+  InspectorResponse,
   SearcherResponse,
   StageProgress,
 } from "./api";
@@ -41,11 +41,11 @@ function createToolSession<TResult>() {
 }
 
 export type ChunkerResult = { doc_id: string; blocks: ContentBlock[] };
-export type ReviewerResult = ReviewerResponse;
+export type InspectorResult = InspectorResponse;
 export type SearcherResult = SearcherResponse;
 export type ScoutResult = ScoutResponse;
 
 export const useChunkerSession = createToolSession<ChunkerResult>();
-export const useReviewerSession = createToolSession<ReviewerResult>();
+export const useInspectorSession = createToolSession<InspectorResult>();
 export const useSearcherSession = createToolSession<SearcherResult>();
 export const useScoutSession = createToolSession<ScoutResult>();

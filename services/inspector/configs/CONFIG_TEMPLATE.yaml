@@ -1,4 +1,4 @@
-# ReviewConfig template.
+# InspectionConfig template.
 #
 # Copy this file to a new config (e.g., new_product_type.yaml) and fill
 # in the sections, variables, and weights for the document rubric you

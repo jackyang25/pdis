@@ -1,6 +1,6 @@
 """Generic, result-agnostic navigation over a JSON result tree.
 
-The Ask assistant treats ANY result object (Scout, Reviewer, future doc types)
+The Ask assistant treats ANY result object (Scout, Inspector, future doc types)
 as a plain JSON tree and reads it ONLY through these helpers:
 
   - overview(result)        -> a compact map so the agent knows what paths exist
@@ -8,7 +8,7 @@ as a plain JSON tree and reads it ONLY through these helpers:
   - find(result, keyword)   -> paths whose key or value contains the keyword
   - fetch_source(url, ...)  -> full text behind an ALREADY-CITED url (no new search)
 
-Nothing here knows about Scout/Reviewer specifics - that semantic meaning is
+Nothing here knows about Scout/Inspector specifics - that semantic meaning is
 supplied separately by a per-result-type legend. This keeps the assistant
 decoupled: a new result type needs only a legend, no changes here.
 """

@@ -47,12 +47,12 @@ config framing, not engine conditionals.
   LibreOffice handles EMF/WMF/SVG fallback and full-slide PPTX rendering.
 - Images are canonical visual data. Do not replace them with generated prose,
   restore `image_lens`, or add a separate image-description stage.
-- Multimodal calls label every image with its exact block ID. Mapper, Reviewer,
+- Multimodal calls label every image with its exact block ID. Mapper, Inspector,
   Scout document reasoning, and Ask must preserve that association.
 - The image bytes travel in result JSON. This keeps the system portable and
   stateless, but makes image-bearing artifacts larger.
 
-## Reviewer contract
+## Inspector contract
 
 - Per section, completeness, adherence, and rigor are three independent LLM
   judgments with only their responsibility-specific rubric inputs.
@@ -60,6 +60,9 @@ config framing, not engine conditionals.
   LLM synthesis.
 - The whole-document consistency pass reports only cross-section conflicts.
 - Grades are `A`–`F` plus `N/A`; do not merge or rename the three dimensions.
+- Inspector judges document quality against its rubric. It may judge whether
+  risks are documented, but must not assign program risk levels, make funding
+  recommendations, or claim real-world feasibility.
 
 ## Scout and retrieval contract
 
@@ -169,8 +172,8 @@ weights, deduplication, and rollups. Do not restore holistic “basis” tags.
   fresh searches.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
-- Portable Reviewer/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 9, separating analysis from
+- Portable Inspector/Scout downloads use the versioned `pdis.result` envelope
+  (`web/lib/result-file.ts`), currently version 10, separating analysis from
   `source_documents`.
 - Backward compatibility belongs only in the import normalizer. Runtime UI and
   services consume the current contract without legacy branches.
@@ -209,11 +212,11 @@ Before finishing a cross-layer change, verify:
 ```text
 shared/openai_client.py
 services/chunker/{models.py,pipeline.py,stages/image_assets.py,stages/rasterizer.py}
-services/reviewer/stages/grader.py
+services/inspector/stages/grader.py
 services/searcher/{models.py,controller.py,sources/}
 services/scout/{context.py,pipeline.py,stages/}
 services/assistant/{agent.py,navigator.py,document.py,legends.py}
 api/{schemas.py,streaming.py,deps.py,routes/}
 web/lib/{api.ts,result-file.ts,session.ts}
-web/app/{chunker,reviewer,searcher,scout}/
+web/app/{chunker,inspector,searcher,scout}/
 ```

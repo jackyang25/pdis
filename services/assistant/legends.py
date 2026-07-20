@@ -24,7 +24,7 @@ SCOUT_LEGEND = """This is a SCOUT result: a document's product targets or plan c
 - stats: funnel counts.
 Note: Match relations and Precedent answer DIFFERENT questions and can differ without contradicting each other: relations compare each fact with the document, while precedent asks whether the underlying approach has a track record."""
 
-REVIEWER_LEGEND = """This is a REVIEWER result: a document graded inward against its rubric. Shape:
+INSPECTOR_LEGEND = """This is an INSPECTOR result: a document graded inward against its rubric. Shape:
 - dimensions: document-level grades (A-F) on completeness (is content present?), adherence (does it follow the rubric's structure/format?), rigor (is the content specific, measurable, sound?).
 - section_grades[]: per section - is_present, the three dimension grades (each with issues[] and a recommendation), missing_variables[], and variable_grades[] (per-variable dimension grades).
 - cross_section_findings[]: contradictions that span MULTIPLE sections (description, the sections involved, a recommendation).
@@ -32,7 +32,7 @@ REVIEWER_LEGEND = """This is a REVIEWER result: a document graded inward against
 
 _LEGENDS: dict[str, str] = {
     "scout": SCOUT_LEGEND,
-    "reviewer": REVIEWER_LEGEND,
+    "inspector": INSPECTOR_LEGEND,
 }
 
 

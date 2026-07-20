@@ -194,6 +194,15 @@ weights, deduplication, and rollups. Do not restore holistic “basis” tags.
   ToolUniverse bearer token, and provider credentials held by that private
   connector service.
 
+## UI and icon contract
+
+- The untouched bespoke icon pack lives in `web/public/icons/pdis/`.
+- Product and tool identity icons use the curated registry in
+  `web/components/ui/pdis-icon.tsx`; add a semantic mapping there instead of
+  referencing arbitrary SVG paths from feature components.
+- Lucide remains the system icon set for generic actions such as navigation,
+  upload, download, close, and disclosure controls.
+
 ## Change checklist
 
 Before finishing a cross-layer change, verify:

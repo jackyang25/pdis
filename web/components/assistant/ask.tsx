@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { TextStreamChatTransport, type UIMessage } from "ai";
-import { Check, Copy, Loader2, MessageSquareText, Send, Square, X } from "lucide-react";
+import { Check, Copy, Loader2, Send, Square, X } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 import { splitResultContext } from "@/lib/result-file";
 import { Button } from "../ui/button";
+import { PdisIcon } from "../ui/pdis-icon";
 
 function messageText(message: UIMessage): string {
   return message.parts
@@ -101,7 +102,7 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
         aria-controls="result-assistant"
         className="fixed bottom-5 right-5 z-50 h-10 gap-2 bg-card px-3.5 text-xs shadow-[0_8px_24px_rgba(15,23,42,0.10)] sm:bottom-6 sm:right-6"
       >
-        <MessageSquareText className="h-3.5 w-3.5 text-muted-foreground" />
+        <PdisIcon name="chat" className="h-3.5 w-3.5 text-muted-foreground" />
         Ask result
       </Button>
     );

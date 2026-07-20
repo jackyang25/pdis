@@ -1,33 +1,12 @@
 import Link from "next/link";
-import {
-  ArrowUpRight,
-  ClipboardCheck,
-  ExternalLink,
-  FileText,
-  Layers3,
-  Route,
-  ScanSearch,
-  Search,
-  ShieldCheck,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowUpRight, ExternalLink } from "lucide-react";
+import { PdisIcon } from "@/components/ui/pdis-icon";
 import {
   EXTERNAL_TOOLS,
   WORKSPACE_TOOLS,
   type ExternalToolDefinition,
-  type ToolIcon,
   type WorkspaceToolDefinition,
 } from "@/lib/tools";
-
-const ICONS: Record<ToolIcon, LucideIcon> = {
-  inspector: ShieldCheck,
-  scout: ScanSearch,
-  chunker: Layers3,
-  searcher: Search,
-  evaluator: ClipboardCheck,
-  roadmap: Route,
-  "executive-summary": FileText,
-};
 
 const DOCUMENT_INTELLIGENCE_TOOLS = WORKSPACE_TOOLS.filter(
   (tool) => tool.area === "document_intelligence",
@@ -127,14 +106,12 @@ function WorkspaceToolCard({
   tool: WorkspaceToolDefinition;
   compact?: boolean;
 }) {
-  const Icon = ICONS[tool.icon];
-
   return (
     <Link
       href={tool.href}
       className={`group flex flex-col rounded-lg border border-border bg-card p-5 transition-[border-color,box-shadow] duration-200 hover:border-foreground/20 hover:shadow-[0_10px_28px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 ${compact ? "min-h-[190px]" : "min-h-[216px]"}`}
     >
-      <CardHeader icon={Icon} trailing={<ArrowUpRight className="h-4 w-4" />} />
+      <CardHeader icon={tool.icon} trailing={<ArrowUpRight className="h-4 w-4" />} />
       <CardBody title={tool.title} description={tool.description} />
       <div className="mt-auto pt-5">
         <CardMeta capability={tool.capability} status={tool.activity} />
@@ -144,12 +121,10 @@ function WorkspaceToolCard({
 }
 
 function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
-  const Icon = ICONS[tool.icon];
-
   return (
     <article className="flex min-h-[232px] flex-col rounded-lg border border-border bg-card p-5">
       <CardHeader
-        icon={Icon}
+        icon={tool.icon}
         trailing={
           <span className="font-mono text-[10px] tabular-nums">
             Step {String(tool.sequence).padStart(2, "0")}
@@ -178,11 +153,17 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
   );
 }
 
-function CardHeader({ icon: Icon, trailing }: { icon: LucideIcon; trailing: React.ReactNode }) {
+function CardHeader({
+  icon,
+  trailing,
+}: {
+  icon: WorkspaceToolDefinition["icon"] | ExternalToolDefinition["icon"];
+  trailing: React.ReactNode;
+}) {
   return (
     <div className="flex items-start justify-between text-muted-foreground">
       <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground">
-        <Icon className="h-[17px] w-[17px]" strokeWidth={1.8} />
+        <PdisIcon name={icon} className="h-[17px] w-[17px]" />
       </span>
       <span className="transition-colors group-hover:text-foreground">{trailing}</span>
     </div>

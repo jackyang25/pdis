@@ -68,6 +68,8 @@ export type EvidenceMapProjection = {
   shownSources: number;
 };
 
+export type EvidenceMapMode = "focused" | "all";
+
 const RELATION_LABEL: Record<Match["relation"], string> = {
   contradicts: "Conflicts",
   extends: "Adds context",
@@ -312,10 +314,11 @@ function collectSourceSample(matches: Match[], limit: number): Finding[] {
 export function buildScoutEvidenceMap(
   result: ScoutResponse,
   attributeRef: string,
-  limits: { insights?: number; sources?: number } = {},
+  options: { mode?: EvidenceMapMode; insights?: number; sources?: number } = {},
 ): EvidenceMapProjection {
-  const insightLimit = limits.insights ?? 4;
-  const sourceLimit = limits.sources ?? 5;
+  const mode = options.mode ?? "focused";
+  const insightLimit = options.insights ?? 4;
+  const sourceLimit = options.sources ?? 5;
   const variable = result.variables.find((item) => item.name === attributeRef);
   if (!variable) {
     return {
@@ -336,15 +339,17 @@ export function buildScoutEvidenceMap(
   const uniqueMatches = Array.from(
     new Map(allMatches.map((match) => [insightKey(match), match])).values(),
   );
-  const visibleMatches = selectVisibleMatches(
-    uniqueMatches,
-    selectedByAnalysis,
-    insightLimit,
-  );
   const allSources = uniqueFindings(
     uniqueMatches.flatMap((match) => match.insight.supporting_findings ?? []),
   );
-  const visibleSources = collectSourceSample(visibleMatches, sourceLimit);
+  const visibleMatches =
+    mode === "all"
+      ? uniqueMatches
+      : selectVisibleMatches(uniqueMatches, selectedByAnalysis, insightLimit);
+  const visibleSources =
+    mode === "all"
+      ? allSources
+      : collectSourceSample(visibleMatches, sourceLimit);
   const visibleSourceUrls = new Set(visibleSources.map((finding) => finding.url));
 
   const assessment = result.assessments?.find(

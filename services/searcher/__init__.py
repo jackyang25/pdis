@@ -9,8 +9,11 @@ adapter or stage.
 """
 
 from .models import (
+    DEVELOPMENT_RECORD_TYPES,
+    DevelopmentRecord,
     EVIDENCE_DOMAINS,
     ENTITY_TYPES,
+    FINDING_ROLES,
     Finding,
     RetrievalEntity,
     RetrievalIntent,
@@ -19,6 +22,8 @@ from .models import (
     SearchRequest,
     SearchRuntime,
     SearcherLLMClientProtocol,
+    SAFETY_SIGNAL_TYPES,
+    SafetyRecord,
     SourceAttribution,
     SourceQueryIntent,
     SourceSpec,
@@ -46,8 +51,11 @@ prefer_ipv4()
 __all__ = [
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_MAX_USES",
+    "DEVELOPMENT_RECORD_TYPES",
+    "DevelopmentRecord",
     "EVIDENCE_DOMAINS",
     "ENTITY_TYPES",
+    "FINDING_ROLES",
     "Finding",
     "RetrievalEntity",
     "RetrievalIntent",
@@ -56,6 +64,8 @@ __all__ = [
     "SearchRequest",
     "SearchRuntime",
     "SearcherLLMClientProtocol",
+    "SAFETY_SIGNAL_TYPES",
+    "SafetyRecord",
     "SourceAttribution",
     "SourceQueryIntent",
     "SourceSpec",

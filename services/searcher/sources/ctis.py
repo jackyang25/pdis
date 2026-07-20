@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from ..models import (
+    DevelopmentRecord,
     Finding,
     RetrievalIntent,
     SearchRequest,
@@ -122,6 +123,27 @@ class CTISSource:
                         request,
                     ),
                     source=self.spec.key,
+                    development_records=_development_records(record, ct_number),
                 )
             )
         return findings
+
+
+def _development_records(record: dict, record_id: str) -> list[DevelopmentRecord]:
+    """Use a named investigational product only when CTIS returns one."""
+    names: list[str] = []
+    for key in ("product_name", "intervention_name", "investigational_product"):
+        value = record.get(key)
+        if isinstance(value, str) and value.strip():
+            names.append(value.strip())
+    return [
+        DevelopmentRecord(
+            program_name=name,
+            record_type="clinical_trial",
+            record_id=record_id,
+            sponsor=text(record.get("sponsor")),
+            phase=text(record.get("phase")),
+            status=text(record.get("status")),
+        )
+        for name in dict.fromkeys(names)
+    ]

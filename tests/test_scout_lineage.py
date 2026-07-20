@@ -8,6 +8,10 @@ from pathlib import Path
 from services.chunker import ContentBlock
 from services.assistant import document as document_reader
 from services.scout.context import select_attribute_context
+from services.scout.projections import (
+    build_development_landscape,
+    build_safety_signals,
+)
 from services.scout.models import (
     EVIDENCE_DOMAINS,
     Attribute,
@@ -17,6 +21,10 @@ from services.scout.models import (
     load_config,
 )
 from services.scout.stages.conformity import score_conformity
+from services.scout.stages.context_validator import (
+    mismatch_message,
+    validate_document_context,
+)
 from services.scout.stages.drift_classifier import classify_drift
 from services.scout.stages.evidence_assessor import assess_evidence
 from services.scout.stages.precedent_classifier import classify_precedent
@@ -27,7 +35,14 @@ from services.scout.stages.target_resolver import (
     resolve_document_target,
 )
 from services.scout.stages.unit_extractor import _document_chunks, extract_units
-from services.searcher import Finding, merge_findings, plan_requests, source_keys
+from services.searcher import (
+    DevelopmentRecord,
+    Finding,
+    SafetyRecord,
+    merge_findings,
+    plan_requests,
+    source_keys,
+)
 
 
 class StaticClient:
@@ -75,6 +90,66 @@ def block(index: int, content: str) -> ContentBlock:
     )
 
 
+class DocumentContextValidationTests(unittest.TestCase):
+    def test_cited_indication_match_is_retained(self) -> None:
+        client = StaticClient(
+            {
+                "status": "match",
+                "document_indication": "malaria",
+                "reason": "The document develops a malaria vaccine.",
+                "block_ids": ["document/b-0001"],
+            }
+        )
+
+        validation = validate_document_context(
+            "[block:document/b-0001]\nMalaria vaccine target product profile.",
+            client,
+            indication="malaria",
+        )
+
+        self.assertEqual(validation.status, "match")
+        self.assertEqual(validation.doc_block_ids, ["document/b-0001"])
+
+    def test_uncited_mismatch_cannot_block_a_run(self) -> None:
+        client = StaticClient(
+            {
+                "status": "mismatch",
+                "document_indication": "malaria",
+                "reason": "The document concerns malaria.",
+                "block_ids": ["invented/b-9999"],
+            }
+        )
+
+        validation = validate_document_context(
+            "[block:document/b-0001]\nMalaria vaccine target product profile.",
+            client,
+            indication="HIV",
+        )
+
+        self.assertEqual(validation.status, "uncertain")
+        self.assertEqual(validation.doc_block_ids, [])
+
+    def test_cited_mismatch_has_actionable_error(self) -> None:
+        client = StaticClient(
+            {
+                "status": "mismatch",
+                "document_indication": "malaria",
+                "reason": "The document concerns malaria rather than HIV.",
+                "block_ids": ["document/b-0001"],
+            }
+        )
+
+        validation = validate_document_context(
+            "[block:document/b-0001]\nMalaria vaccine target product profile.",
+            client,
+            indication="HIV",
+        )
+
+        self.assertEqual(validation.status, "mismatch")
+        self.assertIn('Configured indication "HIV"', mismatch_message(validation))
+        self.assertIn('"malaria"', mismatch_message(validation))
+
+
 class SearchProvenanceTests(unittest.TestCase):
     def test_duplicate_urls_merge_queries_and_lanes(self) -> None:
         existing = finding("https://example.test/a", query="first", source="web")
@@ -89,6 +164,46 @@ class SearchProvenanceTests(unittest.TestCase):
             [(path.query, path.lane) for path in merged.retrieval_paths],
             [("first", "web"), ("second", "pubmed")],
         )
+
+    def test_structured_projections_group_records_without_inference(self) -> None:
+        first = finding("https://example.test/trial", source="clinicaltrials")
+        first.development_records = [
+            DevelopmentRecord(
+                program_name="Candidate A",
+                record_type="clinical_trial",
+                record_id="NCT1",
+                sponsor="Sponsor One",
+                phase="Phase 2",
+                status="Recruiting",
+            )
+        ]
+        first.safety_records = [
+            SafetyRecord(
+                product_name="Candidate A",
+                signal_type="reported_event",
+                signal="Headache",
+                count=12,
+                qualification="Reports do not establish causation.",
+            )
+        ]
+        duplicate = finding("https://example.test/trial", source="clinicaltrials")
+        duplicate.development_records = list(first.development_records)
+        duplicate.safety_records = list(first.safety_records)
+
+        landscape = build_development_landscape(
+            {"clinical_efficacy": [first], "safety": [duplicate]}
+        )
+        signals = build_safety_signals(
+            {"clinical_efficacy": [first], "safety": [duplicate]}
+        )
+
+        self.assertEqual(len(landscape), 1)
+        self.assertEqual(landscape[0].name, "Candidate A")
+        self.assertEqual(landscape[0].attribute_refs, ["clinical_efficacy", "safety"])
+        self.assertEqual(len(landscape[0].supporting_findings), 1)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].count, 12)
+        self.assertEqual(signals[0].attribute_refs, ["clinical_efficacy", "safety"])
 
 
 class RetrievalPlanningTests(unittest.TestCase):
@@ -110,6 +225,37 @@ class RetrievalPlanningTests(unittest.TestCase):
             self.assertTrue(config.precedent_framing, path.name)
             self.assertTrue(config.sources, path.name)
             self.assertTrue(set(config.sources).issubset(set(source_keys())), path.name)
+
+    def test_molecular_sources_are_enabled_only_for_relevant_interventions(self) -> None:
+        drug = load_config(
+            str(
+                Path(__file__).resolve().parents[1]
+                / "services/scout/configs/bmgf_itpp_drug.yaml"
+            )
+        )
+        vaccine = load_config(
+            str(
+                Path(__file__).resolve().parents[1]
+                / "services/scout/configs/bmgf_itpp_vaccine.yaml"
+            )
+        )
+        device = load_config(
+            str(
+                Path(__file__).resolve().parents[1]
+                / "services/scout/configs/bmgf_itpp_device.yaml"
+            )
+        )
+
+        self.assertTrue({"open_targets", "chembl", "uniprot"}.issubset(drug.sources))
+        self.assertNotIn("open_targets", vaccine.sources)
+        self.assertNotIn("chembl", vaccine.sources)
+        self.assertIn("uniprot", vaccine.sources)
+        self.assertTrue(
+            {"open_targets", "chembl", "uniprot"}.isdisjoint(device.sources)
+        )
+        self.assertIn("fda_safety", drug.sources)
+        self.assertIn("fda_safety", vaccine.sources)
+        self.assertIn("fda_safety", device.sources)
 
     def test_router_uses_lane_native_query_shapes(self) -> None:
         attribute = Attribute(

@@ -62,6 +62,9 @@ for f in findings:
 | `excerpt` | str \| None | Cited text span from the model output when available; otherwise `None`. |
 | `published_at` | datetime \| None | Only set when reliably known |
 | `source` / `source_lanes` | str / list[str] | Adapter key and every lane that retrieved a merged URL |
+| `evidence_role` | `evidence` \| `reference` | Reference-only catalog/entity records are retained for deterministic projections but excluded from Scout evidence reasoning. |
+| `development_records` | list[DevelopmentRecord] | Explicit normalized program, sponsor, phase, status, and record identity fields. |
+| `safety_records` | list[SafetyRecord] | Explicit warning/report/recall observations with source qualifications; never causal inference. |
 | `source_labels` | dict[str, str] | Adapter-owned display metadata; clients do not mirror source names |
 | `source_attributions` | dict[str, SourceAttribution] | Optional adapter-owned public attribution notices, retained through deduplication and saved results |
 | `retrieval_paths` | list[RetrievalPath] | Exact query, source, connector, and operation path for every retrieval |
@@ -116,14 +119,19 @@ The stable boundary is intent/request/outcome, not a fixed backend list:
   Searcher surface; Scout configs opt into it explicitly. Its registered
   execution policy spaces request starts by 1.1 seconds to remain below the
   issued 1 RPS cumulative limit.
-- `open_targets` - disease, drug, and target entity discovery through Open
-  Targets for fields in the biological evidence domain.
+- `open_targets` - target-disease evidence for drug biological fields with a
+  document-stated gene or protein target.
 - `chembl` - compound and molecular-target records for document-stated drug,
   compound, protein, gene, antigen, or biomarker entities in biological fields.
 - `uniprot` - protein records for document-stated protein, gene, antigen, or
   biomarker entities in biological fields.
 - `fda` - FDA regulatory retrieval through ToolUniverse. The adapter chooses
   FDA drug labels for drugs/vaccines and 510(k) records for devices/diagnostics.
+- `fda_safety` - named-product safety retrieval through ToolUniverse. Drug and
+  vaccine entities use official label warnings and FAERS report counts; device
+  entities use MAUDE reports and device recalls. Every surveillance record is
+  explicitly qualified as non-causal; raw FAERS counts and individual MAUDE
+  reports are reference-role records excluded from Scout evidence reasoning.
 
 Native request counts intentionally differ by lane. Web executes each generated
 variant. PubMed compiles all variants in a track into one Boolean query.

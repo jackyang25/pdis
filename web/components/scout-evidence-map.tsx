@@ -28,6 +28,7 @@ import type { ScoutResponse } from "@/lib/api";
 import {
   buildScoutEvidenceMap,
   displayAttributeLabel,
+  type EvidenceMapMode,
   type EvidenceMapEdge,
   type EvidenceMapNode,
   type EvidenceMapNodeKind,
@@ -356,6 +357,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
 export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
   const variables = result.variables ?? [];
   const [attributeRef, setAttributeRef] = useState(variables[0]?.name ?? "");
+  const [viewMode, setViewMode] = useState<EvidenceMapMode>("focused");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(() => {
     if (!variables.some((variable) => variable.name === attributeRef)) {
@@ -364,8 +366,8 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
     }
   }, [attributeRef, variables]);
   const projection = useMemo(
-    () => buildScoutEvidenceMap(result, attributeRef),
-    [attributeRef, result],
+    () => buildScoutEvidenceMap(result, attributeRef, { mode: viewMode }),
+    [attributeRef, result, viewMode],
   );
   const graph = useMemo(
     () => layoutGraph(projection.nodes, projection.edges),
@@ -394,7 +396,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
   return (
     <section aria-label="Evidence map" className="bg-card">
       <div className="flex flex-col gap-3 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <label htmlFor="evidence-map-field" className="shrink-0 text-xs font-medium text-muted-foreground">
             Field
           </label>
@@ -416,6 +418,24 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
               ))}
             </SelectContent>
           </Select>
+          <label htmlFor="evidence-map-view" className="ml-0 shrink-0 text-xs font-medium text-muted-foreground sm:ml-2">
+            View
+          </label>
+          <Select
+            value={viewMode}
+            onValueChange={(value) => {
+              setViewMode(value as EvidenceMapMode);
+              setSelectedId(null);
+            }}
+          >
+            <SelectTrigger id="evidence-map-view" className="h-8 w-full bg-card sm:w-[150px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="focused">Focused trace</SelectItem>
+              <SelectItem value="all">All evidence</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <p className="text-[11px] tabular-nums text-muted-foreground">
           {projection.shownInsights} of {projection.totalInsights} insights · {projection.shownSources} of {projection.totalSources} cited sources
@@ -425,7 +445,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
       <div className="grid xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="evidence-map relative h-[560px] min-w-0 bg-background/40">
           <ReactFlow<EvidenceFlowNode, Edge>
-            key={attributeRef}
+            key={`${attributeRef}:${viewMode}`}
             nodes={displayedNodes}
             edges={graph.edges}
             nodeTypes={NODE_TYPES}
@@ -441,7 +461,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
             maxZoom={1.4}
             proOptions={{ hideAttribution: true }}
           >
-            <FitGraphToView layoutKey={attributeRef} />
+            <FitGraphToView layoutKey={`${attributeRef}:${viewMode}`} />
             <Background
               variant={BackgroundVariant.Dots}
               gap={20}
@@ -452,7 +472,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
           </ReactFlow>
           {hasHiddenNodes && (
             <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-card/95 px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm backdrop-blur">
-              Focused trace · select a node for full details
+              Focused trace · switch to All evidence for the complete cited graph
             </div>
           )}
         </div>

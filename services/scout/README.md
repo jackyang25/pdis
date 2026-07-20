@@ -84,14 +84,16 @@ as external evidence underneath it.
 ## Pipeline
 
 1. **parse** - chunker parses each uploaded doc without section mapping.
-2. **resolve targets** - fixed TPP definitions are bound to the document's exact target, blocks, and explicitly stated entities; dynamic IPDP units arrive already bound. Both have the same canonical shape, including one closed evidence domain, with `definition_mode` preserving only their provider provenance. Fixed domains are authored in the shared vocabulary; dynamic domains are selected from the same enum.
-3. **per-unit query intents** - LLM generates document-aware intents from the canonical definition and target across general, geographic, counterfactual, and precedent tracks.
-4. **plan + search** - Scout converts units to Searcher's neutral `RetrievalIntent`. The generic controller compares the unit's evidence domain and document-stated entity types with each enabled adapter's declared capabilities. Applicable adapters receive the complete bundle and independently compile source-native requests; non-applicable adapters emit explicit traced skips without connector calls. The controller verifies complete intent coverage, then executes fair per-source queues with adapter-owned rate/concurrency policy. `search_plan` retains every native request or skip, its exact input intent IDs/texts, applicability reason, status, document blocks, track, result count, and source URLs. URL dedupe preserves every retrieval path and the exact lanes supplying title, excerpt, and publication date.
-5. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs.
-6. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
-7. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources without allowing the canonical target to drift.
-8. **conformity** - quantitative values are extracted from the canonical target; every measurement URL must belong to its selected insight and retain the same unit as the target (no silent conversion). The LLM separately labels evidence form, development phase, and source-record type; deterministic methodology config supplies weights.
-9. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and canonical document blocks.
+2. **validate context** - a conservative, block-cited check compares the configured indication with the document. A clear mismatch stops before retrieval; absent or ambiguous context remains `uncertain`, never guessed or silently rewritten.
+3. **resolve targets** - fixed TPP definitions are bound to the document's exact target, blocks, and explicitly stated entities; dynamic IPDP units arrive already bound. Both have the same canonical shape, including one closed evidence domain, with `definition_mode` preserving only their provider provenance. Fixed domains are authored in the shared vocabulary; dynamic domains are selected from the same enum.
+4. **per-unit query intents** - LLM generates document-aware intents from the canonical definition and target across general, geographic, counterfactual, and precedent tracks.
+5. **plan + search** - Scout converts units to Searcher's neutral `RetrievalIntent`. The generic controller compares the unit's evidence domain and document-stated entity types with each enabled adapter's declared capabilities. Applicable adapters receive the complete bundle and independently compile source-native requests; non-applicable adapters emit explicit traced skips without connector calls. The controller verifies complete intent coverage, then executes fair per-source queues with adapter-owned rate/concurrency policy. `search_plan` retains every native request or skip, its exact input intent IDs/texts, applicability reason, status, document blocks, track, result count, and source URLs. URL dedupe preserves every retrieval path and the exact lanes supplying title, excerpt, and publication date.
+6. **deterministic projections** - typed development and safety records are grouped into a development landscape and safety-signal view. Missing fields remain missing; no LLM or source-specific parsing runs in Scout.
+7. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches from evidence-role Findings only. Reference-only catalog/entity records cannot influence reasoning. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs.
+8. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
+9. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources without allowing the canonical target to drift.
+10. **conformity** - quantitative values are extracted from the canonical target; every measurement URL must belong to its selected insight and retain the same unit as the target (no silent conversion). The LLM separately labels evidence form, development phase, and source-record type; deterministic methodology config supplies weights.
+11. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and canonical document blocks.
 
 Long documents are not truncated from the end. Vocabulary units receive a
 relevance-selected context with neighboring blocks and a document-wide safety
@@ -108,17 +110,17 @@ symmetric.
 
 ## Evidence map
 
-The web evidence map is a bounded, deterministic projection of a Scout result:
+The web evidence map is a deterministic projection of a Scout result:
 
 ```text
 evaluated field → canonical document target → evidence insight → cited source
 ```
 
 It uses the canonical `Attribute.document_target` and its exact block IDs.
-Relationship edges attach to that target. The map intentionally omits most
-retrieval requests and displays a readable subset; `search_plan` remains the
-complete request/skip/failure trace and the Fields view retains all analyzed
-evidence.
+Relationship edges attach to that target. Focused mode displays a readable,
+deterministic subset; **All evidence** maps every analyzed insight and cited
+source for the selected field. `search_plan` remains the complete
+request/skip/failure trace, including requests that produced no analyzed source.
 
 ## Config fields
 

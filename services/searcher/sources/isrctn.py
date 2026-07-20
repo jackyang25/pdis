@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from ..models import (
+    DevelopmentRecord,
     Finding,
     RetrievalIntent,
     SearchRequest,
@@ -123,6 +124,40 @@ class ISRCTNSource:
                         request,
                     ),
                     source=self.spec.key,
+                    development_records=_development_records(record, isrctn_id),
                 )
             )
         return findings
+
+
+def _development_records(record: dict, record_id: str) -> list[DevelopmentRecord]:
+    names: list[str] = []
+    raw_names = record.get("drug_names") or []
+    if isinstance(raw_names, str):
+        raw_names = [raw_names]
+    if isinstance(raw_names, list):
+        for value in raw_names:
+            if not isinstance(value, str):
+                continue
+            names.extend(part.strip() for part in value.split(",") if part.strip())
+    sponsors = record.get("sponsors") or []
+    sponsor = ""
+    if isinstance(sponsors, list) and sponsors:
+        first = sponsors[0]
+        if isinstance(first, dict):
+            sponsor = text(first.get("organisation"))
+        elif isinstance(first, str):
+            sponsor = first.strip()
+    status = text(record.get("recruitment_status")) or text(record.get("status"))
+    return [
+        DevelopmentRecord(
+            program_name=name,
+            record_type="clinical_trial",
+            record_id=record_id,
+            sponsor=sponsor,
+            phase=text(record.get("phase")),
+            status=status,
+        )
+        for name in dict.fromkeys(names)
+        if name.casefold() not in {"drug", "device", "vaccine", "biological"}
+    ]

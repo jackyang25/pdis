@@ -9,6 +9,7 @@ from .chembl import ChEMBLSource
 from .clinicaltrials import ClinicalTrialsSource
 from .ctis import CTISSource
 from .fda import FDASource
+from .fda_safety import FDASafetySource
 from .isrctn import ISRCTNSource
 from .open_targets import OpenTargetsSource
 from .pubmed import PubMedSource
@@ -27,6 +28,7 @@ _SOURCES: tuple[SourceAdapter, ...] = (
     ChEMBLSource(),
     UniProtSource(),
     FDASource(),
+    FDASafetySource(),
 )
 
 SOURCE_REGISTRY: dict[str, SourceAdapter] = {

@@ -106,19 +106,27 @@ class _MultiSourceToolUniverse:
                     ],
                 },
             }
-        if tool_name == "OpenTargets_multi_entity_search_by_query_string":
+        if tool_name == "OpenTargets_get_evidence_by_datasource":
             return {
                 "status": "success",
                 "data": {
-                    "search": {
-                        "hits": [
+                    "disease": {
+                        "id": "EFO_0001068",
+                        "name": "Malaria",
+                        "evidences": {
+                            "rows": [
                             {
-                                "id": "EFO_0001068",
-                                "entity": "disease",
-                                "name": "Malaria",
-                                "description": "A mosquito-borne infectious disease.",
+                                "datasourceId": "europepmc",
+                                "datatypeId": "literature",
+                                "score": 0.72,
+                                "target": {
+                                    "id": "ENSG00000123456",
+                                    "approvedSymbol": "CSP",
+                                },
+                                "literature": ["12345678"],
                             }
-                        ]
+                            ]
+                        },
                     }
                 },
             }
@@ -151,6 +159,38 @@ class _MultiSourceToolUniverse:
                         }
                     ]
                 },
+            }
+        if tool_name == "FDA_get_warnings_by_drug_name":
+            return {
+                "results": [
+                    {
+                        "openfda.brand_name": ["Example drug"],
+                        "warnings": ["May cause severe hypersensitivity."],
+                    }
+                ]
+            }
+        if tool_name == "FAERS_count_reactions_by_drug_event":
+            return [{"term": "NAUSEA", "count": 12}]
+        if tool_name == "OpenFDA_search_device_adverse_events":
+            return {
+                "results": [
+                    {
+                        "report_number": "MDR-1",
+                        "event_type": "Injury",
+                        "device": [{"generic_name": "Example assay"}],
+                    }
+                ]
+            }
+        if tool_name == "OpenFDA_search_device_recalls":
+            return {
+                "results": [
+                    {
+                        "product_res_number": "RES-1",
+                        "product_description": "Example assay",
+                        "recall_status": "Open",
+                        "classification": "Class II",
+                    }
+                ]
             }
         raise AssertionError(f"unexpected ToolUniverse operation: {tool_name}")
 
@@ -359,12 +399,16 @@ class ToolUniverseConnectorTests(unittest.TestCase):
                 "CTIS_search_trials_filtered",
                 "ISRCTN_search_trials_fielded",
                 "SemanticScholar_search_papers",
-                "OpenTargets_multi_entity_search_by_query_string",
+                "OpenTargets_get_evidence_by_datasource",
                 "ChEMBL_search_drugs",
                 "ChEMBL_search_targets",
                 "UniProt_search",
                 "FDA_search_drug_labels",
                 "OpenFDA_search_device_510k",
+                "FDA_get_warnings_by_drug_name",
+                "FAERS_count_reactions_by_drug_event",
+                "OpenFDA_search_device_adverse_events",
+                "OpenFDA_search_device_recalls",
             ),
         )
         throttle.assert_called_once_with(
@@ -414,7 +458,10 @@ class ToolUniverseConnectorTests(unittest.TestCase):
             intervention_class="drug",
             queries=(query,),
             evidence_domain="biological",
-            entities=(RetrievalEntity("chloroquine", "drug"),),
+            entities=(
+                RetrievalEntity("chloroquine", "drug"),
+                RetrievalEntity("CSP", "protein"),
+            ),
         )
 
         requests = plan_requests(
@@ -428,7 +475,8 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         self.assertEqual(by_source["web"][0].applicability, "applicable")
         self.assertEqual(by_source["open_targets"][0].applicability, "applicable")
         self.assertEqual(by_source["chembl"][0].applicability, "applicable")
-        for source in ("clinicaltrials", "fda", "uniprot"):
+        self.assertEqual(by_source["uniprot"][0].applicability, "applicable")
+        for source in ("clinicaltrials", "fda"):
             skipped = by_source[source][0]
             self.assertEqual(skipped.applicability, "not_applicable")
             self.assertEqual(skipped.intent_ids, (query.intent_id,))
@@ -438,7 +486,7 @@ class ToolUniverseConnectorTests(unittest.TestCase):
 
         connector = _MultiSourceToolUniverse()
         outcomes = run_requests(
-            [by_source["uniprot"][0]],
+            [by_source["clinicaltrials"][0]],
             runtime=SearchRuntime(
                 llm_client=_NoopLLM(),
                 integrations={"tooluniverse": connector},
@@ -492,7 +540,9 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         ]
 
         self.assertTrue(all(outcome.status == "complete" for outcome in outcomes))
-        self.assertIn("https://platform.opentargets.org/disease/EFO_0001068", {f.url for f in findings})
+        self.assertTrue(
+            any(url.startswith("https://platform.opentargets.org/evidence/") for url in {f.url for f in findings})
+        )
         self.assertIn("https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL76", {f.url for f in findings})
         self.assertIn("https://www.uniprot.org/uniprotkb/P13815/entry", {f.url for f in findings})
         self.assertEqual(
@@ -502,6 +552,18 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         self.assertTrue(
             all(finding.retrieval_paths[-1].operation for finding in findings)
         )
+        roles = {finding.source: finding.evidence_role for finding in findings}
+        self.assertEqual(roles["open_targets"], "evidence")
+        self.assertEqual(roles["chembl"], "reference")
+        self.assertEqual(roles["uniprot"], "reference")
+        chembl = next(finding for finding in findings if finding.source == "chembl")
+        self.assertEqual(chembl.development_records[0].phase, "Phase 4")
+        open_targets_call = next(
+            arguments
+            for operation, arguments in connector.calls
+            if operation == "OpenTargets_get_evidence_by_datasource"
+        )
+        self.assertNotIn("datasourceIds", open_targets_call)
 
     def test_structured_lanes_preserve_the_complete_neutral_intent_bundle(self) -> None:
         queries = (
@@ -631,6 +693,62 @@ class ToolUniverseConnectorTests(unittest.TestCase):
             "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/"
             "cfpmn/pmn.cfm?ID=K260001",
         )
+
+    def test_fda_safety_uses_named_products_and_keeps_noncausal_records(self) -> None:
+        connector = _MultiSourceToolUniverse()
+        runtime = SearchRuntime(
+            llm_client=_NoopLLM(),
+            integrations={"tooluniverse": connector},
+        )
+        intent = RetrievalIntent(
+            scope_ref="safety",
+            topic="safety profile",
+            description="Known and reported product safety signals",
+            indication="malaria",
+            intervention_class="drug",
+            queries=(SourceQueryIntent(text="chloroquine safety warnings"),),
+            evidence_domain="safety",
+            entities=(RetrievalEntity("chloroquine", "drug"),),
+        )
+
+        requests = plan_requests([intent], sources=("fda_safety",))
+        with patch("services.searcher.controller._wait_for_source_start"):
+            outcomes = run_requests(
+                requests,
+                runtime=runtime,
+                max_tokens=100,
+                max_uses=1,
+            )
+
+        self.assertEqual(
+            [request.operation for request in requests],
+            [
+                "FDA_get_warnings_by_drug_name",
+                "FAERS_count_reactions_by_drug_event",
+            ],
+        )
+        self.assertTrue(all(outcome.status == "complete" for outcome in outcomes))
+        records = [
+            record
+            for outcome in outcomes
+            for finding in outcome.findings
+            for record in finding.safety_records
+        ]
+        self.assertEqual(
+            {record.signal_type for record in records},
+            {"label_warning", "reported_event"},
+        )
+        reported = next(record for record in records if record.signal_type == "reported_event")
+        self.assertEqual(reported.count, 12)
+        self.assertIn("do not establish", reported.qualification)
+        roles_by_type = {
+            finding.safety_records[0].signal_type: finding.evidence_role
+            for outcome in outcomes
+            for finding in outcome.findings
+            if finding.safety_records
+        }
+        self.assertEqual(roles_by_type["label_warning"], "evidence")
+        self.assertEqual(roles_by_type["reported_event"], "reference")
 
     def test_global_worker_limit_bounds_future_source_fanout(self) -> None:
         connector = _CountingToolUniverse()

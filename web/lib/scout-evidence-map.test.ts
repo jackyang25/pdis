@@ -9,6 +9,13 @@ const result = {
   source_type: "itpp",
   intervention_class: "vaccine",
   indication: "malaria",
+  context_validation: {
+    status: "match",
+    configured_indication: "malaria",
+    document_indication: "malaria",
+    reason: "The document concerns malaria.",
+    doc_block_ids: ["document/b-0007"],
+  },
   variables: [
     {
       name: "clinical_efficacy",
@@ -64,6 +71,8 @@ const result = {
   ],
   conformity: [],
   precedents: [],
+  development_landscape: [],
+  safety_signals: [],
   stats: {
     queries: 1,
     findings: 1,
@@ -104,4 +113,35 @@ test("uses the canonical target and attaches evidence relations to it", () => {
     assert.ok(nodeIds.has(edge.source), `missing edge source ${edge.source}`);
     assert.ok(nodeIds.has(edge.target), `missing edge target ${edge.target}`);
   }
+});
+
+test("all mode maps every cited insight and source for the selected field", () => {
+  const expanded = structuredClone(result) as ScoutResponse;
+  expanded.matches.push({
+    ...expanded.matches[0],
+    insight: {
+      ...expanded.matches[0].insight,
+      id: "i-second",
+      statement: "A second study reported durable protection.",
+      supporting_findings: [
+        {
+          ...expanded.matches[0].insight.supporting_findings[0],
+          url: "https://example.test/second",
+          title: "Second study",
+        },
+      ],
+    },
+    relation: "confirms",
+  });
+
+  const focused = buildScoutEvidenceMap(expanded, "clinical_efficacy", {
+    insights: 1,
+    sources: 1,
+  });
+  const all = buildScoutEvidenceMap(expanded, "clinical_efficacy", { mode: "all" });
+
+  assert.equal(focused.shownInsights, 1);
+  assert.equal(focused.shownSources, 1);
+  assert.equal(all.shownInsights, 2);
+  assert.equal(all.shownSources, 2);
 });

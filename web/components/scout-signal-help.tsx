@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { CircleHelp } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -46,16 +47,42 @@ export function ScoutSignalLabel({
   className?: string;
 }) {
   const help = TOPICS[topic];
+  const [open, setOpen] = useState(false);
   return (
-    <span
-      title={`${help.summary} ${help.detail}`}
-      className={cn("inline-flex cursor-help items-center gap-1", className)}
-    >
+    <span className={cn("inline-flex items-center gap-1", className)}>
       {children}
-      <CircleHelp
-        aria-hidden="true"
-        className="h-3 w-3 opacity-0 transition-opacity group-hover/field:opacity-50"
-      />
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={`About ${help.title}`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setOpen((current) => !current);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+          >
+            <CircleHelp className="h-3 w-3" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          sideOffset={6}
+          className="w-[min(320px,calc(100vw-32px))] p-3"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h3 className="text-xs font-semibold text-foreground">{help.title}</h3>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            {help.summary}
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground/80">
+            {help.detail}
+          </p>
+        </PopoverContent>
+      </Popover>
     </span>
   );
 }

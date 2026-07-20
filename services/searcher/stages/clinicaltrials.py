@@ -22,7 +22,7 @@ import urllib.request
 from datetime import datetime, timezone
 from functools import lru_cache
 
-from ..models import Finding
+from ..models import DevelopmentRecord, Finding
 
 logger = logging.getLogger(__name__)
 
@@ -166,12 +166,16 @@ def clinicaltrial_to_finding(study: dict, query: str) -> Finding | None:
     design = protocol.get("designModule") or {}
     desc = protocol.get("descriptionModule") or {}
     conditions = (protocol.get("conditionsModule") or {}).get("conditions") or []
+    arms = protocol.get("armsInterventionsModule") or {}
+    interventions = arms.get("interventions") or []
+    sponsor_module = protocol.get("sponsorCollaboratorsModule") or {}
+    lead_sponsor = sponsor_module.get("leadSponsor") or {}
 
     title = (
         ident.get("briefTitle") or ident.get("officialTitle") or f"Trial {nct_id}"
     ).strip()
     status = (status_mod.get("overallStatus") or "").strip()
-    phases = ", ".join(design.get("phases") or [])
+    phases = ", ".join(_phase_label(value) for value in (design.get("phases") or []))
     why_stopped = (status_mod.get("whyStopped") or "").strip()
     summary = (desc.get("briefSummary") or "").strip()
     has_results = bool(study.get("hasResults"))
@@ -211,7 +215,45 @@ def clinicaltrial_to_finding(study: dict, query: str) -> Finding | None:
         excerpt=excerpt,
         published_at=_parse_date(_last_update(status_mod)),
         source="clinicaltrials",
+        development_records=[
+            DevelopmentRecord(
+                program_name=name,
+                record_type="clinical_trial",
+                record_id=nct_id,
+                sponsor=str(lead_sponsor.get("name") or "").strip(),
+                phase=phases,
+                status=status_label,
+            )
+            for name in _intervention_names(interventions)
+        ],
     )
+
+
+def _intervention_names(interventions: object) -> list[str]:
+    """Return explicit registry intervention names without parsing prose."""
+    if not isinstance(interventions, list):
+        return []
+    names: list[str] = []
+    for intervention in interventions:
+        if not isinstance(intervention, dict):
+            continue
+        name = str(intervention.get("name") or "").strip()
+        if name and name.casefold() not in {"drug", "device", "vaccine", "biological"}:
+            names.append(name)
+    return list(dict.fromkeys(names))
+
+
+def _phase_label(value: object) -> str:
+    labels = {
+        "EARLY_PHASE1": "Early Phase 1",
+        "PHASE1": "Phase 1",
+        "PHASE2": "Phase 2",
+        "PHASE3": "Phase 3",
+        "PHASE4": "Phase 4",
+        "NA": "Not applicable",
+    }
+    text = str(value or "").strip()
+    return labels.get(text, text.replace("_", " ").title())
 
 
 def _last_update(status_mod: dict) -> str:

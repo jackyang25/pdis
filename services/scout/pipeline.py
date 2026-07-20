@@ -31,6 +31,7 @@ from .context import (
 from .models import (
     Attribute,
     ConformityScore,
+    DocumentContextValidation,
     EvidenceAssessment,
     FunnelStats,
     Insight,
@@ -43,7 +44,9 @@ from .models import (
     SearchTrace,
     load_attributes,
 )
+from .projections import build_development_landscape, build_safety_signals
 from .stages.conformity import score_conformity
+from .stages.context_validator import mismatch_message, validate_document_context
 from .stages.drift_classifier import INSIGHTS_BATCH_SIZE, classify_drift
 from .stages.evidence_assessor import assess_evidence
 from .stages.insight_extractor import extract_insights, merge_duplicate_insights
@@ -93,6 +96,22 @@ def run_pipeline(
     # these markers; each stage validates returned IDs against its input context.
     doc_text = render_document_context(blocks)
 
+    if progress_callback:
+        progress_callback("context")
+    context_validation = validate_document_context(
+        doc_text,
+        openai_client,
+        indication=indication,
+        images=[
+            {"block_id": block.id, "data_url": block.image.data_url()}
+            for block in blocks
+            if block.image
+        ]
+        or None,
+    )
+    if context_validation.status == "mismatch":
+        raise ValueError(mismatch_message(context_validation))
+
     attributes = _resolve_units(
         config, doc_text, blocks, openai_client, indication=indication
     )
@@ -108,6 +127,7 @@ def run_pipeline(
                 matches=0,
                 assessments=0,
             ),
+            context_validation=context_validation,
             blocks=blocks,
         )
 
@@ -160,7 +180,11 @@ def run_pipeline(
         for query in queries
     ]
     if not flat:
-        return _empty_result(blocks=blocks, variables=attributes)
+        return _empty_result(
+            blocks=blocks,
+            variables=attributes,
+            context_validation=context_validation,
+        )
 
     if progress_callback:
         progress_callback("search")
@@ -182,7 +206,13 @@ def run_pipeline(
             blocks=blocks,
             variables=attributes,
             search_plan=search_plan,
+            context_validation=context_validation,
         )
+
+    # Adapters own source-specific parsing. These views consume only normalized
+    # records and therefore add no new model judgment or provider branch here.
+    development_landscape = build_development_landscape(findings_by_attribute)
+    safety_signals = build_safety_signals(findings_by_attribute)
 
     query_tracks_by_attribute: dict[str, dict[str, list[str]]] = {}
     for task in search_tasks:
@@ -283,6 +313,9 @@ def run_pipeline(
         conformity=conformity,
         precedents=precedents,
         search_plan=search_plan,
+        development_landscape=development_landscape,
+        safety_signals=safety_signals,
+        context_validation=context_validation,
         variables=attributes,
         blocks=blocks,
     )
@@ -495,7 +528,9 @@ def _extract_insights_all_variables(
     batch_tasks: list[tuple[str, list[Finding]]] = [
         (attribute_ref, batch)
         for attribute_ref, findings in items
-        for batch in _finding_batches(findings)
+        for batch in _finding_batches(
+            [finding for finding in findings if finding.evidence_role == "evidence"]
+        )
     ]
     if not batch_tasks:
         return []
@@ -789,6 +824,7 @@ def _classify_precedent_all_variables(
 
 def _empty_result(
     *,
+    context_validation: DocumentContextValidation,
     queries: int = 0,
     findings: int = 0,
     unique_findings: int = 0,
@@ -810,6 +846,7 @@ def _empty_result(
         ),
         variables=variables or [],
         search_plan=search_plan or [],
+        context_validation=context_validation,
         blocks=blocks or [],
     )
 

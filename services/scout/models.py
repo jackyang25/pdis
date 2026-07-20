@@ -30,6 +30,7 @@ VALID_EVIDENCE_STRENGTHS = {
 }
 VALID_PRECEDENT = {"direct", "adjacent", "none", "unknown"}
 VALID_PRECEDENT_OUTCOMES = {"favorable", "mixed", "unfavorable", "unknown"}
+VALID_CONTEXT_STATUSES = {"match", "mismatch", "uncertain"}
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> "ScoutTypeConfig":
@@ -344,13 +345,63 @@ class FunnelStats:
 
 
 @dataclass
+class DevelopmentProgram:
+    """Deterministic grouping of source-normalized development records."""
+
+    name: str
+    sponsors: list[str] = field(default_factory=list)
+    phases: list[str] = field(default_factory=list)
+    statuses: list[str] = field(default_factory=list)
+    record_types: list[str] = field(default_factory=list)
+    record_ids: list[str] = field(default_factory=list)
+    attribute_refs: list[str] = field(default_factory=list)
+    supporting_findings: list[Finding] = field(default_factory=list)
+
+
+@dataclass
+class SafetySignal:
+    """Deterministic grouping of one product safety observation."""
+
+    product_name: str
+    signal_type: str
+    signal: str
+    detail: str = ""
+    count: int | None = None
+    qualification: str = ""
+    attribute_refs: list[str] = field(default_factory=list)
+    supporting_findings: list[Finding] = field(default_factory=list)
+
+
+@dataclass
+class DocumentContextValidation:
+    """Pre-retrieval check that configured indication matches the document."""
+
+    status: str
+    configured_indication: str
+    document_indication: str = ""
+    reason: str = ""
+    doc_block_ids: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.status not in VALID_CONTEXT_STATUSES:
+            raise ValueError(f"unknown document context status: {self.status}")
+        self.configured_indication = self.configured_indication.strip()
+        self.document_indication = self.document_indication.strip()
+        self.reason = self.reason.strip()
+        self.doc_block_ids = list(dict.fromkeys(self.doc_block_ids))
+
+
+@dataclass
 class ScoutResult:
     matches: list[Match]
     assessments: list[EvidenceAssessment]
     stats: FunnelStats
+    context_validation: DocumentContextValidation
     conformity: list[ConformityScore] = field(default_factory=list)
     precedents: list[PrecedentSignal] = field(default_factory=list)
     search_plan: list[SearchTrace] = field(default_factory=list)
+    development_landscape: list[DevelopmentProgram] = field(default_factory=list)
+    safety_signals: list[SafetySignal] = field(default_factory=list)
     # Canonical, document-bound units actually investigated this run. Consumers
     # read this rather than re-deriving provider-specific definitions.
     variables: list[Attribute] = field(default_factory=list)
@@ -454,6 +505,31 @@ def precedents_to_dicts(signals: list[PrecedentSignal]) -> list[dict]:
                 finding["published_at"] = finding["published_at"].isoformat()
         out.append(d)
     return out
+
+
+def development_programs_to_dicts(
+    programs: list[DevelopmentProgram],
+) -> list[dict]:
+    """Convert development projections to plain dictionaries."""
+    return [_serialize_finding_datetimes(asdict(program)) for program in programs]
+
+
+def safety_signals_to_dicts(signals: list[SafetySignal]) -> list[dict]:
+    """Convert safety projections to plain dictionaries."""
+    return [_serialize_finding_datetimes(asdict(signal)) for signal in signals]
+
+
+def _serialize_finding_datetimes(value: dict) -> dict:
+    for finding in value.get("supporting_findings", []):
+        if finding.get("retrieved_at") is not None and not isinstance(
+            finding["retrieved_at"], str
+        ):
+            finding["retrieved_at"] = finding["retrieved_at"].isoformat()
+        if finding.get("published_at") is not None and not isinstance(
+            finding["published_at"], str
+        ):
+            finding["published_at"] = finding["published_at"].isoformat()
+    return value
 
 
 def blocks_to_dicts(blocks: list["ContentBlock"]) -> list[dict]:

@@ -3,7 +3,7 @@ org: bmgf
 source_type: itpp
 intervention_class: diagnostic
 display_name: "BMGF Intervention TPP - Diagnostic"
-sources: [web, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, open_targets, chembl, uniprot, fda]
+sources: [web, pubmed, clinicaltrials, ctis, isrctn, semantic_scholar, uniprot, fda, fda_safety]
 
 # Domain-specific guidance for the per-variable query extractor. Each shared
 # TPP attribute variable gets its own focused queries - these instructions

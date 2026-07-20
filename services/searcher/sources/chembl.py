@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from ..models import (
+    DevelopmentRecord,
     Finding,
     RetrievalIntent,
     SearchRequest,
@@ -131,6 +132,20 @@ def _drug_findings(records: list[dict], request: SearchRequest) -> list[Finding]
                     request,
                 ),
                 source="chembl",
+                evidence_role="reference",
+                development_records=[
+                    DevelopmentRecord(
+                        program_name=text(record.get("pref_name")) or chembl_id,
+                        record_type="compound_catalog",
+                        record_id=chembl_id,
+                        phase=_phase_label(record.get("max_phase")),
+                        status=(
+                            f"First approved {record.get('first_approval')}"
+                            if record.get("first_approval")
+                            else ""
+                        ),
+                    )
+                ],
             )
         )
     return findings
@@ -164,6 +179,15 @@ def _search_targets(request: SearchRequest, runtime: SearchRuntime) -> list[Find
                     request,
                 ),
                 source="chembl",
+                evidence_role="reference",
             )
         )
     return findings
+
+
+def _phase_label(value: object) -> str:
+    try:
+        phase = int(float(str(value)))
+    except (TypeError, ValueError):
+        return ""
+    return f"Phase {phase}" if 0 < phase <= 4 else "Preclinical"

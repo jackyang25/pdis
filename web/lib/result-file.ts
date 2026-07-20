@@ -1,8 +1,8 @@
 import type { ContentBlock, ReviewerResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 7 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | typeof RESULT_VERSION;
+const RESULT_VERSION = 9 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | typeof RESULT_VERSION;
 
 type ResultType = "reviewer" | "scout";
 
@@ -110,7 +110,7 @@ function isResultFile(value: unknown): value is ResultFile<ResultType, unknown> 
   const candidate = value as Partial<ResultFile<ResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.result_type === "reviewer" || candidate.result_type === "scout") &&
@@ -158,6 +158,13 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
   );
   return {
     ...raw,
+    context_validation: raw.context_validation ?? {
+      status: "not_checked",
+      configured_indication: String(raw.indication ?? ""),
+      document_indication: "",
+      reason: "This imported result predates document-context validation.",
+      doc_block_ids: [],
+    },
     assessments: (raw.assessments ?? []).map((assessment: Record<string, any>) => {
       const { basis: _removedBasis, ...current } = assessment;
       return {
@@ -176,6 +183,28 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
       ),
     })),
     precedents: (raw.precedents ?? []).map(normalizePrecedent),
+    development_landscape: (raw.development_landscape ?? []).map(
+      (program: Record<string, any>) => ({
+        ...program,
+        sponsors: program.sponsors ?? [],
+        phases: program.phases ?? [],
+        statuses: program.statuses ?? [],
+        record_types: program.record_types ?? [],
+        record_ids: program.record_ids ?? [],
+        attribute_refs: program.attribute_refs ?? [],
+        supporting_findings: program.supporting_findings ?? [],
+      }),
+    ),
+    safety_signals: (raw.safety_signals ?? []).map(
+      (signal: Record<string, any>) => ({
+        ...signal,
+        detail: signal.detail ?? "",
+        count: signal.count ?? null,
+        qualification: signal.qualification ?? "",
+        attribute_refs: signal.attribute_refs ?? [],
+        supporting_findings: signal.supporting_findings ?? [],
+      }),
+    ),
     search_plan: (raw.search_plan ?? []).map((trace: Record<string, any>) => ({
       ...trace,
       connector: trace.connector ?? "",

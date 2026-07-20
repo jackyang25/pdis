@@ -13,9 +13,11 @@ from services.scout import (
     assessments_to_dicts,
     blocks_to_dicts,
     conformity_to_dicts,
+    development_programs_to_dicts,
     find_config,
     matches_to_dicts,
     precedents_to_dicts,
+    safety_signals_to_dicts,
     run_pipeline,
 )
 
@@ -23,6 +25,8 @@ from api.deps import get_openai_client, get_search_runtime
 from api.schemas import (
     ConformityOut,
     ContentBlockOut,
+    DevelopmentProgramOut,
+    DocumentContextValidationOut,
     EvidenceAssessmentOut,
     EvidenceEntityOut,
     FindingOut,
@@ -31,6 +35,7 @@ from api.schemas import (
     MatchOut,
     MeasurementOut,
     ScoutRunResponse,
+    SafetySignalOut,
     SearchTraceOut,
     PrecedentOut,
     VariableOut,
@@ -90,6 +95,10 @@ async def run_scout(
             assessment_dicts = assessments_to_dicts(result.assessments)
             conformity_dicts = conformity_to_dicts(result.conformity)
             precedent_dicts = precedents_to_dicts(result.precedents)
+            development_program_dicts = development_programs_to_dicts(
+                result.development_landscape
+            )
+            safety_signal_dicts = safety_signals_to_dicts(result.safety_signals)
             # Units actually investigated (vocabulary for TPP, extracted for IPDP) -
             # read from the result, not re-derived from the shared vocabulary.
             variables = result.variables
@@ -98,6 +107,13 @@ async def run_scout(
                 source_type=source_type,
                 intervention_class=intervention_class,
                 indication=indication,
+                context_validation=DocumentContextValidationOut(
+                    status=result.context_validation.status,
+                    configured_indication=result.context_validation.configured_indication,
+                    document_indication=result.context_validation.document_indication,
+                    reason=result.context_validation.reason,
+                    doc_block_ids=result.context_validation.doc_block_ids,
+                ),
                 variables=[
                     VariableOut(
                         name=variable.name,
@@ -219,6 +235,13 @@ async def run_scout(
                         ],
                     )
                     for signal in precedent_dicts
+                ],
+                development_landscape=[
+                    DevelopmentProgramOut(**program)
+                    for program in development_program_dicts
+                ],
+                safety_signals=[
+                    SafetySignalOut(**signal) for signal in safety_signal_dicts
                 ],
                 stats=FunnelStatsOut(
                     queries=result.stats.queries,

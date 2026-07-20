@@ -110,6 +110,7 @@ class UniProtSource:
                         request,
                     ),
                     source=self.spec.key,
+                    evidence_role="reference",
                 )
             )
         return findings

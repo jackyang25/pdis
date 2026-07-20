@@ -39,6 +39,13 @@ ENTITY_TYPES = frozenset(
         "other",
     }
 )
+FINDING_ROLES = frozenset({"evidence", "reference"})
+DEVELOPMENT_RECORD_TYPES = frozenset(
+    {"clinical_trial", "compound_catalog", "regulatory_label", "regulatory_clearance"}
+)
+SAFETY_SIGNAL_TYPES = frozenset(
+    {"label_warning", "reported_event", "device_event", "recall"}
+)
 
 
 @dataclass(frozen=True)
@@ -195,6 +202,51 @@ class RetrievalPath:
     operation: str = ""
 
 
+@dataclass(frozen=True)
+class DevelopmentRecord:
+    """Source-normalized facts about one named development program.
+
+    Adapters populate only fields explicitly present in the provider record.
+    Scout may group these records for display, but must not infer a missing
+    sponsor, phase, or status.
+    """
+
+    program_name: str
+    record_type: str
+    record_id: str = ""
+    sponsor: str = ""
+    phase: str = ""
+    status: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.program_name.strip():
+            raise ValueError("development program name cannot be empty")
+        if self.record_type not in DEVELOPMENT_RECORD_TYPES:
+            raise ValueError(f"unknown development record type: {self.record_type}")
+
+
+@dataclass(frozen=True)
+class SafetyRecord:
+    """One structured, non-causal safety observation from a source record."""
+
+    product_name: str
+    signal_type: str
+    signal: str
+    detail: str = ""
+    count: int | None = None
+    qualification: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.product_name.strip():
+            raise ValueError("safety product name cannot be empty")
+        if self.signal_type not in SAFETY_SIGNAL_TYPES:
+            raise ValueError(f"unknown safety signal type: {self.signal_type}")
+        if not self.signal.strip():
+            raise ValueError("safety signal label cannot be empty")
+        if self.count is not None and self.count < 0:
+            raise ValueError("safety report count cannot be negative")
+
+
 @dataclass
 class Finding:
     """One atomic, source-attributed result from a retrieval backend.
@@ -211,6 +263,12 @@ class Finding:
     excerpt: str | None = None
     published_at: datetime | None = None
     source: str = "unknown"
+    # Reference records may provide entity or catalog metadata but are not fed
+    # into Scout's evidence reasoning. Structured projections may still use
+    # their normalized development facts.
+    evidence_role: str = "evidence"  # evidence | reference
+    development_records: list[DevelopmentRecord] = field(default_factory=list)
+    safety_records: list[SafetyRecord] = field(default_factory=list)
     # URL deduplication must not erase how a source was discovered. ``query``
     # and ``source`` remain the primary values for compatibility; these lists
     # retain every retrieval path merged into the Finding.
@@ -224,6 +282,10 @@ class Finding:
     published_source_lane: str = ""
 
     def __post_init__(self) -> None:
+        if self.evidence_role not in FINDING_ROLES:
+            raise ValueError(f"unknown finding evidence role: {self.evidence_role}")
+        self.development_records = list(dict.fromkeys(self.development_records))
+        self.safety_records = list(dict.fromkeys(self.safety_records))
         if self.query and self.query not in self.queries:
             self.queries.insert(0, self.query)
         if self.source and self.source not in self.source_lanes:
@@ -286,6 +348,18 @@ def merge_findings(existing: Finding, incoming: Finding) -> Finding:
     existing.retrieval_paths = list(
         dict.fromkeys([*existing.retrieval_paths, *incoming.retrieval_paths])
     )
+    existing.development_records = list(
+        dict.fromkeys(
+            [*existing.development_records, *incoming.development_records]
+        )
+    )
+    existing.safety_records = list(
+        dict.fromkeys([*existing.safety_records, *incoming.safety_records])
+    )
+    # A duplicate retrieved as evidence in any lane remains eligible for
+    # reasoning. Reference-only is the conservative default for metadata.
+    if incoming.evidence_role == "evidence":
+        existing.evidence_role = "evidence"
     # `source_lanes` is the authoritative multi-source provenance. Keep the
     # first lane as the compatibility primary rather than embedding a brittle
     # global ranking that every new adapter would need to modify.

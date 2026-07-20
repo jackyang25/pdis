@@ -13,10 +13,9 @@ sources:
   - ctis
   - isrctn
   - semantic_scholar
-  - open_targets
-  - chembl
   - uniprot
   - fda
+  - fda_safety
 
 # Domain-specific guidance for the per-variable query extractor. Each
 # shared TPP attribute variable gets its own focused queries - these

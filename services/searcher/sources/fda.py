@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from ..models import (
+    DevelopmentRecord,
     Finding,
     RetrievalIntent,
     SearchRequest,
@@ -152,6 +153,15 @@ def _search_labels(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
                     request,
                 ),
                 source="fda",
+                development_records=[
+                    DevelopmentRecord(
+                        program_name=brand or generic or title,
+                        record_type="regulatory_label",
+                        record_id=spl_id,
+                        sponsor=text(record.get("manufacturer")),
+                        status="FDA labeled",
+                    )
+                ],
             )
         )
     return findings
@@ -204,6 +214,15 @@ def _search_devices(request: SearchRequest, runtime: SearchRuntime) -> list[Find
                     request,
                 ),
                 source="fda",
+                development_records=[
+                    DevelopmentRecord(
+                        program_name=text(record.get("device_name")) or k_number,
+                        record_type="regulatory_clearance",
+                        record_id=k_number,
+                        sponsor=text(record.get("applicant")),
+                        status=text(record.get("decision_description")),
+                    )
+                ],
             )
         )
     return findings

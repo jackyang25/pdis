@@ -156,6 +156,7 @@ and `other`.
 
 ```text
 parse document blocks and visuals
+→ validate configured indication against cited document context
 → resolve canonical fields and targets
 → generate source-neutral query intents with block lineage
 → determine source applicability from closed metadata
@@ -188,10 +189,11 @@ keys through config.
 | `ctis` | ToolUniverse | EU clinical and safety trials |
 | `isrctn` | ToolUniverse | International clinical and safety trials |
 | `semantic_scholar` | ToolUniverse | Cross-disciplinary literature discovery |
-| `open_targets` | ToolUniverse | Disease, drug, and target discovery for biological fields |
-| `chembl` | ToolUniverse | Compounds and molecular targets for document-stated entities |
-| `uniprot` | ToolUniverse | Proteins, genes, antigens, and biomarkers |
+| `open_targets` | ToolUniverse | Target–disease association evidence for drug biological fields |
+| `chembl` | ToolUniverse | Reference compound/target records and explicit development phase metadata |
+| `uniprot` | ToolUniverse | Reference protein, gene, antigen, and biomarker records |
 | `fda` | ToolUniverse | Drug labels and device 510(k) regulatory records |
+| `fda_safety` | ToolUniverse | Product-specific FDA label warnings, FAERS reports, MAUDE events, and device recalls |
 
 Broad web/literature lanes can serve every field. Specialized lanes declare
 supported evidence domains and, where needed, required entity types. The
@@ -199,6 +201,12 @@ generic controller makes a deterministic metadata match—there is no second LLM
 router. A non-applicable enabled lane produces a traced `skipped` outcome and
 does not call its connector. Empty successful searches and source failures stay
 distinct from skips.
+
+Molecular lanes are not universal. Drug configs can use Open Targets, ChEMBL,
+and UniProt; vaccine and diagnostic configs retain only entity-gated UniProt;
+device configs use none of them. ChEMBL and UniProt catalog records are marked
+as reference-only and never enter Scout's evidence reasoning. Open Targets
+emits actual target–disease evidence rather than entity-search cards.
 
 Native request counts intentionally differ by source. Web can execute each
 intent; PubMed can compile track variants into Boolean queries; Semantic
@@ -239,21 +247,31 @@ LLMs may classify or select only within closed vocabularies. Code validates
 document IDs, insight IDs, URLs, units, provenance, deduplication, weights, and
 rollups. Holistic “basis” tags are intentionally not part of the result model.
 
+Two deterministic projections sit beside—not inside—the four axes:
+
+- **Development landscape** groups explicit program, sponsor, phase, and status
+  fields normalized from trial, compound, and regulatory records.
+- **Safety signals** groups official warnings, recalls, and surveillance reports.
+  FAERS and MAUDE observations are visibly qualified as non-causal and are
+  never converted into incidence or risk scores. Raw FAERS counts and individual
+  MAUDE reports are reference-only and do not enter Scout's evidence judgments.
+
 ### Evidence map
 
-The Scout evidence map is a focused projection, not the complete retrieval
-trace:
+The Scout evidence map defaults to a focused projection; **All evidence** maps
+every analyzed insight and cited source for the selected field. It is not the
+complete retrieval trace:
 
 ```text
 evaluated field → canonical document target → evidence insight → cited source
 ```
 
 Relationship colors attach to the document target. Target text and blocks come
-from the canonical field, never a downstream assessment copy. The map shows a
-deterministic, bounded sample for readability; selecting an insight exposes all
-of its cited sources. The Fields view retains the complete analyzed evidence,
-while `search_plan` in the downloaded result retains requests, skips, failures,
-and full retrieval lineage.
+from the canonical field, never a downstream assessment copy. Focused mode
+shows a deterministic, bounded sample for readability; selecting an insight
+exposes all of its cited sources. The Fields view retains the complete analyzed
+evidence, while `search_plan` in the downloaded result retains requests, skips,
+failures, and full retrieval lineage.
 
 ## Reviewer semantics
 
@@ -290,7 +308,7 @@ tool execution remains private while final tokens render incrementally.
 ## Portable result files
 
 Reviewer and Scout downloads use the versioned `pdis.result` envelope, currently
-version **7**:
+version **9**:
 
 ```text
 schema + version + result_type

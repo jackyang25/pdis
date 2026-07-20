@@ -86,6 +86,10 @@ relevant document blocks
 
 Preserve these invariants:
 
+- Before target resolution or retrieval, validate the configured indication
+  against the parsed document. Only a clear, block-cited mismatch may stop the
+  run; ambiguous or absent context remains `uncertain`. Never silently replace
+  the user's configured indication.
 - Query generation sees the relevant uploaded-document blocks and returns the
   exact `doc_block_ids` that shaped each query.
 - General, geographic, counterfactual, and precedent tracks are additive. Their
@@ -129,6 +133,19 @@ Preserve these invariants:
   query. The request must retain the full intent bundle and record the native
   filters and ranking policy; never describe a broad provider filter as though
   it were the generated field query.
+- A normalized `Finding` explicitly distinguishes `evidence` from `reference`.
+  Reference-only catalog/entity records must not enter Scout's LLM evidence
+  reasoning. Source adapters may attach typed development or safety records;
+  Scout groups those records deterministically without parsing provider prose
+  or inventing missing sponsor, phase, status, or outcome values.
+- Raw FAERS counts and individual MAUDE reports are reference-role surveillance
+  signals: retain and qualify them in the safety projection, but never let them
+  influence grounding, drift, conformity, or precedent. Official label warnings
+  and recall actions may remain evidence-role Findings.
+- Molecular sources are selected by intervention config and field metadata.
+  Open Targets retrieves target-disease evidence only for drug biological
+  fields with a stated gene/protein; ChEMBL and UniProt catalog records are
+  reference context. Do not restore universal molecular-source fan-out.
 
 Scout's four result axes are intentionally orthogonal:
 
@@ -151,7 +168,7 @@ weights, deduplication, and rollups. Do not restore holistic “basis” tags.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Reviewer/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 7, separating analysis from
+  (`web/lib/result-file.ts`), currently version 9, separating analysis from
   `source_documents`.
 - Backward compatibility belongs only in the import normalizer. Runtime UI and
   services consume the current contract without legacy branches.

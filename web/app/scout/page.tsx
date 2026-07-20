@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ChevronDown, Search } from "lucide-react";
+import { AlertTriangle, ChevronDown, Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { HeaderGuard } from "@/components/header-guard";
@@ -12,11 +12,13 @@ import { DownloadButton } from "@/components/download-button";
 import {
   runScout,
   type Conformity,
+  type DevelopmentProgram,
   type EvidenceAssessment,
   type Finding,
   type Header,
   type Match,
   type ScoutResponse,
+  type SafetySignal,
   type PrecedentSignal,
 } from "@/lib/api";
 import { Ask } from "@/components/assistant/ask";
@@ -56,6 +58,7 @@ const ScoutEvidenceMap = dynamic(
 
 const SCOUT_STEPS = [
   { key: "parse", label: "Parsing documents" },
+  { key: "context", label: "Validating document context" },
   { key: "targets", label: "Resolving document targets" },
   { key: "queries", label: "Extracting queries" },
   { key: "search", label: "Searching evidence sources" },
@@ -421,11 +424,39 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
         />
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {result && <ContextValidationNotice result={result} />}
       {result && <FieldGrid result={result} onNewAnalysis={() => setShowRunPanel(true)} />}
       <Ask resultType="scout" result={result} />
       {!result && !busy && !error && (
         <EmptyState message="Upload a document to begin." />
       )}
+    </div>
+  );
+}
+
+function ContextValidationNotice({ result }: { result: ScoutResponse }) {
+  const validation = result.context_validation;
+  if (!validation || validation.status === "match") return null;
+
+  const message =
+    validation.status === "not_checked"
+      ? "This imported result predates document-context validation. Re-run it before relying on indication-scoped evidence."
+      : validation.status === "mismatch"
+        ? `The document appears to concern ${validation.document_indication || "a different indication"}, not ${validation.configured_indication}.`
+        : `Scout could not confidently verify that the document concerns ${validation.configured_indication}.`;
+
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-2.5 rounded-lg border border-amber-300/60 bg-amber-50/60 px-3.5 py-3 text-xs text-amber-950"
+    >
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="min-w-0">
+        <p className="font-medium">Review document context</p>
+        <p className="mt-0.5 leading-relaxed text-amber-950/75">
+          {message} {validation.reason}
+        </p>
+      </div>
     </div>
   );
 }
@@ -443,6 +474,10 @@ function distinctSourceCount(result: ScoutResponse): number {
     for (const f of p.supporting_findings ?? []) if (f.url) urls.add(f.url);
   for (const c of result.conformity ?? [])
     for (const meas of c.measurements ?? []) if (meas.url) urls.add(meas.url);
+  for (const program of result.development_landscape ?? [])
+    for (const finding of program.supporting_findings ?? []) if (finding.url) urls.add(finding.url);
+  for (const signal of result.safety_signals ?? [])
+    for (const finding of signal.supporting_findings ?? []) if (finding.url) urls.add(finding.url);
   return urls.size;
 }
 
@@ -457,12 +492,20 @@ function resultFindings(result: ScoutResponse): Finding[] {
     ...(result.precedents ?? []).flatMap(
       (precedent) => precedent.supporting_findings ?? [],
     ),
+    ...(result.development_landscape ?? []).flatMap(
+      (program) => program.supporting_findings ?? [],
+    ),
+    ...(result.safety_signals ?? []).flatMap(
+      (signal) => signal.supporting_findings ?? [],
+    ),
   ];
 }
 
 function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnalysis: () => void }) {
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
+  const developmentLandscape = result.development_landscape ?? [];
+  const safetySignals = result.safety_signals ?? [];
   const [query, setQuery] = useState("");
   const [relationFilter, setRelationFilter] = useState<"all" | Match["relation"]>("all");
 
@@ -547,6 +590,12 @@ function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnal
           <div className="border-b border-border/80 px-5 pt-3 sm:px-6">
             <TabsList className="border-b-0">
               <TabsTrigger value="fields">Fields</TabsTrigger>
+              {developmentLandscape.length > 0 && (
+                <TabsTrigger value="landscape">Landscape</TabsTrigger>
+              )}
+              {safetySignals.length > 0 && (
+                <TabsTrigger value="safety">Safety</TabsTrigger>
+              )}
               <TabsTrigger value="map">Evidence map</TabsTrigger>
             </TabsList>
           </div>
@@ -602,6 +651,16 @@ function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnal
               </p>
             )}
           </TabsContent>
+          {developmentLandscape.length > 0 && (
+            <TabsContent value="landscape" className="mt-0">
+              <DevelopmentLandscape programs={developmentLandscape} />
+            </TabsContent>
+          )}
+          {safetySignals.length > 0 && (
+            <TabsContent value="safety" className="mt-0">
+              <SafetySignals signals={safetySignals} />
+            </TabsContent>
+          )}
           <TabsContent value="map" className="mt-0">
             <ScoutEvidenceMap result={result} />
           </TabsContent>
@@ -612,6 +671,142 @@ function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnal
         />
       </CollapsibleCard>
     </div>
+  );
+}
+
+function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const visible = programs.filter((program) =>
+    !normalizedQuery ||
+    [program.name, ...program.sponsors, ...program.phases, ...program.statuses]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedQuery),
+  );
+  return (
+    <section>
+      <div className="flex flex-col gap-2 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+        <label className="relative min-w-0 flex-1 sm:max-w-xs">
+          <span className="sr-only">Search development programs</span>
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Find a program…"
+            className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10"
+          />
+        </label>
+        <p className="text-[11px] text-muted-foreground sm:ml-auto">
+          Structured records only · {visible.length} of {programs.length}
+        </p>
+      </div>
+      {visible.map((program) => (
+        <details key={program.name} className="group/program border-b border-border/80 last:border-b-0">
+          <summary className="flex cursor-pointer items-start gap-4 px-5 py-4 hover:bg-muted/25 sm:px-6 [&::-webkit-details-marker]:hidden">
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate text-sm font-semibold text-foreground">{program.name}</h3>
+              <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-3">
+                <SignalSummary label="Sponsor" value={program.sponsors.join(" · ") || "—"} />
+                <SignalSummary label="Phase" value={program.phases.join(" · ") || "—"} />
+                <SignalSummary label="Status" value={program.statuses.join(" · ") || "—"} />
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <span className="text-[11px] text-muted-foreground">
+                {countLabel(program.supporting_findings.length, "record")}
+              </span>
+              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/program:rotate-180" />
+            </div>
+          </summary>
+          <div className="border-t border-border/70 bg-muted/15 px-5 py-4 sm:px-6">
+            {program.attribute_refs.length > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                Retrieved for {program.attribute_refs.map(displayAttributeLabel).join(" · ")}
+              </p>
+            )}
+            <SourceList findings={program.supporting_findings} />
+          </div>
+        </details>
+      ))}
+      {visible.length === 0 && (
+        <p className="px-6 py-10 text-center text-sm text-muted-foreground">
+          No programs match this view.
+        </p>
+      )}
+    </section>
+  );
+}
+
+const SAFETY_TYPE_LABELS: Record<string, string> = {
+  label_warning: "Official label",
+  reported_event: "Reported event",
+  device_event: "Device report",
+  recall: "Recall",
+};
+
+function SafetySignals({ signals }: { signals: SafetySignal[] }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const visible = signals.filter((signal) =>
+    !normalizedQuery ||
+    `${signal.product_name} ${signal.signal} ${signal.detail}`
+      .toLowerCase()
+      .includes(normalizedQuery),
+  );
+  return (
+    <section>
+      <div className="border-b border-border/80 bg-muted/20 px-5 py-3 text-[11px] leading-relaxed text-muted-foreground sm:px-6">
+        Safety records are surveillance and labeling signals. Report counts are not incidence estimates and do not establish causation.
+      </div>
+      <div className="flex items-center gap-3 border-b border-border/80 bg-muted/10 px-5 py-3 sm:px-6">
+        <label className="relative min-w-0 flex-1 sm:max-w-xs">
+          <span className="sr-only">Search safety signals</span>
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Find a product or signal…"
+            className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10"
+          />
+        </label>
+        <span className="ml-auto text-[11px] text-muted-foreground">
+          {visible.length} of {signals.length}
+        </span>
+      </div>
+      {visible.map((signal, index) => (
+        <details key={`${signal.product_name}-${signal.signal_type}-${signal.signal}-${index}`} className="group/safety border-b border-border/80 last:border-b-0">
+          <summary className="flex cursor-pointer items-start gap-4 px-5 py-4 hover:bg-muted/25 sm:px-6 [&::-webkit-details-marker]:hidden">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {SAFETY_TYPE_LABELS[signal.signal_type] ?? signal.signal_type}
+              </p>
+              <h3 className="mt-1 text-sm font-semibold text-foreground">{signal.product_name}</h3>
+              <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{signal.signal}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              {signal.count != null && (
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {signal.count.toLocaleString()} reports
+                </span>
+              )}
+              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/safety:rotate-180" />
+            </div>
+          </summary>
+          <div className="border-t border-border/70 bg-muted/15 px-5 py-4 sm:px-6">
+            {signal.detail && (
+              <p className="max-w-4xl text-xs leading-relaxed text-foreground/90">{signal.detail}</p>
+            )}
+            {signal.qualification && (
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{signal.qualification}</p>
+            )}
+            <SourceList findings={signal.supporting_findings} />
+          </div>
+        </details>
+      ))}
+    </section>
   );
 }
 

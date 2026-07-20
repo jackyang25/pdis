@@ -70,6 +70,29 @@ class SourceAttributionOut(BaseModel):
     prefix: str = "Source data provided by"
 
 
+class DevelopmentRecordOut(BaseModel):
+    program_name: str
+    record_type: Literal[
+        "clinical_trial",
+        "compound_catalog",
+        "regulatory_label",
+        "regulatory_clearance",
+    ]
+    record_id: str = ""
+    sponsor: str = ""
+    phase: str = ""
+    status: str = ""
+
+
+class SafetyRecordOut(BaseModel):
+    product_name: str
+    signal_type: Literal["label_warning", "reported_event", "device_event", "recall"]
+    signal: str
+    detail: str = ""
+    count: int | None = None
+    qualification: str = ""
+
+
 class FindingOut(BaseModel):
     url: str
     title: str
@@ -78,6 +101,9 @@ class FindingOut(BaseModel):
     excerpt: str | None = None
     published_at: str | None = None
     source: str = "unknown"
+    evidence_role: Literal["evidence", "reference"] = "evidence"
+    development_records: list[DevelopmentRecordOut] = Field(default_factory=list)
+    safety_records: list[SafetyRecordOut] = Field(default_factory=list)
     queries: list[str] = Field(default_factory=list)
     source_lanes: list[str] = Field(default_factory=list)
     source_labels: dict[str, str] = Field(default_factory=dict)
@@ -216,16 +242,49 @@ class PrecedentOut(BaseModel):
     supporting_findings: list[FindingOut] = Field(default_factory=list)
 
 
+class DevelopmentProgramOut(BaseModel):
+    name: str
+    sponsors: list[str] = Field(default_factory=list)
+    phases: list[str] = Field(default_factory=list)
+    statuses: list[str] = Field(default_factory=list)
+    record_types: list[str] = Field(default_factory=list)
+    record_ids: list[str] = Field(default_factory=list)
+    attribute_refs: list[str] = Field(default_factory=list)
+    supporting_findings: list[FindingOut] = Field(default_factory=list)
+
+
+class SafetySignalOut(BaseModel):
+    product_name: str
+    signal_type: Literal["label_warning", "reported_event", "device_event", "recall"]
+    signal: str
+    detail: str = ""
+    count: int | None = None
+    qualification: str = ""
+    attribute_refs: list[str] = Field(default_factory=list)
+    supporting_findings: list[FindingOut] = Field(default_factory=list)
+
+
+class DocumentContextValidationOut(BaseModel):
+    status: Literal["match", "mismatch", "uncertain"]
+    configured_indication: str
+    document_indication: str = ""
+    reason: str = ""
+    doc_block_ids: list[str] = Field(default_factory=list)
+
+
 class ScoutRunResponse(BaseModel):
     org: str
     source_type: str
     intervention_class: str
     indication: str
+    context_validation: DocumentContextValidationOut
     variables: list[VariableOut]
     search_plan: list[SearchTraceOut] = Field(default_factory=list)
     matches: list[MatchOut]
     conformity: list[ConformityOut] = Field(default_factory=list)
     precedents: list[PrecedentOut] = Field(default_factory=list)
+    development_landscape: list[DevelopmentProgramOut] = Field(default_factory=list)
+    safety_signals: list[SafetySignalOut] = Field(default_factory=list)
     assessments: list[EvidenceAssessmentOut]
     stats: FunnelStatsOut
     # The parsed source document, carried so the Ask assistant can read the full

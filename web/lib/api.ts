@@ -101,6 +101,9 @@ export type Finding = {
   excerpt: string | null;
   published_at: string | null;
   source: string;
+  evidence_role?: "evidence" | "reference";
+  development_records?: DevelopmentRecord[];
+  safety_records?: SafetyRecord[];
   queries?: string[];
   source_lanes?: string[];
   source_labels?: Record<string, string>;
@@ -114,6 +117,24 @@ export type Finding = {
   title_source_lane?: string;
   excerpt_source_lane?: string;
   published_source_lane?: string;
+};
+
+export type DevelopmentRecord = {
+  program_name: string;
+  record_type: "clinical_trial" | "compound_catalog" | "regulatory_label" | "regulatory_clearance";
+  record_id: string;
+  sponsor: string;
+  phase: string;
+  status: string;
+};
+
+export type SafetyRecord = {
+  product_name: string;
+  signal_type: "label_warning" | "reported_event" | "device_event" | "recall";
+  signal: string;
+  detail: string;
+  count: number | null;
+  qualification: string;
 };
 
 export type SourceAttribution = {
@@ -246,6 +267,28 @@ export type PrecedentSignal = {
   supporting_findings: Finding[];
 };
 
+export type DevelopmentProgram = {
+  name: string;
+  sponsors: string[];
+  phases: string[];
+  statuses: string[];
+  record_types: string[];
+  record_ids: string[];
+  attribute_refs: string[];
+  supporting_findings: Finding[];
+};
+
+export type SafetySignal = {
+  product_name: string;
+  signal_type: "label_warning" | "reported_event" | "device_event" | "recall";
+  signal: string;
+  detail: string;
+  count: number | null;
+  qualification: string;
+  attribute_refs: string[];
+  supporting_findings: Finding[];
+};
+
 export type Variable = {
   name: string;
   description: string;
@@ -275,12 +318,21 @@ export type ScoutResponse = {
   source_type: string;
   intervention_class: string;
   indication: string;
+  context_validation: {
+    status: "match" | "mismatch" | "uncertain" | "not_checked";
+    configured_indication: string;
+    document_indication: string;
+    reason: string;
+    doc_block_ids: string[];
+  };
   variables: Variable[];
   search_plan?: SearchTrace[];
   matches: Match[];
   assessments: EvidenceAssessment[];
   conformity: Conformity[];
   precedents: PrecedentSignal[];
+  development_landscape: DevelopmentProgram[];
+  safety_signals: SafetySignal[];
   stats: FunnelStats;
   // The parsed source document behind the analysis (for the Ask assistant).
   blocks: ContentBlock[];

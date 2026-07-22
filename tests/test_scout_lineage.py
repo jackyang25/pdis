@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import unittest
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from services.chunker import ContentBlock
+from api.schemas import ConformityOut
 from services.assistant import document as document_reader
 from services.scout.context import select_attribute_context
 from services.scout.projections import (
@@ -66,15 +68,35 @@ class StaticClient:
         return json.dumps(self.response)
 
 
-def finding(url: str, *, query: str = "query", source: str = "web") -> Finding:
+def finding(
+    url: str,
+    *,
+    query: str = "query",
+    source: str = "web",
+    excerpt: str = "The reported efficacy was 82% in the target population.",
+) -> Finding:
     return Finding(
         url=url,
         title=url,
         query=query,
         retrieved_at=datetime.now(timezone.utc),
-        excerpt="source evidence",
+        excerpt=excerpt,
         source=source,
     )
+
+
+def same_comparability() -> dict[str, dict[str, str]]:
+    return {
+        axis: {"relation": "same", "reason": f"same {axis.replace('_', ' ')}"}
+        for axis in (
+            "endpoint",
+            "population",
+            "intervention",
+            "regimen",
+            "time_horizon",
+            "statistic",
+        )
+    }
 
 
 def block(index: int, content: str) -> ContentBlock:
@@ -544,7 +566,12 @@ class ReasoningLineageTests(unittest.TestCase):
         )
         self.second = Insight(
             statement="A registry lists an adjacent trial.",
-            supporting_findings=[finding("https://example.test/unused")],
+            supporting_findings=[
+                finding(
+                    "https://example.test/unused",
+                    excerpt="The reported efficacy was 90% in the target population.",
+                )
+            ],
             attribute_ref="efficacy",
         )
         self.document = "[block:document/b-0003]\nTarget efficacy is at least 80%."
@@ -662,6 +689,7 @@ class ReasoningLineageTests(unittest.TestCase):
                 "comparator": ">=",
                 "unit": "%",
                 "target_label": "threshold >=80%",
+                "target_quote": "Target efficacy is at least 80%.",
                 "doc_block_ids": ["document/b-0003"],
                 "measurements": [
                     {
@@ -672,6 +700,8 @@ class ReasoningLineageTests(unittest.TestCase):
                         "source_record_type": "peer_reviewed",
                         "insight_index": 0,
                         "url": "https://example.test/unused",
+                        "source_quote": "The reported efficacy was 90% in the target population.",
+                        "comparability": same_comparability(),
                     },
                     {
                         "value": 82,
@@ -681,6 +711,8 @@ class ReasoningLineageTests(unittest.TestCase):
                         "source_record_type": "peer_reviewed",
                         "insight_index": 0,
                         "url": "https://example.test/used",
+                        "source_quote": "The reported efficacy was 82% in the target population.",
+                        "comparability": same_comparability(),
                     },
                 ],
             }
@@ -703,8 +735,74 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(result.measurements[0].evidence_form, "randomized_trial")
         self.assertEqual(result.measurements[0].development_phase, "phase_3")
         self.assertEqual(result.measurements[0].source_record_type, "peer_reviewed")
+        self.assertEqual(result.benchmark_count, 1)
+        self.assertEqual(result.benchmark_median, 82)
+        self.assertEqual(result.calibration_status, "insufficient")
 
-    def test_conformity_rejects_incompatible_units_without_conversion(self) -> None:
+    def test_conformity_calibrates_target_against_validated_benchmarks(self) -> None:
+        client = StaticClient(
+            {
+                "is_quantitative": True,
+                "target_value": 85,
+                "comparator": ">=",
+                "unit": "%",
+                "target_label": "threshold >=85%",
+                "target_quote": "Target efficacy is at least 85%.",
+                "doc_block_ids": ["document/b-0003"],
+                "measurements": [
+                    {
+                        "value": 82,
+                        "unit": "%",
+                        "evidence_form": "randomized_trial",
+                        "development_phase": "phase_3",
+                        "source_record_type": "peer_reviewed",
+                        "insight_index": 0,
+                        "url": "https://example.test/used",
+                        "source_quote": "The reported efficacy was 82% in the target population.",
+                        "comparability": same_comparability(),
+                    },
+                    {
+                        "value": 90,
+                        "unit": "%",
+                        "evidence_form": "registry_record",
+                        "development_phase": "phase_2",
+                        "source_record_type": "registry",
+                        "insight_index": 1,
+                        "url": "https://example.test/unused",
+                        "source_quote": "The reported efficacy was 90% in the target population.",
+                        "comparability": same_comparability(),
+                    },
+                ],
+            }
+        )
+
+        result = score_conformity(
+            self.attribute,
+            "[block:document/b-0003]\nTarget efficacy is at least 85%.",
+            [self.first, self.second],
+            client,
+            indication="test",
+            intervention_class="vaccine",
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.benchmark_count, 2)
+        self.assertEqual(result.benchmark_median, 86)
+        self.assertEqual(result.benchmark_lower_quartile, 84)
+        self.assertEqual(result.benchmark_upper_quartile, 88)
+        self.assertEqual(result.target_percentile, 0.5)
+        self.assertEqual(result.ambition_percentile, 0.5)
+        self.assertEqual(result.calibration_status, "limited")
+        self.assertEqual(result.target_meeting_count, 1)
+        self.assertEqual(result.target_meeting_rate, 0.5)
+        self.assertEqual(result.benchmark_mean, 86)
+        self.assertAlmostEqual(result.benchmark_standard_deviation or 0, 5.657, places=3)
+        wire = ConformityOut(**asdict(result))
+        self.assertEqual(wire.benchmark_count, 2)
+        self.assertEqual(len(wire.measurements), 2)
+
+    def test_conformity_rejects_unquoted_numeric_claims(self) -> None:
         client = StaticClient(
             {
                 "is_quantitative": True,
@@ -712,18 +810,9 @@ class ReasoningLineageTests(unittest.TestCase):
                 "comparator": ">=",
                 "unit": "%",
                 "target_label": "threshold >=80%",
+                "target_quote": "Invented minimum efficacy is at least 80%.",
                 "doc_block_ids": ["document/b-0003"],
-                "measurements": [
-                    {
-                        "value": 0.82,
-                        "unit": "fraction",
-                        "evidence_form": "randomized_trial",
-                        "development_phase": "phase_3",
-                        "source_record_type": "peer_reviewed",
-                        "insight_index": 0,
-                        "url": "https://example.test/used",
-                    }
-                ],
+                "measurements": [],
             }
         )
 
@@ -737,6 +826,179 @@ class ReasoningLineageTests(unittest.TestCase):
         )
 
         self.assertIsNone(result)
+
+    def test_conformity_retains_semantic_exclusions_outside_statistics(self) -> None:
+        mismatched = same_comparability()
+        mismatched["population"] = {
+            "relation": "different",
+            "reason": "adult evidence versus infant target",
+        }
+        client = StaticClient(
+            {
+                "is_quantitative": True,
+                "target_value": 80,
+                "comparator": ">=",
+                "unit": "%",
+                "target_label": "threshold >=80%",
+                "target_quote": "Target efficacy is at least 80%.",
+                "doc_block_ids": ["document/b-0003"],
+                "measurements": [
+                    {
+                        "value": 82,
+                        "unit": "%",
+                        "evidence_form": "randomized_trial",
+                        "development_phase": "phase_3",
+                        "source_record_type": "peer_reviewed",
+                        "insight_index": 0,
+                        "url": "https://example.test/used",
+                        "source_quote": "The reported efficacy was 82% in the target population.",
+                        "comparability": same_comparability(),
+                    },
+                    {
+                        "value": 90,
+                        "unit": "%",
+                        "evidence_form": "registry_record",
+                        "development_phase": "phase_2",
+                        "source_record_type": "registry",
+                        "insight_index": 1,
+                        "url": "https://example.test/unused",
+                        "source_quote": "The reported efficacy was 90% in the target population.",
+                        "comparability": mismatched,
+                    },
+                ],
+            }
+        )
+
+        result = score_conformity(
+            self.attribute,
+            self.document,
+            [self.first, self.second],
+            client,
+            indication="test",
+            intervention_class="vaccine",
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.benchmark_count, 1)
+        self.assertEqual(len(result.excluded_measurements), 1)
+        self.assertIn("population: different", result.excluded_measurements[0].exclusion_reasons[0])
+
+    def test_conformity_rejects_incompatible_units_without_conversion(self) -> None:
+        fraction_insight = Insight(
+            statement="The reported efficacy was 0.82 as a fraction.",
+            supporting_findings=[
+                finding(
+                    "https://example.test/used",
+                    excerpt="The reported efficacy was 0.82 fraction in the target population.",
+                )
+            ],
+            attribute_ref="efficacy",
+        )
+        client = StaticClient(
+            {
+                "is_quantitative": True,
+                "target_value": 80,
+                "comparator": ">=",
+                "unit": "%",
+                "target_label": "threshold >=80%",
+                "target_quote": "Target efficacy is at least 80%.",
+                "doc_block_ids": ["document/b-0003"],
+                "measurements": [
+                    {
+                        "value": 0.82,
+                        "unit": "fraction",
+                        "evidence_form": "randomized_trial",
+                        "development_phase": "phase_3",
+                        "source_record_type": "peer_reviewed",
+                        "insight_index": 0,
+                        "url": "https://example.test/used",
+                        "source_quote": "The reported efficacy was 0.82 fraction in the target population.",
+                        "comparability": same_comparability(),
+                    }
+                ],
+            }
+        )
+
+        result = score_conformity(
+            self.attribute,
+            self.document,
+            [fraction_insight],
+            client,
+            indication="test",
+            intervention_class="vaccine",
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.benchmark_count, 0)
+        self.assertEqual(len(result.excluded_measurements), 1)
+        self.assertIn("incompatible unit", result.excluded_measurements[0].exclusion_reasons[0])
+
+    def test_conformity_deduplicates_canonical_study_records(self) -> None:
+        first_url = "https://clinicaltrials.gov/study/NCT12345678"
+        mirror_url = "https://example.test/trial/NCT12345678"
+        insights = [
+            Insight(
+                statement="The study reported efficacy of 82%.",
+                supporting_findings=[finding(first_url)],
+                attribute_ref="efficacy",
+            ),
+            Insight(
+                statement="A mirror reports efficacy of 90%.",
+                supporting_findings=[
+                    finding(
+                        mirror_url,
+                        excerpt="The reported efficacy was 90% in the target population.",
+                    )
+                ],
+                attribute_ref="efficacy",
+            ),
+        ]
+        client = StaticClient(
+            {
+                "is_quantitative": True,
+                "target_value": 80,
+                "comparator": ">=",
+                "unit": "%",
+                "target_label": "threshold >=80%",
+                "target_quote": "Target efficacy is at least 80%.",
+                "doc_block_ids": ["document/b-0003"],
+                "measurements": [
+                    {
+                        "value": 82,
+                        "unit": "%",
+                        "insight_index": 0,
+                        "url": first_url,
+                        "source_quote": "The reported efficacy was 82% in the target population.",
+                        "comparability": same_comparability(),
+                    },
+                    {
+                        "value": 90,
+                        "unit": "%",
+                        "insight_index": 1,
+                        "url": mirror_url,
+                        "source_quote": "The reported efficacy was 90% in the target population.",
+                        "comparability": same_comparability(),
+                    },
+                ],
+            }
+        )
+
+        result = score_conformity(
+            self.attribute,
+            self.document,
+            insights,
+            client,
+            indication="test",
+            intervention_class="vaccine",
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.benchmark_count, 1)
+        self.assertEqual(result.measurements[0].source_record_id, "nct:nct12345678")
+        self.assertIn("duplicate source record", result.excluded_measurements[0].exclusion_reasons[0])
 
     def test_precedent_keeps_coverage_and_outcome_separate(self) -> None:
         client = StaticClient(

@@ -212,22 +212,44 @@ class MeasurementOut(BaseModel):
     source_record_type: str = "unknown"
     url: str = ""
     insight_id: str = ""
+    source_quote: str = ""
+    source_record_id: str = ""
+    source_identity_status: Literal["canonical", "title_fallback", "url_fallback"] = "url_fallback"
+    comparability: dict[
+        str, Literal["same", "compatible", "not_applicable", "different", "unknown"]
+    ] = Field(default_factory=dict)
+    comparability_reasons: dict[str, str] = Field(default_factory=dict)
+    inclusion_reason: str = ""
+    exclusion_reasons: list[str] = Field(default_factory=list)
     age_months: float | None = None
-    weight: float = 0.0
 
 
 class ConformityOut(BaseModel):
     attribute_ref: str
     target_value: float
-    comparator: str
+    comparator: Literal[">=", "<="]
     unit: str = ""
     target_label: str = ""
-    conformity: float
-    lower: float
-    upper: float
+    target_quote: str = ""
+    target_meeting_count: int
+    target_meeting_rate: float
     verdict: str
+    benchmark_count: int = 0
+    benchmark_minimum: float | None = None
+    benchmark_maximum: float | None = None
+    benchmark_mean: float | None = None
+    benchmark_median: float | None = None
+    benchmark_lower_quartile: float | None = None
+    benchmark_upper_quartile: float | None = None
+    benchmark_standard_deviation: float | None = None
+    target_percentile: float | None = None
+    ambition_percentile: float | None = None
+    calibration_status: Literal[
+        "insufficient", "limited", "sufficient", "legacy_unverified"
+    ] = "insufficient"
     doc_block_ids: list[str] = Field(default_factory=list)
     measurements: list[MeasurementOut] = Field(default_factory=list)
+    excluded_measurements: list[MeasurementOut] = Field(default_factory=list)
 
 
 class PrecedentOut(BaseModel):

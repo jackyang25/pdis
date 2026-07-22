@@ -18,7 +18,7 @@ TOOLUNIVERSE_INTEGRATION = "tooluniverse"
 
 
 def get_openai_client() -> OpenAIClient:
-    """Construct the OpenAI client using OPENAI_API_KEY from the environment."""
+    """Construct the shared client from OPENAI_API_KEY and optional OPENAI_MODEL."""
     if not os.environ.get("OPENAI_API_KEY"):
         raise HTTPException(
             status_code=500,

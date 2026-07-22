@@ -26,9 +26,9 @@ const TOPICS: Record<
     detail: "The source count is the evidence selected for this assessment; it does not need to equal the relationship counts.",
   },
   alignment: {
-    title: "Evidence · Target alignment",
-    summary: "A calculated comparison between a numeric document target and compatible external measurements.",
-    detail: "A dash means no valid comparable score was calculated. It does not mean zero, failure, or missing analysis.",
+    title: "Evidence · Quantitative calibration",
+    summary: "A numeric document claim compared only with source-quoted, claim-compatible, deduplicated measurements.",
+    detail: "The count shows how many validated comparators meet the target. Distribution statistics describe this selected cohort only; they are not confidence intervals or forecasts. A dash means no valid comparison was possible.",
   },
   precedent: {
     title: "Precedent",

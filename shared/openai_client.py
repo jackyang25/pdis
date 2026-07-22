@@ -1,7 +1,8 @@
 """Shared OpenAI client.
 
-One provider (OpenAI), one default model (gpt-5.5). Used by all
-services for text generation and web search.
+One provider (OpenAI) and one process-level model. Production falls back to
+gpt-5.5; local or deployed environments may set ``OPENAI_MODEL`` once for the
+whole API. Used by all services for text generation and web search.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ class OpenAIClient:
         if not api_key:
             raise ValueError("OPENAI_API_KEY is required")
         self.client = OpenAI(api_key=api_key)
-        self.model = model or DEFAULT_MODEL
+        self.model = model or os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL
 
     def call(
         self,

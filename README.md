@@ -170,7 +170,8 @@ parse document blocks and visuals
 → extract atomic Insights
 → classify target relationship
 → assess grounding
-→ calculate compatible quantitative alignment
+→ verify exact numeric evidence spans and claim comparability
+→ calculate traceable descriptive calibration over a deduplicated cohort
 → assess precedent coverage and outcome
 ```
 
@@ -244,11 +245,11 @@ The four primary axes are independent:
 |---|---|---|
 | Target relationship | `contradicts`, `extends`, `confirms`, `unrelated` | LLM over one insight and cited document blocks |
 | Grounding | `well_grounded`, `partial`, `thin`, `unsupported`, `unknown` | LLM selection over closed labels; cited insight IDs resolved deterministically |
-| Quantitative alignment | Score, interval, verdict | Deterministic calculation over validated comparable measurements; incompatible units are not silently converted |
+| Quantitative calibration | Included/excluded cohort ledger, descriptive distribution, observed target-meeting share | AI proposes exact spans and closed comparability labels; deterministic code verifies provenance, admits and deduplicates comparators, and calculates every statistic |
 | Precedent | Coverage: `direct`, `adjacent`, `none`, `unknown`; outcome tracked separately | LLM selection over distinct closed labels with deterministic lineage validation |
 
 LLMs may classify or select only within closed vocabularies. Code validates
-document IDs, insight IDs, URLs, units, provenance, deduplication, weights, and
+document IDs, insight IDs, URLs, units, provenance, deduplication, and
 rollups. Holistic “basis” tags are intentionally not part of the result model.
 
 Two deterministic projections sit beside—not inside—the four axes:
@@ -373,6 +374,7 @@ metadata and consume normalized contracts.
 | File/service | Variable | Required | Purpose |
 |---|---|---:|---|
 | `.env` / API | `OPENAI_API_KEY` | Yes | Section mapping, inspection, alignment, Scout reasoning, Ask, and web search |
+| `.env` / API | `OPENAI_MODEL` | No | One model for the entire API process; defaults to `gpt-5.5`. The local example uses `gpt-5-mini` to reduce development cost. |
 | `.env` / API | `NCBI_API_KEY` | No | Higher NCBI request limits |
 | `.env` / API | `TOOLUNIVERSE_BASE_URL` | For local ToolUniverse | Private connector address |
 | `.env` / API | `TOOLUNIVERSE_API_TOKEN` | With ToolUniverse | Shared bearer token |

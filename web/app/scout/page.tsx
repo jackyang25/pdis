@@ -41,6 +41,7 @@ import {
   type ScoutSignalTopic,
 } from "@/components/scout-signal-help";
 import { SourceAttributions } from "@/components/source-attributions";
+import { ComparatorDistributionPlot } from "@/components/comparator-distribution-plot";
 
 const ScoutEvidenceMap = dynamic(
   () =>
@@ -66,7 +67,7 @@ const SCOUT_STEPS = [
   { key: "insights", label: "Extracting insights" },
   { key: "classify", label: "Detecting drift" },
   { key: "evidence", label: "Assessing evidence grounding" },
-  { key: "conformity", label: "Calculating evidence alignment" },
+  { key: "conformity", label: "Calibrating quantitative assumptions" },
   { key: "precedent", label: "Checking precedent" },
 ];
 
@@ -164,6 +165,15 @@ function formatDate(iso: string | null): string | null {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return null;
   return d.toLocaleDateString("en-US", { year: "numeric", month: "short" });
+}
+
+function formatOrdinal(value: number): string {
+  const remainder = value % 100;
+  if (remainder >= 11 && remainder <= 13) return `${value}th`;
+  if (value % 10 === 1) return `${value}st`;
+  if (value % 10 === 2) return `${value}nd`;
+  if (value % 10 === 3) return `${value}rd`;
+  return `${value}th`;
 }
 
 function sourceDisplayLabel(source: string, labels?: Record<string, string>): string {
@@ -851,9 +861,9 @@ function FieldRow({
               helpTopic="grounding"
             />
             <SignalSummary
-              label="Evidence · Target alignment"
-              value={conformity ? `${Math.round(conformity.conformity * 100)}/100` : "—"}
-              detail={conformity ? countLabel(conformity.measurements.length, "measurement") : undefined}
+              label="Evidence · Quantitative calibration"
+              value={conformity ? (conformity.calibration_status === "legacy_unverified" ? "Rerun required" : conformity.benchmark_count > 0 ? `${conformity.target_meeting_count}/${conformity.benchmark_count} meet target` : "No valid cohort") : "—"}
+              detail={conformity ? (conformity.calibration_status === "legacy_unverified" ? "unverified legacy result" : countLabel(conformity.measurements.length, "validated comparator")) : undefined}
               dot={conformity ? TARGET_ALIGNMENT_DOT : undefined}
               helpTopic="alignment"
             />
@@ -900,52 +910,97 @@ function FieldRow({
 function BlockTrace({ blockIds }: { blockIds?: string[] }) {
   if (!blockIds?.length) return null;
   return (
-    <span className="shrink-0 text-[10px] text-muted-foreground/60" title="Source document blocks">
-      {blockIds.join(" · ")}
-    </span>
+    <details className="group/trace relative shrink-0">
+      <summary
+        className="cursor-pointer list-none whitespace-nowrap rounded-md px-1.5 py-1 text-[10px] font-medium text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden"
+        title="Show source document blocks"
+      >
+        Trace · {blockIds.length} {blockIds.length === 1 ? "block" : "blocks"}
+      </summary>
+      <div className="absolute right-0 top-full z-30 mt-1.5 w-[min(22rem,calc(100vw-3rem))] rounded-md border border-border bg-popover p-2.5 shadow-lg">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Source document blocks
+        </p>
+        <ul className="mt-1.5 max-h-44 space-y-1 overflow-y-auto pr-1">
+          {blockIds.map((blockId) => (
+            <li
+              key={blockId}
+              className="break-all rounded bg-muted/50 px-2 py-1 font-mono text-[10px] leading-relaxed text-foreground/80"
+            >
+              {blockId}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
   );
 }
 
 function ConformityBlock({ conformity, matches }: { conformity: Conformity; matches: Match[] }) {
-  const pct = Math.round(conformity.conformity * 100);
-  const lowerPct = Math.round(conformity.lower * 100);
-  const upperPct = Math.round(conformity.upper * 100);
   const targetLabel =
     conformity.target_label ||
     `${conformity.comparator} ${conformity.target_value}${conformity.unit}`;
+  const formatBenchmark = (value: number | null) =>
+    value == null ? "—" : `${value.toLocaleString(undefined, { maximumFractionDigits: 3 })}${conformity.unit}`;
+  const ambition = conformity.ambition_percentile == null
+    ? "—"
+    : `${formatOrdinal(Math.round(conformity.ambition_percentile * 100))} percentile`;
+  const coverageLabel = {
+    insufficient: "Insufficient basis",
+    limited: "Limited basis",
+    sufficient: "Broader verified basis",
+    legacy_unverified: "Legacy result · unverified",
+  }[conformity.calibration_status];
+
+  if (conformity.calibration_status === "legacy_unverified") {
+    return (
+      <section className="rounded-lg border border-border/80 bg-card p-4">
+        <SectionLabel>Evidence · quantitative calibration</SectionLabel>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          This imported result predates exact-quote and claim-comparability validation.
+          Rerun Scout before using its numeric comparison for a decision.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="rounded-lg border border-border/80 bg-card p-4">
       <div className="flex items-center justify-between gap-3">
-        <SectionLabel>Evidence · target alignment · AI extracted + calculated</SectionLabel>
+        <SectionLabel>Evidence · quantitative calibration · verified spans + calculated</SectionLabel>
         <BlockTrace blockIds={conformity.doc_block_ids} />
       </div>
       <p className="mt-0.5 text-[11px] text-muted-foreground/80">
-        A directional evidence-alignment score weighted by evidence form, development phase,
-        source-record type, and recency. It is not a forecast probability or pass/fail grade.
+        Exact document and source passages are validated before claim-compatible,
+        deduplicated comparators enter these descriptive statistics.
       </p>
       <p className="mt-1 text-[11px] text-muted-foreground">
-        Scored vs <span className="text-foreground">{targetLabel}</span>
+        Target <span className="text-foreground">{targetLabel}</span>
+      </p>
+      <blockquote className="mt-2 border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground">
+        {conformity.target_quote}
+      </blockquote>
+
+      <dl className="mt-3 grid grid-cols-2 overflow-hidden rounded-md border border-border/70 sm:grid-cols-3">
+        <StatCell label="External median" value={formatBenchmark(conformity.benchmark_median)} />
+        <StatCell label="Middle 50%" value={`${formatBenchmark(conformity.benchmark_lower_quartile)}–${formatBenchmark(conformity.benchmark_upper_quartile)}`} />
+        <StatCell label="Observed range" value={`${formatBenchmark(conformity.benchmark_minimum)}–${formatBenchmark(conformity.benchmark_maximum)}`} />
+        <StatCell label="Mean · observed SD" value={`${formatBenchmark(conformity.benchmark_mean)} · ${formatBenchmark(conformity.benchmark_standard_deviation)}`} />
+        <StatCell label="Target ambition" value={ambition} />
+        <StatCell label="Evidence basis" value={`${conformity.benchmark_count} comparator${conformity.benchmark_count === 1 ? "" : "s"}`} detail={coverageLabel} />
+      </dl>
+      <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/70">
+        Range, standard deviation, and percentile describe this selected comparator cohort only.
+        They are not population uncertainty or likelihood of success.
       </p>
 
-      <div className="mt-3">
-        <div className="mb-1 flex items-baseline justify-between gap-2">
-          <span className="text-sm font-semibold text-foreground">{pct}/100 alignment</span>
-          <span className="text-xs text-muted-foreground">
-            range {lowerPct}–{upperPct}/100
-          </span>
-        </div>
-        <div className="relative h-2 w-full rounded-full bg-muted">
-          <div
-            className="absolute h-2 rounded-full bg-foreground/20"
-            style={{ left: `${lowerPct}%`, width: `${Math.max(2, upperPct - lowerPct)}%` }}
-          />
-          <div
-            className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground"
-            style={{ left: `${pct}%` }}
-          />
-        </div>
-      </div>
+      {conformity.benchmark_count > 0 && <ComparatorDistributionPlot conformity={conformity} />}
+
+      {conformity.benchmark_count > 0 && (
+        <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+          The observed share is a literal count within the validated cohort, not a probability or confidence interval.
+        </p>
+      )}
 
       <div className="mt-3">
         <SignalChip dot={TARGET_ALIGNMENT_DOT}>{conformity.verdict}</SignalChip>
@@ -953,41 +1008,84 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
 
       {conformity.measurements.length > 0 && (
         <div className="mt-3">
-          <SectionLabel>
-            {conformity.measurements.length} source
-            {conformity.measurements.length === 1 ? "" : "s"} combined · weighted by quality &amp; recency
-          </SectionLabel>
-          <ul className="mt-1 space-y-1">
-            {conformity.measurements.map((m, index) => {
-              const sourceInsight = matches.find((match) => match.insight.id === m.insight_id)?.insight;
+          <SectionLabel>Included comparator cohort · {conformity.measurements.length}</SectionLabel>
+          <ul className="mt-1 divide-y divide-border/70">
+            {conformity.measurements.map((measurement, index) => {
+              const sourceInsight = matches.find(
+                (match) => match.insight.id === measurement.insight_id,
+              )?.insight;
               const evidenceLabels = [
-                EVIDENCE_FORM_LABELS[m.evidence_form] ?? m.evidence_form,
-                PHASE_LABELS[m.development_phase],
-                SOURCE_RECORD_LABELS[m.source_record_type],
+                EVIDENCE_FORM_LABELS[measurement.evidence_form] ?? measurement.evidence_form,
+                PHASE_LABELS[measurement.development_phase],
+                SOURCE_RECORD_LABELS[measurement.source_record_type],
               ].filter(Boolean);
-              const evidenceLabel = evidenceLabels.join(" · ");
               return (
-                <li key={`${m.url}-${index}`} className="text-xs text-muted-foreground">
+                <li key={`${measurement.url}-${index}`} className="py-2 text-xs text-muted-foreground first:pt-1">
                   <div className="flex items-baseline gap-2">
-                    {m.url ? (
-                      <a href={m.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:text-foreground hover:underline">
-                        {evidenceLabel}
-                      </a>
-                    ) : (
-                      <span className="min-w-0 flex-1 truncate">{evidenceLabel}</span>
-                    )}
+                    <a href={measurement.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:text-foreground hover:underline">
+                      {evidenceLabels.join(" · ")}
+                    </a>
                     <span className="shrink-0 text-[11px] text-muted-foreground/60">
-                      {m.value}{m.unit ?? conformity.unit} · {m.age_months != null ? `${Math.round(m.age_months)}mo` : "date unknown"} · wt {m.weight.toFixed(2)}
+                      {measurement.value}{measurement.unit} · {measurement.age_months != null ? `${Math.round(measurement.age_months)}mo` : "date unknown"}
                     </span>
                   </div>
-                  {sourceInsight && <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground/70">{sourceInsight.statement}</p>}
+                  <blockquote className="mt-1 border-l border-border pl-2 text-[11px] leading-relaxed text-foreground/80">
+                    {measurement.source_quote}
+                  </blockquote>
+                  <p className="mt-1 text-[10px] text-muted-foreground/70">
+                    {measurement.inclusion_reason} Identity: {measurement.source_identity_status.replace("_", " ")}.
+                  </p>
+                  <details className="mt-1 text-[10px] text-muted-foreground/70">
+                    <summary className="cursor-pointer">Why this comparator qualifies</summary>
+                    <ul className="mt-1 space-y-0.5 pl-3">
+                      {Object.entries(measurement.comparability).map(([axis, relation]) => (
+                        <li key={axis}>
+                          {axis.replace("_", " ")}: {relation.replace("_", " ")}
+                          {measurement.comparability_reasons[axis] ? ` — ${measurement.comparability_reasons[axis]}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                  {sourceInsight && <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground/60">Insight: {sourceInsight.statement}</p>}
                 </li>
               );
             })}
           </ul>
         </div>
       )}
+
+      {conformity.excluded_measurements.length > 0 && (
+        <details className="mt-3 border-t border-border/70 pt-3">
+          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
+            {conformity.excluded_measurements.length} grounded candidate{conformity.excluded_measurements.length === 1 ? "" : "s"} excluded
+          </summary>
+          <ul className="mt-2 space-y-2">
+            {conformity.excluded_measurements.map((measurement, index) => (
+              <li key={`${measurement.url}-excluded-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+                <div className="flex justify-between gap-3">
+                  <a href={measurement.url} target="_blank" rel="noreferrer" className="truncate hover:text-foreground hover:underline">
+                    {measurement.source_record_id}
+                  </a>
+                  <span>{measurement.value}{measurement.unit}</span>
+                </div>
+                <p className="mt-1 text-foreground/75">“{measurement.source_quote}”</p>
+                <p className="mt-1">{measurement.exclusion_reasons.join(" · ")}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </section>
+  );
+}
+
+function StatCell({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <div className="border-b border-r border-border/70 px-3 py-2.5 last:border-r-0 sm:[&:nth-last-child(-n+3)]:border-b-0">
+      <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 text-xs font-medium text-foreground">{value}</dd>
+      {detail && <dd className="text-[10px] text-muted-foreground">{detail}</dd>}
+    </div>
   );
 }
 

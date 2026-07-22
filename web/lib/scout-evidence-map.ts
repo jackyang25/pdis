@@ -373,8 +373,12 @@ export function buildScoutEvidenceMap(
   }
   if (conformity) {
     signals.push({
-      label: "Alignment",
-      value: `${Math.round(conformity.conformity * 100)}/100`,
+      label: "Quantitative calibration",
+      value: conformity.calibration_status === "legacy_unverified"
+        ? "Rerun required"
+        : conformity.benchmark_count > 0
+          ? `${conformity.target_meeting_count}/${conformity.benchmark_count} meet target`
+          : "No valid cohort",
       tone: "neutral",
     });
   }

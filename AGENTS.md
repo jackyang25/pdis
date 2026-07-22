@@ -176,14 +176,17 @@ Scout's four result axes are intentionally orthogonal:
 
 - drift: `contradicts | extends | confirms | unrelated`
 - grounding: `well_grounded | partial | thin | unsupported | unknown`
-- quantitative alignment: deterministic calculation over validated comparable
-  measurements; never silently convert incompatible units
+- quantitative alignment and assumption calibration: deterministic calculation
+  over exact-quoted, block/source-validated, claim-compatible, study-deduplicated
+  measurements; never silently convert incompatible units, treat a synthesized
+  Insight as numeric provenance, or present cohort spread/percentiles as
+  inferential uncertainty or likelihood of success
 - precedent: coverage `direct | adjacent | none | unknown`, with outcome tracked
   separately as `favorable | mixed | unfavorable | unknown`
 
 AI may select or label evidence only from closed, semantically distinct enums.
 Deterministic code validates document IDs, insight IDs, URLs, units, provenance,
-weights, deduplication, and rollups. Do not restore holistic “basis” tags.
+deduplication and rollups. Do not restore holistic “basis” tags.
 
 ## Ask and saved-result contract
 
@@ -193,7 +196,7 @@ weights, deduplication, and rollups. Do not restore holistic “basis” tags.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 11, separating analysis from
+  (`web/lib/result-file.ts`), currently version 13, separating analysis from
   `source_documents`.
 - Backward compatibility belongs only in the import normalizer. Runtime UI and
   services consume the current contract without legacy branches.

@@ -10,6 +10,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test:evidence-map": "node --test --experimental-strip-types lib/scout-evidence-map.test.ts",
+    "test:comparator-plot": "node --test --experimental-strip-types lib/comparator-distribution.test.ts",
     "test:result-file": "node --test --experimental-strip-types lib/result-file.test.ts"
   },
   "dependencies": {

@@ -24,6 +24,7 @@ import {
   type AlignmentRelation,
   type AlignmentResult,
   type AlignmentUnit,
+  type AlignmentUnitType,
   type ContentBlock,
   type DocumentType,
 } from "@/lib/api";
@@ -43,6 +44,14 @@ const RELATIONS: AlignmentRelation[] = [
   "conflict",
   "missing",
   "introduced",
+];
+const UNIT_TYPES: AlignmentUnitType[] = [
+  "target",
+  "activity",
+  "milestone",
+  "requirement",
+  "dependency",
+  "risk_response",
 ];
 const RELATION_STYLES: Record<AlignmentRelation, string> = {
   aligned: "border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-700",
@@ -259,10 +268,17 @@ export default function AlignerPage() {
 }
 
 function AlignmentView({ result }: { result: AlignmentResult }) {
-  const [filter, setFilter] = useState<AlignmentRelation | "all">("all");
+  const [relationFilter, setRelationFilter] = useState<AlignmentRelation | "all">("all");
+  const [unitTypeFilter, setUnitTypeFilter] = useState<AlignmentUnitType | "all">("all");
   const units = useMemo(() => new Map(result.units.map((unit) => [unit.id, unit])), [result.units]);
   const blocks = useMemo(() => new Map(result.blocks.map((block) => [block.id, block])), [result.blocks]);
-  const links = filter === "all" ? result.links : result.links.filter((link) => link.relation === filter);
+  const links = result.links.filter((link) => {
+    const unitType = primaryUnitType(link, units);
+    return (
+      (relationFilter === "all" || link.relation === relationFilter) &&
+      (unitTypeFilter === "all" || unitType === unitTypeFilter)
+    );
+  });
   const definitions = new Map(result.relations.map((item) => [item.name, item.description]));
 
   return (
@@ -285,22 +301,27 @@ function AlignmentView({ result }: { result: AlignmentResult }) {
         />
       </div>
 
-      <div className="grid grid-cols-2 border-b border-border sm:grid-cols-5">
-        {RELATIONS.map((relation) => (
+      <AlignmentMatrix
+        links={result.links}
+        units={units}
+        relationFilter={relationFilter}
+        unitTypeFilter={unitTypeFilter}
+        definitions={definitions}
+        onRelationChange={setRelationFilter}
+        onUnitTypeChange={setUnitTypeFilter}
+      />
+
+      <div className="flex min-h-11 items-center justify-between gap-4 border-b border-border px-5 py-2.5 text-xs text-muted-foreground">
+        <span>Showing {links.length} of {result.links.length} links</span>
+        {(relationFilter !== "all" || unitTypeFilter !== "all") && (
           <button
-            key={relation}
             type="button"
-            title={definitions.get(relation)}
-            onClick={() => setFilter(filter === relation ? "all" : relation)}
-            className={cn(
-              "border-b border-r border-border px-4 py-3 text-left last:border-r-0 sm:border-b-0",
-              filter === relation && "bg-muted/50",
-            )}
+            className="font-medium text-foreground transition-opacity hover:opacity-65"
+            onClick={() => { setRelationFilter("all"); setUnitTypeFilter("all"); }}
           >
-            <span className="block text-lg font-semibold tabular-nums">{result.stats[relation]}</span>
-            <span className="mt-0.5 block text-[11px] text-muted-foreground">{displayLabel(relation)}</span>
+            Clear filter
           </button>
-        ))}
+        )}
       </div>
 
       <div className="divide-y divide-border">
@@ -309,6 +330,146 @@ function AlignmentView({ result }: { result: AlignmentResult }) {
       </div>
     </section>
   );
+}
+
+function AlignmentMatrix({
+  links,
+  units,
+  relationFilter,
+  unitTypeFilter,
+  definitions,
+  onRelationChange,
+  onUnitTypeChange,
+}: {
+  links: AlignmentLink[];
+  units: Map<string, AlignmentUnit>;
+  relationFilter: AlignmentRelation | "all";
+  unitTypeFilter: AlignmentUnitType | "all";
+  definitions: Map<string, string>;
+  onRelationChange: (value: AlignmentRelation | "all") => void;
+  onUnitTypeChange: (value: AlignmentUnitType | "all") => void;
+}) {
+  const counts = new Map<string, number>();
+  for (const link of links) {
+    const unitType = primaryUnitType(link, units);
+    if (!unitType) continue;
+    const key = `${unitType}:${link.relation}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const maxCount = Math.max(1, ...counts.values());
+
+  return (
+    <div className="border-b border-border px-5 py-5">
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold tracking-[-0.015em]">Alignment matrix</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Select a row, column, or cell to inspect its underlying trace.
+        </p>
+      </div>
+      <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[680px] table-fixed border-collapse text-xs">
+          <thead>
+            <tr className="bg-muted/25">
+              <th scope="col" className="w-40 border-b border-r border-border px-3 py-2.5 text-left font-medium text-muted-foreground">
+                Unit type
+              </th>
+              {RELATIONS.map((relation) => {
+                const total = links.filter((link) => link.relation === relation).length;
+                return (
+                  <th key={relation} scope="col" className="border-b border-r border-border p-0 last:border-r-0">
+                    <button
+                      type="button"
+                      title={definitions.get(relation)}
+                      onClick={() => onRelationChange(relationFilter === relation ? "all" : relation)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left font-medium transition-colors hover:bg-muted/50",
+                        relationFilter === relation && "bg-muted/70 text-foreground",
+                      )}
+                    >
+                      <span>{displayLabel(relation)}</span>
+                      <span className="tabular-nums text-muted-foreground">{total}</span>
+                    </button>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {UNIT_TYPES.map((unitType) => (
+              <tr key={unitType}>
+                <th scope="row" className="border-b border-r border-border p-0 last:border-b-0">
+                  <button
+                    type="button"
+                    onClick={() => onUnitTypeChange(unitTypeFilter === unitType ? "all" : unitType)}
+                    className={cn(
+                      "w-full px-3 py-3 text-left font-medium transition-colors hover:bg-muted/50",
+                      unitTypeFilter === unitType && "bg-muted/70",
+                    )}
+                  >
+                    {displayLabel(unitType)}
+                  </button>
+                </th>
+                {RELATIONS.map((relation) => {
+                  const count = counts.get(`${unitType}:${relation}`) ?? 0;
+                  const selected = relationFilter === relation && unitTypeFilter === unitType;
+                  return (
+                    <td key={relation} className="border-b border-r border-border p-1.5 last:border-r-0">
+                      <button
+                        type="button"
+                        disabled={count === 0}
+                        aria-label={`${count} ${displayLabel(relation)} ${displayLabel(unitType)} links`}
+                        onClick={() => {
+                          if (selected) {
+                            onRelationChange("all");
+                            onUnitTypeChange("all");
+                          } else {
+                            onRelationChange(relation);
+                            onUnitTypeChange(unitType);
+                          }
+                        }}
+                        style={{ backgroundColor: matrixColor(relation, count, maxCount) }}
+                        className={cn(
+                          "flex h-9 w-full items-center justify-center rounded text-sm font-semibold tabular-nums transition-[box-shadow,transform] enabled:hover:-translate-y-px enabled:hover:shadow-sm disabled:text-muted-foreground/30",
+                          selected && "ring-1 ring-inset ring-foreground/60",
+                        )}
+                      >
+                        {count}
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function primaryUnitType(
+  link: AlignmentLink,
+  units: Map<string, AlignmentUnit>,
+): AlignmentUnitType | null {
+  const unitId = link.reference_unit_ids[0] ?? link.comparison_unit_ids[0];
+  return unitId ? units.get(unitId)?.unit_type ?? null : null;
+}
+
+function matrixColor(
+  relation: AlignmentRelation,
+  count: number,
+  maxCount: number,
+): string {
+  if (count === 0) return "transparent";
+  const colors: Record<AlignmentRelation, string> = {
+    aligned: "16, 185, 129",
+    modified: "245, 158, 11",
+    conflict: "239, 68, 68",
+    missing: "100, 116, 139",
+    introduced: "59, 130, 246",
+  };
+  const alpha = 0.08 + 0.2 * (count / maxCount);
+  return `rgba(${colors[relation]}, ${alpha.toFixed(3)})`;
 }
 
 function RelationHelp({ definitions }: { definitions: { name: string; description: string }[] }) {

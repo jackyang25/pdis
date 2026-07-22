@@ -33,7 +33,6 @@ from api.schemas import (
     FunnelStatsOut,
     InsightOut,
     MatchOut,
-    MeasurementOut,
     ScoutRunResponse,
     SafetySignalOut,
     SearchTraceOut,
@@ -197,24 +196,7 @@ async def run_scout(
                     )
                     for assessment in assessment_dicts
                 ],
-                conformity=[
-                    ConformityOut(
-                        attribute_ref=score["attribute_ref"],
-                        target_value=score["target_value"],
-                        comparator=score["comparator"],
-                        unit=score["unit"],
-                        target_label=score["target_label"],
-                        conformity=score["conformity"],
-                        lower=score["lower"],
-                        upper=score["upper"],
-                        verdict=score["verdict"],
-                        doc_block_ids=score.get("doc_block_ids", []),
-                        measurements=[
-                            MeasurementOut(**m) for m in score["measurements"]
-                        ],
-                    )
-                    for score in conformity_dicts
-                ],
+                conformity=[ConformityOut(**score) for score in conformity_dicts],
                 precedents=[
                     PrecedentOut(
                         attribute_ref=signal["attribute_ref"],

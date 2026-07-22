@@ -231,22 +231,40 @@ export type Measurement = {
   development_phase: string;
   url: string;
   insight_id: string;
+  source_quote: string;
+  source_record_id: string;
+  source_identity_status: "canonical" | "title_fallback" | "url_fallback";
+  comparability: Record<string, "same" | "compatible" | "not_applicable" | "different" | "unknown">;
+  comparability_reasons: Record<string, string>;
+  inclusion_reason: string;
+  exclusion_reasons: string[];
   age_months: number | null;
-  weight: number;
 };
 
 export type Conformity = {
   attribute_ref: string;
   target_value: number;
-  comparator: string;
+  comparator: ">=" | "<=";
   unit: string;
   target_label: string;
-  conformity: number;
-  lower: number;
-  upper: number;
+  target_quote: string;
+  target_meeting_count: number;
+  target_meeting_rate: number;
   verdict: string;
+  benchmark_count: number;
+  benchmark_minimum: number | null;
+  benchmark_maximum: number | null;
+  benchmark_mean: number | null;
+  benchmark_median: number | null;
+  benchmark_lower_quartile: number | null;
+  benchmark_upper_quartile: number | null;
+  benchmark_standard_deviation: number | null;
+  target_percentile: number | null;
+  ambition_percentile: number | null;
+  calibration_status: "insufficient" | "limited" | "sufficient" | "legacy_unverified";
   doc_block_ids?: string[];
   measurements: Measurement[];
+  excluded_measurements: Measurement[];
 };
 
 export type PrecedentLabel =

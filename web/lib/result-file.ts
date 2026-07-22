@@ -1,8 +1,8 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 11 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | typeof RESULT_VERSION;
+const RESULT_VERSION = 13 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -172,7 +172,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.result_type === "aligner" ||
@@ -240,13 +240,7 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
         supporting_findings: current.supporting_findings ?? [],
       };
     }),
-    conformity: (raw.conformity ?? []).map((score: Record<string, any>) => ({
-      ...score,
-      doc_block_ids: score.doc_block_ids ?? [],
-      measurements: (score.measurements ?? []).map(
-        (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
-      ),
-    })),
+    conformity: (raw.conformity ?? []).map(normalizeConformity),
     precedents: (raw.precedents ?? []).map(normalizePrecedent),
     development_landscape: (raw.development_landscape ?? []).map(
       (program: Record<string, any>) => ({
@@ -314,6 +308,90 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
   } as ScoutResponse;
 }
 
+function normalizeConformity(score: Record<string, any>): Record<string, unknown> {
+  const {
+    conformity: _legacyConformity,
+    lower: _legacyLower,
+    upper: _legacyUpper,
+    weighted_target_meeting_rate: _legacyWeightedRate,
+    ...currentScore
+  } = score;
+  const measurements: Record<string, any>[] = (score.measurements ?? []).map(
+    (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
+  );
+  const values = measurements
+    .map((measurement: Record<string, unknown>) => Number(measurement.value))
+    .filter(Number.isFinite)
+    .sort((left: number, right: number) => left - right);
+  const target = Number(score.target_value);
+  const rawPercentile = values.length > 0 && Number.isFinite(target)
+    ? empiricalPercentile(values, target)
+    : null;
+  const ambitionPercentile = rawPercentile == null
+    ? null
+    : score.comparator === "<=" ? 1 - rawPercentile : rawPercentile;
+  const count = values.length;
+  const targetMeetingCount = values.filter((value) =>
+    score.comparator === "<=" ? value <= target : value >= target
+  ).length;
+  const targetMeetingRate = count > 0 ? targetMeetingCount / count : 0;
+  const legacyUnverified = !score.target_quote || measurements.some(
+    (measurement) => !measurement.source_quote || !Object.keys(measurement.comparability ?? {}).length,
+  );
+
+  return {
+    ...currentScore,
+    target_quote: score.target_quote ?? "",
+    target_meeting_count: score.target_meeting_count ?? targetMeetingCount,
+    target_meeting_rate: score.target_meeting_rate ?? targetMeetingRate,
+    benchmark_count: score.benchmark_count ?? count,
+    benchmark_minimum: score.benchmark_minimum ?? (count ? values[0] : null),
+    benchmark_maximum: score.benchmark_maximum ?? (count ? values[count - 1] : null),
+    benchmark_mean:
+      score.benchmark_mean ?? (count ? values.reduce((sum, value) => sum + value, 0) / count : null),
+    benchmark_median: score.benchmark_median ?? quantile(values, 0.5),
+    benchmark_lower_quartile:
+      score.benchmark_lower_quartile ?? quantile(values, 0.25),
+    benchmark_upper_quartile:
+      score.benchmark_upper_quartile ?? quantile(values, 0.75),
+    benchmark_standard_deviation:
+      score.benchmark_standard_deviation ?? sampleStandardDeviation(values),
+    target_percentile: score.target_percentile ?? rawPercentile,
+    ambition_percentile: score.ambition_percentile ?? ambitionPercentile,
+    calibration_status: legacyUnverified
+      ? "legacy_unverified"
+      : score.calibration_status ?? (count >= 5 ? "sufficient" : count >= 2 ? "limited" : "insufficient"),
+    doc_block_ids: score.doc_block_ids ?? [],
+    measurements,
+    excluded_measurements: (score.excluded_measurements ?? []).map(
+      (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
+    ),
+  };
+}
+
+function sampleStandardDeviation(values: number[]): number | null {
+  if (values.length < 2) return null;
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0)
+    / (values.length - 1);
+  return Math.sqrt(variance);
+}
+
+function quantile(values: number[], probability: number): number | null {
+  if (values.length === 0) return null;
+  const position = (values.length - 1) * probability;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return values[lower];
+  return values[lower] + (position - lower) * (values[upper] - values[lower]);
+}
+
+function empiricalPercentile(values: number[], target: number): number {
+  const below = values.filter((value) => value < target).length;
+  const equal = values.filter((value) => value === target).length;
+  return (below + 0.5 * equal) / values.length;
+}
+
 function normalizeMeasurement(
   measurement: Record<string, any>,
   targetUnit: unknown,
@@ -323,6 +401,7 @@ function normalizeMeasurement(
     publication_status: publicationStatus,
     evidence_type: evidenceType,
     source_type: sourceType,
+    weight: _legacyWeight,
     ...current
   } = measurement;
   const legacy = legacyMeasurementAxes(evidenceType ?? sourceType);
@@ -334,6 +413,14 @@ function normalizeMeasurement(
     source_record_type:
       current.source_record_type ?? publicationStatus ?? legacy.sourceRecordType,
     insight_id: current.insight_id ?? "",
+    source_quote: current.source_quote ?? "",
+    source_record_id: current.source_record_id ?? "",
+    source_identity_status: current.source_identity_status ?? "url_fallback",
+    comparability: current.comparability ?? {},
+    comparability_reasons: current.comparability_reasons ?? {},
+    inclusion_reason: current.inclusion_reason ?? "",
+    exclusion_reasons: current.exclusion_reasons ?? [],
+    age_months: current.age_months ?? null,
   };
 }
 

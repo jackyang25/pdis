@@ -2,7 +2,8 @@
 
 Pressure-tests document targets against live evidence. Scout derives canonical
 document-bound fields, traced retrieval, atomic evidence insights, target
-relationships, grounding, quantitative alignment, and precedent signals.
+relationships, grounding, quantitative alignment and assumption calibration,
+and precedent signals.
 
 ## Canonical field contract
 
@@ -92,7 +93,7 @@ as external evidence underneath it.
 7. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches from evidence-role Findings only. Reference-only catalog/entity records cannot influence reasoning. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs.
 8. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
 9. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources without allowing the canonical target to drift.
-10. **conformity** - quantitative values are extracted from the canonical target; every measurement URL must belong to its selected insight and retain the same unit as the target (no silent conversion). The LLM separately labels evidence form, development phase, and source-record type; deterministic methodology config supplies weights.
+10. **quantitative calibration** - the model selects exact target/source quotes and proposes closed comparability labels for endpoint, population, intervention, regimen, time horizon, and statistic. Deterministic code verifies the quotes, numeric tokens, direction, units, document blocks, URLs, enums, and source identities; applies a strict axis policy (endpoint/statistic must match; intervention may be an explicit comparator; population/regimen/time horizon must match or be inapplicable); builds an included/excluded cohort ledger; and deduplicates source records. Only the included cohort produces minimum/maximum/mean/median/quartiles/observed standard deviation, target/ambition percentiles, and the literal target-meeting share. These describe the selected cohort only and are never presented as confidence intervals or forecast probabilities. Descriptive source labels never numerically weight the result.
 11. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and canonical document blocks.
 
 Long documents are not truncated from the end. Vocabulary units receive a
@@ -141,8 +142,9 @@ Scout configs define query-generation guidance:
 | `conformity_framing` | How quantitative values are selected and compared |
 | `precedent_framing` | How absence or presence of prior work should be read |
 
-`configs/evidence_methodology.yaml` contains only cross-domain quantitative
-weighting policy; product/document guidance remains in each triple-specific config.
+`configs/evidence_methodology.yaml` contains only closed cross-domain source
+axes and deterministic cohort-coverage thresholds; product/document guidance
+remains in each triple-specific config.
 
 ## One LLM client
 

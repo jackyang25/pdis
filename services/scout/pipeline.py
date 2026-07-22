@@ -750,8 +750,9 @@ def _score_conformity_all_variables(
 ) -> list[ConformityScore]:
     """Score quantitative conformity per attribute with bounded concurrency.
 
-    Self-gating: returns scores only for variables that are numeric and have
-    comparable evidence (score_conformity returns None otherwise)."""
+    Self-gating: returns ledgers only for variables with an exact-quoted numeric
+    target. A valid target with no admitted comparators remains an explicit
+    insufficient cohort rather than disappearing."""
     insights_by_attribute: dict[str, list[Insight]] = {}
     for insight in insights:
         if not insight.attribute_ref:

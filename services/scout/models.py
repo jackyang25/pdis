@@ -293,9 +293,9 @@ class PrecedentSignal:
 class Measurement:
     """One source's reported numeric value for a quantitative document unit.
 
-    Feeds the conformity combiner. Study design, development phase, and
-    source-record type are separate AI-labeled axes; deterministic config
-    converts them to a reliability weight. Publication date drives recency.
+    Feeds the quantitative cohort builder. Evidence form, development phase,
+    and source-record type remain separate descriptive axes; they do not alter
+    the observed cohort statistics.
     """
 
     value: float
@@ -307,31 +307,55 @@ class Measurement:
     source_record_type: str = "unknown"
     url: str = ""
     insight_id: str = ""
+    source_quote: str = ""
+    source_record_id: str = ""
+    source_identity_status: str = "url_fallback"
+    # Closed claim-comparability axes. Values are same | compatible |
+    # not_applicable | different | unknown. Reasons retain the model's narrow
+    # explanation, while deterministic code owns cohort inclusion.
+    comparability: dict[str, str] = field(default_factory=dict)
+    comparability_reasons: dict[str, str] = field(default_factory=dict)
+    inclusion_reason: str = ""
+    exclusion_reasons: list[str] = field(default_factory=list)
     age_months: float | None = None
-    weight: float = 0.0
 
 
 @dataclass
 class ConformityScore:
-    """Combined weight-of-evidence that a quantitative target is met.
+    """Traceable descriptive calibration of one quantitative target.
 
     Produced only for variables where sources report comparable numbers
-    against a doc-stated target (e.g. efficacy >= 80%). A transparent,
-    reproducible alternative to the LLM's qualitative verdict: each source's
-    value is weighted by reliability + recency and combined.
+    against a doc-stated target (e.g. efficacy >= 80%). AI proposes exact
+    source spans and closed comparability labels; deterministic validation owns
+    cohort inclusion, study-level deduplication, and all calculations.
     """
 
     attribute_ref: str
     target_value: float
     comparator: str  # ">=" or "<="
     unit: str
-    conformity: float  # 0..1 weighted directional alignment score
-    lower: float
-    upper: float
+    target_meeting_count: int
+    target_meeting_rate: float  # 0..1 unweighted observed share
     verdict: str
+    target_quote: str = ""
+    # Descriptive calibration over validated, claim-compatible measurements.
+    # These are observed cohort statistics, not inferential uncertainty or a
+    # forecast probability.
+    benchmark_count: int = 0
+    benchmark_minimum: float | None = None
+    benchmark_maximum: float | None = None
+    benchmark_mean: float | None = None
+    benchmark_median: float | None = None
+    benchmark_lower_quartile: float | None = None
+    benchmark_upper_quartile: float | None = None
+    benchmark_standard_deviation: float | None = None
+    target_percentile: float | None = None  # raw percentile among benchmarks
+    ambition_percentile: float | None = None  # 1.0 = more demanding target
+    calibration_status: str = "insufficient"
     target_label: str = ""  # which target was scored (e.g. "adult threshold <=1.0 mL")
     doc_block_ids: list[str] = field(default_factory=list)
     measurements: list[Measurement] = field(default_factory=list)
+    excluded_measurements: list[Measurement] = field(default_factory=list)
 
 
 @dataclass

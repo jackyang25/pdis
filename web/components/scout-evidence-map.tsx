@@ -286,7 +286,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
           <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             Document blocks
           </p>
-          <p className="mt-1 break-words font-mono text-[10px] leading-relaxed text-muted-foreground">
+          <p className="mt-1 break-all font-mono text-[10px] leading-relaxed text-muted-foreground">
             {node.blockIds.join(" · ")}
           </p>
         </div>

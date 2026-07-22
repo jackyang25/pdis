@@ -7,6 +7,7 @@ import {
   packInspectorResult,
   unpackAlignerResult,
   unpackInspectorResult,
+  unpackScoutResult,
 } from "./result-file.ts";
 
 const block: ContentBlock = {
@@ -42,7 +43,7 @@ const inspection: InspectorResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 11);
+  assert.equal(packed.version, 13);
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
   assert.equal("blocks" in packed.analysis.inspection, false);
@@ -67,7 +68,7 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 11);
+  assert.equal(packed.version, 13);
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
   assert.equal(packed.source_documents.length, 2);
@@ -85,4 +86,37 @@ test("legacy Reviewer envelopes migrate only at import", () => {
   };
 
   assert.deepEqual(unpackInspectorResult(legacy), inspection);
+});
+
+test("older Scout calibration is marked unverified at the import boundary", () => {
+  const legacy = {
+    schema: "pdis.result",
+    version: 11,
+    result_type: "scout",
+    analysis: {
+      conformity: [{
+        attribute_ref: "efficacy",
+        target_value: 85,
+        comparator: ">=",
+        unit: "%",
+        conformity: 0.5,
+        lower: 0.25,
+        upper: 0.75,
+        verdict: "Mixed / indeterminate alignment",
+        measurements: [
+          { value: 80, unit: "%" },
+          { value: 90, unit: "%" },
+        ],
+      }],
+    },
+    source_documents: [],
+  };
+
+  const imported = unpackScoutResult(legacy);
+  assert.equal(imported.conformity[0].benchmark_count, 2);
+  assert.equal(imported.conformity[0].benchmark_median, 85);
+  assert.equal(imported.conformity[0].ambition_percentile, 0.5);
+  assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
+  assert.equal(imported.conformity[0].target_meeting_count, 1);
+  assert.equal(imported.conformity[0].target_meeting_rate, 0.5);
 });

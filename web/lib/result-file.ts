@@ -1,10 +1,10 @@
-import type { ContentBlock, InspectorResponse, ScoutResponse } from "./api";
+import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 10 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | typeof RESULT_VERSION;
+const RESULT_VERSION = 11 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | typeof RESULT_VERSION;
 
-type ResultType = "inspector" | "scout";
+type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
 
 type SourceDocument = {
@@ -26,6 +26,9 @@ type InspectorAnalysis = {
 };
 type LegacyReviewerAnalysis = {
   review: Omit<InspectorResponse["inspection"], "blocks">;
+};
+type AlignerAnalysis = {
+  alignment: Omit<AlignerResponse["alignment"], "blocks">;
 };
 
 /** Build a portable artifact without coupling the analysis tree to document text. */
@@ -49,6 +52,19 @@ export function packInspectorResult(
     version: RESULT_VERSION,
     result_type: "inspector",
     analysis: { inspection },
+    source_documents: groupDocuments(blocks),
+  };
+}
+
+export function packAlignerResult(
+  result: AlignerResponse,
+): ResultFile<"aligner", AlignerAnalysis> {
+  const { blocks, ...alignment } = result.alignment;
+  return {
+    schema: RESULT_SCHEMA,
+    version: RESULT_VERSION,
+    result_type: "aligner",
+    analysis: { alignment },
     source_documents: groupDocuments(blocks),
   };
 }
@@ -110,6 +126,30 @@ export function unpackInspectorResult(value: unknown): InspectorResponse {
   };
 }
 
+export function unpackAlignerResult(value: unknown): AlignerResponse {
+  if (isResultFile(value)) {
+    assertResultType(value, "aligner");
+    const analysis = value.analysis as AlignerAnalysis;
+    if (!analysis.alignment) throw new Error("not an Aligner result file");
+    return {
+      alignment: {
+        ...analysis.alignment,
+        blocks: flattenDocuments(value.source_documents),
+      },
+    };
+  }
+  const raw = value as Partial<AlignerResponse>;
+  if (!raw.alignment || !Array.isArray(raw.alignment.links)) {
+    throw new Error("not an Aligner result file");
+  }
+  return {
+    alignment: {
+      ...raw.alignment,
+      blocks: Array.isArray(raw.alignment.blocks) ? raw.alignment.blocks : [],
+    },
+  };
+}
+
 /** Separate document context from an analysis before sending it to Ask. */
 export function splitResultContext(result: unknown): {
   analysis: unknown;
@@ -132,10 +172,11 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
-    (candidate.result_type === "inspector" ||
+    (candidate.result_type === "aligner" ||
+      candidate.result_type === "inspector" ||
       candidate.result_type === "reviewer" ||
       candidate.result_type === "scout") &&
     candidate.analysis != null &&

@@ -30,7 +30,16 @@ MAX_FETCH_CHARS = 20000
 FETCH_TIMEOUT_SECONDS = 20
 
 # Identifying fields used to label list items in the overview.
-_LABEL_KEYS = ("name", "attribute_ref", "section_name", "variable_name", "title", "url")
+_LABEL_KEYS = (
+    "name",
+    "attribute_ref",
+    "section_name",
+    "variable_name",
+    "statement",
+    "doc_id",
+    "title",
+    "url",
+)
 _PATH_TOKEN = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
 
 

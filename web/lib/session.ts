@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import type {
   ContentBlock,
+  AlignerResponse,
   ScoutResponse,
   InspectorResponse,
   SearcherResponse,
@@ -44,8 +45,10 @@ export type ChunkerResult = { doc_id: string; blocks: ContentBlock[] };
 export type InspectorResult = InspectorResponse;
 export type SearcherResult = SearcherResponse;
 export type ScoutResult = ScoutResponse;
+export type AlignerResult = AlignerResponse;
 
 export const useChunkerSession = createToolSession<ChunkerResult>();
 export const useInspectorSession = createToolSession<InspectorResult>();
 export const useSearcherSession = createToolSession<SearcherResult>();
 export const useScoutSession = createToolSession<ScoutResult>();
+export const useAlignerSession = createToolSession<AlignerResult>();

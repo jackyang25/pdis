@@ -49,6 +49,9 @@ def list_document_types() -> DocumentTypesResponse:
                 display_name=data.get("display_name", path.stem),
                 supports={
                     "chunker": True,
+                    # Aligner uses the Chunker contract for both documents and
+                    # owns one source-type-neutral alignment configuration.
+                    "aligner": True,
                     "inspector": _has_inspector_config(org, source_type, intervention),
                     "scout": _has_scout_config(org, source_type, intervention),
                 },

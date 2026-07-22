@@ -30,7 +30,21 @@ INSPECTOR_LEGEND = """This is an INSPECTOR result: a document graded inward agai
 - cross_section_findings[]: contradictions that span MULTIPLE sections (description, the sections involved, a recommendation).
 - top_issues[]: the most severe issues across the document."""
 
+ALIGNER_LEGEND = """This is an ALIGNER result: a traceable comparison between a reference product-development document and a downstream or later comparison document. Shape:
+- reference_document and comparison_document identify the two artifacts and their document types.
+- units[]: explicit, independently checkable targets, activities, milestones, requirements, dependencies, or risk responses. Every unit retains its exact source block_ids and document role.
+- links[]: one traceability relation with reference/comparison unit IDs, exact block IDs, and a concise reason:
+    aligned = the substantive commitment was preserved;
+    modified = the topic continues but scope, value, timing, population, ownership, or implementation changed;
+    conflict = the two statements cannot both hold as written;
+    missing = a reference unit has no comparison counterpart;
+    introduced = a comparison unit has no reference antecedent.
+- stats: deterministic counts of units and relations.
+- unit_types[] and relations[]: the exact controlled-vocabulary definitions used for this result.
+Aligner does not assess investment risk, grade document quality, or retrieve external evidence. Do not interpret missing as automatically bad; explain it in the context of the two document roles."""
+
 _LEGENDS: dict[str, str] = {
+    "aligner": ALIGNER_LEGEND,
     "scout": SCOUT_LEGEND,
     "inspector": INSPECTOR_LEGEND,
 }

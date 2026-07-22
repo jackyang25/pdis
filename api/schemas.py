@@ -18,7 +18,7 @@ class DocumentType(BaseModel):
     source_type: str
     intervention_class: str
     display_name: str
-    supports: dict[str, bool]  # {"chunker": true, "inspector": ..., "scout": ...}
+    supports: dict[str, bool]  # Native tool availability discovered by the UI.
 
 
 class DocumentTypesResponse(BaseModel):
@@ -335,6 +335,67 @@ class InspectionResultOut(BaseModel):
 
 class InspectorRunResponse(BaseModel):
     inspection: InspectionResultOut
+
+
+class AlignmentLabelOut(BaseModel):
+    name: str
+    description: str
+
+
+class AlignmentDocumentOut(BaseModel):
+    role: Literal["reference", "comparison"]
+    doc_id: str
+    source_type: str
+    display_name: str
+
+
+class AlignmentUnitOut(BaseModel):
+    id: str
+    document_role: Literal["reference", "comparison"]
+    document_id: str
+    unit_type: Literal[
+        "target", "activity", "milestone", "requirement", "dependency", "risk_response"
+    ]
+    statement: str
+    block_ids: list[str] = Field(default_factory=list)
+
+
+class AlignmentLinkOut(BaseModel):
+    id: str
+    relation: Literal["aligned", "modified", "conflict", "missing", "introduced"]
+    reference_unit_ids: list[str] = Field(default_factory=list)
+    comparison_unit_ids: list[str] = Field(default_factory=list)
+    reason: str = ""
+    reference_block_ids: list[str] = Field(default_factory=list)
+    comparison_block_ids: list[str] = Field(default_factory=list)
+
+
+class AlignmentStatsOut(BaseModel):
+    reference_units: int
+    comparison_units: int
+    aligned: int
+    modified: int
+    conflict: int
+    missing: int
+    introduced: int
+
+
+class AlignmentResultOut(BaseModel):
+    reference_document: AlignmentDocumentOut
+    comparison_document: AlignmentDocumentOut
+    units: list[AlignmentUnitOut]
+    links: list[AlignmentLinkOut]
+    stats: AlignmentStatsOut
+    org: str
+    intervention_class: str
+    indication: str
+    unit_types: list[AlignmentLabelOut]
+    relations: list[AlignmentLabelOut]
+    blocks: list[ContentBlockOut] = Field(default_factory=list)
+
+
+class AlignerRunResponse(BaseModel):
+    alignment: AlignmentResultOut
 
 
 class AskMessage(BaseModel):

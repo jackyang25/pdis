@@ -17,6 +17,7 @@ function messageText(message: UIMessage): string {
 }
 
 const SUGGESTIONS: Record<string, string[]> = {
+  aligner: ["What changed between these documents?", "Which reference commitments are missing?"],
   inspector: ["What needs the most attention?", "Summarize the cross-section conflicts."],
   scout: ["Which targets conflict with current evidence?", "Where is the evidence weakest?"],
 };
@@ -119,7 +120,7 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
         <div>
           <span className="block text-sm font-semibold">Ask this result</span>
           <span className="mt-0.5 block text-[10px] text-muted-foreground">
-            {hasDocument ? "Result + source document" : "Result only · source document unavailable"}
+            {hasDocument ? "Result + source context" : "Result only · source context unavailable"}
           </span>
         </div>
         <Button
@@ -147,7 +148,7 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
             <p className="text-xs leading-relaxed text-muted-foreground">
               {hasDocument
                 ? `Ask about the analysis or any of the ${payload.document!.length} parsed document blocks.`
-                : "Ask about this analysis. This result does not contain parsed source-document blocks; re-run the tool with the document to restore document-level questions."}
+                : "Ask about this analysis. This result does not contain parsed source-document blocks; re-run the tool with its source documents to restore document-level questions."}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {suggestions.map((suggestion) => (

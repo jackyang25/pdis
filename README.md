@@ -12,7 +12,7 @@
 
 PDIS turns product-development documents into traceable, citable analysis. It
 parses DOCX/PDF/PPTX files, reviews them against a document-specific rubric,
-pressure-tests their targets against live external evidence, and supports
+traces commitments across documents, pressure-tests targets against live external evidence, and supports
 grounded follow-up questions over the saved result and source document.
 
 PDIS currently supports intervention and candidate Target Product Profiles
@@ -25,9 +25,10 @@ vaccines, drugs, diagnostics, and devices.
 |---|---|---|
 | **Chunker** | Parse DOCX, PDF, or PPTX into ordered, citable blocks while retaining visuals. | `ContentBlock[]` |
 | **Inspector** | Check document completeness, rubric adherence, rigor, and cross-section consistency. | `InspectionResult` |
+| **Aligner** | Trace explicit targets, activities, milestones, requirements, dependencies, and risk responses across two documents. | `AlignmentResult` |
 | **Scout** | Compare document targets with live evidence, quantitative alignment, and precedent. | `ScoutResult` |
 | **Searcher** | Debug or use the registered retrieval sources directly with a free-text query. | `Finding[]` |
-| **Ask** | Answer read-only questions from an Inspector/Scout result, its parsed document, and already-cited URLs. | Streamed text |
+| **Ask** | Answer read-only questions from an Inspector, Aligner, or Scout result and its parsed source documents. | Streamed text |
 
 Scout is intentionally named as an evidence reconnaissance tool: it surfaces
 and structures evidence signals without claiming definitive verification.
@@ -83,6 +84,7 @@ api/ (FastAPI composition boundary)
   │
   ├── services/chunker
   ├── services/inspector ─▶ chunker public contract
+  ├── services/aligner ───▶ chunker public contract
   ├── services/scout ─────▶ chunker + searcher public contracts
   ├── services/searcher ──▶ direct APIs + injected ToolUniverse connector
   └── services/assistant
@@ -101,6 +103,7 @@ Detailed service contracts:
 
 - [Chunker](services/chunker/README.md)
 - [Inspector](services/inspector/README.md)
+- [Aligner](services/aligner/README.md)
 - [Searcher](services/searcher/README.md)
 - [Scout](services/scout/README.md)
 - [Ask](services/assistant/README.md)
@@ -291,6 +294,19 @@ whether risks and mitigations are documented, but it does not assign program
 risk levels, assess real-world feasibility, recommend funding decisions, or
 produce an investment roadmap. Those are separate decision-support concerns.
 
+## Aligner semantics
+
+Aligner compares a reference artifact with a downstream or later artifact. It
+extracts explicit units into one closed vocabulary—target, activity, milestone,
+requirement, dependency, or risk response—then links them as `aligned`,
+`modified`, `conflict`, `missing`, or `introduced`. Every unit and link retains
+the exact `ContentBlock` IDs from both documents.
+
+The model performs bounded extraction and matching. Code validates all IDs and
+enums, fills omitted reference units as `missing`, derives unused comparison
+units as `introduced`, and calculates counts deterministically. Aligner does not
+grade either document, retrieve external evidence, or assign investment risk.
+
 ## Ask semantics
 
 Ask is a stateless, read-only assistant. Each turn sends the result, parsed
@@ -313,8 +329,8 @@ tool execution remains private while final tokens render incrementally.
 
 ## Portable result files
 
-Inspector and Scout downloads use the versioned `pdis.result` envelope, currently
-version **10**:
+Inspector, Aligner, and Scout downloads use the versioned `pdis.result` envelope,
+currently version **11**:
 
 ```text
 schema + version + result_type
@@ -338,6 +354,7 @@ Human-owned domain content lives in YAML:
 |---|---|---|
 | Chunker | `services/chunker/configs/{org}_{source_type}_{intervention}.yaml` | Section taxonomy and mapping guidance |
 | Inspector | `services/inspector/configs/…` | Rubric, weights, dimension guidance |
+| Aligner | `services/aligner/configs/alignment.yaml` | Closed unit/relation semantics and bounded execution settings |
 | Scout | `services/scout/configs/…` | Enabled sources, query budgets, domain framing, unit provider |
 | Indications | `shared/indications.yaml` | Indication choices by intervention |
 | TPP fields | `shared/attributes.yaml` | Fixed definitions and authored evidence domains |
@@ -355,7 +372,7 @@ metadata and consume normalized contracts.
 
 | File/service | Variable | Required | Purpose |
 |---|---|---:|---|
-| `.env` / API | `OPENAI_API_KEY` | Yes | Section mapping, review, Scout reasoning, Ask, and web search |
+| `.env` / API | `OPENAI_API_KEY` | Yes | Section mapping, inspection, alignment, Scout reasoning, Ask, and web search |
 | `.env` / API | `NCBI_API_KEY` | No | Higher NCBI request limits |
 | `.env` / API | `TOOLUNIVERSE_BASE_URL` | For local ToolUniverse | Private connector address |
 | `.env` / API | `TOOLUNIVERSE_API_TOKEN` | With ToolUniverse | Shared bearer token |

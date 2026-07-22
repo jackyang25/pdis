@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
  */
 export const PDIS_ICON_PATHS = {
   inspector: "Outline/Files/Book-check.svg",
+  aligner: "Outline/Interface/Exchange.svg",
   scout: "Outline/Devices/Binocular.svg",
   chunker: "Outline/Interface/Stack.svg",
   searcher: "Outline/Interface/Search.svg",

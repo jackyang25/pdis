@@ -1,0 +1,38 @@
+unit_types:
+  - name: target
+    description: A desired product characteristic, performance level, population, use case, or outcome.
+  - name: activity
+    description: Planned development work, study, manufacturing task, regulatory action, or implementation activity.
+  - name: milestone
+    description: A dated or staged deliverable, transition, decision point, or completion event.
+  - name: requirement
+    description: A constraint, acceptance criterion, minimum condition, or mandatory specification.
+  - name: dependency
+    description: A prerequisite, assumption, external input, or enabling condition on which progress depends.
+  - name: risk_response
+    description: A stated risk, mitigation, contingency, monitoring action, or fallback plan.
+
+relations:
+  - name: aligned
+    description: The comparison document preserves the same substantive commitment or target.
+  - name: modified
+    description: The comparison document carries the topic forward but changes its scope, value, timing, or implementation.
+  - name: conflict
+    description: The documents make mutually incompatible statements that cannot both hold as written.
+  - name: missing
+    description: A reference-document unit has no substantive counterpart in the comparison document.
+  - name: introduced
+    description: A comparison-document unit has no substantive antecedent in the reference document.
+
+document_roles:
+  itpp: Early, candidate-agnostic intervention target profile.
+  ctpp: Candidate-specific target product profile.
+  ipdp: Integrated product development plan describing execution and decision pathways.
+  default: Product-development document.
+
+execution:
+  extraction_batch_characters: 50000
+  extraction_batch_blocks: 40
+  alignment_batch_units: 16
+  alignment_comparison_batch_units: 48
+  max_parallel_calls: 6

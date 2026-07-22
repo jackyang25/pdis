@@ -1,5 +1,6 @@
 export type ToolIcon =
   | "inspector"
+  | "aligner"
   | "scout"
   | "chunker"
   | "searcher"
@@ -44,6 +45,18 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     capability: "Document quality",
     activity: "3–5 min",
     icon: "inspector",
+    delivery: "workspace",
+    area: "document_intelligence",
+  },
+  {
+    id: "aligner",
+    href: "/aligner",
+    title: "Aligner",
+    description:
+      "Trace commitments, dependencies, and risk responses across two development documents.",
+    capability: "Cross-document traceability",
+    activity: "10–15 min",
+    icon: "aligner",
     delivery: "workspace",
     area: "document_intelligence",
   },

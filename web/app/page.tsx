@@ -31,9 +31,9 @@ export default function Home() {
           eyebrow="Built into PDIS"
           title="Document intelligence"
           id="document-intelligence-title"
-          description="Native analysis tools that inspect development documents and test their targets against external evidence."
+          description="Native tools for document quality, cross-document traceability, and external evidence diligence."
         />
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-3">
           {DOCUMENT_INTELLIGENCE_TOOLS.map((tool) => (
             <WorkspaceToolCard key={tool.id} tool={tool} />
           ))}

@@ -48,7 +48,7 @@ config framing, not engine conditionals.
 - Images are canonical visual data. Do not replace them with generated prose,
   restore `image_lens`, or add a separate image-description stage.
 - Multimodal calls label every image with its exact block ID. Mapper, Inspector,
-  Scout document reasoning, and Ask must preserve that association.
+  Aligner extraction, Scout document reasoning, and Ask must preserve that association.
 - The image bytes travel in result JSON. This keeps the system portable and
   stateless, but makes image-bearing artifacts larger.
 
@@ -63,6 +63,26 @@ config framing, not engine conditionals.
 - Inspector judges document quality against its rubric. It may judge whether
   risks are documented, but must not assign program risk levels, make funding
   recommendations, or claim real-world feasibility.
+
+## Aligner contract
+
+- Aligner compares exactly two parsed documents: a reference artifact and a
+  downstream or later comparison artifact. It does not grade either document,
+  search external evidence, or assign program/funding risk.
+- Both documents converge to the same closed `AlignmentUnit` vocabulary:
+  `target | activity | milestone | requirement | dependency | risk_response`.
+  Document-type differences remain config framing, not pipeline branches.
+- Relations are closed and orthogonal:
+  `aligned | modified | conflict | missing | introduced`. `missing` describes a
+  reference unit without a counterpart; `introduced` describes an unused
+  comparison unit and is derived deterministically.
+- Every unit retains exact source `block_ids`; every link retains the exact
+  reference and comparison unit IDs plus both sets of block IDs. Validate model
+  IDs/enums, deterministically fill omitted reference units as `missing`, and
+  calculate relation counts in code.
+- The global alignment vocabulary lives in
+  `services/aligner/configs/alignment.yaml`. Aligner reuses each document's
+  public Chunker config and must not duplicate per-document-type taxonomies.
 
 ## Scout and retrieval contract
 
@@ -172,8 +192,8 @@ weights, deduplication, and rollups. Do not restore holistic “basis” tags.
   fresh searches.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
-- Portable Inspector/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 10, separating analysis from
+- Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
+  (`web/lib/result-file.ts`), currently version 11, separating analysis from
   `source_documents`.
 - Backward compatibility belongs only in the import normalizer. Runtime UI and
   services consume the current contract without legacy branches.
@@ -222,10 +242,11 @@ Before finishing a cross-layer change, verify:
 shared/openai_client.py
 services/chunker/{models.py,pipeline.py,stages/image_assets.py,stages/rasterizer.py}
 services/inspector/stages/grader.py
+services/aligner/{models.py,pipeline.py,stages/}
 services/searcher/{models.py,controller.py,sources/}
 services/scout/{context.py,pipeline.py,stages/}
 services/assistant/{agent.py,navigator.py,document.py,legends.py}
 api/{schemas.py,streaming.py,deps.py,routes/}
 web/lib/{api.ts,result-file.ts,session.ts}
-web/app/{chunker,inspector,searcher,scout}/
+web/app/{chunker,inspector,aligner,searcher,scout}/
 ```

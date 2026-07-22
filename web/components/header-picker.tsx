@@ -17,6 +17,7 @@ import {
   type ToolName,
 } from "@/lib/api";
 import { useHeaderStore } from "@/lib/store";
+import { displayLabel } from "@/lib/display-label";
 
 const PATH_TO_TOOL: Record<string, ToolName> = {
   "/chunker": "chunker",
@@ -217,33 +218,4 @@ function Field({
       {children}
     </div>
   );
-}
-
-const ACRONYMS = new Set([
-  "who",
-  "bmgf",
-  "tpp",
-  "ipdp",
-  "ppc",
-  "hiv",
-  "tb",
-  "rsv",
-  "hpv",
-  "covid19",
-]);
-
-// Tokens with non-uniform casing (lowercase prefix + uppercase acronym).
-const SPECIAL_LABELS: Record<string, string> = {
-  itpp: "iTPP",
-  ctpp: "cTPP",
-};
-
-function displayLabel(value: string): string {
-  const lower = value.toLowerCase();
-  if (SPECIAL_LABELS[lower]) return SPECIAL_LABELS[lower];
-  if (ACRONYMS.has(lower)) return value.toUpperCase();
-  return value
-    .split("_")
-    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))
-    .join(" ");
 }

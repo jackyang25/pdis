@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ContentBlock, InspectorResponse } from "./api.ts";
-import { packInspectorResult, unpackInspectorResult } from "./result-file.ts";
+import type { AlignerResponse, ContentBlock, InspectorResponse } from "./api.ts";
+import {
+  packAlignerResult,
+  packInspectorResult,
+  unpackAlignerResult,
+  unpackInspectorResult,
+} from "./result-file.ts";
 
 const block: ContentBlock = {
   id: "doc:1",
@@ -37,11 +42,36 @@ const inspection: InspectorResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 10);
+  assert.equal(packed.version, 11);
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
   assert.equal("blocks" in packed.analysis.inspection, false);
   assert.deepEqual(unpackInspectorResult(packed), inspection);
+});
+
+test("Aligner results separate both source documents from the analysis", () => {
+  const comparisonBlock = { ...block, id: "later:1", doc_id: "later" };
+  const result: AlignerResponse = {
+    alignment: {
+      reference_document: { role: "reference", doc_id: "doc", source_type: "itpp", display_name: "iTPP" },
+      comparison_document: { role: "comparison", doc_id: "later", source_type: "ipdp", display_name: "IPDP" },
+      units: [],
+      links: [],
+      stats: { reference_units: 0, comparison_units: 0, aligned: 0, modified: 0, conflict: 0, missing: 0, introduced: 0 },
+      org: "bmgf",
+      intervention_class: "vaccine",
+      indication: "malaria",
+      unit_types: [],
+      relations: [],
+      blocks: [block, comparisonBlock],
+    },
+  };
+  const packed = packAlignerResult(result);
+  assert.equal(packed.version, 11);
+  assert.equal(packed.result_type, "aligner");
+  assert.equal("blocks" in packed.analysis.alignment, false);
+  assert.equal(packed.source_documents.length, 2);
+  assert.deepEqual(unpackAlignerResult(packed), result);
 });
 
 test("legacy Reviewer envelopes migrate only at import", () => {

@@ -5,7 +5,7 @@ export type Header = {
   indication: string;
 };
 
-export type ToolName = "chunker" | "inspector" | "scout";
+export type ToolName = "chunker" | "aligner" | "inspector" | "scout";
 
 export type DocumentType = {
   key: string;
@@ -338,6 +338,68 @@ export type ScoutResponse = {
   blocks: ContentBlock[];
 };
 
+export type AlignmentUnitType =
+  | "target"
+  | "activity"
+  | "milestone"
+  | "requirement"
+  | "dependency"
+  | "risk_response";
+
+export type AlignmentRelation =
+  | "aligned"
+  | "modified"
+  | "conflict"
+  | "missing"
+  | "introduced";
+
+export type AlignmentLabel = { name: string; description: string };
+
+export type AlignmentDocument = {
+  role: "reference" | "comparison";
+  doc_id: string;
+  source_type: string;
+  display_name: string;
+};
+
+export type AlignmentUnit = {
+  id: string;
+  document_role: "reference" | "comparison";
+  document_id: string;
+  unit_type: AlignmentUnitType;
+  statement: string;
+  block_ids: string[];
+};
+
+export type AlignmentLink = {
+  id: string;
+  relation: AlignmentRelation;
+  reference_unit_ids: string[];
+  comparison_unit_ids: string[];
+  reason: string;
+  reference_block_ids: string[];
+  comparison_block_ids: string[];
+};
+
+export type AlignmentResult = {
+  reference_document: AlignmentDocument;
+  comparison_document: AlignmentDocument;
+  units: AlignmentUnit[];
+  links: AlignmentLink[];
+  stats: Record<AlignmentRelation, number> & {
+    reference_units: number;
+    comparison_units: number;
+  };
+  org: string;
+  intervention_class: string;
+  indication: string;
+  unit_types: AlignmentLabel[];
+  relations: AlignmentLabel[];
+  blocks: ContentBlock[];
+};
+
+export type AlignerResponse = { alignment: AlignmentResult };
+
 export type StageProgress = { completed: number; total: number };
 export type StageEvent = { event: "stage"; name: string; completed?: number; total?: number };
 export type CompleteEvent<T> = { event: "complete"; result: T };
@@ -476,6 +538,25 @@ export async function runScout(
   }
   appendHeader(form, header);
   return streamRequest("/api/scout/run", form, onStage);
+}
+
+export async function runAligner(
+  referenceFile: File,
+  comparisonFile: File,
+  configuration: {
+    org: string;
+    reference_source_type: string;
+    comparison_source_type: string;
+    intervention_class: string;
+    indication: string;
+  },
+  onStage?: (stage: string, progress?: StageProgress) => void,
+): Promise<AlignerResponse> {
+  const form = new FormData();
+  form.append("reference_file", referenceFile);
+  form.append("comparison_file", comparisonFile);
+  Object.entries(configuration).forEach(([key, value]) => form.append(key, value));
+  return streamRequest("/api/aligner/run", form, onStage);
 }
 
 // --- Ask: read-only, grounded chat over any result object ---

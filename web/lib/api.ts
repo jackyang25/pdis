@@ -163,6 +163,7 @@ export type Insight = {
   statement: string;
   query: string;
   query_tracks?: string[];
+  retrieval_target_ids?: string[];
   supporting_findings: Finding[];
   org: string | null;
   source_type: string | null;
@@ -213,6 +214,7 @@ export type SearchTrace = {
   request_options?: Record<string, string>;
   tracks: string[];
   doc_block_ids: string[];
+  target_ids: string[];
   intent_ids: string[];
   input_queries: string[];
   applicability: "applicable" | "not_applicable";
@@ -225,6 +227,7 @@ export type SearchTrace = {
 
 export type Measurement = {
   value: number;
+  candidate_id: string;
   unit: string;
   evidence_form: string;
   source_record_type: string;
@@ -236,6 +239,14 @@ export type Measurement = {
   source_identity_status: "canonical" | "title_fallback" | "url_fallback";
   comparability: Record<string, "same" | "compatible" | "not_applicable" | "different" | "unknown">;
   comparability_reasons: Record<string, string>;
+  axis_evidence: Record<string, {
+    relation: "same" | "compatible" | "not_applicable" | "different" | "unknown";
+    reason: string;
+    target_span_ids: string[];
+    source_span_ids: string[];
+    target_quotes: string[];
+    source_quotes: string[];
+  }>;
   inclusion_reason: string;
   exclusion_reasons: string[];
   age_months: number | null;
@@ -243,8 +254,10 @@ export type Measurement = {
 
 export type Conformity = {
   attribute_ref: string;
+  target_id: string;
+  target_role: "threshold" | "optimal" | "other";
   target_value: number;
-  comparator: ">=" | "<=";
+  comparator: ">" | ">=" | "<" | "<=";
   unit: string;
   target_label: string;
   target_quote: string;
@@ -329,6 +342,19 @@ export type Variable = {
     entity_type: string;
     identifier: string;
   }>;
+  quantitative_targets: QuantitativeTarget[];
+};
+
+export type QuantitativeTarget = {
+  id: string;
+  attribute_ref: string;
+  value: number;
+  comparator: ">" | ">=" | "<" | "<=";
+  unit: string;
+  label: string;
+  role: "threshold" | "optimal" | "other";
+  quote: string;
+  doc_block_ids: string[];
 };
 
 export type ScoutResponse = {
@@ -445,10 +471,11 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
  */
 async function streamRequest<T>(
   path: string,
-  body: FormData,
+  body: BodyInit,
   onStage?: (stage: string, progress?: StageProgress) => void,
+  headers?: HeadersInit,
 ): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { method: "POST", body });
+  const res = await fetch(`${API_BASE}${path}`, { method: "POST", body, headers });
   if (!res.ok || !res.body) {
     throw new Error((await res.text()) || `Request failed: ${res.status}`);
   }
@@ -556,6 +583,18 @@ export async function runScout(
   }
   appendHeader(form, header);
   return streamRequest("/api/scout/run", form, onStage);
+}
+
+export async function recalibrateScout(
+  result: ScoutResponse,
+  onStage?: (stage: string, progress?: StageProgress) => void,
+): Promise<{ conformity: Conformity[] }> {
+  return streamRequest(
+    "/api/scout/recalibrate",
+    JSON.stringify({ result }),
+    onStage,
+    { "Content-Type": "application/json" },
+  );
 }
 
 export async function runAligner(

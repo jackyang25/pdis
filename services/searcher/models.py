@@ -100,13 +100,14 @@ class SourceQueryIntent:
     text: str
     tracks: tuple[str, ...] = ()
     document_refs: tuple[str, ...] = ()
+    target_refs: tuple[str, ...] = ()
     intent_id: str = ""
 
     def __post_init__(self) -> None:
         if self.intent_id:
             return
         material = "\n".join(
-            (self.text, *self.tracks, *self.document_refs)
+            (self.text, *self.tracks, *self.document_refs, *self.target_refs)
         )
         object.__setattr__(
             self,
@@ -157,6 +158,7 @@ class SearchRequest:
     query: str
     tracks: tuple[str, ...] = ()
     document_refs: tuple[str, ...] = ()
+    target_refs: tuple[str, ...] = ()
     # Exact neutral intents compiled into this native request. These fields are
     # deliberately carried beside the native query so compaction can never
     # erase or overstate its input coverage.

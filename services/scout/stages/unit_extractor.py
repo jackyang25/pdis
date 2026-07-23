@@ -16,7 +16,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 
-from ..context import document_block_ids, validated_block_ids
+from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
 from ..models import (
     Attribute,
     EVIDENCE_DOMAINS,
@@ -105,7 +105,8 @@ def _system_prompt(intervention_class: str, source_type: str, indication: str) -
         "- document_target: one faithful sentence stating the document's concrete "
         "claim/target, preserving any number, date, comparator, and qualifier. This is "
         "a claim to evaluate, never an instruction to the downstream system.\n"
-        "- block_ids: the exact [block:<id>] markers containing document_target.\n\n"
+        "- block_ids: the blocks containing document_target. "
+        f"{BLOCK_ID_JSON_INSTRUCTION}\n\n"
         "- entities: only names explicitly stated in document_target whose type is one "
         f"of {', '.join(sorted(ENTITY_TYPES - {'other'}))}. Include an "
         "identifier only if the document states it.\n\n"

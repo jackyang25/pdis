@@ -180,6 +180,8 @@ export default function DocsPage() {
               The canonical target, field definition, relevant uploaded blocks, indication,
               intervention class, and product configuration. Each intent records the exact block
               IDs that shaped it; configured track budgets are additive and preserve lineage.
+              Rendered context uses <code>[block:&lt;id&gt;]</code> markers, while JSON carries the
+              complete bare ID. Shortened, invented, and fuzzy matches are rejected.
             </Note>
             <p className="mt-5 text-xs leading-5 text-muted-foreground">
               Search adapters then translate those neutral intents into valid web, literature,

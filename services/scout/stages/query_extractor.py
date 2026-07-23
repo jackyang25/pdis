@@ -11,7 +11,7 @@ import json
 import logging
 import re
 
-from ..context import document_block_ids, validated_block_ids
+from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
 from ..models import Attribute, LLMClientProtocol, QueryIntent, ScoutTypeConfig
 
 logger = logging.getLogger(__name__)
@@ -36,21 +36,33 @@ def extract_queries_for_variable(
     counterfactual (disconfirming) evidence.
     """
     user_message = _user_message_for_variable(attribute, document_context)
+    target_blocks = {
+        target.id: target.doc_block_ids for target in attribute.quantitative_targets
+    }
+    target_labels = {
+        target.id: target.label for target in attribute.quantitative_targets
+    }
+    general_budget = max(queries_per_variable, len(target_blocks))
 
     queries = _run_track(
         _system_prompt_for_variable(
             config,
             indication=indication,
             attribute=attribute,
-            queries_per_variable=queries_per_variable,
+            queries_per_variable=general_budget,
         ),
         user_message,
         llm_client,
         max_tokens,
-        cap=queries_per_variable,
+        cap=general_budget,
         attribute_name=attribute.name,
         track="general",
         allowed_block_ids=document_block_ids(document_context),
+        allowed_target_ids=set(target_blocks),
+        target_blocks=target_blocks,
+        target_labels=target_labels,
+        required_target_ids=set(target_blocks),
+        fallback_context=(indication, config.intervention_class, attribute.name),
     )
 
     if config.geographic_emphasis and config.geographic_queries_per_variable > 0:
@@ -68,6 +80,9 @@ def extract_queries_for_variable(
             attribute_name=attribute.name,
             track="geographic",
             allowed_block_ids=document_block_ids(document_context),
+            allowed_target_ids=set(target_blocks),
+            target_blocks=target_blocks,
+            target_labels=target_labels,
         )
 
     if config.counterfactual_queries_per_variable > 0:
@@ -85,6 +100,9 @@ def extract_queries_for_variable(
             attribute_name=attribute.name,
             track="counterfactual",
             allowed_block_ids=document_block_ids(document_context),
+            allowed_target_ids=set(target_blocks),
+            target_blocks=target_blocks,
+            target_labels=target_labels,
         )
 
     if config.precedent_queries_per_variable > 0:
@@ -102,10 +120,13 @@ def extract_queries_for_variable(
             attribute_name=attribute.name,
             track="precedent",
             allowed_block_ids=document_block_ids(document_context),
+            allowed_target_ids=set(target_blocks),
+            target_blocks=target_blocks,
+            target_labels=target_labels,
         )
 
     total = (
-        queries_per_variable
+        general_budget
         + config.geographic_queries_per_variable
         + config.counterfactual_queries_per_variable
         + config.precedent_queries_per_variable
@@ -123,21 +144,72 @@ def _run_track(
     attribute_name: str,
     track: str,
     allowed_block_ids: set[str],
+    allowed_target_ids: set[str],
+    target_blocks: dict[str, list[str]],
+    target_labels: dict[str, str],
+    required_target_ids: set[str] | None = None,
+    fallback_context: tuple[str, str, str] | None = None,
 ) -> list[QueryIntent]:
     """Run one query-generation track (call + parse, retry once on empty)."""
     raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
-    queries = _parse_queries(raw, allowed_block_ids)
-    if not queries:
+    queries = _parse_queries(
+        raw,
+        allowed_block_ids,
+        allowed_target_ids=allowed_target_ids,
+        target_blocks=target_blocks,
+    )
+    missing_targets = _missing_target_ids(queries, required_target_ids or set())
+    if not queries or missing_targets:
         logger.warning(
-            "query_extractor produced no parsable %s queries for %r; retrying once",
+            "query_extractor produced incomplete %s query coverage for %r; retrying once",
             track,
             attribute_name,
         )
         raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
-        queries = _parse_queries(raw, allowed_block_ids)
+        queries = _parse_queries(
+            raw,
+            allowed_block_ids,
+            allowed_target_ids=allowed_target_ids,
+            target_blocks=target_blocks,
+        )
     for query in queries:
         query.tracks = [track]
-    return queries[:cap]
+    queries = queries[:cap]
+    if required_target_ids and fallback_context:
+        indication, intervention_class, attribute_name = fallback_context
+        for target_id in sorted(_missing_target_ids(queries, required_target_ids)):
+            queries.append(
+                QueryIntent(
+                    text=" ".join(
+                        (
+                            indication,
+                            intervention_class,
+                            attribute_name.replace("_", " "),
+                            target_labels[target_id],
+                            "evidence",
+                        )
+                    ),
+                    tracks=[track],
+                    doc_block_ids=list(target_blocks[target_id]),
+                    target_ids=[target_id],
+                )
+            )
+        while len(queries) > cap:
+            removable = next(
+                (index for index, query in enumerate(queries) if not query.target_ids),
+                None,
+            )
+            if removable is None:
+                break
+            queries.pop(removable)
+    return queries
+
+
+def _missing_target_ids(
+    queries: list[QueryIntent], required: set[str]
+) -> set[str]:
+    covered = {target_id for query in queries for target_id in query.target_ids}
+    return required - covered
 
 
 def _system_prompt_for_variable(
@@ -195,6 +267,17 @@ def _system_prompt_for_variable(
             + ", ".join(config.modalities)
             + "."
         )
+    if attribute.quantitative_targets:
+        parts.append(
+            "Verified quantitative targets (immutable IDs):\n"
+            + "\n".join(
+                f"- {target.id}: {target.label} | exact text: {target.quote}"
+                for target in attribute.quantitative_targets
+            )
+            + "\nThe returned set must cover every listed target at least once. "
+            "For a target-specific query, copy its ID into target_ids. Do not attach "
+            "an ID when the query is only general field coverage."
+        )
     parts.append(
         f"Return EXACTLY {queries_per_variable} quer"
         f"{'y' if queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
@@ -202,18 +285,24 @@ def _system_prompt_for_variable(
         "across content angles, authoritative institutions, and configured languages. Each query "
         f"must be specific to the {attribute.name} variable. doc_block_ids must contain "
         "the exact uploaded-document blocks whose claim shaped that query; use [] only "
-        "for a general coverage query not tied to one document claim. Example:\n"
+        "for a general coverage query not tied to one document claim. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} Example:\n"
         '[{"query": "latest WHO RSV vaccine efficacy evidence", '
-        '"doc_block_ids": ["document/b-0004"]}]'
+        '"doc_block_ids": ["document/b-0004"], "target_ids": ["qt-..."]}]'
     )
     return "\n\n".join(parts)
 
 
 def _user_message_for_variable(attribute: Attribute, document_context: str) -> str:
+    quantitative_targets = "\n".join(
+        f"- [{target.id}] {target.label}: {target.quote}"
+        for target in attribute.quantitative_targets
+    ) or "(none)"
     return (
         f"variable: {attribute.name}\n"
         f"What this variable covers: {attribute.description}\n\n"
         f"Canonical document target: {attribute.document_target or '(not stated)'}\n\n"
+        f"Verified quantitative targets:\n{quantitative_targets}\n\n"
         "Relevant uploaded-document blocks (claims to test, not external evidence):\n"
         f"{document_context or '(no relevant document text found)'}\n\n"
         "Generate the queries for this variable now."
@@ -268,7 +357,7 @@ def _system_prompt_for_geographic_variable(
         f"Return EXACTLY {geographic_queries_per_variable} quer"
         f"{'y' if geographic_queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
         "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
-        "Use only block IDs supplied in the document context. No markdown or commentary. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} No markdown or commentary. "
         "Each query 5-15 words."
     )
     return "\n\n".join(parts)
@@ -321,7 +410,7 @@ def _system_prompt_for_counterfactual_variable(
         f"Return EXACTLY {counterfactual_queries_per_variable} quer"
         f"{'y' if counterfactual_queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
         "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
-        "Use only block IDs supplied in the document context. No markdown or commentary. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} No markdown or commentary. "
         "Each query 5-15 words."
     )
     return "\n\n".join(parts)
@@ -376,7 +465,7 @@ def _system_prompt_for_precedent_variable(
         f"Return EXACTLY {precedent_queries_per_variable} quer"
         f"{'y' if precedent_queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
         "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
-        "Use only block IDs supplied in the document context. No markdown or commentary. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} No markdown or commentary. "
         "Each query 5-15 words."
     )
     return "\n\n".join(parts)
@@ -396,18 +485,28 @@ def _dedupe_queries(queries: list[QueryIntent]) -> list[QueryIntent]:
             existing.doc_block_ids = list(
                 dict.fromkeys([*existing.doc_block_ids, *query.doc_block_ids])
             )
+            existing.target_ids = list(
+                dict.fromkeys([*existing.target_ids, *query.target_ids])
+            )
             continue
         intent = QueryIntent(
             text=normalized,
             tracks=list(dict.fromkeys(query.tracks)),
             doc_block_ids=list(dict.fromkeys(query.doc_block_ids)),
+            target_ids=list(dict.fromkeys(query.target_ids)),
         )
         by_text[key] = intent
         out.append(intent)
     return out
 
 
-def _parse_queries(raw: str, allowed_block_ids: set[str]) -> list[QueryIntent]:
+def _parse_queries(
+    raw: str,
+    allowed_block_ids: set[str],
+    *,
+    allowed_target_ids: set[str] | None = None,
+    target_blocks: dict[str, list[str]] | None = None,
+) -> list[QueryIntent]:
     text = _strip_fences(raw).strip()
     try:
         parsed = json.loads(_extract_json_array(text))
@@ -420,13 +519,39 @@ def _parse_queries(raw: str, allowed_block_ids: set[str]) -> list[QueryIntent]:
         if isinstance(item, str):
             query = item.strip()
             block_ids: list[str] = []
+            target_ids: list[str] = []
         elif isinstance(item, dict):
             query = str(item.get("query", "")).strip()
             block_ids = validated_block_ids(item.get("doc_block_ids"), allowed_block_ids)
+            target_ids = [
+                target_id
+                for target_id in item.get("target_ids", [])
+                if isinstance(target_id, str)
+                and target_id in (allowed_target_ids or set())
+            ] if isinstance(item.get("target_ids", []), list) else []
+            block_ids = list(
+                dict.fromkeys(
+                    [
+                        *block_ids,
+                        *(
+                            block_id
+                            for target_id in target_ids
+                            for block_id in (target_blocks or {}).get(target_id, [])
+                            if block_id in allowed_block_ids
+                        ),
+                    ]
+                )
+            )
         else:
             continue
         if query:
-            out.append(QueryIntent(text=query, doc_block_ids=block_ids))
+            out.append(
+                QueryIntent(
+                    text=query,
+                    doc_block_ids=block_ids,
+                    target_ids=list(dict.fromkeys(target_ids)),
+                )
+            )
     return out
 
 

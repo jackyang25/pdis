@@ -137,6 +137,9 @@ class Attribute:
     target_resolved: bool = False
     evidence_domain: str = "general"
     entities: list[EvidenceEntity] = field(default_factory=list)
+    # Independently qualified numeric claims extracted once before retrieval.
+    # Qualitative stages continue to use the canonical document_target binding.
+    quantitative_targets: list["QuantitativeTarget"] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.definition_mode not in {"fixed", "dynamic"}:
@@ -148,6 +151,9 @@ class Attribute:
         self.document_target = self.document_target.strip()
         self.block_ids = list(dict.fromkeys(self.block_ids))
         self.entities = list(dict.fromkeys(self.entities))
+        self.quantitative_targets = list(
+            {target.id: target for target in self.quantitative_targets}.values()
+        )
 
 
 @dataclass
@@ -157,6 +163,7 @@ class QueryIntent:
     text: str
     tracks: list[str] = field(default_factory=list)
     doc_block_ids: list[str] = field(default_factory=list)
+    target_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -171,6 +178,7 @@ class SearchTrace:
     request_options: dict[str, str] = field(default_factory=dict)
     tracks: list[str] = field(default_factory=list)
     doc_block_ids: list[str] = field(default_factory=list)
+    target_ids: list[str] = field(default_factory=list)
     intent_ids: list[str] = field(default_factory=list)
     input_queries: list[str] = field(default_factory=list)
     applicability: str = "applicable"
@@ -213,6 +221,9 @@ class Insight:
     supporting_findings: list[Finding] = field(default_factory=list)
     query: str = ""
     query_tracks: list[str] = field(default_factory=list)
+    # Quantitative targets covered by the retrieval request, not a claim that
+    # this insight semantically supports those targets.
+    retrieval_target_ids: list[str] = field(default_factory=list)
     # Stable lineage key used by aggregate assessments. Derived from the atomic
     # statement, variable, and cited URLs; never supplied by the model.
     id: str = ""
@@ -290,6 +301,52 @@ class PrecedentSignal:
 
 
 @dataclass
+class QuantitativeTarget:
+    """One exact, independently calibratable numeric statement from a document."""
+
+    attribute_ref: str
+    value: float
+    comparator: str
+    unit: str
+    label: str
+    role: str
+    quote: str
+    doc_block_ids: list[str]
+    id: str = ""
+
+    def __post_init__(self) -> None:
+        # JSON, Pydantic, and Python callers may represent the same number as
+        # either ``80`` or ``80.0``. Normalize before deriving identity so a
+        # portable round trip cannot change the target ID.
+        self.value = float(self.value)
+        if not self.id:
+            material = "\n".join(
+                (
+                    self.attribute_ref,
+                    self.role,
+                    self.comparator,
+                    str(self.value),
+                    self.unit,
+                    " ".join(self.quote.split()),
+                    *self.doc_block_ids,
+                )
+            )
+            self.id = "qt-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+@dataclass
+class AxisEvidence:
+    """Closed comparability label with validated target/source span references."""
+
+    relation: str = "unknown"
+    reason: str = ""
+    target_span_ids: list[str] = field(default_factory=list)
+    source_span_ids: list[str] = field(default_factory=list)
+    target_quotes: list[str] = field(default_factory=list)
+    source_quotes: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Measurement:
     """One source's reported numeric value for a quantitative document unit.
 
@@ -299,6 +356,7 @@ class Measurement:
     """
 
     value: float
+    candidate_id: str = ""
     # Explicitly carried so the calculator never silently combines values with
     # incompatible units. `value` is in this unit and must match the target unit.
     unit: str = ""
@@ -315,6 +373,7 @@ class Measurement:
     # explanation, while deterministic code owns cohort inclusion.
     comparability: dict[str, str] = field(default_factory=dict)
     comparability_reasons: dict[str, str] = field(default_factory=dict)
+    axis_evidence: dict[str, AxisEvidence] = field(default_factory=dict)
     inclusion_reason: str = ""
     exclusion_reasons: list[str] = field(default_factory=list)
     age_months: float | None = None
@@ -331,8 +390,10 @@ class ConformityScore:
     """
 
     attribute_ref: str
+    target_id: str
+    target_role: str
     target_value: float
-    comparator: str  # ">=" or "<="
+    comparator: str  # ">", ">=", "<", or "<="
     unit: str
     target_meeting_count: int
     target_meeting_rate: float  # 0..1 unweighted observed share

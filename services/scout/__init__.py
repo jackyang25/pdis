@@ -10,6 +10,8 @@ variable, and emits doc-aware Matches.
 from .models import (
     Attribute,
     ConformityScore,
+    QuantitativeTarget,
+    AxisEvidence,
     DevelopmentProgram,
     DocumentContextValidation,
     EvidenceAssessment,
@@ -41,11 +43,13 @@ from .models import (
     precedents_to_dicts,
     safety_signals_to_dicts,
 )
-from .pipeline import run_pipeline
+from .pipeline import recalculate_conformity, run_pipeline
 
 __all__ = [
     "Attribute",
     "ConformityScore",
+    "QuantitativeTarget",
+    "AxisEvidence",
     "DevelopmentProgram",
     "DocumentContextValidation",
     "EvidenceAssessment",
@@ -77,4 +81,5 @@ __all__ = [
     "precedents_to_dicts",
     "safety_signals_to_dicts",
     "run_pipeline",
+    "recalculate_conformity",
 ]

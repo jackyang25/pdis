@@ -13,7 +13,12 @@ import json
 import logging
 import re
 
-from ..context import document_block_ids, limit_document_context, validated_block_ids
+from ..context import (
+    BLOCK_ID_JSON_INSTRUCTION,
+    document_block_ids,
+    limit_document_context,
+    validated_block_ids,
+)
 from ..models import DocumentContextValidation, LLMClientProtocol
 
 logger = logging.getLogger(__name__)
@@ -109,9 +114,9 @@ def _system_prompt(indication: str) -> str:
         "for an explicit conflict, never merely because the indication is unstated.\n"
         "- uncertain: the indication is absent, peripheral, ambiguous, or there is not "
         "enough evidence to decide.\n\n"
-        "Cite the exact [block:<id>] markers that establish the document indication. "
+        "Cite the document blocks that establish the document indication. "
         "For match or mismatch, at least one block is required. Keep the reason factual "
-        "and under 30 words. Return ONLY JSON:\n"
+        f"and under 30 words. {BLOCK_ID_JSON_INSTRUCTION}\n\nReturn ONLY JSON:\n"
         '{"status":"match|mismatch|uncertain","document_indication":"...",'
         '"reason":"...","block_ids":["document/b-0001"]}'
     )

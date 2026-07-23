@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/empty-state";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { DownloadButton } from "@/components/download-button";
 import {
+  recalibrateScout,
   runScout,
   type Conformity,
   type DevelopmentProgram,
@@ -61,7 +62,8 @@ const ScoutEvidenceMap = dynamic(
 const SCOUT_STEPS = [
   { key: "parse", label: "Parsing documents" },
   { key: "context", label: "Validating document context" },
-  { key: "targets", label: "Resolving document targets" },
+  { key: "targets", label: "Binding document fields" },
+  { key: "quantitative_targets", label: "Structuring measurable targets" },
   { key: "queries", label: "Extracting queries" },
   { key: "search", label: "Searching evidence sources" },
   { key: "insights", label: "Extracting insights" },
@@ -379,6 +381,27 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     }
   }
 
+  async function handleRecalibrate() {
+    if (!result || busy) return;
+    setBusy(true);
+    setError(null);
+    setStage("conformity");
+    setProgress(null);
+    try {
+      const recalibrated = await recalibrateScout(result, (s, p) => {
+        setStage(s);
+        setProgress(p ?? null);
+      });
+      setResult({ ...result, conformity: recalibrated.conformity });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+      setStage(null);
+      setProgress(null);
+    }
+  }
+
   // Re-open a previously downloaded result (the full ScoutResponse JSON) and
   // render it through the same FieldGrid - no re-run, no backend call.
   async function handleImport(file: File) {
@@ -437,7 +460,14 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
       {result && <ContextValidationNotice result={result} />}
-      {result && <FieldGrid result={result} onNewAnalysis={() => setShowRunPanel(true)} />}
+      {result && (
+        <FieldGrid
+          result={result}
+          onNewAnalysis={() => setShowRunPanel(true)}
+          onRecalibrate={handleRecalibrate}
+          recalibrating={busy && stage === "conformity"}
+        />
+      )}
       {result && <Ask resultType="scout" result={result} />}
     </div>
   );
@@ -510,7 +540,17 @@ function resultFindings(result: ScoutResponse): Finding[] {
   ];
 }
 
-function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnalysis: () => void }) {
+function FieldGrid({
+  result,
+  onNewAnalysis,
+  onRecalibrate,
+  recalibrating,
+}: {
+  result: ScoutResponse;
+  onNewAnalysis: () => void;
+  onRecalibrate: () => void;
+  recalibrating: boolean;
+}) {
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
   const developmentLandscape = result.development_landscape ?? [];
@@ -533,9 +573,11 @@ function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnal
   for (const assessment of result.assessments ?? []) {
     assessmentsByVariable.set(assessment.attribute_ref, assessment);
   }
-  const conformityByVariable = new Map<string, Conformity>();
+  const conformityByVariable = new Map<string, Conformity[]>();
   for (const score of result.conformity ?? []) {
-    conformityByVariable.set(score.attribute_ref, score);
+    const scores = conformityByVariable.get(score.attribute_ref) ?? [];
+    scores.push(score);
+    conformityByVariable.set(score.attribute_ref, scores);
   }
   const precedentByVariable = new Map<string, PrecedentSignal>();
   for (const signal of result.precedents ?? []) {
@@ -553,7 +595,7 @@ function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnal
         matches: sortedMatches,
         leadingRelation: leadingRelation(sortedMatches),
         assessment: assessmentsByVariable.get(variable.name) ?? null,
-        conformity: conformityByVariable.get(variable.name) ?? null,
+        conformities: conformityByVariable.get(variable.name) ?? [],
         precedent: precedentByVariable.get(variable.name) ?? null,
       };
     })
@@ -585,6 +627,9 @@ function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnal
         contentClassName="p-0"
         trailing={
           <>
+            <Button variant="ghost" size="sm" onClick={onRecalibrate} disabled={recalibrating}>
+              {recalibrating ? "Recalculating…" : "Recalculate metrics"}
+            </Button>
             <Button variant="ghost" size="sm" onClick={onNewAnalysis}>New analysis</Button>
             <DownloadButton
               filename="scout-result.json"
@@ -650,7 +695,7 @@ function FieldGrid({ result, onNewAnalysis }: { result: ScoutResponse; onNewAnal
                 description={row.variable.description}
                 matches={row.matches}
                 assessment={row.assessment}
-                conformity={row.conformity}
+                conformities={row.conformities}
                 precedent={row.precedent}
               />
             ))}
@@ -824,19 +869,29 @@ function FieldRow({
   description,
   matches,
   assessment,
-  conformity,
+  conformities,
   precedent,
 }: {
   name: string;
   description: string;
   matches: Match[];
   assessment: EvidenceAssessment | null;
-  conformity: Conformity | null;
+  conformities: Conformity[];
   precedent: PrecedentSignal | null;
 }) {
   const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
   const precedentMeta = precedent ? precedentView(precedent) : null;
   const counts = relationCounts(matches);
+  const verifiedConformities = conformities.filter(
+    (score) => score.calibration_status !== "legacy_unverified",
+  );
+  const hasLegacyConformity = conformities.some(
+    (score) => score.calibration_status === "legacy_unverified",
+  );
+  const comparatorCount = verifiedConformities.reduce(
+    (total, score) => total + score.benchmark_count,
+    0,
+  );
   return (
     <details className="group/field border-b border-border/80 last:border-b-0">
       <summary className="flex cursor-pointer items-start justify-between gap-4 px-5 py-4 transition-colors hover:bg-muted/25 sm:px-6 [&::-webkit-details-marker]:hidden">
@@ -862,9 +917,17 @@ function FieldRow({
             />
             <SignalSummary
               label="Evidence · Quantitative calibration"
-              value={conformity ? (conformity.calibration_status === "legacy_unverified" ? "Rerun required" : conformity.benchmark_count > 0 ? `${conformity.target_meeting_count}/${conformity.benchmark_count} meet target` : "No valid cohort") : "—"}
-              detail={conformity ? (conformity.calibration_status === "legacy_unverified" ? "unverified legacy result" : countLabel(conformity.measurements.length, "validated comparator")) : undefined}
-              dot={conformity ? TARGET_ALIGNMENT_DOT : undefined}
+              value={hasLegacyConformity
+                ? "Rerun required"
+                : verifiedConformities.length > 0
+                  ? countLabel(verifiedConformities.length, "numeric target")
+                  : "Not calculated"}
+              detail={hasLegacyConformity
+                ? "unverified legacy result"
+                : verifiedConformities.length > 0
+                  ? countLabel(comparatorCount, "validated comparator")
+                  : "no validated numeric target"}
+              dot={conformities.length > 0 ? TARGET_ALIGNMENT_DOT : undefined}
               helpTopic="alignment"
             />
             <SignalSummary
@@ -894,7 +957,17 @@ function FieldRow({
             </p>
           </div>
         )}
-        {conformity && <ConformityBlock conformity={conformity} matches={matches} />}
+        {conformities.length > 0 && (
+          <div className="space-y-3">
+            {conformities.map((conformity) => (
+              <ConformityBlock
+                key={conformity.target_id}
+                conformity={conformity}
+                matches={matches}
+              />
+            ))}
+          </div>
+        )}
         {assessment && evidenceMeta && (
           <EvidenceBlock assessment={assessment} evidenceMeta={evidenceMeta} matches={matches} />
         )}
@@ -951,6 +1024,11 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
     sufficient: "Broader verified basis",
     legacy_unverified: "Legacy result · unverified",
   }[conformity.calibration_status];
+  const targetRoleLabel = {
+    threshold: "Threshold",
+    optimal: "Optimal",
+    other: "Other target",
+  }[conformity.target_role];
 
   if (conformity.calibration_status === "legacy_unverified") {
     return (
@@ -967,7 +1045,12 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
   return (
     <section className="rounded-lg border border-border/80 bg-card p-4">
       <div className="flex items-center justify-between gap-3">
-        <SectionLabel>Evidence · quantitative calibration · verified spans + calculated</SectionLabel>
+        <div className="flex flex-wrap items-center gap-2">
+          <SectionLabel>Evidence · quantitative calibration · verified spans + calculated</SectionLabel>
+          <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {targetRoleLabel}
+          </span>
+        </div>
         <BlockTrace blockIds={conformity.doc_block_ids} />
       </div>
       <p className="mt-0.5 text-[11px] text-muted-foreground/80">
@@ -994,7 +1077,9 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
         They are not population uncertainty or likelihood of success.
       </p>
 
-      {conformity.benchmark_count > 0 && <ComparatorDistributionPlot conformity={conformity} />}
+      {(conformity.benchmark_count > 0 || conformity.excluded_measurements.length > 0) && (
+        <ComparatorDistributionPlot conformity={conformity} />
+      )}
 
       {conformity.benchmark_count > 0 && (
         <p className="mt-1.5 text-[10px] text-muted-foreground/70">
@@ -1038,12 +1123,19 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
                   <details className="mt-1 text-[10px] text-muted-foreground/70">
                     <summary className="cursor-pointer">Why this comparator qualifies</summary>
                     <ul className="mt-1 space-y-0.5 pl-3">
-                      {Object.entries(measurement.comparability).map(([axis, relation]) => (
-                        <li key={axis}>
-                          {axis.replace("_", " ")}: {relation.replace("_", " ")}
-                          {measurement.comparability_reasons[axis] ? ` — ${measurement.comparability_reasons[axis]}` : ""}
-                        </li>
-                      ))}
+                      {Object.entries(measurement.comparability).map(([axis, relation]) => {
+                        const evidence = measurement.axis_evidence?.[axis];
+                        const cited = Boolean(
+                          evidence?.target_span_ids?.length && evidence?.source_span_ids?.length,
+                        );
+                        return (
+                          <li key={axis}>
+                            {axis.replace("_", " ")}: {relation.replace("_", " ")}
+                            {measurement.comparability_reasons[axis] ? ` — ${measurement.comparability_reasons[axis]}` : ""}
+                            {cited ? " · spans verified" : ""}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </details>
                   {sourceInsight && <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground/60">Insight: {sourceInsight.statement}</p>}

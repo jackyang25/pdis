@@ -26,6 +26,7 @@ const result = {
       target_resolved: true,
       evidence_domain: "clinical",
       entities: [],
+      quantitative_targets: [],
     },
   ],
   matches: [

@@ -71,6 +71,11 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
     excluded: conformity.excluded_measurements,
   });
   if (!model) return null;
+  const hasIncluded = model.included.length > 0;
+  const hasExcluded = model.excluded.length > 0;
+  const excludedLabelTop = hasIncluded ? 78 : 34;
+  const excludedAxisTop = hasIncluded ? 82 : 38;
+  const excludedPointsTop = hasIncluded ? 62 : 18;
 
   const rangeLeft = Math.min(model.minimumX, model.maximumX);
   const rangeWidth = Math.abs(model.maximumX - model.minimumX);
@@ -86,42 +91,55 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
   return (
     <figure className="mt-3 rounded-md border border-border/70 bg-muted/10 px-3 py-3 sm:px-4">
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <span className="text-xs font-semibold text-foreground">Comparator distribution</span>
+        <span className="text-xs font-semibold text-foreground">
+          {hasIncluded ? "Comparator distribution" : "Grounded numeric candidates"}
+        </span>
         <span className="text-[10px] text-muted-foreground">
-          {conformity.target_meeting_count}/{conformity.benchmark_count} meet target · {Math.round(conformity.target_meeting_rate * 100)}% observed share
+          {hasIncluded
+            ? `${conformity.target_meeting_count}/${conformity.benchmark_count} meet target · ${Math.round(conformity.target_meeting_rate * 100)}% observed share`
+            : `${model.excluded.length} excluded from statistics`}
         </span>
       </figcaption>
 
       <div
-        className={`relative mt-3 ${model.excluded.length > 0 ? "h-[110px]" : "h-16"}`}
+        className={`relative mt-3 ${hasIncluded && hasExcluded ? "h-[110px]" : "h-16"}`}
         role="group"
-        aria-label={`Distribution of ${model.included.length} validated comparators. Document target ${target}.`}
+        aria-label={`Distribution of ${model.included.length} validated comparators and ${model.excluded.length} excluded numeric candidates. Document target ${target}.`}
       >
-        <span className="absolute left-0 top-[34px] text-[9px] uppercase tracking-wide text-muted-foreground">
-          Included
-        </span>
-        {model.excluded.length > 0 && (
-          <span className="absolute left-0 top-[78px] text-[9px] uppercase tracking-wide text-muted-foreground">
+        {hasIncluded && (
+          <span className="absolute left-0 top-[34px] text-[9px] uppercase tracking-wide text-muted-foreground">
+            Included
+          </span>
+        )}
+        {hasExcluded && (
+          <span
+            className="absolute left-0 text-[9px] uppercase tracking-wide text-muted-foreground"
+            style={{ top: `${excludedLabelTop}px` }}
+          >
             Excluded
           </span>
         )}
 
         <div className="absolute inset-y-0 left-14 right-0">
-          <div className="absolute inset-x-0 top-[38px] border-t border-border" />
-          <div
-            className="absolute top-[37px] h-0.5 bg-muted-foreground/50"
-            style={{ left: `${rangeLeft}%`, width: `${rangeWidth}%` }}
-          />
-          <div
-            className="absolute top-[33px] h-2.5 rounded-sm bg-muted-foreground/20"
-            style={{ left: `${quartileLeft}%`, width: `${Math.max(quartileWidth, 0.35)}%` }}
-            title="Middle 50% of included comparators"
-          />
-          <div
-            className="absolute top-[29px] h-[18px] w-px bg-foreground/55"
-            style={{ left: `${model.medianX}%` }}
-            title={`Median ${formatValue(conformity.benchmark_median ?? conformity.target_value, conformity.unit)}`}
-          />
+          {hasIncluded && (
+            <>
+              <div className="absolute inset-x-0 top-[38px] border-t border-border" />
+              <div
+                className="absolute top-[37px] h-0.5 bg-muted-foreground/50"
+                style={{ left: `${rangeLeft}%`, width: `${rangeWidth}%` }}
+              />
+              <div
+                className="absolute top-[33px] h-2.5 rounded-sm bg-muted-foreground/20"
+                style={{ left: `${quartileLeft}%`, width: `${Math.max(quartileWidth, 0.35)}%` }}
+                title="Middle 50% of included comparators"
+              />
+              <div
+                className="absolute top-[29px] h-[18px] w-px bg-foreground/55"
+                style={{ left: `${model.medianX}%` }}
+                title={`Median ${formatValue(conformity.benchmark_median ?? conformity.target_value, conformity.unit)}`}
+              />
+            </>
+          )}
 
           <div
             className="absolute inset-y-1 z-0 border-l border-dashed border-foreground/60"
@@ -140,10 +158,16 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
             ))}
           </div>
 
-          {model.excluded.length > 0 && (
+          {hasExcluded && (
             <>
-              <div className="absolute inset-x-0 top-[82px] border-t border-dashed border-border/70" />
-              <div className="absolute inset-x-0 top-[62px] h-10">
+              <div
+                className="absolute inset-x-0 border-t border-dashed border-border/70"
+                style={{ top: `${excludedAxisTop}px` }}
+              />
+              <div
+                className="absolute inset-x-0 h-10"
+                style={{ top: `${excludedPointsTop}px` }}
+              >
                 {model.excluded.map((point, index) => (
                   <Point key={`${point.source_record_id}-${point.value}-excluded-${index}`} point={point} unit={conformity.unit} excluded />
                 ))}
@@ -158,10 +182,10 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
         <span>{formatValue(model.domainMaximum, conformity.unit)}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[9px] text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-foreground/75" />Validated comparator</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-5 rounded-sm bg-muted-foreground/20" />Middle 50%</span>
+        {hasIncluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-foreground/75" />Validated comparator</span>}
+        {hasIncluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-5 rounded-sm bg-muted-foreground/20" />Middle 50%</span>}
         <span className="inline-flex items-center gap-1.5"><span className="h-3 border-l border-dashed border-foreground/60" />Document target</span>
-        {model.excluded.length > 0 && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full border border-muted-foreground bg-card" />Excluded from statistics</span>}
+        {hasExcluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full border border-muted-foreground bg-card" />Excluded from statistics</span>}
       </div>
       {model.unplottableExcludedCount > 0 && (
         <p className="mt-1.5 text-[9px] text-muted-foreground/70">

@@ -13,10 +13,16 @@ import logging
 import re
 from dataclasses import replace
 
-from ..context import document_block_ids, limit_document_context, validated_block_ids
+from ..context import (
+    BLOCK_ID_JSON_INSTRUCTION,
+    document_block_ids,
+    limit_document_context,
+    validated_block_ids,
+)
 from ..models import (
     ENTITY_TYPES,
     Attribute,
+    EvidenceEntity,
     LLMClientProtocol,
     parse_evidence_entities,
 )
@@ -54,10 +60,10 @@ def resolve_document_target(
         max_tokens=max_tokens,
         images=images,
     )
-    parsed = _parse(raw)
-    if parsed is None:
+    binding = _validated_binding(raw, allowed_ids)
+    if binding is None:
         logger.warning(
-            "target_resolver produced no parsable JSON for %s; retrying once",
+            "target_resolver produced no valid cited binding for %s; retrying once",
             attribute.name,
         )
         raw = llm_client.call(
@@ -66,16 +72,21 @@ def resolve_document_target(
             max_tokens=max_tokens,
             images=images,
         )
-        parsed = _parse(raw)
+        binding = _validated_binding(raw, allowed_ids)
 
-    if parsed is None:
-        return replace(attribute, target_resolved=True)
-    target = str(parsed.get("document_target", "")).strip()
-    block_ids = validated_block_ids(parsed.get("block_ids"), allowed_ids)
-    entities = parse_evidence_entities(parsed.get("entities"))
-    if not target:
-        block_ids = []
-        entities = []
+    if binding is None:
+        # Never propagate a model-authored target without exact block lineage.
+        # An unresolved binding is represented as a safe absent target;
+        # downstream stages can still provide field-level coverage without
+        # treating unsupported synthesis as document fact.
+        return replace(
+            attribute,
+            document_target="",
+            block_ids=[],
+            entities=[],
+            target_resolved=True,
+        )
+    target, block_ids, entities = binding
     return replace(
         attribute,
         document_target=target,
@@ -83,6 +94,23 @@ def resolve_document_target(
         entities=entities,
         target_resolved=True,
     )
+
+
+def _validated_binding(
+    raw: str,
+    allowed_ids: set[str],
+) -> tuple[str, list[str], list[EvidenceEntity]] | None:
+    """Parse one binding and reject a non-empty target without exact lineage."""
+    parsed = _parse(raw)
+    if parsed is None:
+        return None
+    target = str(parsed.get("document_target", "")).strip()
+    if not target:
+        return "", [], []
+    block_ids = validated_block_ids(parsed.get("block_ids"), allowed_ids)
+    if not block_ids:
+        return None
+    return target, block_ids, parse_evidence_entities(parsed.get("entities"))
 
 
 def _system_prompt(attribute: Attribute) -> str:
@@ -93,10 +121,15 @@ def _system_prompt(attribute: Attribute) -> str:
         "Locate only the document's concrete target, constraint, assumption, or "
         "commitment for this unit. Preserve numbers, dates, comparators, and "
         "qualifiers. Do not add external evidence or infer a target the document "
-        "does not state. Extract only explicitly named entities whose type is one of: "
+        "does not state. The binding must be DIRECTLY about this unit: do not reuse a "
+        "nearby target for a neighboring variable, and do not treat a possible downstream "
+        "implication as the document's target for this unit. If the document has only a "
+        "related target for another unit, return no target. Extract only explicitly named "
+        "entities whose type is one of: "
         f"{', '.join(sorted(ENTITY_TYPES - {'other'}))}. Include an "
-        "identifier only when the document states it. Return the exact [block:<id>] "
-        "markers supporting the target. If "
+        "identifier only when the document states it. Return the blocks supporting "
+        "the target. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} If "
         "the document states no target for this unit, return an empty target and "
         "empty block_ids/entities.\n\n"
         "Return ONLY JSON: "

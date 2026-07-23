@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, TypeVar
 
@@ -45,7 +46,12 @@ from .models import (
     load_attributes,
 )
 from .projections import build_development_landscape, build_safety_signals
-from .stages.conformity import score_conformity
+from .stages.conformity import (
+    empty_conformity_scores,
+    extract_quantitative_targets,
+    revalidate_quantitative_targets,
+    score_conformity,
+)
 from .stages.context_validator import mismatch_message, validate_document_context
 from .stages.drift_classifier import INSIGHTS_BATCH_SIZE, classify_drift
 from .stages.evidence_assessor import assess_evidence
@@ -66,6 +72,43 @@ SEARCH_MAX_USES = 10
 # Parallelism for Scout's LLM reasoning fan-outs. Retrieval concurrency belongs
 # to each Searcher source adapter and is not duplicated here.
 MAX_WORKERS = 32
+
+
+def recalculate_conformity(
+    attributes: list[Attribute],
+    blocks: list[ContentBlock],
+    insights: list[Insight],
+    *,
+    openai_client: LLMClientProtocol,
+    indication: str,
+    intervention_class: str,
+    progress_callback=None,
+) -> list[ConformityScore]:
+    """Rebuild only quantitative ledgers from a current portable Scout result.
+
+    Retrieval and insight synthesis are intentionally out of scope: this function
+    reuses the exact saved document blocks and source-backed insights, then runs
+    the same target, span, comparability, and deterministic-math contract as a
+    fresh pipeline run.
+    """
+    attributes = [
+        replace(
+            attribute,
+            quantitative_targets=revalidate_quantitative_targets(
+                attribute,
+                select_attribute_context(blocks, attribute),
+            ),
+        )
+        for attribute in attributes
+    ]
+    return _score_conformity_all_variables(
+        attributes,
+        insights,
+        openai_client,
+        indication=indication,
+        intervention_class=intervention_class,
+        progress=progress_callback,
+    )
 
 
 def run_pipeline(
@@ -149,6 +192,19 @@ def run_pipeline(
         openai_client,
         progress=progress_callback,
     )
+    attributes = _extract_quantitative_targets_all(
+        attributes,
+        {
+            attribute.name: select_attribute_context(blocks, attribute)
+            for attribute in attributes
+        },
+        blocks,
+        openai_client,
+        indication=indication,
+        intervention_class=intervention_class,
+        framing=config.conformity_framing,
+        progress=progress_callback,
+    )
     attribute_descriptions = {
         attribute.name: attribute.description for attribute in attributes
     }
@@ -215,13 +271,20 @@ def run_pipeline(
     safety_signals = build_safety_signals(findings_by_attribute)
 
     query_tracks_by_attribute: dict[str, dict[str, list[str]]] = {}
+    query_targets_by_attribute: dict[str, dict[str, list[str]]] = {}
     for task in search_tasks:
-        if not task.tracks:
-            continue
-        track_map = query_tracks_by_attribute.setdefault(task.scope_ref, {})
-        track_map[task.query] = list(
-            dict.fromkeys([*track_map.get(task.query, []), *task.tracks])
-        )
+        if task.tracks:
+            track_map = query_tracks_by_attribute.setdefault(task.scope_ref, {})
+            track_map[task.query] = list(
+                dict.fromkeys([*track_map.get(task.query, []), *task.tracks])
+            )
+        if task.target_refs:
+            target_map = query_targets_by_attribute.setdefault(task.scope_ref, {})
+            target_map[task.query] = list(
+                dict.fromkeys(
+                    [*target_map.get(task.query, []), *task.target_refs]
+                )
+            )
 
     if progress_callback:
         progress_callback("insights")
@@ -229,6 +292,7 @@ def run_pipeline(
         findings_by_attribute,
         attribute_descriptions,
         query_tracks_by_attribute,
+        query_targets_by_attribute,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
@@ -274,13 +338,10 @@ def run_pipeline(
         progress_callback("conformity")
     conformity = _score_conformity_all_variables(
         attributes,
-        attribute_contexts,
         insights,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
-        framing=config.conformity_framing,
-        attribute_images=attribute_images,
         progress=progress_callback,
     )
 
@@ -484,6 +545,43 @@ def _resolve_targets_all(
     )
 
 
+def _extract_quantitative_targets_all(
+    attributes: list[Attribute],
+    contexts: dict[str, str],
+    blocks: list[ContentBlock],
+    openai_client: LLMClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+    framing: str,
+    progress: ProgressFn | None = None,
+) -> list[Attribute]:
+    """Bind each verified numeric claim once, before retrieval planning."""
+    images_by_attribute = _images_for_contexts(contexts, blocks)
+
+    def one(attribute: Attribute) -> Attribute:
+        if not attribute.document_target:
+            return attribute
+        targets = extract_quantitative_targets(
+            attribute,
+            contexts.get(attribute.name, ""),
+            openai_client,
+            indication=indication,
+            intervention_class=intervention_class,
+            framing=framing,
+            images=images_by_attribute.get(attribute.name) or None,
+        )
+        return replace(attribute, quantitative_targets=targets)
+
+    return _parallel_map(
+        attributes,
+        one,
+        workers=MAX_WORKERS,
+        stage="quantitative_targets",
+        progress=progress,
+    )
+
+
 def _images_for_contexts(
     contexts: dict[str, str],
     blocks: list[ContentBlock],
@@ -507,6 +605,7 @@ def _extract_insights_all_variables(
     findings_by_attribute: dict[str, list[Finding]],
     attribute_descriptions: dict[str, str],
     query_tracks_by_attribute: dict[str, dict[str, list[str]]],
+    query_targets_by_attribute: dict[str, dict[str, list[str]]],
     openai_client: LLMClientProtocol,
     *,
     indication: str,
@@ -545,6 +644,7 @@ def _extract_insights_all_variables(
             attribute_ref=attribute_ref,
             attribute_description=attribute_descriptions.get(attribute_ref, ""),
             query_tracks=query_tracks_by_attribute.get(attribute_ref, {}),
+            query_targets=query_targets_by_attribute.get(attribute_ref, {}),
         )
 
     results = _parallel_map(
@@ -633,6 +733,7 @@ def _search_all(
             request_options=dict(task.options),
             tracks=list(task.tracks),
             doc_block_ids=list(task.document_refs),
+            target_ids=list(task.target_refs),
             intent_ids=list(task.intent_ids),
             input_queries=list(task.input_queries),
             applicability=task.applicability,
@@ -738,14 +839,11 @@ def _assess_evidence_all_variables(
 
 def _score_conformity_all_variables(
     attributes: list[Attribute],
-    attribute_contexts: dict[str, str],
     insights: list[Insight],
     openai_client: LLMClientProtocol,
     *,
     indication: str,
     intervention_class: str,
-    framing: str = "",
-    attribute_images: dict[str, list[dict[str, str]]] | None = None,
     progress: ProgressFn | None = None,
 ) -> list[ConformityScore]:
     """Score quantitative conformity per attribute with bounded concurrency.
@@ -762,22 +860,19 @@ def _score_conformity_all_variables(
     if not attributes:
         return []
 
-    def one(attribute: Attribute) -> ConformityScore | None:
+    def one(attribute: Attribute) -> list[ConformityScore]:
         return score_conformity(
             attribute,
-            attribute_contexts.get(attribute.name, ""),
             insights_by_attribute.get(attribute.name, []),
             openai_client,
             indication=indication,
             intervention_class=intervention_class,
-            framing=framing,
-            images=(attribute_images or {}).get(attribute.name) or None,
         )
 
     results = _parallel_map(
         attributes, one, workers=MAX_WORKERS, stage="conformity", progress=progress
     )
-    return [score for score in results if score is not None]
+    return [score for target_scores in results for score in target_scores]
 
 
 def _classify_precedent_all_variables(
@@ -846,6 +941,7 @@ def _empty_result(
             assessments=0,
         ),
         variables=variables or [],
+        conformity=empty_conformity_scores(variables or []),
         search_plan=search_plan or [],
         context_validation=context_validation,
         blocks=blocks or [],

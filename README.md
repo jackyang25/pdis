@@ -144,6 +144,7 @@ Scout evaluates one canonical `Attribute` shape regardless of document type:
 | `target_resolved` | Whether document binding has completed, including an intentionally absent target |
 | `evidence_domain` | One closed domain used for deterministic source applicability |
 | `entities` | Explicitly document-stated typed entities and optional stated identifiers |
+| `quantitative_targets` | Independently verified numeric claims, each with an immutable ID, exact quote, unit, comparator, role, and block lineage |
 
 TPP fields come from `shared/attributes.yaml` and are bound to document targets.
 IPDP fields are dynamically extracted checkable claims. Both converge to the
@@ -162,7 +163,8 @@ and `other`.
 parse document blocks and visuals
 → validate configured indication against cited document context
 → resolve canonical fields and targets
-→ generate source-neutral query intents with block lineage
+→ bind every independently calibratable numeric target
+→ generate source-neutral query intents with block and target lineage
 → determine source applicability from closed metadata
 → compile source-native requests in each adapter
 → execute fair concurrent source queues
@@ -170,15 +172,25 @@ parse document blocks and visuals
 → extract atomic Insights
 → classify target relationship
 → assess grounding
-→ verify exact numeric evidence spans and claim comparability
-→ calculate traceable descriptive calibration over a deduplicated cohort
+→ verify immutable target/source span IDs and claim comparability
+→ calculate one traceable descriptive calibration per target over a deduplicated cohort
 → assess precedent coverage and outcome
 ```
 
 General, geographic, counterfactual, and precedent query tracks are additive.
 Each generated intent retains the exact document block IDs that shaped it.
+The general track provides retrieval coverage for every verified quantitative
+target; target IDs remain retrieval lineage and never imply that a returned
+source semantically supports the target. Calibration consumes this same target
+bundle rather than asking the model to extract a second, potentially different
+set after retrieval.
 Every native request records its compiled intent IDs/texts, tracks, options,
 connector operation, status, result count, and URLs.
+
+Current portable Scout results can also recalculate only their quantitative
+ledgers. This reuses the saved document blocks and already-cited source
+passages—no retrieval or insight synthesis—and applies the identical validation
+and deterministic-math contract as a full run.
 
 ## Retrieval sources
 
@@ -214,11 +226,13 @@ as reference-only and never enter Scout's evidence reasoning. Open Targets
 emits actual target–disease evidence rather than entity-search cards.
 
 Native request counts intentionally differ by source. Web can execute each
-intent; PubMed can compile track variants into Boolean queries; Semantic
-Scholar creates focused plain-text requests; structured registries retrieve a
-bounded candidate set and rank it deterministically against the full neutral
-intent bundle. Rate limits change scheduling, never which upstream intents are
-silently retained or discarded.
+intent. PubMed and Semantic Scholar compile each track from the canonical
+indication, intervention, field topic, and definition, while retaining every
+generated wording as request lineage; multilingual web phrasing is never
+concatenated into an over-constrained literature query. Structured registries
+retrieve a bounded candidate set and rank it deterministically against the full
+neutral intent bundle. Rate limits change scheduling, never which upstream
+intents are silently retained or discarded.
 
 ### ToolUniverse boundary
 
@@ -331,7 +345,7 @@ tool execution remains private while final tokens render incrementally.
 ## Portable result files
 
 Inspector, Aligner, and Scout downloads use the versioned `pdis.result` envelope,
-currently version **11**:
+currently version **15**:
 
 ```text
 schema + version + result_type

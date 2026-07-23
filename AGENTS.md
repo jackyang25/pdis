@@ -117,6 +117,10 @@ Preserve these invariants:
   the user's configured indication.
 - Query generation sees the relevant uploaded-document blocks and returns the
   exact `doc_block_ids` that shaped each query.
+- Rendered model context labels blocks as `[block:<id>]`; structured JSON outputs
+  the complete bare ID inside that marker. Validation permits an exactly wrapped
+  legacy marker only long enough to canonicalize it, then requires exact
+  membership in the supplied block set—never suffix, substring, or fuzzy matching.
 - General, geographic, counterfactual, and precedent tracks are additive. Their
   budgets come from Scout config; deduplication must not erase track lineage.
 - Scout owns document meaning. Searcher adapters own source-specific query
@@ -125,6 +129,10 @@ Preserve these invariants:
   field. Native requests may consolidate intents, but each request must carry
   the exact `intent_ids` and input query texts it compiled; the controller must
   reject silent omissions or altered lineage.
+- Literature adapters compile provider-native queries from the canonical
+  indication, intervention class, field topic, and definition. Multilingual
+  web phrasings remain complete request lineage; do not concatenate them into
+  an over-constrained PubMed or Semantic Scholar query.
 - The static adapter registry is engineering code. Enabled source keys are
   dynamic Scout config. API and UI discover registry metadata rather than
   mirroring source allowlists or labels.
@@ -163,6 +171,10 @@ Preserve these invariants:
   reasoning. Source adapters may attach typed development or safety records;
   Scout groups those records deterministically without parsing provider prose
   or inventing missing sponsor, phase, status, or outcome values.
+- Web-search excerpts are citation-linked model-output context, not verbatim
+  source passages. They may support qualitative discovery but must never be
+  admitted as exact numeric paper evidence. Quantitative calibration uses
+  source-owned literature, registry, or regulatory passages only.
 - Raw FAERS counts and individual MAUDE reports are reference-role surveillance
   signals: retain and qualify them in the safety projection, but never let them
   influence grounding, drift, conformity, or precedent. Official label warnings
@@ -177,10 +189,17 @@ Scout's four result axes are intentionally orthogonal:
 - drift: `contradicts | extends | confirms | unrelated`
 - grounding: `well_grounded | partial | thin | unsupported | unknown`
 - quantitative alignment and assumption calibration: deterministic calculation
-  over exact-quoted, block/source-validated, claim-compatible, study-deduplicated
-  measurements; never silently convert incompatible units, treat a synthesized
-  Insight as numeric provenance, or present cohort spread/percentiles as
-  inferential uncertainty or likelihood of success
+  over independently retained document targets bound before retrieval and exact-quoted,
+  block/source-validated, claim-compatible, study-deduplicated measurements;
+  never collapse threshold/optimal or qualifier-specific targets, silently
+  convert incompatible units, treat a synthesized Insight as numeric provenance,
+  or present cohort spread/percentiles as inferential uncertainty or likelihood
+  of success. The model refers only to immutable target/candidate span IDs;
+  deterministic code owns their value, unit, URL, quote, and block provenance.
+  Every retained source passage containing a number in the target unit must be
+  classified or preserved as an explicit unknown-comparability exclusion. Query
+  and request target IDs are retrieval-coverage lineage only; they never imply
+  that a returned source semantically supports that target
 - precedent: coverage `direct | adjacent | none | unknown`, with outcome tracked
   separately as `favorable | mixed | unfavorable | unknown`
 
@@ -196,8 +215,11 @@ deduplication and rollups. Do not restore holistic “basis” tags.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 13, separating analysis from
+  (`web/lib/result-file.ts`), currently version 15, separating analysis from
   `source_documents`.
+- Scout may rebuild quantitative ledgers from a current portable result without
+  retrieval. That path must consume only its saved blocks and cited Insights and
+  must run the same target/span validation and deterministic calculation contract.
 - Backward compatibility belongs only in the import normalizer. Runtime UI and
   services consume the current contract without legacy branches.
 - Old JSON may remain viewable, but missing images, query lineage, and retrieval

@@ -8,7 +8,12 @@ import re
 
 from services.searcher import Finding
 
-from ..context import document_block_ids, limit_document_context, validated_block_ids
+from ..context import (
+    BLOCK_ID_JSON_INSTRUCTION,
+    document_block_ids,
+    limit_document_context,
+    validated_block_ids,
+)
 from ..models import (
     Attribute,
     EvidenceAssessment,
@@ -108,7 +113,7 @@ def _system_prompt(
         if attribute.target_resolved
         else (
             "Return doc_target as a short faithful phrase from the document and return "
-            "the exact supporting [block:<id>] markers."
+            "the exact supporting blocks. " + BLOCK_ID_JSON_INSTRUCTION
         )
     )
     return (

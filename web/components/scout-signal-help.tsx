@@ -28,7 +28,7 @@ const TOPICS: Record<
   alignment: {
     title: "Evidence · Quantitative calibration",
     summary: "A numeric document claim compared only with source-quoted, claim-compatible, deduplicated measurements.",
-    detail: "The count shows how many validated comparators meet the target. Distribution statistics describe this selected cohort only; they are not confidence intervals or forecasts. A dash means no valid comparison was possible.",
+    detail: "The count shows how many validated comparators meet the target. Distribution statistics describe this selected cohort only; they are not confidence intervals or forecasts. Not calculated means no numeric target with valid document lineage was available.",
   },
   precedent: {
     title: "Precedent",

@@ -7,6 +7,7 @@ import threading
 import time
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import replace
 from typing import Callable, Iterable
 
 from .models import (
@@ -84,6 +85,7 @@ def plan_requests(
                 requests.append(_skipped_request(intent, adapter.spec, reason))
                 continue
             planned = adapter.plan(intent)
+            planned = [_attach_target_refs(intent, request) for request in planned]
             _validate_plan(intent, source, planned)
             requests.extend(planned)
     # An adapter may intentionally collapse several semantic tracks into one
@@ -129,6 +131,9 @@ def _skipped_request(
         document_refs=tuple(
             dict.fromkeys(ref for query in queries for ref in query.document_refs)
         ),
+        target_refs=tuple(
+            dict.fromkeys(ref for query in queries for ref in query.target_refs)
+        ),
         intent_ids=tuple(query.intent_id for query in queries),
         input_queries=tuple(query.text for query in queries),
         applicability="not_applicable",
@@ -148,6 +153,9 @@ def _validate_plan(
     mechanically checkable rather than trusting adapter comments.
     """
     expected = {query.intent_id: query.text for query in intent.queries}
+    target_refs_by_intent = {
+        query.intent_id: query.target_refs for query in intent.queries
+    }
     covered: set[str] = set()
     for request in requests:
         if request.source != source or request.scope_ref != intent.scope_ref:
@@ -169,12 +177,41 @@ def _validate_plan(
                     f"{source} planner claimed unknown or altered intent {intent_id}"
                 )
             covered.add(intent_id)
+        expected_target_refs = tuple(
+            dict.fromkeys(
+                target_ref
+                for intent_id in request.intent_ids
+                for target_ref in target_refs_by_intent[intent_id]
+            )
+        )
+        if request.target_refs != expected_target_refs:
+            raise ValueError(
+                f"{source} planner emitted inconsistent quantitative target lineage"
+            )
     missing = set(expected) - covered
     if missing:
         raise ValueError(
             f"{source} planner omitted {len(missing)} query intent(s) for "
             f"{intent.scope_ref}"
         )
+
+
+def _attach_target_refs(
+    intent: RetrievalIntent,
+    request: SearchRequest,
+) -> SearchRequest:
+    """Add neutral target lineage centrally so adapters remain grammar-only."""
+    refs_by_intent = {
+        query.intent_id: query.target_refs for query in intent.queries
+    }
+    target_refs = tuple(
+        dict.fromkeys(
+            target_ref
+            for intent_id in request.intent_ids
+            for target_ref in refs_by_intent.get(intent_id, ())
+        )
+    )
+    return replace(request, target_refs=target_refs)
 
 
 def run_requests(

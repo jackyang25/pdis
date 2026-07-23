@@ -19,6 +19,7 @@ TPP definitions and IPDP claims converge to one `Attribute` before retrieval:
 | `target_resolved` | Binding completed, including an intentionally absent target |
 | `evidence_domain` | Closed source-applicability domain |
 | `entities` | Explicit document-stated typed entities |
+| `quantitative_targets` | Independently verified numeric claims with immutable IDs, exact source text, units, roles, and block lineage |
 
 No reasoning stage may rewrite this canonical target.
 
@@ -56,6 +57,7 @@ print(result.stats)
 | `statement` | str | One atomic factual observation from external evidence |
 | `supporting_findings` | list[Finding] | Sources backing the statement |
 | `query` | str | The search query that surfaced the supporting evidence |
+| `retrieval_target_ids` | list[str] | Quantitative targets covered by the retrieval request; coverage lineage only, not semantic support |
 | `org` / `source_type` / `intervention_class` / `indication` | str \| None | Stamped from inputs |
 | `attribute_ref` | str \| None | Vocabulary or document-extracted unit this Insight relates to |
 
@@ -87,14 +89,15 @@ as external evidence underneath it.
 1. **parse** - chunker parses each uploaded doc without section mapping.
 2. **validate context** - a conservative, block-cited check compares the configured indication with the document. A clear mismatch stops before retrieval; absent or ambiguous context remains `uncertain`, never guessed or silently rewritten.
 3. **resolve targets** - fixed TPP definitions are bound to the document's exact target, blocks, and explicitly stated entities; dynamic IPDP units arrive already bound. Both have the same canonical shape, including one closed evidence domain, with `definition_mode` preserving only their provider provenance. Fixed domains are authored in the shared vocabulary; dynamic domains are selected from the same enum.
-4. **per-unit query intents** - LLM generates document-aware intents from the canonical definition and target across general, geographic, counterfactual, and precedent tracks.
-5. **plan + search** - Scout converts units to Searcher's neutral `RetrievalIntent`. The generic controller compares the unit's evidence domain and document-stated entity types with each enabled adapter's declared capabilities. Applicable adapters receive the complete bundle and independently compile source-native requests; non-applicable adapters emit explicit traced skips without connector calls. The controller verifies complete intent coverage, then executes fair per-source queues with adapter-owned rate/concurrency policy. `search_plan` retains every native request or skip, its exact input intent IDs/texts, applicability reason, status, document blocks, track, result count, and source URLs. URL dedupe preserves every retrieval path and the exact lanes supplying title, excerpt, and publication date.
-6. **deterministic projections** - typed development and safety records are grouped into a development landscape and safety-signal view. Missing fields remain missing; no LLM or source-specific parsing runs in Scout.
-7. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches from evidence-role Findings only. Reference-only catalog/entity records cannot influence reasoning. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs.
-8. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
-9. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources without allowing the canonical target to drift.
-10. **quantitative calibration** - the model selects exact target/source quotes and proposes closed comparability labels for endpoint, population, intervention, regimen, time horizon, and statistic. Deterministic code verifies the quotes, numeric tokens, direction, units, document blocks, URLs, enums, and source identities; applies a strict axis policy (endpoint/statistic must match; intervention may be an explicit comparator; population/regimen/time horizon must match or be inapplicable); builds an included/excluded cohort ledger; and deduplicates source records. Only the included cohort produces minimum/maximum/mean/median/quartiles/observed standard deviation, target/ambition percentiles, and the literal target-meeting share. These describe the selected cohort only and are never presented as confidence intervals or forecast probabilities. Descriptive source labels never numerically weight the result.
-11. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and canonical document blocks.
+4. **bind quantitative targets** - the model enumerates every independently calibratable numeric claim from the resolved field. Deterministic code verifies its exact quote, numeric token, direction, unit, role, and document blocks, then assigns its immutable target ID. This bundle becomes part of the canonical `Attribute` before retrieval.
+5. **per-unit query intents** - LLM generates document-aware intents from the canonical definition and target across general, geographic, counterfactual, and precedent tracks. The general track must cover every verified quantitative target. Each intent carries both block lineage and the target IDs it was designed to cover.
+6. **plan + search** - Scout converts units to Searcher's neutral `RetrievalIntent`. The generic controller compares the unit's evidence domain and document-stated entity types with each enabled adapter's declared capabilities. Applicable adapters receive the complete bundle and independently compile source-native requests; non-applicable adapters emit explicit traced skips without connector calls. The controller centrally attaches target lineage to every compiled request and verifies complete intent coverage, so source adapters do not duplicate this policy. It then executes fair per-source queues with adapter-owned rate/concurrency policy. `search_plan` retains every native request or skip, its exact input intent IDs/texts, applicability reason, status, document blocks, quantitative target IDs, track, result count, and source URLs. URL dedupe preserves every retrieval path and the exact lanes supplying title, excerpt, and publication date.
+7. **deterministic projections** - typed development and safety records are grouped into a development landscape and safety-signal view. Missing fields remain missing; no LLM or source-specific parsing runs in Scout.
+8. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches from evidence-role Findings only. Reference-only catalog/entity records cannot influence reasoning. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs. Insights retain which target-specific requests retrieved their sources, explicitly as coverage rather than evidence support.
+9. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
+10. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources without allowing the canonical target to drift.
+11. **quantitative calibration** - calibration consumes the already verified target bundle; it never re-extracts or merges targets. Threshold, optimal, population-specific, and time-specific targets remain separate ledgers. The model proposes exact source-candidate spans and closed axis labels; it cannot rewrite a target value, URL, quote, or provenance. Invalid axis citations become `unknown` and cannot enter the cohort. Every retained source passage containing a number in the target unit is classified or remains visible as an explicit exclusion. The strict axis policy requires endpoint/statistic matches, permits an explicit comparator intervention, and requires population/regimen/time horizon to match or be inapplicable. Only the included, study-deduplicated cohort produces minimum/maximum/mean/median/quartiles/observed standard deviation, target/ambition percentiles, and the literal target-meeting share. These describe the selected cohort only and are never presented as confidence intervals or forecast probabilities. Web-search citation context is never accepted as a verbatim paper passage, and descriptive labels never numerically weight the result.
+12. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and canonical document blocks.
 
 Long documents are not truncated from the end. Vocabulary units receive a
 relevance-selected context with neighboring blocks and a document-wide safety
@@ -102,6 +105,12 @@ net; extracted units additionally seed their originating blocks. Parallel calls
 are isolated by variable and `_parallel_map` preserves input order.
 
 Each step is one stage in `services/scout/stages/`.
+
+`POST /api/scout/recalibrate` is a retrieval-free repair path for a current
+portable result. It deterministically revalidates the saved canonical targets
+against their saved blocks, reuses only cited Insights, and returns replacement
+ledgers; it cannot fetch evidence, synthesize new Insights, or extract a new
+target set.
 
 For TPP runs Scout reads fixed definitions from `shared/attributes.yaml` and
 binds them to document targets. For IPDP runs it dynamically extracts neutral
@@ -118,6 +127,13 @@ evaluated field → canonical document target → evidence insight → cited sou
 ```
 
 It uses the canonical `Attribute.document_target` and its exact block IDs.
+
+Rendered prompts identify source blocks with `[block:<id>]` markers. Model JSON
+returns the complete bare ID inside the marker. A shared validator canonicalizes
+the exactly wrapped legacy form, rejects shortened or invented references, and
+never performs fuzzy matching. A fixed target without at least one valid source
+block is retried once and then fails closed rather than entering downstream
+reasoning as untraced document fact.
 Relationship edges attach to that target. Focused mode displays a readable,
 deterministic subset; **All evidence** maps every analyzed insight and cited
 source for the selected field. `search_plan` remains the complete

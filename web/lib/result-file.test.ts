@@ -43,7 +43,7 @@ const inspection: InspectorResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 13);
+  assert.equal(packed.version, 15);
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
   assert.equal("blocks" in packed.analysis.inspection, false);
@@ -68,7 +68,7 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 13);
+  assert.equal(packed.version, 15);
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
   assert.equal(packed.source_documents.length, 2);
@@ -119,4 +119,69 @@ test("older Scout calibration is marked unverified at the import boundary", () =
   assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
   assert.equal(imported.conformity[0].target_meeting_count, 1);
   assert.equal(imported.conformity[0].target_meeting_rate, 0.5);
+});
+
+test("an old exclusion ledger without immutable span evidence is also unverified", () => {
+  const imported = unpackScoutResult({
+    schema: "pdis.result",
+    version: 13,
+    result_type: "scout",
+    analysis: {
+      conformity: [{
+        attribute_ref: "efficacy",
+        target_id: "qt-old",
+        target_role: "threshold",
+        target_value: 80,
+        comparator: ">=",
+        unit: "%",
+        target_quote: "Target efficacy is at least 80%.",
+        target_meeting_count: 0,
+        target_meeting_rate: 0,
+        verdict: "No valid cohort",
+        measurements: [],
+        excluded_measurements: [{
+          value: 82,
+          unit: "%",
+          source_quote: "Efficacy was 82%.",
+        }],
+      }],
+    },
+    source_documents: [],
+  });
+
+  assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
+});
+
+test("version 14 Scout targets migrate onto the canonical variable contract", () => {
+  const imported = unpackScoutResult({
+    schema: "pdis.result",
+    version: 14,
+    result_type: "scout",
+    analysis: {
+      variables: [{
+        name: "efficacy",
+        description: "Protective efficacy",
+        block_ids: ["document/b-0001"],
+        document_target: "Target efficacy is at least 80%.",
+      }],
+      conformity: [{
+        attribute_ref: "efficacy",
+        target_id: "qt-123",
+        target_role: "threshold",
+        target_value: 80,
+        comparator: ">=",
+        unit: "%",
+        target_label: "threshold >=80%",
+        target_quote: "Target efficacy is at least 80%.",
+        doc_block_ids: ["document/b-0001"],
+        target_meeting_count: 0,
+        target_meeting_rate: 0,
+        verdict: "No cohort",
+      }],
+    },
+    source_documents: [{ doc_id: "document", blocks: [block] }],
+  });
+
+  assert.equal(imported.variables[0].quantitative_targets.length, 1);
+  assert.equal(imported.variables[0].quantitative_targets[0].id, "qt-123");
 });

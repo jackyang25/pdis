@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from services.scout import (
+    Attribute,
+    EvidenceEntity,
+    Insight,
+    QuantitativeTarget,
     assessments_to_dicts,
     blocks_to_dicts,
     conformity_to_dicts,
@@ -17,8 +22,17 @@ from services.scout import (
     find_config,
     matches_to_dicts,
     precedents_to_dicts,
+    recalculate_conformity,
     safety_signals_to_dicts,
     run_pipeline,
+)
+from services.chunker import ContentBlock, ImageAsset
+from services.searcher import (
+    DevelopmentRecord,
+    Finding,
+    RetrievalPath,
+    SafetyRecord,
+    SourceAttribution,
 )
 
 from api.deps import get_openai_client, get_search_runtime
@@ -33,7 +47,10 @@ from api.schemas import (
     FunnelStatsOut,
     InsightOut,
     MatchOut,
+    QuantitativeTargetOut,
     ScoutRunResponse,
+    ScoutRecalibrationRequest,
+    ScoutRecalibrationResponse,
     SafetySignalOut,
     SearchTraceOut,
     PrecedentOut,
@@ -42,6 +59,151 @@ from api.schemas import (
 from api.streaming import run_with_progress
 
 router = APIRouter()
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _finding_from_wire(finding: FindingOut) -> Finding:
+    """Rehydrate the current wire contract without inferring absent provenance."""
+    retrieved_at = _parse_datetime(finding.retrieved_at)
+    if retrieved_at is None:
+        raise ValueError(f"finding {finding.url!r} has no retrieval timestamp")
+    return Finding(
+        url=finding.url,
+        title=finding.title,
+        query=finding.query,
+        retrieved_at=retrieved_at,
+        excerpt=finding.excerpt,
+        published_at=_parse_datetime(finding.published_at),
+        source=finding.source,
+        evidence_role=finding.evidence_role,
+        development_records=[
+            DevelopmentRecord(**record.model_dump())
+            for record in finding.development_records
+        ],
+        safety_records=[
+            SafetyRecord(**record.model_dump()) for record in finding.safety_records
+        ],
+        queries=finding.queries,
+        source_lanes=finding.source_lanes,
+        source_labels=finding.source_labels,
+        source_attributions={
+            key: SourceAttribution(**attribution.model_dump())
+            for key, attribution in finding.source_attributions.items()
+        },
+        retrieval_paths=[
+            RetrievalPath(**path.model_dump()) for path in finding.retrieval_paths
+        ],
+        title_source_lane=finding.title_source_lane,
+        excerpt_source_lane=finding.excerpt_source_lane,
+        published_source_lane=finding.published_source_lane,
+    )
+
+
+def _recalibration_inputs(
+    result: ScoutRunResponse,
+) -> tuple[list[Attribute], list[ContentBlock], list[Insight]]:
+    attributes = [
+        Attribute(
+            name=variable.name,
+            description=variable.description,
+            block_ids=variable.block_ids,
+            document_target=variable.document_target,
+            definition_mode=variable.definition_mode,
+            target_resolved=variable.target_resolved,
+            evidence_domain=variable.evidence_domain,
+            entities=[
+                EvidenceEntity(**entity.model_dump()) for entity in variable.entities
+            ],
+            quantitative_targets=[
+                QuantitativeTarget(**target.model_dump())
+                for target in variable.quantitative_targets
+            ],
+        )
+        for variable in result.variables
+    ]
+    blocks = [
+        ContentBlock(
+            id=block.id,
+            doc_id=block.doc_id,
+            ordinal=block.ordinal,
+            block_type=block.block_type,
+            content=block.content,
+            heading_stack=block.heading_stack,
+            structural_meta=block.structural_meta,
+            style_hint=block.style_hint,
+            section_label=block.section_label,
+            image=ImageAsset(**block.image.model_dump()) if block.image else None,
+            org=result.org,
+            source_type=result.source_type,
+            intervention_class=result.intervention_class,
+            indication=result.indication,
+        )
+        for block in result.blocks
+    ]
+    insights: list[Insight] = []
+    seen_insights: set[str] = set()
+    for match in result.matches:
+        item = match.insight
+        identity = item.id or "\n".join((item.attribute_ref or "", item.statement))
+        if identity in seen_insights:
+            continue
+        seen_insights.add(identity)
+        insights.append(
+            Insight(
+                id=item.id,
+                statement=item.statement,
+                query=item.query,
+                query_tracks=item.query_tracks,
+                retrieval_target_ids=item.retrieval_target_ids,
+                supporting_findings=[
+                    _finding_from_wire(finding)
+                    for finding in item.supporting_findings
+                ],
+                org=item.org,
+                source_type=item.source_type,
+                intervention_class=item.intervention_class,
+                indication=item.indication,
+                attribute_ref=item.attribute_ref,
+            )
+        )
+    return attributes, blocks, insights
+
+
+@router.post("/recalibrate")
+async def recalibrate_scout(payload: ScoutRecalibrationRequest) -> StreamingResponse:
+    """Rebuild quantitative ledgers from saved blocks and cited evidence only."""
+    result = payload.result
+    try:
+        find_config(result.org, result.source_type, result.intervention_class)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    if not result.blocks:
+        raise HTTPException(
+            status_code=422,
+            detail="This result has no portable source blocks; rerun Scout to recalibrate it.",
+        )
+    attributes, blocks, insights = _recalibration_inputs(result)
+
+    def work(progress):
+        scores = recalculate_conformity(
+            attributes,
+            blocks,
+            insights,
+            openai_client=get_openai_client(),
+            indication=result.indication,
+            intervention_class=result.intervention_class,
+            progress_callback=progress,
+        )
+        return ScoutRecalibrationResponse(
+            conformity=[ConformityOut(**score) for score in conformity_to_dicts(scores)]
+        ).model_dump()
+
+    return StreamingResponse(run_with_progress(work), media_type="application/x-ndjson")
 
 
 @router.post("/run")
@@ -130,6 +292,20 @@ async def run_scout(
                             )
                             for entity in variable.entities
                         ],
+                        quantitative_targets=[
+                            QuantitativeTargetOut(
+                                id=target.id,
+                                attribute_ref=target.attribute_ref,
+                                value=target.value,
+                                comparator=target.comparator,
+                                unit=target.unit,
+                                label=target.label,
+                                role=target.role,
+                                quote=target.quote,
+                                doc_block_ids=target.doc_block_ids,
+                            )
+                            for target in variable.quantitative_targets
+                        ],
                     )
                     for variable in variables
                 ],
@@ -143,6 +319,7 @@ async def run_scout(
                         request_options=trace.request_options,
                         tracks=trace.tracks,
                         doc_block_ids=trace.doc_block_ids,
+                        target_ids=trace.target_ids,
                         intent_ids=trace.intent_ids,
                         input_queries=trace.input_queries,
                         applicability=trace.applicability,
@@ -161,6 +338,9 @@ async def run_scout(
                             statement=md["insight"]["statement"],
                             query=md["insight"]["query"],
                             query_tracks=md["insight"].get("query_tracks", []),
+                            retrieval_target_ids=md["insight"].get(
+                                "retrieval_target_ids", []
+                            ),
                             supporting_findings=[
                                 FindingOut(**f)
                                 for f in md["insight"]["supporting_findings"]

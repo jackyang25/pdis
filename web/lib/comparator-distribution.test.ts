@@ -70,6 +70,29 @@ test("uses a non-zero domain for a single repeated value", () => {
   assert.equal(model.targetX, 50);
 });
 
+test("plots exact grounded candidates even when none qualify for statistics", () => {
+  const excluded = {
+    ...measurement(75),
+    exclusion_reasons: ["population: different"],
+  };
+  const model = buildComparatorDistribution({
+    targetValue: 80,
+    unit: "%",
+    minimum: null,
+    maximum: null,
+    median: null,
+    lowerQuartile: null,
+    upperQuartile: null,
+    included: [],
+    excluded: [excluded],
+  });
+
+  assert.ok(model);
+  assert.equal(model.included.length, 0);
+  assert.equal(model.excluded.length, 1);
+  assert.ok(model.excluded[0].x < model.targetX);
+});
+
 test("does not render an empty comparator cohort", () => {
   assert.equal(buildComparatorDistribution({
     targetValue: 50,

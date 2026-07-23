@@ -25,7 +25,12 @@ import re
 
 from services.searcher import Finding
 
-from ..context import document_block_ids, limit_document_context, validated_block_ids
+from ..context import (
+    BLOCK_ID_JSON_INSTRUCTION,
+    document_block_ids,
+    limit_document_context,
+    validated_block_ids,
+)
 from ..models import (
     Attribute,
     Insight,
@@ -185,8 +190,8 @@ def _system_prompt(
         "- Judge the target/approach, not whether the number is ambitious.\n\n"
         "reason: one sentence (<=25 words) citing the specific evidence (or its telling "
         "absence) behind your label.\n\n"
-        "Return doc_block_ids containing the exact [block:<id>] markers for the document "
-        "target/approach you assessed. Return coverage_insight_indices and "
+        "Return doc_block_ids for the document target/approach you assessed. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} Return coverage_insight_indices and "
         "outcome_insight_indices separately, containing ONLY the numbered insights used "
         "for each axis. outcome_insight_indices may be empty when outcome=unknown.\n\n"
         "Discovery-track labels are retrieval provenance only; classify the stated evidence, "

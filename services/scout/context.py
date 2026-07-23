@@ -20,12 +20,23 @@ ATTRIBUTE_CONTEXT_CHARS = 160_000
 WHOLE_DOCUMENT_CONTEXT_CHARS = 500_000
 
 _BLOCK_ID_RE = re.compile(r"\[block:([^\]]+)\]")
+_BLOCK_MARKER_RE = re.compile(r"^\[block:([^\]]+)\]$")
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _STOPWORDS = {
     "about", "against", "and", "are", "for", "from", "into", "its",
     "that", "the", "their", "this", "through", "with", "within",
     "product", "target", "variable", "document", "evidence",
 }
+
+# One canonical JSON contract shared by every Scout prompt that asks a model to
+# cite document blocks. Rendered context uses ``[block:<id>]`` markers, while
+# structured outputs carry the bare ID. Keeping this wording centralized avoids
+# a producer/validator mismatch across query generation and reasoning stages.
+BLOCK_ID_JSON_INSTRUCTION = (
+    "For every JSON block-ID array, copy only the complete bare ID from inside a "
+    "supplied [block:<id>] marker (for example, \"document/b-0001\"). Do not include "
+    "the [block:...] wrapper, shorten the ID, or invent an ID."
+)
 
 
 def render_document_context(blocks: Iterable[ContentBlock]) -> str:
@@ -112,15 +123,26 @@ def document_block_ids(text: str) -> set[str]:
 
 
 def validated_block_ids(raw: object, allowed: set[str]) -> list[str]:
+    """Return exact allowed IDs in model order, accepting one safe legacy form.
+
+    The canonical JSON form is the bare ID. Older prompts ambiguously requested
+    the rendered ``[block:<id>]`` marker, so an exactly wrapped marker is
+    canonicalized before membership validation. No prefix, suffix, substring,
+    case-folded, or fuzzy matching is permitted.
+    """
     if not isinstance(raw, list):
         return []
-    return list(
-        dict.fromkeys(
-            value
-            for value in (str(item).strip() for item in raw)
-            if value and value in allowed
-        )
-    )
+    validated: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        value = item.strip()
+        marker = _BLOCK_MARKER_RE.fullmatch(value)
+        if marker:
+            value = marker.group(1).strip()
+        if value in allowed and value not in validated:
+            validated.append(value)
+    return validated
 
 
 def _render_block(block: ContentBlock) -> str:

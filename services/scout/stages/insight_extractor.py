@@ -30,6 +30,7 @@ def extract_insights(
     attribute_ref: str | None = None,
     attribute_description: str = "",
     query_tracks: dict[str, list[str]] | None = None,
+    query_targets: dict[str, list[str]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[Insight]:
     """Return Insights extracted from the supplied Findings."""
@@ -72,12 +73,21 @@ def extract_insights(
                 for track in (query_tracks or {}).get(finding_query, [])
             )
         )
+        retrieval_target_ids = list(
+            dict.fromkeys(
+                target_id
+                for finding in supporting
+                for finding_query in (finding.queries or [finding.query])
+                for target_id in (query_targets or {}).get(finding_query, [])
+            )
+        )
         insights.append(
             Insight(
                 statement=statement,
                 supporting_findings=supporting,
                 query=query,
                 query_tracks=tracks,
+                retrieval_target_ids=retrieval_target_ids,
                 attribute_ref=attribute_ref,
             )
         )
@@ -189,6 +199,11 @@ def merge_duplicate_insights(insights: list[Insight]) -> list[Insight]:
                 seen_urls.add(finding.url)
         existing.query_tracks = list(
             dict.fromkeys([*existing.query_tracks, *insight.query_tracks])
+        )
+        existing.retrieval_target_ids = list(
+            dict.fromkeys(
+                [*existing.retrieval_target_ids, *insight.retrieval_target_ids]
+            )
         )
         existing.refresh_id()
     return out

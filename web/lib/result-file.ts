@@ -1,8 +1,8 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 13 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | typeof RESULT_VERSION;
+const RESULT_VERSION = 15 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -172,7 +172,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.result_type === "aligner" ||
@@ -221,6 +221,23 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
       assessment,
     ]),
   );
+  const quantitativeTargetsByAttribute = new Map<string, Record<string, any>[]>();
+  for (const score of raw.conformity ?? []) {
+    if (!String(score.target_id ?? "").startsWith("qt-") || !score.target_quote) continue;
+    const targets = quantitativeTargetsByAttribute.get(String(score.attribute_ref ?? "")) ?? [];
+    targets.push({
+      id: score.target_id,
+      attribute_ref: score.attribute_ref,
+      value: score.target_value,
+      comparator: score.comparator,
+      unit: score.unit ?? "",
+      label: score.target_label ?? "",
+      role: score.target_role ?? "other",
+      quote: score.target_quote,
+      doc_block_ids: score.doc_block_ids ?? [],
+    });
+    quantitativeTargetsByAttribute.set(String(score.attribute_ref ?? ""), targets);
+  }
   return {
     ...raw,
     context_validation: raw.context_validation ?? {
@@ -240,7 +257,9 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
         supporting_findings: current.supporting_findings ?? [],
       };
     }),
-    conformity: (raw.conformity ?? []).map(normalizeConformity),
+    conformity: (raw.conformity ?? []).map(
+      (score: Record<string, any>, index: number) => normalizeConformity(score, index),
+    ),
     precedents: (raw.precedents ?? []).map(normalizePrecedent),
     development_landscape: (raw.development_landscape ?? []).map(
       (program: Record<string, any>) => ({
@@ -271,6 +290,7 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
       request_options: trace.request_options ?? {},
       tracks: trace.tracks ?? [],
       doc_block_ids: trace.doc_block_ids ?? [],
+      target_ids: trace.target_ids ?? [],
       intent_ids: trace.intent_ids ?? [],
       input_queries: trace.input_queries ?? [],
       applicability: trace.applicability ?? "applicable",
@@ -297,18 +317,30 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
         definition_mode: definitionMode,
         evidence_domain: variable.evidence_domain ?? "general",
         entities: Array.isArray(variable.entities) ? variable.entities : [],
+        quantitative_targets: Array.isArray(variable.quantitative_targets)
+          ? variable.quantitative_targets
+          : quantitativeTargetsByAttribute.get(String(variable.name ?? "")) ?? [],
         target_resolved:
           typeof variable.target_resolved === "boolean"
             ? variable.target_resolved
             : Boolean(documentTarget || assessment),
       };
     }),
-    matches: raw.matches ?? [],
+    matches: (raw.matches ?? []).map((match: Record<string, any>) => ({
+      ...match,
+      insight: {
+        ...(match.insight ?? {}),
+        retrieval_target_ids: match.insight?.retrieval_target_ids ?? [],
+      },
+    })),
     blocks,
   } as ScoutResponse;
 }
 
-function normalizeConformity(score: Record<string, any>): Record<string, unknown> {
+function normalizeConformity(
+  score: Record<string, any>,
+  index: number,
+): Record<string, unknown> {
   const {
     conformity: _legacyConformity,
     lower: _legacyLower,
@@ -317,6 +349,9 @@ function normalizeConformity(score: Record<string, any>): Record<string, unknown
     ...currentScore
   } = score;
   const measurements: Record<string, any>[] = (score.measurements ?? []).map(
+    (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
+  );
+  const excludedMeasurements: Record<string, any>[] = (score.excluded_measurements ?? []).map(
     (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
   );
   const values = measurements
@@ -329,18 +364,30 @@ function normalizeConformity(score: Record<string, any>): Record<string, unknown
     : null;
   const ambitionPercentile = rawPercentile == null
     ? null
-    : score.comparator === "<=" ? 1 - rawPercentile : rawPercentile;
+    : score.comparator === "<=" || score.comparator === "<"
+      ? 1 - rawPercentile
+      : rawPercentile;
   const count = values.length;
-  const targetMeetingCount = values.filter((value) =>
-    score.comparator === "<=" ? value <= target : value >= target
-  ).length;
+  const targetMeetingCount = values.filter((value) => {
+    if (score.comparator === "<") return value < target;
+    if (score.comparator === "<=") return value <= target;
+    if (score.comparator === ">") return value > target;
+    return value >= target;
+  }).length;
   const targetMeetingRate = count > 0 ? targetMeetingCount / count : 0;
-  const legacyUnverified = !score.target_quote || measurements.some(
-    (measurement) => !measurement.source_quote || !Object.keys(measurement.comparability ?? {}).length,
+  const legacyUnverified = !score.target_id || !score.target_quote || [
+    ...measurements,
+    ...excludedMeasurements,
+  ].some(
+    (measurement) => !measurement.candidate_id
+      || !measurement.source_quote
+      || !Object.keys(measurement.axis_evidence ?? {}).length,
   );
 
   return {
     ...currentScore,
+    target_id: score.target_id ?? `legacy-target-${index + 1}`,
+    target_role: score.target_role ?? "other",
     target_quote: score.target_quote ?? "",
     target_meeting_count: score.target_meeting_count ?? targetMeetingCount,
     target_meeting_rate: score.target_meeting_rate ?? targetMeetingRate,
@@ -363,9 +410,7 @@ function normalizeConformity(score: Record<string, any>): Record<string, unknown
       : score.calibration_status ?? (count >= 5 ? "sufficient" : count >= 2 ? "limited" : "insufficient"),
     doc_block_ids: score.doc_block_ids ?? [],
     measurements,
-    excluded_measurements: (score.excluded_measurements ?? []).map(
-      (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
-    ),
+    excluded_measurements: excludedMeasurements,
   };
 }
 
@@ -407,6 +452,7 @@ function normalizeMeasurement(
   const legacy = legacyMeasurementAxes(evidenceType ?? sourceType);
   return {
     ...current,
+    candidate_id: current.candidate_id ?? "",
     unit: current.unit ?? (typeof targetUnit === "string" ? targetUnit : ""),
     evidence_form: current.evidence_form ?? studyDesign ?? legacy.evidenceForm,
     development_phase: current.development_phase ?? legacy.developmentPhase,
@@ -418,6 +464,7 @@ function normalizeMeasurement(
     source_identity_status: current.source_identity_status ?? "url_fallback",
     comparability: current.comparability ?? {},
     comparability_reasons: current.comparability_reasons ?? {},
+    axis_evidence: current.axis_evidence ?? {},
     inclusion_reason: current.inclusion_reason ?? "",
     exclusion_reasons: current.exclusion_reasons ?? [],
     age_months: current.age_months ?? null,

@@ -134,6 +134,7 @@ class InsightOut(BaseModel):
     statement: str
     query: str
     query_tracks: list[str] = Field(default_factory=list)
+    retrieval_target_ids: list[str] = Field(default_factory=list)
     supporting_findings: list[FindingOut]
     org: str | None = None
     source_type: str | None = None
@@ -177,6 +178,7 @@ class SearchTraceOut(BaseModel):
     request_options: dict[str, str] = Field(default_factory=dict)
     tracks: list[str] = Field(default_factory=list)
     doc_block_ids: list[str] = Field(default_factory=list)
+    target_ids: list[str] = Field(default_factory=list)
     intent_ids: list[str] = Field(default_factory=list)
     input_queries: list[str] = Field(default_factory=list)
     applicability: str = "applicable"
@@ -193,6 +195,18 @@ class EvidenceEntityOut(BaseModel):
     identifier: str = ""
 
 
+class QuantitativeTargetOut(BaseModel):
+    id: str
+    attribute_ref: str
+    value: float
+    comparator: Literal[">", ">=", "<", "<="]
+    unit: str
+    label: str
+    role: Literal["threshold", "optimal", "other"]
+    quote: str
+    doc_block_ids: list[str] = Field(default_factory=list)
+
+
 class VariableOut(BaseModel):
     name: str
     description: str
@@ -202,10 +216,21 @@ class VariableOut(BaseModel):
     target_resolved: bool = False
     evidence_domain: str = "general"
     entities: list[EvidenceEntityOut] = Field(default_factory=list)
+    quantitative_targets: list[QuantitativeTargetOut] = Field(default_factory=list)
+
+
+class AxisEvidenceOut(BaseModel):
+    relation: Literal["same", "compatible", "not_applicable", "different", "unknown"] = "unknown"
+    reason: str = ""
+    target_span_ids: list[str] = Field(default_factory=list)
+    source_span_ids: list[str] = Field(default_factory=list)
+    target_quotes: list[str] = Field(default_factory=list)
+    source_quotes: list[str] = Field(default_factory=list)
 
 
 class MeasurementOut(BaseModel):
     value: float
+    candidate_id: str = ""
     unit: str = ""
     evidence_form: str = "other"
     development_phase: str = "unknown"
@@ -219,6 +244,7 @@ class MeasurementOut(BaseModel):
         str, Literal["same", "compatible", "not_applicable", "different", "unknown"]
     ] = Field(default_factory=dict)
     comparability_reasons: dict[str, str] = Field(default_factory=dict)
+    axis_evidence: dict[str, AxisEvidenceOut] = Field(default_factory=dict)
     inclusion_reason: str = ""
     exclusion_reasons: list[str] = Field(default_factory=list)
     age_months: float | None = None
@@ -226,8 +252,10 @@ class MeasurementOut(BaseModel):
 
 class ConformityOut(BaseModel):
     attribute_ref: str
+    target_id: str
+    target_role: Literal["threshold", "optimal", "other"]
     target_value: float
-    comparator: Literal[">=", "<="]
+    comparator: Literal[">", ">=", "<", "<="]
     unit: str = ""
     target_label: str = ""
     target_quote: str = ""
@@ -312,6 +340,16 @@ class ScoutRunResponse(BaseModel):
     # The parsed source document, carried so the Ask assistant can read the full
     # document behind the distilled analysis. Not used by the Scout UI itself.
     blocks: list[ContentBlockOut] = Field(default_factory=list)
+
+
+class ScoutRecalibrationRequest(BaseModel):
+    """Current Scout wire result used for a retrieval-free metric rebuild."""
+
+    result: ScoutRunResponse
+
+
+class ScoutRecalibrationResponse(BaseModel):
+    conformity: list[ConformityOut]
 
 
 class DimensionGradeOut(BaseModel):

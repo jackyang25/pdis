@@ -21,7 +21,12 @@ import json
 import logging
 import re
 
-from ..context import document_block_ids, limit_document_context, validated_block_ids
+from ..context import (
+    BLOCK_ID_JSON_INSTRUCTION,
+    document_block_ids,
+    limit_document_context,
+    validated_block_ids,
+)
 from ..models import Insight, LLMClientProtocol, Match, VALID_RELATIONS
 
 logger = logging.getLogger(__name__)
@@ -151,8 +156,9 @@ def _system_prompt(
         "target itself cannot be achieved / has failed, or that a stated FACT is wrong.\n"
         "- Reason is one short sentence (max ~25 words) explaining the choice and citing "
         "the relevant doc topic concisely.\n"
-        "- doc_block_ids must contain the exact [block:<id>] markers from the document "
-        "that the relation compares against. Use an empty list only when no document block applies.\n"
+        "- doc_block_ids must contain the document blocks that the relation compares "
+        "against. Use an empty list only when no document block applies. "
+        f"{BLOCK_ID_JSON_INSTRUCTION}\n"
         "- Prefer 'extends' over 'unrelated' when the Insight is on-topic for the "
         "product class and indication, even if the document doesn't explicitly "
         "mention it. Reserve 'unrelated' for genuinely off-topic findings: "

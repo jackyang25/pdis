@@ -59,7 +59,7 @@ for f in findings:
 | `title` | str | Page title (or URL if title missing) |
 | `query` | str | The original query that produced this finding |
 | `retrieved_at` | datetime | UTC timestamp of the search |
-| `excerpt` | str \| None | Cited text span from the model output when available; otherwise `None`. |
+| `excerpt` | str \| None | Adapter-owned evidence text. Structured/literature lanes retain source passages; web retains the model-output claim surrounding its citation and is not source-verbatim. |
 | `published_at` | datetime \| None | Only set when reliably known |
 | `source` / `source_lanes` | str / list[str] | Adapter key and every lane that retrieved a merged URL |
 | `evidence_role` | `evidence` \| `reference` | Reference-only catalog/entity records are retained for deterministic projections but excluded from Scout evidence reasoning. |
@@ -69,10 +69,11 @@ for f in findings:
 | `source_attributions` | dict[str, SourceAttribution] | Optional adapter-owned public attribution notices, retained through deduplication and saved results |
 | `retrieval_paths` | list[RetrievalPath] | Exact query, source, connector, and operation path for every retrieval |
 
-**Why excerpt is optional:** OpenAI's web_search response includes cited
-URLs as annotations on the model output. When a cited text span is
-available, we attach it as the excerpt. When it is not, the Finding is
-still useful as source attribution.
+**Why excerpt is optional:** OpenAI's web search returns citation annotations,
+not fetched source passages. The web adapter retains the bounded claim context
+around each citation for qualitative reasoning, but quantitative calibration
+never treats it as a verbatim paper quote. Direct literature, registry, and
+regulatory adapters own source-passage normalization.
 
 ## Architecture
 
@@ -87,7 +88,9 @@ The stable boundary is intent/request/outcome, not a fixed backend list:
 - **Lossless planning contract** - every adapter sees the complete neutral
   bundle. It may consolidate intents into fewer native requests, but each
   request records the exact intent IDs and original texts it compiled; the
-  controller rejects silent omissions.
+  controller rejects silent omissions. Optional quantitative target references
+  travel with each neutral intent; the controller attaches their exact union to
+  compiled requests so adapters remain concerned only with source grammar.
 - **Controller-owned execution** - orchestration has no source `if/elif`
   branch. Fair source queues enforce the global cap and per-adapter concurrency
   without letting a slow lane occupy another lane's runnable capacity.
@@ -134,15 +137,19 @@ The stable boundary is intent/request/outcome, not a fixed backend list:
   reports are reference-role records excluded from Scout evidence reasoning.
 
 Native request counts intentionally differ by lane. Web executes each generated
-variant. PubMed compiles all variants in a track into one Boolean query.
-Semantic Scholar creates one focused plain-text query per track using terms from
-every variant because its relevance endpoint has no special query syntax.
+variant. PubMed compiles one concise Boolean query per track from the canonical
+indication, intervention class, field topic, and definition; multilingual web
+phrasing remains request lineage rather than being concatenated into an
+over-constrained database query. Semantic Scholar builds the equivalent focused
+plain-text query from the same stable semantics because its relevance endpoint
+has no Boolean query syntax.
 ClinicalTrials.gov, CTIS, ISRCTN, and FDA issue one structured candidate request
 per field and rank the returned records deterministically against every neutral
 query carried by that request. Rate limits affect when requests run, never which
 neutral intents are retained.
 Specialized sources may be intentionally skipped before native planning. Their
-skip trace still carries every neutral intent ID/text and document block, so
+skip trace still carries every neutral intent ID/text, document block, and
+quantitative target reference, so
 "not applicable" is distinguishable from an empty search and a source failure.
 
 `run_pipeline()` defaults to `sources=("web",)` for direct library callers.

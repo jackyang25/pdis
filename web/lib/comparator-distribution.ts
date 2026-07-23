@@ -79,13 +79,15 @@ export function buildComparatorDistribution(
   const included = input.included.filter((measurement) =>
     Number.isFinite(measurement.value),
   );
-  if (!included.length || !Number.isFinite(input.targetValue)) return null;
-
   const compatibleExcluded = input.excluded.filter(
     (measurement) =>
       Number.isFinite(measurement.value) &&
       normalizedUnit(measurement.unit) === normalizedUnit(input.unit),
   );
+  if (
+    (!included.length && !compatibleExcluded.length) ||
+    !Number.isFinite(input.targetValue)
+  ) return null;
   const domainValues = [
     input.targetValue,
     ...included.map((measurement) => measurement.value),
@@ -102,10 +104,14 @@ export function buildComparatorDistribution(
 
   const minimum = finite(input.minimum)
     ? input.minimum
-    : Math.min(...included.map((measurement) => measurement.value));
+    : included.length
+      ? Math.min(...included.map((measurement) => measurement.value))
+      : input.targetValue;
   const maximum = finite(input.maximum)
     ? input.maximum
-    : Math.max(...included.map((measurement) => measurement.value));
+    : included.length
+      ? Math.max(...included.map((measurement) => measurement.value))
+      : input.targetValue;
   const median = finite(input.median) ? input.median : minimum;
   const lowerQuartile = finite(input.lowerQuartile) ? input.lowerQuartile : median;
   const upperQuartile = finite(input.upperQuartile) ? input.upperQuartile : median;

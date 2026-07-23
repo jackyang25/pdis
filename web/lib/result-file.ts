@@ -1,17 +1,8 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 16 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | typeof RESULT_VERSION;
-
-const QUANTITATIVE_COMPARABILITY_AXES = [
-  "endpoint",
-  "population",
-  "intervention",
-  "regimen",
-  "time_horizon",
-  "statistic",
-] as const;
+const RESULT_VERSION = 18 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -182,7 +173,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.result_type === "aligner" ||
@@ -242,16 +233,21 @@ function normalizeScoutResult(
     targets.push({
       id: score.target_id,
       attribute_ref: score.attribute_ref,
-      value: score.target_value,
-      comparator: score.comparator,
-      unit: score.unit ?? "",
-      label: score.target_label ?? "",
+      expression: {
+        kind: "bound",
+        value: score.target_value,
+        lower: null,
+        upper: null,
+        comparator: score.comparator,
+        unit: score.unit ?? "",
+      },
       role: score.target_role ?? "other",
       quote: score.target_quote,
       doc_block_ids: score.doc_block_ids ?? [],
-      required_comparison_axes: [...QUANTITATIVE_COMPARABILITY_AXES],
-      ownership_candidates: [String(score.attribute_ref ?? "")].filter(Boolean),
+      semantic_profile: legacySemanticProfile(String(score.attribute_ref ?? "numeric measure")),
+      provenance_spans: [{ quote: score.target_quote, block_ids: score.doc_block_ids ?? [] }],
       ownership_reason: "Imported target predates canonical ownership arbitration.",
+      other_constraints: [],
     });
     quantitativeTargetsByAttribute.set(String(score.attribute_ref ?? ""), targets);
   }
@@ -344,17 +340,33 @@ function normalizeScoutResult(
             : quantitativeTargetsByAttribute.get(String(variable.name ?? "")) ?? []
         ).map((target: Record<string, any>) => ({
           ...target,
-          required_comparison_axes: Array.isArray(target.required_comparison_axes)
-            && target.required_comparison_axes.length > 0
-            ? target.required_comparison_axes
-            : [...QUANTITATIVE_COMPARABILITY_AXES],
-          ownership_candidates: Array.isArray(target.ownership_candidates)
-            && target.ownership_candidates.length > 0
-            ? target.ownership_candidates
-            : [String(target.attribute_ref ?? variable.name ?? "")].filter(Boolean),
+          expression: target.expression ?? {
+            kind: "bound",
+            value: target.value ?? null,
+            lower: null,
+            upper: null,
+            comparator: target.comparator ?? "",
+            unit: target.unit ?? "",
+          },
+          semantic_profile: target.semantic_profile
+            ?? legacySemanticProfile(String(target.label ?? variable.name ?? "numeric measure")),
+          provenance_spans: Array.isArray(target.provenance_spans)
+            ? target.provenance_spans
+            : [{ quote: target.quote ?? "", block_ids: target.doc_block_ids ?? [] }],
           ownership_reason: target.ownership_reason
             ?? "Imported target predates canonical ownership arbitration.",
+          other_constraints: Array.isArray(target.other_constraints)
+            ? target.other_constraints
+            : [],
         })),
+        quantitative_target_status: variable.quantitative_target_status
+          ?? ((Array.isArray(variable.quantitative_targets)
+            ? variable.quantitative_targets
+            : quantitativeTargetsByAttribute.get(String(variable.name ?? "")) ?? []).length > 0
+            ? "present"
+            : "not_evaluated"),
+        quantitative_target_status_reason: variable.quantitative_target_status_reason
+          ?? "This imported result predates explicit numeric-target status.",
         target_resolved:
           typeof variable.target_resolved === "boolean"
             ? variable.target_resolved
@@ -391,7 +403,7 @@ function normalizeConformity(
     (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
   );
   const values = measurements
-    .map((measurement: Record<string, unknown>) => Number(measurement.value))
+    .map((measurement: Record<string, any>) => Number(measurement.expression?.value))
     .filter(Number.isFinite)
     .sort((left: number, right: number) => left - right);
   const target = Number(score.target_value);
@@ -417,7 +429,8 @@ function normalizeConformity(
   ].some(
     (measurement) => !measurement.candidate_id
       || !measurement.source_quote
-      || !Object.keys(measurement.axis_evidence ?? {}).length,
+      || !measurement.semantic_profile
+      || measurement.expression?.kind === "unknown",
   );
 
   return {
@@ -447,6 +460,9 @@ function normalizeConformity(
     doc_block_ids: score.doc_block_ids ?? [],
     measurements,
     excluded_measurements: excludedMeasurements,
+    source_dispositions: Array.isArray(score.source_dispositions)
+      ? score.source_dispositions
+      : [],
   };
 }
 
@@ -478,54 +494,48 @@ function normalizeMeasurement(
   targetUnit: unknown,
 ): Record<string, unknown> {
   const {
-    study_design: studyDesign,
-    publication_status: publicationStatus,
-    evidence_type: evidenceType,
-    source_type: sourceType,
+    study_design: _legacyStudyDesign,
+    publication_status: _legacyPublicationStatus,
+    evidence_type: _legacyEvidenceType,
+    source_type: _legacySourceType,
     weight: _legacyWeight,
     ...current
   } = measurement;
-  const legacy = legacyMeasurementAxes(evidenceType ?? sourceType);
   return {
     ...current,
     candidate_id: current.candidate_id ?? "",
-    unit: current.unit ?? (typeof targetUnit === "string" ? targetUnit : ""),
-    evidence_form: current.evidence_form ?? studyDesign ?? legacy.evidenceForm,
-    development_phase: current.development_phase ?? legacy.developmentPhase,
-    source_record_type:
-      current.source_record_type ?? publicationStatus ?? legacy.sourceRecordType,
+    expression: current.expression ?? {
+      kind: current.expression_kind ?? "unknown",
+      unit: current.unit ?? (typeof targetUnit === "string" ? targetUnit : ""),
+      value: Number.isFinite(Number(current.value)) ? Number(current.value) : null,
+      lower: null,
+      upper: null,
+      comparator: "",
+    },
     insight_id: current.insight_id ?? "",
     source_quote: current.source_quote ?? "",
     source_record_id: current.source_record_id ?? "",
     source_identity_status: current.source_identity_status ?? "url_fallback",
-    comparability: current.comparability ?? {},
-    comparability_reasons: current.comparability_reasons ?? {},
-    axis_evidence: current.axis_evidence ?? {},
+    semantic_status: current.semantic_status ?? "unknown",
+    semantic_reason: current.semantic_reason ?? "Imported measurement predates semantic normalization.",
+    semantic_profile: current.semantic_profile ?? legacySemanticProfile("numeric measure"),
     inclusion_reason: current.inclusion_reason ?? "",
     exclusion_reasons: current.exclusion_reasons ?? [],
     age_months: current.age_months ?? null,
   };
 }
 
-function legacyMeasurementAxes(value: unknown): {
-  evidenceForm: string;
-  developmentPhase: string;
-  sourceRecordType: string;
-} {
-  const mappings: Record<string, [string, string, string]> = {
-    systematic_review_meta_analysis: ["evidence_synthesis", "not_applicable", "peer_reviewed"],
-    rct_phase3: ["randomized_trial", "phase_3", "peer_reviewed"],
-    rct_phase2: ["randomized_trial", "phase_2", "peer_reviewed"],
-    regulatory_assessment: ["regulatory_review", "not_applicable", "regulatory"],
-    clinical_trial_registry: ["registry_record", "unknown", "registry"],
-    observational_study: ["observational_study", "not_applicable", "peer_reviewed"],
-    program_effectiveness: ["implementation_evidence", "not_applicable", "unknown"],
-    preprint: ["other", "unknown", "preprint"],
-    press_release: ["other", "unknown", "company_report"],
+function legacySemanticProfile(measure: string): Record<string, unknown> {
+  const unknown = { state: "unknown", value: "", other: "" };
+  return {
+    measure: { state: "specified", value: measure || "numeric measure", other: "" },
+    endpoint: { ...unknown },
+    intervention: { ...unknown },
+    population: { ...unknown },
+    regimen: { ...unknown },
+    time_horizon: { ...unknown },
+    statistic: { ...unknown },
   };
-  const [evidenceForm, developmentPhase, sourceRecordType] =
-    mappings[String(value ?? "")] ?? ["other", "unknown", "unknown"];
-  return { evidenceForm, developmentPhase, sourceRecordType };
 }
 
 function normalizePrecedent(signal: Record<string, any>): Record<string, unknown> {

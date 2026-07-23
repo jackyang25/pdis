@@ -19,7 +19,8 @@ TPP definitions and IPDP claims converge to one `Attribute` before retrieval:
 | `target_resolved` | Binding completed, including an intentionally absent target |
 | `evidence_domain` | Closed source-applicability domain |
 | `entities` | Explicit document-stated typed entities |
-| `quantitative_targets` | Independently verified numeric claims with one canonical field owner, immutable IDs, exact source text, units, roles, required comparison axes, and block lineage |
+| `quantitative_targets` | Atomic numeric claims with one canonical field owner, one shared `NumericExpression`, immutable semantic IDs, exact provenance spans, roles, and the shared target/source semantic profile |
+| `quantitative_target_status` | Explicitly distinguishes a present target, a non-numeric field, and unresolved wording |
 
 No reasoning stage may rewrite this canonical target.
 
@@ -96,7 +97,7 @@ as external evidence underneath it.
 8. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches from evidence-role Findings only. Reference-only catalog/entity records cannot influence reasoning. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs. Insights retain which target-specific requests retrieved their sources, explicitly as coverage rather than evidence support.
 9. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
 10. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources without allowing the canonical target to drift.
-11. **quantitative calibration** - calibration consumes the already verified target bundle; it never re-extracts targets. Repeated exact claims from overlapping fields are first assigned to one most-specific candidate field, with the candidates and reason retained. Threshold, optimal, population-specific, and time-specific targets remain separate ledgers. Each target fixes its required comparison axes once; endpoint, intervention, and statistic are always required, while population, regimen, and time horizon are required only when the exact document target constrains them. The model proposes exact source-candidate spans and closed axis labels; it cannot rewrite a target value, URL, quote, provenance, ownership, or applicability profile. Invalid axis citations become `unknown` and cannot enter the cohort. Every retained source passage containing a number in the target unit is classified or remains visible as an explicit exclusion. Only the included, study-deduplicated cohort produces minimum/maximum/mean/median/quartiles/observed standard deviation, target/ambition percentiles, and the literal target-meeting share. These describe the selected cohort only and are never presented as confidence intervals or forecast probabilities. Web-search citation context is never accepted as a verbatim paper passage, and descriptive labels never numerically weight the result.
+11. **quantitative calibration** - calibration consumes the already verified target bundle; it never re-extracts targets. Repeated semantic claims merge exact provenance spans, while threshold, optimal, population-specific, and time-specific targets remain separate ledgers. Document targets and source measurements share one syntax-only `NumericExpression` (`point_estimate`, `range`, `bound`, `confidence_interval`, `count`, `rate`, `other`, or `unknown`) and one seven-slot semantic profile (`measure`, `endpoint`, `intervention`, `population`, `regimen`, `time_horizon`, `statistic`) with explicit `specified`, `not_specified`, `unknown`, and `other` states. For each deduplicated source-owned passage, the model returns one `measurements_found`, `no_relevant_measurement`, or `uncertain` disposition and zero or more complete exact-quoted measurements; there is no regex-produced number-fragment fan-out. Code verifies the source ID, exact quote, every expression number/operator/unit, enums, URL, source identity, and deduplication. Only comparable atomic scalars (`point_estimate`, `count`, or `rate`) in the target unit enter minimum/maximum/mean/median/quartiles/observed standard deviation, target/ambition percentiles, and the literal target-meeting share. Contextual and incompatible measurements remain traceable without distorting statistics. These outputs describe the selected cohort only and are never confidence intervals or forecast probabilities.
 12. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and canonical document blocks.
 
 Long documents are not truncated from the end. Fixed vocabulary units receive a
@@ -160,9 +161,8 @@ Scout configs define query-generation guidance:
 | `conformity_framing` | How quantitative values are selected and compared |
 | `precedent_framing` | How absence or presence of prior work should be read |
 
-`configs/evidence_methodology.yaml` contains only closed cross-domain source
-axes and deterministic cohort-coverage thresholds; product/document guidance
-remains in each triple-specific config.
+`configs/evidence_methodology.yaml` contains only deterministic cohort-coverage
+thresholds; product/document guidance remains in each triple-specific config.
 
 ## One LLM client
 
@@ -176,4 +176,6 @@ connector integrations, so Scout never knows which adapters are enabled.
 
 ## Stateless
 
-Same inputs -> same outputs. No persistence in the active path.
+Scout has no hidden session state: every run is defined by its explicit upload,
+configuration, and injected capabilities. Live sources and model judgments may
+change between otherwise identical runs.

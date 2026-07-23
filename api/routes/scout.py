@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -119,6 +120,8 @@ def _recalibration_inputs(
             entities=[
                 EvidenceEntity(**entity.model_dump()) for entity in variable.entities
             ],
+            quantitative_target_status=variable.quantitative_target_status,
+            quantitative_target_status_reason=variable.quantitative_target_status_reason,
             quantitative_targets=[
                 QuantitativeTarget(**target.model_dump())
                 for target in variable.quantitative_targets
@@ -284,6 +287,8 @@ async def run_scout(
                         definition_mode=variable.definition_mode,
                         target_resolved=variable.target_resolved,
                         evidence_domain=variable.evidence_domain,
+                        quantitative_target_status=variable.quantitative_target_status,
+                        quantitative_target_status_reason=variable.quantitative_target_status_reason,
                         entities=[
                             EvidenceEntityOut(
                                 name=entity.name,
@@ -293,20 +298,7 @@ async def run_scout(
                             for entity in variable.entities
                         ],
                         quantitative_targets=[
-                            QuantitativeTargetOut(
-                                id=target.id,
-                                attribute_ref=target.attribute_ref,
-                                value=target.value,
-                                comparator=target.comparator,
-                                unit=target.unit,
-                                label=target.label,
-                                role=target.role,
-                                quote=target.quote,
-                                doc_block_ids=target.doc_block_ids,
-                                required_comparison_axes=target.required_comparison_axes,
-                                ownership_candidates=target.ownership_candidates,
-                                ownership_reason=target.ownership_reason,
-                            )
+                            QuantitativeTargetOut.model_validate(asdict(target))
                             for target in variable.quantitative_targets
                         ],
                     )

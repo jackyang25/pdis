@@ -4,10 +4,10 @@ A transparent, reproducible complement to the qualitative `evidence_assessor`.
 Where sources report comparable numbers against a doc-stated target (e.g.
 efficacy >= 80%), this:
 
-  1. (LLM) selects exact document/source spans and proposes closed
-     claim-comparability labels.
+  1. (LLM) normalizes the meaning of exact document/source spans into one
+     typed semantic contract with honest unknown/other states.
   2. (code) verifies quotes, values, units, URLs, document blocks, enums, and
-     source identities; then builds an included/excluded cohort ledger.
+     source identities; then admits only atomic comparable measurements.
   3. (math) reports observed cohort statistics and the literal share meeting
      the target. No weighting or inferential confidence interval is implied.
 
@@ -40,22 +40,28 @@ from ..context import (
     validated_block_ids,
 )
 from ..models import (
-    AxisEvidence,
     Attribute,
     ConformityScore,
+    DocumentSpan,
     Insight,
     LLMClientProtocol,
-    MANDATORY_QUANTITATIVE_AXES,
+    MEASUREMENT_KINDS,
+    MEASUREMENT_STATUSES,
     Measurement,
-    QUANTITATIVE_COMPARABILITY_AXES,
+    NumericExpression,
+    QUANTITATIVE_SEMANTIC_FIELDS,
+    SEMANTIC_SLOT_STATES,
     QuantitativeTarget,
+    SemanticSlot,
+    SourcePassageDisposition,
 )
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 16000
 OWNERSHIP_MAX_TOKENS = 8000
-MEASUREMENT_BATCH_SIZE = 4
+SOURCE_BATCH_SIZE = 3
+MAX_SOURCE_PASSAGE_CHARS = 8_000
 MAX_TARGET_QUOTE_CHARS = 800
 # Keep in lockstep with drift_classifier / evidence_assessor so all three
 # doc-reading stages see the SAME baseline and a target near the end of a long
@@ -65,25 +71,10 @@ _METHODOLOGY_PATH = Path(__file__).resolve().parents[1] / "configs" / "evidence_
 with _METHODOLOGY_PATH.open("r", encoding="utf-8") as _methodology_file:
     _METHODOLOGY = yaml.safe_load(_methodology_file) or {}
 
-VALID_EVIDENCE_FORMS = set(_METHODOLOGY["evidence_forms"])
-VALID_PHASES = set(_METHODOLOGY["development_phases"])
-VALID_SOURCE_RECORD_TYPES = set(_METHODOLOGY["source_record_types"])
 CALIBRATION_LIMITED_MIN_COUNT = int(
     _METHODOLOGY["calibration_limited_min_count"]
 )
 
-COMPARABILITY_AXES = QUANTITATIVE_COMPARABILITY_AXES
-COMPARABILITY_RELATIONS = frozenset(
-    {"same", "compatible", "not_applicable", "different", "unknown"}
-)
-INCLUDABLE_RELATIONS_BY_AXIS = {
-    "endpoint": frozenset({"same"}),
-    "population": frozenset({"same", "not_applicable"}),
-    "intervention": frozenset({"same", "compatible"}),
-    "regimen": frozenset({"same", "not_applicable"}),
-    "time_horizon": frozenset({"same", "not_applicable"}),
-    "statistic": frozenset({"same"}),
-}
 CALIBRATION_SUFFICIENT_MIN_COUNT = int(
     _METHODOLOGY["calibration_sufficient_min_count"]
 )
@@ -91,13 +82,20 @@ VALID_TARGET_ROLES = frozenset({"threshold", "optimal", "other"})
 
 
 @dataclass(frozen=True)
-class _NumericCandidate:
+class _SourcePassage:
     id: str
-    value: float
-    unit: str
     insight: Insight
     finding: Finding
-    source_quote: str
+    text: str
+
+
+@dataclass(frozen=True)
+class QuantitativeTargetExtraction:
+    """One explicit target-detection outcome for a canonical field."""
+
+    status: str
+    reason: str
+    targets: list[QuantitativeTarget]
 
 
 def score_conformity(
@@ -112,7 +110,7 @@ def score_conformity(
     """Calibrate the canonical targets already bound to this Attribute."""
     scores: list[ConformityScore] = []
     for target in attribute.quantitative_targets:
-        candidates = _classify_target_candidates(
+        candidates, dispositions = _extract_target_measurements(
             attribute,
             target,
             insights,
@@ -121,9 +119,9 @@ def score_conformity(
             intervention_class=intervention_class,
             max_tokens=max_tokens,
         )
-        measurements, excluded_measurements = _partition_cohort(candidates)
+        measurements, excluded_measurements = _partition_cohort(candidates, target)
         if not measurements:
-            scores.append(_empty_score(target, excluded_measurements))
+            scores.append(_empty_score(target, excluded_measurements, dispositions))
             continue
         _attach_dates(measurements, insights)
         scores.append(
@@ -131,6 +129,7 @@ def score_conformity(
                 target,
                 measurements,
                 excluded_measurements,
+                dispositions,
             )
         )
     return scores
@@ -141,7 +140,7 @@ def empty_conformity_scores(
 ) -> list[ConformityScore]:
     """Project verified targets when retrieval yields no numeric evidence."""
     return [
-        _empty_score(target, [])
+        _empty_score(target, [], [])
         for attribute in attributes
         for target in attribute.quantitative_targets
     ]
@@ -150,6 +149,7 @@ def empty_conformity_scores(
 def _empty_score(
     target: QuantitativeTarget,
     excluded_measurements: list[Measurement],
+    source_dispositions: list[SourcePassageDisposition],
 ) -> ConformityScore:
     return ConformityScore(
         attribute_ref=target.attribute_ref,
@@ -166,46 +166,62 @@ def _empty_score(
         calibration_status="insufficient",
         doc_block_ids=target.doc_block_ids,
         excluded_measurements=excluded_measurements,
+        source_dispositions=source_dispositions,
     )
 
 
 def _partition_cohort(
     candidates: list[Measurement],
+    target: QuantitativeTarget,
 ) -> tuple[list[Measurement], list[Measurement]]:
-    """Apply comparability and source-identity rules without model discretion."""
+    """Apply the small deterministic admission contract.
+
+    AI owns semantic conversion into one central status. Code admits only an
+    scalar expression with a comparable meaning and a unique source record.
+    It never tries to reconstruct clinical meaning from scattered axis labels.
+    """
     included: list[Measurement] = []
     excluded: list[Measurement] = []
-    seen_records: set[str] = set()
+    eligible_by_record: dict[str, list[Measurement]] = {}
     for candidate in candidates:
         reasons = list(candidate.exclusion_reasons)
-        reasons.extend(
-            [
-                f"{axis}: {candidate.comparability.get(axis, 'unknown')}"
-                + (
-                    f" — {candidate.comparability_reasons.get(axis, '')}"
-                    if candidate.comparability_reasons.get(axis)
-                    else ""
-                )
-                for axis in COMPARABILITY_AXES
-                if candidate.comparability.get(axis, "unknown")
-                not in INCLUDABLE_RELATIONS_BY_AXIS[axis]
-            ]
-        )
-        if not reasons and candidate.source_record_id in seen_records:
+        if candidate.semantic_status != "comparable":
             reasons.append(
-                f"duplicate source record: {candidate.source_record_id}"
+                f"semantic status: {candidate.semantic_status}"
+                + (f" — {candidate.semantic_reason}" if candidate.semantic_reason else "")
             )
+        if candidate.expression_kind not in {"point_estimate", "count", "rate"}:
+            reasons.append(
+                f"numeric expression is {candidate.expression_kind}, not an atomic scalar"
+            )
+        if _canonical_unit(candidate.unit) != _canonical_unit(target.unit):
+            reasons.append("numeric unit is incompatible with the document target")
         if reasons:
             candidate.exclusion_reasons = reasons
             excluded.append(candidate)
             continue
-        candidate.inclusion_reason = (
-            "Endpoint/statistic match; population, regimen, and time horizon match or "
-            "are not applicable; intervention is the same or an explicit comparator; "
-            f"deduplicated as {candidate.source_record_id}."
+        eligible_by_record.setdefault(candidate.source_record_id, []).append(candidate)
+
+    for record_id, record_candidates in eligible_by_record.items():
+        unique_values = {candidate.value for candidate in record_candidates}
+        if len(unique_values) > 1:
+            for candidate in record_candidates:
+                candidate.exclusion_reasons = [
+                    "multiple semantically comparable scalar values from source record "
+                    f"{record_id}; no primary estimate was deterministically identifiable"
+                ]
+                excluded.append(candidate)
+            continue
+        selected, *duplicates = record_candidates
+        selected.inclusion_reason = (
+            "AI normalized this exact source measurement as semantically comparable; "
+            "the exact quote/value/unit passed deterministic validation and the source "
+            f"was deduplicated as {record_id}."
         )
-        seen_records.add(candidate.source_record_id)
-        included.append(candidate)
+        included.append(selected)
+        for duplicate in duplicates:
+            duplicate.exclusion_reasons = [f"duplicate source record and value: {record_id}"]
+            excluded.append(duplicate)
     return included, excluded
 
 
@@ -218,6 +234,7 @@ def _combine(
     target: QuantitativeTarget,
     measurements: list[Measurement],
     excluded_measurements: list[Measurement],
+    source_dispositions: list[SourcePassageDisposition],
 ) -> ConformityScore:
     benchmark_values = sorted(measurement.value for measurement in measurements)
     benchmark_count = len(benchmark_values)
@@ -265,6 +282,7 @@ def _combine(
         doc_block_ids=target.doc_block_ids,
         measurements=measurements,
         excluded_measurements=excluded_measurements,
+        source_dispositions=source_dispositions,
     )
 
 
@@ -357,7 +375,33 @@ def extract_quantitative_targets(
     images: list[dict[str, str]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[QuantitativeTarget]:
+    """Compatibility wrapper for consumers that only need validated targets."""
+    return extract_quantitative_target_set(
+        attribute,
+        doc_text,
+        llm_client,
+        indication=indication,
+        intervention_class=intervention_class,
+        framing=framing,
+        images=images,
+        max_tokens=max_tokens,
+    ).targets
+
+
+def extract_quantitative_target_set(
+    attribute: Attribute,
+    doc_text: str,
+    llm_client: LLMClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+    framing: str = "",
+    images: list[dict[str, str]] | None = None,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> QuantitativeTargetExtraction:
     attempts = 2 if _looks_directional_numeric(attribute.document_target) else 1
+    last_status = "uncertain"
+    last_reason = "The quantitative target mapping did not return a valid decision."
     for attempt in range(attempts):
         retry_note = (
             "\n\nYour prior response omitted or malformed a visible numeric target. "
@@ -377,15 +421,31 @@ def extract_quantitative_targets(
             images=images,
         )
         parsed = _parse(raw) or {}
+        status = str(parsed.get("status", "uncertain")).strip().lower()
+        reason = " ".join(str(parsed.get("status_reason", "")).split())
+        if status not in {"present", "not_applicable", "uncertain"}:
+            status = "uncertain"
+        last_status = status
+        last_reason = reason or {
+            "present": "The document states at least one directional numeric target.",
+            "not_applicable": "The canonical field does not state a directional numeric target.",
+            "uncertain": "The document wording was insufficient to resolve a numeric target.",
+        }[status]
         targets = _validated_targets(
             parsed.get("targets"),
             attribute=attribute,
             doc_text=doc_text,
-            require_comparison_axes=True,
         )
-        if targets or attempts == 1:
-            return targets
-    return []
+        if targets:
+            return QuantitativeTargetExtraction("present", last_reason, targets)
+        if status != "present" and attempts == 1:
+            return QuantitativeTargetExtraction(status, last_reason, [])
+    if last_status == "present":
+        last_reason = (
+            "A numeric target was proposed, but its exact value, direction, unit, "
+            "or document provenance did not pass deterministic validation."
+        )
+    return QuantitativeTargetExtraction("uncertain", last_reason, [])
 
 
 def revalidate_quantitative_targets(
@@ -395,16 +455,29 @@ def revalidate_quantitative_targets(
     """Verify saved targets against their portable document blocks and stable IDs."""
     items = [
         {
-            "value": target.value,
-            "comparator": target.comparator,
-            "unit": target.unit,
-            "label": target.label,
+            "expression": {
+                "kind": target.expression.kind,
+                "value": target.value,
+                "comparator": target.comparator,
+                "unit": target.unit,
+            },
             "role": target.role,
             "quote": target.quote,
             "doc_block_ids": target.doc_block_ids,
-            "required_comparison_axes": target.required_comparison_axes,
-            "ownership_candidates": target.ownership_candidates,
+            "semantic_profile": {
+                name: {
+                    "state": slot.state,
+                    "value": slot.value,
+                    "other": slot.other,
+                }
+                for name, slot in target.semantic_profile.items()
+            },
+            "provenance_spans": [
+                {"quote": span.quote, "block_ids": span.block_ids}
+                for span in target.provenance_spans
+            ],
             "ownership_reason": target.ownership_reason,
+            "other_constraints": target.other_constraints,
         }
         for target in attribute.quantitative_targets
     ]
@@ -419,91 +492,38 @@ def resolve_quantitative_target_ownership(
     *,
     max_tokens: int = OWNERSHIP_MAX_TOKENS,
 ) -> list[Attribute]:
-    """Assign each exact repeated document target to one canonical field.
+    """Assign one semantic target to one owner and merge all exact provenance.
 
-    A table row may legitimately bind to several overlapping fixed fields. The
-    document fact is still one target, so repeated exact claims are arbitrated
-    once against the closed candidate definitions. Unique targets require no
-    model call. Invalid or omitted arbitration fails closed for that ambiguous
-    group rather than duplicating one cohort under several labels.
+    Semantic identity deliberately excludes quote and block location. Repeated
+    statements therefore become one target with multiple provenance spans,
+    instead of duplicate ledgers. Cross-field ambiguity is resolved only among
+    fields that independently emitted the same atomic semantic target.
     """
     attributes_by_name = {attribute.name: attribute for attribute in attributes}
-    original_target_ids = {
-        target.id
-        for attribute in attributes
-        for target in attribute.quantitative_targets
-    }
     groups: dict[tuple[object, ...], list[QuantitativeTarget]] = {}
     for attribute in attributes:
         for target in attribute.quantitative_targets:
-            key = (
-                target.role,
-                target.comparator,
-                target.value,
-                _canonical_unit(target.unit),
-                _normalize_quote(target.quote),
-                tuple(sorted(target.doc_block_ids)),
-            )
-            groups.setdefault(key, []).append(target)
-
-    # Extraction is intentionally per field, so one field may omit a target
-    # that another overlapping field found in the same table row. Build the
-    # arbitration set from every resolved binding that owns the same source
-    # block, not only from model emission. A binding summary may omit one cell
-    # from a multi-value row; the closed field definitions then decide which
-    # candidate most specifically owns the already verified exact claim.
-    for targets in groups.values():
-        exemplar = targets[0]
-        existing_refs = {target.attribute_ref for target in targets}
-        for attribute in attributes:
-            shared_blocks = [
-                block_id
-                for block_id in exemplar.doc_block_ids
-                if block_id in attribute.block_ids
-            ]
-            if (
-                attribute.name in existing_refs
-                or not shared_blocks
-                or not _target_supported_by_binding(
-                    exemplar.value,
-                    exemplar.comparator,
-                    exemplar.unit,
-                    attribute.document_target,
-                )
-            ):
-                continue
-            targets.append(
-                QuantitativeTarget(
-                    attribute_ref=attribute.name,
-                    value=exemplar.value,
-                    comparator=exemplar.comparator,
-                    unit=exemplar.unit,
-                    label=exemplar.label,
-                    role=exemplar.role,
-                    quote=exemplar.quote,
-                    doc_block_ids=shared_blocks,
-                    required_comparison_axes=exemplar.required_comparison_axes,
-                )
-            )
-            existing_refs.add(attribute.name)
+            groups.setdefault(_semantic_target_key(target, include_owner=False), []).append(target)
 
     ambiguous: dict[str, list[QuantitativeTarget]] = {}
-    keep_ids = {
-        targets[0].id for targets in groups.values() if len(targets) == 1
-    }
-    replacements: dict[str, QuantitativeTarget] = {}
-    transferred: dict[str, list[QuantitativeTarget]] = {}
+    owner_by_group: dict[str, tuple[str, str]] = {}
+    group_ids: dict[tuple[object, ...], str] = {}
     for key, targets in groups.items():
-        if len(targets) < 2:
-            continue
         material = json.dumps(key, sort_keys=True, ensure_ascii=False)
         group_id = "qg-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
-        ambiguous[group_id] = targets
+        group_ids[key] = group_id
+        candidate_refs = list(dict.fromkeys(target.attribute_ref for target in targets))
+        if len(candidate_refs) == 1:
+            owner_by_group[group_id] = (
+                candidate_refs[0],
+                "Only this canonical field emitted the semantic target.",
+            )
+        else:
+            ambiguous[group_id] = targets
 
     if ambiguous:
         system_prompt = _ownership_system_prompt()
         user_message = _ownership_user_message(ambiguous, attributes_by_name)
-        decisions: dict[str, tuple[str, str]] = {}
         for attempt in range(2):
             raw = llm_client.call(
                 system_prompt,
@@ -517,42 +537,45 @@ def resolve_quantitative_target_ownership(
                 max_tokens=max_tokens,
             )
             parsed = _parse(raw) or {}
-            decisions.update(_validated_ownership_decisions(parsed, ambiguous))
-            if set(decisions) == set(ambiguous):
+            owner_by_group.update(_validated_ownership_decisions(parsed, ambiguous))
+            if set(ambiguous).issubset(owner_by_group):
                 break
 
-        for group_id, targets in ambiguous.items():
-            decision = decisions.get(group_id)
-            if decision is None:
-                logger.warning(
-                    "quantitative target ownership unresolved for %s; omitting ambiguous target",
-                    group_id,
-                )
-                continue
-            owner, reason = decision
-            selected = next(target for target in targets if target.attribute_ref == owner)
-            candidate_refs = list(
-                dict.fromkeys(target.attribute_ref for target in targets)
+    owned: dict[str, list[QuantitativeTarget]] = {name: [] for name in attributes_by_name}
+    for key, targets in groups.items():
+        group_id = group_ids[key]
+        decision = owner_by_group.get(group_id)
+        if decision is None:
+            logger.warning(
+                "quantitative target ownership unresolved for %s; omitting target",
+                group_id,
             )
-            replacements[selected.id] = replace(
-                selected,
-                ownership_candidates=candidate_refs,
-                ownership_reason=reason,
-            )
-            keep_ids.add(selected.id)
-            if selected.id not in original_target_ids:
-                transferred.setdefault(owner, []).append(replacements[selected.id])
+            continue
+        owner, reason = decision
+        selected = next(target for target in targets if target.attribute_ref == owner)
+        spans: list[DocumentSpan] = []
+        seen_spans: set[tuple[str, tuple[str, ...]]] = set()
+        for target in targets:
+            for span in target.provenance_spans:
+                span_key = (_normalize_quote(span.quote), tuple(span.block_ids))
+                if span_key in seen_spans:
+                    continue
+                seen_spans.add(span_key)
+                spans.append(span)
+        merged = replace(
+            selected,
+            provenance_spans=spans,
+            doc_block_ids=list(
+                dict.fromkeys(block_id for span in spans for block_id in span.block_ids)
+            ),
+            quote=spans[0].quote,
+            ownership_reason=reason,
+            id="",
+        )
+        owned[owner].append(merged)
 
     return [
-        replace(
-            attribute,
-            quantitative_targets=[
-                replacements.get(target.id, target)
-                for target in attribute.quantitative_targets
-                if target.id in keep_ids
-            ]
-            + transferred.get(attribute.name, []),
-        )
+        replace(attribute, quantitative_targets=owned[attribute.name])
         for attribute in attributes
     ]
 
@@ -562,7 +585,6 @@ def _validated_targets(
     *,
     attribute: Attribute,
     doc_text: str,
-    require_comparison_axes: bool = False,
 ) -> list[QuantitativeTarget]:
     if not isinstance(items, list):
         return []
@@ -573,49 +595,53 @@ def _validated_targets(
     allowed_ids = set(attribute.block_ids)
     if rendered_ids:
         allowed_ids &= rendered_ids
-    targets: list[QuantitativeTarget] = []
-    seen: set[str] = set()
+    targets_by_id: dict[str, QuantitativeTarget] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
-        value = item.get("value")
-        comparator = str(item.get("comparator", "")).strip()
-        unit = str(item.get("unit", "")).strip()
-        label = str(item.get("label", "")).strip()
+        expression = _validated_numeric_expression(item.get("expression"))
         role = str(item.get("role", "other")).strip().lower()
         quote = str(item.get("quote", "")).strip()
-        required_axes = _validated_required_axes(
-            item.get("required_comparison_axes"),
-            required=require_comparison_axes,
-        )
-        raw_candidates = item.get("ownership_candidates", [])
-        ownership_candidates = (
-            [
-                value.strip()
-                for value in raw_candidates
-                if isinstance(value, str) and value.strip()
-            ]
-            if isinstance(raw_candidates, list)
-            else []
-        )
-        if ownership_candidates and attribute.name not in ownership_candidates:
-            continue
+        semantic_profile = _validated_semantic_profile(item.get("semantic_profile"))
         ownership_reason = str(item.get("ownership_reason", "")).strip()
-        block_ids = validated_block_ids(item.get("doc_block_ids"), allowed_ids)
-        source_text = _text_for_blocks(doc_text, block_ids)
+        other_constraints = _string_list(item.get("other_constraints"))
         if (
-            not _is_finite_number(value)
-            or comparator not in {">", ">=", "<", "<="}
-            or not unit
-            or not label
+            expression is None
+            or expression.kind != "bound"
             or role not in VALID_TARGET_ROLES
-            or not block_ids
-            or not quote
-            or required_axes is None
-            or len(quote) > MAX_TARGET_QUOTE_CHARS
-            or not _quote_in_text(quote, source_text)
-            or not _value_unit_supported(float(value), unit, quote)
-            or not _comparator_supported(comparator, quote)
+            or semantic_profile is None
+        ):
+            continue
+        assert expression.value is not None
+        value = expression.value
+        comparator = expression.comparator
+        unit = expression.unit
+        raw_spans = item.get("provenance_spans")
+        if not isinstance(raw_spans, list) or not raw_spans:
+            raw_spans = [{"quote": quote, "block_ids": item.get("doc_block_ids")}]
+        spans: list[DocumentSpan] = []
+        seen_spans: set[tuple[str, tuple[str, ...]]] = set()
+        for raw_span in raw_spans:
+            if not isinstance(raw_span, dict):
+                continue
+            span_quote = str(raw_span.get("quote", "")).strip()
+            span_ids = validated_block_ids(raw_span.get("block_ids"), allowed_ids)
+            span_text = _text_for_blocks(doc_text, span_ids)
+            span_key = (_normalize_quote(span_quote), tuple(span_ids))
+            if (
+                span_key in seen_spans
+                or not span_ids
+                or not span_quote
+                or len(span_quote) > MAX_TARGET_QUOTE_CHARS
+                or not _quote_in_text(span_quote, span_text)
+                or not _value_unit_supported(float(value), unit, span_quote)
+                or not _comparator_supported(comparator, span_quote)
+            ):
+                continue
+            seen_spans.add(span_key)
+            spans.append(DocumentSpan(quote=span_quote, block_ids=span_ids))
+        if (
+            not spans
             or not _target_supported_by_binding(
                 float(value), comparator, unit, attribute.document_target
             )
@@ -623,25 +649,39 @@ def _validated_targets(
             continue
         target = QuantitativeTarget(
             attribute_ref=attribute.name,
-            value=float(value),
-            comparator=comparator,
-            unit=unit,
-            label=label,
+            expression=expression,
             role=role,
-            quote=quote,
-            doc_block_ids=block_ids,
-            required_comparison_axes=required_axes,
-            ownership_candidates=ownership_candidates,
+            quote=spans[0].quote,
+            doc_block_ids=list(
+                dict.fromkeys(block_id for span in spans for block_id in span.block_ids)
+            ),
+            semantic_profile=semantic_profile,
+            provenance_spans=spans,
             ownership_reason=ownership_reason,
+            other_constraints=other_constraints,
         )
-        if target.id in seen:
+        existing = targets_by_id.get(target.id)
+        if existing is None:
+            targets_by_id[target.id] = target
             continue
-        seen.add(target.id)
-        targets.append(target)
-    return targets
+        merged_spans = list(existing.provenance_spans)
+        existing_keys = {
+            (_normalize_quote(span.quote), tuple(span.block_ids)) for span in merged_spans
+        }
+        merged_spans.extend(
+            span
+            for span in target.provenance_spans
+            if (_normalize_quote(span.quote), tuple(span.block_ids)) not in existing_keys
+        )
+        targets_by_id[target.id] = replace(
+            existing,
+            provenance_spans=merged_spans,
+            id=existing.id,
+        )
+    return list(targets_by_id.values())
 
 
-def _classify_target_candidates(
+def _extract_target_measurements(
     attribute: Attribute,
     target: QuantitativeTarget,
     insights: list[Insight],
@@ -650,160 +690,176 @@ def _classify_target_candidates(
     indication: str,
     intervention_class: str,
     max_tokens: int,
-) -> list[Measurement]:
-    numeric_candidates = _numeric_candidates(insights, target.unit)
+) -> tuple[list[Measurement], list[SourcePassageDisposition]]:
+    """Map bounded source-owned passages directly into complete measurements."""
+    passages = _source_passages(insights)
     measurements: list[Measurement] = []
+    dispositions: list[SourcePassageDisposition] = []
     decided: set[str] = set()
-    for start in range(0, len(numeric_candidates), MEASUREMENT_BATCH_SIZE):
-        batch = numeric_candidates[start : start + MEASUREMENT_BATCH_SIZE]
+    for start in range(0, len(passages), SOURCE_BATCH_SIZE):
+        batch = passages[start : start + SOURCE_BATCH_SIZE]
         system_prompt = _measurement_system_prompt(
             attribute,
             target=target,
             indication=indication,
             intervention_class=intervention_class,
         )
-        user_message = _measurement_user_message(target, batch)
+        user_message = _measurement_user_message(batch)
         raw = llm_client.call(
             system_prompt,
             user_message,
             max_tokens=max_tokens,
         )
         parsed = _parse(raw) or {}
-        batch_measurements = _validated_decisions(
-            parsed.get("decisions"),
-            target=target,
-            candidates={candidate.id: candidate for candidate in batch},
+        batch_measurements, batch_dispositions = _validated_source_decisions(
+            parsed.get("sources"),
+            passages={passage.id: passage for passage in batch},
         )
-        batch_decided = {measurement.candidate_id for measurement in batch_measurements}
-        missing = [candidate for candidate in batch if candidate.id not in batch_decided]
+        batch_decided = {item.source_id for item in batch_dispositions}
+        missing = [passage for passage in batch if passage.id not in batch_decided]
         if missing:
             retry = llm_client.call(
                 system_prompt,
-                _measurement_user_message(target, missing)
-                + "\n\nA prior response omitted these candidates. Return exactly one "
-                "closed relevance decision for every candidate listed above.",
+                _measurement_user_message(missing)
+                + "\n\nA prior response omitted or malformed these source decisions. "
+                "Return exactly one complete decision for every source ID above.",
                 max_tokens=max_tokens,
             )
             retry_parsed = _parse(retry) or {}
-            recovered = _validated_decisions(
-                retry_parsed.get("decisions"),
-                target=target,
-                candidates={candidate.id: candidate for candidate in missing},
+            recovered_measurements, recovered_dispositions = _validated_source_decisions(
+                retry_parsed.get("sources"),
+                passages={passage.id: passage for passage in missing},
             )
-            batch_measurements.extend(recovered)
+            batch_measurements.extend(recovered_measurements)
+            batch_dispositions.extend(recovered_dispositions)
         measurements.extend(batch_measurements)
-        decided.update(measurement.candidate_id for measurement in batch_measurements)
+        dispositions.extend(batch_dispositions)
+        decided.update(item.source_id for item in batch_dispositions)
 
-    for candidate in numeric_candidates:
-        if candidate.id in decided:
+    for passage in passages:
+        if passage.id in decided:
             continue
-        source_record_id, source_identity_status = _source_record_identity(
-            candidate.finding
-        )
-        unknown_evidence = {
-            axis: AxisEvidence(
-                relation="unknown",
-                reason="No validated semantic decision was returned for this exact span.",
-            )
-            for axis in COMPARABILITY_AXES
-        }
-        measurements.append(
-            Measurement(
-                value=candidate.value,
-                candidate_id=candidate.id,
-                unit=candidate.unit,
-                url=candidate.finding.url,
-                insight_id=candidate.insight.id,
-                source_quote=candidate.source_quote,
-                source_record_id=source_record_id,
-                source_identity_status=source_identity_status,
-                comparability={axis: "unknown" for axis in COMPARABILITY_AXES},
-                comparability_reasons={
-                    axis: evidence.reason for axis, evidence in unknown_evidence.items()
-                },
-                axis_evidence=unknown_evidence,
-                exclusion_reasons=[
-                    "exact numeric source span was retained but not semantically classified"
-                ],
+        dispositions.append(
+            SourcePassageDisposition(
+                source_id=passage.id,
+                status="uncertain",
+                reason="No complete validated semantic decision was returned for this passage.",
+                url=passage.finding.url,
+                insight_id=passage.insight.id,
             )
         )
-    return measurements
+    return measurements, dispositions
 
 
-def _validated_decisions(
+def _validated_source_decisions(
     items: object,
     *,
-    target: QuantitativeTarget,
-    candidates: dict[str, _NumericCandidate],
-) -> list[Measurement]:
+    passages: dict[str, _SourcePassage],
+) -> tuple[list[Measurement], list[SourcePassageDisposition]]:
     if not isinstance(items, list):
-        return []
+        return [], []
     output: list[Measurement] = []
+    dispositions: list[SourcePassageDisposition] = []
     seen: set[str] = set()
     for item in items:
         if not isinstance(item, dict):
             continue
-        candidate_id = str(item.get("candidate_id", "")).strip()
-        candidate = candidates.get(candidate_id)
-        if candidate is None or candidate_id in seen:
+        source_id = str(item.get("source_id", "")).strip()
+        passage = passages.get(source_id)
+        if passage is None or source_id in seen:
             continue
-        # Relevance is required. Missing model output must never silently
-        # promote an exact numeric span into the comparator cohort.
-        relevance = str(item.get("relevance", "")).strip().lower()
-        relevance_reason = str(item.get("relevance_reason", "")).strip()
-        if relevance not in {"relevant", "not_relevant", "unknown"}:
+        status = str(item.get("status", "")).strip().lower()
+        reason = " ".join(str(item.get("reason", "")).split())
+        if status not in {
+            "measurements_found",
+            "no_relevant_measurement",
+            "uncertain",
+        } or not reason:
             continue
-        evidence_form = str(item.get("evidence_form", "other")).strip().lower()
-        if evidence_form not in VALID_EVIDENCE_FORMS:
-            evidence_form = "other"
-        phase = str(item.get("development_phase", "unknown")).strip().lower()
-        if phase not in VALID_PHASES:
-            phase = "unknown"
-        record_type = str(item.get("source_record_type", "unknown")).strip().lower()
-        if record_type not in VALID_SOURCE_RECORD_TYPES:
-            record_type = "unknown"
-        if relevance == "relevant":
-            comparability, reasons, axis_evidence = _parse_axis_evidence(
-                item.get("comparability"), target=target, candidate=candidate
+        raw_measurements = item.get("measurements")
+        if status == "measurements_found" and not isinstance(raw_measurements, list):
+            continue
+        validated: list[Measurement] = []
+        for raw_measurement in raw_measurements if isinstance(raw_measurements, list) else []:
+            measurement = _validated_passage_measurement(
+                raw_measurement,
+                passage=passage,
             )
-            exclusion_reasons: list[str] = []
-        else:
-            reason = relevance_reason or (
-                "The exact span does not measure this target."
-                if relevance == "not_relevant"
-                else "The exact span is insufficient to determine target relevance."
-            )
-            comparability = {axis: "unknown" for axis in COMPARABILITY_AXES}
-            reasons = {axis: reason for axis in COMPARABILITY_AXES}
-            axis_evidence = {
-                axis: AxisEvidence(relation="unknown", reason=reason)
-                for axis in COMPARABILITY_AXES
-            }
-            exclusion_reasons = [f"candidate relevance: {relevance} — {reason}"]
-        source_record_id, source_identity_status = _source_record_identity(
-            candidate.finding
-        )
-        output.append(
-            Measurement(
-                value=candidate.value,
-                candidate_id=candidate.id,
-                unit=candidate.unit,
-                evidence_form=evidence_form,
-                development_phase=phase,
-                source_record_type=record_type,
-                url=candidate.finding.url,
-                insight_id=candidate.insight.id,
-                source_quote=candidate.source_quote,
-                source_record_id=source_record_id,
-                source_identity_status=source_identity_status,
-                comparability=comparability,
-                comparability_reasons=reasons,
-                axis_evidence=axis_evidence,
-                exclusion_reasons=exclusion_reasons,
+            if measurement is not None:
+                validated.append(measurement)
+        if isinstance(raw_measurements, list) and len(validated) != len(raw_measurements):
+            # Never silently keep only the convenient subset of a model
+            # decision. Retry the whole source or preserve it as uncertain.
+            continue
+        if status == "measurements_found" and not validated:
+            continue
+        if status != "measurements_found" and validated:
+            continue
+        output.extend(validated)
+        dispositions.append(
+            SourcePassageDisposition(
+                source_id=source_id,
+                status=status,
+                reason=reason[:500],
+                url=passage.finding.url,
+                insight_id=passage.insight.id,
             )
         )
-        seen.add(candidate_id)
-    return output
+        seen.add(source_id)
+    return output, dispositions
+
+
+def _validated_passage_measurement(
+    raw: object,
+    *,
+    passage: _SourcePassage,
+) -> Measurement | None:
+    if not isinstance(raw, dict):
+        return None
+    quote = " ".join(str(raw.get("quote", "")).split())
+    expression = _validated_numeric_expression(raw.get("expression"))
+    semantic_status = str(raw.get("semantic_status", "")).strip().lower()
+    semantic_reason = " ".join(str(raw.get("semantic_reason", "")).split())
+    semantic_profile = _validated_semantic_profile(raw.get("semantic_profile"))
+    if (
+        not quote
+        or not _quote_in_text(quote, passage.text)
+        or expression is None
+        or not _expression_supported(expression, quote)
+        or semantic_status not in MEASUREMENT_STATUSES
+        or not semantic_reason
+        or semantic_profile is None
+    ):
+        return None
+    material = json.dumps(
+        {
+            "source_id": passage.id,
+            "quote": _normalize_quote(quote),
+            "expression": {
+                "kind": expression.kind,
+                "unit": _canonical_unit(expression.unit),
+                "value": expression.value,
+                "lower": expression.lower,
+                "upper": expression.upper,
+                "comparator": expression.comparator,
+            },
+        },
+        sort_keys=True,
+    )
+    candidate_id = "qm-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+    source_record_id, source_identity_status = _source_record_identity(passage.finding)
+    return Measurement(
+        expression=expression,
+        candidate_id=candidate_id,
+        url=passage.finding.url,
+        insight_id=passage.insight.id,
+        source_quote=quote,
+        source_record_id=source_record_id,
+        source_identity_status=source_identity_status,
+        semantic_status=semantic_status,
+        semantic_reason=semantic_reason,
+        semantic_profile=semantic_profile,
+    )
 
 
 def _target_system_prompt(
@@ -820,29 +876,46 @@ def _target_system_prompt(
         "{indication}", indication
     )
     return (
-        "You enumerate exact quantitative document targets for ONE variable.\n\n"
+        "You normalize exact quantitative document targets for ONE variable into atomic "
+        "semantic records.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}\nDefinition: {attribute.description}\n"
         f"Canonical binding: {attribute.document_target or '(not stated)'}\n"
         f"Document-specific interpretation:\n{framing}\n\n"
-        "Return EVERY distinct numeric target directly stated for this variable. Never collapse "
-        "optimal and threshold values, different populations, different time horizons, or other "
-        "operating conditions into one object. A repeated identical statement is one target. "
-        "For each target return value, exact comparator (> >= < <=), source unit, a concise label "
-        "that names its qualifiers, and role=threshold|optimal|other. Quote one short exact sentence "
-        "or table-cell fragment containing the value, unit, direction, and qualifiers. Do not "
-        "paraphrase or return an entire row. Return only blocks containing that quote. "
-        "Also return required_comparison_axes once for the target. endpoint, intervention, and "
-        "statistic are always required. Add population, regimen, and/or time_horizon only when "
-        "the exact target constrains that qualifier. This profile is reused for every source. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} Deterministic code verifies every field. If no direct "
-        "numeric target exists, return an empty targets list.\n\n"
+        "Return EVERY distinct directional numeric target directly stated for this variable. "
+        "Split compound cells into atomic targets: adult and pediatric values, optimal and "
+        "threshold values, and different time horizons are separate objects. A repeated semantic "
+        "target is one object even when the document states it in multiple places; include every "
+        "exact occurrence in provenance_spans. "
+        "For each target return expression={kind:bound,value,comparator,unit} and "
+        "role=threshold|optimal|other. In each provenance_span, "
+        "quote the shortest exact fragment that uniquely supports this ONE value and its "
+        "qualifiers; never return a whole compound row when a shorter fragment is available. "
+        "Normalize meaning into semantic_profile with exactly these fields: measure, endpoint, "
+        "intervention, population, regimen, time_horizon, statistic. Each field is an object with "
+        "state=specified|not_specified|unknown|other, value, and other. specified requires a concise "
+        "value; other requires an explanation in other; absent qualifiers are not_specified; use "
+        "unknown only when the document is ambiguous. measure must be specified. Put any meaningful "
+        "constraint outside those fields in other_constraints; otherwise return an empty list. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} Deterministic code verifies every field. Also return "
+        "status=present|not_applicable|uncertain and a concise status_reason. Use not_applicable "
+        "only when the field clearly has no directional numeric target; use uncertain when the "
+        "wording may contain one but cannot be mapped faithfully. If no validated direct numeric "
+        "target exists, return an empty targets list.\n\n"
         "Return ONLY JSON: "
-        '{"targets":[{"value":80,"comparator":">","unit":"%",'
-        '"label":"threshold >80% at 6 months","role":"threshold",'
-        '"quote":"Threshold efficacy >80% at 6 months.",'
-        '"required_comparison_axes":["endpoint","intervention","time_horizon","statistic"],'
-        '"doc_block_ids":["document/b-0001"]}]}'
+        '{"status":"present","status_reason":"The field states an efficacy threshold.",'
+        '"targets":[{"expression":{"kind":"bound","value":80,'
+        '"comparator":">","unit":"%"},"role":"threshold",'
+        '"semantic_profile":{"measure":{"state":"specified","value":"protective efficacy","other":""},'
+        '"endpoint":{"state":"specified","value":"clinical malaria","other":""},'
+        '"intervention":{"state":"specified","value":"malaria vaccine","other":""},'
+        '"population":{"state":"not_specified","value":"","other":""},'
+        '"regimen":{"state":"not_specified","value":"","other":""},'
+        '"time_horizon":{"state":"specified","value":"6 months after primary series","other":""},'
+        '"statistic":{"state":"specified","value":"efficacy point estimate","other":""}},'
+        '"other_constraints":[],"provenance_spans":['
+        '{"quote":"Threshold efficacy >80% at 6 months.",'
+        '"block_ids":["document/b-0001"]}]}]}'
     )
 
 
@@ -913,6 +986,132 @@ def _validated_ownership_decisions(
     return output
 
 
+def _semantic_profile_json(profile: dict[str, SemanticSlot]) -> str:
+    return json.dumps(
+        {
+            name: {
+                "state": slot.state,
+                "value": slot.value,
+                "other": slot.other,
+            }
+            for name, slot in profile.items()
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _validated_semantic_profile(raw: object) -> dict[str, SemanticSlot] | None:
+    if not isinstance(raw, dict) or set(raw) != set(QUANTITATIVE_SEMANTIC_FIELDS):
+        return None
+    profile: dict[str, SemanticSlot] = {}
+    try:
+        for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+            item = raw.get(field_name)
+            if not isinstance(item, dict):
+                return None
+            state = str(item.get("state", "")).strip().lower()
+            if state not in SEMANTIC_SLOT_STATES:
+                return None
+            profile[field_name] = SemanticSlot(
+                state=state,
+                value=str(item.get("value", "")),
+                other=str(item.get("other", "")),
+            )
+    except ValueError:
+        return None
+    if profile["measure"].state != "specified":
+        return None
+    return profile
+
+
+def _validated_numeric_expression(raw: object) -> NumericExpression | None:
+    """Validate the one syntax-only numeric contract returned by the model."""
+    if not isinstance(raw, dict):
+        return None
+    kind = str(raw.get("kind", "")).strip().lower()
+    unit = str(raw.get("unit", "")).strip()
+    if kind not in MEASUREMENT_KINDS:
+        return None
+    if kind not in {"other", "unknown"} and not unit:
+        return None
+    try:
+        return NumericExpression(
+            kind=kind,
+            unit=unit,
+            value=raw.get("value"),
+            lower=raw.get("lower"),
+            upper=raw.get("upper"),
+            comparator=str(raw.get("comparator", "")),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _expression_supported(expression: NumericExpression, quote: str) -> bool:
+    """Require every structured number and operator to appear in its exact quote."""
+    if expression.kind in {"point_estimate", "count", "rate"}:
+        return (
+            expression.value is not None
+            and _value_unit_supported(expression.value, expression.unit, quote)
+        )
+    if expression.kind == "bound":
+        return (
+            expression.value is not None
+            and _value_unit_supported(expression.value, expression.unit, quote)
+            and _comparator_supported(expression.comparator, quote)
+        )
+    if expression.kind in {"range", "confidence_interval"}:
+        return (
+            expression.lower is not None
+            and expression.upper is not None
+            and _number_supported(expression.lower, quote)
+            and _number_supported(expression.upper, quote)
+            and (
+                _value_unit_supported(expression.lower, expression.unit, quote)
+                or _value_unit_supported(expression.upper, expression.unit, quote)
+            )
+        )
+    return bool(_NUMBER_RE.search(quote))
+
+
+def _semantic_target_key(
+    target: QuantitativeTarget,
+    *,
+    include_owner: bool,
+) -> tuple[object, ...]:
+    profile = tuple(
+        (
+            field_name,
+            slot.state,
+            slot.value.casefold(),
+            slot.other.casefold(),
+        )
+        for field_name, slot in target.semantic_profile.items()
+    )
+    return (
+        *((target.attribute_ref,) if include_owner else ()),
+        target.role,
+        target.comparator,
+        target.value,
+        _canonical_unit(target.unit),
+        profile,
+        tuple(sorted(item.casefold() for item in target.other_constraints)),
+    )
+
+
+def _string_list(raw: object) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return list(
+        dict.fromkeys(
+            " ".join(str(item).split())
+            for item in raw
+            if " ".join(str(item).split())
+        )
+    )
+
+
 def _target_user_message(attribute: Attribute, doc_text: str) -> str:
     return "\n".join(
         (
@@ -937,70 +1136,64 @@ def _measurement_system_prompt(
     intervention_class: str,
 ) -> str:
     return (
-        "You classify immutable numeric source candidates for one verified document target.\n\n"
+        "You extract complete numeric measurements from bounded, source-owned passages "
+        "against one atomic semantic target.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}. Definition: {attribute.description}\n"
         f"Document target ID: {target.id}\n"
-        f"Document target: {target.label} ({target.comparator} {target.value} {target.unit}).\n"
-        f"Exact target span [{target.id}]: {target.quote}\n\n"
-        "Every candidate has an immutable ID, exact value/unit, URL, and exact retained source "
-        "span. Return only candidate_id; never copy or rewrite those provenance fields. Return "
-        "EXACTLY ONE decision for EVERY supplied candidate; never omit one. First label relevance "
-        "as relevant, not_relevant, or unknown and explain it briefly. Use not_relevant for a "
-        "confidence bound, sample size, date, duration, background rate, or other number that does "
-        "not measure this target. Use unknown only when the span is genuinely ambiguous. Return at "
-        "most one decision-relevant point estimate per distinct source record. Do not calculate, "
-        "convert units, infer missing values, use a confidence level as an outcome, or use a number "
-        "merely because it appears in the passage. Label candidates that do not measure this "
-        "variable not_relevant; do not omit them.\n\n"
-        f"Required target comparison axes: {', '.join(target.required_comparison_axes)}. "
-        "Classify endpoint, population, intervention, regimen, time_horizon, and statistic as "
-        "same, compatible, not_applicable, different, or unknown, with a short reason. compatible "
-        "is a defensible but non-identical comparator; different must not enter the direct cohort. "
-        "Use unknown when the supplied spans do not establish a required axis. Return "
-        "not_applicable for axes not listed as required; deterministic validation enforces this "
-        "target-level profile for every source. For every axis, target_span_ids may contain "
-        f"only {target.id}; source_span_ids may contain only that decision's candidate_id. "
-        "same/compatible/different require both spans, not_applicable requires the target span, and "
-        "unknown uses neither.\n\n"
-        "Also label evidence_form, development_phase, and source_record_type using only:\n"
-        f"evidence_form: {', '.join(sorted(VALID_EVIDENCE_FORMS))}\n"
-        f"development_phase: {', '.join(sorted(VALID_PHASES))}\n"
-        f"source_record_type: {', '.join(sorted(VALID_SOURCE_RECORD_TYPES))}\n\n"
+        "The target's numeric threshold is intentionally withheld: whether a source value passes "
+        "the target must NEVER affect semantic comparability.\n"
+        f"Target unit: {target.unit}. Target role: {target.role}.\n"
+        f"Target semantic profile: {_semantic_profile_json(target.semantic_profile)}\n"
+        f"Other target constraints: {json.dumps(target.other_constraints, ensure_ascii=False)}\n\n"
+        "Each source has an immutable ID and one retained source passage. Return EXACTLY ONE "
+        "source decision for EVERY ID: measurements_found, no_relevant_measurement, or uncertain. "
+        "Do not enumerate every number. Extract only complete statements that measure the target "
+        "or a meaningfully related quantity. Each extracted measurement must contain the shortest "
+        "exact quote that preserves the number and its qualifiers, plus one expression object. "
+        "Expression kind is point_estimate|range|bound|confidence_interval|count|rate|other|unknown. "
+        "point_estimate/count/rate use value; range/confidence_interval use lower+upper; bound uses "
+        "value+comparator. Never split a range or confidence interval into point estimates. "
+        "Then return one central "
+        "semantic_status: comparable when it is an atomic measurement of the same target meaning; "
+        "contextual when related but unsuitable for the direct cohort; incompatible when it clearly "
+        "measures something else; unknown when context is insufficient. The magnitude of the number "
+        "and whether it would meet the hidden target are NEVER relevance criteria. Normalize the "
+        "source meaning into semantic_profile using the same seven fields and slot states as the "
+        "target. Do not infer a qualifier absent from the supplied source context.\n\n"
+        "Use no_relevant_measurement when the passage contains no relevant complete numeric "
+        "statement. Use uncertain when one may exist but the supplied passage cannot support a "
+        "faithful mapping. Never infer omitted context.\n\n"
         "Return ONLY JSON: "
-        '{"decisions":[{"candidate_id":"qc-123","evidence_form":"randomized_trial",'
-        '"relevance":"relevant","relevance_reason":"reports the target endpoint",'
-        '"development_phase":"phase_3","source_record_type":"peer_reviewed",'
-        '"comparability":{"endpoint":{"relation":"same","reason":"same endpoint",'
-        f'"target_span_ids":["{target.id}"],"source_span_ids":["qc-123"]}},'
-        '"population":{"relation":"unknown","reason":"not established",'
-        '"target_span_ids":[],"source_span_ids":[]},'
-        f'"intervention":{{"relation":"compatible","reason":"same class","target_span_ids":["{target.id}"],"source_span_ids":["qc-123"]}},'
-        '"regimen":{"relation":"unknown","reason":"not established","target_span_ids":[],"source_span_ids":[]},'
-        f'"time_horizon":{{"relation":"same","reason":"same follow-up","target_span_ids":["{target.id}"],"source_span_ids":["qc-123"]}},'
-        f'"statistic":{{"relation":"same","reason":"same point estimate","target_span_ids":["{target.id}"],"source_span_ids":["qc-123"]}}}}}}]}}'
+        '{"sources":[{"source_id":"sp-123","status":"measurements_found",'
+        '"reason":"The passage reports a target-relevant efficacy estimate.","measurements":['
+        '{"quote":"Vaccine efficacy was 50.3% at 12 months.",'
+        '"expression":{"kind":"point_estimate","unit":"%","value":50.3,'
+        '"lower":null,"upper":null,"comparator":""},'
+        '"semantic_status":"comparable",'
+        '"semantic_reason":"reports the same measure and target qualifiers",'
+        '"semantic_profile":{"measure":{"state":"specified","value":"protective efficacy","other":""},'
+        '"endpoint":{"state":"specified","value":"clinical malaria","other":""},'
+        '"intervention":{"state":"specified","value":"malaria vaccine","other":""},'
+        '"population":{"state":"specified","value":"children","other":""},'
+        '"regimen":{"state":"unknown","value":"","other":""},'
+        '"time_horizon":{"state":"specified","value":"12 months","other":""},'
+        '"statistic":{"state":"specified","value":"efficacy point estimate","other":""}}}]}]}'
     )
 
 
-def _measurement_user_message(
-    target: QuantitativeTarget,
-    candidates: list[_NumericCandidate],
-) -> str:
-    lines = [
-        f"Target span [{target.id}]: {target.quote}",
-        "",
-        "Exact source candidates:",
-    ]
-    for candidate in candidates:
-        finding = candidate.finding
+def _measurement_user_message(passages: list[_SourcePassage]) -> str:
+    lines = ["Bounded source passages:"]
+    for passage in passages:
+        finding = passage.finding
         published = finding.published_at.isoformat() if finding.published_at else "unknown"
         lines.append(
-            f"[candidate:{candidate.id}] value={candidate.value} {candidate.unit} | "
+            f"[source:{passage.id}] "
             f"url={finding.url} | lane={finding.excerpt_source_lane or finding.source} | "
             f"published={published} | title={finding.title}"
         )
-        lines.append(f"    exact source span [{candidate.id}]: {candidate.source_quote}")
-    lines.append("\nClassify the exact candidates now.")
+        lines.append(f"    passage: {passage.text}")
+    lines.append("\nReturn one complete decision for every source passage now.")
     return "\n".join(lines)
 
 
@@ -1009,10 +1202,9 @@ def _has_source_verbatim_excerpt(finding: Finding) -> bool:
     return (finding.excerpt_source_lane or finding.source) != "web"
 
 
-def _numeric_candidates(
-    insights: list[Insight], unit: str
-) -> list[_NumericCandidate]:
-    candidates: list[_NumericCandidate] = []
+def _source_passages(insights: list[Insight]) -> list[_SourcePassage]:
+    """Deduplicate source-owned passages before any semantic extraction."""
+    passages: list[_SourcePassage] = []
     seen: set[str] = set()
     for insight in insights:
         for finding in insight.supporting_findings:
@@ -1021,149 +1213,21 @@ def _numeric_candidates(
                 or not _has_source_verbatim_excerpt(finding)
             ):
                 continue
-            for value, quote in _numeric_spans_for_unit(finding.excerpt, unit):
-                material = "\n".join(
-                    (
-                        finding.url,
-                        str(value),
-                        _canonical_unit(unit),
-                        _normalize_quote(quote),
-                    )
-                )
-                candidate_id = "qc-" + hashlib.sha256(
-                    material.encode("utf-8")
-                ).hexdigest()[:16]
-                if candidate_id in seen:
-                    continue
-                seen.add(candidate_id)
-                candidates.append(
-                    _NumericCandidate(
-                        id=candidate_id,
-                        value=value,
-                        unit=unit,
-                        insight=insight,
-                        finding=finding,
-                        source_quote=quote,
-                    )
-                )
-    return candidates
-
-
-def _numeric_spans_for_unit(text: str, unit: str) -> list[tuple[float, str]]:
-    """Locate values explicitly coupled to the target unit in bounded passages."""
-    segments = [
-        segment.strip()
-        for segment in re.split(r"(?<=[!?])\s+|(?<!\d)\.\s+|\n+", text)
-        if segment.strip()
-    ]
-    spans: list[tuple[float, str]] = []
-    seen: set[tuple[float, str]] = set()
-    for segment in segments:
-        for value in _numeric_values_for_unit(segment, unit):
-            key = (value, _normalize_quote(segment))
-            if key in seen:
+            text = finding.excerpt[:MAX_SOURCE_PASSAGE_CHARS]
+            material = "\n".join((finding.url, _normalize_quote(text)))
+            source_id = "sp-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+            if source_id in seen:
                 continue
-            seen.add(key)
-            spans.append((value, segment[:1_500]))
-    return spans
-
-
-def _parse_axis_evidence(
-    raw: object,
-    *,
-    target: QuantitativeTarget,
-    candidate: _NumericCandidate,
-) -> tuple[dict[str, str], dict[str, str], dict[str, AxisEvidence]]:
-    payload = raw if isinstance(raw, dict) else {}
-    relations: dict[str, str] = {}
-    reasons: dict[str, str] = {}
-    evidence_by_axis: dict[str, AxisEvidence] = {}
-    required_axes = set(target.required_comparison_axes)
-    for axis in COMPARABILITY_AXES:
-        if axis not in required_axes:
-            reason = "The verified document target does not constrain this axis."
-            relations[axis] = "not_applicable"
-            reasons[axis] = reason
-            evidence_by_axis[axis] = AxisEvidence(
-                relation="not_applicable",
-                reason=reason,
-                target_span_ids=[target.id],
-                target_quotes=[target.quote],
+            seen.add(source_id)
+            passages.append(
+                _SourcePassage(
+                    id=source_id,
+                    insight=insight,
+                    finding=finding,
+                    text=text,
+                )
             )
-            continue
-        item = payload.get(axis)
-        item = item if isinstance(item, dict) else {}
-        relation = str(item.get("relation", "unknown")).strip().lower()
-        reason = str(item.get("reason", "")).strip()
-        target_ids = _validated_span_ids(item.get("target_span_ids"), {target.id})
-        source_ids = _validated_span_ids(item.get("source_span_ids"), {candidate.id})
-        requires_both = relation in {"same", "compatible", "different"}
-        requires_target = relation == "not_applicable"
-        invalid_decision = (
-            relation not in COMPARABILITY_RELATIONS
-            or not reason
-            or (requires_both and (not target_ids or not source_ids))
-            or (requires_target and not target_ids)
-            or (relation == "not_applicable" and bool(source_ids))
-            or (relation == "unknown" and bool(target_ids or source_ids))
-        )
-        if invalid_decision:
-            relation = "unknown"
-            reason = (
-                "Axis decision rejected because its closed label and span "
-                "citations were inconsistent."
-            )
-            target_ids = []
-            source_ids = []
-        relations[axis] = relation
-        reasons[axis] = reason
-        evidence_by_axis[axis] = AxisEvidence(
-            relation=relation,
-            reason=reason,
-            target_span_ids=target_ids,
-            source_span_ids=source_ids,
-            target_quotes=[target.quote] if target_ids else [],
-            source_quotes=[candidate.source_quote] if source_ids else [],
-        )
-    return relations, reasons, evidence_by_axis
-
-
-def _validated_span_ids(raw: object, allowed: set[str]) -> list[str]:
-    if not isinstance(raw, list):
-        return []
-    return list(
-        dict.fromkeys(
-            item.strip()
-            for item in raw
-            if isinstance(item, str) and item.strip() in allowed
-        )
-    )
-
-
-def _validated_required_axes(
-    raw: object,
-    *,
-    required: bool,
-) -> list[str] | None:
-    """Validate the target-level comparability profile as one closed contract."""
-    if raw is None and not required:
-        return list(COMPARABILITY_AXES)
-    if not isinstance(raw, list):
-        return None
-    axes = list(
-        dict.fromkeys(
-            item.strip()
-            for item in raw
-            if isinstance(item, str) and item.strip()
-        )
-    )
-    if (
-        not axes
-        or set(axes) - set(COMPARABILITY_AXES)
-        or not MANDATORY_QUANTITATIVE_AXES.issubset(axes)
-    ):
-        return None
-    return [axis for axis in COMPARABILITY_AXES if axis in axes]
+    return passages
 
 
 def _is_finite_number(value: object) -> bool:
@@ -1219,6 +1283,18 @@ def _value_unit_supported(value: float, unit: str, quote: str) -> bool:
     )
 
 
+def _number_supported(value: float, quote: str) -> bool:
+    """Verify a number literally appears, independent of shared range-unit syntax."""
+    for match in _NUMBER_RE.finditer(quote):
+        try:
+            candidate = float(match.group(0).replace(",", "").replace("·", "."))
+        except ValueError:
+            continue
+        if math.isclose(candidate, value, rel_tol=1e-9, abs_tol=1e-9):
+            return True
+    return False
+
+
 def _target_supported_by_binding(
     value: float,
     comparator: str,
@@ -1240,6 +1316,10 @@ def _target_supported_by_binding(
 
 
 def _numeric_values_for_unit(text: str, unit: str) -> list[float]:
+    # A hyphen between digits is a range separator, never a unary minus. Keep
+    # both endpoints for traceability; the semantic normalizer classifies the
+    # expression as ``range`` so neither enters point-estimate statistics.
+    text = re.sub(r"(?<=\d)\s*[-–—]\s*(?=\d)", " to ", text)
     canonical = _canonical_unit(unit)
     number = r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.·]\d+)?(?:[eE][-+]?\d+)?"
     patterns: list[str]

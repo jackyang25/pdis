@@ -194,19 +194,30 @@ Scout's four result axes are intentionally orthogonal:
 - grounding: `well_grounded | partial | thin | unsupported | unknown`
 - quantitative alignment and assumption calibration: deterministic calculation
   over independently retained document targets bound before retrieval and exact-quoted,
-  block/source-validated, claim-compatible, study-deduplicated measurements;
+  block/source-validated, semantically normalized, study-deduplicated measurements;
   never collapse threshold/optimal or qualifier-specific targets, silently
   convert incompatible units, treat a synthesized Insight as numeric provenance,
   or present cohort spread/percentiles as inferential uncertainty or likelihood
-  of success. The model refers only to immutable target/candidate span IDs;
-  deterministic code owns their value, unit, URL, quote, and block provenance.
-  Every retained source passage containing a number in the target unit must be
-  classified or preserved as an explicit unknown-comparability exclusion. Query
+  of success. The model receives immutable target and source-passage IDs and
+  proposes a typed mapping; deterministic code verifies every returned value,
+  operator, unit, URL, exact quote, and block/source provenance before use.
+  Targets and measurements share one syntax-only `NumericExpression`; do not
+  restore separate flat value/unit/expression-kind shapes. Each deduplicated,
+  source-owned passage gets exactly one `measurements_found`,
+  `no_relevant_measurement`, or `uncertain` disposition. AI extracts zero or
+  more complete exact-quoted measurements from that passage; never restore
+  regex-produced numeric-fragment fan-out. Target and source meaning use the
+  same typed profile (`measure`, `endpoint`, `intervention`,
+  `population`, `regimen`, `time_horizon`, `statistic`) whose slots distinguish
+  `specified`, `not_specified`, `unknown`, and `other`. AI owns this semantic
+  normalization and one closed `comparable | contextual | incompatible | unknown`
+  decision; deterministic code must not reconstruct meaning with regexes or
+  scattered per-axis gates. Query
   and request target IDs are retrieval-coverage lineage only; they never imply
   that a returned source semantically supports that target. If one exact target
   appears under overlapping fields, assign it once to the most specific closed
-  candidate field and retain the candidates/reason. Decide required comparison
-  axes once from the target; do not reinterpret applicability per source
+  candidate field and retain the reason. Semantic target identity excludes quote
+  location so repeated statements merge provenance instead of creating ledgers
 - precedent: coverage `direct | adjacent | none | unknown`, with outcome tracked
   separately as `favorable | mixed | unfavorable | unknown`
 
@@ -222,7 +233,7 @@ deduplication and rollups. Do not restore holistic “basis” tags.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 16, separating analysis from
+  (`web/lib/result-file.ts`), currently version 18, separating analysis from
   `source_documents`.
 - Scout may rebuild quantitative ledgers from a current portable result without
   retrieval. That path must consume only its saved blocks and cited Insights and

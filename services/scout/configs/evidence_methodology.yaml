@@ -1,31 +1,3 @@
-# Closed descriptive source axes. They provide visible context but do not
-# numerically weight the comparator cohort.
-evidence_forms:
-  - evidence_synthesis
-  - randomized_trial
-  - nonrandomized_trial
-  - observational_study
-  - implementation_evidence
-  - regulatory_review
-  - registry_record
-  - other
-
-development_phases:
-  - phase_1
-  - phase_2
-  - phase_3
-  - phase_4
-  - not_applicable
-  - unknown
-
-source_record_types:
-  - peer_reviewed
-  - preprint
-  - regulatory
-  - registry
-  - company_report
-  - unknown
-
 # Descriptive benchmark-coverage labels for assumption calibration. The
 # benchmark statistics themselves use every validated, unit-compatible source.
 calibration_limited_min_count: 2

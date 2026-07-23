@@ -144,7 +144,8 @@ Scout evaluates one canonical `Attribute` shape regardless of document type:
 | `target_resolved` | Whether document binding has completed, including an intentionally absent target |
 | `evidence_domain` | One closed domain used for deterministic source applicability |
 | `entities` | Explicitly document-stated typed entities and optional stated identifiers |
-| `quantitative_targets` | Independently verified numeric claims with one canonical field owner, immutable ID, exact quote, unit, comparator, role, required comparison axes, and block lineage |
+| `quantitative_targets` | Atomic numeric claims with one canonical field owner, immutable semantic identity, one shared numeric-expression shape, exact provenance spans, role, and one shared typed semantic profile |
+| `quantitative_target_status` | `present`, `not_applicable`, or `uncertain`, so an empty target list is never ambiguous |
 
 TPP fields come from `shared/attributes.yaml` and are bound to document targets.
 IPDP fields are dynamically extracted checkable claims. Both converge to the
@@ -173,7 +174,9 @@ parse document blocks and visuals
 → extract atomic Insights
 → classify target relationship
 → assess grounding
-→ verify immutable target/source span IDs and claim comparability
+→ normalize target/source meaning into one typed semantic contract
+→ map each bounded source-owned passage to complete measurements or an explicit no-result/uncertain disposition
+→ verify immutable target/source spans, numeric expressions, and provenance
 → calculate one traceable descriptive calibration per target over a deduplicated cohort
 → assess precedent coverage and outcome
 ```
@@ -191,8 +194,10 @@ target annotated with those same block IDs, preventing adjacent table-cell
 spillover. When overlapping field definitions produce the same exact numeric
 claim, a closed arbitration step
 assigns it once to the most specific candidate field and retains that decision.
-Each target also fixes its comparison-axis profile once, so source candidates
-cannot redefine which qualifiers the document target constrains.
+Targets and source measurements share the same seven-slot semantic profile.
+Slots distinguish a stated value from a true absence, uncertainty, or a valid
+out-of-vocabulary `other` value. The model performs semantic normalization;
+code validates the closed shape and never rebuilds clinical meaning from regexes.
 Every native request records its compiled intent IDs/texts, tracks, options,
 connector operation, status, result count, and URLs.
 
@@ -268,7 +273,7 @@ The four primary axes are independent:
 |---|---|---|
 | Target relationship | `contradicts`, `extends`, `confirms`, `unrelated` | LLM over one insight and cited document blocks |
 | Grounding | `well_grounded`, `partial`, `thin`, `unsupported`, `unknown` | LLM selection over closed labels; cited insight IDs resolved deterministically |
-| Quantitative calibration | Included/excluded cohort ledger, descriptive distribution, observed target-meeting share | AI proposes exact spans and closed comparability labels; deterministic code verifies provenance, admits and deduplicates comparators, and calculates every statistic |
+| Quantitative calibration | Direct/contextual/incompatible cohort ledger, one descriptive distribution per distinct target, observed target-meeting share | AI maps complete source-owned passages into exact-quoted numeric expressions and a closed semantic contract; deterministic code verifies provenance and numeric integrity, deduplicates records, and calculates every statistic |
 | Precedent | Coverage: `direct`, `adjacent`, `none`, `unknown`; outcome tracked separately | LLM selection over distinct closed labels with deterministic lineage validation |
 
 LLMs may classify or select only within closed vocabularies. Code validates
@@ -354,7 +359,7 @@ tool execution remains private while final tokens render incrementally.
 ## Portable result files
 
 Inspector, Aligner, and Scout downloads use the versioned `pdis.result` envelope,
-currently version **16**:
+currently version **18**:
 
 ```text
 schema + version + result_type

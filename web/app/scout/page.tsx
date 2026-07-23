@@ -19,6 +19,7 @@ import {
   type Finding,
   type Header,
   type Match,
+  type NumericExpression,
   type ScoutResponse,
   type SafetySignal,
   type PrecedentSignal,
@@ -107,40 +108,22 @@ const RELATION_LABEL: Record<Match["relation"], string> = {
   unrelated: "Unrelated",
 };
 
-const EVIDENCE_FORM_LABELS: Record<string, string> = {
-  evidence_synthesis: "Evidence synthesis",
-  randomized_trial: "Randomized trial",
-  nonrandomized_trial: "Nonrandomized trial",
-  observational_study: "Observational study",
-  implementation_evidence: "Implementation evidence",
-  regulatory_review: "Regulatory review",
-  registry_record: "Registry record",
-  other: "Other evidence",
-};
-
-const PHASE_LABELS: Record<string, string> = {
-  phase_1: "Phase 1",
-  phase_2: "Phase 2",
-  phase_3: "Phase 3",
-  phase_4: "Phase 4",
-  not_applicable: "",
-  unknown: "",
-};
-
-const SOURCE_RECORD_LABELS: Record<string, string> = {
-  peer_reviewed: "Peer reviewed",
-  preprint: "Preprint",
-  regulatory: "Regulatory",
-  registry: "Registry",
-  company_report: "Company report",
-  unknown: "",
-};
-
 // Target alignment is a position (target vs current evidence), NOT a good/bad grade:
 // a low score often reflects an intentional stretch target, not a failure. So
 // its chip uses a single neutral tone rather than green/red, to avoid being
 // read as a pass/fail score.
 const TARGET_ALIGNMENT_DOT = "bg-slate-400";
+
+function formatNumericExpression(expression: NumericExpression): string {
+  const unit = expression.unit ?? "";
+  if (expression.kind === "range" || expression.kind === "confidence_interval") {
+    return expression.lower == null || expression.upper == null
+      ? "Unresolved numeric expression"
+      : `${expression.lower}–${expression.upper}${unit}`;
+  }
+  if (expression.value == null) return "Unresolved numeric expression";
+  return `${expression.comparator}${expression.value}${unit}`;
+}
 
 const PRECEDENT_META: Record<PrecedentSignal["precedent"], { label: string; dot: string }> = {
   direct: { label: "Direct", dot: NEUTRAL_DOT },
@@ -708,6 +691,8 @@ function FieldGrid({
                 assessment={row.assessment}
                 conformities={row.conformities}
                 precedent={row.precedent}
+                quantitativeTargetStatus={row.variable.quantitative_target_status}
+                quantitativeTargetStatusReason={row.variable.quantitative_target_status_reason}
               />
             ))}
             {visibleRows.length === 0 && (
@@ -882,6 +867,8 @@ function FieldRow({
   assessment,
   conformities,
   precedent,
+  quantitativeTargetStatus,
+  quantitativeTargetStatusReason,
 }: {
   name: string;
   description: string;
@@ -889,6 +876,8 @@ function FieldRow({
   assessment: EvidenceAssessment | null;
   conformities: Conformity[];
   precedent: PrecedentSignal | null;
+  quantitativeTargetStatus: "not_evaluated" | "present" | "not_applicable" | "uncertain";
+  quantitativeTargetStatusReason: string;
 }) {
   const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
   const precedentMeta = precedent ? precedentView(precedent) : null;
@@ -932,13 +921,17 @@ function FieldRow({
                 ? "Rerun required"
                 : verifiedConformities.length > 0
                   ? countLabel(verifiedConformities.length, "numeric target")
-                  : "Not calculated"}
+                  : quantitativeTargetStatus === "not_applicable"
+                    ? "Not a numeric target"
+                    : quantitativeTargetStatus === "uncertain"
+                      ? "Needs review"
+                      : "Not evaluated"}
               detail={hasLegacyConformity
                 ? "unverified legacy result"
                 : verifiedConformities.length > 0
                   ? countLabel(comparatorCount, "validated comparator")
-                  : "no validated numeric target"}
-              dot={conformities.length > 0 ? TARGET_ALIGNMENT_DOT : undefined}
+                  : quantitativeTargetStatusReason || undefined}
+              dot={quantitativeTargetStatus === "present" ? TARGET_ALIGNMENT_DOT : undefined}
               helpTopic="alignment"
             />
             <SignalSummary
@@ -969,7 +962,13 @@ function FieldRow({
           </div>
         )}
         {conformities.length > 0 && (
-          <div className="space-y-3">
+          <div className="space-y-5">
+            {conformities.length > 1 && (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                The document states {conformities.length} distinct numeric targets for this field.
+                Each target keeps its own semantic qualifiers, comparator cohort, and distribution.
+              </p>
+            )}
             {conformities.map((conformity) => (
               <ConformityBlock
                 key={conformity.target_id}
@@ -1040,6 +1039,10 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
     optimal: "Optimal",
     other: "Other target",
   }[conformity.target_role];
+  const uncertainSources = conformity.source_dispositions.filter(
+    (item) => item.status === "uncertain",
+  );
+  const consideredSources = conformity.source_dispositions.length;
 
   if (conformity.calibration_status === "legacy_unverified") {
     return (
@@ -1054,10 +1057,10 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
   }
 
   return (
-    <section className="rounded-lg border border-border/80 bg-card p-4">
+    <section className="rounded-xl border border-border/80 bg-card p-5 sm:p-7">
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <SectionLabel>Evidence · quantitative calibration · verified spans + calculated</SectionLabel>
+          <SectionLabel>Evidence · quantitative calibration</SectionLabel>
           <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
             {targetRoleLabel}
           </span>
@@ -1065,8 +1068,8 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
         <BlockTrace blockIds={conformity.doc_block_ids} />
       </div>
       <p className="mt-0.5 text-[11px] text-muted-foreground/80">
-        Exact document and source passages are validated before claim-compatible,
-        deduplicated comparators enter these descriptive statistics.
+        Complete source measurements are semantically mapped, exact-quote verified,
+        and deduplicated before entering descriptive statistics.
       </p>
       <p className="mt-1 text-[11px] text-muted-foreground">
         Target <span className="text-foreground">{targetLabel}</span>
@@ -1075,21 +1078,64 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
         {conformity.target_quote}
       </blockquote>
 
-      <dl className="mt-3 grid grid-cols-2 overflow-hidden rounded-md border border-border/70 sm:grid-cols-3">
-        <StatCell label="External median" value={formatBenchmark(conformity.benchmark_median)} />
-        <StatCell label="Middle 50%" value={`${formatBenchmark(conformity.benchmark_lower_quartile)}–${formatBenchmark(conformity.benchmark_upper_quartile)}`} />
-        <StatCell label="Observed range" value={`${formatBenchmark(conformity.benchmark_minimum)}–${formatBenchmark(conformity.benchmark_maximum)}`} />
-        <StatCell label="Mean · observed SD" value={`${formatBenchmark(conformity.benchmark_mean)} · ${formatBenchmark(conformity.benchmark_standard_deviation)}`} />
-        <StatCell label="Target ambition" value={ambition} />
-        <StatCell label="Evidence basis" value={`${conformity.benchmark_count} comparator${conformity.benchmark_count === 1 ? "" : "s"}`} detail={coverageLabel} />
-      </dl>
-      <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/70">
-        Range, standard deviation, and percentile describe this selected comparator cohort only.
-        They are not population uncertainty or likelihood of success.
-      </p>
+      {conformity.benchmark_count > 0 ? (
+        <>
+          <dl className="mt-4 grid grid-cols-2 overflow-hidden rounded-lg border border-border/70 sm:grid-cols-3">
+            <StatCell label="External median" value={formatBenchmark(conformity.benchmark_median)} />
+            <StatCell label="Middle 50%" value={`${formatBenchmark(conformity.benchmark_lower_quartile)}–${formatBenchmark(conformity.benchmark_upper_quartile)}`} />
+            <StatCell label="Observed range" value={`${formatBenchmark(conformity.benchmark_minimum)}–${formatBenchmark(conformity.benchmark_maximum)}`} />
+            <StatCell label="Mean · observed SD" value={`${formatBenchmark(conformity.benchmark_mean)} · ${formatBenchmark(conformity.benchmark_standard_deviation)}`} />
+            <StatCell label="Target ambition" value={ambition} />
+            <StatCell label="Evidence basis" value={`${conformity.benchmark_count} comparator${conformity.benchmark_count === 1 ? "" : "s"}`} detail={coverageLabel} />
+          </dl>
+          <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/70">
+            Range, standard deviation, and percentile describe this selected comparator cohort only.
+            They are not population uncertainty or likelihood of success.
+          </p>
+        </>
+      ) : (
+        <div className="mt-4 rounded-lg border border-border/70 bg-muted/20 px-4 py-3">
+          <p className="text-xs font-medium text-foreground">No direct comparator cohort</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            {conformity.excluded_measurements.length > 0
+              ? "Complete source measurements were retained below, but none were comparable atomic scalars in the target unit. No statistics were calculated."
+              : "The reviewed source passages did not yield a complete claim-compatible scalar. No statistics were calculated."}
+          </p>
+        </div>
+      )}
 
       {(conformity.benchmark_count > 0 || conformity.excluded_measurements.length > 0) && (
         <ComparatorDistributionPlot conformity={conformity} />
+      )}
+
+      {consideredSources > 0 && (
+        <div className="mt-3 text-[10px] text-muted-foreground/70">
+          <p>
+            {consideredSources} source passage{consideredSources === 1 ? "" : "s"} reviewed
+            {uncertainSources.length > 0 ? ` · ${uncertainSources.length} unresolved` : " · all resolved"}
+          </p>
+          {uncertainSources.length > 0 && (
+            <details className="mt-1.5">
+              <summary className="cursor-pointer font-medium">Review unresolved source passages</summary>
+              <ul className="mt-1.5 space-y-1.5">
+                {uncertainSources.map((item) => {
+                  const sourceTitle = matches
+                    .find((match) => match.insight.id === item.insight_id)
+                    ?.insight.supporting_findings.find((finding) => finding.url === item.url)
+                    ?.title;
+                  return (
+                    <li key={item.source_id} className="rounded-md bg-muted/35 px-3 py-2">
+                      <a href={item.url} target="_blank" rel="noreferrer" className="font-medium text-foreground/80 hover:underline">
+                        {sourceTitle || "Cited source"}
+                      </a>
+                      <p className="mt-0.5 leading-relaxed">{item.reason}</p>
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+          )}
+        </div>
       )}
 
       {conformity.benchmark_count > 0 && (
@@ -1110,19 +1156,17 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
               const sourceInsight = matches.find(
                 (match) => match.insight.id === measurement.insight_id,
               )?.insight;
-              const evidenceLabels = [
-                EVIDENCE_FORM_LABELS[measurement.evidence_form] ?? measurement.evidence_form,
-                PHASE_LABELS[measurement.development_phase],
-                SOURCE_RECORD_LABELS[measurement.source_record_type],
-              ].filter(Boolean);
+              const sourceFinding = sourceInsight?.supporting_findings.find(
+                (finding) => finding.url === measurement.url,
+              );
               return (
                 <li key={`${measurement.url}-${index}`} className="py-2 text-xs text-muted-foreground first:pt-1">
                   <div className="flex items-baseline gap-2">
                     <a href={measurement.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:text-foreground hover:underline">
-                      {evidenceLabels.join(" · ")}
+                      {sourceFinding?.title || measurement.source_record_id || "Cited source"}
                     </a>
                     <span className="shrink-0 text-[11px] text-muted-foreground/60">
-                      {measurement.value}{measurement.unit} · {measurement.age_months != null ? `${Math.round(measurement.age_months)}mo` : "date unknown"}
+                      {formatNumericExpression(measurement.expression)} · {measurement.age_months != null ? `${Math.round(measurement.age_months)}mo` : "date unknown"}
                     </span>
                   </div>
                   <blockquote className="mt-1 border-l border-border pl-2 text-[11px] leading-relaxed text-foreground/80">
@@ -1132,21 +1176,17 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
                     {measurement.inclusion_reason} Identity: {measurement.source_identity_status.replace("_", " ")}.
                   </p>
                   <details className="mt-1 text-[10px] text-muted-foreground/70">
-                    <summary className="cursor-pointer">Why this comparator qualifies</summary>
+                    <summary className="cursor-pointer">Semantic mapping</summary>
                     <ul className="mt-1 space-y-0.5 pl-3">
-                      {Object.entries(measurement.comparability).map(([axis, relation]) => {
-                        const evidence = measurement.axis_evidence?.[axis];
-                        const cited = Boolean(
-                          evidence?.target_span_ids?.length && evidence?.source_span_ids?.length,
-                        );
-                        return (
-                          <li key={axis}>
-                            {axis.replace("_", " ")}: {relation.replace("_", " ")}
-                            {measurement.comparability_reasons[axis] ? ` — ${measurement.comparability_reasons[axis]}` : ""}
-                            {cited ? " · spans verified" : ""}
+                      <li>Status: {measurement.semantic_status.replace("_", " ")} — {measurement.semantic_reason}</li>
+                      <li>Expression: {measurement.expression.kind.replaceAll("_", " ")}</li>
+                      {Object.entries(measurement.semantic_profile)
+                        .filter(([, slot]) => slot.state === "specified" || slot.state === "other")
+                        .map(([field, slot]) => (
+                          <li key={field}>
+                            {field.replace("_", " ")}: {slot.state === "specified" ? slot.value : slot.other}
                           </li>
-                        );
-                      })}
+                        ))}
                     </ul>
                   </details>
                   {sourceInsight && <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground/60">Insight: {sourceInsight.statement}</p>}
@@ -1160,7 +1200,7 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
       {conformity.excluded_measurements.length > 0 && (
         <details className="mt-3 border-t border-border/70 pt-3">
           <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
-            {conformity.excluded_measurements.length} grounded candidate{conformity.excluded_measurements.length === 1 ? "" : "s"} excluded
+            {conformity.excluded_measurements.length} complete measurement{conformity.excluded_measurements.length === 1 ? "" : "s"} excluded
           </summary>
           <ul className="mt-2 space-y-2">
             {conformity.excluded_measurements.map((measurement, index) => (
@@ -1169,9 +1209,10 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
                   <a href={measurement.url} target="_blank" rel="noreferrer" className="truncate hover:text-foreground hover:underline">
                     {measurement.source_record_id}
                   </a>
-                  <span>{measurement.value}{measurement.unit}</span>
+                  <span>{formatNumericExpression(measurement.expression)}</span>
                 </div>
                 <p className="mt-1 text-foreground/75">“{measurement.source_quote}”</p>
+                <p className="mt-1">{measurement.semantic_status}: {measurement.semantic_reason}</p>
                 <p className="mt-1">{measurement.exclusion_reasons.join(" · ")}</p>
               </li>
             ))}

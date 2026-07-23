@@ -11,12 +11,27 @@ from api.schemas import (
     InsightOut,
     MatchOut,
     QuantitativeTargetOut,
+    NumericExpressionOut,
     ScoutRecalibrationRequest,
     ScoutRunResponse,
     VariableOut,
 )
-from services.scout import Attribute, QuantitativeTarget
+from services.scout import Attribute, NumericExpression, QuantitativeTarget
 from services.scout.stages.conformity import revalidate_quantitative_targets
+
+
+def semantic_profile(measure: str = "protective efficacy") -> dict:
+    return {
+        field: {
+            "state": "specified" if field == "measure" else "not_specified",
+            "value": measure if field == "measure" else "",
+            "other": "",
+        }
+        for field in (
+            "measure", "endpoint", "intervention", "population", "regimen",
+            "time_horizon", "statistic",
+        )
+    }
 
 
 class ScoutRecalibrationBoundaryTests(unittest.TestCase):
@@ -24,13 +39,13 @@ class ScoutRecalibrationBoundaryTests(unittest.TestCase):
         document = "[block:document/b-0001]\nTarget efficacy is at least 80%."
         target = QuantitativeTarget(
             attribute_ref="efficacy",
-            value=80,
-            comparator=">=",
-            unit="%",
-            label="efficacy threshold",
+            expression=NumericExpression(
+                kind="bound", value=80, comparator=">=", unit="%"
+            ),
             role="threshold",
             quote="Target efficacy is at least 80%.",
             doc_block_ids=["document/b-0001"],
+            semantic_profile=semantic_profile(),
         )
         attribute = Attribute(
             name="efficacy",
@@ -47,13 +62,13 @@ class ScoutRecalibrationBoundaryTests(unittest.TestCase):
         )
         tampered = QuantitativeTarget(
             attribute_ref="efficacy",
-            value=90,
-            comparator=">=",
-            unit="%",
-            label="efficacy threshold",
+            expression=NumericExpression(
+                kind="bound", value=90, comparator=">=", unit="%"
+            ),
             role="threshold",
             quote=target.quote,
             doc_block_ids=target.doc_block_ids,
+            semantic_profile=semantic_profile(),
         )
         self.assertEqual(
             revalidate_quantitative_targets(
@@ -91,13 +106,17 @@ class ScoutRecalibrationBoundaryTests(unittest.TestCase):
                         QuantitativeTargetOut(
                             id="qt-canonical",
                             attribute_ref="efficacy",
-                            value=80,
-                            comparator=">=",
-                            unit="%",
-                            label="efficacy threshold",
+                            expression=NumericExpressionOut(
+                                kind="bound", value=80, comparator=">=", unit="%"
+                            ),
                             role="threshold",
                             quote="Target efficacy is at least 80%.",
                             doc_block_ids=["document/b-0001"],
+                            semantic_profile=semantic_profile(),
+                            provenance_spans=[{
+                                "quote": "Target efficacy is at least 80%.",
+                                "block_ids": ["document/b-0001"],
+                            }],
                         )
                     ],
                 )
@@ -153,7 +172,7 @@ class ScoutRecalibrationBoundaryTests(unittest.TestCase):
         )
 
         request = ScoutRecalibrationRequest(
-            quantitative_contract_version=1,
+            quantitative_contract_version=2,
             result=result,
         )
         attributes, blocks, insights = _recalibration_inputs(request.result)

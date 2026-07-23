@@ -271,7 +271,7 @@ def _system_prompt_for_variable(
         parts.append(
             "Verified quantitative targets (immutable IDs):\n"
             + "\n".join(
-                f"- {target.id}: {target.label} | exact text: {target.quote}"
+                f"- {target.id}: {target.label}"
                 for target in attribute.quantitative_targets
             )
             + "\nThe returned set must cover every listed target at least once. "
@@ -295,7 +295,7 @@ def _system_prompt_for_variable(
 
 def _user_message_for_variable(attribute: Attribute, document_context: str) -> str:
     quantitative_targets = "\n".join(
-        f"- [{target.id}] {target.label}: {target.quote}"
+        f"- [{target.id}] {target.label}"
         for target in attribute.quantitative_targets
     ) or "(none)"
     return (

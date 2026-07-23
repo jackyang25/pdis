@@ -54,7 +54,7 @@ const QUERY_TRACKS = [
 const EVIDENCE_AXES = [
   ["Target relationship", "Conflicts · Adds context · Supports · Unrelated", "How one insight relates to the canonical document target."],
   ["Grounding", "Well grounded · Partial · Thin · Unsupported · Unknown", "How strongly selected evidence justifies the target."],
-  ["Quantitative calibration", "Validated comparator cohort", "Exact measurements admitted through quote, unit, identity, and comparability checks."],
+  ["Quantitative calibration", "Validated comparator cohort", "AI maps exact spans into one typed semantic profile; code verifies provenance, numeric integrity, deduplication, and arithmetic."],
   ["Precedent", "Direct · Adjacent · None · Unknown", "Whether comparable prior work exists; its outcome is reported separately."],
 ] as const;
 
@@ -210,6 +210,13 @@ export default function DocsPage() {
               Its distribution describes only the admitted, validated comparator cohort. It is not
               a population estimate, confidence interval, probability of success, or causal claim.
             </Warning>
+            <Note title="How numeric evidence is admitted">
+              Document targets and source measurements share one numeric-expression shape and one
+              semantic profile. Scout reviews each bounded source-owned passage as a whole and
+              returns complete exact-quoted measurements, no relevant measurement, or uncertain.
+              Code then verifies the quote, every number, operator, unit, URL, and source identity;
+              only comparable atomic scalars in the target unit enter the statistics.
+            </Note>
           </DocSection>
 
           <DocSection
@@ -225,7 +232,7 @@ export default function DocsPage() {
     └── ordered text, table, and image blocks`}</code>
             </pre>
             <Warning title="Unverified legacy result">
-              The imported file predates the current exact-quote, comparability, deduplication,
+              The imported file predates the current exact-span, semantic-normalization, deduplication,
               or retrieval-lineage contract. PDIS can keep the old content viewable, but it cannot
               reconstruct evidence that was never saved. Rerun Scout before using legacy
               quantitative alignment for a decision.
@@ -266,7 +273,9 @@ docker compose up --build`}</code>
               </Faq>
               <Faq question="Why do some tabs or graphs not appear?">
                 Derived views appear only when their underlying data exists. Safety requires safety
-                signals; quantitative plots require at least one validated comparator.
+                signals; quantitative plots require at least one complete comparable or contextual
+                measurement. A verified target with no such measurement remains visible without an
+                empty chart.
               </Faq>
               <Faq question="Does ToolUniverse choose sources autonomously?">
                 No. Scout configuration enables registered lanes; deterministic applicability and

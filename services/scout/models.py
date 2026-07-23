@@ -7,6 +7,7 @@ from `services.scout`, never from this module directly.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -31,15 +32,36 @@ VALID_EVIDENCE_STRENGTHS = {
 VALID_PRECEDENT = {"direct", "adjacent", "none", "unknown"}
 VALID_PRECEDENT_OUTCOMES = {"favorable", "mixed", "unfavorable", "unknown"}
 VALID_CONTEXT_STATUSES = {"match", "mismatch", "uncertain"}
-QUANTITATIVE_COMPARABILITY_AXES = (
+QUANTITATIVE_SEMANTIC_FIELDS = (
+    "measure",
     "endpoint",
-    "population",
     "intervention",
+    "population",
     "regimen",
     "time_horizon",
     "statistic",
 )
-MANDATORY_QUANTITATIVE_AXES = frozenset({"endpoint", "intervention", "statistic"})
+SEMANTIC_SLOT_STATES = frozenset(
+    {"specified", "not_specified", "unknown", "other"}
+)
+MEASUREMENT_KINDS = frozenset(
+    {
+        "point_estimate",
+        "range",
+        "bound",
+        "confidence_interval",
+        "count",
+        "rate",
+        "other",
+        "unknown",
+    }
+)
+MEASUREMENT_STATUSES = frozenset(
+    {"comparable", "contextual", "incompatible", "unknown"}
+)
+QUANTITATIVE_TARGET_STATUSES = frozenset(
+    {"not_evaluated", "present", "not_applicable", "uncertain"}
+)
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> "ScoutTypeConfig":
@@ -149,15 +171,22 @@ class Attribute:
     # Independently qualified numeric claims extracted once before retrieval.
     # Qualitative stages continue to use the canonical document_target binding.
     quantitative_targets: list["QuantitativeTarget"] = field(default_factory=list)
+    quantitative_target_status: str = "not_evaluated"
+    quantitative_target_status_reason: str = ""
 
     def __post_init__(self) -> None:
         if self.definition_mode not in {"fixed", "dynamic"}:
             raise ValueError("definition_mode must be 'fixed' or 'dynamic'")
         if self.evidence_domain not in EVIDENCE_DOMAINS:
             raise ValueError(f"unknown evidence domain: {self.evidence_domain}")
+        if self.quantitative_target_status not in QUANTITATIVE_TARGET_STATUSES:
+            raise ValueError("invalid quantitative target status")
         self.name = self.name.strip()
         self.description = self.description.strip()
         self.document_target = self.document_target.strip()
+        self.quantitative_target_status_reason = " ".join(
+            self.quantitative_target_status_reason.split()
+        )
         self.block_ids = list(dict.fromkeys(self.block_ids))
         self.entities = list(dict.fromkeys(self.entities))
         self.quantitative_targets = list(
@@ -310,108 +339,287 @@ class PrecedentSignal:
 
 
 @dataclass
+class SemanticSlot:
+    """One explicit semantic value, including honest absence and catch-all states."""
+
+    state: str = "unknown"
+    value: str = ""
+    other: str = ""
+
+    def __post_init__(self) -> None:
+        self.state = self.state.strip().lower()
+        self.value = " ".join(self.value.split())
+        self.other = " ".join(self.other.split())
+        if self.state not in SEMANTIC_SLOT_STATES:
+            raise ValueError(f"invalid semantic slot state: {self.state}")
+        if self.state == "specified" and not self.value:
+            raise ValueError("specified semantic slot requires a value")
+        if self.state == "specified" and self.other:
+            raise ValueError("specified semantic slot cannot carry other text")
+        if self.state == "other" and not self.other:
+            raise ValueError("other semantic slot requires an explanation")
+        if self.state == "other" and self.value:
+            raise ValueError("other semantic slot cannot carry a specified value")
+        if self.state not in {"specified", "other"}:
+            self.value = ""
+            self.other = ""
+
+
+@dataclass
+class DocumentSpan:
+    """One exact document quotation supporting a canonical numeric target."""
+
+    quote: str
+    block_ids: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.quote = " ".join(self.quote.split())
+        self.block_ids = list(dict.fromkeys(self.block_ids))
+        if not self.quote or not self.block_ids:
+            raise ValueError("document span requires a quote and block IDs")
+
+
+@dataclass
+class NumericExpression:
+    """One numeric statement, without any clinical interpretation.
+
+    The same shape represents document targets and external measurements. The
+    expression owns syntax only; ``QuantitativeTarget`` and ``Measurement`` own
+    semantic meaning and provenance.
+    """
+
+    kind: str
+    unit: str
+    value: float | None = None
+    lower: float | None = None
+    upper: float | None = None
+    comparator: str = ""
+
+    def __post_init__(self) -> None:
+        self.kind = self.kind.strip().lower()
+        self.unit = self.unit.strip()
+        self.comparator = self.comparator.strip()
+        if self.kind not in MEASUREMENT_KINDS:
+            raise ValueError(f"invalid numeric expression kind: {self.kind}")
+        if self.kind not in {"other", "unknown"} and not self.unit:
+            raise ValueError("numeric expression requires a unit")
+        for field_name in ("value", "lower", "upper"):
+            raw = getattr(self, field_name)
+            if raw is not None:
+                value = float(raw)
+                if not math.isfinite(value):
+                    raise ValueError("numeric expression values must be finite")
+                setattr(self, field_name, value)
+        if self.kind in {"point_estimate", "count", "rate"}:
+            if self.value is None or self.comparator:
+                raise ValueError(f"{self.kind} requires value and no comparator")
+        elif self.kind == "bound":
+            if self.value is None or self.comparator not in {">", ">=", "<", "<="}:
+                raise ValueError("bound requires value and a directional comparator")
+        elif self.kind in {"range", "confidence_interval"}:
+            if self.lower is None or self.upper is None or self.lower > self.upper:
+                raise ValueError(f"{self.kind} requires ordered lower and upper values")
+            if self.value is not None or self.comparator:
+                raise ValueError(f"{self.kind} cannot carry value or comparator")
+        elif self.comparator not in {"", ">", ">=", "<", "<="}:
+            raise ValueError("invalid numeric expression comparator")
+
+
+def _unknown_numeric_expression() -> NumericExpression:
+    return NumericExpression(kind="unknown", unit="")
+
+
+def _default_semantic_profile() -> dict[str, SemanticSlot]:
+    return {field_name: SemanticSlot() for field_name in QUANTITATIVE_SEMANTIC_FIELDS}
+
+
+@dataclass
 class QuantitativeTarget:
-    """One exact, independently calibratable numeric statement from a document."""
+    """One atomic document target with semantic identity and exact provenance."""
 
     attribute_ref: str
-    value: float
-    comparator: str
-    unit: str
-    label: str
+    expression: NumericExpression
     role: str
     quote: str
     doc_block_ids: list[str]
-    # Decided once from the document target, then reused for every source
-    # candidate. This prevents per-paper reinterpretation of whether a target
-    # actually constrains population, regimen, or follow-up.
-    required_comparison_axes: list[str] = field(
-        default_factory=lambda: list(QUANTITATIVE_COMPARABILITY_AXES)
+    semantic_profile: dict[str, SemanticSlot] = field(
+        default_factory=_default_semantic_profile
     )
-    ownership_candidates: list[str] = field(default_factory=list)
+    provenance_spans: list[DocumentSpan] = field(default_factory=list)
     ownership_reason: str = ""
+    other_constraints: list[str] = field(default_factory=list)
     id: str = ""
 
     def __post_init__(self) -> None:
-        # JSON, Pydantic, and Python callers may represent the same number as
-        # either ``80`` or ``80.0``. Normalize before deriving identity so a
-        # portable round trip cannot change the target ID.
-        self.value = float(self.value)
-        self.required_comparison_axes = list(
-            dict.fromkeys(self.required_comparison_axes)
+        if not isinstance(self.expression, NumericExpression):
+            self.expression = NumericExpression(**self.expression)
+        if self.expression.kind != "bound":
+            raise ValueError("quantitative target expression must be a bound")
+        unknown_fields = set(self.semantic_profile) - set(
+            QUANTITATIVE_SEMANTIC_FIELDS
         )
-        unknown_axes = set(self.required_comparison_axes) - set(
-            QUANTITATIVE_COMPARABILITY_AXES
+        if unknown_fields:
+            raise ValueError("invalid quantitative semantic profile fields")
+        self.semantic_profile = {
+            field_name: (
+                value
+                if isinstance(value, SemanticSlot)
+                else SemanticSlot(**value)
+            )
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+            for value in [self.semantic_profile.get(field_name, SemanticSlot())]
+        }
+        if self.semantic_profile["measure"].state != "specified":
+            raise ValueError("quantitative target requires a specified measure")
+        if not self.provenance_spans:
+            self.provenance_spans = [
+                DocumentSpan(quote=self.quote, block_ids=self.doc_block_ids)
+            ]
+        else:
+            self.provenance_spans = [
+                span if isinstance(span, DocumentSpan) else DocumentSpan(**span)
+                for span in self.provenance_spans
+            ]
+        self.doc_block_ids = list(
+            dict.fromkeys(
+                block_id
+                for span in self.provenance_spans
+                for block_id in span.block_ids
+            )
         )
-        if unknown_axes or not MANDATORY_QUANTITATIVE_AXES.issubset(
-            self.required_comparison_axes
-        ):
-            raise ValueError("invalid required quantitative comparison axes")
-        self.ownership_candidates = list(dict.fromkeys(self.ownership_candidates))
-        if not self.ownership_candidates:
-            self.ownership_candidates = [self.attribute_ref]
-        if self.attribute_ref not in self.ownership_candidates:
-            raise ValueError("quantitative target owner must be an ownership candidate")
+        self.quote = self.provenance_spans[0].quote
         self.ownership_reason = self.ownership_reason.strip() or (
             "Only this canonical field produced the validated target."
         )
+        self.other_constraints = list(
+            dict.fromkeys(
+                " ".join(item.split())
+                for item in self.other_constraints
+                if " ".join(item.split())
+            )
+        )
         if not self.id:
+            semantic_material = [
+                f"{field_name}:{slot.state}:{slot.value.casefold()}:{slot.other.casefold()}"
+                for field_name, slot in self.semantic_profile.items()
+            ]
             material = "\n".join(
                 (
                     self.attribute_ref,
                     self.role,
-                    self.comparator,
-                    str(self.value),
-                    self.unit,
-                    " ".join(self.quote.split()),
-                    *self.doc_block_ids,
+                    self.expression.comparator,
+                    str(self.expression.value),
+                    self.expression.unit.casefold(),
+                    *semantic_material,
+                    *sorted(item.casefold() for item in self.other_constraints),
                 )
             )
             self.id = "qt-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
+    @property
+    def value(self) -> float:
+        assert self.expression.value is not None
+        return self.expression.value
 
-@dataclass
-class AxisEvidence:
-    """Closed comparability label with validated target/source span references."""
+    @property
+    def comparator(self) -> str:
+        return self.expression.comparator
 
-    relation: str = "unknown"
-    reason: str = ""
-    target_span_ids: list[str] = field(default_factory=list)
-    source_span_ids: list[str] = field(default_factory=list)
-    target_quotes: list[str] = field(default_factory=list)
-    source_quotes: list[str] = field(default_factory=list)
+    @property
+    def unit(self) -> str:
+        return self.expression.unit
+
+    @property
+    def label(self) -> str:
+        """Stable display/query summary derived from the canonical contract."""
+        qualifiers = []
+        for field_name in (
+            "endpoint", "intervention", "population", "regimen", "time_horizon"
+        ):
+            slot = self.semantic_profile[field_name]
+            if slot.state == "specified":
+                qualifiers.append(slot.value)
+            elif slot.state == "other":
+                qualifiers.append(slot.other)
+        measure = self.semantic_profile["measure"].value
+        number = f"{self.value:g}{self.unit}"
+        core = f"{measure} {self.comparator}{number}".strip()
+        return " · ".join((core, *qualifiers))
 
 
 @dataclass
 class Measurement:
     """One source's reported numeric value for a quantitative document unit.
 
-    Feeds the quantitative cohort builder. Evidence form, development phase,
-    and source-record type remain separate descriptive axes; they do not alter
-    the observed cohort statistics.
+    The exact expression, semantic mapping, and source quote are the complete
+    cohort input. Presentation-only source labels are intentionally not copied
+    into this calculation contract.
     """
 
-    value: float
+    expression: NumericExpression = field(default_factory=_unknown_numeric_expression)
     candidate_id: str = ""
-    # Explicitly carried so the calculator never silently combines values with
-    # incompatible units. `value` is in this unit and must match the target unit.
-    unit: str = ""
-    evidence_form: str = "other"
-    development_phase: str = "unknown"
-    source_record_type: str = "unknown"
     url: str = ""
     insight_id: str = ""
     source_quote: str = ""
     source_record_id: str = ""
     source_identity_status: str = "url_fallback"
-    # Closed claim-comparability axes. Values are same | compatible |
-    # not_applicable | different | unknown. Reasons retain the model's narrow
-    # explanation, while deterministic code owns cohort inclusion.
-    comparability: dict[str, str] = field(default_factory=dict)
-    comparability_reasons: dict[str, str] = field(default_factory=dict)
-    axis_evidence: dict[str, AxisEvidence] = field(default_factory=dict)
+    semantic_status: str = "unknown"
+    semantic_reason: str = ""
+    semantic_profile: dict[str, SemanticSlot] = field(
+        default_factory=_default_semantic_profile
+    )
     inclusion_reason: str = ""
     exclusion_reasons: list[str] = field(default_factory=list)
     age_months: float | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.expression, NumericExpression):
+            self.expression = NumericExpression(**self.expression)
+        if self.semantic_status not in MEASUREMENT_STATUSES:
+            raise ValueError("invalid measurement semantic status")
+        self.semantic_profile = {
+            field_name: (
+                value
+                if isinstance(value, SemanticSlot)
+                else SemanticSlot(**value)
+            )
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+            for value in [self.semantic_profile.get(field_name, SemanticSlot())]
+        }
+
+    @property
+    def value(self) -> float | None:
+        return self.expression.value
+
+    @property
+    def unit(self) -> str:
+        return self.expression.unit
+
+    @property
+    def expression_kind(self) -> str:
+        return self.expression.kind
+
+
+@dataclass
+class SourcePassageDisposition:
+    """Auditable outcome for one source-owned passage considered for a target."""
+
+    source_id: str
+    status: str
+    reason: str
+    url: str = ""
+    insight_id: str = ""
+
+    def __post_init__(self) -> None:
+        if self.status not in {
+            "measurements_found",
+            "no_relevant_measurement",
+            "uncertain",
+        }:
+            raise ValueError("invalid source passage disposition")
+        self.reason = " ".join(self.reason.split())
+        if not self.source_id or not self.reason:
+            raise ValueError("source disposition requires an ID and reason")
 
 
 @dataclass
@@ -419,8 +627,8 @@ class ConformityScore:
     """Traceable descriptive calibration of one quantitative target.
 
     Produced only for variables where sources report comparable numbers
-    against a doc-stated target (e.g. efficacy >= 80%). AI proposes exact
-    source spans and closed comparability labels; deterministic validation owns
+    against a doc-stated target (e.g. efficacy >= 80%). AI maps exact source
+    spans into the shared semantic contract; deterministic validation owns
     cohort inclusion, study-level deduplication, and all calculations.
     """
 
@@ -452,6 +660,7 @@ class ConformityScore:
     doc_block_ids: list[str] = field(default_factory=list)
     measurements: list[Measurement] = field(default_factory=list)
     excluded_measurements: list[Measurement] = field(default_factory=list)
+    source_dispositions: list[SourcePassageDisposition] = field(default_factory=list)
 
 
 @dataclass

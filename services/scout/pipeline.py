@@ -31,6 +31,7 @@ from .context import (
     select_binding_context,
     select_resolution_context,
 )
+from .contract import validate_result_contract
 from .models import (
     Attribute,
     ConformityScore,
@@ -50,7 +51,7 @@ from .models import (
 from .projections import build_development_landscape, build_safety_signals
 from .stages.conformity import (
     empty_conformity_scores,
-    extract_quantitative_targets,
+    extract_quantitative_target_set,
     revalidate_quantitative_targets,
     resolve_quantitative_target_ownership,
     score_conformity,
@@ -90,7 +91,7 @@ def recalculate_conformity(
 
     Retrieval and insight synthesis are intentionally out of scope: this function
     reuses the exact saved document blocks and source-backed insights, then runs
-    the same target, span, comparability, and deterministic-math contract as a
+    the same target, span, semantic-normalization, and deterministic-math contract as a
     fresh pipeline run.
     """
     attributes = [
@@ -162,7 +163,7 @@ def run_pipeline(
         config, doc_text, blocks, openai_client, indication=indication
     )
     if not attributes:
-        return ScoutResult(
+        return validate_result_contract(ScoutResult(
             matches=[],
             assessments=[],
             stats=FunnelStats(
@@ -175,7 +176,7 @@ def run_pipeline(
             ),
             context_validation=context_validation,
             blocks=blocks,
-        )
+        ))
 
     # Provider-specific work ends here. Fixed definitions are bound to their
     # document target; dynamically extracted units arrive already bound. Every
@@ -368,7 +369,7 @@ def run_pipeline(
         matches=len(matches),
         assessments=len(assessments),
     )
-    return ScoutResult(
+    return validate_result_contract(ScoutResult(
         matches=matches,
         assessments=assessments,
         stats=stats,
@@ -380,7 +381,7 @@ def run_pipeline(
         context_validation=context_validation,
         variables=attributes,
         blocks=blocks,
-    )
+    ))
 
 
 def _resolve_units(
@@ -562,8 +563,14 @@ def _extract_quantitative_targets_all(
 
     def one(attribute: Attribute) -> Attribute:
         if not attribute.document_target:
-            return attribute
-        targets = extract_quantitative_targets(
+            return replace(
+                attribute,
+                quantitative_target_status="not_applicable",
+                quantitative_target_status_reason=(
+                    "The canonical field has no document-stated target to calibrate."
+                ),
+            )
+        extraction = extract_quantitative_target_set(
             attribute,
             contexts.get(attribute.name, ""),
             openai_client,
@@ -572,7 +579,12 @@ def _extract_quantitative_targets_all(
             framing=framing,
             images=images_by_attribute.get(attribute.name) or None,
         )
-        return replace(attribute, quantitative_targets=targets)
+        return replace(
+            attribute,
+            quantitative_targets=extraction.targets,
+            quantitative_target_status=extraction.status,
+            quantitative_target_status_reason=extraction.reason,
+        )
 
     return _parallel_map(
         attributes,
@@ -768,10 +780,7 @@ def _classify_drift_all(
     if not insights:
         return []
 
-    grouped: dict[str, list[Insight]] = {}
-    for insight in insights:
-        if insight.attribute_ref:
-            grouped.setdefault(insight.attribute_ref, []).append(insight)
+    grouped = _group_insights_by_attribute(insights, set(attribute_contexts))
     tasks = [
         (attribute_ref, attribute_contexts.get(attribute_ref, ""), variable_insights[start : start + INSIGHTS_BATCH_SIZE])
         for attribute_ref, variable_insights in grouped.items()
@@ -812,14 +821,11 @@ def _assess_evidence_all_variables(
     progress: ProgressFn | None = None,
 ) -> list[EvidenceAssessment]:
     """Assess evidence per attribute with bounded concurrency."""
-    insights_by_attribute: dict[str, list[Insight]] = {}
-    for insight in insights:
-        if not insight.attribute_ref:
-            continue
-        insights_by_attribute.setdefault(insight.attribute_ref, []).append(insight)
-
     if not attributes:
         return []
+    insights_by_attribute = _group_insights_by_attribute(
+        insights, {attribute.name for attribute in attributes}
+    )
 
     def one(attribute: Attribute) -> EvidenceAssessment:
         return assess_evidence(
@@ -852,14 +858,11 @@ def _score_conformity_all_variables(
     Self-gating: returns ledgers only for variables with an exact-quoted numeric
     target. A valid target with no admitted comparators remains an explicit
     insufficient cohort rather than disappearing."""
-    insights_by_attribute: dict[str, list[Insight]] = {}
-    for insight in insights:
-        if not insight.attribute_ref:
-            continue
-        insights_by_attribute.setdefault(insight.attribute_ref, []).append(insight)
-
     if not attributes:
         return []
+    insights_by_attribute = _group_insights_by_attribute(
+        insights, {attribute.name for attribute in attributes}
+    )
 
     def one(attribute: Attribute) -> list[ConformityScore]:
         return score_conformity(
@@ -892,14 +895,11 @@ def _classify_precedent_all_variables(
 
     Self-gating: returns a signal only for variables with external evidence
     (classify_precedent returns None otherwise)."""
-    insights_by_attribute: dict[str, list[Insight]] = {}
-    for insight in insights:
-        if not insight.attribute_ref:
-            continue
-        insights_by_attribute.setdefault(insight.attribute_ref, []).append(insight)
-
     if not attributes:
         return []
+    insights_by_attribute = _group_insights_by_attribute(
+        insights, {attribute.name for attribute in attributes}
+    )
 
     def one(attribute: Attribute) -> PrecedentSignal | None:
         return classify_precedent(
@@ -919,6 +919,22 @@ def _classify_precedent_all_variables(
     return [signal for signal in results if signal is not None]
 
 
+def _group_insights_by_attribute(
+    insights: list[Insight],
+    known_attributes: set[str],
+) -> dict[str, list[Insight]]:
+    """Build the one field-isolation boundary shared by every reasoning axis."""
+    grouped: dict[str, list[Insight]] = {}
+    for insight in insights:
+        attribute_ref = insight.attribute_ref
+        if not attribute_ref or attribute_ref not in known_attributes:
+            raise ValueError(
+                f"insight {insight.id!r} references unknown field {attribute_ref!r}"
+            )
+        grouped.setdefault(attribute_ref, []).append(insight)
+    return grouped
+
+
 def _empty_result(
     *,
     context_validation: DocumentContextValidation,
@@ -930,7 +946,7 @@ def _empty_result(
     variables: list[Attribute] | None = None,
     search_plan: list[SearchTrace] | None = None,
 ) -> ScoutResult:
-    return ScoutResult(
+    return validate_result_contract(ScoutResult(
         matches=[],
         assessments=[],
         stats=FunnelStats(
@@ -946,7 +962,7 @@ def _empty_result(
         search_plan=search_plan or [],
         context_validation=context_validation,
         blocks=blocks or [],
-    )
+    ))
 
 
 def _stamp(

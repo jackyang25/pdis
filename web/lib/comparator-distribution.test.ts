@@ -9,6 +9,7 @@ const measurement = (value: number, unit = "%") => ({
   source_quote: `Observed ${value}${unit}`,
   source_record_id: `record-${value}-${unit}`,
   source_identity_status: "canonical",
+  semantic_status: "contextual",
   exclusion_reasons: [],
 });
 
@@ -70,7 +71,7 @@ test("uses a non-zero domain for a single repeated value", () => {
   assert.equal(model.targetX, 50);
 });
 
-test("plots exact grounded candidates even when none qualify for statistics", () => {
+test("plots related context even when none qualify for statistics", () => {
   const excluded = {
     ...measurement(75),
     exclusion_reasons: ["population: different"],

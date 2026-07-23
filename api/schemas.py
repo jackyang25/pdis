@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class DocumentType(BaseModel):
@@ -145,14 +145,14 @@ class InsightOut(BaseModel):
 
 class MatchOut(BaseModel):
     insight: InsightOut
-    relation: str
+    relation: Literal["contradicts", "extends", "confirms", "unrelated"]
     reason: str
     doc_block_ids: list[str] = Field(default_factory=list)
 
 
 class EvidenceAssessmentOut(BaseModel):
     attribute_ref: str
-    strength: str
+    strength: Literal["well_grounded", "partial", "thin", "unsupported", "unknown"]
     reason: str
     doc_target: str = ""
     doc_block_ids: list[str] = Field(default_factory=list)
@@ -181,9 +181,9 @@ class SearchTraceOut(BaseModel):
     target_ids: list[str] = Field(default_factory=list)
     intent_ids: list[str] = Field(default_factory=list)
     input_queries: list[str] = Field(default_factory=list)
-    applicability: str = "applicable"
+    applicability: Literal["applicable", "not_applicable"] = "applicable"
     applicability_reason: str = ""
-    status: str = "complete"
+    status: Literal["complete", "failed", "skipped"] = "complete"
     error: str = ""
     finding_count: int = 0
     source_urls: list[str] = Field(default_factory=list)
@@ -195,52 +195,93 @@ class EvidenceEntityOut(BaseModel):
     identifier: str = ""
 
 
+class SemanticSlotOut(BaseModel):
+    state: Literal["specified", "not_specified", "unknown", "other"]
+    value: str = ""
+    other: str = ""
+
+    @model_validator(mode="after")
+    def validate_state_payload(self) -> "SemanticSlotOut":
+        if self.state == "specified" and not self.value.strip():
+            raise ValueError("specified semantic slot requires a value")
+        if self.state == "specified" and self.other.strip():
+            raise ValueError("specified semantic slot cannot carry other text")
+        if self.state == "other" and not self.other.strip():
+            raise ValueError("other semantic slot requires an explanation")
+        if self.state == "other" and self.value.strip():
+            raise ValueError("other semantic slot cannot carry a specified value")
+        if self.state not in {"specified", "other"} and (self.value or self.other):
+            raise ValueError("absent or unknown semantic slots cannot carry values")
+        return self
+
+
+class QuantitativeSemanticProfileOut(BaseModel):
+    """The one shared semantic shape for document targets and source values."""
+
+    measure: SemanticSlotOut
+    endpoint: SemanticSlotOut
+    intervention: SemanticSlotOut
+    population: SemanticSlotOut
+    regimen: SemanticSlotOut
+    time_horizon: SemanticSlotOut
+    statistic: SemanticSlotOut
+
+    @model_validator(mode="after")
+    def validate_measure(self) -> "QuantitativeSemanticProfileOut":
+        if self.measure.state != "specified":
+            raise ValueError("quantitative semantic profile requires a specified measure")
+        return self
+
+
+class DocumentSpanOut(BaseModel):
+    quote: str = Field(min_length=1)
+    block_ids: list[str] = Field(min_length=1)
+
+
+class NumericExpressionOut(BaseModel):
+    kind: Literal[
+        "point_estimate", "range", "bound", "confidence_interval", "count",
+        "rate", "other", "unknown",
+    ]
+    unit: str = ""
+    value: float | None = None
+    lower: float | None = None
+    upper: float | None = None
+    comparator: Literal["", ">", ">=", "<", "<="] = ""
+
+    @model_validator(mode="after")
+    def validate_expression(self) -> "NumericExpressionOut":
+        if self.kind not in {"other", "unknown"} and not self.unit:
+            raise ValueError("numeric expression requires a unit")
+        if self.kind in {"point_estimate", "count", "rate"}:
+            if self.value is None or self.comparator:
+                raise ValueError(f"{self.kind} requires value and no comparator")
+        elif self.kind == "bound":
+            if self.value is None or not self.comparator or not self.unit:
+                raise ValueError("bound requires value, unit, and comparator")
+        elif self.kind in {"range", "confidence_interval"}:
+            if (
+                self.lower is None
+                or self.upper is None
+                or self.lower > self.upper
+                or self.value is not None
+                or self.comparator
+            ):
+                raise ValueError(f"{self.kind} requires ordered lower and upper values")
+        return self
+
+
 class QuantitativeTargetOut(BaseModel):
     id: str
     attribute_ref: str
-    value: float
-    comparator: Literal[">", ">=", "<", "<="]
-    unit: str
-    label: str
+    expression: NumericExpressionOut
     role: Literal["threshold", "optimal", "other"]
     quote: str
     doc_block_ids: list[str] = Field(default_factory=list)
-    required_comparison_axes: list[
-        Literal[
-            "endpoint",
-            "population",
-            "intervention",
-            "regimen",
-            "time_horizon",
-            "statistic",
-        ]
-    ] = Field(
-        default_factory=lambda: [
-            "endpoint",
-            "population",
-            "intervention",
-            "regimen",
-            "time_horizon",
-            "statistic",
-        ]
-    )
-    ownership_candidates: list[str] = Field(default_factory=list)
+    semantic_profile: QuantitativeSemanticProfileOut
+    provenance_spans: list[DocumentSpanOut] = Field(min_length=1)
     ownership_reason: str = ""
-
-    @field_validator("required_comparison_axes")
-    @classmethod
-    def validate_required_comparison_axes(cls, value: list[str]) -> list[str]:
-        axes = list(dict.fromkeys(value))
-        if not {"endpoint", "intervention", "statistic"}.issubset(axes):
-            raise ValueError(
-                "endpoint, intervention, and statistic comparison axes are required"
-            )
-        return axes
-
-    @field_validator("ownership_candidates")
-    @classmethod
-    def deduplicate_ownership_candidates(cls, value: list[str]) -> list[str]:
-        return list(dict.fromkeys(item.strip() for item in value if item.strip()))
+    other_constraints: list[str] = Field(default_factory=list)
 
 
 class VariableOut(BaseModel):
@@ -253,37 +294,34 @@ class VariableOut(BaseModel):
     evidence_domain: str = "general"
     entities: list[EvidenceEntityOut] = Field(default_factory=list)
     quantitative_targets: list[QuantitativeTargetOut] = Field(default_factory=list)
-
-
-class AxisEvidenceOut(BaseModel):
-    relation: Literal["same", "compatible", "not_applicable", "different", "unknown"] = "unknown"
-    reason: str = ""
-    target_span_ids: list[str] = Field(default_factory=list)
-    source_span_ids: list[str] = Field(default_factory=list)
-    target_quotes: list[str] = Field(default_factory=list)
-    source_quotes: list[str] = Field(default_factory=list)
+    quantitative_target_status: Literal[
+        "not_evaluated", "present", "not_applicable", "uncertain"
+    ] = "not_evaluated"
+    quantitative_target_status_reason: str = ""
 
 
 class MeasurementOut(BaseModel):
-    value: float
+    expression: NumericExpressionOut
     candidate_id: str = ""
-    unit: str = ""
-    evidence_form: str = "other"
-    development_phase: str = "unknown"
-    source_record_type: str = "unknown"
     url: str = ""
     insight_id: str = ""
     source_quote: str = ""
     source_record_id: str = ""
     source_identity_status: Literal["canonical", "title_fallback", "url_fallback"] = "url_fallback"
-    comparability: dict[
-        str, Literal["same", "compatible", "not_applicable", "different", "unknown"]
-    ] = Field(default_factory=dict)
-    comparability_reasons: dict[str, str] = Field(default_factory=dict)
-    axis_evidence: dict[str, AxisEvidenceOut] = Field(default_factory=dict)
+    semantic_status: Literal["comparable", "contextual", "incompatible", "unknown"] = "unknown"
+    semantic_reason: str = ""
+    semantic_profile: QuantitativeSemanticProfileOut
     inclusion_reason: str = ""
     exclusion_reasons: list[str] = Field(default_factory=list)
     age_months: float | None = None
+
+
+class SourcePassageDispositionOut(BaseModel):
+    source_id: str
+    status: Literal["measurements_found", "no_relevant_measurement", "uncertain"]
+    reason: str
+    url: str = ""
+    insight_id: str = ""
 
 
 class ConformityOut(BaseModel):
@@ -314,12 +352,13 @@ class ConformityOut(BaseModel):
     doc_block_ids: list[str] = Field(default_factory=list)
     measurements: list[MeasurementOut] = Field(default_factory=list)
     excluded_measurements: list[MeasurementOut] = Field(default_factory=list)
+    source_dispositions: list[SourcePassageDispositionOut] = Field(default_factory=list)
 
 
 class PrecedentOut(BaseModel):
     attribute_ref: str
-    precedent: str  # direct | adjacent | none | unknown
-    outcome: str = "unknown"  # favorable | mixed | unfavorable | unknown
+    precedent: Literal["direct", "adjacent", "none", "unknown"]
+    outcome: Literal["favorable", "mixed", "unfavorable", "unknown"] = "unknown"
     reason: str = ""
     doc_block_ids: list[str] = Field(default_factory=list)
     coverage_insight_ids: list[str] = Field(default_factory=list)
@@ -381,7 +420,7 @@ class ScoutRunResponse(BaseModel):
 class ScoutRecalibrationRequest(BaseModel):
     """Current Scout wire result used for a retrieval-free metric rebuild."""
 
-    quantitative_contract_version: Literal[1]
+    quantitative_contract_version: Literal[2]
     result: ScoutRunResponse
 
 

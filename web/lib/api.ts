@@ -226,30 +226,27 @@ export type SearchTrace = {
 };
 
 export type Measurement = {
-  value: number;
+  expression: NumericExpression;
   candidate_id: string;
-  unit: string;
-  evidence_form: string;
-  source_record_type: string;
-  development_phase: string;
   url: string;
   insight_id: string;
   source_quote: string;
   source_record_id: string;
   source_identity_status: "canonical" | "title_fallback" | "url_fallback";
-  comparability: Record<string, "same" | "compatible" | "not_applicable" | "different" | "unknown">;
-  comparability_reasons: Record<string, string>;
-  axis_evidence: Record<string, {
-    relation: "same" | "compatible" | "not_applicable" | "different" | "unknown";
-    reason: string;
-    target_span_ids: string[];
-    source_span_ids: string[];
-    target_quotes: string[];
-    source_quotes: string[];
-  }>;
+  semantic_status: "comparable" | "contextual" | "incompatible" | "unknown";
+  semantic_reason: string;
+  semantic_profile: QuantitativeSemanticProfile;
   inclusion_reason: string;
   exclusion_reasons: string[];
   age_months: number | null;
+};
+
+export type SourcePassageDisposition = {
+  source_id: string;
+  status: "measurements_found" | "no_relevant_measurement" | "uncertain";
+  reason: string;
+  url: string;
+  insight_id: string;
 };
 
 export type Conformity = {
@@ -278,6 +275,7 @@ export type Conformity = {
   doc_block_ids?: string[];
   measurements: Measurement[];
   excluded_measurements: Measurement[];
+  source_dispositions: SourcePassageDisposition[];
 };
 
 export type PrecedentLabel =
@@ -343,28 +341,46 @@ export type Variable = {
     identifier: string;
   }>;
   quantitative_targets: QuantitativeTarget[];
+  quantitative_target_status: "not_evaluated" | "present" | "not_applicable" | "uncertain";
+  quantitative_target_status_reason: string;
 };
 
 export type QuantitativeTarget = {
   id: string;
   attribute_ref: string;
-  value: number;
-  comparator: ">" | ">=" | "<" | "<=";
-  unit: string;
-  label: string;
+  expression: NumericExpression;
   role: "threshold" | "optimal" | "other";
   quote: string;
   doc_block_ids: string[];
-  required_comparison_axes: Array<
-    | "endpoint"
-    | "population"
-    | "intervention"
-    | "regimen"
-    | "time_horizon"
-    | "statistic"
-  >;
-  ownership_candidates: string[];
+  semantic_profile: QuantitativeSemanticProfile;
+  provenance_spans: Array<{ quote: string; block_ids: string[] }>;
   ownership_reason: string;
+  other_constraints: string[];
+};
+
+export type NumericExpression = {
+  kind: "point_estimate" | "range" | "bound" | "confidence_interval" | "count" | "rate" | "other" | "unknown";
+  unit: string;
+  value: number | null;
+  lower: number | null;
+  upper: number | null;
+  comparator: "" | ">" | ">=" | "<" | "<=";
+};
+
+export type SemanticSlot = {
+  state: "specified" | "not_specified" | "unknown" | "other";
+  value: string;
+  other: string;
+};
+
+export type QuantitativeSemanticProfile = {
+  measure: SemanticSlot;
+  endpoint: SemanticSlot;
+  intervention: SemanticSlot;
+  population: SemanticSlot;
+  regimen: SemanticSlot;
+  time_horizon: SemanticSlot;
+  statistic: SemanticSlot;
 };
 
 export type ScoutResponse = {
@@ -601,7 +617,7 @@ export async function recalibrateScout(
 ): Promise<{ conformity: Conformity[] }> {
   return streamRequest(
     "/api/scout/recalibrate",
-    JSON.stringify({ quantitative_contract_version: 1, result }),
+    JSON.stringify({ quantitative_contract_version: 2, result }),
     onStage,
     { "Content-Type": "application/json" },
   );

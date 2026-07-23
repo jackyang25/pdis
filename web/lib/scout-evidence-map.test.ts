@@ -27,6 +27,8 @@ const result = {
       evidence_domain: "clinical",
       entities: [],
       quantitative_targets: [],
+      quantitative_target_status: "not_applicable" as const,
+      quantitative_target_status_reason: "No numeric target is stated.",
     },
   ],
   matches: [

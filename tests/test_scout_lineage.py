@@ -26,13 +26,17 @@ from services.scout.models import (
     Insight,
     QueryIntent,
     QuantitativeTarget,
+    Measurement,
+    NumericExpression,
+    SemanticSlot,
     load_attributes,
     load_config,
 )
 from services.scout.stages.conformity import (
     _measurement_system_prompt,
+    _expression_supported,
     _meets_target,
-    _numeric_spans_for_unit,
+    _partition_cohort,
     _value_unit_supported,
     extract_quantitative_targets,
     resolve_quantitative_target_ownership,
@@ -120,115 +124,120 @@ def normalize_conformity_fixture(
     """Adapt historical fixtures at the test boundary to the current wire contract."""
     if not isinstance(response, dict):
         return response
-    if "enumerate exact quantitative document targets" in system_prompt.lower():
+    if "normalize exact quantitative document targets" in system_prompt.lower():
         if "targets" in response:
             return {
                 **response,
+                "status": response.get("status", "present"),
+                "status_reason": response.get("status_reason", "Fixture contains targets."),
                 "targets": [
                     {
                         **target,
-                        "required_comparison_axes": target.get(
-                            "required_comparison_axes",
-                            [
-                                "endpoint",
-                                "population",
-                                "intervention",
-                                "regimen",
-                                "time_horizon",
-                                "statistic",
-                            ],
+                        "expression": target.get("expression") or {
+                            "kind": "bound",
+                            "value": target.get("value"),
+                            "lower": None,
+                            "upper": None,
+                            "comparator": target.get("comparator", ""),
+                            "unit": target.get("unit", ""),
+                        },
+                        "semantic_profile": target.get(
+                            "semantic_profile",
+                            semantic_profile(str(target.get("label", "numeric measure"))),
                         ),
+                        "other_constraints": target.get("other_constraints", []),
                     }
                     for target in response.get("targets", [])
                     if isinstance(target, dict)
                 ],
             }
         if not response.get("is_quantitative"):
-            return {"targets": []}
+            return {
+                "status": "not_applicable",
+                "status_reason": "Fixture has no numeric target.",
+                "targets": [],
+            }
         return {
+            "status": "present",
+            "status_reason": "Fixture contains a numeric target.",
             "targets": [
                 {
-                    "value": response.get("target_value"),
-                    "comparator": response.get("comparator"),
-                    "unit": response.get("unit"),
-                    "label": response.get("target_label"),
+                    "expression": {
+                        "kind": "bound",
+                        "value": response.get("target_value"),
+                        "lower": None,
+                        "upper": None,
+                        "comparator": response.get("comparator"),
+                        "unit": response.get("unit"),
+                    },
                     "role": "threshold",
                     "quote": response.get("target_quote"),
                     "doc_block_ids": response.get("doc_block_ids", []),
-                    "required_comparison_axes": [
-                        "endpoint",
-                        "population",
-                        "intervention",
-                        "regimen",
-                        "time_horizon",
-                        "statistic",
-                    ],
-                }
-            ]
-        }
-    if "classify immutable numeric source candidates" not in system_prompt.lower():
-        return response
-    if "decisions" in response:
-        return {
-            "decisions": [
-                {
-                    **decision,
-                    "relevance": decision.get("relevance", "relevant"),
-                    "relevance_reason": decision.get(
-                        "relevance_reason", "The candidate measures the target."
+                    "semantic_profile": semantic_profile(
+                        str(response.get("target_label", "numeric measure"))
                     ),
+                    "other_constraints": [],
                 }
-                for decision in response.get("decisions", [])
-                if isinstance(decision, dict)
             ]
         }
-    target_match = re.search(r"Document target ID: (qt-[a-f0-9]+)", system_prompt)
-    target_id = target_match.group(1) if target_match else ""
-    candidates: list[tuple[str, float, str]] = []
-    for candidate_id, value, url in re.findall(
-        r"\[candidate:(qc-[a-f0-9]+)\] value=([-+0-9.eE]+) [^|]+\| url=([^ |]+)",
-        user_message,
-    ):
-        candidates.append((candidate_id, float(value), url))
+    if "extract complete numeric measurements" not in system_prompt.lower():
+        return response
+    if "sources" in response:
+        return response
+    sources = re.findall(r"\[source:(sp-[a-f0-9]+)\] url=([^ |]+)", user_message)
     decisions = []
-    for item in response.get("measurements", []):
-        if not isinstance(item, dict):
-            continue
-        candidate_id = next(
-            (
-                candidate
-                for candidate, value, url in candidates
-                if url == item.get("url")
-                and abs(value - float(item.get("value", float("inf")))) < 1e-9
-            ),
-            "",
+    for source_id, url in sources:
+        source_measurements = [
+            item for item in response.get("measurements", [])
+            if isinstance(item, dict) and item.get("url") == url
+        ]
+        normalized = []
+        for item in source_measurements:
+            relations = [
+                axis_item.get("relation", "unknown")
+                for axis_item in (item.get("comparability") or {}).values()
+                if isinstance(axis_item, dict)
+            ]
+            status = (
+                "incompatible" if "different" in relations
+                else "unknown" if "unknown" in relations
+                else "comparable"
+            )
+            normalized.append({
+                "quote": item.get("source_quote", ""),
+                "expression": {
+                    "kind": item.get("expression_kind", "point_estimate"),
+                    "unit": item.get("unit", ""),
+                    "value": item.get("value"),
+                    "lower": item.get("lower"),
+                    "upper": item.get("upper"),
+                    "comparator": item.get("comparator", ""),
+                },
+                "semantic_status": status,
+                "semantic_reason": "Historical fixture normalized at the test boundary.",
+                "semantic_profile": item.get("semantic_profile", semantic_profile()),
+            })
+        decisions.append({
+            "source_id": source_id,
+            "status": "measurements_found" if normalized else "no_relevant_measurement",
+            "reason": "Fixture source reviewed.",
+            "measurements": normalized,
+        })
+    return {"sources": decisions}
+
+
+def semantic_profile(measure: str = "numeric measure") -> dict:
+    return {
+        field: {
+            "state": "specified" if field == "measure" else "not_specified",
+            "value": measure if field == "measure" else "",
+            "other": "",
+        }
+        for field in (
+            "measure", "endpoint", "intervention", "population", "regimen",
+            "time_horizon", "statistic",
         )
-        if not candidate_id:
-            continue
-        comparability = {}
-        for axis, axis_item in (item.get("comparability") or {}).items():
-            relation = axis_item.get("relation", "unknown")
-            comparability[axis] = {
-                **axis_item,
-                "target_span_ids": [target_id]
-                if relation in {"same", "compatible", "different", "not_applicable"}
-                else [],
-                "source_span_ids": [candidate_id]
-                if relation in {"same", "compatible", "different"}
-                else [],
-            }
-        decisions.append(
-            {
-                "candidate_id": candidate_id,
-                "relevance": "relevant",
-                "relevance_reason": "The candidate measures the target.",
-                "evidence_form": item.get("evidence_form", "other"),
-                "development_phase": item.get("development_phase", "unknown"),
-                "source_record_type": item.get("source_record_type", "unknown"),
-                "comparability": comparability,
-            }
-        )
-    return {"decisions": decisions}
+    }
 
 
 def score_conformity_ledgers(attribute, document, insights, client, **kwargs):
@@ -658,13 +667,13 @@ class RetrievalPlanningTests(unittest.TestCase):
         targets = [
             QuantitativeTarget(
                 attribute_ref="efficacy",
-                value=value,
-                comparator=">=",
-                unit="%",
-                label=label,
+                expression=NumericExpression(
+                    kind="bound", value=value, comparator=">=", unit="%"
+                ),
                 role=role,
                 quote=quote,
                 doc_block_ids=[block_id],
+                semantic_profile=semantic_profile("protective efficacy"),
             )
             for value, label, role, quote, block_id in (
                 (80, "threshold >=80% at 6 months", "threshold", "At least 80% at 6 months.", "doc/b-0002"),
@@ -721,13 +730,13 @@ class RetrievalPlanningTests(unittest.TestCase):
 
     def test_repeated_numeric_claim_has_one_canonical_field_owner(self) -> None:
         shared = dict(
-            value=0.5,
-            comparator="<",
-            unit="mL/dose",
-            label="pediatric dose volume",
+            expression=NumericExpression(
+                kind="bound", value=0.5, comparator="<", unit="mL/dose"
+            ),
             role="optimal",
             quote="Dose volume: <0.5 mL/dose for pediatric use.",
             doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("dose volume"),
         )
         attributes = [
             Attribute(
@@ -746,7 +755,9 @@ class RetrievalPlanningTests(unittest.TestCase):
                 document_target=shared["quote"],
                 block_ids=shared["doc_block_ids"],
                 target_resolved=True,
-                quantitative_targets=[],
+                quantitative_targets=[
+                    QuantitativeTarget(attribute_ref="vaccine.dose_volume", **shared)
+                ],
             ),
         ]
 
@@ -773,10 +784,7 @@ class RetrievalPlanningTests(unittest.TestCase):
         self.assertEqual(resolved[0].quantitative_targets, [])
         self.assertEqual(len(resolved[1].quantitative_targets), 1)
         target = resolved[1].quantitative_targets[0]
-        self.assertEqual(
-            target.ownership_candidates,
-            ["vaccine.product", "vaccine.dose_volume"],
-        )
+        self.assertEqual(target.attribute_ref, "vaccine.dose_volume")
         self.assertIn("directly names", target.ownership_reason)
 
     def test_plain_text_literature_plan_covers_every_variant(self) -> None:
@@ -1225,9 +1233,7 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(len(result.measurements), 1)
         self.assertEqual(result.measurements[0].url, "https://example.test/used")
         self.assertEqual(result.measurements[0].insight_id, self.first.id)
-        self.assertEqual(result.measurements[0].evidence_form, "randomized_trial")
-        self.assertEqual(result.measurements[0].development_phase, "phase_3")
-        self.assertEqual(result.measurements[0].source_record_type, "peer_reviewed")
+        self.assertEqual(result.measurements[0].expression.kind, "point_estimate")
         self.assertEqual(result.benchmark_count, 1)
         self.assertEqual(result.benchmark_median, 82)
         self.assertEqual(result.calibration_status, "insufficient")
@@ -1253,7 +1259,7 @@ class ReasoningLineageTests(unittest.TestCase):
                     "source_record_type": "peer_reviewed",
                     "insight_index": 82.0,
                     "url": "https://example.test/used",
-                    "source_quote": "The reported efficacy was 82 percent in the target population.",
+                    "source_quote": "The reported efficacy was 82% in the target population.",
                     "comparability": same_comparability(),
                 }
             ]
@@ -1275,34 +1281,175 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(result.benchmark_count, 1)
         self.assertEqual(result.measurements[0].value, 82)
 
-    def test_numeric_candidates_couple_each_value_to_its_actual_unit(self) -> None:
+    def test_numeric_expression_verification_couples_values_to_their_unit(self) -> None:
         efficacy = (
             "In 4577 participants, vaccine efficacy was 50·3% "
             "(95% CI, 34·6% to 62·3%) at 12 months."
         )
-        values = [value for value, _ in _numeric_spans_for_unit(efficacy, "%")]
-        self.assertEqual(values, [50.3, 95.0, 34.6, 62.3])
-        self.assertNotIn(4577.0, values)
-        self.assertNotIn(12.0, values)
         self.assertFalse(_value_unit_supported(4577, "%", efficacy))
         self.assertTrue(_value_unit_supported(50.3, "%", efficacy))
-
-        unrelated = "5 randomly selected malarial adhesins were analysed."
-        self.assertEqual(_numeric_spans_for_unit(unrelated, "mL/dose"), [])
+        self.assertTrue(_expression_supported(
+            NumericExpression(
+                kind="confidence_interval", unit="%", lower=34.6, upper=62.3
+            ),
+            efficacy,
+        ))
         self.assertTrue(_value_unit_supported(0.5, "mL/dose", "Dose volume: <0.5 mL/dose."))
         self.assertTrue(_meets_target(0.49, 0.5, "<"))
         self.assertFalse(_meets_target(0.5, 0.5, "<"))
 
+    def test_range_is_one_expression_not_two_point_candidates(self) -> None:
+        expression = NumericExpression(kind="range", unit="%", lower=36, upper=50)
+        self.assertTrue(_expression_supported(
+            expression, "Observed efficacy ranged from 36-50% across sites."
+        ))
+
+    def test_irrelevant_numbers_resolve_at_passage_level_without_fragment_noise(self) -> None:
+        target = QuantitativeTarget(
+            attribute_ref="efficacy",
+            expression=NumericExpression(
+                kind="bound", value=80, comparator=">=", unit="%"
+            ),
+            role="threshold",
+            quote="Target efficacy is at least 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("protective efficacy"),
+        )
+        attribute = replace(self.attribute, quantitative_targets=[target])
+        insight = Insight(
+            statement="The study enrolled participants.",
+            supporting_findings=[finding(
+                "https://example.test/enrollment",
+                source="pubmed",
+                excerpt="The trial enrolled 4,577 participants and followed them for 12 months.",
+            )],
+            attribute_ref="efficacy",
+        )
+
+        class NoMeasurementClient:
+            def call(self, system_prompt, user_message, max_tokens, *, images=None):
+                source = re.search(r"\[source:(sp-[a-f0-9]+)\]", user_message)
+                assert source is not None
+                return json.dumps({"sources": [{
+                    "source_id": source.group(1),
+                    "status": "no_relevant_measurement",
+                    "reason": "Only enrollment and follow-up duration are reported.",
+                    "measurements": [],
+                }]})
+
+        result = _score_conformity_ledgers(
+            attribute,
+            [insight],
+            NoMeasurementClient(),
+            indication="malaria",
+            intervention_class="vaccine",
+        )[0]
+        self.assertEqual(result.measurements, [])
+        self.assertEqual(result.excluded_measurements, [])
+        self.assertEqual(result.source_dispositions[0].status, "no_relevant_measurement")
+
+    def test_below_target_point_estimate_remains_comparable(self) -> None:
+        measurement = Measurement(
+            expression=NumericExpression(kind="point_estimate", value=50.3, unit="%"),
+            candidate_id="qc-below",
+            source_record_id="doi:10.1/example",
+            semantic_status="comparable",
+            semantic_reason="Same efficacy endpoint, population, and time horizon.",
+            semantic_profile=semantic_profile("protective efficacy"),
+        )
+        target = QuantitativeTarget(
+            attribute_ref="efficacy",
+            expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
+            role="threshold",
+            quote="Target efficacy is more than 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("protective efficacy"),
+        )
+        included, excluded = _partition_cohort([measurement], target)
+        self.assertEqual(included, [measurement])
+        self.assertEqual(excluded, [])
+        self.assertFalse(_meets_target(measurement.value, 80, ">"))
+
+    def test_comparable_rate_is_an_atomic_scalar(self) -> None:
+        measurement = Measurement(
+            expression=NumericExpression(
+                kind="rate", value=2.4, unit="per 100 person-years"
+            ),
+            candidate_id="qm-rate",
+            source_record_id="doi:10.1/rate",
+            semantic_status="comparable",
+            semantic_reason="Same incidence rate and population.",
+            semantic_profile=semantic_profile("incidence rate"),
+        )
+        target = QuantitativeTarget(
+            attribute_ref="incidence",
+            expression=NumericExpression(
+                kind="bound", value=3, comparator="<=", unit="per 100 person-years"
+            ),
+            role="threshold",
+            quote="Incidence should be no more than 3 per 100 person-years.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("incidence rate"),
+        )
+        included, excluded = _partition_cohort([measurement], target)
+        self.assertEqual(included, [measurement])
+        self.assertEqual(excluded, [])
+
+    def test_repeated_target_statements_merge_provenance_not_ledgers(self) -> None:
+        document = (
+            "[block:document/b-0003]\nTarget efficacy is at least 80%.\n\n"
+            "[block:document/b-0004]\nThe efficacy target is at least 80%."
+        )
+        attribute = replace(
+            self.attribute,
+            document_target=(
+                "Target efficacy is at least 80%. The efficacy target is at least 80%."
+            ),
+            block_ids=["document/b-0003", "document/b-0004"],
+        )
+        profile = semantic_profile("protective efficacy")
+        targets = extract_quantitative_targets(
+            attribute,
+            document,
+            StaticClient({
+                "targets": [
+                    {
+                        "value": 80, "comparator": ">=", "unit": "%",
+                        "label": "efficacy threshold", "role": "threshold",
+                        "quote": "Target efficacy is at least 80%.",
+                        "doc_block_ids": ["document/b-0003"],
+                        "semantic_profile": profile,
+                    },
+                    {
+                        "value": 80, "comparator": ">=", "unit": "%",
+                        "label": "efficacy threshold", "role": "threshold",
+                        "quote": "The efficacy target is at least 80%.",
+                        "doc_block_ids": ["document/b-0004"],
+                        "semantic_profile": profile,
+                    },
+                ]
+            }),
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(len(targets[0].provenance_spans), 2)
+
+    def test_semantic_slot_preserves_other_without_guessing(self) -> None:
+        slot = SemanticSlot(state="other", other="Composite endpoint not in the core schema")
+        self.assertEqual(slot.state, "other")
+        self.assertIn("Composite endpoint", slot.other)
+
     def test_coverage_classifier_receives_the_exact_document_target(self) -> None:
         target = QuantitativeTarget(
             attribute_ref=self.attribute.name,
-            value=80,
-            comparator=">=",
-            unit="%",
-            label="threshold >=80% at six months",
+            expression=NumericExpression(
+                kind="bound", value=80, comparator=">=", unit="%"
+            ),
             role="threshold",
             quote="Target efficacy is at least 80% at six months.",
             doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("protective efficacy"),
         )
         prompt = _measurement_system_prompt(
             self.attribute,
@@ -1310,11 +1457,9 @@ class ReasoningLineageTests(unittest.TestCase):
             indication="malaria",
             intervention_class="vaccine",
         )
-        self.assertIn(
-            "Exact target span",
-            prompt,
-        )
-        self.assertIn(target.quote, prompt)
+        self.assertIn("Target semantic profile", prompt)
+        self.assertNotIn(target.quote, prompt)
+        self.assertNotIn("80", prompt)
 
     def test_conformity_never_treats_web_citation_context_as_source_quote(self) -> None:
         web_insight = Insight(
@@ -1573,7 +1718,7 @@ class ReasoningLineageTests(unittest.TestCase):
         assert result is not None
         self.assertEqual(result.benchmark_count, 1)
         self.assertEqual(len(result.excluded_measurements), 1)
-        self.assertIn("population: different", result.excluded_measurements[0].exclusion_reasons[0])
+        self.assertIn("semantic status: incompatible", result.excluded_measurements[0].exclusion_reasons[0])
 
     def test_conformity_rejects_incompatible_units_without_conversion(self) -> None:
         fraction_insight = Insight(
@@ -1625,9 +1770,13 @@ class ReasoningLineageTests(unittest.TestCase):
         assert result is not None
         self.assertEqual(result.benchmark_count, 0)
         self.assertEqual(result.measurements, [])
-        self.assertEqual(result.excluded_measurements, [])
+        self.assertEqual(len(result.excluded_measurements), 1)
+        self.assertIn(
+            "unit is incompatible",
+            result.excluded_measurements[0].exclusion_reasons[0],
+        )
 
-    def test_conformity_deduplicates_canonical_study_records(self) -> None:
+    def test_conflicting_values_from_one_study_fail_closed(self) -> None:
         first_url = "https://clinicaltrials.gov/study/NCT12345678"
         mirror_url = "https://example.test/trial/NCT12345678"
         insights = [
@@ -1689,9 +1838,12 @@ class ReasoningLineageTests(unittest.TestCase):
 
         self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(result.benchmark_count, 1)
-        self.assertEqual(result.measurements[0].source_record_id, "nct:nct12345678")
-        self.assertIn("duplicate source record", result.excluded_measurements[0].exclusion_reasons[0])
+        self.assertEqual(result.benchmark_count, 0)
+        self.assertEqual(len(result.excluded_measurements), 2)
+        self.assertTrue(all(
+            "no primary estimate was deterministically identifiable" in item.exclusion_reasons[0]
+            for item in result.excluded_measurements
+        ))
 
     def test_conformity_keeps_distinct_document_targets_separate(self) -> None:
         document = (
@@ -1732,7 +1884,9 @@ class ReasoningLineageTests(unittest.TestCase):
             "measurements": [
                 {
                     "value": 82,
+                    "unit": "%",
                     "url": "https://example.test/used",
+                    "source_quote": "The reported efficacy was 82% in the target population.",
                     "comparability": same_comparability(),
                 }
             ]
@@ -1750,16 +1904,9 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual([ledger.target_value for ledger in ledgers], [80, 90])
         self.assertEqual([ledger.target_meeting_count for ledger in ledgers], [1, 0])
         self.assertNotEqual(ledgers[0].target_id, ledgers[1].target_id)
-        self.assertEqual(
-            ledgers[0].measurements[0].axis_evidence["population"].relation,
-            "not_applicable",
-        )
-        self.assertEqual(
-            ledgers[0].measurements[0].axis_evidence["regimen"].relation,
-            "not_applicable",
-        )
+        self.assertEqual(ledgers[0].measurements[0].semantic_status, "comparable")
 
-    def test_invalid_axis_span_ids_cannot_enter_the_numeric_cohort(self) -> None:
+    def test_invalid_semantic_conversion_cannot_enter_the_numeric_cohort(self) -> None:
         target_response = {
             "targets": [
                 {
@@ -1780,27 +1927,25 @@ class ReasoningLineageTests(unittest.TestCase):
         class WrongSpanClient(StaticClient):
             def call(self, system_prompt, user_message, max_tokens, *, images=None):
                 self.calls += 1
-                if "enumerate exact quantitative" in system_prompt.lower():
-                    return json.dumps(target_response)
-                candidate = re.search(r"\[candidate:(qc-[a-f0-9]+)\]", user_message)
-                assert candidate is not None
-                axis_payload = {
-                    axis: {
-                        "relation": "same",
-                        "reason": "claimed match",
-                        "target_span_ids": ["qt-invented"],
-                        "source_span_ids": ["qc-invented"],
-                    }
-                    for axis in same_comparability()
-                }
+                if "normalize exact quantitative document targets" in system_prompt.lower():
+                    return json.dumps(normalize_conformity_fixture(
+                        target_response, system_prompt, user_message
+                    ))
+                source = re.search(r"\[source:(sp-[a-f0-9]+)\]", user_message)
+                assert source is not None
                 return json.dumps(
                     {
-                        "decisions": [
+                        "sources": [
                             {
-                                "candidate_id": candidate.group(1),
-                                "relevance": "relevant",
-                                "relevance_reason": "The candidate measures the target.",
-                                "comparability": axis_payload,
+                                "source_id": source.group(1),
+                                "status": "measurements_found",
+                                "reason": "Claims a measurement.",
+                                "measurements": [{
+                                    "quote": "The reported efficacy was 82 percent in the target population.",
+                                    "expression": {"kind": "point_estimate", "value": 82, "unit": "%"},
+                                    "semantic_status": "comparable",
+                                    "semantic_reason": "Claims a match but omits the typed profile.",
+                                }],
                             }
                         ]
                     }
@@ -1816,32 +1961,19 @@ class ReasoningLineageTests(unittest.TestCase):
         )
 
         self.assertEqual(ledgers[0].benchmark_count, 0)
-        self.assertEqual(len(ledgers[0].excluded_measurements), 1)
-        axis_evidence = ledgers[0].excluded_measurements[0].axis_evidence
-        self.assertTrue(
-            all(
-                axis_evidence[axis].relation == "unknown"
-                for axis in ("endpoint", "intervention", "statistic")
-            )
-        )
-        self.assertTrue(
-            all(
-                axis_evidence[axis].relation == "not_applicable"
-                for axis in ("population", "regimen", "time_horizon")
-            )
-        )
+        self.assertEqual(ledgers[0].excluded_measurements, [])
+        self.assertEqual(ledgers[0].source_dispositions[0].status, "uncertain")
 
     def test_missing_candidate_relevance_fails_closed_after_retry(self) -> None:
         target = QuantitativeTarget(
             attribute_ref="efficacy",
-            value=80,
-            comparator=">=",
-            unit="%",
-            label="threshold >=80%",
+            expression=NumericExpression(
+                kind="bound", value=80, comparator=">=", unit="%"
+            ),
             role="threshold",
             quote="Target efficacy is at least 80%.",
             doc_block_ids=["document/b-0003"],
-            required_comparison_axes=["endpoint", "intervention", "statistic"],
+            semantic_profile=semantic_profile("protective efficacy"),
         )
         attribute = replace(self.attribute, quantitative_targets=[target])
 
@@ -1851,14 +1983,16 @@ class ReasoningLineageTests(unittest.TestCase):
 
             def call(self, system_prompt, user_message, max_tokens, *, images=None):
                 self.calls += 1
-                candidate = re.search(r"\[candidate:(qc-[a-f0-9]+)\]", user_message)
-                assert candidate is not None
+                source = re.search(r"\[source:(sp-[a-f0-9]+)\]", user_message)
+                assert source is not None
                 return json.dumps(
                     {
-                        "decisions": [
+                        "sources": [
                             {
-                                "candidate_id": candidate.group(1),
-                                "comparability": same_comparability(),
+                                "source_id": source.group(1),
+                                "status": "measurements_found",
+                                "reason": "Incomplete fixture decision.",
+                                "measurements": [],
                             }
                         ]
                     }
@@ -1875,11 +2009,8 @@ class ReasoningLineageTests(unittest.TestCase):
 
         self.assertEqual(client.calls, 2)
         self.assertEqual(ledgers[0].benchmark_count, 0)
-        self.assertEqual(len(ledgers[0].excluded_measurements), 1)
-        self.assertIn(
-            "not semantically classified",
-            ledgers[0].excluded_measurements[0].exclusion_reasons[0],
-        )
+        self.assertEqual(ledgers[0].excluded_measurements, [])
+        self.assertEqual(ledgers[0].source_dispositions[0].status, "uncertain")
 
     def test_precedent_keeps_coverage_and_outcome_separate(self) -> None:
         client = StaticClient(

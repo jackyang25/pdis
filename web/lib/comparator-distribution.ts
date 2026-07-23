@@ -4,6 +4,7 @@ export type DistributionMeasurement = {
   source_quote: string;
   source_record_id: string;
   source_identity_status: string;
+  semantic_status: string;
   exclusion_reasons: string[];
 };
 
@@ -38,7 +39,7 @@ export type ComparatorDistributionModel = {
   unplottableExcludedCount: number;
 };
 
-const LANE_COUNT = 5;
+const LANE_COUNT = 7;
 
 function finite(value: number | null): value is number {
   return value != null && Number.isFinite(value);
@@ -79,9 +80,12 @@ export function buildComparatorDistribution(
   const included = input.included.filter((measurement) =>
     Number.isFinite(measurement.value),
   );
+  // Plot only semantically related context. Incompatible/unknown values remain
+  // auditable in the ledger but must not distort the comparison scale.
   const compatibleExcluded = input.excluded.filter(
     (measurement) =>
       Number.isFinite(measurement.value) &&
+      measurement.semantic_status === "contextual" &&
       normalizedUnit(measurement.unit) === normalizedUnit(input.unit),
   );
   if (

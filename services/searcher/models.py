@@ -315,6 +315,8 @@ class SearcherLLMClientProtocol(Protocol):
 
 def merge_findings(existing: Finding, incoming: Finding) -> Finding:
     """Merge duplicate URLs without discarding retrieval or source provenance."""
+    existing_was_evidence = existing.evidence_role == "evidence"
+    incoming_is_evidence = incoming.evidence_role == "evidence"
     existing.queries = list(
         dict.fromkeys(
             query
@@ -359,14 +361,27 @@ def merge_findings(existing: Finding, incoming: Finding) -> Finding:
         dict.fromkeys([*existing.safety_records, *incoming.safety_records])
     )
     # A duplicate retrieved as evidence in any lane remains eligible for
-    # reasoning. Reference-only is the conservative default for metadata.
-    if incoming.evidence_role == "evidence":
+    # reasoning, but its reasoning excerpt must also come from an evidence
+    # retrieval path. A longer reference/catalog description must never leak
+    # into the LLM merely because another lane found the same URL as evidence.
+    if incoming_is_evidence:
         existing.evidence_role = "evidence"
     # `source_lanes` is the authoritative multi-source provenance. Keep the
     # first lane as the compatibility primary rather than embedding a brittle
     # global ranking that every new adapter would need to modify.
     existing.source = existing.source_lanes[0] if existing.source_lanes else existing.source
-    if incoming.excerpt and len(incoming.excerpt) > len(existing.excerpt or ""):
+    if incoming_is_evidence and not existing_was_evidence:
+        existing.excerpt = incoming.excerpt
+        existing.excerpt_source_lane = (
+            incoming.excerpt_source_lane or incoming.source
+            if incoming.excerpt
+            else ""
+        )
+    elif (
+        incoming.excerpt
+        and incoming_is_evidence == existing_was_evidence
+        and len(incoming.excerpt) > len(existing.excerpt or "")
+    ):
         existing.excerpt = incoming.excerpt
         existing.excerpt_source_lane = incoming.excerpt_source_lane or incoming.source
     if (not existing.title or existing.title == existing.url) and incoming.title:

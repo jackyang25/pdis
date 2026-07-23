@@ -72,14 +72,15 @@ def classify_drift(
         framing=framing,
     )
     user_message = _user_message(doc_excerpts, insights)
+    allowed_block_ids = document_block_ids("\n".join(doc_excerpts))
 
     raw = llm_client.call(
         system_prompt, user_message, max_tokens=max_tokens, images=images
     )
     parsed = _parse(raw)
-    if len(parsed) != len(insights):
+    if not _has_complete_lineage(parsed, len(insights), allowed_block_ids):
         logger.warning(
-            "drift_classifier expected %d entries, got %d; retrying once",
+            "drift_classifier expected %d complete traced entries, got %d; retrying once",
             len(insights), len(parsed),
         )
         raw = llm_client.call(
@@ -90,27 +91,54 @@ def classify_drift(
     by_index: dict[int, dict] = {
         p["index"]: p for p in parsed if isinstance(p.get("index"), int)
     }
-    allowed_block_ids = document_block_ids("\n".join(doc_excerpts))
-
     matches: list[Match] = []
     for i, insight in enumerate(insights):
         entry = by_index.get(i, {})
         relation = str(entry.get("relation", "")).strip().lower()
         reason = str(entry.get("reason", "")).strip()
-        if relation not in VALID_RELATIONS:
+        block_ids = validated_block_ids(
+            entry.get("doc_block_ids"), allowed_block_ids
+        )
+        if relation not in VALID_RELATIONS or not reason:
             relation = "unrelated"
-            reason = reason or "classifier failed"
+            reason = reason or "Classifier returned no validated relation rationale."
+        elif relation != "unrelated" and allowed_block_ids and not block_ids:
+            relation = "unrelated"
+            reason = "Relation rejected because it lacked valid document-block lineage."
         matches.append(
             Match(
                 insight=insight,
                 relation=relation,
                 reason=reason,
-                doc_block_ids=validated_block_ids(
-                    entry.get("doc_block_ids"), allowed_block_ids
-                ),
+                doc_block_ids=block_ids,
             )
         )
     return matches
+
+
+def _has_complete_lineage(
+    parsed: list[dict],
+    insight_count: int,
+    allowed_block_ids: set[str],
+) -> bool:
+    indices = [entry.get("index") for entry in parsed]
+    if sorted(
+        index
+        for index in indices
+        if isinstance(index, int) and not isinstance(index, bool)
+    ) != list(range(insight_count)):
+        return False
+    for entry in parsed:
+        relation = str(entry.get("relation", "")).strip().lower()
+        if relation not in VALID_RELATIONS or not str(entry.get("reason", "")).strip():
+            return False
+        if (
+            relation != "unrelated"
+            and allowed_block_ids
+            and not validated_block_ids(entry.get("doc_block_ids"), allowed_block_ids)
+        ):
+            return False
+    return True
 
 
 # Generic, doc-agnostic fallback. The real interpretive stance is supplied per

@@ -1,8 +1,17 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 15 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | typeof RESULT_VERSION;
+const RESULT_VERSION = 16 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | typeof RESULT_VERSION;
+
+const QUANTITATIVE_COMPARABILITY_AXES = [
+  "endpoint",
+  "population",
+  "intervention",
+  "regimen",
+  "time_horizon",
+  "statistic",
+] as const;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -77,6 +86,7 @@ export function unpackScoutResult(value: unknown): ScoutResponse {
     return normalizeScoutResult(
       value.analysis,
       flattenDocuments(value.source_documents),
+      value.version,
     );
   }
   const raw = value as Partial<ScoutResponse>;
@@ -172,7 +182,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.result_type === "aligner" ||
@@ -213,7 +223,11 @@ function flattenDocuments(documents: SourceDocument[]): ContentBlock[] {
 
 /** Migrate old result files once at the import boundary. Runtime components
  * consume only the current contract and contain no legacy branches. */
-function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResponse {
+function normalizeScoutResult(
+  value: unknown,
+  blocks: ContentBlock[],
+  sourceVersion?: ResultVersion,
+): ScoutResponse {
   const raw = (value ?? {}) as Record<string, any>;
   const assessmentsByAttribute = new Map<string, Record<string, any>>(
     (raw.assessments ?? []).map((assessment: Record<string, any>) => [
@@ -235,6 +249,9 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
       role: score.target_role ?? "other",
       quote: score.target_quote,
       doc_block_ids: score.doc_block_ids ?? [],
+      required_comparison_axes: [...QUANTITATIVE_COMPARABILITY_AXES],
+      ownership_candidates: [String(score.attribute_ref ?? "")].filter(Boolean),
+      ownership_reason: "Imported target predates canonical ownership arbitration.",
     });
     quantitativeTargetsByAttribute.set(String(score.attribute_ref ?? ""), targets);
   }
@@ -258,7 +275,11 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
       };
     }),
     conformity: (raw.conformity ?? []).map(
-      (score: Record<string, any>, index: number) => normalizeConformity(score, index),
+      (score: Record<string, any>, index: number) => normalizeConformity(
+        score,
+        index,
+        sourceVersion == null || sourceVersion < RESULT_VERSION,
+      ),
     ),
     precedents: (raw.precedents ?? []).map(normalizePrecedent),
     development_landscape: (raw.development_landscape ?? []).map(
@@ -317,9 +338,23 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
         definition_mode: definitionMode,
         evidence_domain: variable.evidence_domain ?? "general",
         entities: Array.isArray(variable.entities) ? variable.entities : [],
-        quantitative_targets: Array.isArray(variable.quantitative_targets)
-          ? variable.quantitative_targets
-          : quantitativeTargetsByAttribute.get(String(variable.name ?? "")) ?? [],
+        quantitative_targets: (
+          Array.isArray(variable.quantitative_targets)
+            ? variable.quantitative_targets
+            : quantitativeTargetsByAttribute.get(String(variable.name ?? "")) ?? []
+        ).map((target: Record<string, any>) => ({
+          ...target,
+          required_comparison_axes: Array.isArray(target.required_comparison_axes)
+            && target.required_comparison_axes.length > 0
+            ? target.required_comparison_axes
+            : [...QUANTITATIVE_COMPARABILITY_AXES],
+          ownership_candidates: Array.isArray(target.ownership_candidates)
+            && target.ownership_candidates.length > 0
+            ? target.ownership_candidates
+            : [String(target.attribute_ref ?? variable.name ?? "")].filter(Boolean),
+          ownership_reason: target.ownership_reason
+            ?? "Imported target predates canonical ownership arbitration.",
+        })),
         target_resolved:
           typeof variable.target_resolved === "boolean"
             ? variable.target_resolved
@@ -340,6 +375,7 @@ function normalizeScoutResult(value: unknown, blocks: ContentBlock[]): ScoutResp
 function normalizeConformity(
   score: Record<string, any>,
   index: number,
+  contractPredatesCurrent: boolean,
 ): Record<string, unknown> {
   const {
     conformity: _legacyConformity,
@@ -375,7 +411,7 @@ function normalizeConformity(
     return value >= target;
   }).length;
   const targetMeetingRate = count > 0 ? targetMeetingCount / count : 0;
-  const legacyUnverified = !score.target_id || !score.target_quote || [
+  const legacyUnverified = contractPredatesCurrent || !score.target_id || !score.target_quote || [
     ...measurements,
     ...excludedMeasurements,
   ].some(

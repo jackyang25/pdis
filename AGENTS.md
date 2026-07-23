@@ -117,6 +117,10 @@ Preserve these invariants:
   the user's configured indication.
 - Query generation sees the relevant uploaded-document blocks and returns the
   exact `doc_block_ids` that shaped each query.
+- Relevance-selected document context is used only to resolve a fixed field's
+  canonical binding. Raw bound blocks are then used only to exact-quote or
+  revalidate document facts. Query and reasoning stages receive the canonical
+  target annotated with those block IDs, so adjacent table cells cannot leak.
 - Rendered model context labels blocks as `[block:<id>]`; structured JSON outputs
   the complete bare ID inside that marker. Validation permits an exactly wrapped
   legacy marker only long enough to canonicalize it, then requires exact
@@ -199,7 +203,10 @@ Scout's four result axes are intentionally orthogonal:
   Every retained source passage containing a number in the target unit must be
   classified or preserved as an explicit unknown-comparability exclusion. Query
   and request target IDs are retrieval-coverage lineage only; they never imply
-  that a returned source semantically supports that target
+  that a returned source semantically supports that target. If one exact target
+  appears under overlapping fields, assign it once to the most specific closed
+  candidate field and retain the candidates/reason. Decide required comparison
+  axes once from the target; do not reinterpret applicability per source
 - precedent: coverage `direct | adjacent | none | unknown`, with outcome tracked
   separately as `favorable | mixed | unfavorable | unknown`
 
@@ -215,7 +222,7 @@ deduplication and rollups. Do not restore holistic “basis” tags.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 15, separating analysis from
+  (`web/lib/result-file.ts`), currently version 16, separating analysis from
   `source_documents`.
 - Scout may rebuild quantitative ledgers from a current portable result without
   retrieval. That path must consume only its saved blocks and cited Insights and

@@ -303,6 +303,9 @@ async def run_scout(
                                 role=target.role,
                                 quote=target.quote,
                                 doc_block_ids=target.doc_block_ids,
+                                required_comparison_axes=target.required_comparison_axes,
+                                ownership_candidates=target.ownership_candidates,
+                                ownership_reason=target.ownership_reason,
                             )
                             for target in variable.quantitative_targets
                         ],

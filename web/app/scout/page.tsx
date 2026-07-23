@@ -382,7 +382,13 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   }
 
   async function handleRecalibrate() {
-    if (!result || busy) return;
+    if (
+      !result
+      || busy
+      || result.conformity.some(
+        (score) => score.calibration_status === "legacy_unverified",
+      )
+    ) return;
     setBusy(true);
     setError(null);
     setStage("conformity");
@@ -402,8 +408,8 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     }
   }
 
-  // Re-open a previously downloaded result (the full ScoutResponse JSON) and
-  // render it through the same FieldGrid - no re-run, no backend call.
+  // Normalize a portable result once at the import boundary, then render only
+  // the current runtime contract. Import never triggers retrieval.
   async function handleImport(file: File) {
     setError(null);
     try {
@@ -557,6 +563,9 @@ function FieldGrid({
   const safetySignals = result.safety_signals ?? [];
   const [query, setQuery] = useState("");
   const [relationFilter, setRelationFilter] = useState<"all" | Match["relation"]>("all");
+  const hasLegacyConformity = result.conformity.some(
+    (score) => score.calibration_status === "legacy_unverified",
+  );
 
   if (variables.length === 0) {
     return <EmptyState message="No variables were returned for this intervention." />;
@@ -627,9 +636,11 @@ function FieldGrid({
         contentClassName="p-0"
         trailing={
           <>
-            <Button variant="ghost" size="sm" onClick={onRecalibrate} disabled={recalibrating}>
-              {recalibrating ? "Recalculating…" : "Recalculate metrics"}
-            </Button>
+            {!hasLegacyConformity && (
+              <Button variant="ghost" size="sm" onClick={onRecalibrate} disabled={recalibrating}>
+                {recalibrating ? "Recalculating…" : "Recalculate metrics"}
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={onNewAnalysis}>New analysis</Button>
             <DownloadButton
               filename="scout-result.json"

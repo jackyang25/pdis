@@ -177,11 +177,11 @@ export default function DocsPage() {
             <h3 className="mt-8 text-xs font-semibold">Additive query tracks</h3>
             <DefinitionRows rows={QUERY_TRACKS} />
             <Note title="What query generation sees">
-              The canonical target, field definition, relevant uploaded blocks, indication,
-              intervention class, and product configuration. Each intent records the exact block
-              IDs that shaped it; configured track budgets are additive and preserve lineage.
-              Rendered context uses <code>[block:&lt;id&gt;]</code> markers, while JSON carries the
-              complete bare ID. Shortened, invented, and fuzzy matches are rejected.
+              Broad relevant blocks are used only to resolve a field. Query generation then sees
+              its canonical target, field definition, exact binding IDs, indication, intervention
+              class, and product configuration—not neighboring cells from a shared table row.
+              Each intent records the exact block IDs that shaped it; configured track budgets are
+              additive and preserve lineage. Shortened, invented, and fuzzy IDs are rejected.
             </Note>
             <p className="mt-5 text-xs leading-5 text-muted-foreground">
               Search adapters then translate those neutral intents into valid web, literature,
@@ -379,6 +379,7 @@ function ArchitectureArrow() {
 function Pipeline() {
   const steps = [
     "Document blocks",
+    "Canonical targets",
     "Query intents",
     "Source requests",
     "Findings",

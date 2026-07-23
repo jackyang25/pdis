@@ -144,7 +144,7 @@ Scout evaluates one canonical `Attribute` shape regardless of document type:
 | `target_resolved` | Whether document binding has completed, including an intentionally absent target |
 | `evidence_domain` | One closed domain used for deterministic source applicability |
 | `entities` | Explicitly document-stated typed entities and optional stated identifiers |
-| `quantitative_targets` | Independently verified numeric claims, each with an immutable ID, exact quote, unit, comparator, role, and block lineage |
+| `quantitative_targets` | Independently verified numeric claims with one canonical field owner, immutable ID, exact quote, unit, comparator, role, required comparison axes, and block lineage |
 
 TPP fields come from `shared/attributes.yaml` and are bound to document targets.
 IPDP fields are dynamically extracted checkable claims. Both converge to the
@@ -164,6 +164,7 @@ parse document blocks and visuals
 → validate configured indication against cited document context
 → resolve canonical fields and targets
 → bind every independently calibratable numeric target
+→ assign repeated exact targets to one canonical field owner
 → generate source-neutral query intents with block and target lineage
 → determine source applicability from closed metadata
 → compile source-native requests in each adapter
@@ -184,6 +185,14 @@ target; target IDs remain retrieval lineage and never imply that a returned
 source semantically supports the target. Calibration consumes this same target
 bundle rather than asking the model to extract a second, potentially different
 set after retrieval.
+Broad relevance-selected context is discarded after fixed-field resolution.
+Raw bound blocks verify exact facts; queries and judgments receive the canonical
+target annotated with those same block IDs, preventing adjacent table-cell
+spillover. When overlapping field definitions produce the same exact numeric
+claim, a closed arbitration step
+assigns it once to the most specific candidate field and retains that decision.
+Each target also fixes its comparison-axis profile once, so source candidates
+cannot redefine which qualifiers the document target constrains.
 Every native request records its compiled intent IDs/texts, tracks, options,
 connector operation, status, result count, and URLs.
 
@@ -345,7 +354,7 @@ tool execution remains private while final tokens render incrementally.
 ## Portable result files
 
 Inspector, Aligner, and Scout downloads use the versioned `pdis.result` envelope,
-currently version **15**:
+currently version **16**:
 
 ```text
 schema + version + result_type

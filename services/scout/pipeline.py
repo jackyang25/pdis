@@ -26,8 +26,10 @@ from services.searcher import (
 
 from .context import (
     document_block_ids,
+    render_canonical_binding,
     render_document_context,
-    select_attribute_context,
+    select_binding_context,
+    select_resolution_context,
 )
 from .models import (
     Attribute,
@@ -50,6 +52,7 @@ from .stages.conformity import (
     empty_conformity_scores,
     extract_quantitative_targets,
     revalidate_quantitative_targets,
+    resolve_quantitative_target_ownership,
     score_conformity,
 )
 from .stages.context_validator import mismatch_message, validate_document_context
@@ -64,7 +67,6 @@ from .stages.unit_extractor import extract_units
 
 FINDINGS_BATCH_SIZE = 40
 FINDINGS_BATCH_CHARS = 240_000
-QUERY_CONTEXT_CHARS = 20_000
 TARGET_CONTEXT_CHARS = 40_000
 SEARCH_MAX_TOKENS = 8000
 SEARCH_MAX_USES = 10
@@ -96,11 +98,12 @@ def recalculate_conformity(
             attribute,
             quantitative_targets=revalidate_quantitative_targets(
                 attribute,
-                select_attribute_context(blocks, attribute),
+                select_binding_context(blocks, attribute),
             ),
         )
         for attribute in attributes
     ]
+    attributes = resolve_quantitative_target_ownership(attributes, openai_client)
     return _score_conformity_all_variables(
         attributes,
         insights,
@@ -178,7 +181,7 @@ def run_pipeline(
     # document target; dynamically extracted units arrive already bound. Every
     # later stage receives the same resolved Attribute contract.
     seed_contexts = {
-        attribute.name: select_attribute_context(
+        attribute.name: select_resolution_context(
             blocks,
             attribute,
             max_chars=TARGET_CONTEXT_CHARS,
@@ -195,7 +198,7 @@ def run_pipeline(
     attributes = _extract_quantitative_targets_all(
         attributes,
         {
-            attribute.name: select_attribute_context(blocks, attribute)
+            attribute.name: select_binding_context(blocks, attribute)
             for attribute in attributes
         },
         blocks,
@@ -205,20 +208,18 @@ def run_pipeline(
         framing=config.conformity_framing,
         progress=progress_callback,
     )
+    attributes = resolve_quantitative_target_ownership(attributes, openai_client)
     attribute_descriptions = {
         attribute.name: attribute.description for attribute in attributes
     }
+    # The relevance-selected resolution view has completed its one job. Every
+    # later reasoning stage receives the canonical target with its exact block
+    # markers, not the rest of a potentially multi-topic table row.
     attribute_contexts = {
-        attribute.name: select_attribute_context(blocks, attribute)
+        attribute.name: render_canonical_binding(attribute)
         for attribute in attributes
     }
     attribute_images = _images_for_contexts(attribute_contexts, blocks)
-    query_contexts = {
-        attribute.name: select_attribute_context(
-            blocks, attribute, max_chars=QUERY_CONTEXT_CHARS
-        )
-        for attribute in attributes
-    }
 
     if progress_callback:
         progress_callback("queries")
@@ -226,7 +227,7 @@ def run_pipeline(
         attributes,
         config,
         openai_client,
-        query_contexts=query_contexts,
+        query_contexts=attribute_contexts,
         indication=indication,
         progress=progress_callback,
     )

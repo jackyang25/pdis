@@ -152,7 +152,10 @@ class ScoutRecalibrationBoundaryTests(unittest.TestCase):
             ],
         )
 
-        request = ScoutRecalibrationRequest(result=result)
+        request = ScoutRecalibrationRequest(
+            quantitative_contract_version=1,
+            result=result,
+        )
         attributes, blocks, insights = _recalibration_inputs(request.result)
 
         self.assertEqual(attributes[0].document_target, "Target efficacy is at least 80%.")

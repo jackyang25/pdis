@@ -24,7 +24,7 @@ import json
 import logging
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from statistics import fmean, stdev
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -45,13 +45,16 @@ from ..models import (
     ConformityScore,
     Insight,
     LLMClientProtocol,
+    MANDATORY_QUANTITATIVE_AXES,
     Measurement,
+    QUANTITATIVE_COMPARABILITY_AXES,
     QuantitativeTarget,
 )
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 16000
+OWNERSHIP_MAX_TOKENS = 8000
 MEASUREMENT_BATCH_SIZE = 4
 MAX_TARGET_QUOTE_CHARS = 800
 # Keep in lockstep with drift_classifier / evidence_assessor so all three
@@ -69,14 +72,7 @@ CALIBRATION_LIMITED_MIN_COUNT = int(
     _METHODOLOGY["calibration_limited_min_count"]
 )
 
-COMPARABILITY_AXES = (
-    "endpoint",
-    "population",
-    "intervention",
-    "regimen",
-    "time_horizon",
-    "statistic",
-)
+COMPARABILITY_AXES = QUANTITATIVE_COMPARABILITY_AXES
 COMPARABILITY_RELATIONS = frozenset(
     {"same", "compatible", "not_applicable", "different", "unknown"}
 )
@@ -382,7 +378,10 @@ def extract_quantitative_targets(
         )
         parsed = _parse(raw) or {}
         targets = _validated_targets(
-            parsed.get("targets"), attribute=attribute, doc_text=doc_text
+            parsed.get("targets"),
+            attribute=attribute,
+            doc_text=doc_text,
+            require_comparison_axes=True,
         )
         if targets or attempts == 1:
             return targets
@@ -403,6 +402,9 @@ def revalidate_quantitative_targets(
             "role": target.role,
             "quote": target.quote,
             "doc_block_ids": target.doc_block_ids,
+            "required_comparison_axes": target.required_comparison_axes,
+            "ownership_candidates": target.ownership_candidates,
+            "ownership_reason": target.ownership_reason,
         }
         for target in attribute.quantitative_targets
     ]
@@ -411,18 +413,166 @@ def revalidate_quantitative_targets(
     return [target for target in validated if target.id in supplied_ids]
 
 
+def resolve_quantitative_target_ownership(
+    attributes: list[Attribute],
+    llm_client: LLMClientProtocol,
+    *,
+    max_tokens: int = OWNERSHIP_MAX_TOKENS,
+) -> list[Attribute]:
+    """Assign each exact repeated document target to one canonical field.
+
+    A table row may legitimately bind to several overlapping fixed fields. The
+    document fact is still one target, so repeated exact claims are arbitrated
+    once against the closed candidate definitions. Unique targets require no
+    model call. Invalid or omitted arbitration fails closed for that ambiguous
+    group rather than duplicating one cohort under several labels.
+    """
+    attributes_by_name = {attribute.name: attribute for attribute in attributes}
+    original_target_ids = {
+        target.id
+        for attribute in attributes
+        for target in attribute.quantitative_targets
+    }
+    groups: dict[tuple[object, ...], list[QuantitativeTarget]] = {}
+    for attribute in attributes:
+        for target in attribute.quantitative_targets:
+            key = (
+                target.role,
+                target.comparator,
+                target.value,
+                _canonical_unit(target.unit),
+                _normalize_quote(target.quote),
+                tuple(sorted(target.doc_block_ids)),
+            )
+            groups.setdefault(key, []).append(target)
+
+    # Extraction is intentionally per field, so one field may omit a target
+    # that another overlapping field found in the same table row. Build the
+    # arbitration set from every resolved binding that owns the same source
+    # block, not only from model emission. A binding summary may omit one cell
+    # from a multi-value row; the closed field definitions then decide which
+    # candidate most specifically owns the already verified exact claim.
+    for targets in groups.values():
+        exemplar = targets[0]
+        existing_refs = {target.attribute_ref for target in targets}
+        for attribute in attributes:
+            shared_blocks = [
+                block_id
+                for block_id in exemplar.doc_block_ids
+                if block_id in attribute.block_ids
+            ]
+            if (
+                attribute.name in existing_refs
+                or not shared_blocks
+                or not _target_supported_by_binding(
+                    exemplar.value,
+                    exemplar.comparator,
+                    exemplar.unit,
+                    attribute.document_target,
+                )
+            ):
+                continue
+            targets.append(
+                QuantitativeTarget(
+                    attribute_ref=attribute.name,
+                    value=exemplar.value,
+                    comparator=exemplar.comparator,
+                    unit=exemplar.unit,
+                    label=exemplar.label,
+                    role=exemplar.role,
+                    quote=exemplar.quote,
+                    doc_block_ids=shared_blocks,
+                    required_comparison_axes=exemplar.required_comparison_axes,
+                )
+            )
+            existing_refs.add(attribute.name)
+
+    ambiguous: dict[str, list[QuantitativeTarget]] = {}
+    keep_ids = {
+        targets[0].id for targets in groups.values() if len(targets) == 1
+    }
+    replacements: dict[str, QuantitativeTarget] = {}
+    transferred: dict[str, list[QuantitativeTarget]] = {}
+    for key, targets in groups.items():
+        if len(targets) < 2:
+            continue
+        material = json.dumps(key, sort_keys=True, ensure_ascii=False)
+        group_id = "qg-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+        ambiguous[group_id] = targets
+
+    if ambiguous:
+        system_prompt = _ownership_system_prompt()
+        user_message = _ownership_user_message(ambiguous, attributes_by_name)
+        decisions: dict[str, tuple[str, str]] = {}
+        for attempt in range(2):
+            raw = llm_client.call(
+                system_prompt,
+                user_message
+                + (
+                    "\n\nA prior response was incomplete. Return one owner for every "
+                    "group ID above."
+                    if attempt
+                    else ""
+                ),
+                max_tokens=max_tokens,
+            )
+            parsed = _parse(raw) or {}
+            decisions.update(_validated_ownership_decisions(parsed, ambiguous))
+            if set(decisions) == set(ambiguous):
+                break
+
+        for group_id, targets in ambiguous.items():
+            decision = decisions.get(group_id)
+            if decision is None:
+                logger.warning(
+                    "quantitative target ownership unresolved for %s; omitting ambiguous target",
+                    group_id,
+                )
+                continue
+            owner, reason = decision
+            selected = next(target for target in targets if target.attribute_ref == owner)
+            candidate_refs = list(
+                dict.fromkeys(target.attribute_ref for target in targets)
+            )
+            replacements[selected.id] = replace(
+                selected,
+                ownership_candidates=candidate_refs,
+                ownership_reason=reason,
+            )
+            keep_ids.add(selected.id)
+            if selected.id not in original_target_ids:
+                transferred.setdefault(owner, []).append(replacements[selected.id])
+
+    return [
+        replace(
+            attribute,
+            quantitative_targets=[
+                replacements.get(target.id, target)
+                for target in attribute.quantitative_targets
+                if target.id in keep_ids
+            ]
+            + transferred.get(attribute.name, []),
+        )
+        for attribute in attributes
+    ]
+
+
 def _validated_targets(
     items: object,
     *,
     attribute: Attribute,
     doc_text: str,
+    require_comparison_axes: bool = False,
 ) -> list[QuantitativeTarget]:
     if not isinstance(items, list):
         return []
-    # The canonical Attribute binding seeds context selection, but may summarize
-    # only one of several threshold/optimal statements. Every exact block in the
-    # bounded attribute context is therefore eligible for an independent target.
-    allowed_ids = document_block_ids(doc_text) or set(attribute.block_ids)
+    # A target is a fact owned by the canonical field binding, not merely a fact
+    # found in relevance-selected context. Both the rendered input and the
+    # binding must authorize its exact source block.
+    rendered_ids = document_block_ids(doc_text)
+    allowed_ids = set(attribute.block_ids)
+    if rendered_ids:
+        allowed_ids &= rendered_ids
     targets: list[QuantitativeTarget] = []
     seen: set[str] = set()
     for item in items:
@@ -434,6 +584,23 @@ def _validated_targets(
         label = str(item.get("label", "")).strip()
         role = str(item.get("role", "other")).strip().lower()
         quote = str(item.get("quote", "")).strip()
+        required_axes = _validated_required_axes(
+            item.get("required_comparison_axes"),
+            required=require_comparison_axes,
+        )
+        raw_candidates = item.get("ownership_candidates", [])
+        ownership_candidates = (
+            [
+                value.strip()
+                for value in raw_candidates
+                if isinstance(value, str) and value.strip()
+            ]
+            if isinstance(raw_candidates, list)
+            else []
+        )
+        if ownership_candidates and attribute.name not in ownership_candidates:
+            continue
+        ownership_reason = str(item.get("ownership_reason", "")).strip()
         block_ids = validated_block_ids(item.get("doc_block_ids"), allowed_ids)
         source_text = _text_for_blocks(doc_text, block_ids)
         if (
@@ -444,10 +611,14 @@ def _validated_targets(
             or role not in VALID_TARGET_ROLES
             or not block_ids
             or not quote
+            or required_axes is None
             or len(quote) > MAX_TARGET_QUOTE_CHARS
             or not _quote_in_text(quote, source_text)
             or not _value_unit_supported(float(value), unit, quote)
             or not _comparator_supported(comparator, quote)
+            or not _target_supported_by_binding(
+                float(value), comparator, unit, attribute.document_target
+            )
         ):
             continue
         target = QuantitativeTarget(
@@ -459,6 +630,9 @@ def _validated_targets(
             role=role,
             quote=quote,
             doc_block_ids=block_ids,
+            required_comparison_axes=required_axes,
+            ownership_candidates=ownership_candidates,
+            ownership_reason=ownership_reason,
         )
         if target.id in seen:
             continue
@@ -478,25 +652,45 @@ def _classify_target_candidates(
     max_tokens: int,
 ) -> list[Measurement]:
     numeric_candidates = _numeric_candidates(insights, target.unit)
-    by_id = {candidate.id: candidate for candidate in numeric_candidates}
     measurements: list[Measurement] = []
     decided: set[str] = set()
     for start in range(0, len(numeric_candidates), MEASUREMENT_BATCH_SIZE):
         batch = numeric_candidates[start : start + MEASUREMENT_BATCH_SIZE]
+        system_prompt = _measurement_system_prompt(
+            attribute,
+            target=target,
+            indication=indication,
+            intervention_class=intervention_class,
+        )
+        user_message = _measurement_user_message(target, batch)
         raw = llm_client.call(
-            _measurement_system_prompt(
-                attribute,
-                target=target,
-                indication=indication,
-                intervention_class=intervention_class,
-            ),
-            _measurement_user_message(target, batch),
+            system_prompt,
+            user_message,
             max_tokens=max_tokens,
         )
         parsed = _parse(raw) or {}
         batch_measurements = _validated_decisions(
-            parsed.get("decisions"), target=target, candidates=by_id
+            parsed.get("decisions"),
+            target=target,
+            candidates={candidate.id: candidate for candidate in batch},
         )
+        batch_decided = {measurement.candidate_id for measurement in batch_measurements}
+        missing = [candidate for candidate in batch if candidate.id not in batch_decided]
+        if missing:
+            retry = llm_client.call(
+                system_prompt,
+                _measurement_user_message(target, missing)
+                + "\n\nA prior response omitted these candidates. Return exactly one "
+                "closed relevance decision for every candidate listed above.",
+                max_tokens=max_tokens,
+            )
+            retry_parsed = _parse(retry) or {}
+            recovered = _validated_decisions(
+                retry_parsed.get("decisions"),
+                target=target,
+                candidates={candidate.id: candidate for candidate in missing},
+            )
+            batch_measurements.extend(recovered)
         measurements.extend(batch_measurements)
         decided.update(measurement.candidate_id for measurement in batch_measurements)
 
@@ -553,6 +747,12 @@ def _validated_decisions(
         candidate = candidates.get(candidate_id)
         if candidate is None or candidate_id in seen:
             continue
+        # Relevance is required. Missing model output must never silently
+        # promote an exact numeric span into the comparator cohort.
+        relevance = str(item.get("relevance", "")).strip().lower()
+        relevance_reason = str(item.get("relevance_reason", "")).strip()
+        if relevance not in {"relevant", "not_relevant", "unknown"}:
+            continue
         evidence_form = str(item.get("evidence_form", "other")).strip().lower()
         if evidence_form not in VALID_EVIDENCE_FORMS:
             evidence_form = "other"
@@ -562,9 +762,24 @@ def _validated_decisions(
         record_type = str(item.get("source_record_type", "unknown")).strip().lower()
         if record_type not in VALID_SOURCE_RECORD_TYPES:
             record_type = "unknown"
-        comparability, reasons, axis_evidence = _parse_axis_evidence(
-            item.get("comparability"), target=target, candidate=candidate
-        )
+        if relevance == "relevant":
+            comparability, reasons, axis_evidence = _parse_axis_evidence(
+                item.get("comparability"), target=target, candidate=candidate
+            )
+            exclusion_reasons: list[str] = []
+        else:
+            reason = relevance_reason or (
+                "The exact span does not measure this target."
+                if relevance == "not_relevant"
+                else "The exact span is insufficient to determine target relevance."
+            )
+            comparability = {axis: "unknown" for axis in COMPARABILITY_AXES}
+            reasons = {axis: reason for axis in COMPARABILITY_AXES}
+            axis_evidence = {
+                axis: AxisEvidence(relation="unknown", reason=reason)
+                for axis in COMPARABILITY_AXES
+            }
+            exclusion_reasons = [f"candidate relevance: {relevance} — {reason}"]
         source_record_id, source_identity_status = _source_record_identity(
             candidate.finding
         )
@@ -584,6 +799,7 @@ def _validated_decisions(
                 comparability=comparability,
                 comparability_reasons=reasons,
                 axis_evidence=axis_evidence,
+                exclusion_reasons=exclusion_reasons,
             )
         )
         seen.add(candidate_id)
@@ -616,14 +832,85 @@ def _target_system_prompt(
         "that names its qualifiers, and role=threshold|optimal|other. Quote one short exact sentence "
         "or table-cell fragment containing the value, unit, direction, and qualifiers. Do not "
         "paraphrase or return an entire row. Return only blocks containing that quote. "
+        "Also return required_comparison_axes once for the target. endpoint, intervention, and "
+        "statistic are always required. Add population, regimen, and/or time_horizon only when "
+        "the exact target constrains that qualifier. This profile is reused for every source. "
         f"{BLOCK_ID_JSON_INSTRUCTION} Deterministic code verifies every field. If no direct "
         "numeric target exists, return an empty targets list.\n\n"
         "Return ONLY JSON: "
         '{"targets":[{"value":80,"comparator":">","unit":"%",'
         '"label":"threshold >80% at 6 months","role":"threshold",'
         '"quote":"Threshold efficacy >80% at 6 months.",'
+        '"required_comparison_axes":["endpoint","intervention","time_horizon","statistic"],'
         '"doc_block_ids":["document/b-0001"]}]}'
     )
+
+
+def _ownership_system_prompt() -> str:
+    return (
+        "You assign repeated exact document targets to ONE canonical field owner. "
+        "The target value, comparator, unit, quote, and block provenance are immutable. "
+        "Choose only among each group's candidate attribute_ref values. Select the most "
+        "specific neutral field definition that directly describes the measured quantity. "
+        "Do not choose a broad product/container field when a candidate field explicitly "
+        "names the quantity. Do not assign an efficacy value to a clinical-endpoint field: "
+        "the endpoint field owns what is measured, while efficacy owns the numeric effect. "
+        "Likewise, dose volume belongs to dose volume rather than presentation or schedule. "
+        "This is ownership normalization, not evidence judgment. Return one non-empty reason "
+        "for every group and do not invent another field.\n\n"
+        "Return ONLY JSON: "
+        '{"owners":[{"group_id":"qg-...","attribute_ref":"vaccine.efficacy",'
+        '"reason":"The value directly measures protective efficacy."}]}'
+    )
+
+
+def _ownership_user_message(
+    groups: dict[str, list[QuantitativeTarget]],
+    attributes: dict[str, Attribute],
+) -> str:
+    lines = ["Repeated exact target groups:"]
+    for group_id, targets in groups.items():
+        target = targets[0]
+        lines.extend(
+            [
+                "",
+                f"[group:{group_id}] {target.role} {target.comparator} "
+                f"{target.value} {target.unit}",
+                f"Exact target: {target.quote}",
+                "Candidate fields:",
+            ]
+        )
+        for candidate in targets:
+            attribute = attributes[candidate.attribute_ref]
+            binding = " ".join(attribute.document_target.split())[:1_200]
+            lines.append(
+                f"- {attribute.name}: {attribute.description} | canonical binding: {binding}"
+            )
+    lines.append("\nReturn one canonical owner for every group now.")
+    return "\n".join(lines)
+
+
+def _validated_ownership_decisions(
+    parsed: dict,
+    groups: dict[str, list[QuantitativeTarget]],
+) -> dict[str, tuple[str, str]]:
+    raw = parsed.get("owners")
+    if not isinstance(raw, list):
+        return {}
+    output: dict[str, tuple[str, str]] = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        group_id = str(item.get("group_id", "")).strip()
+        owner = str(item.get("attribute_ref", "")).strip()
+        reason = str(item.get("reason", "")).strip()
+        candidates = {
+            target.attribute_ref for target in groups.get(group_id, [])
+        }
+        if group_id in output or owner not in candidates or not reason:
+            continue
+        output[group_id] = (owner, reason[:500])
+    return output
 
 
 def _target_user_message(attribute: Attribute, doc_text: str) -> str:
@@ -657,15 +944,22 @@ def _measurement_system_prompt(
         f"Document target: {target.label} ({target.comparator} {target.value} {target.unit}).\n"
         f"Exact target span [{target.id}]: {target.quote}\n\n"
         "Every candidate has an immutable ID, exact value/unit, URL, and exact retained source "
-        "span. Return only candidate_id; never copy or rewrite those provenance fields. Return at "
+        "span. Return only candidate_id; never copy or rewrite those provenance fields. Return "
+        "EXACTLY ONE decision for EVERY supplied candidate; never omit one. First label relevance "
+        "as relevant, not_relevant, or unknown and explain it briefly. Use not_relevant for a "
+        "confidence bound, sample size, date, duration, background rate, or other number that does "
+        "not measure this target. Use unknown only when the span is genuinely ambiguous. Return at "
         "most one decision-relevant point estimate per distinct source record. Do not calculate, "
         "convert units, infer missing values, use a confidence level as an outcome, or use a number "
-        "merely because it appears in the passage. Omit candidates that do not measure this variable.\n\n"
+        "merely because it appears in the passage. Label candidates that do not measure this "
+        "variable not_relevant; do not omit them.\n\n"
+        f"Required target comparison axes: {', '.join(target.required_comparison_axes)}. "
         "Classify endpoint, population, intervention, regimen, time_horizon, and statistic as "
         "same, compatible, not_applicable, different, or unknown, with a short reason. compatible "
         "is a defensible but non-identical comparator; different must not enter the direct cohort. "
-        "Use unknown when the supplied spans do not establish an axis. Use not_applicable only when "
-        "the target itself does not constrain that axis. For every axis, target_span_ids may contain "
+        "Use unknown when the supplied spans do not establish a required axis. Return "
+        "not_applicable for axes not listed as required; deterministic validation enforces this "
+        "target-level profile for every source. For every axis, target_span_ids may contain "
         f"only {target.id}; source_span_ids may contain only that decision's candidate_id. "
         "same/compatible/different require both spans, not_applicable requires the target span, and "
         "unknown uses neither.\n\n"
@@ -675,6 +969,7 @@ def _measurement_system_prompt(
         f"source_record_type: {', '.join(sorted(VALID_SOURCE_RECORD_TYPES))}\n\n"
         "Return ONLY JSON: "
         '{"decisions":[{"candidate_id":"qc-123","evidence_form":"randomized_trial",'
+        '"relevance":"relevant","relevance_reason":"reports the target endpoint",'
         '"development_phase":"phase_3","source_record_type":"peer_reviewed",'
         '"comparability":{"endpoint":{"relation":"same","reason":"same endpoint",'
         f'"target_span_ids":["{target.id}"],"source_span_ids":["qc-123"]}},'
@@ -783,7 +1078,19 @@ def _parse_axis_evidence(
     relations: dict[str, str] = {}
     reasons: dict[str, str] = {}
     evidence_by_axis: dict[str, AxisEvidence] = {}
+    required_axes = set(target.required_comparison_axes)
     for axis in COMPARABILITY_AXES:
+        if axis not in required_axes:
+            reason = "The verified document target does not constrain this axis."
+            relations[axis] = "not_applicable"
+            reasons[axis] = reason
+            evidence_by_axis[axis] = AxisEvidence(
+                relation="not_applicable",
+                reason=reason,
+                target_span_ids=[target.id],
+                target_quotes=[target.quote],
+            )
+            continue
         item = payload.get(axis)
         item = item if isinstance(item, dict) else {}
         relation = str(item.get("relation", "unknown")).strip().lower()
@@ -831,6 +1138,32 @@ def _validated_span_ids(raw: object, allowed: set[str]) -> list[str]:
             if isinstance(item, str) and item.strip() in allowed
         )
     )
+
+
+def _validated_required_axes(
+    raw: object,
+    *,
+    required: bool,
+) -> list[str] | None:
+    """Validate the target-level comparability profile as one closed contract."""
+    if raw is None and not required:
+        return list(COMPARABILITY_AXES)
+    if not isinstance(raw, list):
+        return None
+    axes = list(
+        dict.fromkeys(
+            item.strip()
+            for item in raw
+            if isinstance(item, str) and item.strip()
+        )
+    )
+    if (
+        not axes
+        or set(axes) - set(COMPARABILITY_AXES)
+        or not MANDATORY_QUANTITATIVE_AXES.issubset(axes)
+    ):
+        return None
+    return [axis for axis in COMPARABILITY_AXES if axis in axes]
 
 
 def _is_finite_number(value: object) -> bool:
@@ -883,6 +1216,26 @@ def _value_unit_supported(value: float, unit: str, quote: str) -> bool:
     return any(
         math.isclose(candidate, value, rel_tol=1e-9, abs_tol=1e-9)
         for candidate in _numeric_values_for_unit(quote, unit)
+    )
+
+
+def _target_supported_by_binding(
+    value: float,
+    comparator: str,
+    unit: str,
+    binding: str,
+) -> bool:
+    """Require the canonical field binding itself to own the numeric target.
+
+    Exact source blocks prove that a number exists in the document. This check
+    separately proves that the resolved field owns it. Failing closed may omit
+    an incompletely bound target, but it prevents a neighboring field from
+    donating one.
+    """
+    return (
+        bool(binding)
+        and _value_unit_supported(value, unit, binding)
+        and _comparator_supported(comparator, binding)
     )
 
 

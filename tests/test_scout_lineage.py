@@ -10,7 +10,12 @@ from pathlib import Path
 from services.chunker import ContentBlock
 from api.schemas import ConformityOut
 from services.assistant import document as document_reader
-from services.scout.context import select_attribute_context, validated_block_ids
+from services.scout.context import (
+    render_canonical_binding,
+    select_binding_context,
+    select_resolution_context,
+    validated_block_ids,
+)
 from services.scout.projections import (
     build_development_landscape,
     build_safety_signals,
@@ -30,6 +35,7 @@ from services.scout.stages.conformity import (
     _numeric_spans_for_unit,
     _value_unit_supported,
     extract_quantitative_targets,
+    resolve_quantitative_target_ownership,
     score_conformity as _score_conformity_ledgers,
 )
 from services.scout.stages.context_validator import (
@@ -116,7 +122,27 @@ def normalize_conformity_fixture(
         return response
     if "enumerate exact quantitative document targets" in system_prompt.lower():
         if "targets" in response:
-            return response
+            return {
+                **response,
+                "targets": [
+                    {
+                        **target,
+                        "required_comparison_axes": target.get(
+                            "required_comparison_axes",
+                            [
+                                "endpoint",
+                                "population",
+                                "intervention",
+                                "regimen",
+                                "time_horizon",
+                                "statistic",
+                            ],
+                        ),
+                    }
+                    for target in response.get("targets", [])
+                    if isinstance(target, dict)
+                ],
+            }
         if not response.get("is_quantitative"):
             return {"targets": []}
         return {
@@ -129,13 +155,33 @@ def normalize_conformity_fixture(
                     "role": "threshold",
                     "quote": response.get("target_quote"),
                     "doc_block_ids": response.get("doc_block_ids", []),
+                    "required_comparison_axes": [
+                        "endpoint",
+                        "population",
+                        "intervention",
+                        "regimen",
+                        "time_horizon",
+                        "statistic",
+                    ],
                 }
             ]
         }
     if "classify immutable numeric source candidates" not in system_prompt.lower():
         return response
     if "decisions" in response:
-        return response
+        return {
+            "decisions": [
+                {
+                    **decision,
+                    "relevance": decision.get("relevance", "relevant"),
+                    "relevance_reason": decision.get(
+                        "relevance_reason", "The candidate measures the target."
+                    ),
+                }
+                for decision in response.get("decisions", [])
+                if isinstance(decision, dict)
+            ]
+        }
     target_match = re.search(r"Document target ID: (qt-[a-f0-9]+)", system_prompt)
     target_id = target_match.group(1) if target_match else ""
     candidates: list[tuple[str, float, str]] = []
@@ -174,6 +220,8 @@ def normalize_conformity_fixture(
         decisions.append(
             {
                 "candidate_id": candidate_id,
+                "relevance": "relevant",
+                "relevance_reason": "The candidate measures the target.",
                 "evidence_form": item.get("evidence_form", "other"),
                 "development_phase": item.get("development_phase", "unknown"),
                 "source_record_type": item.get("source_record_type", "unknown"),
@@ -184,6 +232,17 @@ def normalize_conformity_fixture(
 
 
 def score_conformity_ledgers(attribute, document, insights, client, **kwargs):
+    # Production calibration receives a resolved binding whose text/blocks agree
+    # with the supplied document context. Keep historical fixtures at that same
+    # boundary even when an individual test swaps the numeric document text.
+    binding_text = re.sub(r"\[block:[^\]]+\][^\n]*\n", "", document).strip()
+    binding_ids = re.findall(r"\[block:([^\]]+)\]", document)
+    attribute = replace(
+        attribute,
+        document_target=binding_text,
+        block_ids=binding_ids,
+        target_resolved=True,
+    )
     targets = extract_quantitative_targets(
         attribute,
         document,
@@ -379,6 +438,39 @@ class SearchProvenanceTests(unittest.TestCase):
             [(path.query, path.lane) for path in merged.retrieval_paths],
             [("first", "web"), ("second", "pubmed")],
         )
+
+    def test_reference_excerpt_cannot_leak_into_merged_evidence(self) -> None:
+        evidence = finding(
+            "https://example.test/shared",
+            source="pubmed",
+            excerpt="Evidence-owned passage.",
+        )
+        reference = finding(
+            "https://example.test/shared",
+            source="chembl",
+            excerpt="Reference catalog description that is much longer than the evidence passage.",
+        )
+        reference.evidence_role = "reference"
+
+        merged = merge_findings(evidence, reference)
+        self.assertEqual(merged.evidence_role, "evidence")
+        self.assertEqual(merged.excerpt, "Evidence-owned passage.")
+        self.assertEqual(merged.excerpt_source_lane, "pubmed")
+
+        reference_first = finding(
+            "https://example.test/shared-2",
+            source="chembl",
+            excerpt="Long reference-only catalog description.",
+        )
+        reference_first.evidence_role = "reference"
+        evidence_second = finding(
+            "https://example.test/shared-2",
+            source="pubmed",
+            excerpt="Short evidence passage.",
+        )
+        merged_reversed = merge_findings(reference_first, evidence_second)
+        self.assertEqual(merged_reversed.excerpt, "Short evidence passage.")
+        self.assertEqual(merged_reversed.excerpt_source_lane, "pubmed")
 
     def test_structured_projections_group_records_without_inference(self) -> None:
         first = finding("https://example.test/trial", source="clinicaltrials")
@@ -627,6 +719,66 @@ class RetrievalPlanningTests(unittest.TestCase):
         )
         self.assertEqual(set(requests[0].target_refs), {target.id for target in targets})
 
+    def test_repeated_numeric_claim_has_one_canonical_field_owner(self) -> None:
+        shared = dict(
+            value=0.5,
+            comparator="<",
+            unit="mL/dose",
+            label="pediatric dose volume",
+            role="optimal",
+            quote="Dose volume: <0.5 mL/dose for pediatric use.",
+            doc_block_ids=["document/b-0003"],
+        )
+        attributes = [
+            Attribute(
+                name="vaccine.product",
+                description="Candidate platform and formulation",
+                document_target=shared["quote"],
+                block_ids=shared["doc_block_ids"],
+                target_resolved=True,
+                quantitative_targets=[
+                    QuantitativeTarget(attribute_ref="vaccine.product", **shared)
+                ],
+            ),
+            Attribute(
+                name="vaccine.dose_volume",
+                description="Volume per dose in mL",
+                document_target=shared["quote"],
+                block_ids=shared["doc_block_ids"],
+                target_resolved=True,
+                quantitative_targets=[],
+            ),
+        ]
+
+        class OwnershipClient:
+            def call(self, system_prompt, user_message, max_tokens, *, images=None):
+                group_id = re.search(r"\[group:(qg-[a-f0-9]+)\]", user_message)
+                assert group_id is not None
+                return json.dumps(
+                    {
+                        "owners": [
+                            {
+                                "group_id": group_id.group(1),
+                                "attribute_ref": "vaccine.dose_volume",
+                                "reason": "This field directly names the measured quantity.",
+                            }
+                        ]
+                    }
+                )
+
+        resolved = resolve_quantitative_target_ownership(
+            attributes, OwnershipClient()
+        )
+
+        self.assertEqual(resolved[0].quantitative_targets, [])
+        self.assertEqual(len(resolved[1].quantitative_targets), 1)
+        target = resolved[1].quantitative_targets[0]
+        self.assertEqual(
+            target.ownership_candidates,
+            ["vaccine.product", "vaccine.dose_volume"],
+        )
+        self.assertIn("directly names", target.ownership_reason)
+
     def test_plain_text_literature_plan_covers_every_variant(self) -> None:
         attribute = Attribute("durability", "Duration of protection")
         variants = [
@@ -792,9 +944,32 @@ class DocumentContextTests(unittest.TestCase):
             block_ids=["document/b-0012"],
         )
 
-        context = select_attribute_context(blocks, attribute, max_chars=1_200)
+        context = select_resolution_context(blocks, attribute, max_chars=1_200)
 
         self.assertIn("[block:document/b-0012]", context)
+
+    def test_reasoning_binding_excludes_adjacent_table_cell_content(self) -> None:
+        blocks = [
+            block(
+                3,
+                "Dose volume: <0.5 mL/dose. Schedule: three annual doses.",
+            )
+        ]
+        attribute = Attribute(
+            name="vaccine.dose_volume",
+            description="Volume per dose in mL",
+            block_ids=["document/b-0003"],
+            document_target="Dose volume: <0.5 mL/dose.",
+            target_resolved=True,
+        )
+
+        raw = select_binding_context(blocks, attribute)
+        canonical = render_canonical_binding(attribute)
+
+        self.assertIn("three annual doses", raw)
+        self.assertNotIn("three annual doses", canonical)
+        self.assertIn("[block:document/b-0003]", canonical)
+        self.assertIn(attribute.document_target, canonical)
 
     def test_unit_extraction_chunks_preserve_all_annotated_text(self) -> None:
         document = "\n\n".join(
@@ -863,7 +1038,13 @@ class ReasoningLineageTests(unittest.TestCase):
             attribute_ref="efficacy",
         )
         self.document = "[block:document/b-0003]\nTarget efficacy is at least 80%."
-        self.attribute = Attribute("efficacy", "Target product efficacy")
+        self.attribute = Attribute(
+            "efficacy",
+            "Target product efficacy",
+            block_ids=["document/b-0003"],
+            document_target="Target efficacy is at least 80%.",
+            target_resolved=True,
+        )
 
     def test_assessment_keeps_only_selected_insight_sources(self) -> None:
         client = StaticClient(
@@ -913,7 +1094,7 @@ class ReasoningLineageTests(unittest.TestCase):
         )
 
         self.assertEqual(result.strength, "unknown")
-        self.assertEqual(result.doc_target, "at least 80% efficacy")
+        self.assertEqual(result.doc_target, "Target efficacy is at least 80%.")
         self.assertEqual(result.doc_block_ids, ["document/b-0003"])
 
     def test_reasoning_cannot_rewrite_a_resolved_document_target(self) -> None:
@@ -968,6 +1149,30 @@ class ReasoningLineageTests(unittest.TestCase):
         )
 
         self.assertEqual(result[0].doc_block_ids, ["document/b-0003"])
+
+    def test_drift_fails_closed_without_valid_document_lineage(self) -> None:
+        client = StaticClient(
+            [
+                {
+                    "index": 0,
+                    "relation": "confirms",
+                    "reason": "The endpoint supports the stated target.",
+                    "doc_block_ids": ["invented/b-9999"],
+                }
+            ]
+        )
+
+        result = classify_drift(
+            [self.document],
+            [self.first],
+            client,
+            indication="test",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(result[0].relation, "unrelated")
+        self.assertEqual(result[0].doc_block_ids, [])
+        self.assertIn("lineage", result[0].reason)
 
     def test_conformity_rejects_url_not_owned_by_selected_insight(self) -> None:
         client = StaticClient(
@@ -1505,6 +1710,9 @@ class ReasoningLineageTests(unittest.TestCase):
                     "role": "threshold",
                     "quote": "Threshold efficacy is at least 80% at 6 months.",
                     "doc_block_ids": ["document/b-0003"],
+                    "required_comparison_axes": [
+                        "endpoint", "intervention", "time_horizon", "statistic"
+                    ],
                 },
                 {
                     "value": 90,
@@ -1514,6 +1722,9 @@ class ReasoningLineageTests(unittest.TestCase):
                     "role": "optimal",
                     "quote": "Optimal efficacy is at least 90% at 12 months.",
                     "doc_block_ids": ["document/b-0004"],
+                    "required_comparison_axes": [
+                        "endpoint", "intervention", "time_horizon", "statistic"
+                    ],
                 },
             ]
         }
@@ -1539,6 +1750,14 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual([ledger.target_value for ledger in ledgers], [80, 90])
         self.assertEqual([ledger.target_meeting_count for ledger in ledgers], [1, 0])
         self.assertNotEqual(ledgers[0].target_id, ledgers[1].target_id)
+        self.assertEqual(
+            ledgers[0].measurements[0].axis_evidence["population"].relation,
+            "not_applicable",
+        )
+        self.assertEqual(
+            ledgers[0].measurements[0].axis_evidence["regimen"].relation,
+            "not_applicable",
+        )
 
     def test_invalid_axis_span_ids_cannot_enter_the_numeric_cohort(self) -> None:
         target_response = {
@@ -1551,6 +1770,9 @@ class ReasoningLineageTests(unittest.TestCase):
                     "role": "threshold",
                     "quote": "Target efficacy is at least 80%.",
                     "doc_block_ids": ["document/b-0003"],
+                    "required_comparison_axes": [
+                        "endpoint", "intervention", "statistic"
+                    ],
                 }
             ]
         }
@@ -1576,6 +1798,8 @@ class ReasoningLineageTests(unittest.TestCase):
                         "decisions": [
                             {
                                 "candidate_id": candidate.group(1),
+                                "relevance": "relevant",
+                                "relevance_reason": "The candidate measures the target.",
                                 "comparability": axis_payload,
                             }
                         ]
@@ -1593,11 +1817,68 @@ class ReasoningLineageTests(unittest.TestCase):
 
         self.assertEqual(ledgers[0].benchmark_count, 0)
         self.assertEqual(len(ledgers[0].excluded_measurements), 1)
+        axis_evidence = ledgers[0].excluded_measurements[0].axis_evidence
         self.assertTrue(
             all(
-                evidence.relation == "unknown"
-                for evidence in ledgers[0].excluded_measurements[0].axis_evidence.values()
+                axis_evidence[axis].relation == "unknown"
+                for axis in ("endpoint", "intervention", "statistic")
             )
+        )
+        self.assertTrue(
+            all(
+                axis_evidence[axis].relation == "not_applicable"
+                for axis in ("population", "regimen", "time_horizon")
+            )
+        )
+
+    def test_missing_candidate_relevance_fails_closed_after_retry(self) -> None:
+        target = QuantitativeTarget(
+            attribute_ref="efficacy",
+            value=80,
+            comparator=">=",
+            unit="%",
+            label="threshold >=80%",
+            role="threshold",
+            quote="Target efficacy is at least 80%.",
+            doc_block_ids=["document/b-0003"],
+            required_comparison_axes=["endpoint", "intervention", "statistic"],
+        )
+        attribute = replace(self.attribute, quantitative_targets=[target])
+
+        class MissingRelevanceClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def call(self, system_prompt, user_message, max_tokens, *, images=None):
+                self.calls += 1
+                candidate = re.search(r"\[candidate:(qc-[a-f0-9]+)\]", user_message)
+                assert candidate is not None
+                return json.dumps(
+                    {
+                        "decisions": [
+                            {
+                                "candidate_id": candidate.group(1),
+                                "comparability": same_comparability(),
+                            }
+                        ]
+                    }
+                )
+
+        client = MissingRelevanceClient()
+        ledgers = _score_conformity_ledgers(
+            attribute,
+            [self.first],
+            client,
+            indication="test",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(ledgers[0].benchmark_count, 0)
+        self.assertEqual(len(ledgers[0].excluded_measurements), 1)
+        self.assertIn(
+            "not semantically classified",
+            ledgers[0].excluded_measurements[0].exclusion_reasons[0],
         )
 
     def test_precedent_keeps_coverage_and_outcome_separate(self) -> None:

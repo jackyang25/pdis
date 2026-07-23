@@ -44,13 +44,18 @@ def render_document_context(blocks: Iterable[ContentBlock]) -> str:
     return "\n\n".join(_render_block(block) for block in blocks)
 
 
-def select_attribute_context(
+def select_resolution_context(
     blocks: list[ContentBlock],
     attribute: Attribute,
     *,
     max_chars: int = ATTRIBUTE_CONTEXT_CHARS,
 ) -> str:
-    """Return a bounded document view for one variable without head-only loss."""
+    """Return a bounded document view used only to locate a fixed field binding.
+
+    This relevance-selected view is intentionally broader than the field's final
+    provenance boundary. Once a binding is resolved, every downstream document-
+    aware stage must use :func:`select_binding_context` instead.
+    """
     if not blocks:
         return ""
     rendered = [_render_block(block) for block in blocks]
@@ -106,6 +111,39 @@ def select_attribute_context(
             selected.add(index)
 
     return _render_with_budget(rendered, selected, max_chars)
+
+
+def select_binding_context(
+    blocks: list[ContentBlock],
+    attribute: Attribute,
+) -> str:
+    """Render raw exact blocks owned by a canonical field binding.
+
+    This is the fact-verification view: stages that exact-quote or revalidate
+    document facts need the original bytes/text. It may still contain adjacent
+    table cells, so qualitative reasoning must use
+    :func:`render_canonical_binding` instead.
+    """
+    owned = set(attribute.block_ids)
+    if not owned:
+        return ""
+    return render_document_context(block for block in blocks if block.id in owned)
+
+
+def render_canonical_binding(attribute: Attribute) -> str:
+    """Render the resolved field target with its exact provenance markers.
+
+    Table-row blocks can contain several neighboring variables. Once the field
+    resolver has produced the canonical target, downstream queries and judgments
+    should reason over that target—not the rest of the coarse source row—while
+    retaining the exact block IDs that authorize citations.
+    """
+    if not attribute.document_target or not attribute.block_ids:
+        return ""
+    return "\n\n".join(
+        f"[block:{block_id}]\n{attribute.document_target}"
+        for block_id in attribute.block_ids
+    )
 
 
 def limit_document_context(text: str, *, max_chars: int = WHOLE_DOCUMENT_CONTEXT_CHARS) -> str:

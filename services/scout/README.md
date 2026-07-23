@@ -19,7 +19,7 @@ TPP definitions and IPDP claims converge to one `Attribute` before retrieval:
 | `target_resolved` | Binding completed, including an intentionally absent target |
 | `evidence_domain` | Closed source-applicability domain |
 | `entities` | Explicit document-stated typed entities |
-| `quantitative_targets` | Independently verified numeric claims with immutable IDs, exact source text, units, roles, and block lineage |
+| `quantitative_targets` | Independently verified numeric claims with one canonical field owner, immutable IDs, exact source text, units, roles, required comparison axes, and block lineage |
 
 No reasoning stage may rewrite this canonical target.
 
@@ -96,13 +96,15 @@ as external evidence underneath it.
 8. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches from evidence-role Findings only. Reference-only catalog/entity records cannot influence reasoning. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs. Insights retain which target-specific requests retrieved their sources, explicitly as coverage rather than evidence support.
 9. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
 10. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources without allowing the canonical target to drift.
-11. **quantitative calibration** - calibration consumes the already verified target bundle; it never re-extracts or merges targets. Threshold, optimal, population-specific, and time-specific targets remain separate ledgers. The model proposes exact source-candidate spans and closed axis labels; it cannot rewrite a target value, URL, quote, or provenance. Invalid axis citations become `unknown` and cannot enter the cohort. Every retained source passage containing a number in the target unit is classified or remains visible as an explicit exclusion. The strict axis policy requires endpoint/statistic matches, permits an explicit comparator intervention, and requires population/regimen/time horizon to match or be inapplicable. Only the included, study-deduplicated cohort produces minimum/maximum/mean/median/quartiles/observed standard deviation, target/ambition percentiles, and the literal target-meeting share. These describe the selected cohort only and are never presented as confidence intervals or forecast probabilities. Web-search citation context is never accepted as a verbatim paper passage, and descriptive labels never numerically weight the result.
+11. **quantitative calibration** - calibration consumes the already verified target bundle; it never re-extracts targets. Repeated exact claims from overlapping fields are first assigned to one most-specific candidate field, with the candidates and reason retained. Threshold, optimal, population-specific, and time-specific targets remain separate ledgers. Each target fixes its required comparison axes once; endpoint, intervention, and statistic are always required, while population, regimen, and time horizon are required only when the exact document target constrains them. The model proposes exact source-candidate spans and closed axis labels; it cannot rewrite a target value, URL, quote, provenance, ownership, or applicability profile. Invalid axis citations become `unknown` and cannot enter the cohort. Every retained source passage containing a number in the target unit is classified or remains visible as an explicit exclusion. Only the included, study-deduplicated cohort produces minimum/maximum/mean/median/quartiles/observed standard deviation, target/ambition percentiles, and the literal target-meeting share. These describe the selected cohort only and are never presented as confidence intervals or forecast probabilities. Web-search citation context is never accepted as a verbatim paper passage, and descriptive labels never numerically weight the result.
 12. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and canonical document blocks.
 
-Long documents are not truncated from the end. Vocabulary units receive a
+Long documents are not truncated from the end. Fixed vocabulary units receive a
 relevance-selected context with neighboring blocks and a document-wide safety
-net; extracted units additionally seed their originating blocks. Parallel calls
-are isolated by variable and `_parallel_map` preserves input order.
+net only while their canonical binding is resolved. After that boundary, raw
+bound blocks are reserved for exact fact validation; query generation and
+document-aware reasoning receive the canonical target with those block markers.
+Parallel calls are isolated by variable and `_parallel_map` preserves input order.
 
 Each step is one stage in `services/scout/stages/`.
 

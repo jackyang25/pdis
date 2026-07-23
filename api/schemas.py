@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class DocumentType(BaseModel):
@@ -205,6 +205,42 @@ class QuantitativeTargetOut(BaseModel):
     role: Literal["threshold", "optimal", "other"]
     quote: str
     doc_block_ids: list[str] = Field(default_factory=list)
+    required_comparison_axes: list[
+        Literal[
+            "endpoint",
+            "population",
+            "intervention",
+            "regimen",
+            "time_horizon",
+            "statistic",
+        ]
+    ] = Field(
+        default_factory=lambda: [
+            "endpoint",
+            "population",
+            "intervention",
+            "regimen",
+            "time_horizon",
+            "statistic",
+        ]
+    )
+    ownership_candidates: list[str] = Field(default_factory=list)
+    ownership_reason: str = ""
+
+    @field_validator("required_comparison_axes")
+    @classmethod
+    def validate_required_comparison_axes(cls, value: list[str]) -> list[str]:
+        axes = list(dict.fromkeys(value))
+        if not {"endpoint", "intervention", "statistic"}.issubset(axes):
+            raise ValueError(
+                "endpoint, intervention, and statistic comparison axes are required"
+            )
+        return axes
+
+    @field_validator("ownership_candidates")
+    @classmethod
+    def deduplicate_ownership_candidates(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(item.strip() for item in value if item.strip()))
 
 
 class VariableOut(BaseModel):
@@ -345,6 +381,7 @@ class ScoutRunResponse(BaseModel):
 class ScoutRecalibrationRequest(BaseModel):
     """Current Scout wire result used for a retrieval-free metric rebuild."""
 
+    quantitative_contract_version: Literal[1]
     result: ScoutRunResponse
 
 

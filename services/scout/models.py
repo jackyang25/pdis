@@ -31,6 +31,15 @@ VALID_EVIDENCE_STRENGTHS = {
 VALID_PRECEDENT = {"direct", "adjacent", "none", "unknown"}
 VALID_PRECEDENT_OUTCOMES = {"favorable", "mixed", "unfavorable", "unknown"}
 VALID_CONTEXT_STATUSES = {"match", "mismatch", "uncertain"}
+QUANTITATIVE_COMPARABILITY_AXES = (
+    "endpoint",
+    "population",
+    "intervention",
+    "regimen",
+    "time_horizon",
+    "statistic",
+)
+MANDATORY_QUANTITATIVE_AXES = frozenset({"endpoint", "intervention", "statistic"})
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> "ScoutTypeConfig":
@@ -312,6 +321,14 @@ class QuantitativeTarget:
     role: str
     quote: str
     doc_block_ids: list[str]
+    # Decided once from the document target, then reused for every source
+    # candidate. This prevents per-paper reinterpretation of whether a target
+    # actually constrains population, regimen, or follow-up.
+    required_comparison_axes: list[str] = field(
+        default_factory=lambda: list(QUANTITATIVE_COMPARABILITY_AXES)
+    )
+    ownership_candidates: list[str] = field(default_factory=list)
+    ownership_reason: str = ""
     id: str = ""
 
     def __post_init__(self) -> None:
@@ -319,6 +336,24 @@ class QuantitativeTarget:
         # either ``80`` or ``80.0``. Normalize before deriving identity so a
         # portable round trip cannot change the target ID.
         self.value = float(self.value)
+        self.required_comparison_axes = list(
+            dict.fromkeys(self.required_comparison_axes)
+        )
+        unknown_axes = set(self.required_comparison_axes) - set(
+            QUANTITATIVE_COMPARABILITY_AXES
+        )
+        if unknown_axes or not MANDATORY_QUANTITATIVE_AXES.issubset(
+            self.required_comparison_axes
+        ):
+            raise ValueError("invalid required quantitative comparison axes")
+        self.ownership_candidates = list(dict.fromkeys(self.ownership_candidates))
+        if not self.ownership_candidates:
+            self.ownership_candidates = [self.attribute_ref]
+        if self.attribute_ref not in self.ownership_candidates:
+            raise ValueError("quantitative target owner must be an ownership candidate")
+        self.ownership_reason = self.ownership_reason.strip() or (
+            "Only this canonical field produced the validated target."
+        )
         if not self.id:
             material = "\n".join(
                 (

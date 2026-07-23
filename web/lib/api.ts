@@ -355,6 +355,16 @@ export type QuantitativeTarget = {
   role: "threshold" | "optimal" | "other";
   quote: string;
   doc_block_ids: string[];
+  required_comparison_axes: Array<
+    | "endpoint"
+    | "population"
+    | "intervention"
+    | "regimen"
+    | "time_horizon"
+    | "statistic"
+  >;
+  ownership_candidates: string[];
+  ownership_reason: string;
 };
 
 export type ScoutResponse = {
@@ -591,7 +601,7 @@ export async function recalibrateScout(
 ): Promise<{ conformity: Conformity[] }> {
   return streamRequest(
     "/api/scout/recalibrate",
-    JSON.stringify({ result }),
+    JSON.stringify({ quantitative_contract_version: 1, result }),
     onStage,
     { "Content-Type": "application/json" },
   );

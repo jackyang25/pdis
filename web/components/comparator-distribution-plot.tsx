@@ -3,16 +3,17 @@ import {
   buildComparatorDistribution,
   type DistributionPoint,
 } from "@/lib/comparator-distribution";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 function formatValue(value: number, unit: string): string {
-  const formatted = value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+  const formatted = value.toLocaleString(undefined, { maximumFractionDigits: 2 });
   return unit ? `${formatted}${unit}` : formatted;
 }
 
-function tooltipAlignment(x: number): string {
-  if (x < 18) return "left-0";
-  if (x > 82) return "right-0";
-  return "left-1/2 -translate-x-1/2";
+function popoverAlignment(x: number): "start" | "center" | "end" {
+  if (x < 18) return "start";
+  if (x > 82) return "end";
+  return "center";
 }
 
 function Point({
@@ -29,32 +30,41 @@ function Point({
     ? point.exclusion_reasons.join(" · ")
     : `Identity: ${point.source_identity_status.replaceAll("_", " ")}`;
   return (
-    <span
-      className="group/point absolute z-10 -translate-x-1/2 outline-none"
-      style={{ left: `${point.x}%`, top: `calc(50% + ${laneOffsets[point.lane]}px)` }}
-      tabIndex={0}
-      role="img"
-      aria-label={`${contextual ? "Contextual measurement" : "Included comparator"}: ${formatValue(point.value, unit)}. ${point.source_quote}`}
-    >
-      <span
-        className={contextual
-          ? "block h-2.5 w-2.5 -translate-y-1/2 rounded-full border border-muted-foreground bg-card ring-2 ring-card"
-          : "block h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-foreground/75 ring-2 ring-card"}
-      />
-      <span
-        className={`pointer-events-none absolute bottom-3 z-30 hidden w-56 rounded-md border border-border bg-popover px-2.5 py-2 text-left shadow-md group-hover/point:block group-focus/point:block ${tooltipAlignment(point.x)}`}
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="absolute z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/30"
+          style={{ left: `${point.x}%`, top: `calc(50% + ${laneOffsets[point.lane]}px)` }}
+          aria-label={`${contextual ? "Contextual measurement" : "Included comparator"}: ${formatValue(point.value, unit)}. ${point.source_quote}`}
+        >
+          <span
+            className={contextual
+              ? "block h-2.5 w-2.5 rounded-full border border-muted-foreground bg-card ring-2 ring-card"
+              : "block h-2.5 w-2.5 rounded-full bg-foreground/75 ring-2 ring-card"}
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align={popoverAlignment(point.x)}
+        sideOffset={6}
+        className="w-[min(300px,calc(100vw-32px))] p-3"
       >
-        <span className="block text-[11px] font-semibold text-foreground">
+        <p className="text-xs font-semibold text-foreground">
           {formatValue(point.value, unit)} · {contextual ? "Context only" : "Direct comparator"}
-        </span>
-        <span className="mt-1 block text-[10px] leading-relaxed text-foreground/80">
-          “{point.source_quote}”
-        </span>
-        <span className="mt-1 block truncate text-[10px] text-muted-foreground">
-          {point.source_record_id || "Source record"} · {detail}
-        </span>
-      </span>
-    </span>
+        </p>
+        <blockquote className="mt-2 border-l-2 border-border pl-2.5 text-[11px] leading-relaxed text-foreground/80">
+          {point.source_quote}
+        </blockquote>
+        <p className="mt-2 break-words text-[10px] leading-relaxed text-muted-foreground">
+          {point.source_record_id || "Source record"}
+        </p>
+        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground/80">
+          {detail || "Retained as related numeric context."}
+        </p>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -62,6 +72,7 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
   const distributionMeasurement = (measurement: Conformity["measurements"][number]) => ({
     value: measurement.expression.value ?? Number.NaN,
     unit: measurement.expression.unit,
+    expressionKind: measurement.expression.kind,
     source_quote: measurement.source_quote,
     source_record_id: measurement.source_record_id,
     source_identity_status: measurement.source_identity_status,
@@ -82,6 +93,7 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
   if (!model) return null;
   const hasIncluded = model.included.length > 0;
   const hasExcluded = model.excluded.length > 0;
+  const showQuartiles = model.included.length >= 4;
   const excludedLabelTop = hasIncluded ? 132 : 68;
   const excludedAxisTop = hasIncluded ? 140 : 74;
   const excludedPointsTop = hasIncluded ? 119 : 53;
@@ -137,11 +149,13 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
                 className="absolute top-[63px] h-0.5 bg-muted-foreground/50"
                 style={{ left: `${rangeLeft}%`, width: `${rangeWidth}%` }}
               />
-              <div
-                className="absolute top-[59px] h-2.5 rounded-sm bg-muted-foreground/20"
-                style={{ left: `${quartileLeft}%`, width: `${Math.max(quartileWidth, 0.35)}%` }}
-                title="Middle 50% of included comparators"
-              />
+              {showQuartiles && (
+                <div
+                  className="absolute top-[59px] h-2.5 rounded-sm bg-muted-foreground/20"
+                  style={{ left: `${quartileLeft}%`, width: `${Math.max(quartileWidth, 0.35)}%` }}
+                  title="Middle 50% of included comparators"
+                />
+              )}
               <div
                 className="absolute top-[55px] h-[18px] w-px bg-foreground/55"
                 style={{ left: `${model.medianX}%` }}
@@ -192,13 +206,13 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[9px] text-muted-foreground">
         {hasIncluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-foreground/75" />Direct comparator</span>}
-        {hasIncluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-5 rounded-sm bg-muted-foreground/20" />Middle 50%</span>}
+        {showQuartiles && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-5 rounded-sm bg-muted-foreground/20" />Middle 50%</span>}
         <span className="inline-flex items-center gap-1.5"><span className="h-3 border-l border-dashed border-foreground/60" />Document target</span>
         {hasExcluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full border border-muted-foreground bg-card" />Related context, excluded from statistics</span>}
       </div>
       {model.unplottableExcludedCount > 0 && (
         <p className="mt-1.5 text-[9px] text-muted-foreground/70">
-          {model.unplottableExcludedCount} incompatible or unresolved candidate{model.unplottableExcludedCount === 1 ? " is" : "s are"} retained in the audit ledger and intentionally not plotted.
+          {model.unplottableExcludedCount} additional excluded measurement{model.unplottableExcludedCount === 1 ? " is" : "s are"} retained in the audit ledger and not plotted because they are non-atomic, incompatible, or unresolved.
         </p>
       )}
     </figure>

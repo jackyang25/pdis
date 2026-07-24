@@ -448,44 +448,6 @@ def extract_quantitative_target_set(
     return QuantitativeTargetExtraction("uncertain", last_reason, [])
 
 
-def revalidate_quantitative_targets(
-    attribute: Attribute,
-    doc_text: str,
-) -> list[QuantitativeTarget]:
-    """Verify saved targets against their portable document blocks and stable IDs."""
-    items = [
-        {
-            "expression": {
-                "kind": target.expression.kind,
-                "value": target.value,
-                "comparator": target.comparator,
-                "unit": target.unit,
-            },
-            "role": target.role,
-            "quote": target.quote,
-            "doc_block_ids": target.doc_block_ids,
-            "semantic_profile": {
-                name: {
-                    "state": slot.state,
-                    "value": slot.value,
-                    "other": slot.other,
-                }
-                for name, slot in target.semantic_profile.items()
-            },
-            "provenance_spans": [
-                {"quote": span.quote, "block_ids": span.block_ids}
-                for span in target.provenance_spans
-            ],
-            "ownership_reason": target.ownership_reason,
-            "other_constraints": target.other_constraints,
-        }
-        for target in attribute.quantitative_targets
-    ]
-    validated = _validated_targets(items, attribute=attribute, doc_text=doc_text)
-    supplied_ids = {target.id for target in attribute.quantitative_targets}
-    return [target for target in validated if target.id in supplied_ids]
-
-
 def resolve_quantitative_target_ownership(
     attributes: list[Attribute],
     llm_client: LLMClientProtocol,
@@ -1150,7 +1112,14 @@ def _measurement_system_prompt(
         "source decision for EVERY ID: measurements_found, no_relevant_measurement, or uncertain. "
         "Do not enumerate every number. Extract only complete statements that measure the target "
         "or a meaningfully related quantity. Each extracted measurement must contain the shortest "
-        "exact quote that preserves the number and its qualifiers, plus one expression object. "
+        "self-contained exact quote that explicitly connects the number to the measured outcome "
+        "or property and preserves its qualifiers, plus one expression object. A dose, exposure "
+        "condition, storage temperature, visit time, follow-up duration, or sample size alone is "
+        "NOT an outcome measurement. For example, 'stored for 6 weeks at 60 C' is not evidence of "
+        "thermostability unless the same contiguous quote also states what stability, potency, or "
+        "performance was retained. Do not import that missing meaning from a title, an Insight, or "
+        "your background knowledge. If the retained passage cannot supply one self-contained exact "
+        "span, return uncertain rather than a measurement. "
         "Expression kind is point_estimate|range|bound|confidence_interval|count|rate|other|unknown. "
         "point_estimate/count/rate use value; range/confidence_interval use lower+upper; bound uses "
         "value+comparator. Never split a range or confidence interval into point estimates. "

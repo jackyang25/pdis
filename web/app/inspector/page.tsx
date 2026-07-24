@@ -15,6 +15,7 @@ import {
   DIMENSION_NAMES,
   GRADE_LABELS,
   type CrossSectionFinding,
+  type ContentBlock,
   type DimensionName,
   type Dimensions,
   type Header,
@@ -134,8 +135,15 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
       {result && (
         <>
           <OverallCard result={result} />
-          <CrossSectionCard findings={result.inspection.cross_section_findings ?? []} />
-          <SectionsList sections={result.inspection.section_grades} />
+          <CrossSectionCard
+            findings={result.inspection.cross_section_findings ?? []}
+            blocks={result.inspection.blocks}
+            status={result.inspection.consistency_status}
+          />
+          <SectionsList
+            sections={result.inspection.section_grades}
+            blocks={result.inspection.blocks}
+          />
         </>
       )}
       {result && <Ask resultType="inspector" result={result.inspection} />}
@@ -166,6 +174,21 @@ function OverallCard({ result }: { result: InspectorResponse }) {
           <DimensionTile key={d} name={d} grade={dims[d].grade} />
         ))}
       </div>
+      {result.inspection.top_issues.length > 0 && (
+        <div className="mt-5 border-t border-border pt-4">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Priority document issues
+          </p>
+          <ul className="mt-2 space-y-1.5 text-sm text-foreground">
+            {result.inspection.top_issues.map((issue) => (
+              <li key={issue} className="flex gap-2 leading-5">
+                <span className="text-muted-foreground">·</span>
+                <span>{issue}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -184,8 +207,30 @@ function DimensionTile({ name, grade }: { name: DimensionName; grade: string }) 
   );
 }
 
-function CrossSectionCard({ findings }: { findings: CrossSectionFinding[] }) {
-  if (findings.length === 0) return null;
+function CrossSectionCard({
+  findings,
+  blocks,
+  status,
+}: {
+  findings: CrossSectionFinding[];
+  blocks: ContentBlock[];
+  status: "complete" | "partial" | "failed" | "not_applicable" | "unknown";
+}) {
+  if (findings.length === 0) {
+    if (status === "failed" || status === "unknown" || status === "partial") {
+      return (
+        <div className="rounded-lg border border-border bg-muted/20 px-5 py-4 text-sm text-muted-foreground">
+          {status === "failed"
+            ? "Cross-section consistency could not be completed; section grades remain available."
+            : status === "partial"
+              ? "No conflict was identified in the bounded cross-section context; the document exceeded full-pass context."
+              : "Cross-section consistency status is unavailable in this saved result."}
+        </div>
+      );
+    }
+    return null;
+  }
+  const blocksById = new Map(blocks.map((block) => [block.id, block]));
   return (
     <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.04] px-5 py-5">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -194,6 +239,7 @@ function CrossSectionCard({ findings }: { findings: CrossSectionFinding[] }) {
         </span>
         <span className="text-xs text-muted-foreground">
           {findings.length} conflict{findings.length === 1 ? "" : "s"} spanning multiple sections
+          {status === "partial" ? " · bounded document context" : ""}
         </span>
       </div>
       <ul className="mt-3 flex flex-col gap-3">
@@ -214,6 +260,9 @@ function CrossSectionCard({ findings }: { findings: CrossSectionFinding[] }) {
                 {f.recommendation}
               </p>
             )}
+            {f.block_ids.length > 0 && (
+              <BlockTrace blockIds={f.block_ids} blocksById={blocksById} />
+            )}
           </li>
         ))}
       </ul>
@@ -221,17 +270,34 @@ function CrossSectionCard({ findings }: { findings: CrossSectionFinding[] }) {
   );
 }
 
-function SectionsList({ sections }: { sections: SectionGrade[] }) {
+function SectionsList({
+  sections,
+  blocks,
+}: {
+  sections: SectionGrade[];
+  blocks: ContentBlock[];
+}) {
+  const blocksById = new Map(blocks.map((block) => [block.id, block]));
   return (
     <div className="flex flex-col gap-3">
       {sections.map((section) => (
-        <SectionCard key={section.section_name} section={section} />
+        <SectionCard
+          key={section.section_name}
+          section={section}
+          blocksById={blocksById}
+        />
       ))}
     </div>
   );
 }
 
-function SectionCard({ section }: { section: SectionGrade }) {
+function SectionCard({
+  section,
+  blocksById,
+}: {
+  section: SectionGrade;
+  blocksById: Map<string, ContentBlock>;
+}) {
   return (
     <CollapsibleCard
       title={section.section_name}
@@ -259,7 +325,7 @@ function SectionCard({ section }: { section: SectionGrade }) {
       {section.variable_grades.length > 0 && (
         <ul className="flex flex-col gap-3">
           {section.variable_grades.map((v) => (
-            <VariableRow key={v.variable_name} variable={v} />
+            <VariableRow key={v.variable_name} variable={v} blocksById={blocksById} />
           ))}
         </ul>
       )}
@@ -267,7 +333,13 @@ function SectionCard({ section }: { section: SectionGrade }) {
   );
 }
 
-function VariableRow({ variable }: { variable: VariableGrade }) {
+function VariableRow({
+  variable,
+  blocksById,
+}: {
+  variable: VariableGrade;
+  blocksById: Map<string, ContentBlock>;
+}) {
   return (
     <li className="rounded-md bg-secondary/40 px-4 py-3">
       <div className="flex items-start justify-between gap-4">
@@ -276,7 +348,39 @@ function VariableRow({ variable }: { variable: VariableGrade }) {
       </div>
 
       <DimensionDetails dimensions={variable.dimensions} />
+      {variable.block_ids.length > 0 && (
+        <BlockTrace blockIds={variable.block_ids} blocksById={blocksById} />
+      )}
     </li>
+  );
+}
+
+function BlockTrace({
+  blockIds,
+  blocksById,
+}: {
+  blockIds: string[];
+  blocksById: Map<string, ContentBlock>;
+}) {
+  return (
+    <details className="mt-3 text-[11px] text-muted-foreground">
+      <summary className="w-fit cursor-pointer select-none hover:text-foreground">
+        Trace · {blockIds.length} source block{blockIds.length === 1 ? "" : "s"}
+      </summary>
+      <div className="mt-2 space-y-2 border-l border-border pl-3">
+        {blockIds.map((blockId) => {
+          const block = blocksById.get(blockId);
+          return (
+            <div key={blockId}>
+              <p className="font-mono text-[10px]">{blockId}</p>
+              <p className="mt-0.5 line-clamp-4 leading-5">
+                {block?.content || "Visual source block"}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </details>
   );
 }
 

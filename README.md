@@ -317,6 +317,9 @@ Inspector makes three independent judgments per rubric unit:
 Variable → section → document grades are deterministic rollups. The only
 whole-document model pass reports cross-section conflicts. Grades remain
 `A`, `B`, `C`, `D`, `F`, or `N/A` for all three dimensions.
+The rubric itself is the variable ledger, so an omitted model item cannot
+silently improve a rollup. Cross-section conflicts cite exact blocks from every
+named section and report whether the consistency pass completed.
 
 Inspector evaluates document quality against an authored rubric. It may check
 whether risks and mitigations are documented, but it does not assign program
@@ -335,6 +338,8 @@ The model performs bounded extraction and matching. Code validates all IDs and
 enums, fills omitted reference units as `missing`, derives unused comparison
 units as `introduced`, and calculates counts deterministically. Aligner does not
 grade either document, retrieve external evidence, or assign investment risk.
+Semantic unit IDs remain stable as duplicate occurrences add provenance, and a
+final integrity contract verifies the complete unit/link/count graph.
 
 ## Ask semantics
 
@@ -359,7 +364,7 @@ tool execution remains private while final tokens render incrementally.
 ## Portable result files
 
 Inspector, Aligner, and Scout downloads use the versioned `pdis.result` envelope,
-currently version **18**:
+currently version **19**:
 
 ```text
 schema + version + result_type
@@ -370,10 +375,12 @@ schema + version + result_type
 
 The original PDF/DOCX/PPTX binary is not embedded. Parsed blocks and portable
 image assets are embedded, which keeps Ask portable and stateless but can make
-result files larger. Backward compatibility lives only in the import normalizer. Old
-results remain viewable, but missing images, canonical-field metadata, query
-lineage, or retrieval provenance cannot be reconstructed; rerun the analysis
-for a fully current artifact.
+result files larger. A completed analysis is immutable: export and import
+preserve the same canonical result and never rerun a reasoning stage. Backward
+compatibility lives only in the import normalizer. Old results remain viewable,
+but missing images, canonical-field metadata, query lineage, or retrieval
+provenance cannot be reconstructed; rerun the analysis for a fully current
+artifact.
 
 ## Configuration and extension
 

@@ -47,7 +47,7 @@ from .models import (
     precedents_to_dicts,
     safety_signals_to_dicts,
 )
-from .pipeline import recalculate_conformity, run_pipeline
+from .pipeline import run_pipeline
 
 __all__ = [
     "Attribute",
@@ -89,5 +89,4 @@ __all__ = [
     "precedents_to_dicts",
     "safety_signals_to_dicts",
     "run_pipeline",
-    "recalculate_conformity",
 ]

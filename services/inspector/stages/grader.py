@@ -25,6 +25,7 @@ import re
 import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from typing import Any
 
 from services.chunker import ContentBlock
@@ -32,6 +33,7 @@ from services.chunker import ContentBlock
 from ..models import (
     DIMENSIONS,
     CrossSectionFinding,
+    ConsistencyStatus,
     DimensionGrade,
     Grade,
     LLMClientProtocol,
@@ -46,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 VALID_GRADES: set[str] = {"A", "B", "C", "D", "F", "N/A"}
 GRADE_TO_SCORE = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
+MAX_PARALLEL_SECTIONS = 4
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +102,7 @@ def grade_sections(
     if len(indexed) <= 1:
         graded = [grade_one(item) for item in indexed]
     else:
-        with ThreadPoolExecutor(max_workers=len(indexed)) as executor:
+        with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_SECTIONS, len(indexed))) as executor:
             graded = list(executor.map(grade_one, indexed))
 
     graded.sort(key=lambda pair: pair[0])
@@ -212,7 +215,7 @@ def _call_dimension(
         system_prompt, user_message, max_tokens=max_tokens, images=images or None
     )
     try:
-        return _parse_dimension_response(raw, section_spec, section_blocks)
+        return _parse_dimension_response(raw, dimension, section_spec, section_blocks)
     except ValueError as first_error:
         retry_message = (
             f"{user_message}\n\nYour previous response was invalid JSON. "
@@ -225,7 +228,7 @@ def _call_dimension(
             images=images or None,
         )
         try:
-            return _parse_dimension_response(raw, section_spec, section_blocks)
+            return _parse_dimension_response(raw, dimension, section_spec, section_blocks)
         except ValueError:
             logger.exception(
                 "Grader failed for %s on %s after retry: %s",
@@ -233,7 +236,7 @@ def _call_dimension(
                 dimension,
                 first_error,
             )
-            return _failed_dimension_response(section_spec)
+            return _failed_dimension_response(section_spec, dimension)
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +325,6 @@ def _build_adherence_focus(section_spec: SectionSpec) -> str:
         "- Section and variable names should match the rubric's expected names.",
         "- Annotations column should be present where the rubric expects it.",
         "- No template tokens like <<...>> should remain.",
-        "- No internal contradictions between Minimum and Optimistic columns.",
     ]
     if section_spec.adherence:
         lines.append("")
@@ -354,6 +356,8 @@ def _build_rigor_focus(section_spec: SectionSpec) -> str:
         "- Specificity: the target should be unambiguous; flag hand-waving or undefined terms.",
         "- Soundness: the value should be meaningful for the variable; flag filler that is "
         "technically present but says nothing, or content that is internally incoherent.",
+        "- Internal coherence: Minimum and Optimistic values must not contradict or reverse "
+        "their stated ordering.",
         "- Judge against the document's stage (see GRADING BAR above): an intervention-stage "
         "qualitative target can still be rigorous if it is clear and bounded; a candidate-stage "
         "target should be concretely measured.",
@@ -389,8 +393,8 @@ def _output_schema(dimension: str, section_spec: SectionSpec) -> str:
         per_variable += "}"
 
         schema = {
-            "missing_variables": "list of expected variable names not present in the content (completeness only - leave empty for adherence)",
-            "variable_grades": f"list of {per_variable}",
+            "missing_variables": "expected variable names with no substantive content (completeness only; otherwise [])",
+            "variable_grades": f"exactly one {per_variable} for every expected variable not listed as missing",
         }
         return "Output schema:\n" + json.dumps(schema, indent=2)
     else:
@@ -420,6 +424,7 @@ def _build_user_message(
 
 def _parse_dimension_response(
     raw: str,
+    dimension: str,
     section_spec: SectionSpec,
     section_blocks: list[ContentBlock],
 ) -> dict[str, Any]:
@@ -428,28 +433,47 @@ def _parse_dimension_response(
         raise ValueError("Grader response must be an object")
 
     if section_spec.variables:
+        expected_names = [variable.name for variable in section_spec.variables]
+        expected_set = set(expected_names)
         variable_grades_raw = parsed.get("variable_grades")
         if not isinstance(variable_grades_raw, list):
             raise ValueError("variable_grades must be a list")
         valid_block_ids = {b.id for b in section_blocks}
-        cleaned_vars = []
+        cleaned_by_name: dict[str, dict[str, Any]] = {}
         for item in variable_grades_raw:
             if not isinstance(item, dict):
-                continue
-            cleaned_vars.append(
-                {
-                    "variable_name": _string_value(item.get("variable_name")),
-                    "block_ids": [
-                        bid for bid in _string_list(item.get("block_ids")) if bid in valid_block_ids
-                    ],
-                    "grade": _grade_value(item.get("grade")),
-                    "issues": _string_list(item.get("issues")),
-                    "recommendation": _string_value(item.get("recommendation")),
-                }
-            )
+                raise ValueError("Each variable_grades item must be an object")
+            name = _string_value(item.get("variable_name"))
+            if name not in expected_set:
+                raise ValueError(f"Unknown rubric variable: {name}")
+            if name in cleaned_by_name:
+                raise ValueError(f"Duplicate variable grade: {name}")
+            raw_block_ids = _string_list(item.get("block_ids"))
+            if any(block_id not in valid_block_ids for block_id in raw_block_ids):
+                raise ValueError(f"Variable {name} cited an unknown block ID")
+            grade = _grade_value(item.get("grade"))
+            if grade != "N/A" and not raw_block_ids:
+                raise ValueError(f"Variable {name} must cite a source block")
+            cleaned_by_name[name] = {
+                "variable_name": name,
+                "block_ids": list(dict.fromkeys(raw_block_ids)),
+                "grade": grade,
+                "issues": _string_list(item.get("issues")),
+                "recommendation": _string_value(item.get("recommendation")),
+            }
+        missing = _string_list(parsed.get("missing_variables"))
+        if len(missing) != len(set(missing)) or any(name not in expected_set for name in missing):
+            raise ValueError("missing_variables must contain unique expected variable names")
+        if dimension != "completeness" and missing:
+            raise ValueError("Only completeness may report missing_variables")
+        accounted = set(cleaned_by_name) | set(missing)
+        if accounted != expected_set or set(cleaned_by_name) & set(missing):
+            raise ValueError("Every expected variable must be accounted for exactly once")
         return {
-            "missing_variables": _string_list(parsed.get("missing_variables")),
-            "variable_grades": cleaned_vars,
+            "missing_variables": missing,
+            "variable_grades": [
+                cleaned_by_name[name] for name in expected_names if name in cleaned_by_name
+            ],
         }
 
     return {
@@ -459,9 +483,21 @@ def _parse_dimension_response(
     }
 
 
-def _failed_dimension_response(section_spec: SectionSpec) -> dict[str, Any]:
+def _failed_dimension_response(section_spec: SectionSpec, dimension: str) -> dict[str, Any]:
     if section_spec.variables:
-        return {"missing_variables": [], "variable_grades": []}
+        return {
+            "missing_variables": [],
+            "variable_grades": [
+                {
+                    "variable_name": variable.name,
+                    "block_ids": [],
+                    "grade": "N/A",
+                    "issues": [f"{dimension.capitalize()} grading failed."],
+                    "recommendation": "Retry grading or review this variable manually.",
+                }
+                for variable in section_spec.variables
+            ],
+        }
     return {
         "grade": "N/A",
         "issues": ["Grading failed."],
@@ -496,25 +532,9 @@ def _merge_variable_bearing(
         for dim in DIMENSIONS
     }
 
-    # Variables to build grades for: union of named variables across all dimensions
-    # (in rubric order so the output is stable).
-    all_names: list[str] = []
-    seen: set[str] = set()
-    for v in section_spec.variables:
-        if v.name in seen:
-            continue
-        if any(v.name in per_dim_by_name[d] for d in DIMENSIONS):
-            all_names.append(v.name)
-            seen.add(v.name)
-    # Pick up any extra names the LLM produced that aren't in the rubric.
-    for d in DIMENSIONS:
-        for n in per_dim_by_name[d]:
-            if n and n not in seen:
-                all_names.append(n)
-                seen.add(n)
-
     variable_grades: list[VariableGrade] = []
-    for name in all_names:
+    for variable in section_spec.variables:
+        name = variable.name
         block_ids: list[str] = []
         dimensions: dict[str, DimensionGrade] = {}
         for d in DIMENSIONS:
@@ -530,6 +550,13 @@ def _merge_variable_bearing(
             for bid in item.get("block_ids", []):
                 if bid not in block_ids:
                     block_ids.append(bid)
+        if name in missing:
+            dimensions["completeness"] = DimensionGrade(
+                grade="F",
+                issues=["Required variable is missing."],
+                recommendation=f"Add substantive content for {name}.",
+            )
+            dimensions["rigor"] = DimensionGrade(grade="N/A")
         variable_grades.append(
             VariableGrade(
                 variable_name=name,
@@ -619,7 +646,7 @@ def _score_to_grade(score: float | None) -> Grade:
 
 
 def _missing_section_grade(section_spec: SectionSpec) -> SectionGrade:
-    missing = DimensionGrade(
+    incomplete = DimensionGrade(
         grade="F",
         issues=["Section is missing."],
         recommendation=f"Add this section covering: {section_spec.description}",
@@ -627,7 +654,15 @@ def _missing_section_grade(section_spec: SectionSpec) -> SectionGrade:
     return SectionGrade(
         section_name=section_spec.name,
         is_present=False,
-        dimensions={d: missing for d in DIMENSIONS},
+        dimensions={
+            "completeness": incomplete,
+            "adherence": DimensionGrade(
+                grade="F",
+                issues=["Required section structure is absent."],
+                recommendation=f"Add the required {section_spec.name} section.",
+            ),
+            "rigor": DimensionGrade(grade="N/A"),
+        },
     )
 
 
@@ -685,9 +720,11 @@ def _extract_json_object(text: str) -> str:
 
 
 def _grade_value(value: Any) -> Grade:
-    grade = str(value or "N/A").strip().upper()
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("grade must be one of the closed grade labels")
+    grade = value.strip().upper()
     if grade not in VALID_GRADES:
-        return "N/A"
+        raise ValueError(f"Unknown grade label: {grade}")
     return grade  # type: ignore[return-value]
 
 
@@ -730,26 +767,33 @@ def check_cross_section(
     llm_client: LLMClientProtocol,
     *,
     max_tokens: int,
-) -> list[CrossSectionFinding]:
+) -> tuple[list[CrossSectionFinding], ConsistencyStatus]:
     """Find consistency problems that span MORE THAN ONE section.
 
     Per-section grading is deliberately isolated (a section never sees another),
     so it cannot catch "Section A targets >=80%, Section B says 90%". This pass
     sees every section together and reports only cross-section conflicts. It is
-    an additive quality layer: any parse failure returns [] and never blocks the
-    report."""
+    an additive quality layer: a parse failure is returned explicitly as a
+    failed status and never masquerades as a completed no-conflict result."""
     blocks_by_section = _group_blocks_by_section(labeled_blocks)
     if len(blocks_by_section) < 2:
-        return []  # need at least two sections for a cross-section conflict
+        return [], "not_applicable"  # need two sections for a cross-section conflict
 
     system_prompt = _cross_section_system_prompt(config)
-    user_message = _cross_section_user_message(blocks_by_section)
+    user_message, context_blocks_by_section, context_limited = _cross_section_user_message(
+        blocks_by_section
+    )
 
-    images = _image_inputs(labeled_blocks)
+    context_blocks = [
+        block
+        for blocks in context_blocks_by_section.values()
+        for block in blocks
+    ]
+    images = _image_inputs(context_blocks)
     raw = llm_client.call(
         system_prompt, user_message, max_tokens=max_tokens, images=images or None
     )
-    findings = _parse_cross_section(raw)
+    findings = _parse_cross_section(raw, context_blocks_by_section)
     if findings is None:
         raw = llm_client.call(
             system_prompt,
@@ -757,8 +801,10 @@ def check_cross_section(
             max_tokens=max_tokens,
             images=images or None,
         )
-        findings = _parse_cross_section(raw)
-    return findings or []
+        findings = _parse_cross_section(raw, context_blocks_by_section)
+    if findings is None:
+        return [], "failed"
+    return findings, "partial" if context_limited else "complete"
 
 
 def _cross_section_system_prompt(config: InspectionConfig) -> str:
@@ -774,25 +820,96 @@ def _cross_section_system_prompt(config: InspectionConfig) -> str:
         "Return ONLY a JSON array. No markdown, no preamble. Each item:\n"
         '{"description": "the specific conflicting values and what disagrees", '
         '"sections": ["Section A name", "Section B name"], '
-        '"recommendation": "one short action to reconcile them"}'
+        '"recommendation": "one short action to reconcile them", '
+        '"block_ids": ["exact supporting block ID from each named section"]}\n\n'
+        "Use only supplied section names and block IDs. Every finding must name at least "
+        "two sections and cite at least one block from each named section."
     )
 
 
 def _cross_section_user_message(
     blocks_by_section: dict[str, list[ContentBlock]],
-) -> str:
+) -> tuple[str, dict[str, list[ContentBlock]], bool]:
+    selected, limited = _bounded_cross_section_blocks(blocks_by_section)
     parts: list[str] = ["Document sections and their content:\n"]
-    for section_name, blocks in blocks_by_section.items():
+    for section_name, blocks in selected.items():
         parts.append(f"=== SECTION: {section_name} ===")
         parts.append(_format_blocks(blocks))
+        if len(blocks) < len(blocks_by_section[section_name]):
+            parts.append(
+                f"[Context limited: {len(blocks)} of {len(blocks_by_section[section_name])} blocks shown]"
+            )
         parts.append("")
-    body = "\n".join(parts)
-    if len(body) > MAX_DOC_CONTEXT_CHARS:
-        body = body[:MAX_DOC_CONTEXT_CHARS] + "\n...[truncated]"
-    return body + "\nFind cross-section consistency conflicts now."
+    return (
+        "\n".join(parts) + "\nFind cross-section consistency conflicts now.",
+        selected,
+        limited,
+    )
 
 
-def _parse_cross_section(raw: str) -> list[CrossSectionFinding] | None:
+def _bounded_cross_section_blocks(
+    blocks_by_section: dict[str, list[ContentBlock]],
+) -> tuple[dict[str, list[ContentBlock]], bool]:
+    """Keep every section represented when whole-document context is bounded.
+
+    Full documents are retained when they fit. For unusually large documents,
+    each section receives an equal character budget and keeps blocks from both
+    its beginning and end; the prompt states when coverage is partial.
+    """
+    full_size = sum(
+        len(_format_block(block)) + 2
+        for blocks in blocks_by_section.values()
+        for block in blocks
+    )
+    if full_size <= MAX_DOC_CONTEXT_CHARS:
+        return blocks_by_section, False
+    per_section = max(1000, MAX_DOC_CONTEXT_CHARS // len(blocks_by_section))
+    selected: dict[str, list[ContentBlock]] = {}
+    limited = False
+    for section_name, blocks in blocks_by_section.items():
+        left = 0
+        right = len(blocks) - 1
+        used = 0
+        chosen: list[ContentBlock] = []
+        take_front = True
+        while left <= right:
+            index = left if take_front else right
+            candidate = blocks[index]
+            size = len(_format_block(candidate)) + 2
+            if not chosen and size > per_section:
+                overhead = max(0, size - len(candidate.content or ""))
+                content_budget = max(0, per_section - overhead - 32)
+                chosen.append(
+                    replace(
+                        candidate,
+                        content=(candidate.content or "")[:content_budget]
+                        + "\n...[block excerpt limited]",
+                    )
+                )
+                used = per_section
+                limited = True
+                break
+            if chosen and used + size > per_section:
+                limited = True
+                break
+            chosen.append(candidate)
+            used += size
+            if take_front:
+                left += 1
+            else:
+                right -= 1
+            take_front = not take_front
+        chosen.sort(key=lambda block: block.ordinal)
+        selected[section_name] = chosen
+        if len(chosen) < len(blocks):
+            limited = True
+    return selected, limited
+
+
+def _parse_cross_section(
+    raw: str,
+    blocks_by_section: dict[str, list[ContentBlock]],
+) -> list[CrossSectionFinding] | None:
     text = _strip_markdown_fences(raw).strip()
     try:
         parsed = json.loads(_extract_json_array(text))
@@ -800,18 +917,38 @@ def _parse_cross_section(raw: str) -> list[CrossSectionFinding] | None:
         return None
     if not isinstance(parsed, list):
         return None
+    allowed_sections = set(blocks_by_section)
+    section_by_block_id = {
+        block.id: section_name
+        for section_name, blocks in blocks_by_section.items()
+        for block in blocks
+    }
     out: list[CrossSectionFinding] = []
     for item in parsed:
         if not isinstance(item, dict):
-            continue
+            return None
         description = _string_value(item.get("description"))
         if not description:
-            continue
+            return None
+        sections = list(dict.fromkeys(_string_list(item.get("sections"))))
+        block_ids = list(dict.fromkeys(_string_list(item.get("block_ids"))))
+        if (
+            len(sections) < 2
+            or any(section not in allowed_sections for section in sections)
+            or not block_ids
+            or any(block_id not in section_by_block_id for block_id in block_ids)
+            or any(
+                not any(section_by_block_id[block_id] == section for block_id in block_ids)
+                for section in sections
+            )
+        ):
+            return None
         out.append(
             CrossSectionFinding(
                 description=description,
-                sections=_string_list(item.get("sections")),
+                sections=sections,
                 recommendation=_string_value(item.get("recommendation")),
+                block_ids=block_ids,
             )
         )
     return out

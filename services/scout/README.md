@@ -109,11 +109,10 @@ Parallel calls are isolated by variable and `_parallel_map` preserves input orde
 
 Each step is one stage in `services/scout/stages/`.
 
-`POST /api/scout/recalibrate` is a retrieval-free repair path for a current
-portable result. It deterministically revalidates the saved canonical targets
-against their saved blocks, reuses only cited Insights, and returns replacement
-ledgers; it cannot fetch evidence, synthesize new Insights, or extract a new
-target set.
+The completed pipeline result is canonical. Downloading and importing it does
+not rerun, repair, or mutate quantitative calibration. A materially newer
+analysis contract requires a new Scout run, keeping one authoritative result per
+run rather than creating alternate post-processed states.
 
 For TPP runs Scout reads fixed definitions from `shared/attributes.yaml` and
 binds them to document targets. For IPDP runs it dynamically extracts neutral

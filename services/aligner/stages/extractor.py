@@ -65,7 +65,7 @@ def extract_units(
         if existing:
             existing.block_ids = _unique([*existing.block_ids, *block_ids])
             continue
-        unit_id = _stable_id(doc_id, str(unit_type), statement, block_ids)
+        unit_id = _stable_id(doc_id, str(unit_type), statement)
         merged[key] = AlignmentUnit(
             id=unit_id,
             document_role=document_role,
@@ -109,6 +109,8 @@ Return ONLY valid JSON in this shape:
 """
     user_message = "Document blocks:\n\n" + _format_blocks(blocks)
     images = _image_inputs(blocks)
+    allowed_ids = {block.id for block in blocks}
+    allowed_types = {item.name for item in config.unit_types}
     for attempt in range(2):
         raw = llm_client.call(
             system_prompt,
@@ -126,11 +128,35 @@ Return ONLY valid JSON in this shape:
             units = parsed.get("units")
             if not isinstance(units, list):
                 raise ValueError("units must be a list")
-            return [item for item in units if isinstance(item, dict)]
+            cleaned: list[dict[str, Any]] = []
+            for item in units:
+                if not isinstance(item, dict):
+                    raise ValueError("Every extracted unit must be an object")
+                statement = _clean_text(item.get("statement"))
+                unit_type = item.get("unit_type")
+                raw_block_ids = item.get("block_ids")
+                if not isinstance(raw_block_ids, list) or any(
+                    not isinstance(block_id, str) or block_id not in allowed_ids
+                    for block_id in raw_block_ids
+                ):
+                    raise ValueError("Extracted unit cited an unknown block ID")
+                block_ids = list(dict.fromkeys(raw_block_ids))
+                if not statement or unit_type not in allowed_types or not block_ids:
+                    raise ValueError("Extracted unit violated the closed unit contract")
+                cleaned.append(
+                    {
+                        "statement": statement,
+                        "unit_type": unit_type,
+                        "block_ids": block_ids,
+                    }
+                )
+            return cleaned
         except (ValueError, json.JSONDecodeError, AttributeError) as exc:
             if attempt:
                 logger.error("Aligner unit extraction returned invalid JSON after retry: %s", exc)
-    return []
+    raise RuntimeError(
+        f"Aligner unit extraction failed for the {document_role} document"
+    )
 
 
 def _batch_blocks(
@@ -178,11 +204,17 @@ def _extract_json_object(value: str) -> str:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
         text = re.sub(r"\s*```$", "", text)
-    start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end < start:
-        raise ValueError("response did not contain a JSON object")
-    return text[start : end + 1]
+    decoder = json.JSONDecoder()
+    for start, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            parsed, end = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return text[start : start + end]
+    raise ValueError("response did not contain a JSON object")
 
 
 def _clean_text(value: Any) -> str:
@@ -201,8 +233,10 @@ def _normalize(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
 
-def _stable_id(doc_id: str, unit_type: str, statement: str, block_ids: list[str]) -> str:
-    payload = "\0".join([doc_id, unit_type, _normalize(statement), *sorted(block_ids)])
+def _stable_id(doc_id: str, unit_type: str, statement: str) -> str:
+    # Provenance may expand when the same statement appears in another batch;
+    # semantic identity must not change when that lineage is merged.
+    payload = "\0".join([doc_id, unit_type, _normalize(statement)])
     return f"unit_{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]}"
 
 

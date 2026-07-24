@@ -52,7 +52,6 @@ from .projections import build_development_landscape, build_safety_signals
 from .stages.conformity import (
     empty_conformity_scores,
     extract_quantitative_target_set,
-    revalidate_quantitative_targets,
     resolve_quantitative_target_ownership,
     score_conformity,
 )
@@ -75,44 +74,6 @@ SEARCH_MAX_USES = 10
 # Parallelism for Scout's LLM reasoning fan-outs. Retrieval concurrency belongs
 # to each Searcher source adapter and is not duplicated here.
 MAX_WORKERS = 32
-
-
-def recalculate_conformity(
-    attributes: list[Attribute],
-    blocks: list[ContentBlock],
-    insights: list[Insight],
-    *,
-    openai_client: LLMClientProtocol,
-    indication: str,
-    intervention_class: str,
-    progress_callback=None,
-) -> list[ConformityScore]:
-    """Rebuild only quantitative ledgers from a current portable Scout result.
-
-    Retrieval and insight synthesis are intentionally out of scope: this function
-    reuses the exact saved document blocks and source-backed insights, then runs
-    the same target, span, semantic-normalization, and deterministic-math contract as a
-    fresh pipeline run.
-    """
-    attributes = [
-        replace(
-            attribute,
-            quantitative_targets=revalidate_quantitative_targets(
-                attribute,
-                select_binding_context(blocks, attribute),
-            ),
-        )
-        for attribute in attributes
-    ]
-    attributes = resolve_quantitative_target_ownership(attributes, openai_client)
-    return _score_conformity_all_variables(
-        attributes,
-        insights,
-        openai_client,
-        indication=indication,
-        intervention_class=intervention_class,
-        progress=progress_callback,
-    )
 
 
 def run_pipeline(

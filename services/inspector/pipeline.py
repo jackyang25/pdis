@@ -10,6 +10,7 @@ from services.chunker import (
 )
 
 from .stages.grader import check_cross_section, grade_sections
+from .contract import validate_result_contract
 from .models import (
     BatchInspectionResult,
     Grade,
@@ -56,6 +57,7 @@ def run_pipeline(
         config=chunker_config,
         llm_client=llm_client,
         max_tokens=max_tokens,
+        indication=indication,
         progress_callback=progress_callback,
     )
     return inspect_blocks(
@@ -91,10 +93,10 @@ def inspect_blocks(
     result = build_report_card(blocks, section_grades, config)
 
     # Whole-document consistency pass - the one place that sees all sections at
-    # once. Additive: failures return [] and never block the report card.
+    # once. Its explicit status distinguishes failure from a clean result.
     if progress_callback:
         progress_callback("consistency")
-    result.cross_section_findings = check_cross_section(
+    result.cross_section_findings, result.consistency_status = check_cross_section(
         blocks, config, llm_client, max_tokens=max_tokens
     )
 
@@ -103,6 +105,7 @@ def inspect_blocks(
     result.intervention_class = config.intervention_class
     result.indication = indication
     result.blocks = blocks
+    validate_result_contract(result, blocks, config)
     return result
 
 

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { AlignerResponse, ContentBlock, InspectorResponse } from "./api.ts";
+import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api.ts";
 import {
   packAlignerResult,
   packInspectorResult,
+  packScoutResult,
   unpackAlignerResult,
   unpackInspectorResult,
   unpackScoutResult,
@@ -33,6 +34,7 @@ const inspection: InspectorResponse = {
     top_issues: [],
     section_grades: [],
     cross_section_findings: [],
+    consistency_status: "complete",
     org: "bmgf",
     source_type: "itpp",
     intervention_class: "vaccine",
@@ -41,9 +43,67 @@ const inspection: InspectorResponse = {
   },
 };
 
+const scout: ScoutResponse = {
+  org: "bmgf",
+  source_type: "itpp",
+  intervention_class: "vaccine",
+  indication: "malaria",
+  context_validation: {
+    status: "match",
+    configured_indication: "malaria",
+    document_indication: "malaria",
+    reason: "The configured indication matches the document.",
+    doc_block_ids: [block.id],
+  },
+  variables: [],
+  search_plan: [],
+  matches: [],
+  assessments: [],
+  conformity: [{
+    attribute_ref: "efficacy",
+    target_id: "qt-current",
+    target_role: "threshold",
+    target_value: 80,
+    comparator: ">=",
+    unit: "%",
+    target_label: "protective efficacy >=80%",
+    target_quote: "Target efficacy is at least 80%.",
+    target_meeting_count: 0,
+    target_meeting_rate: 0,
+    verdict: "No validated comparator cohort",
+    benchmark_count: 0,
+    benchmark_minimum: null,
+    benchmark_maximum: null,
+    benchmark_mean: null,
+    benchmark_median: null,
+    benchmark_lower_quartile: null,
+    benchmark_upper_quartile: null,
+    benchmark_standard_deviation: null,
+    target_percentile: null,
+    ambition_percentile: null,
+    calibration_status: "insufficient",
+    doc_block_ids: [block.id],
+    measurements: [],
+    excluded_measurements: [],
+    source_dispositions: [],
+  }],
+  precedents: [],
+  development_landscape: [],
+  safety_signals: [],
+  stats: {
+    queries: 0,
+    findings: 0,
+    unique_findings: 0,
+    insights: 0,
+    matches: 0,
+    assessments: 0,
+  },
+  blocks: [block],
+};
+
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 18);
+  assert.equal(packed.version, 19);
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
   assert.equal("blocks" in packed.analysis.inspection, false);
@@ -68,11 +128,17 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 18);
+  assert.equal(packed.version, 19);
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
   assert.equal(packed.source_documents.length, 2);
   assert.deepEqual(unpackAlignerResult(packed), result);
+});
+
+test("current Scout export and import preserve the canonical result exactly", () => {
+  const packed = packScoutResult(scout);
+  assert.equal(packed.version, 19);
+  assert.deepEqual(unpackScoutResult(packed), scout);
 });
 
 test("legacy Reviewer envelopes migrate only at import", () => {
@@ -206,6 +272,37 @@ test("version 17 calibration is unverified under the passage-expression contract
   });
 
   assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
+});
+
+test("an envelope bump for another tool does not invalidate version 18 Scout calibration", () => {
+  const imported = unpackScoutResult({
+    schema: "pdis.result",
+    version: 18,
+    result_type: "scout",
+    analysis: {
+      variables: [],
+      matches: [],
+      conformity: [{
+        attribute_ref: "efficacy",
+        target_id: "qt-v18",
+        target_role: "threshold",
+        target_value: 80,
+        comparator: ">=",
+        unit: "%",
+        target_quote: "Target efficacy is at least 80%.",
+        target_meeting_count: 0,
+        target_meeting_rate: 0,
+        verdict: "No validated comparator cohort",
+        calibration_status: "insufficient",
+        measurements: [],
+        excluded_measurements: [],
+        source_dispositions: [],
+      }],
+    },
+    source_documents: [],
+  });
+
+  assert.equal(imported.conformity[0].calibration_status, "insufficient");
 });
 
 test("unversioned Scout calibration cannot claim the current quantitative contract", () => {

@@ -60,6 +60,11 @@ config framing, not engine conditionals.
   LLM synthesis.
 - The whole-document consistency pass reports only cross-section conflicts.
 - Grades are `A`–`F` plus `N/A`; do not merge or rename the three dimensions.
+- The authored rubric is the canonical variable ledger. Every expected variable
+  must survive into deterministic rollups; model omissions cannot shrink the
+  denominator. Cross-section findings retain exact block lineage and expose a
+  completed/partial/failed/inapplicable status rather than treating bounded or
+  failed coverage as clean.
 - Inspector judges document quality against its rubric. It may judge whether
   risks are documented, but must not assign program risk levels, make funding
   recommendations, or claim real-world feasibility.
@@ -80,6 +85,9 @@ config framing, not engine conditionals.
   reference and comparison unit IDs plus both sets of block IDs. Validate model
   IDs/enums, deterministically fill omitted reference units as `missing`, and
   calculate relation counts in code.
+- Unit identity is semantic and does not change when duplicate occurrences add
+  provenance. A final deterministic contract validates document ownership,
+  exhaustive reference coverage, introduced completion, link lineage, and counts.
 - The global alignment vocabulary lives in
   `services/aligner/configs/alignment.yaml`. Aligner reuses each document's
   public Chunker config and must not duplicate per-document-type taxonomies.
@@ -233,11 +241,12 @@ deduplication and rollups. Do not restore holistic “basis” tags.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 18, separating analysis from
+  (`web/lib/result-file.ts`), currently version 19, separating analysis from
   `source_documents`.
-- Scout may rebuild quantitative ledgers from a current portable result without
-  retrieval. That path must consume only its saved blocks and cited Insights and
-  must run the same target/span validation and deterministic calculation contract.
+- A completed Scout run is the sole producer of its quantitative ledgers. Export
+  and import preserve that canonical result without rerunning or mutating any
+  reasoning stage. Incompatible old artifacts remain viewable but require a new
+  analysis to adopt a newer contract.
 - Backward compatibility belongs only in the import normalizer. Runtime UI and
   services consume the current contract without legacy branches.
 - Old JSON may remain viewable, but missing images, query lineage, and retrieval

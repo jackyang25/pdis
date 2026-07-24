@@ -92,7 +92,7 @@ function EvidenceNode({ data, selected }: NodeProps<EvidenceFlowNode>) {
   return (
     <div
       className={cn(
-        "flex h-full w-full flex-col rounded-lg border border-border/90 bg-card px-3.5 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow]",
+        "flex h-full w-full cursor-pointer flex-col rounded-lg border border-border/90 bg-card px-3.5 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow] hover:border-foreground/25 hover:shadow-[0_5px_18px_rgba(15,23,42,0.08)]",
         selected && "border-foreground/40 ring-2 ring-foreground/10",
       )}
     >

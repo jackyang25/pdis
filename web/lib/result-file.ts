@@ -1,8 +1,12 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 18 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | typeof RESULT_VERSION;
+const RESULT_VERSION = 19 as const;
+// Scout's current exact-quote/semantic-profile calibration contract first
+// shipped in result version 18. Later envelope bumps for another tool must not
+// invalidate an otherwise current Scout ledger.
+const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 18 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -92,23 +96,23 @@ export function unpackInspectorResult(value: unknown): InspectorResponse {
     const blocks = flattenDocuments(value.source_documents);
     if (value.result_type === "inspector") {
       const analysis = value.analysis as InspectorAnalysis;
-      return {
+      return normalizeInspectorResult({
         inspection: {
           ...analysis.inspection,
           blocks,
         },
-      };
+      });
     }
     // Import-only migration for saved files produced before Reviewer was
     // renamed to Inspector. Runtime components never consume this old shape.
     if (value.result_type === "reviewer") {
       const analysis = value.analysis as LegacyReviewerAnalysis;
-      return {
+      return normalizeInspectorResult({
         inspection: {
           ...analysis.review,
           blocks,
         },
-      };
+      });
     }
     throw new Error(`expected an inspector result, received ${value.result_type}`);
   }
@@ -119,12 +123,12 @@ export function unpackInspectorResult(value: unknown): InspectorResponse {
   if (!inspection) {
     throw new Error("not an Inspector result file");
   }
-  return {
+  return normalizeInspectorResult({
     inspection: {
       ...inspection,
       blocks: Array.isArray(inspection.blocks) ? inspection.blocks : [],
     },
-  };
+  });
 }
 
 export function unpackAlignerResult(value: unknown): AlignerResponse {
@@ -173,7 +177,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.result_type === "aligner" ||
@@ -183,6 +187,21 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
     candidate.analysis != null &&
     Array.isArray(candidate.source_documents)
   );
+}
+
+function normalizeInspectorResult(result: InspectorResponse): InspectorResponse {
+  return {
+    inspection: {
+      ...result.inspection,
+      consistency_status: result.inspection.consistency_status ?? "unknown",
+      cross_section_findings: (result.inspection.cross_section_findings ?? []).map(
+        (finding) => ({
+          ...finding,
+          block_ids: Array.isArray(finding.block_ids) ? finding.block_ids : [],
+        }),
+      ),
+    },
+  };
 }
 
 function assertResultType(
@@ -274,7 +293,8 @@ function normalizeScoutResult(
       (score: Record<string, any>, index: number) => normalizeConformity(
         score,
         index,
-        sourceVersion == null || sourceVersion < RESULT_VERSION,
+        sourceVersion == null
+          || sourceVersion < SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION,
       ),
     ),
     precedents: (raw.precedents ?? []).map(normalizePrecedent),

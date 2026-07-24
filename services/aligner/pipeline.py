@@ -16,6 +16,7 @@ from .models import (
     AlignmentResult,
     LLMClientProtocol,
 )
+from .contract import validate_result_contract
 from .stages.extractor import extract_units
 from .stages.linker import align_units
 
@@ -134,7 +135,7 @@ def run_pipeline(
     )
     all_units = [*units_by_role["reference"], *units_by_role["comparison"]]
     all_blocks = [*parsed["reference"], *parsed["comparison"]]
-    return AlignmentResult(
+    result = AlignmentResult(
         reference_document=AlignmentDocument(
             role="reference",
             doc_id=reference_id,
@@ -157,3 +158,5 @@ def run_pipeline(
         relations=config.relations,
         blocks=all_blocks,
     )
+    validate_result_contract(result, config)
+    return result

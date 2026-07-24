@@ -417,19 +417,8 @@ class ScoutRunResponse(BaseModel):
     blocks: list[ContentBlockOut] = Field(default_factory=list)
 
 
-class ScoutRecalibrationRequest(BaseModel):
-    """Current Scout wire result used for a retrieval-free metric rebuild."""
-
-    quantitative_contract_version: Literal[2]
-    result: ScoutRunResponse
-
-
-class ScoutRecalibrationResponse(BaseModel):
-    conformity: list[ConformityOut]
-
-
 class DimensionGradeOut(BaseModel):
-    grade: str
+    grade: Literal["A", "B", "C", "D", "F", "N/A"]
     issues: list[str] = []
     recommendation: str = ""
 
@@ -452,6 +441,7 @@ class CrossSectionFindingOut(BaseModel):
     description: str
     sections: list[str] = []
     recommendation: str = ""
+    block_ids: list[str] = []
 
 
 class InspectionResultOut(BaseModel):
@@ -460,6 +450,9 @@ class InspectionResultOut(BaseModel):
     top_issues: list[str]
     section_grades: list[SectionGradeOut]
     cross_section_findings: list[CrossSectionFindingOut] = []
+    consistency_status: Literal[
+        "complete", "partial", "failed", "not_applicable", "unknown"
+    ] = "unknown"
     org: str | None = None
     source_type: str | None = None
     intervention_class: str | None = None

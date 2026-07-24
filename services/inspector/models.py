@@ -25,6 +25,7 @@ class LLMClientProtocol(Protocol):
 
 Grade = Literal["A", "B", "C", "D", "F", "N/A"]
 Dimension = Literal["completeness", "adherence", "rigor"]
+ConsistencyStatus = Literal["complete", "partial", "failed", "not_applicable", "unknown"]
 DIMENSIONS: tuple[Dimension, ...] = ("completeness", "adherence", "rigor")
 
 
@@ -85,6 +86,7 @@ class CrossSectionFinding:
     description: str
     sections: list[str] = field(default_factory=list)
     recommendation: str = ""
+    block_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -96,6 +98,7 @@ class InspectionResult:
     top_issues: list[str] = field(default_factory=list)
     section_grades: list[SectionGrade] = field(default_factory=list)
     cross_section_findings: list[CrossSectionFinding] = field(default_factory=list)
+    consistency_status: ConsistencyStatus = "unknown"
 
     # --- Header (document provenance, stamped by pipeline) ---
     org: str | None = None
@@ -180,7 +183,15 @@ def find_config(org: str, source_type: str, intervention_class: str) -> "Inspect
     path = CONFIGS_DIR / f"{org}_{source_type}_{intervention_class}.yaml"
     if not path.exists():
         return None
-    return load_inspection_config(str(path))
+    config = load_inspection_config(str(path))
+    requested = (org, source_type, intervention_class)
+    configured = (config.org, config.source_type, config.intervention_class)
+    if configured != requested:
+        raise ValueError(
+            "Inspector config identity does not match its filename: "
+            f"requested {requested}, configured {configured}"
+        )
+    return config
 
 
 def load_inspection_config(path: str) -> InspectionConfig:
@@ -211,6 +222,8 @@ def load_inspection_config(path: str) -> InspectionConfig:
     _validate_string_field(data, "intervention_class")
     _validate_string_field(data, "display_name")
     sections = _parse_sections(data["sections"])
+    if sum(section.weight for section in sections) <= 0:
+        raise ValueError("Inspector section weights must have a positive total")
 
     grading_guidance = data.get("grading_guidance", "") or ""
     if not isinstance(grading_guidance, str):
@@ -230,24 +243,6 @@ def load_inspection_config(path: str) -> InspectionConfig:
 def inspection_result_to_dict(result: InspectionResult) -> dict[str, Any]:
     """Convert an InspectionResult to JSON-serializable dictionaries."""
     return asdict(result)
-
-
-def _resolve_path(config_path: Path, raw_path: str) -> Path:
-    path = Path(raw_path).expanduser()
-    if path.is_absolute():
-        return path
-
-    config_dir = config_path.parent
-    package_root = config_dir.parent
-    candidates = [
-        config_dir / path,
-        package_root / path,
-        package_root.parent / path,
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate.resolve()
-    return candidates[1].resolve()
 
 
 def _validate_string_field(data: dict[str, Any], field_name: str) -> None:

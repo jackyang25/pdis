@@ -35,9 +35,10 @@ export type ContentBlock = {
 };
 
 export type DimensionName = "completeness" | "adherence" | "rigor";
+export type Grade = "A" | "B" | "C" | "D" | "F" | "N/A";
 
 export type DimensionGrade = {
-  grade: string;
+  grade: Grade;
   issues: string[];
   recommendation: string;
 };
@@ -62,6 +63,7 @@ export type CrossSectionFinding = {
   description: string;
   sections: string[];
   recommendation: string;
+  block_ids: string[];
 };
 
 export type InspectionResult = {
@@ -70,6 +72,7 @@ export type InspectionResult = {
   top_issues: string[];
   section_grades: SectionGrade[];
   cross_section_findings: CrossSectionFinding[];
+  consistency_status: "complete" | "partial" | "failed" | "not_applicable" | "unknown";
   org: string | null;
   source_type: string | null;
   intervention_class: string | null;
@@ -81,11 +84,11 @@ export type InspectionResult = {
 export const DIMENSION_NAMES: DimensionName[] = ["completeness", "adherence", "rigor"];
 
 export const GRADE_LABELS: Record<string, string> = {
-  A: "Fully complete",
-  B: "Substantially complete",
-  C: "Partially complete",
+  A: "Fully meets expectations",
+  B: "Substantially meets expectations",
+  C: "Partially meets expectations",
   D: "Significant gaps",
-  F: "Incomplete",
+  F: "Does not meet expectations",
   "N/A": "Not applicable",
 };
 
@@ -609,18 +612,6 @@ export async function runScout(
   }
   appendHeader(form, header);
   return streamRequest("/api/scout/run", form, onStage);
-}
-
-export async function recalibrateScout(
-  result: ScoutResponse,
-  onStage?: (stage: string, progress?: StageProgress) => void,
-): Promise<{ conformity: Conformity[] }> {
-  return streamRequest(
-    "/api/scout/recalibrate",
-    JSON.stringify({ quantitative_contract_version: 2, result }),
-    onStage,
-    { "Content-Type": "application/json" },
-  );
 }
 
 export async function runAligner(

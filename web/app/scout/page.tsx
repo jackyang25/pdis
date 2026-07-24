@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, ChevronDown, Search } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Copy, FileText, Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { ConfigurationFields } from "@/components/configuration-fields";
@@ -11,7 +11,6 @@ import { EmptyState } from "@/components/empty-state";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { DownloadButton } from "@/components/download-button";
 import {
-  recalibrateScout,
   runScout,
   type Conformity,
   type DevelopmentProgram,
@@ -44,6 +43,7 @@ import {
 } from "@/components/scout-signal-help";
 import { SourceAttributions } from "@/components/source-attributions";
 import { ComparatorDistributionPlot } from "@/components/comparator-distribution-plot";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const ScoutEvidenceMap = dynamic(
   () =>
@@ -220,8 +220,13 @@ function SignalSummary({
       </p>
       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
         {dot && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />}
-        <span className="truncate font-medium text-foreground">{value}</span>
-        {detail && <span className="shrink-0 text-muted-foreground">· {detail}</span>}
+        <span
+          className="min-w-0 truncate"
+          title={detail ? `${value} · ${detail}` : value}
+        >
+          <span className="font-medium text-foreground">{value}</span>
+          {detail && <span className="text-muted-foreground"> · {detail}</span>}
+        </span>
       </div>
     </div>
   );
@@ -364,33 +369,6 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     }
   }
 
-  async function handleRecalibrate() {
-    if (
-      !result
-      || busy
-      || result.conformity.some(
-        (score) => score.calibration_status === "legacy_unverified",
-      )
-    ) return;
-    setBusy(true);
-    setError(null);
-    setStage("conformity");
-    setProgress(null);
-    try {
-      const recalibrated = await recalibrateScout(result, (s, p) => {
-        setStage(s);
-        setProgress(p ?? null);
-      });
-      setResult({ ...result, conformity: recalibrated.conformity });
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-      setStage(null);
-      setProgress(null);
-    }
-  }
-
   // Normalize a portable result once at the import boundary, then render only
   // the current runtime contract. Import never triggers retrieval.
   async function handleImport(file: File) {
@@ -453,8 +431,6 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
         <FieldGrid
           result={result}
           onNewAnalysis={() => setShowRunPanel(true)}
-          onRecalibrate={handleRecalibrate}
-          recalibrating={busy && stage === "conformity"}
         />
       )}
       {result && <Ask resultType="scout" result={result} />}
@@ -532,13 +508,9 @@ function resultFindings(result: ScoutResponse): Finding[] {
 function FieldGrid({
   result,
   onNewAnalysis,
-  onRecalibrate,
-  recalibrating,
 }: {
   result: ScoutResponse;
   onNewAnalysis: () => void;
-  onRecalibrate: () => void;
-  recalibrating: boolean;
 }) {
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
@@ -546,10 +518,6 @@ function FieldGrid({
   const safetySignals = result.safety_signals ?? [];
   const [query, setQuery] = useState("");
   const [relationFilter, setRelationFilter] = useState<"all" | Match["relation"]>("all");
-  const hasLegacyConformity = result.conformity.some(
-    (score) => score.calibration_status === "legacy_unverified",
-  );
-
   if (variables.length === 0) {
     return <EmptyState message="No variables were returned for this intervention." />;
   }
@@ -619,11 +587,6 @@ function FieldGrid({
         contentClassName="p-0"
         trailing={
           <>
-            {!hasLegacyConformity && (
-              <Button variant="ghost" size="sm" onClick={onRecalibrate} disabled={recalibrating}>
-                {recalibrating ? "Recalculating…" : "Recalculate metrics"}
-              </Button>
-            )}
             <Button variant="ghost" size="sm" onClick={onNewAnalysis}>New analysis</Button>
             <DownloadButton
               filename="scout-result.json"
@@ -754,7 +717,7 @@ function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) 
       </div>
       {visible.map((program) => (
         <details key={program.name} className="group/program border-b border-border/80 last:border-b-0">
-          <summary className="flex cursor-pointer items-start gap-4 px-5 py-4 hover:bg-muted/25 sm:px-6 [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/program:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden">
             <div className="min-w-0 flex-1">
               <h3 className="truncate text-sm font-semibold text-foreground">{program.name}</h3>
               <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-3">
@@ -770,7 +733,7 @@ function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) 
               <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/program:rotate-180" />
             </div>
           </summary>
-          <div className="border-t border-border/70 bg-muted/15 px-5 py-4 sm:px-6">
+          <div className="animate-in border-t border-border/70 bg-muted/15 px-5 py-4 fade-in duration-150 motion-reduce:animate-none sm:px-6">
             {program.attribute_refs.length > 0 && (
               <p className="text-[11px] text-muted-foreground">
                 Retrieved for {program.attribute_refs.map(displayAttributeLabel).join(" · ")}
@@ -828,7 +791,7 @@ function SafetySignals({ signals }: { signals: SafetySignal[] }) {
       </div>
       {visible.map((signal, index) => (
         <details key={`${signal.product_name}-${signal.signal_type}-${signal.signal}-${index}`} className="group/safety border-b border-border/80 last:border-b-0">
-          <summary className="flex cursor-pointer items-start gap-4 px-5 py-4 hover:bg-muted/25 sm:px-6 [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/safety:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden">
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 {SAFETY_TYPE_LABELS[signal.signal_type] ?? signal.signal_type}
@@ -845,7 +808,7 @@ function SafetySignals({ signals }: { signals: SafetySignal[] }) {
               <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/safety:rotate-180" />
             </div>
           </summary>
-          <div className="border-t border-border/70 bg-muted/15 px-5 py-4 sm:px-6">
+          <div className="animate-in border-t border-border/70 bg-muted/15 px-5 py-4 fade-in duration-150 motion-reduce:animate-none sm:px-6">
             {signal.detail && (
               <p className="max-w-4xl text-xs leading-relaxed text-foreground/90">{signal.detail}</p>
             )}
@@ -894,7 +857,7 @@ function FieldRow({
   );
   return (
     <details className="group/field border-b border-border/80 last:border-b-0">
-      <summary className="flex cursor-pointer items-start justify-between gap-4 px-5 py-4 transition-colors hover:bg-muted/25 sm:px-6 [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer select-none items-start justify-between gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/field:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2">
             <h3 className="text-sm font-semibold text-foreground">{displayAttributeLabel(name)}</h3>
@@ -902,7 +865,7 @@ function FieldRow({
           <p className="mt-1 line-clamp-1 text-xs leading-relaxed text-muted-foreground">
             {description}
           </p>
-          <div className="mt-2.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="mt-2.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,0.9fr)]">
             <SignalSummary
               label="Evidence relationships"
               value={relationSummary(counts)}
@@ -930,7 +893,7 @@ function FieldRow({
                 ? "unverified legacy result"
                 : verifiedConformities.length > 0
                   ? countLabel(comparatorCount, "validated comparator")
-                  : quantitativeTargetStatusReason || undefined}
+                  : undefined}
               dot={quantitativeTargetStatus === "present" ? TARGET_ALIGNMENT_DOT : undefined}
               helpTopic="alignment"
             />
@@ -946,7 +909,7 @@ function FieldRow({
         <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/field:rotate-180" />
       </summary>
 
-      <div className="space-y-3 border-t border-border/70 bg-muted/15 px-5 py-5 sm:px-6">
+      <div className="animate-in space-y-3 border-t border-border/70 bg-muted/15 px-5 py-5 fade-in duration-150 motion-reduce:animate-none sm:px-6">
         {assessment?.doc_target && (
           <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
             <div className="flex items-center justify-between gap-3">
@@ -978,6 +941,14 @@ function FieldRow({
             ))}
           </div>
         )}
+        {conformities.length === 0 && quantitativeTargetStatusReason && (
+          <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
+            <SectionLabel>Evidence · quantitative calibration</SectionLabel>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {quantitativeTargetStatusReason}
+            </p>
+          </div>
+        )}
         {assessment && evidenceMeta && (
           <EvidenceBlock assessment={assessment} evidenceMeta={evidenceMeta} matches={matches} />
         )}
@@ -991,31 +962,62 @@ function FieldRow({
 }
 
 function BlockTrace({ blockIds }: { blockIds?: string[] }) {
+  const [copiedBlockId, setCopiedBlockId] = useState<string | null>(null);
   if (!blockIds?.length) return null;
+
+  async function copyBlockId(blockId: string) {
+    try {
+      await navigator.clipboard.writeText(blockId);
+      setCopiedBlockId(blockId);
+      window.setTimeout(() => setCopiedBlockId(null), 1400);
+    } catch {
+      setCopiedBlockId(null);
+    }
+  }
+
   return (
-    <details className="group/trace relative shrink-0">
-      <summary
-        className="cursor-pointer list-none whitespace-nowrap rounded-md px-1.5 py-1 text-[10px] font-medium text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden"
-        title="Show source document blocks"
-      >
-        Trace · {blockIds.length} {blockIds.length === 1 ? "block" : "blocks"}
-      </summary>
-      <div className="absolute right-0 top-full z-30 mt-1.5 w-[min(22rem,calc(100vw-3rem))] rounded-md border border-border bg-popover p-2.5 shadow-lg">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Source document blocks
-        </p>
-        <ul className="mt-1.5 max-h-44 space-y-1 overflow-y-auto pr-1">
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-transparent px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+          aria-label={`Show ${blockIds.length} source document ${blockIds.length === 1 ? "block" : "blocks"}`}
+        >
+          <FileText className="h-3 w-3" />
+          Trace
+          <span className="tabular-nums text-muted-foreground/70">{blockIds.length}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={6} className="w-[min(380px,calc(100vw-32px))] p-3">
+        <div>
+          <h3 className="text-xs font-semibold text-foreground">Document trace</h3>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            Exact uploaded-document blocks used to establish this target.
+          </p>
+        </div>
+        <ul className="mt-3 max-h-52 space-y-1.5 overflow-y-auto pr-1">
           {blockIds.map((blockId) => (
-            <li
-              key={blockId}
-              className="break-all rounded bg-muted/50 px-2 py-1 font-mono text-[10px] leading-relaxed text-foreground/80"
-            >
-              {blockId}
+            <li key={blockId} className="group/block flex items-center gap-2 rounded-md border border-border/70 bg-muted/30 px-2.5 py-2">
+              <code className="min-w-0 flex-1 break-all font-mono text-[10px] leading-relaxed text-foreground/80">
+                {blockId}
+              </code>
+              <button
+                type="button"
+                onClick={() => void copyBlockId(blockId)}
+                aria-label={`Copy block ID ${blockId}`}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-card hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
+              >
+                {copiedBlockId === blockId
+                  ? <Check className="h-3.5 w-3.5" />
+                  : <Copy className="h-3.5 w-3.5" />}
+              </button>
             </li>
           ))}
         </ul>
-      </div>
-    </details>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1024,10 +1026,18 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
     conformity.target_label ||
     `${conformity.comparator} ${conformity.target_value}${conformity.unit}`;
   const formatBenchmark = (value: number | null) =>
-    value == null ? "—" : `${value.toLocaleString(undefined, { maximumFractionDigits: 3 })}${conformity.unit}`;
-  const ambition = conformity.ambition_percentile == null
+    value == null ? "—" : `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}${conformity.unit}`;
+  const targetPosition = conformity.benchmark_minimum == null || conformity.benchmark_maximum == null
     ? "—"
-    : `${formatOrdinal(Math.round(conformity.ambition_percentile * 100))} percentile`;
+    : conformity.target_value < conformity.benchmark_minimum
+      ? "Below observed range"
+      : conformity.target_value > conformity.benchmark_maximum
+        ? "Above observed range"
+        : conformity.benchmark_count < 4 || conformity.ambition_percentile == null
+          ? "Within observed range"
+          : `${formatOrdinal(Math.round(conformity.ambition_percentile * 100))} ambition percentile`;
+  const hasInformativeQuartiles = conformity.benchmark_count >= 4;
+  const hasInformativeDeviation = conformity.benchmark_count >= 3;
   const coverageLabel = {
     insufficient: "Insufficient basis",
     limited: "Limited basis",
@@ -1082,15 +1092,27 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
         <>
           <dl className="mt-4 grid grid-cols-2 overflow-hidden rounded-lg border border-border/70 sm:grid-cols-3">
             <StatCell label="External median" value={formatBenchmark(conformity.benchmark_median)} />
-            <StatCell label="Middle 50%" value={`${formatBenchmark(conformity.benchmark_lower_quartile)}–${formatBenchmark(conformity.benchmark_upper_quartile)}`} />
+            <StatCell
+              label="Middle 50%"
+              value={hasInformativeQuartiles
+                ? `${formatBenchmark(conformity.benchmark_lower_quartile)}–${formatBenchmark(conformity.benchmark_upper_quartile)}`
+                : "Not shown"}
+              detail={hasInformativeQuartiles ? undefined : "Not presented below 4 comparators"}
+            />
             <StatCell label="Observed range" value={`${formatBenchmark(conformity.benchmark_minimum)}–${formatBenchmark(conformity.benchmark_maximum)}`} />
-            <StatCell label="Mean · observed SD" value={`${formatBenchmark(conformity.benchmark_mean)} · ${formatBenchmark(conformity.benchmark_standard_deviation)}`} />
-            <StatCell label="Target ambition" value={ambition} />
+            <StatCell
+              label="Mean · observed SD"
+              value={hasInformativeDeviation
+                ? `${formatBenchmark(conformity.benchmark_mean)} · ${formatBenchmark(conformity.benchmark_standard_deviation)}`
+                : `${formatBenchmark(conformity.benchmark_mean)} · not shown`}
+              detail={hasInformativeDeviation ? undefined : "SD not presented below 3 comparators"}
+            />
+            <StatCell label="Target position" value={targetPosition} />
             <StatCell label="Evidence basis" value={`${conformity.benchmark_count} comparator${conformity.benchmark_count === 1 ? "" : "s"}`} detail={coverageLabel} />
           </dl>
           <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/70">
-            Range, standard deviation, and percentile describe this selected comparator cohort only.
-            They are not population uncertainty or likelihood of success.
+            These values describe this selected comparator cohort only. Small cohorts intentionally
+            omit unstable distribution summaries. They are not population uncertainty or likelihood of success.
           </p>
         </>
       ) : (
@@ -1115,8 +1137,11 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
             {uncertainSources.length > 0 ? ` · ${uncertainSources.length} unresolved` : " · all resolved"}
           </p>
           {uncertainSources.length > 0 && (
-            <details className="mt-1.5">
-              <summary className="cursor-pointer font-medium">Review unresolved source passages</summary>
+            <details className="group/unresolved mt-1.5">
+              <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 font-medium outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+                Review unresolved source passages
+                <ChevronDown className="h-3 w-3 transition-transform group-open/unresolved:rotate-180" />
+              </summary>
               <ul className="mt-1.5 space-y-1.5">
                 {uncertainSources.map((item) => {
                   const sourceTitle = matches
@@ -1175,8 +1200,11 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
                   <p className="mt-1 text-[10px] text-muted-foreground/70">
                     {measurement.inclusion_reason} Identity: {measurement.source_identity_status.replace("_", " ")}.
                   </p>
-                  <details className="mt-1 text-[10px] text-muted-foreground/70">
-                    <summary className="cursor-pointer">Semantic mapping</summary>
+                  <details className="group/semantic mt-1 text-[10px] text-muted-foreground/70">
+                    <summary className="inline-flex cursor-pointer select-none items-center gap-1 rounded px-1 py-0.5 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+                      Semantic mapping
+                      <ChevronDown className="h-2.5 w-2.5 transition-transform group-open/semantic:rotate-180" />
+                    </summary>
                     <ul className="mt-1 space-y-0.5 pl-3">
                       <li>Status: {measurement.semantic_status.replace("_", " ")} — {measurement.semantic_reason}</li>
                       <li>Expression: {measurement.expression.kind.replaceAll("_", " ")}</li>
@@ -1198,9 +1226,10 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
       )}
 
       {conformity.excluded_measurements.length > 0 && (
-        <details className="mt-3 border-t border-border/70 pt-3">
-          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
+        <details className="group/excluded mt-3 border-t border-border/70 pt-3">
+          <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
             {conformity.excluded_measurements.length} complete measurement{conformity.excluded_measurements.length === 1 ? "" : "s"} excluded
+            <ChevronDown className="h-3 w-3 transition-transform group-open/excluded:rotate-180" />
           </summary>
           <ul className="mt-2 space-y-2">
             {conformity.excluded_measurements.map((measurement, index) => (

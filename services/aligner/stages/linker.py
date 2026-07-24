@@ -146,7 +146,9 @@ Return ONLY valid JSON:
         + "\n\nCOMPARISON units:\n"
         + _format_units(comparison_units)
     )
-    parsed_items: list[dict[str, Any]] = []
+    ref_by_id = {unit.id: unit for unit in reference_units}
+    comp_by_id = {unit.id: unit for unit in comparison_units}
+    selected: dict[str, AlignmentLink] | None = None
     for attempt in range(2):
         raw = llm_client.call(
             system_prompt,
@@ -163,42 +165,57 @@ Return ONLY valid JSON:
             values = parsed.get("links")
             if not isinstance(values, list):
                 raise ValueError("links must be a list")
-            parsed_items = [item for item in values if isinstance(item, dict)]
+            candidate = _validate_batch_links(values, ref_by_id, comp_by_id)
+            if attempt == 0 and set(candidate) != set(ref_by_id):
+                raise ValueError("Alignment response omitted one or more reference units")
+            selected = candidate
             break
         except (ValueError, json.JSONDecodeError, AttributeError) as exc:
             if attempt:
                 logger.error("Aligner linking returned invalid JSON after retry: %s", exc)
+    if selected is None:
+        raise RuntimeError("Aligner linking failed after retry")
+    return [selected.get(unit.id, _missing_link(unit)) for unit in reference_units]
 
-    ref_by_id = {unit.id: unit for unit in reference_units}
-    comp_by_id = {unit.id: unit for unit in comparison_units}
+
+def _validate_batch_links(
+    values: list[Any],
+    ref_by_id: dict[str, AlignmentUnit],
+    comp_by_id: dict[str, AlignmentUnit],
+) -> dict[str, AlignmentLink]:
     selected: dict[str, AlignmentLink] = {}
-    for item in parsed_items:
+    for item in values:
+        if not isinstance(item, dict):
+            raise ValueError("Every alignment link must be an object")
         reference_id = item.get("reference_unit_id")
         relation = item.get("relation")
         if reference_id not in ref_by_id or reference_id in selected:
-            continue
+            raise ValueError("Alignment response contains an unknown or duplicate reference ID")
         if relation not in LLM_RELATIONS:
-            continue
-        comparison_ids = _valid_ids(item.get("comparison_unit_ids"), comp_by_id)
-        if relation == "missing":
-            comparison_ids = []
-        elif not comparison_ids:
-            relation = "missing"
-        reference = ref_by_id[reference_id]
-        comparisons = [comp_by_id[unit_id] for unit_id in comparison_ids]
+            raise ValueError("Alignment response contains an unknown relation")
+        raw_comparison_ids = item.get("comparison_unit_ids")
+        if not isinstance(raw_comparison_ids, list) or any(
+            not isinstance(unit_id, str) or unit_id not in comp_by_id
+            for unit_id in raw_comparison_ids
+        ):
+            raise ValueError("Alignment response contains an unknown comparison ID")
+        comparison_ids = list(dict.fromkeys(raw_comparison_ids))
+        if len(comparison_ids) != len(raw_comparison_ids):
+            raise ValueError("Alignment response contains duplicate comparison IDs")
+        if relation == "missing" and comparison_ids:
+            raise ValueError("Missing links cannot cite comparison units")
+        if relation != "missing" and not comparison_ids:
+            raise ValueError("Mapped links must cite at least one comparison unit")
         reason = _clean_reason(item.get("reason"))
+        if not reason:
+            raise ValueError("Every alignment link requires a document-grounded reason")
         selected[reference_id] = _link(
             relation=relation,
-            reference_units=[reference],
-            comparison_units=comparisons,
-            reason=reason
-            or (
-                "No substantive counterpart was identified in the comparison document."
-                if relation == "missing"
-                else "The cited units were linked by their stated content."
-            ),
+            reference_units=[ref_by_id[reference_id]],
+            comparison_units=[comp_by_id[unit_id] for unit_id in comparison_ids],
+            reason=reason,
         )
-    return [selected.get(unit.id, _missing_link(unit)) for unit in reference_units]
+    return selected
 
 
 def _format_units(units: list[AlignmentUnit]) -> str:
@@ -266,16 +283,6 @@ def _stats(
     )
 
 
-def _valid_ids(value: Any, allowed: dict[str, AlignmentUnit]) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return list(
-        dict.fromkeys(
-            item for item in value if isinstance(item, str) and item in allowed
-        )
-    )
-
-
 def _unit_block_ids(units: list[AlignmentUnit]) -> list[str]:
     return list(dict.fromkeys(block_id for unit in units for block_id in unit.block_ids))
 
@@ -289,8 +296,14 @@ def _extract_json_object(value: str) -> str:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
         text = re.sub(r"\s*```$", "", text)
-    start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end < start:
-        raise ValueError("response did not contain a JSON object")
-    return text[start : end + 1]
+    decoder = json.JSONDecoder()
+    for start, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            parsed, end = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return text[start : start + end]
+    raise ValueError("response did not contain a JSON object")

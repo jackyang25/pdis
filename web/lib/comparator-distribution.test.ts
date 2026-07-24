@@ -6,6 +6,7 @@ import { buildComparatorDistribution } from "./comparator-distribution.ts";
 const measurement = (value: number, unit = "%") => ({
   value,
   unit,
+  expressionKind: "point_estimate",
   source_quote: `Observed ${value}${unit}`,
   source_record_id: `record-${value}-${unit}`,
   source_identity_status: "canonical",
@@ -51,6 +52,26 @@ test("keeps incompatible excluded measurements out of the plot", () => {
   assert.ok(model);
   assert.equal(model.excluded.length, 0);
   assert.equal(model.unplottableExcludedCount, 1);
+});
+
+test("does not plot a contextual bound as an exact point", () => {
+  const bound = {
+    ...measurement(90),
+    expressionKind: "bound",
+  };
+  const model = buildComparatorDistribution({
+    targetValue: 80,
+    unit: "%",
+    minimum: null,
+    maximum: null,
+    median: null,
+    lowerQuartile: null,
+    upperQuartile: null,
+    included: [],
+    excluded: [bound],
+  });
+
+  assert.equal(model, null);
 });
 
 test("uses a non-zero domain for a single repeated value", () => {

@@ -1460,6 +1460,9 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertIn("Target semantic profile", prompt)
         self.assertNotIn(target.quote, prompt)
         self.assertNotIn("80", prompt)
+        self.assertIn("self-contained exact quote", prompt)
+        self.assertIn("storage temperature", prompt)
+        self.assertIn("return uncertain rather than a measurement", prompt)
 
     def test_conformity_never_treats_web_citation_context_as_source_quote(self) -> None:
         web_insight = Insight(

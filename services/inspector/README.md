@@ -48,6 +48,15 @@ Variable-bearing sections are graded at the variable level. Prose-only sections
 are graded directly. Missing sections and variables receive deterministic
 handling. No extra model call synthesizes section or document grades.
 
+The configured rubric is the canonical variable ledger: every expected
+variable must be accounted for exactly once, and model-invented variables are
+rejected. Cross-section conflicts cite exact blocks from every named section.
+The completed result passes one deterministic integrity check before leaving
+the service. The result also distinguishes a completed consistency check from a
+failed, inapplicable, or legacy-unknown check; failure is never presented as
+"no conflicts." Exceptionally long documents expose a `partial` status when
+the consistency pass used bounded context.
+
 Embedded visuals are supplied with their exact block IDs to each applicable
 dimension call. Returned block IDs are validated against the section input.
 

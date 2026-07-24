@@ -1,6 +1,7 @@
 export type DistributionMeasurement = {
   value: number;
   unit: string;
+  expressionKind: string;
   source_quote: string;
   source_record_id: string;
   source_identity_status: string;
@@ -40,6 +41,7 @@ export type ComparatorDistributionModel = {
 };
 
 const LANE_COUNT = 7;
+const ATOMIC_SCALAR_KINDS = new Set(["point_estimate", "count", "rate"]);
 
 function finite(value: number | null): value is number {
   return value != null && Number.isFinite(value);
@@ -85,6 +87,7 @@ export function buildComparatorDistribution(
   const compatibleExcluded = input.excluded.filter(
     (measurement) =>
       Number.isFinite(measurement.value) &&
+      ATOMIC_SCALAR_KINDS.has(measurement.expressionKind) &&
       measurement.semantic_status === "contextual" &&
       normalizedUnit(measurement.unit) === normalizedUnit(input.unit),
   );

@@ -12,8 +12,8 @@ unit_provider: extract
 
 evidence_framing: |
   This is an integrated product development plan. Assess whether the stated plan commitment or assumption is externally supported and feasible. Thin precedent is uncertainty or execution risk, not intentional product ambition.
-conformity_framing: |
-  This is an integrated product development plan. The numeric value may be a milestone, timeline, cost, capacity, or feasibility assumption. Compare like with like and score whether external benchmarks support that specific commitment.
+quantitative_target_framing: |
+  This is an integrated product development plan. Preserve a document-stated exact or directional scalar as the plan's milestone, timeline, cost, capacity, performance, study-design, or feasibility commitment. Do not convert descriptive numbers into targets.
 
 # Interpretive stance injected into the drift and precedent reasoning. An IPDP's
 # units are plan commitments to be pressure-tested for feasibility, not

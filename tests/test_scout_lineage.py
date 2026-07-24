@@ -48,10 +48,12 @@ from services.scout.stages.context_validator import (
 )
 from services.scout.stages.drift_classifier import classify_drift
 from services.scout.stages.evidence_assessor import assess_evidence
+from services.scout.stages.insight_extractor import _system_prompt as insight_system_prompt
 from services.scout.stages.precedent_classifier import classify_precedent
 from services.scout.stages.query_extractor import (
     _parse_queries,
     _target_retrieval_descriptor,
+    _target_retrieval_text,
     extract_queries_for_variable,
 )
 from services.scout.stages.intent_builder import build_retrieval_intents
@@ -146,7 +148,15 @@ def normalize_conformity_fixture(
                             "semantic_profile",
                             semantic_profile(str(target.get("label", "numeric measure"))),
                         ),
-                        "other_constraints": target.get("other_constraints", []),
+                        "semantic_provenance": target.get("semantic_provenance")
+                        or semantic_provenance(
+                            target.get(
+                                "semantic_profile",
+                                semantic_profile(str(target.get("label", "numeric measure"))),
+                            ),
+                            target.get("quote", ""),
+                            target.get("doc_block_ids", []),
+                        ),
                     }
                     for target in response.get("targets", [])
                     if isinstance(target, dict)
@@ -177,7 +187,13 @@ def normalize_conformity_fixture(
                     "semantic_profile": response.get("semantic_profile") or semantic_profile(
                         str(response.get("target_label", "numeric measure"))
                     ),
-                    "other_constraints": response.get("other_constraints", []),
+                    "semantic_provenance": semantic_provenance(
+                        response.get("semantic_profile") or semantic_profile(
+                            str(response.get("target_label", "numeric measure"))
+                        ),
+                        str(response.get("target_quote", "")),
+                        response.get("doc_block_ids", []),
+                    ),
                 }
             ]
         }
@@ -228,8 +244,16 @@ def semantic_profile(measure: str = "numeric measure") -> dict:
         }
         for field in (
             "measure", "endpoint", "intervention", "population", "regimen",
-            "time_horizon", "statistic",
+            "time_horizon", "statistic", "conditions",
         )
+    }
+
+
+def semantic_provenance(profile: dict, quote: str, block_ids: list[str]) -> dict:
+    span = {"quote": quote, "block_ids": block_ids}
+    return {
+        field_name: [span] if slot["state"] in {"specified", "other"} else []
+        for field_name, slot in profile.items()
     }
 
 
@@ -294,6 +318,7 @@ def same_comparability() -> dict[str, dict[str, str]]:
             "regimen",
             "time_horizon",
             "statistic",
+            "conditions",
         )
     }
 
@@ -303,7 +328,6 @@ def semantic_assessment(
     source_profile: dict | None = None,
     comparability: dict | None = None,
     ownership: dict | None = None,
-    constraints: dict | None = None,
 ) -> dict:
     profile = source_profile or semantic_profile()
     decisions = comparability or same_comparability()
@@ -318,10 +342,6 @@ def semantic_assessment(
                 "compatibility": decisions[field_name],
             }
             for field_name in profile
-        },
-        "constraints_compatibility": constraints or {
-            "state": "yes",
-            "reason": "",
         },
     }
 
@@ -573,7 +593,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             config = load_config(str(path))
             self.assertTrue(config.drift_framing, path.name)
             self.assertTrue(config.evidence_framing, path.name)
-            self.assertTrue(config.conformity_framing, path.name)
+            self.assertTrue(config.quantitative_target_framing, path.name)
             self.assertTrue(config.precedent_framing, path.name)
             self.assertTrue(config.sources, path.name)
             self.assertTrue(set(config.sources).issubset(set(source_keys())), path.name)
@@ -879,10 +899,188 @@ class RetrievalPlanningTests(unittest.TestCase):
         )
 
         self.assertEqual(resolved[0].quantitative_targets, [])
+        self.assertEqual(resolved[0].quantitative_target_status, "not_applicable")
+        self.assertIn(
+            "more specific canonical field",
+            resolved[0].quantitative_target_status_reason,
+        )
         self.assertEqual(len(resolved[1].quantitative_targets), 1)
         target = resolved[1].quantitative_targets[0]
         self.assertEqual(target.attribute_ref, "vaccine.dose_volume")
         self.assertIn("directly names", target.ownership_reason)
+
+    def test_field_ownership_retains_specific_atomic_population_variants(self) -> None:
+        quote = "Dose count: up to three doses for pediatric and adult use."
+        block_ids = ["document/b-0003"]
+
+        def profile(population: str) -> dict:
+            value = semantic_profile("primary-series dose count")
+            value["population"] = {
+                "state": "specified",
+                "value": population,
+                "other": "",
+            }
+            return value
+
+        expression = NumericExpression(
+            kind="bound", value=3, comparator="<=", unit="doses"
+        )
+        broad = QuantitativeTarget(
+            attribute_ref="drug.product",
+            expression=expression,
+            role="threshold",
+            quote=quote,
+            doc_block_ids=block_ids,
+            semantic_profile=profile("pediatric and adult"),
+        )
+        specific = [
+            QuantitativeTarget(
+                attribute_ref="drug.dose_count",
+                expression=expression,
+                role="threshold",
+                quote="up to three doses for pediatric and adult use",
+                doc_block_ids=block_ids,
+                semantic_profile=profile(population),
+            )
+            for population in ("pediatric", "adult")
+        ]
+        attributes = [
+            Attribute(
+                "drug.product",
+                "Candidate and formulation",
+                document_target=quote,
+                block_ids=block_ids,
+                target_resolved=True,
+                quantitative_targets=[broad],
+            ),
+            Attribute(
+                "drug.dose_count",
+                "Number of doses in the primary series",
+                document_target=quote,
+                block_ids=block_ids,
+                target_resolved=True,
+                quantitative_targets=specific,
+            ),
+        ]
+
+        class OwnershipClient:
+            def call(self, system_prompt, user_message, max_tokens, *, images=None):
+                group_id = re.search(r"\[group:(qg-[a-f0-9]+)\]", user_message)
+                assert group_id is not None
+                return json.dumps({
+                    "owners": [{
+                        "group_id": group_id.group(1),
+                        "attribute_ref": "drug.dose_count",
+                        "reason": "The specific field owns the measured dose count.",
+                    }]
+                })
+
+        resolved = resolve_quantitative_target_ownership(attributes, OwnershipClient())
+
+        self.assertEqual(resolved[0].quantitative_targets, [])
+        retained = resolved[1].quantitative_targets
+        self.assertEqual(len(retained), 2)
+        self.assertEqual(
+            {target.semantic_profile["population"].value for target in retained},
+            {"pediatric", "adult"},
+        )
+
+    def test_query_projection_removes_only_the_target_magnitude(self) -> None:
+        profile = semantic_profile("storage temperature tolerance")
+        profile["endpoint"] = {
+            "state": "specified",
+            "value": "stability at temperatures greater than +8°C",
+            "other": "",
+        }
+        profile["time_horizon"] = {
+            "state": "specified",
+            "value": "extended storage period",
+            "other": "",
+        }
+        target = QuantitativeTarget(
+            attribute_ref="device.storage",
+            expression=NumericExpression(kind="bound", value=8, comparator=">", unit="°C"),
+            role="optimal",
+            quote="stable for extended periods at temperatures greater than +8°C",
+            doc_block_ids=["document/b-0004"],
+            semantic_profile=profile,
+        )
+
+        descriptor = _target_retrieval_descriptor(target)
+        query_text = _target_retrieval_text(target)
+
+        self.assertNotIn("endpoint", descriptor["dimensions"])
+        self.assertEqual(
+            descriptor["dimensions"]["time_horizon"], "extended storage period"
+        )
+        self.assertNotIn("8", query_text)
+        self.assertIn("storage temperature tolerance", query_text)
+
+        dose_profile = semantic_profile("dose volume below 0.5 mL/dose")
+        dose_target = QuantitativeTarget(
+            attribute_ref="device.dose_volume",
+            expression=NumericExpression(
+                kind="bound", value=0.5, comparator="<", unit="mL/dose"
+            ),
+            role="optimal",
+            quote="Dose volume below 0.5 mL/dose.",
+            doc_block_ids=["document/b-0005"],
+            semantic_profile=dose_profile,
+        )
+        self.assertNotIn(
+            "measure", _target_retrieval_descriptor(dose_target)["dimensions"]
+        )
+
+    def test_generated_query_that_restates_target_magnitude_is_replaced(self) -> None:
+        profile = semantic_profile("storage temperature tolerance")
+        target = QuantitativeTarget(
+            attribute_ref="device.storage",
+            expression=NumericExpression(
+                kind="bound", value=8, comparator=">", unit="°C"
+            ),
+            role="optimal",
+            quote="Temperature tolerance greater than 8°C.",
+            doc_block_ids=["document/b-0004"],
+            semantic_profile=profile,
+        )
+        attribute = Attribute(
+            "device.storage",
+            "Storage temperature tolerance",
+            document_target=target.quote,
+            block_ids=target.doc_block_ids,
+            target_resolved=True,
+            quantitative_targets=[target],
+        )
+        config = replace(
+            load_config(
+                str(
+                    Path(__file__).resolve().parents[1]
+                    / "services/scout/configs/bmgf_itpp_vaccine.yaml"
+                )
+            ),
+            geographic_queries_per_variable=0,
+            counterfactual_queries_per_variable=0,
+            precedent_queries_per_variable=0,
+        )
+        invalid = [{
+            "query": "device stability above 8°C reported results",
+            "doc_block_ids": ["document/b-0004"],
+            "target_ids": [target.id],
+        }]
+
+        queries = extract_queries_for_variable(
+            attribute,
+            config,
+            SequenceClient([invalid, invalid]),
+            indication="example condition",
+            queries_per_variable=1,
+            document_context="[block:document/b-0004]\nTemperature tolerance greater than 8°C.",
+        )
+
+        self.assertEqual(len(queries), 1)
+        self.assertEqual(queries[0].target_ids, [target.id])
+        self.assertNotIn("8", queries[0].text)
+        self.assertIn("reported numeric results", queries[0].text)
 
     def test_plain_text_literature_plan_covers_every_variant(self) -> None:
         attribute = Attribute("durability", "Duration of protection")
@@ -1394,6 +1592,8 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertTrue(_value_unit_supported(0.5, "mL/dose", "Dose volume: <0.5 mL/dose."))
         self.assertTrue(_meets_target(0.49, 0.5, "<"))
         self.assertFalse(_meets_target(0.5, 0.5, "<"))
+        self.assertTrue(_meets_target(2, 2, "="))
+        self.assertFalse(_meets_target(3, 2, "="))
 
     def test_range_is_one_expression_not_two_point_candidates(self) -> None:
         expression = NumericExpression(kind="range", unit="%", lower=36, upper=50)
@@ -1657,26 +1857,39 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(excluded, [measurement])
         self.assertEqual(measurement.semantic_status, "unknown")
 
-    def test_additional_target_constraint_is_part_of_admission(self) -> None:
+    def test_target_condition_is_part_of_admission(self) -> None:
+        source_profile = semantic_profile("protective efficacy")
+        source_profile["conditions"] = {
+            "state": "specified",
+            "value": "controlled human infection",
+            "other": "",
+        }
+        comparability = same_comparability()
+        comparability["conditions"] = {
+            "state": "no",
+            "reason": "The estimate comes from CHMI rather than a field trial.",
+        }
         measurement = Measurement(
             expression=NumericExpression(kind="point_estimate", value=80, unit="%"),
             semantic_assessment=semantic_assessment(
-                source_profile=semantic_profile("protective efficacy"),
-                constraints={
-                    "state": "no",
-                    "reason": "The estimate comes from CHMI rather than a field trial.",
-                },
+                source_profile=source_profile,
+                comparability=comparability,
             ),
             source_record_id="doi:10.1/chmi",
         )
+        target_profile = semantic_profile("protective efficacy")
+        target_profile["conditions"] = {
+            "state": "specified",
+            "value": "field trial rather than CHMI",
+            "other": "",
+        }
         target = QuantitativeTarget(
             attribute_ref="efficacy",
             expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
             role="optimal",
             quote="Target efficacy is more than 80%.",
             doc_block_ids=["document/b-0003"],
-            semantic_profile=semantic_profile("protective efficacy"),
-            other_constraints=["Field trial efficacy, not CHMI."],
+            semantic_profile=target_profile,
         )
 
         included, excluded = _partition_cohort([measurement], target)
@@ -1724,6 +1937,164 @@ class ReasoningLineageTests(unittest.TestCase):
         )
         self.assertEqual(len(targets), 1)
         self.assertEqual(len(targets[0].provenance_spans), 2)
+        self.assertEqual(len(targets[0].semantic_provenance["measure"]), 2)
+
+    def test_target_meaning_can_use_cited_bounded_definition_context(self) -> None:
+        binding = "[block:document/b-0004]\nTarget response is at least 80% at 12 months."
+        semantic_context = (
+            "[block:document/b-0002]\nResponse means confirmed biomarker clearance.\n\n"
+            + binding
+        )
+        attribute = replace(
+            self.attribute,
+            name="drug.response",
+            description="Document-defined treatment response",
+            document_target="Target response is at least 80% at 12 months.",
+            block_ids=["document/b-0004"],
+        )
+        profile = semantic_profile("response rate")
+        profile["endpoint"] = {
+            "state": "specified",
+            "value": "confirmed biomarker clearance",
+            "other": "",
+        }
+        profile["time_horizon"] = {
+            "state": "specified",
+            "value": "12 months",
+            "other": "",
+        }
+        provenance = semantic_provenance(
+            profile,
+            "Target response is at least 80% at 12 months.",
+            ["document/b-0004"],
+        )
+        provenance["endpoint"] = [{
+            "quote": "Response means confirmed biomarker clearance.",
+            "block_ids": ["document/b-0002"],
+        }]
+
+        targets = extract_quantitative_targets(
+            attribute,
+            binding,
+            StaticClient({
+                "targets": [{
+                    "expression": {
+                        "kind": "bound",
+                        "value": 80,
+                        "comparator": ">=",
+                        "unit": "%",
+                    },
+                    "role": "threshold",
+                    "quote": "Target response is at least 80% at 12 months.",
+                    "doc_block_ids": ["document/b-0004"],
+                    "semantic_profile": profile,
+                    "semantic_provenance": provenance,
+                }]
+            }),
+            indication="example condition",
+            intervention_class="drug",
+            semantic_context=semantic_context,
+        )
+
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(
+            targets[0].semantic_profile["endpoint"].value,
+            "confirmed biomarker clearance",
+        )
+        self.assertEqual(
+            targets[0].semantic_provenance["endpoint"][0].block_ids,
+            ["document/b-0002"],
+        )
+
+    def test_target_with_uncited_specified_semantics_fails_closed(self) -> None:
+        document = "[block:document/b-0003]\nTarget response is at least 80%."
+        attribute = replace(
+            self.attribute,
+            name="diagnostic.response",
+            document_target="Target response is at least 80%.",
+            block_ids=["document/b-0003"],
+        )
+        profile = semantic_profile("response rate")
+        profile["population"] = {
+            "state": "specified",
+            "value": "adults",
+            "other": "",
+        }
+        provenance = semantic_provenance(
+            profile,
+            "Target response is at least 80%.",
+            ["document/b-0003"],
+        )
+        provenance["population"] = []
+
+        targets = extract_quantitative_targets(
+            attribute,
+            document,
+            StaticClient({
+                "targets": [{
+                    "expression": {
+                        "kind": "bound",
+                        "value": 80,
+                        "comparator": ">=",
+                        "unit": "%",
+                    },
+                    "role": "threshold",
+                    "quote": "Target response is at least 80%.",
+                    "doc_block_ids": ["document/b-0003"],
+                    "semantic_profile": profile,
+                    "semantic_provenance": provenance,
+                }]
+            }),
+            indication="example condition",
+            intervention_class="diagnostic",
+        )
+
+        self.assertEqual(targets, [])
+
+    def test_insight_prompt_preserves_source_claim_ownership(self) -> None:
+        prompt = insight_system_prompt(
+            indication="example condition",
+            intervention_class="drug",
+            attribute_ref="efficacy",
+            attribute_description="Treatment effect",
+        )
+
+        self.assertIn("background from a prior study", prompt)
+        self.assertIn("not observed results", prompt)
+
+    def test_exact_scalar_target_accepts_written_number_with_exact_provenance(self) -> None:
+        document = "[block:document/b-0003]\nOptimal primary series: two doses."
+        attribute = replace(
+            self.attribute,
+            name="drug.dose_count",
+            description="Number of doses in the primary series",
+            document_target="Optimal primary series: two doses.",
+            block_ids=["document/b-0003"],
+        )
+        targets = extract_quantitative_targets(
+            attribute,
+            document,
+            StaticClient({
+                "targets": [{
+                    "expression": {
+                        "kind": "bound",
+                        "value": 2,
+                        "comparator": "=",
+                        "unit": "doses",
+                    },
+                    "role": "optimal",
+                    "quote": "Optimal primary series: two doses.",
+                    "doc_block_ids": ["document/b-0003"],
+                    "semantic_profile": semantic_profile("primary-series dose count"),
+                }]
+            }),
+            indication="example condition",
+            intervention_class="drug",
+        )
+
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].comparator, "=")
+        self.assertEqual(targets[0].value, 2)
 
     def test_semantic_slot_preserves_other_without_guessing(self) -> None:
         slot = SemanticSlot(state="other", other="Composite endpoint not in the core schema")

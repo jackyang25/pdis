@@ -251,7 +251,9 @@ def _combine(
     target_meeting_rate = target_meeting_count / benchmark_count
     target_percentile = _empirical_percentile(benchmark_values, target.value)
     ambition_percentile = (
-        1.0 - target_percentile
+        None
+        if target.comparator == "="
+        else 1.0 - target_percentile
         if target.comparator in {"<", "<="}
         else target_percentile
     )
@@ -282,7 +284,11 @@ def _combine(
             round(stdev(benchmark_values), 3) if benchmark_count >= 2 else None
         ),
         target_percentile=round(target_percentile, 3),
-        ambition_percentile=round(ambition_percentile, 3),
+        ambition_percentile=(
+            round(ambition_percentile, 3)
+            if ambition_percentile is not None
+            else None
+        ),
         calibration_status=_calibration_status(measurements),
         doc_block_ids=target.doc_block_ids,
         measurements=measurements,
@@ -328,6 +334,7 @@ def _calibration_status(measurements: list[Measurement]) -> str:
 
 def _meets_target(value: float, target: float, comparator: str) -> bool:
     return {
+        "=": math.isclose(value, target, rel_tol=1e-9, abs_tol=1e-9),
         "<": value < target,
         "<=": value <= target,
         ">": value > target,
@@ -374,6 +381,7 @@ def extract_quantitative_targets(
     doc_text: str,
     llm_client: LLMClientProtocol,
     *,
+    semantic_context: str = "",
     indication: str,
     intervention_class: str,
     framing: str = "",
@@ -385,6 +393,7 @@ def extract_quantitative_targets(
         attribute,
         doc_text,
         llm_client,
+        semantic_context=semantic_context,
         indication=indication,
         intervention_class=intervention_class,
         framing=framing,
@@ -398,13 +407,14 @@ def extract_quantitative_target_set(
     doc_text: str,
     llm_client: LLMClientProtocol,
     *,
+    semantic_context: str = "",
     indication: str,
     intervention_class: str,
     framing: str = "",
     images: list[dict[str, str]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> QuantitativeTargetExtraction:
-    attempts = 2 if _looks_directional_numeric(attribute.document_target) else 1
+    attempts = 2 if _looks_numeric_target(attribute.document_target) else 1
     last_status = "uncertain"
     last_reason = "The quantitative target mapping did not return a valid decision."
     for attempt in range(attempts):
@@ -421,7 +431,11 @@ def extract_quantitative_target_set(
                 intervention_class,
                 framing=framing,
             ),
-            _target_user_message(attribute, doc_text) + retry_note,
+            _target_user_message(
+                attribute,
+                doc_text,
+                semantic_context or doc_text,
+            ) + retry_note,
             max_tokens=max_tokens,
             images=images,
         )
@@ -432,7 +446,7 @@ def extract_quantitative_target_set(
             status = "uncertain"
         last_status = status
         last_reason = reason or {
-            "present": "The document states at least one directional numeric target.",
+            "present": "The document states at least one exact or directional numeric target.",
             "not_applicable": "The canonical field does not state a directional numeric target.",
             "uncertain": "The document wording was insufficient to resolve a numeric target.",
         }[status]
@@ -440,6 +454,7 @@ def extract_quantitative_target_set(
             parsed.get("targets"),
             attribute=attribute,
             doc_text=doc_text,
+            semantic_context=semantic_context or doc_text,
         )
         if targets:
             return QuantitativeTargetExtraction("present", last_reason, targets)
@@ -511,6 +526,7 @@ def resolve_quantitative_target_ownership(
                 break
 
     owned: dict[str, list[QuantitativeTarget]] = {name: [] for name in attributes_by_name}
+    unresolved_owners: set[str] = set()
     for index, targets in enumerate(groups):
         group_id = group_ids[index]
         decision = owner_by_group.get(group_id)
@@ -519,45 +535,106 @@ def resolve_quantitative_target_ownership(
                 "quantitative target ownership unresolved for %s; omitting target",
                 group_id,
             )
+            unresolved_owners.update(target.attribute_ref for target in targets)
             continue
         owner, reason = decision
-        selected = next(target for target in targets if target.attribute_ref == owner)
-        spans: list[DocumentSpan] = []
-        seen_spans: set[tuple[str, tuple[str, ...]]] = set()
-        for target in targets:
-            for span in target.provenance_spans:
-                span_key = (_normalize_quote(span.quote), tuple(span.block_ids))
-                if span_key in seen_spans:
-                    continue
-                seen_spans.add(span_key)
-                spans.append(span)
-        merged = replace(
-            selected,
-            provenance_spans=spans,
-            doc_block_ids=list(
-                dict.fromkeys(block_id for span in spans for block_id in span.block_ids)
-            ),
-            quote=spans[0].quote,
-            ownership_reason=reason,
-            id="",
-        )
-        owned[owner].append(merged)
+        owned[owner].extend(_owned_targets_for_group(targets, owner, reason))
 
-    return [
-        replace(attribute, quantitative_targets=owned[attribute.name])
-        for attribute in attributes
-    ]
+    resolved: list[Attribute] = []
+    for attribute in attributes:
+        targets = owned[attribute.name]
+        if attribute.name in unresolved_owners:
+            resolved.append(
+                replace(
+                    attribute,
+                    quantitative_targets=targets,
+                    quantitative_target_status="uncertain",
+                    quantitative_target_status_reason=(
+                        "Numeric target ownership could not be resolved safely."
+                    ),
+                )
+            )
+        elif attribute.quantitative_targets and not targets:
+            resolved.append(
+                replace(
+                    attribute,
+                    quantitative_targets=[],
+                    quantitative_target_status="not_applicable",
+                    quantitative_target_status_reason=(
+                        "Numeric claims were assigned to a more specific canonical field."
+                    ),
+                )
+            )
+        else:
+            resolved.append(replace(attribute, quantitative_targets=targets))
+    return resolved
+
+
+def _owned_targets_for_group(
+    targets: list[QuantitativeTarget],
+    owner: str,
+    reason: str,
+) -> list[QuantitativeTarget]:
+    """Retain the chosen field's atomic variants and merge matching provenance."""
+    selected_by_key: dict[tuple[object, ...], QuantitativeTarget] = {}
+    for target in targets:
+        if target.attribute_ref != owner:
+            continue
+        key = _semantic_target_key(target, include_owner=False)
+        selected_by_key.setdefault(key, target)
+
+    output: list[QuantitativeTarget] = []
+    for key, selected in selected_by_key.items():
+        spans: list[DocumentSpan] = []
+        semantic_spans: dict[str, list[DocumentSpan]] = {
+            field_name: [] for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+        }
+        seen: set[tuple[str, tuple[str, ...]]] = set()
+        semantic_seen: dict[str, set[tuple[str, tuple[str, ...]]]] = {
+            field_name: set() for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+        }
+        for candidate in targets:
+            if _semantic_target_key(candidate, include_owner=False) != key:
+                continue
+            for span in candidate.provenance_spans:
+                span_key = (_normalize_quote(span.quote), tuple(span.block_ids))
+                if span_key in seen:
+                    continue
+                seen.add(span_key)
+                spans.append(span)
+            for field_name, candidate_spans in candidate.semantic_provenance.items():
+                for span in candidate_spans:
+                    span_key = (_normalize_quote(span.quote), tuple(span.block_ids))
+                    if span_key in semantic_seen[field_name]:
+                        continue
+                    semantic_seen[field_name].add(span_key)
+                    semantic_spans[field_name].append(span)
+        output.append(
+            replace(
+                selected,
+                provenance_spans=spans,
+                doc_block_ids=list(
+                    dict.fromkeys(
+                        block_id for span in spans for block_id in span.block_ids
+                    )
+                ),
+                semantic_provenance=semantic_spans,
+                quote=spans[0].quote,
+                ownership_reason=reason,
+                id="",
+            )
+        )
+    return output
 
 
 def _target_ownership_groups(
     targets: list[QuantitativeTarget],
 ) -> list[list[QuantitativeTarget]]:
-    """Join only semantically identical or exact-provenance duplicate targets.
+    """Join semantically repeated or overlapping cross-field claim families.
 
-    Independent field extractors may describe the same exact document claim
-    differently. Exact quote/block/expression identity therefore joins those
-    candidates before the existing semantic owner decision. Population remains
-    in the key so a compound pediatric/adult statement keeps two valid targets.
+    The owner decision is field-level: when a broad field emits one compound
+    target and a specific field emits atomic population variants from the same
+    passage, the specific field wins while all of its atomic variants survive.
     """
     if not targets:
         return []
@@ -580,14 +657,14 @@ def _target_ownership_groups(
         first = first_by_semantic_key.setdefault(key, index)
         union(first, index)
 
-    indices_by_claim: dict[tuple[object, ...], list[int]] = {}
-    for index, target in enumerate(targets):
-        indices_by_claim.setdefault(_exact_document_claim_key(target), []).append(index)
-    for indices in indices_by_claim.values():
-        for position, left in enumerate(indices):
-            for right in indices[position + 1:]:
-                if targets[left].attribute_ref != targets[right].attribute_ref:
-                    union(left, right)
+    for left, left_target in enumerate(targets):
+        for right in range(left + 1, len(targets)):
+            right_target = targets[right]
+            if (
+                left_target.attribute_ref != right_target.attribute_ref
+                and _overlapping_document_claim(left_target, right_target)
+            ):
+                union(left, right)
 
     grouped: dict[int, list[QuantitativeTarget]] = {}
     for index, target in enumerate(targets):
@@ -595,24 +672,27 @@ def _target_ownership_groups(
     return list(grouped.values())
 
 
-def _exact_document_claim_key(target: QuantitativeTarget) -> tuple[object, ...]:
-    population = target.semantic_profile["population"]
-    spans = tuple(
-        sorted(
-            (_normalize_quote(span.quote), tuple(sorted(span.block_ids)))
-            for span in target.provenance_spans
-        )
-    )
-    return (
-        target.role,
-        target.comparator,
-        target.value,
-        _canonical_unit(target.unit),
-        population.state,
-        population.value.casefold(),
-        population.other.casefold(),
-        spans,
-    )
+def _overlapping_document_claim(
+    left: QuantitativeTarget,
+    right: QuantitativeTarget,
+) -> bool:
+    if (
+        left.role != right.role
+        or left.comparator != right.comparator
+        or not math.isclose(left.value, right.value, rel_tol=1e-9, abs_tol=1e-9)
+        or _canonical_unit(left.unit) != _canonical_unit(right.unit)
+    ):
+        return False
+    for left_span in left.provenance_spans:
+        left_quote = _normalize_quote(left_span.quote).strip(" .;,:\t")
+        left_blocks = set(left_span.block_ids)
+        for right_span in right.provenance_spans:
+            if not left_blocks.intersection(right_span.block_ids):
+                continue
+            right_quote = _normalize_quote(right_span.quote).strip(" .;,:\t")
+            if left_quote in right_quote or right_quote in left_quote:
+                return True
+    return False
 
 
 def _validated_targets(
@@ -620,6 +700,7 @@ def _validated_targets(
     *,
     attribute: Attribute,
     doc_text: str,
+    semantic_context: str,
 ) -> list[QuantitativeTarget]:
     if not isinstance(items, list):
         return []
@@ -630,6 +711,7 @@ def _validated_targets(
     allowed_ids = set(attribute.block_ids)
     if rendered_ids:
         allowed_ids &= rendered_ids
+    semantic_allowed_ids = document_block_ids(semantic_context)
     targets_by_id: dict[str, QuantitativeTarget] = {}
     for item in items:
         if not isinstance(item, dict):
@@ -639,13 +721,20 @@ def _validated_targets(
         quote = str(item.get("quote", "")).strip()
         semantic_profile = _validated_semantic_profile(item.get("semantic_profile"))
         ownership_reason = str(item.get("ownership_reason", "")).strip()
-        other_constraints = _string_list(item.get("other_constraints"))
         if (
             expression is None
             or expression.kind != "bound"
             or role not in VALID_TARGET_ROLES
             or semantic_profile is None
         ):
+            continue
+        semantic_provenance = _validated_semantic_provenance(
+            item.get("semantic_provenance"),
+            semantic_profile,
+            semantic_context,
+            semantic_allowed_ids,
+        )
+        if semantic_provenance is None:
             continue
         assert expression.value is not None
         value = expression.value
@@ -691,9 +780,9 @@ def _validated_targets(
                 dict.fromkeys(block_id for span in spans for block_id in span.block_ids)
             ),
             semantic_profile=semantic_profile,
+            semantic_provenance=semantic_provenance,
             provenance_spans=spans,
             ownership_reason=ownership_reason,
-            other_constraints=other_constraints,
         )
         existing = targets_by_id.get(target.id)
         if existing is None:
@@ -708,9 +797,24 @@ def _validated_targets(
             for span in target.provenance_spans
             if (_normalize_quote(span.quote), tuple(span.block_ids)) not in existing_keys
         )
+        merged_semantic_provenance: dict[str, list[DocumentSpan]] = {}
+        for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+            field_spans = [*existing.semantic_provenance.get(field_name, [])]
+            field_keys = {
+                (_normalize_quote(span.quote), tuple(span.block_ids))
+                for span in field_spans
+            }
+            field_spans.extend(
+                span
+                for span in target.semantic_provenance.get(field_name, [])
+                if (_normalize_quote(span.quote), tuple(span.block_ids))
+                not in field_keys
+            )
+            merged_semantic_provenance[field_name] = field_spans
         targets_by_id[target.id] = replace(
             existing,
             provenance_spans=merged_spans,
+            semantic_provenance=merged_semantic_provenance,
             id=existing.id,
         )
     return list(targets_by_id.values())
@@ -920,15 +1024,12 @@ def _validated_measurement_semantic_assessment(
     if not isinstance(raw, dict) or set(raw) != {
         "source_ownership",
         "dimensions",
-        "constraints_compatibility",
     }:
         return None
     ownership = _validated_ternary_decision(raw.get("source_ownership"))
-    constraints = _validated_ternary_decision(raw.get("constraints_compatibility"))
     dimensions_raw = raw.get("dimensions")
     if (
         ownership is None
-        or constraints is None
         or not isinstance(dimensions_raw, dict)
         or set(dimensions_raw) != set(QUANTITATIVE_SEMANTIC_FIELDS)
     ):
@@ -951,7 +1052,6 @@ def _validated_measurement_semantic_assessment(
     return MeasurementSemanticAssessment(
         source_ownership=ownership,
         dimensions=dimensions,
-        constraints_compatibility=constraints,
     )
 
 
@@ -1024,18 +1124,6 @@ def _derived_semantic_status(
                 f"{field_name.replace('_', ' ').capitalize()} is not compatible: "
                 f"{decision.reason}",
             )
-    if target.other_constraints:
-        constraints = assessment.constraints_compatibility
-        if constraints.state == "unknown":
-            return (
-                "unknown",
-                f"Additional target-constraint compatibility is unknown: {constraints.reason}",
-            )
-        if constraints.state == "no":
-            return (
-                "contextual",
-                f"Additional target constraints are not compatible: {constraints.reason}",
-            )
     return (
         "comparable",
         "The source owns the result and every required target dimension is compatible.",
@@ -1062,7 +1150,7 @@ def _target_system_prompt(
         f"Variable: {attribute.name}\nDefinition: {attribute.description}\n"
         f"Canonical binding: {attribute.document_target or '(not stated)'}\n"
         f"Document-specific interpretation:\n{framing}\n\n"
-        "Return EVERY distinct directional numeric target directly stated for this variable. "
+        "Return EVERY distinct exact or directional scalar target directly stated for this variable. "
         "Split compound cells into atomic targets: adult and pediatric values, optimal and "
         "threshold values, and different time horizons are separate objects. A repeated semantic "
         "target is one object even when the document states it in multiple places; include every "
@@ -1072,37 +1160,58 @@ def _target_system_prompt(
         "quote the shortest exact fragment that uniquely supports this ONE value and its "
         "qualifiers; never return a whole compound row when a shorter fragment is available. "
         "Normalize meaning into semantic_profile with exactly these fields: measure, endpoint, "
-        "intervention, population, regimen, time_horizon, statistic. Each field is an object with "
+        "intervention, population, regimen, time_horizon, statistic, conditions. conditions holds "
+        "experimental or operational qualifiers that do not belong in another field. Each field is an object with "
         "state=specified|not_specified|unknown|other, value, and other. specified requires a concise "
         "value; other requires an explanation in other; absent qualifiers are not_specified; use "
-        "unknown only when the document is ambiguous. measure must be specified. Put any meaningful "
-        "constraint outside those fields in other_constraints; otherwise return an empty list. "
+        "unknown only when the document is ambiguous. measure must be specified. Use the document's "
+        "own terminology and never make a semantic value more specific than its cited text. The unit "
+        "definition and product configuration explain the task but are not evidence. For every specified "
+        "or other field, semantic_provenance must contain at least one shortest exact supporting quote "
+        "and its block IDs from the supplied definition context; absent and unknown fields must cite none. "
+        "The numeric expression and role may come ONLY from canonical target blocks. Definition-context "
+        "blocks may clarify meaning but may not donate another field's numeric target. Semantic-profile "
+        "values describe meaning and qualifiers only; never repeat the target's own value, comparator, "
+        "or unit inside measure, endpoint, or statistic. Use comparator '=' for an exact scalar target "
+        "such as 'two doses'. Use a directional comparator only when the quoted wording supplies that "
+        "direction. Do not force a true interval or choice set into one scalar bound; retain any other "
+        "independently supported exact or directional targets from the same field. "
         f"{BLOCK_ID_JSON_INSTRUCTION} Deterministic code verifies every field. Also return "
         "status=present|not_applicable|uncertain and a concise status_reason. Use not_applicable "
-        "only when the field clearly has no directional numeric target; use uncertain when the "
+        "only when the field clearly has no exact or directional scalar target; use uncertain when the "
         "wording may contain one but cannot be mapped faithfully. If no validated direct numeric "
         "target exists, return an empty targets list.\n\n"
         "Return ONLY JSON: "
-        '{"status":"present","status_reason":"The field states an efficacy threshold.",'
+        '{"status":"present","status_reason":"The field states a response threshold.",'
         '"targets":[{"expression":{"kind":"bound","value":80,'
         '"comparator":">","unit":"%"},"role":"threshold",'
-        '"semantic_profile":{"measure":{"state":"specified","value":"protective efficacy","other":""},'
-        '"endpoint":{"state":"specified","value":"clinical malaria","other":""},'
-        '"intervention":{"state":"specified","value":"malaria vaccine","other":""},'
+        '"semantic_profile":{"measure":{"state":"specified","value":"response rate","other":""},'
+        '"endpoint":{"state":"specified","value":"document-defined outcome","other":""},'
+        '"intervention":{"state":"not_specified","value":"","other":""},'
         '"population":{"state":"not_specified","value":"","other":""},'
         '"regimen":{"state":"not_specified","value":"","other":""},'
         '"time_horizon":{"state":"specified","value":"6 months after primary series","other":""},'
-        '"statistic":{"state":"specified","value":"efficacy point estimate","other":""}},'
-        '"other_constraints":[],"provenance_spans":['
-        '{"quote":"Threshold efficacy >80% at 6 months.",'
+        '"statistic":{"state":"specified","value":"response point estimate","other":""},'
+        '"conditions":{"state":"not_specified","value":"","other":""}},'
+        '"semantic_provenance":{'
+        '"measure":[{"quote":"Threshold response rate >80% at 6 months.","block_ids":["document/b-0001"]}],'
+        '"endpoint":[{"quote":"The response measures the document-defined outcome.","block_ids":["document/b-0002"]}],'
+        '"intervention":[],"population":[],"regimen":[],'
+        '"time_horizon":[{"quote":"Threshold response rate >80% at 6 months.","block_ids":["document/b-0001"]}],'
+        '"statistic":[{"quote":"Threshold response rate >80% at 6 months.","block_ids":["document/b-0001"]}],'
+        '"conditions":[]},"provenance_spans":['
+        '{"quote":"Threshold response rate >80% at 6 months.",'
         '"block_ids":["document/b-0001"]}]}]}'
     )
 
 
 def _ownership_system_prompt() -> str:
     return (
-        "You assign repeated exact document targets to ONE canonical field owner. "
-        "The target value, comparator, unit, quote, and block provenance are immutable. "
+        "You assign each overlapping document-target family to ONE canonical field owner. "
+        "A family may contain multiple atomic qualifier variants from the same source "
+        "claim; choose the owning field, not a preferred variant. Every atomic variant "
+        "emitted by the winning field is retained. Target values, comparators, units, "
+        "quotes, semantic qualifiers, and block provenance are immutable. "
         "Choose only among each group's candidate attribute_ref values. Select the most "
         "specific neutral field definition that directly describes the measured quantity. "
         "Do not choose a broad product/container field when a candidate field explicitly "
@@ -1121,7 +1230,7 @@ def _ownership_user_message(
     groups: dict[str, list[QuantitativeTarget]],
     attributes: dict[str, Attribute],
 ) -> str:
-    lines = ["Repeated exact target groups:"]
+    lines = ["Overlapping document-target families:"]
     for group_id, targets in groups.items():
         target = targets[0]
         lines.extend(
@@ -1205,6 +1314,46 @@ def _validated_semantic_profile(raw: object) -> dict[str, SemanticSlot] | None:
     return profile
 
 
+def _validated_semantic_provenance(
+    raw: object,
+    profile: dict[str, SemanticSlot],
+    context: str,
+    allowed_ids: set[str],
+) -> dict[str, list[DocumentSpan]] | None:
+    """Require every asserted target dimension to cite exact document text."""
+    if not isinstance(raw, dict) or set(raw) != set(QUANTITATIVE_SEMANTIC_FIELDS):
+        return None
+    output: dict[str, list[DocumentSpan]] = {}
+    for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+        raw_spans = raw.get(field_name)
+        if not isinstance(raw_spans, list):
+            return None
+        spans: list[DocumentSpan] = []
+        seen: set[tuple[str, tuple[str, ...]]] = set()
+        for item in raw_spans:
+            if not isinstance(item, dict):
+                continue
+            quote = " ".join(str(item.get("quote", "")).split())
+            block_ids = validated_block_ids(item.get("block_ids"), allowed_ids)
+            key = (_normalize_quote(quote), tuple(block_ids))
+            if (
+                not quote
+                or not block_ids
+                or len(quote) > MAX_TARGET_QUOTE_CHARS
+                or key in seen
+                or not _quote_in_text(quote, _text_for_blocks(context, block_ids))
+            ):
+                continue
+            seen.add(key)
+            spans.append(DocumentSpan(quote=quote, block_ids=block_ids))
+        if profile[field_name].state in {"specified", "other"} and not spans:
+            return None
+        if profile[field_name].state not in {"specified", "other"} and spans:
+            return None
+        output[field_name] = spans
+    return output
+
+
 def _validated_numeric_expression(raw: object) -> NumericExpression | None:
     """Validate the one syntax-only numeric contract returned by the model."""
     if not isinstance(raw, dict):
@@ -1276,23 +1425,14 @@ def _semantic_target_key(
         target.value,
         _canonical_unit(target.unit),
         profile,
-        tuple(sorted(item.casefold() for item in target.other_constraints)),
     )
 
 
-def _string_list(raw: object) -> list[str]:
-    if not isinstance(raw, list):
-        return []
-    return list(
-        dict.fromkeys(
-            " ".join(str(item).split())
-            for item in raw
-            if " ".join(str(item).split())
-        )
-    )
-
-
-def _target_user_message(attribute: Attribute, doc_text: str) -> str:
+def _target_user_message(
+    attribute: Attribute,
+    binding_text: str,
+    semantic_context: str,
+) -> str:
     return "\n".join(
         (
             f"Variable: {attribute.name}",
@@ -1300,8 +1440,11 @@ def _target_user_message(attribute: Attribute, doc_text: str) -> str:
             f"Canonical binding: {attribute.document_target or '(not stated)'}",
             f"Known canonical binding blocks: {', '.join(attribute.block_ids) or '(none)'}",
             "",
-            "Relevant uploaded-document blocks:",
-            limit_document_context(doc_text),
+            "Canonical target blocks (only these may supply numeric targets):",
+            limit_document_context(binding_text),
+            "",
+            "Bounded document definition context (may clarify cited meaning only):",
+            limit_document_context(semantic_context),
             "",
             "Enumerate the independent numeric targets now.",
         )
@@ -1325,7 +1468,7 @@ def _measurement_system_prompt(
         "the target must NEVER affect semantic comparability.\n"
         f"Target unit: {target.unit}. Target role: {target.role}.\n"
         f"Target semantic profile: {_semantic_profile_json(target.semantic_profile)}\n"
-        f"Other target constraints: {json.dumps(target.other_constraints, ensure_ascii=False)}\n\n"
+        "Every target dimension above is independently grounded in the uploaded document.\n\n"
         "Each source has an immutable ID and one retained source passage. Return EXACTLY ONE "
         "source decision for EVERY ID: measurements_found, no_relevant_measurement, or uncertain. "
         "Do not enumerate every number. Extract only complete statements that measure the target "
@@ -1347,7 +1490,7 @@ def _measurement_system_prompt(
         "general background, a protocol assumption, a planned outcome, or an unsupported assertion; "
         "use unknown when ownership cannot be established. A registry sentence can appear verbatim "
         "yet still be background rather than a result of that registered study. "
-        "Inside dimensions return all seven target fields. Each field contains source={state,value,other} "
+        "Inside dimensions return all eight target fields. Each field contains source={state,value,other} "
         "and compatibility={state,reason}. Compatibility yes means the source value is semantically "
         "compatible with that target "
         "dimension for direct numeric comparison; it does not require identical wording. no means a "
@@ -1355,8 +1498,7 @@ def _measurement_system_prompt(
         "clinical disease is not the same endpoint as infection or parasitemia, and a follow-up "
         "window is not automatically the same as a point estimate at its endpoint. The magnitude of "
         "the number and whether it would meet the hidden target are NEVER relevance criteria. "
-        "constraints_compatibility assesses the supplied Other target constraints as one unit; return "
-        "yes with an empty reason when none exist. Use a concise reason for every no or unknown decision; "
+        "Use a concise reason for every no or unknown decision; "
         "yes decisions may use an empty reason. Do not infer a qualifier absent from the supplied source "
         "context. Code, not "
         "you, derives the final cohort disposition from these decisions.\n\n"
@@ -1365,21 +1507,21 @@ def _measurement_system_prompt(
         "faithful mapping. Never infer omitted context.\n\n"
         "Return ONLY JSON: "
         '{"sources":[{"source_id":"sp-123","status":"measurements_found",'
-        '"reason":"The passage reports a target-relevant efficacy estimate.","measurements":['
-        '{"quote":"Vaccine efficacy was 50.3% at 12 months.",'
+        '"reason":"The passage reports a target-relevant response estimate.","measurements":['
+        '{"quote":"The response rate was 50.3% at 12 months.",'
         '"expression":{"kind":"point_estimate","unit":"%","value":50.3,'
         '"lower":null,"upper":null,"comparator":""},'
         '"semantic_assessment":{'
         '"source_ownership":{"state":"yes","reason":""},'
         '"dimensions":{'
-        '"measure":{"source":{"state":"specified","value":"protective efficacy","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"endpoint":{"source":{"state":"specified","value":"clinical malaria","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"intervention":{"source":{"state":"specified","value":"malaria vaccine","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"population":{"source":{"state":"specified","value":"children","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"measure":{"source":{"state":"specified","value":"response rate","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"endpoint":{"source":{"state":"specified","value":"document-defined outcome","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"intervention":{"source":{"state":"not_specified","value":"","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"population":{"source":{"state":"not_specified","value":"","other":""},"compatibility":{"state":"yes","reason":""}},'
         '"regimen":{"source":{"state":"specified","value":"primary series","other":""},"compatibility":{"state":"yes","reason":""}},'
         '"time_horizon":{"source":{"state":"specified","value":"12 months","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"statistic":{"source":{"state":"specified","value":"efficacy point estimate","other":""},"compatibility":{"state":"yes","reason":""}}},'
-        '"constraints_compatibility":{"state":"yes","reason":""}}}]}]}'
+        '"statistic":{"source":{"state":"specified","value":"response point estimate","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"conditions":{"source":{"state":"not_specified","value":"","other":""},"compatibility":{"state":"yes","reason":""}}}}}]}]}'
     )
 
 
@@ -1451,29 +1593,22 @@ def _quote_in_text(quote: str, source_text: str) -> bool:
 _NUMBER_RE = re.compile(
     r"(?<![A-Za-z0-9])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.·]\d+)?(?:[eE][-+]?\d+)?"
 )
-
-
-def _looks_directional_numeric(text: str) -> bool:
-    if not text or not _NUMBER_RE.search(text):
-        return False
-    folded = _normalize_quote(text)
-    return any(
-        marker in folded
-        for marker in (
-            ">",
-            "<",
-            "≥",
-            "≤",
-            "at least",
-            "at most",
-            "minimum",
-            "maximum",
-            "no more than",
-            "not less than",
-            "threshold",
-            "by ",
+_NUMBER_WORD_VALUES = {
+    word: float(value)
+    for value, word in enumerate(
+        (
+            "zero", "one", "two", "three", "four", "five", "six", "seven",
+            "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+            "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
         )
     )
+}
+_NUMBER_WORD_PATTERN = "|".join(_NUMBER_WORD_VALUES)
+_NUMBER_WORD_RE = re.compile(rf"\b(?:{_NUMBER_WORD_PATTERN})\b", re.IGNORECASE)
+
+
+def _looks_numeric_target(text: str) -> bool:
+    return bool(text and (_NUMBER_RE.search(text) or _NUMBER_WORD_RE.search(text)))
 
 
 def _value_unit_supported(value: float, unit: str, quote: str) -> bool:
@@ -1492,6 +1627,14 @@ def _number_supported(value: float, quote: str) -> bool:
         except ValueError:
             continue
         if math.isclose(candidate, value, rel_tol=1e-9, abs_tol=1e-9):
+            return True
+    for match in _NUMBER_WORD_RE.finditer(quote):
+        if math.isclose(
+            _NUMBER_WORD_VALUES[match.group(0).casefold()],
+            value,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ):
             return True
     return False
 
@@ -1522,7 +1665,10 @@ def _numeric_values_for_unit(text: str, unit: str) -> list[float]:
     # expression as ``range`` so neither enters point-estimate statistics.
     text = re.sub(r"(?<=\d)\s*[-–—]\s*(?=\d)", " to ", text)
     canonical = _canonical_unit(unit)
-    number = r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.·]\d+)?(?:[eE][-+]?\d+)?"
+    number = (
+        r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.·]\d+)?(?:[eE][-+]?\d+)?"
+        rf"|\b(?:{_NUMBER_WORD_PATTERN})\b"
+    )
     patterns: list[str]
     if canonical == "%":
         patterns = [rf"(?P<value>{number})\s*(?:%|percent(?:age)?\b|pct\b)"]
@@ -1549,15 +1695,16 @@ def _numeric_values_for_unit(text: str, unit: str) -> list[float]:
         ]
     else:
         escaped = re.escape(unit.strip())
-        patterns = [rf"(?P<value>{number})\s*{escaped}(?![A-Za-z0-9])"]
+        patterns = [
+            rf"(?P<value>{number})\s*{escaped}(?![A-Za-z0-9])",
+            rf"(?<![A-Za-z0-9]){escaped}\s*(?P<value>{number})",
+        ]
 
     values: list[float] = []
     for pattern in patterns:
         for match in re.finditer(pattern, text, re.IGNORECASE):
             try:
-                value = float(
-                    match.group("value").replace(",", "").replace("·", ".")
-                )
+                value = _parse_number_token(match.group("value"))
             except (ValueError, IndexError):
                 continue
             if not any(
@@ -1568,8 +1715,28 @@ def _numeric_values_for_unit(text: str, unit: str) -> list[float]:
     return values
 
 
+def _parse_number_token(token: str) -> float:
+    written = _NUMBER_WORD_VALUES.get(token.casefold())
+    if written is not None:
+        return written
+    return float(token.replace(",", "").replace("·", "."))
+
+
 def _comparator_supported(comparator: str, quote: str) -> bool:
     folded = _normalize_quote(quote)
+    if comparator == "=":
+        if re.search(r"(?<![<>=])=(?!=)", folded) or any(
+            phrase in folded for phrase in ("exactly", "equal to")
+        ):
+            return True
+        return not any(
+            phrase in folded
+            for phrase in (
+                ">", "<", "≥", "≤", "at least", "at most", "minimum",
+                "maximum", "no more than", "not less than", "greater than",
+                "more than", "less than", "below", "up to",
+            )
+        )
     if comparator == ">":
         return bool(re.search(r"(?<![<>=])>(?!=)", folded)) or any(
             phrase in folded for phrase in ("greater than", "more than", "exceeds")
@@ -1581,7 +1748,8 @@ def _comparator_supported(comparator: str, quote: str) -> bool:
     phrases = {
         ">=": (
             ">=", "≥", "at least", "minimum", "min.", "not less than",
-            "no lower than", "or greater", "or more",
+            "no lower than", "or greater", "or more", "not before",
+            "not prior to", "not required prior to", "no earlier than",
         ),
         "<=": (
             "<=", "≤", "at most", "maximum", "max.", "no more than",

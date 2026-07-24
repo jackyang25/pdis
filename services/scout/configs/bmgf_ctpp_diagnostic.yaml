@@ -76,8 +76,8 @@ unit_provider: vocabulary
 
 evidence_framing: |
   This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.
-conformity_framing: |
-  This is a Target Product Profile. The numeric value is an aspirational product target. Score how strongly current external evidence aligns with that target; a low result can indicate intentional ambition rather than document failure.
+quantitative_target_framing: |
+  This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.
 
 # Interpretive stance for the drift / precedent reasoning - the TPP
 # aspirational-target framing, externalized from the engine (was a default).

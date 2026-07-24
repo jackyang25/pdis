@@ -40,6 +40,7 @@ QUANTITATIVE_SEMANTIC_FIELDS = (
     "regimen",
     "time_horizon",
     "statistic",
+    "conditions",
 )
 SEMANTIC_SLOT_STATES = frozenset(
     {"specified", "not_specified", "unknown", "other"}
@@ -402,15 +403,10 @@ class MeasurementSemanticAssessment:
 
     source_ownership: TernaryDecision
     dimensions: dict[str, SemanticDimensionAssessment]
-    constraints_compatibility: TernaryDecision
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_ownership, TernaryDecision):
             self.source_ownership = TernaryDecision(**self.source_ownership)
-        if not isinstance(self.constraints_compatibility, TernaryDecision):
-            self.constraints_compatibility = TernaryDecision(
-                **self.constraints_compatibility
-            )
         if set(self.dimensions) != set(QUANTITATIVE_SEMANTIC_FIELDS):
             raise ValueError(
                 "semantic assessment requires every quantitative dimension"
@@ -474,14 +470,14 @@ class NumericExpression:
             if self.value is None or self.comparator:
                 raise ValueError(f"{self.kind} requires value and no comparator")
         elif self.kind == "bound":
-            if self.value is None or self.comparator not in {">", ">=", "<", "<="}:
-                raise ValueError("bound requires value and a directional comparator")
+            if self.value is None or self.comparator not in {"=", ">", ">=", "<", "<="}:
+                raise ValueError("bound requires value and a comparison operator")
         elif self.kind in {"range", "confidence_interval"}:
             if self.lower is None or self.upper is None or self.lower > self.upper:
                 raise ValueError(f"{self.kind} requires ordered lower and upper values")
             if self.value is not None or self.comparator:
                 raise ValueError(f"{self.kind} cannot carry value or comparator")
-        elif self.comparator not in {"", ">", ">=", "<", "<="}:
+        elif self.comparator not in {"", "=", ">", ">=", "<", "<="}:
             raise ValueError("invalid numeric expression comparator")
 
 
@@ -501,9 +497,9 @@ class QuantitativeTarget:
     semantic_profile: dict[str, SemanticSlot] = field(
         default_factory=_default_semantic_profile
     )
+    semantic_provenance: dict[str, list[DocumentSpan]] = field(default_factory=dict)
     provenance_spans: list[DocumentSpan] = field(default_factory=list)
     ownership_reason: str = ""
-    other_constraints: list[str] = field(default_factory=list)
     id: str = ""
 
     def __post_init__(self) -> None:
@@ -527,6 +523,13 @@ class QuantitativeTarget:
         }
         if self.semantic_profile["measure"].state != "specified":
             raise ValueError("quantitative target requires a specified measure")
+        self.semantic_provenance = {
+            field_name: [
+                span if isinstance(span, DocumentSpan) else DocumentSpan(**span)
+                for span in self.semantic_provenance.get(field_name, [])
+            ]
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+        }
         if not self.provenance_spans:
             self.provenance_spans = [
                 DocumentSpan(quote=self.quote, block_ids=self.doc_block_ids)
@@ -547,13 +550,6 @@ class QuantitativeTarget:
         self.ownership_reason = self.ownership_reason.strip() or (
             "Only this canonical field produced the validated target."
         )
-        self.other_constraints = list(
-            dict.fromkeys(
-                " ".join(item.split())
-                for item in self.other_constraints
-                if " ".join(item.split())
-            )
-        )
         if not self.id:
             semantic_material = [
                 f"{field_name}:{slot.state}:{slot.value.casefold()}:{slot.other.casefold()}"
@@ -567,7 +563,6 @@ class QuantitativeTarget:
                     str(self.expression.value),
                     self.expression.unit.casefold(),
                     *semantic_material,
-                    *sorted(item.casefold() for item in self.other_constraints),
                 )
             )
             self.id = "qt-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
@@ -685,7 +680,7 @@ class ConformityScore:
     target_id: str
     target_role: str
     target_value: float
-    comparator: str  # ">", ">=", "<", or "<="
+    comparator: str  # "=", ">", ">=", "<", or "<="
     unit: str
     target_meeting_count: int
     target_meeting_rate: float  # 0..1 unweighted observed share
@@ -817,7 +812,7 @@ class ScoutTypeConfig:
     # generic, doc-agnostic fallback. May use {intervention_class} / {indication}.
     drift_framing: str = ""
     evidence_framing: str = ""
-    conformity_framing: str = ""
+    quantitative_target_framing: str = ""
     precedent_framing: str = ""
 
 
@@ -981,7 +976,12 @@ def load_config(config_path: str) -> ScoutTypeConfig:
     queries_per_variable = int(data.get("queries_per_variable", 1))
     if queries_per_variable < 0:
         raise ValueError("queries_per_variable must be >= 0")
-    framing_fields = ("drift_framing", "evidence_framing", "conformity_framing", "precedent_framing")
+    framing_fields = (
+        "drift_framing",
+        "evidence_framing",
+        "quantitative_target_framing",
+        "precedent_framing",
+    )
     framings = {field_name: data.get(field_name, "") or "" for field_name in framing_fields}
     if not all(isinstance(value, str) for value in framings.values()):
         raise ValueError(f"{', '.join(framing_fields)} must be strings")
@@ -1005,6 +1005,6 @@ def load_config(config_path: str) -> ScoutTypeConfig:
         unit_provider=unit_provider,
         drift_framing=framings["drift_framing"].strip(),
         evidence_framing=framings["evidence_framing"].strip(),
-        conformity_framing=framings["conformity_framing"].strip(),
+        quantitative_target_framing=framings["quantitative_target_framing"].strip(),
         precedent_framing=framings["precedent_framing"].strip(),
     )

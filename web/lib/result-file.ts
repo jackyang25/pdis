@@ -1,12 +1,12 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 20 as const;
-// Scout's current unified measurement-semantic-assessment contract first
-// shipped in result version 20. Later envelope bumps for another tool must not
-// invalidate an otherwise current Scout ledger.
-const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 20 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | typeof RESULT_VERSION;
+const RESULT_VERSION = 22 as const;
+// Version 22 grounds every target semantic field in exact document spans,
+// models conditions as a first-class comparison axis, and validates that
+// generated numeric queries remain threshold-neutral.
+const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 22 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -200,7 +200,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.result_type === "aligner" ||
@@ -287,9 +287,9 @@ function normalizeScoutResult(
       quote: score.target_quote,
       doc_block_ids: score.doc_block_ids ?? [],
       semantic_profile: legacySemanticProfile(String(score.attribute_ref ?? "numeric measure")),
+      semantic_provenance: emptySemanticProvenance(),
       provenance_spans: [{ quote: score.target_quote, block_ids: score.doc_block_ids ?? [] }],
       ownership_reason: "Imported target predates canonical ownership arbitration.",
-      other_constraints: [],
     });
     quantitativeTargetsByAttribute.set(String(score.attribute_ref ?? ""), targets);
   }
@@ -391,16 +391,16 @@ function normalizeScoutResult(
             comparator: target.comparator ?? "",
             unit: target.unit ?? "",
           },
-          semantic_profile: target.semantic_profile
-            ?? legacySemanticProfile(String(target.label ?? variable.name ?? "numeric measure")),
+          semantic_profile: normalizeSemanticProfile(
+            target.semantic_profile,
+            String(target.label ?? variable.name ?? "numeric measure"),
+          ),
+          semantic_provenance: normalizeSemanticProvenance(target.semantic_provenance),
           provenance_spans: Array.isArray(target.provenance_spans)
             ? target.provenance_spans
             : [{ quote: target.quote ?? "", block_ids: target.doc_block_ids ?? [] }],
           ownership_reason: target.ownership_reason
             ?? "Imported target predates canonical ownership arbitration.",
-          other_constraints: Array.isArray(target.other_constraints)
-            ? target.other_constraints
-            : [],
         })),
         quantitative_target_status: variable.quantitative_target_status
           ?? ((Array.isArray(variable.quantitative_targets)
@@ -457,6 +457,8 @@ function normalizeConformity(
     : null;
   const ambitionPercentile = rawPercentile == null
     ? null
+    : score.comparator === "="
+      ? null
     : score.comparator === "<=" || score.comparator === "<"
       ? 1 - rawPercentile
       : rawPercentile;
@@ -465,7 +467,8 @@ function normalizeConformity(
     if (score.comparator === "<") return value < target;
     if (score.comparator === "<=") return value <= target;
     if (score.comparator === ">") return value > target;
-    return value >= target;
+    if (score.comparator === ">=") return value >= target;
+    return value === target;
   }).length;
   const targetMeetingRate = count > 0 ? targetMeetingCount / count : 0;
   const legacyUnverified = contractPredatesCurrent || !score.target_id || !score.target_quote || [
@@ -565,7 +568,8 @@ function normalizeMeasurement(
     source_quote: current.source_quote ?? "",
     source_record_id: current.source_record_id ?? "",
     source_identity_status: current.source_identity_status ?? "url_fallback",
-    semantic_assessment: currentSemanticAssessment ?? legacyMeasurementSemanticAssessment(
+    semantic_assessment: normalizeMeasurementSemanticAssessment(
+      currentSemanticAssessment,
       legacySourceOwnership,
       legacyComparability,
       legacySourceProfile,
@@ -587,8 +591,8 @@ function legacyMeasurementSemanticAssessment(
   comparability: Record<string, any> | undefined,
   sourceProfile: Record<string, any> | undefined,
 ): Record<string, unknown> {
-  const profile = sourceProfile ?? legacySemanticProfile("numeric measure");
-  const fields = ["measure", "endpoint", "intervention", "population", "regimen", "time_horizon", "statistic"];
+  const profile = normalizeSemanticProfile(sourceProfile, "numeric measure");
+  const fields = semanticFields();
   return {
     source_ownership: ownership ?? legacyTernaryDecision(
       "Imported measurement predates source-ownership validation.",
@@ -599,9 +603,29 @@ function legacyMeasurementSemanticAssessment(
         `Imported measurement predates ${field.replace("_", " ")} compatibility validation.`,
       ),
     }])),
-    constraints_compatibility: legacyTernaryDecision(
-      "Imported measurement predates additional-constraint validation.",
+  };
+}
+
+function normalizeMeasurementSemanticAssessment(
+  current: Record<string, any> | undefined,
+  ownership: Record<string, any> | undefined,
+  comparability: Record<string, any> | undefined,
+  sourceProfile: Record<string, any> | undefined,
+): Record<string, unknown> {
+  if (!current) {
+    return legacyMeasurementSemanticAssessment(ownership, comparability, sourceProfile);
+  }
+  const fallbackProfile = normalizeSemanticProfile(sourceProfile, "numeric measure");
+  return {
+    source_ownership: current.source_ownership ?? legacyTernaryDecision(
+      "Imported measurement predates source-ownership validation.",
     ),
+    dimensions: Object.fromEntries(semanticFields().map((field) => [field, {
+      source: current.dimensions?.[field]?.source ?? fallbackProfile[field],
+      compatibility: current.dimensions?.[field]?.compatibility ?? legacyTernaryDecision(
+        `Imported measurement predates ${field.replace("_", " ")} compatibility validation.`,
+      ),
+    }])),
   };
 }
 
@@ -615,7 +639,34 @@ function legacySemanticProfile(measure: string): Record<string, unknown> {
     regimen: { ...unknown },
     time_horizon: { ...unknown },
     statistic: { ...unknown },
+    conditions: { ...unknown },
   };
+}
+
+function normalizeSemanticProfile(
+  profile: Record<string, any> | undefined,
+  measure: string,
+): Record<string, unknown> {
+  return { ...legacySemanticProfile(measure), ...(profile ?? {}) };
+}
+
+function semanticFields(): string[] {
+  return [
+    "measure", "endpoint", "intervention", "population", "regimen",
+    "time_horizon", "statistic", "conditions",
+  ];
+}
+
+function emptySemanticProvenance(): Record<string, unknown[]> {
+  return Object.fromEntries(semanticFields().map((field) => [field, []]));
+}
+
+function normalizeSemanticProvenance(value: unknown): Record<string, unknown[]> {
+  const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return Object.fromEntries(semanticFields().map((field) => [
+    field,
+    Array.isArray(raw[field]) ? raw[field] : [],
+  ]));
 }
 
 function normalizePrecedent(signal: Record<string, any>): Record<string, unknown> {

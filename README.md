@@ -164,9 +164,9 @@ and `other`.
 parse document blocks and visuals
 → validate configured indication against cited document context
 → resolve canonical fields and targets
-→ bind every independently calibratable numeric target
-→ assign repeated exact targets to one canonical field owner
-→ generate source-neutral query intents with block and target lineage
+→ bind every independently calibratable exact or directional scalar target
+→ assign overlapping target families to one canonical field owner
+→ generate threshold-neutral source-neutral query intents with block and target lineage
 → determine source applicability from closed metadata
 → compile source-native requests in each adapter
 → execute fair concurrent source queues
@@ -189,16 +189,18 @@ target; target IDs remain retrieval lineage and never imply that a returned
 source semantically supports the target. Calibration consumes this same target
 bundle rather than asking the model to extract a second, potentially different
 set after retrieval.
-Broad relevance-selected context is discarded after fixed-field resolution.
-Raw bound blocks verify exact facts; queries and judgments receive the canonical
-target annotated with those same block IDs, preventing adjacent table-cell
-spillover. When overlapping field definitions produce the same exact numeric
-claim, a closed arbitration step
+After fixed-field resolution, exact target expressions remain restricted to the
+canonical binding blocks. A bounded neighboring/definition context may clarify
+the target's meaning, but every specified semantic field must cite its own exact
+document span. Queries and judgments reuse that one canonical target, preventing
+adjacent table-cell spillover or a second interpretation downstream. When
+overlapping field definitions produce the same exact numeric claim, a closed arbitration step
 assigns it once to the most specific candidate field and retains that decision.
-Targets use a seven-slot semantic profile. Each source measurement has one
+Targets use an eight-slot semantic profile (measure, endpoint, intervention,
+population, regimen, time horizon, statistic, and conditions). Each source measurement has one
 semantic assessment that co-locates the normalized source value and a closed
-yes/no/unknown compatibility decision for each slot, plus source ownership and
-additional-constraint compatibility. Only target-constrained slots can exclude
+yes/no/unknown compatibility decision for each slot, plus source ownership.
+Only target-constrained slots can exclude
 a measurement; ambiguous target slots fail closed. Code derives the aggregate
 cohort disposition and never trusts a free aggregate label or rebuilds clinical
 meaning from regexes.
@@ -363,7 +365,7 @@ tool execution remains private while final tokens render incrementally.
 ## Portable result files
 
 Inspector, Aligner, and Scout downloads use the versioned `pdis.result` envelope,
-currently version **20**:
+currently version **22**:
 
 ```text
 schema + version + result_type

@@ -62,7 +62,7 @@ unit_provider: vocabulary  # vocabulary = fixed shared attribute list; extract =
 # Responsibility-specific document framing. Keep each focused on the named
 # reasoning layer; do not put product-domain vocabulary in engine code.
 evidence_framing: ""
-conformity_framing: ""
+quantitative_target_framing: ""
 
 # Interpretive stance injected into the drift / precedent reasoning - how to read
 # this document's units. Empty => a generic, doc-agnostic fallback in the engine.

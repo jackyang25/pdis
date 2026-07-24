@@ -255,7 +255,6 @@ export type MeasurementSemanticAssessment = {
     source: SemanticSlot;
     compatibility: TernaryDecision;
   }>;
-  constraints_compatibility: TernaryDecision;
 };
 
 export type SourcePassageDisposition = {
@@ -271,7 +270,7 @@ export type Conformity = {
   target_id: string;
   target_role: "threshold" | "optimal" | "other";
   target_value: number;
-  comparator: ">" | ">=" | "<" | "<=";
+  comparator: "=" | ">" | ">=" | "<" | "<=";
   unit: string;
   target_label: string;
   target_quote: string;
@@ -370,9 +369,12 @@ export type QuantitativeTarget = {
   quote: string;
   doc_block_ids: string[];
   semantic_profile: QuantitativeSemanticProfile;
+  semantic_provenance: Record<keyof QuantitativeSemanticProfile, Array<{
+    quote: string;
+    block_ids: string[];
+  }>>;
   provenance_spans: Array<{ quote: string; block_ids: string[] }>;
   ownership_reason: string;
-  other_constraints: string[];
 };
 
 export type NumericExpression = {
@@ -381,7 +383,7 @@ export type NumericExpression = {
   value: number | null;
   lower: number | null;
   upper: number | null;
-  comparator: "" | ">" | ">=" | "<" | "<=";
+  comparator: "" | "=" | ">" | ">=" | "<" | "<=";
 };
 
 export type SemanticSlot = {
@@ -398,6 +400,7 @@ export type QuantitativeSemanticProfile = {
   regimen: SemanticSlot;
   time_horizon: SemanticSlot;
   statistic: SemanticSlot;
+  conditions: SemanticSlot;
 };
 
 export type ScoutResponse = {

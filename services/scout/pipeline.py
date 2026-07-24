@@ -157,26 +157,35 @@ def run_pipeline(
         openai_client,
         progress=progress_callback,
     )
+    semantic_contexts = {
+        attribute.name: select_resolution_context(
+            blocks,
+            attribute,
+            max_chars=TARGET_CONTEXT_CHARS,
+        )
+        for attribute in attributes
+    }
     attributes = _extract_quantitative_targets_all(
         attributes,
         {
             attribute.name: select_binding_context(blocks, attribute)
             for attribute in attributes
         },
+        semantic_contexts,
         blocks,
         openai_client,
         indication=indication,
         intervention_class=intervention_class,
-        framing=config.conformity_framing,
+        framing=config.quantitative_target_framing,
         progress=progress_callback,
     )
     attributes = resolve_quantitative_target_ownership(attributes, openai_client)
     attribute_descriptions = {
         attribute.name: attribute.description for attribute in attributes
     }
-    # The relevance-selected resolution view has completed its one job. Every
-    # later reasoning stage receives the canonical target with its exact block
-    # markers, not the rest of a potentially multi-topic table row.
+    # The broader definition view has completed its bounded binding/semantic
+    # jobs. Every later reasoning stage receives the canonical target with its
+    # exact block markers, not the rest of a potentially multi-topic table row.
     attribute_contexts = {
         attribute.name: render_canonical_binding(attribute)
         for attribute in attributes
@@ -514,7 +523,8 @@ def _resolve_targets_all(
 
 def _extract_quantitative_targets_all(
     attributes: list[Attribute],
-    contexts: dict[str, str],
+    binding_contexts: dict[str, str],
+    semantic_contexts: dict[str, str],
     blocks: list[ContentBlock],
     openai_client: LLMClientProtocol,
     *,
@@ -524,7 +534,7 @@ def _extract_quantitative_targets_all(
     progress: ProgressFn | None = None,
 ) -> list[Attribute]:
     """Bind each verified numeric claim once, before retrieval planning."""
-    images_by_attribute = _images_for_contexts(contexts, blocks)
+    images_by_attribute = _images_for_contexts(semantic_contexts, blocks)
 
     def one(attribute: Attribute) -> Attribute:
         if not attribute.document_target:
@@ -537,8 +547,9 @@ def _extract_quantitative_targets_all(
             )
         extraction = extract_quantitative_target_set(
             attribute,
-            contexts.get(attribute.name, ""),
+            binding_contexts.get(attribute.name, ""),
             openai_client,
+            semantic_context=semantic_contexts.get(attribute.name, ""),
             indication=indication,
             intervention_class=intervention_class,
             framing=framing,

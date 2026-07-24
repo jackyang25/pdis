@@ -225,6 +225,7 @@ class QuantitativeSemanticProfileOut(BaseModel):
     regimen: SemanticSlotOut
     time_horizon: SemanticSlotOut
     statistic: SemanticSlotOut
+    conditions: SemanticSlotOut
 
     @model_validator(mode="after")
     def validate_measure(self) -> "QuantitativeSemanticProfileOut":
@@ -247,7 +248,7 @@ class NumericExpressionOut(BaseModel):
     value: float | None = None
     lower: float | None = None
     upper: float | None = None
-    comparator: Literal["", ">", ">=", "<", "<="] = ""
+    comparator: Literal["", "=", ">", ">=", "<", "<="] = ""
 
     @model_validator(mode="after")
     def validate_expression(self) -> "NumericExpressionOut":
@@ -279,9 +280,9 @@ class QuantitativeTargetOut(BaseModel):
     quote: str
     doc_block_ids: list[str] = Field(default_factory=list)
     semantic_profile: QuantitativeSemanticProfileOut
+    semantic_provenance: dict[str, list[DocumentSpanOut]]
     provenance_spans: list[DocumentSpanOut] = Field(min_length=1)
     ownership_reason: str = ""
-    other_constraints: list[str] = Field(default_factory=list)
 
 
 class VariableOut(BaseModel):
@@ -318,12 +319,12 @@ class MeasurementSemanticDimensionsOut(BaseModel):
     regimen: SemanticDimensionAssessmentOut
     time_horizon: SemanticDimensionAssessmentOut
     statistic: SemanticDimensionAssessmentOut
+    conditions: SemanticDimensionAssessmentOut
 
 
 class MeasurementSemanticAssessmentOut(BaseModel):
     source_ownership: TernaryDecisionOut
     dimensions: MeasurementSemanticDimensionsOut
-    constraints_compatibility: TernaryDecisionOut
 
 
 class MeasurementOut(BaseModel):
@@ -355,7 +356,7 @@ class ConformityOut(BaseModel):
     target_id: str
     target_role: Literal["threshold", "optimal", "other"]
     target_value: float
-    comparator: Literal[">", ">=", "<", "<="]
+    comparator: Literal["=", ">", ">=", "<", "<="]
     unit: str = ""
     target_label: str = ""
     target_quote: str = ""

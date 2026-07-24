@@ -104,7 +104,7 @@ const scout: ScoutResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 20);
+  assert.equal(packed.version, 22);
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
   assert.equal("blocks" in packed.analysis.inspection, false);
@@ -129,7 +129,7 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 20);
+  assert.equal(packed.version, 22);
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
   assert.equal(packed.source_documents.length, 2);
@@ -138,8 +138,28 @@ test("Aligner results separate both source documents from the analysis", () => {
 
 test("current Scout export and import preserve the canonical result exactly", () => {
   const packed = packScoutResult(scout);
-  assert.equal(packed.version, 20);
+  assert.equal(packed.version, 22);
   assert.deepEqual(unpackScoutResult(packed), scout);
+});
+
+test("version 20 Scout calibration predates atomic ownership and exact targets", () => {
+  const previous = structuredClone(packScoutResult(scout)) as any;
+  previous.version = 20;
+  previous.analysis.conformity[0].calibration_status = "sufficient";
+
+  const imported = unpackScoutResult(previous);
+
+  assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
+});
+
+test("version 21 Scout calibration predates cited target semantics", () => {
+  const previous = structuredClone(packScoutResult(scout)) as any;
+  previous.version = 21;
+  previous.analysis.conformity[0].calibration_status = "sufficient";
+
+  const imported = unpackScoutResult(previous);
+
+  assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
 });
 
 test("current-version measurements missing the semantic assessment fail closed", () => {

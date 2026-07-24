@@ -8,6 +8,7 @@ silently attach evidence, targets, or document citations to another field.
 from __future__ import annotations
 
 from .models import (
+    QUANTITATIVE_SEMANTIC_FIELDS,
     VALID_EVIDENCE_STRENGTHS,
     VALID_PRECEDENT,
     VALID_PRECEDENT_OUTCOMES,
@@ -39,6 +40,13 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
             known_blocks,
             f"field {attribute.name!r} document blocks",
         )
+        if (
+            attribute.quantitative_target_status == "present"
+            and not attribute.quantitative_targets
+        ):
+            raise ValueError(
+                f"field {attribute.name!r} reports present numeric targets but has none"
+            )
         for target in attribute.quantitative_targets:
             if target.attribute_ref != attribute.name:
                 raise ValueError(
@@ -49,9 +57,30 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 raise ValueError(f"duplicate quantitative target ID {target.id!r}")
             _require_subset(
                 target.doc_block_ids,
-                known_blocks,
+                set(attribute.block_ids),
                 f"quantitative target {target.id!r} document blocks",
             )
+            if set(target.semantic_provenance) != set(QUANTITATIVE_SEMANTIC_FIELDS):
+                raise ValueError(
+                    f"quantitative target {target.id!r} has incomplete semantic provenance"
+                )
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+                slot = target.semantic_profile[field_name]
+                spans = target.semantic_provenance[field_name]
+                if slot.state in {"specified", "other"} and not spans:
+                    raise ValueError(
+                        f"quantitative target {target.id!r} has uncited {field_name} semantics"
+                    )
+                if slot.state not in {"specified", "other"} and spans:
+                    raise ValueError(
+                        f"quantitative target {target.id!r} cites absent {field_name} semantics"
+                    )
+                for span in spans:
+                    _require_subset(
+                        span.block_ids,
+                        known_blocks,
+                        f"quantitative target {target.id!r} {field_name} provenance",
+                    )
             targets_by_id[target.id] = target
 
     insight_by_id = {}

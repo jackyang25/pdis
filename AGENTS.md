@@ -128,11 +128,14 @@ Preserve these invariants:
 - Every verified quantitative target receives threshold-neutral retrieval
   coverage derived from its canonical semantic dimensions and unit. Query text
   must seek reported numeric results without including the document's target
-  magnitude, comparator, or threshold/optimal role.
-- Relevance-selected document context is used only to resolve a fixed field's
-  canonical binding. Raw bound blocks are then used only to exact-quote or
-  revalidate document facts. Query and reasoning stages receive the canonical
-  target annotated with those block IDs, so adjacent table cells cannot leak.
+  magnitude, comparator, or threshold/optimal role—even when an LLM repeats the
+  magnitude inside a semantic slot.
+- Relevance-selected context resolves a fixed field's canonical binding. A
+  bounded context seeded by that binding and its structural neighbors may then
+  clarify target semantics, but every specified semantic field must cite an
+  exact document span. Numeric expressions remain restricted to raw bound
+  blocks. Query and reasoning stages receive the resulting canonical target, so
+  adjacent table cells cannot donate another field's number or meaning.
 - Rendered model context labels blocks as `[block:<id>]`; structured JSON outputs
   the complete bare ID inside that marker. Validation permits an exactly wrapped
   legacy marker only long enough to canonicalize it, then requires exact
@@ -220,20 +223,23 @@ Scout's four result axes are intentionally orthogonal:
   more complete exact-quoted measurements from that passage; never restore
   regex-produced numeric-fragment fan-out. Target and source meaning use the
   same typed profile (`measure`, `endpoint`, `intervention`,
-  `population`, `regimen`, `time_horizon`, `statistic`) whose slots distinguish
+  `population`, `regimen`, `time_horizon`, `statistic`, `conditions`) whose slots distinguish
   `specified`, `not_specified`, `unknown`, and `other`. One measurement semantic
   assessment co-locates each normalized source dimension with a closed
-  `yes | no | unknown` compatibility decision, source ownership, and additional
-  target-constraint compatibility. Deterministic code derives the aggregate
+  `yes | no | unknown` compatibility decision and source ownership.
+  Deterministic code derives the aggregate
   `comparable | contextual | incompatible | unknown` disposition using only
   dimensions actually constrained by the target; ambiguous target dimensions
   fail closed. Do not reconstruct meaning with regexes or restore parallel
   semantic/comparability structures. Query
   and request target IDs are retrieval-coverage lineage only; they never imply
-  that a returned source semantically supports that target. If one exact target
+  that a returned source semantically supports that target. If one target family
   appears under overlapping fields, assign it once to the most specific closed
-  candidate field and retain the reason. Semantic target identity excludes quote
-  location so repeated statements merge provenance instead of creating ledgers
+  candidate field, retain that field's atomic qualifier variants, and retain the
+  ownership reason. Exact scalar targets use equality; common written numbers are
+  normalized only for syntax validation after AI maps their meaning. Semantic
+  target identity excludes quote location so repeated statements merge provenance
+  instead of creating ledgers.
 - precedent: coverage `direct | adjacent | none | unknown`, with outcome tracked
   separately as `favorable | mixed | unfavorable | unknown`
 
@@ -249,7 +255,7 @@ deduplication and rollups. Do not restore holistic “basis” tags.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 20, separating analysis from
+  (`web/lib/result-file.ts`), currently version 22, separating analysis from
   `source_documents`.
 - A completed Scout run is the sole producer of its quantitative ledgers. Export
   and import preserve that canonical result without rerunning or mutating any

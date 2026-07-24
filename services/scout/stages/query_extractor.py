@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Iterable
 
 from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
 from ..models import (
@@ -49,6 +50,9 @@ def extract_queries_for_variable(
         target.id: _target_retrieval_text(target)
         for target in attribute.quantitative_targets
     }
+    targets_by_id = {
+        target.id: target for target in attribute.quantitative_targets
+    }
     general_budget = max(queries_per_variable, len(target_blocks))
 
     queries = _run_track(
@@ -68,6 +72,7 @@ def extract_queries_for_variable(
         allowed_target_ids=set(target_blocks),
         target_blocks=target_blocks,
         target_query_contexts=target_query_contexts,
+        targets_by_id=targets_by_id,
         required_target_ids=set(target_blocks),
         fallback_context=(indication, config.intervention_class, attribute.name),
     )
@@ -90,6 +95,7 @@ def extract_queries_for_variable(
             allowed_target_ids=set(target_blocks),
             target_blocks=target_blocks,
             target_query_contexts=target_query_contexts,
+            targets_by_id=targets_by_id,
         )
 
     if config.counterfactual_queries_per_variable > 0:
@@ -110,6 +116,7 @@ def extract_queries_for_variable(
             allowed_target_ids=set(target_blocks),
             target_blocks=target_blocks,
             target_query_contexts=target_query_contexts,
+            targets_by_id=targets_by_id,
         )
 
     if config.precedent_queries_per_variable > 0:
@@ -130,6 +137,7 @@ def extract_queries_for_variable(
             allowed_target_ids=set(target_blocks),
             target_blocks=target_blocks,
             target_query_contexts=target_query_contexts,
+            targets_by_id=targets_by_id,
         )
 
     total = (
@@ -154,6 +162,7 @@ def _run_track(
     allowed_target_ids: set[str],
     target_blocks: dict[str, list[str]],
     target_query_contexts: dict[str, str],
+    targets_by_id: dict[str, QuantitativeTarget],
     required_target_ids: set[str] | None = None,
     fallback_context: tuple[str, str, str] | None = None,
 ) -> list[QueryIntent]:
@@ -165,6 +174,7 @@ def _run_track(
         allowed_target_ids=allowed_target_ids,
         target_blocks=target_blocks,
     )
+    queries = _threshold_neutral_queries(queries, targets_by_id.values())
     missing_targets = _missing_target_ids(queries, required_target_ids or set())
     if not queries or missing_targets:
         logger.warning(
@@ -179,6 +189,7 @@ def _run_track(
             allowed_target_ids=allowed_target_ids,
             target_blocks=target_blocks,
         )
+        queries = _threshold_neutral_queries(queries, targets_by_id.values())
     for query in queries:
         query.tracks = [track]
     queries = queries[:cap]
@@ -232,24 +243,25 @@ def _target_retrieval_descriptor(target: QuantitativeTarget) -> dict[str, object
         "target_id": target.id,
         "unit": target.unit,
         "dimensions": dimensions,
-        "additional_constraints": list(target.other_constraints),
     }
 
 
 def _target_retrieval_dimensions(target: QuantitativeTarget) -> dict[str, str]:
     dimensions: dict[str, str] = {}
     for field_name, slot in target.semantic_profile.items():
+        phrase = ""
         if slot.state == "specified" and slot.value:
-            dimensions[field_name] = slot.value
+            phrase = slot.value
         elif slot.state == "other" and slot.other:
-            dimensions[field_name] = slot.other
+            phrase = slot.other
+        if phrase and not _restates_target_expression(phrase, target):
+            dimensions[field_name] = phrase
     return dimensions
 
 
 def _target_retrieval_text(target: QuantitativeTarget) -> str:
     phrases = [
         *_target_retrieval_dimensions(target).values(),
-        *target.other_constraints,
     ]
     unique: list[str] = []
     seen: set[str] = set()
@@ -262,6 +274,45 @@ def _target_retrieval_text(target: QuantitativeTarget) -> str:
     if target.unit:
         unique.append(f"reported in {target.unit}")
     return " ".join(unique)
+
+
+_NUMBER_WORDS = (
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+    "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+    "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+)
+
+
+def _restates_target_expression(text: str, target: QuantitativeTarget) -> bool:
+    """Detect the target magnitude coupled to its own unit, not other qualifiers."""
+    compact = re.sub(r"[^a-z0-9%]+", "", text.casefold())
+    unit = re.sub(r"[^a-z0-9%]+", "", target.unit.casefold())
+    if not compact or not unit:
+        return False
+    values = [re.sub(r"[^a-z0-9%]+", "", f"{target.value:g}".casefold())]
+    if target.value.is_integer():
+        integer = int(target.value)
+        if 0 <= integer < len(_NUMBER_WORDS):
+            values.append(_NUMBER_WORDS[integer])
+    return any(
+        f"{value}{unit}" in compact or f"{unit}{value}" in compact
+        for value in values
+    )
+
+
+def _threshold_neutral_queries(
+    queries: list[QueryIntent],
+    targets: Iterable[QuantitativeTarget],
+) -> list[QueryIntent]:
+    target_list = list(targets)  # materialize once for every query
+    return [
+        query
+        for query in queries
+        if not any(
+            _restates_target_expression(query.text, target)
+            for target in target_list
+        )
+    ]
 
 
 def _system_prompt_for_variable(

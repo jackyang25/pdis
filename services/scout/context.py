@@ -50,11 +50,13 @@ def select_resolution_context(
     *,
     max_chars: int = ATTRIBUTE_CONTEXT_CHARS,
 ) -> str:
-    """Return a bounded document view used only to locate a fixed field binding.
+    """Return a bounded document view for binding or defining one field.
 
-    This relevance-selected view is intentionally broader than the field's final
-    provenance boundary. Once a binding is resolved, every downstream document-
-    aware stage must use :func:`select_binding_context` instead.
+    This relevance-selected view is intentionally broader than the field's fact
+    boundary. Fixed fields use it to locate their canonical binding; resolved
+    fields may reuse it to clarify semantic terms, but only with exact cited
+    spans. Numeric expressions themselves remain restricted to
+    :func:`select_binding_context`.
     """
     if not blocks:
         return ""
@@ -81,9 +83,23 @@ def select_resolution_context(
     # Extracted units already carry exact originating blocks. Seed those before
     # lexical selection so a long document cannot lose its own source claim.
     originating_ids = set(attribute.block_ids)
-    selected.update(
+    originating_indices = [
         index for index, block in enumerate(blocks) if block.id in originating_ids
-    )
+    ]
+    # Definitions, table annotations, and endpoint qualifiers commonly live a
+    # few rows away from the numeric target. Keep a small structural halo around
+    # an already-cited binding; this supplies document meaning without turning
+    # every target call into a full-document dump.
+    for origin in originating_indices:
+        candidates = {
+            index
+            for index in range(origin - 3, origin + 4)
+            if 0 <= index < len(blocks)
+        }
+        if _selection_size(rendered, selected | candidates) <= max_chars:
+            selected.update(candidates)
+        else:
+            selected.add(origin)
     # Retain document boundaries when they fit. Originating blocks take
     # precedence, because they are stronger provenance than a generic preamble.
     boundary_indices = [

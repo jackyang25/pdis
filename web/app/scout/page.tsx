@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useScoutSession } from "@/lib/session";
-import { packScoutResult, unpackScoutResult } from "@/lib/result-file";
+import { packScoutResult, scoutResultFilename, unpackScoutResult } from "@/lib/result-file";
 import { displayAttributeLabel } from "@/lib/scout-evidence-map";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -589,7 +589,7 @@ function FieldGrid({
           <>
             <Button variant="ghost" size="sm" onClick={onNewAnalysis}>New analysis</Button>
             <DownloadButton
-              filename="scout-result.json"
+              filename={scoutResultFilename(result)}
               data={packScoutResult(result)}
               format="json"
               label="Download JSON"

@@ -6,6 +6,7 @@ import {
   packAlignerResult,
   packInspectorResult,
   packScoutResult,
+  scoutResultFilename,
   unpackAlignerResult,
   unpackInspectorResult,
   unpackScoutResult,
@@ -139,6 +140,17 @@ test("current Scout export and import preserve the canonical result exactly", ()
   const packed = packScoutResult(scout);
   assert.equal(packed.version, 19);
   assert.deepEqual(unpackScoutResult(packed), scout);
+});
+
+test("Scout download names are derived from the stable source document ID", () => {
+  const named = {
+    ...scout,
+    blocks: [{ ...block, doc_id: "DRAFT AIV iTPP v1 13July2016" }],
+  };
+  assert.equal(
+    scoutResultFilename(named),
+    "draft-aiv-itpp-v1-13july2016-scout.json",
+  );
 });
 
 test("legacy Reviewer envelopes migrate only at import", () => {

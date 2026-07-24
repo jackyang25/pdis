@@ -47,6 +47,29 @@ export function packScoutResult(result: ScoutResponse): ResultFile<"scout", Scou
   };
 }
 
+/** Stable, filesystem-safe name derived from the analyzed source document. */
+export function scoutResultFilename(result: ScoutResponse): string {
+  const documentIds = Array.from(
+    new Set((result.blocks ?? []).map((block) => block.doc_id.trim()).filter(Boolean)),
+  );
+  const fallback = [result.indication, result.source_type].filter(Boolean).join("-") || "analysis";
+  const primary = safeFilenamePart(documentIds[0] || fallback);
+  const scope = documentIds.length > 1
+    ? `${primary}-plus-${documentIds.length - 1}-more`
+    : primary;
+  return `${scope}-scout.json`;
+}
+
+function safeFilenamePart(value: string): string {
+  const normalized = value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  return (normalized || "analysis").slice(0, 96).replace(/-+$/g, "");
+}
+
 export function packInspectorResult(
   result: InspectorResponse,
 ): ResultFile<"inspector", InspectorAnalysis> {

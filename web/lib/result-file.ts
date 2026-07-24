@@ -1,12 +1,12 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 19 as const;
-// Scout's current exact-quote/semantic-profile calibration contract first
-// shipped in result version 18. Later envelope bumps for another tool must not
+const RESULT_VERSION = 20 as const;
+// Scout's current unified measurement-semantic-assessment contract first
+// shipped in result version 20. Later envelope bumps for another tool must not
 // invalidate an otherwise current Scout ledger.
-const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 18 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | typeof RESULT_VERSION;
+const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 20 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -200,7 +200,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.result_type === "aligner" ||
@@ -439,10 +439,12 @@ function normalizeConformity(
     weighted_target_meeting_rate: _legacyWeightedRate,
     ...currentScore
   } = score;
-  const measurements: Record<string, any>[] = (score.measurements ?? []).map(
+  const rawMeasurements: Record<string, any>[] = score.measurements ?? [];
+  const rawExcludedMeasurements: Record<string, any>[] = score.excluded_measurements ?? [];
+  const measurements: Record<string, any>[] = rawMeasurements.map(
     (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
   );
-  const excludedMeasurements: Record<string, any>[] = (score.excluded_measurements ?? []).map(
+  const excludedMeasurements: Record<string, any>[] = rawExcludedMeasurements.map(
     (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
   );
   const values = measurements
@@ -467,12 +469,12 @@ function normalizeConformity(
   }).length;
   const targetMeetingRate = count > 0 ? targetMeetingCount / count : 0;
   const legacyUnverified = contractPredatesCurrent || !score.target_id || !score.target_quote || [
-    ...measurements,
-    ...excludedMeasurements,
+    ...rawMeasurements,
+    ...rawExcludedMeasurements,
   ].some(
     (measurement) => !measurement.candidate_id
       || !measurement.source_quote
-      || !measurement.semantic_profile
+      || !measurement.semantic_assessment
       || measurement.expression?.kind === "unknown",
   );
 
@@ -542,6 +544,10 @@ function normalizeMeasurement(
     evidence_type: _legacyEvidenceType,
     source_type: _legacySourceType,
     weight: _legacyWeight,
+    source_ownership: legacySourceOwnership,
+    comparability: legacyComparability,
+    semantic_profile: legacySourceProfile,
+    semantic_assessment: currentSemanticAssessment,
     ...current
   } = measurement;
   return {
@@ -559,12 +565,43 @@ function normalizeMeasurement(
     source_quote: current.source_quote ?? "",
     source_record_id: current.source_record_id ?? "",
     source_identity_status: current.source_identity_status ?? "url_fallback",
+    semantic_assessment: currentSemanticAssessment ?? legacyMeasurementSemanticAssessment(
+      legacySourceOwnership,
+      legacyComparability,
+      legacySourceProfile,
+    ),
     semantic_status: current.semantic_status ?? "unknown",
     semantic_reason: current.semantic_reason ?? "Imported measurement predates semantic normalization.",
-    semantic_profile: current.semantic_profile ?? legacySemanticProfile("numeric measure"),
     inclusion_reason: current.inclusion_reason ?? "",
     exclusion_reasons: current.exclusion_reasons ?? [],
     age_months: current.age_months ?? null,
+  };
+}
+
+function legacyTernaryDecision(reason: string): Record<string, string> {
+  return { state: "unknown", reason };
+}
+
+function legacyMeasurementSemanticAssessment(
+  ownership: Record<string, any> | undefined,
+  comparability: Record<string, any> | undefined,
+  sourceProfile: Record<string, any> | undefined,
+): Record<string, unknown> {
+  const profile = sourceProfile ?? legacySemanticProfile("numeric measure");
+  const fields = ["measure", "endpoint", "intervention", "population", "regimen", "time_horizon", "statistic"];
+  return {
+    source_ownership: ownership ?? legacyTernaryDecision(
+      "Imported measurement predates source-ownership validation.",
+    ),
+    dimensions: Object.fromEntries(fields.map((field) => [field, {
+      source: profile[field],
+      compatibility: comparability?.[field] ?? legacyTernaryDecision(
+        `Imported measurement predates ${field.replace("_", " ")} compatibility validation.`,
+      ),
+    }])),
+    constraints_compatibility: legacyTernaryDecision(
+      "Imported measurement predates additional-constraint validation.",
+    ),
   };
 }
 

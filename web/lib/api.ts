@@ -236,12 +236,26 @@ export type Measurement = {
   source_quote: string;
   source_record_id: string;
   source_identity_status: "canonical" | "title_fallback" | "url_fallback";
+  semantic_assessment: MeasurementSemanticAssessment;
   semantic_status: "comparable" | "contextual" | "incompatible" | "unknown";
   semantic_reason: string;
-  semantic_profile: QuantitativeSemanticProfile;
   inclusion_reason: string;
   exclusion_reasons: string[];
   age_months: number | null;
+};
+
+export type TernaryDecision = {
+  state: "yes" | "no" | "unknown";
+  reason: string;
+};
+
+export type MeasurementSemanticAssessment = {
+  source_ownership: TernaryDecision;
+  dimensions: Record<keyof QuantitativeSemanticProfile, {
+    source: SemanticSlot;
+    compatibility: TernaryDecision;
+  }>;
+  constraints_compatibility: TernaryDecision;
 };
 
 export type SourcePassageDisposition = {

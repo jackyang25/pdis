@@ -10,6 +10,7 @@ import hashlib
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Mapping, Protocol
+from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 EVIDENCE_DOMAINS = frozenset(
     {
@@ -284,6 +285,7 @@ class Finding:
     published_source_lane: str = ""
 
     def __post_init__(self) -> None:
+        self.url = _canonical_url(self.url)
         if self.evidence_role not in FINDING_ROLES:
             raise ValueError(f"unknown finding evidence role: {self.evidence_role}")
         self.development_records = list(dict.fromkeys(self.development_records))
@@ -300,6 +302,21 @@ class Finding:
             self.excerpt_source_lane = self.excerpt_source_lane or self.source
         if self.published_at:
             self.published_source_lane = self.published_source_lane or self.source
+
+
+def _canonical_url(url: str) -> str:
+    """Normalize source identity without discarding meaningful query options."""
+    split = urlsplit(url.strip())
+    if not split.scheme or not split.netloc:
+        return url.strip()
+    query = "&".join(
+        part
+        for part in split.query.split("&")
+        if part
+        and not unquote_plus(part.partition("=")[0]).casefold().startswith("utm_")
+    )
+    host = split.netloc.casefold()
+    return urlunsplit((split.scheme.casefold(), host, split.path, query, ""))
 
 
 class SearcherLLMClientProtocol(Protocol):

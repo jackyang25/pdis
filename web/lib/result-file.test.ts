@@ -104,7 +104,7 @@ const scout: ScoutResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 19);
+  assert.equal(packed.version, 20);
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
   assert.equal("blocks" in packed.analysis.inspection, false);
@@ -129,7 +129,7 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 19);
+  assert.equal(packed.version, 20);
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
   assert.equal(packed.source_documents.length, 2);
@@ -138,8 +138,22 @@ test("Aligner results separate both source documents from the analysis", () => {
 
 test("current Scout export and import preserve the canonical result exactly", () => {
   const packed = packScoutResult(scout);
-  assert.equal(packed.version, 19);
+  assert.equal(packed.version, 20);
   assert.deepEqual(unpackScoutResult(packed), scout);
+});
+
+test("current-version measurements missing the semantic assessment fail closed", () => {
+  const malformed = structuredClone(packScoutResult(scout)) as any;
+  malformed.analysis.conformity[0].calibration_status = "sufficient";
+  malformed.analysis.conformity[0].measurements = [{
+    candidate_id: "qm-malformed",
+    expression: { kind: "point_estimate", unit: "%", value: 82, lower: null, upper: null, comparator: "" },
+    source_quote: "Efficacy was 82%.",
+  }];
+
+  const imported = unpackScoutResult(malformed);
+
+  assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
 });
 
 test("Scout download names are derived from the stable source document ID", () => {
@@ -286,7 +300,7 @@ test("version 17 calibration is unverified under the passage-expression contract
   assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
 });
 
-test("an envelope bump for another tool does not invalidate version 18 Scout calibration", () => {
+test("version 18 calibration predates source-ownership admission", () => {
   const imported = unpackScoutResult({
     schema: "pdis.result",
     version: 18,
@@ -314,7 +328,7 @@ test("an envelope bump for another tool does not invalidate version 18 Scout cal
     source_documents: [],
   });
 
-  assert.equal(imported.conformity[0].calibration_status, "insufficient");
+  assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
 });
 
 test("unversioned Scout calibration cannot claim the current quantitative contract", () => {

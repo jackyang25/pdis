@@ -46,14 +46,16 @@ from ..models import (
     Insight,
     LLMClientProtocol,
     MEASUREMENT_KINDS,
-    MEASUREMENT_STATUSES,
     Measurement,
+    MeasurementSemanticAssessment,
     NumericExpression,
     QUANTITATIVE_SEMANTIC_FIELDS,
     SEMANTIC_SLOT_STATES,
     QuantitativeTarget,
+    SemanticDimensionAssessment,
     SemanticSlot,
     SourcePassageDisposition,
+    TernaryDecision,
 )
 
 logger = logging.getLogger(__name__)
@@ -176,14 +178,17 @@ def _partition_cohort(
 ) -> tuple[list[Measurement], list[Measurement]]:
     """Apply the small deterministic admission contract.
 
-    AI owns semantic conversion into one central status. Code admits only an
-    scalar expression with a comparable meaning and a unique source record.
-    It never tries to reconstruct clinical meaning from scattered axis labels.
+    AI owns the bounded yes/no/unknown semantic decisions. Code derives the
+    aggregate status and admits only an atomic scalar whose source owns the
+    claim and whose required target dimensions are compatible.
     """
     included: list[Measurement] = []
     excluded: list[Measurement] = []
     eligible_by_record: dict[str, list[Measurement]] = {}
     for candidate in candidates:
+        candidate.semantic_status, candidate.semantic_reason = (
+            _derived_semantic_status(candidate, target)
+        )
         reasons = list(candidate.exclusion_reasons)
         if candidate.semantic_status != "comparable":
             reasons.append(
@@ -462,18 +467,20 @@ def resolve_quantitative_target_ownership(
     fields that independently emitted the same atomic semantic target.
     """
     attributes_by_name = {attribute.name: attribute for attribute in attributes}
-    groups: dict[tuple[object, ...], list[QuantitativeTarget]] = {}
-    for attribute in attributes:
-        for target in attribute.quantitative_targets:
-            groups.setdefault(_semantic_target_key(target, include_owner=False), []).append(target)
+    groups = _target_ownership_groups(
+        [target for attribute in attributes for target in attribute.quantitative_targets]
+    )
 
     ambiguous: dict[str, list[QuantitativeTarget]] = {}
     owner_by_group: dict[str, tuple[str, str]] = {}
-    group_ids: dict[tuple[object, ...], str] = {}
-    for key, targets in groups.items():
-        material = json.dumps(key, sort_keys=True, ensure_ascii=False)
+    group_ids: dict[int, str] = {}
+    for index, targets in enumerate(groups):
+        material = json.dumps(
+            sorted((target.attribute_ref, target.id) for target in targets),
+            ensure_ascii=False,
+        )
         group_id = "qg-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
-        group_ids[key] = group_id
+        group_ids[index] = group_id
         candidate_refs = list(dict.fromkeys(target.attribute_ref for target in targets))
         if len(candidate_refs) == 1:
             owner_by_group[group_id] = (
@@ -504,8 +511,8 @@ def resolve_quantitative_target_ownership(
                 break
 
     owned: dict[str, list[QuantitativeTarget]] = {name: [] for name in attributes_by_name}
-    for key, targets in groups.items():
-        group_id = group_ids[key]
+    for index, targets in enumerate(groups):
+        group_id = group_ids[index]
         decision = owner_by_group.get(group_id)
         if decision is None:
             logger.warning(
@@ -540,6 +547,72 @@ def resolve_quantitative_target_ownership(
         replace(attribute, quantitative_targets=owned[attribute.name])
         for attribute in attributes
     ]
+
+
+def _target_ownership_groups(
+    targets: list[QuantitativeTarget],
+) -> list[list[QuantitativeTarget]]:
+    """Join only semantically identical or exact-provenance duplicate targets.
+
+    Independent field extractors may describe the same exact document claim
+    differently. Exact quote/block/expression identity therefore joins those
+    candidates before the existing semantic owner decision. Population remains
+    in the key so a compound pediatric/adult statement keeps two valid targets.
+    """
+    if not targets:
+        return []
+    parents = list(range(len(targets)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    first_by_semantic_key: dict[tuple[object, ...], int] = {}
+    for index, target in enumerate(targets):
+        key = _semantic_target_key(target, include_owner=False)
+        first = first_by_semantic_key.setdefault(key, index)
+        union(first, index)
+
+    indices_by_claim: dict[tuple[object, ...], list[int]] = {}
+    for index, target in enumerate(targets):
+        indices_by_claim.setdefault(_exact_document_claim_key(target), []).append(index)
+    for indices in indices_by_claim.values():
+        for position, left in enumerate(indices):
+            for right in indices[position + 1:]:
+                if targets[left].attribute_ref != targets[right].attribute_ref:
+                    union(left, right)
+
+    grouped: dict[int, list[QuantitativeTarget]] = {}
+    for index, target in enumerate(targets):
+        grouped.setdefault(find(index), []).append(target)
+    return list(grouped.values())
+
+
+def _exact_document_claim_key(target: QuantitativeTarget) -> tuple[object, ...]:
+    population = target.semantic_profile["population"]
+    spans = tuple(
+        sorted(
+            (_normalize_quote(span.quote), tuple(sorted(span.block_ids)))
+            for span in target.provenance_spans
+        )
+    )
+    return (
+        target.role,
+        target.comparator,
+        target.value,
+        _canonical_unit(target.unit),
+        population.state,
+        population.value.casefold(),
+        population.other.casefold(),
+        spans,
+    )
 
 
 def _validated_targets(
@@ -676,6 +749,7 @@ def _extract_target_measurements(
         batch_measurements, batch_dispositions = _validated_source_decisions(
             parsed.get("sources"),
             passages={passage.id: passage for passage in batch},
+            target=target,
         )
         batch_decided = {item.source_id for item in batch_dispositions}
         missing = [passage for passage in batch if passage.id not in batch_decided]
@@ -691,6 +765,7 @@ def _extract_target_measurements(
             recovered_measurements, recovered_dispositions = _validated_source_decisions(
                 retry_parsed.get("sources"),
                 passages={passage.id: passage for passage in missing},
+                target=target,
             )
             batch_measurements.extend(recovered_measurements)
             batch_dispositions.extend(recovered_dispositions)
@@ -717,6 +792,7 @@ def _validated_source_decisions(
     items: object,
     *,
     passages: dict[str, _SourcePassage],
+    target: QuantitativeTarget,
 ) -> tuple[list[Measurement], list[SourcePassageDisposition]]:
     if not isinstance(items, list):
         return [], []
@@ -746,6 +822,7 @@ def _validated_source_decisions(
             measurement = _validated_passage_measurement(
                 raw_measurement,
                 passage=passage,
+                target=target,
             )
             if measurement is not None:
                 validated.append(measurement)
@@ -775,22 +852,21 @@ def _validated_passage_measurement(
     raw: object,
     *,
     passage: _SourcePassage,
+    target: QuantitativeTarget,
 ) -> Measurement | None:
     if not isinstance(raw, dict):
         return None
     quote = " ".join(str(raw.get("quote", "")).split())
     expression = _validated_numeric_expression(raw.get("expression"))
-    semantic_status = str(raw.get("semantic_status", "")).strip().lower()
-    semantic_reason = " ".join(str(raw.get("semantic_reason", "")).split())
-    semantic_profile = _validated_semantic_profile(raw.get("semantic_profile"))
+    semantic_assessment = _validated_measurement_semantic_assessment(
+        raw.get("semantic_assessment")
+    )
     if (
         not quote
         or not _quote_in_text(quote, passage.text)
         or expression is None
         or not _expression_supported(expression, quote)
-        or semantic_status not in MEASUREMENT_STATUSES
-        or not semantic_reason
-        or semantic_profile is None
+        or semantic_assessment is None
     ):
         return None
     material = json.dumps(
@@ -810,7 +886,7 @@ def _validated_passage_measurement(
     )
     candidate_id = "qm-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
     source_record_id, source_identity_status = _source_record_identity(passage.finding)
-    return Measurement(
+    measurement = Measurement(
         expression=expression,
         candidate_id=candidate_id,
         url=passage.finding.url,
@@ -818,9 +894,151 @@ def _validated_passage_measurement(
         source_quote=quote,
         source_record_id=source_record_id,
         source_identity_status=source_identity_status,
-        semantic_status=semantic_status,
-        semantic_reason=semantic_reason,
-        semantic_profile=semantic_profile,
+        semantic_assessment=semantic_assessment,
+    )
+    measurement.semantic_status, measurement.semantic_reason = (
+        _derived_semantic_status(measurement, target)
+    )
+    return measurement
+
+
+def _validated_ternary_decision(raw: object) -> TernaryDecision | None:
+    if not isinstance(raw, dict) or set(raw) != {"state", "reason"}:
+        return None
+    try:
+        return TernaryDecision(
+            state=str(raw.get("state", "")),
+            reason=str(raw.get("reason", "")),
+        )
+    except ValueError:
+        return None
+
+
+def _validated_measurement_semantic_assessment(
+    raw: object,
+) -> MeasurementSemanticAssessment | None:
+    if not isinstance(raw, dict) or set(raw) != {
+        "source_ownership",
+        "dimensions",
+        "constraints_compatibility",
+    }:
+        return None
+    ownership = _validated_ternary_decision(raw.get("source_ownership"))
+    constraints = _validated_ternary_decision(raw.get("constraints_compatibility"))
+    dimensions_raw = raw.get("dimensions")
+    if (
+        ownership is None
+        or constraints is None
+        or not isinstance(dimensions_raw, dict)
+        or set(dimensions_raw) != set(QUANTITATIVE_SEMANTIC_FIELDS)
+    ):
+        return None
+    dimensions: dict[str, SemanticDimensionAssessment] = {}
+    for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+        item = dimensions_raw.get(field_name)
+        if not isinstance(item, dict) or set(item) != {"source", "compatibility"}:
+            return None
+        source_profile = _validated_semantic_slot(item.get("source"))
+        compatibility = _validated_ternary_decision(item.get("compatibility"))
+        if source_profile is None or compatibility is None:
+            return None
+        dimensions[field_name] = SemanticDimensionAssessment(
+            source=source_profile,
+            compatibility=compatibility,
+        )
+    if dimensions["measure"].source.state != "specified":
+        return None
+    return MeasurementSemanticAssessment(
+        source_ownership=ownership,
+        dimensions=dimensions,
+        constraints_compatibility=constraints,
+    )
+
+
+def _validated_semantic_slot(raw: object) -> SemanticSlot | None:
+    if not isinstance(raw, dict) or set(raw) != {"state", "value", "other"}:
+        return None
+    try:
+        return SemanticSlot(
+            state=str(raw.get("state", "")),
+            value=str(raw.get("value", "")),
+            other=str(raw.get("other", "")),
+        )
+    except ValueError:
+        return None
+
+
+def _required_comparison_axes(target: QuantitativeTarget) -> set[str]:
+    """Return target dimensions whose compatibility is necessary for admission."""
+    return {
+        field_name
+        for field_name, slot in target.semantic_profile.items()
+        if slot.state in {"specified", "other"}
+    }
+
+
+def _derived_semantic_status(
+    measurement: Measurement,
+    target: QuantitativeTarget,
+) -> tuple[str, str]:
+    """Derive the public disposition from closed, auditable model decisions."""
+    assessment = measurement.semantic_assessment
+    ownership = assessment.source_ownership
+    if ownership.state == "unknown":
+        return "unknown", f"Source ownership is unknown: {ownership.reason}"
+    if ownership.state == "no":
+        return "contextual", f"The source does not own this result: {ownership.reason}"
+
+    ambiguous_target_axes = [
+        field_name
+        for field_name, slot in target.semantic_profile.items()
+        if slot.state == "unknown"
+    ]
+    if ambiguous_target_axes:
+        return (
+            "unknown",
+            "The document target is ambiguous for: "
+            + ", ".join(field_name.replace("_", " ") for field_name in ambiguous_target_axes),
+        )
+
+    required = _required_comparison_axes(target)
+    for field_name in sorted(required):
+        dimension = assessment.dimensions[field_name]
+        source_slot = dimension.source
+        decision = dimension.compatibility
+        if source_slot.state not in {"specified", "other"}:
+            return (
+                "unknown",
+                f"Required {field_name.replace('_', ' ')} context is absent from the source.",
+            )
+        if decision.state == "unknown":
+            return (
+                "unknown",
+                f"{field_name.replace('_', ' ').capitalize()} compatibility is unknown: "
+                f"{decision.reason}",
+            )
+        if decision.state == "no":
+            status = "incompatible" if field_name == "measure" else "contextual"
+            return (
+                status,
+                f"{field_name.replace('_', ' ').capitalize()} is not compatible: "
+                f"{decision.reason}",
+            )
+    if target.other_constraints:
+        constraints = assessment.constraints_compatibility
+        if constraints.state == "unknown":
+            return (
+                "unknown",
+                f"Additional target-constraint compatibility is unknown: {constraints.reason}",
+            )
+        if constraints.state == "no":
+            return (
+                "contextual",
+                f"Additional target constraints are not compatible: {constraints.reason}",
+            )
+    return (
+        "comparable",
+        "The source owns the result and every required target dimension is compatible.",
     )
 
 
@@ -1123,13 +1341,25 @@ def _measurement_system_prompt(
         "Expression kind is point_estimate|range|bound|confidence_interval|count|rate|other|unknown. "
         "point_estimate/count/rate use value; range/confidence_interval use lower+upper; bound uses "
         "value+comparator. Never split a range or confidence interval into point estimates. "
-        "Then return one central "
-        "semantic_status: comparable when it is an atomic measurement of the same target meaning; "
-        "contextual when related but unsuitable for the direct cohort; incompatible when it clearly "
-        "measures something else; unknown when context is insufficient. The magnitude of the number "
-        "and whether it would meet the hidden target are NEVER relevance criteria. Normalize the "
-        "source meaning into semantic_profile using the same seven fields and slot states as the "
-        "target. Do not infer a qualifier absent from the supplied source context.\n\n"
+        "Do NOT return an aggregate comparable/contextual label. Instead return ONE "
+        "semantic_assessment. source_ownership.state is yes only when the numeric claim is a result or record fact "
+        "owned by this exact source record. Use no for another study's result quoted as background, "
+        "general background, a protocol assumption, a planned outcome, or an unsupported assertion; "
+        "use unknown when ownership cannot be established. A registry sentence can appear verbatim "
+        "yet still be background rather than a result of that registered study. "
+        "Inside dimensions return all seven target fields. Each field contains source={state,value,other} "
+        "and compatibility={state,reason}. Compatibility yes means the source value is semantically "
+        "compatible with that target "
+        "dimension for direct numeric comparison; it does not require identical wording. no means a "
+        "material conflict. unknown means the retained passage lacks enough context. In particular, "
+        "clinical disease is not the same endpoint as infection or parasitemia, and a follow-up "
+        "window is not automatically the same as a point estimate at its endpoint. The magnitude of "
+        "the number and whether it would meet the hidden target are NEVER relevance criteria. "
+        "constraints_compatibility assesses the supplied Other target constraints as one unit; return "
+        "yes with an empty reason when none exist. Use a concise reason for every no or unknown decision; "
+        "yes decisions may use an empty reason. Do not infer a qualifier absent from the supplied source "
+        "context. Code, not "
+        "you, derives the final cohort disposition from these decisions.\n\n"
         "Use no_relevant_measurement when the passage contains no relevant complete numeric "
         "statement. Use uncertain when one may exist but the supplied passage cannot support a "
         "faithful mapping. Never infer omitted context.\n\n"
@@ -1139,15 +1369,17 @@ def _measurement_system_prompt(
         '{"quote":"Vaccine efficacy was 50.3% at 12 months.",'
         '"expression":{"kind":"point_estimate","unit":"%","value":50.3,'
         '"lower":null,"upper":null,"comparator":""},'
-        '"semantic_status":"comparable",'
-        '"semantic_reason":"reports the same measure and target qualifiers",'
-        '"semantic_profile":{"measure":{"state":"specified","value":"protective efficacy","other":""},'
-        '"endpoint":{"state":"specified","value":"clinical malaria","other":""},'
-        '"intervention":{"state":"specified","value":"malaria vaccine","other":""},'
-        '"population":{"state":"specified","value":"children","other":""},'
-        '"regimen":{"state":"unknown","value":"","other":""},'
-        '"time_horizon":{"state":"specified","value":"12 months","other":""},'
-        '"statistic":{"state":"specified","value":"efficacy point estimate","other":""}}}]}]}'
+        '"semantic_assessment":{'
+        '"source_ownership":{"state":"yes","reason":""},'
+        '"dimensions":{'
+        '"measure":{"source":{"state":"specified","value":"protective efficacy","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"endpoint":{"source":{"state":"specified","value":"clinical malaria","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"intervention":{"source":{"state":"specified","value":"malaria vaccine","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"population":{"source":{"state":"specified","value":"children","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"regimen":{"source":{"state":"specified","value":"primary series","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"time_horizon":{"source":{"state":"specified","value":"12 months","other":""},"compatibility":{"state":"yes","reason":""}},'
+        '"statistic":{"source":{"state":"specified","value":"efficacy point estimate","other":""},"compatibility":{"state":"yes","reason":""}}},'
+        '"constraints_compatibility":{"state":"yes","reason":""}}}]}]}'
     )
 
 

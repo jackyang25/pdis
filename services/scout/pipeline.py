@@ -325,7 +325,11 @@ def run_pipeline(
     stats = FunnelStats(
         queries=len(flat),
         findings=total_findings,
-        unique_findings=sum(len(findings) for findings in findings_by_attribute.values()),
+        unique_findings=len({
+            finding.url
+            for findings in findings_by_attribute.values()
+            for finding in findings
+        }),
         insights=len(insights),
         matches=len(matches),
         assessments=len(assessments),

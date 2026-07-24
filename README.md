@@ -174,7 +174,8 @@ parse document blocks and visuals
 → extract atomic Insights
 → classify target relationship
 → assess grounding
-→ normalize target/source meaning into one typed semantic contract
+→ normalize target/source meaning and source ownership into one typed semantic contract
+→ derive cohort admission from closed yes/no/unknown compatibility decisions
 → map each bounded source-owned passage to complete measurements or an explicit no-result/uncertain disposition
 → verify immutable target/source spans, numeric expressions, and provenance
 → calculate one traceable descriptive calibration per target over a deduplicated cohort
@@ -194,17 +195,15 @@ target annotated with those same block IDs, preventing adjacent table-cell
 spillover. When overlapping field definitions produce the same exact numeric
 claim, a closed arbitration step
 assigns it once to the most specific candidate field and retains that decision.
-Targets and source measurements share the same seven-slot semantic profile.
-Slots distinguish a stated value from a true absence, uncertainty, or a valid
-out-of-vocabulary `other` value. The model performs semantic normalization;
-code validates the closed shape and never rebuilds clinical meaning from regexes.
+Targets use a seven-slot semantic profile. Each source measurement has one
+semantic assessment that co-locates the normalized source value and a closed
+yes/no/unknown compatibility decision for each slot, plus source ownership and
+additional-constraint compatibility. Only target-constrained slots can exclude
+a measurement; ambiguous target slots fail closed. Code derives the aggregate
+cohort disposition and never trusts a free aggregate label or rebuilds clinical
+meaning from regexes.
 Every native request records its compiled intent IDs/texts, tracks, options,
 connector operation, status, result count, and URLs.
-
-Current portable Scout results can also recalculate only their quantitative
-ledgers. This reuses the saved document blocks and already-cited source
-passages—no retrieval or insight synthesis—and applies the identical validation
-and deterministic-math contract as a full run.
 
 ## Retrieval sources
 
@@ -364,7 +363,7 @@ tool execution remains private while final tokens render incrementally.
 ## Portable result files
 
 Inspector, Aligner, and Scout downloads use the versioned `pdis.result` envelope,
-currently version **19**:
+currently version **20**:
 
 ```text
 schema + version + result_type

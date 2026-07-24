@@ -12,7 +12,13 @@ import logging
 import re
 
 from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
-from ..models import Attribute, LLMClientProtocol, QueryIntent, ScoutTypeConfig
+from ..models import (
+    Attribute,
+    LLMClientProtocol,
+    QuantitativeTarget,
+    QueryIntent,
+    ScoutTypeConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +45,9 @@ def extract_queries_for_variable(
     target_blocks = {
         target.id: target.doc_block_ids for target in attribute.quantitative_targets
     }
-    target_labels = {
-        target.id: target.label for target in attribute.quantitative_targets
+    target_query_contexts = {
+        target.id: _target_retrieval_text(target)
+        for target in attribute.quantitative_targets
     }
     general_budget = max(queries_per_variable, len(target_blocks))
 
@@ -60,7 +67,7 @@ def extract_queries_for_variable(
         allowed_block_ids=document_block_ids(document_context),
         allowed_target_ids=set(target_blocks),
         target_blocks=target_blocks,
-        target_labels=target_labels,
+        target_query_contexts=target_query_contexts,
         required_target_ids=set(target_blocks),
         fallback_context=(indication, config.intervention_class, attribute.name),
     )
@@ -82,7 +89,7 @@ def extract_queries_for_variable(
             allowed_block_ids=document_block_ids(document_context),
             allowed_target_ids=set(target_blocks),
             target_blocks=target_blocks,
-            target_labels=target_labels,
+            target_query_contexts=target_query_contexts,
         )
 
     if config.counterfactual_queries_per_variable > 0:
@@ -102,7 +109,7 @@ def extract_queries_for_variable(
             allowed_block_ids=document_block_ids(document_context),
             allowed_target_ids=set(target_blocks),
             target_blocks=target_blocks,
-            target_labels=target_labels,
+            target_query_contexts=target_query_contexts,
         )
 
     if config.precedent_queries_per_variable > 0:
@@ -122,7 +129,7 @@ def extract_queries_for_variable(
             allowed_block_ids=document_block_ids(document_context),
             allowed_target_ids=set(target_blocks),
             target_blocks=target_blocks,
-            target_labels=target_labels,
+            target_query_contexts=target_query_contexts,
         )
 
     total = (
@@ -146,7 +153,7 @@ def _run_track(
     allowed_block_ids: set[str],
     allowed_target_ids: set[str],
     target_blocks: dict[str, list[str]],
-    target_labels: dict[str, str],
+    target_query_contexts: dict[str, str],
     required_target_ids: set[str] | None = None,
     fallback_context: tuple[str, str, str] | None = None,
 ) -> list[QueryIntent]:
@@ -185,8 +192,8 @@ def _run_track(
                             indication,
                             intervention_class,
                             attribute_name.replace("_", " "),
-                            target_labels[target_id],
-                            "evidence",
+                            target_query_contexts[target_id],
+                            "reported numeric results",
                         )
                     ),
                     tracks=[track],
@@ -210,6 +217,51 @@ def _missing_target_ids(
 ) -> set[str]:
     covered = {target_id for query in queries for target_id in query.target_ids}
     return required - covered
+
+
+def _target_retrieval_descriptor(target: QuantitativeTarget) -> dict[str, object]:
+    """Project a numeric target into threshold-neutral retrieval meaning.
+
+    Retrieval needs the outcome being measured, not the target magnitude that
+    determines whether evidence passes. Keeping this projection beside query
+    generation prevents adapters and prompts from independently reinterpreting
+    the quantitative contract.
+    """
+    dimensions = _target_retrieval_dimensions(target)
+    return {
+        "target_id": target.id,
+        "unit": target.unit,
+        "dimensions": dimensions,
+        "additional_constraints": list(target.other_constraints),
+    }
+
+
+def _target_retrieval_dimensions(target: QuantitativeTarget) -> dict[str, str]:
+    dimensions: dict[str, str] = {}
+    for field_name, slot in target.semantic_profile.items():
+        if slot.state == "specified" and slot.value:
+            dimensions[field_name] = slot.value
+        elif slot.state == "other" and slot.other:
+            dimensions[field_name] = slot.other
+    return dimensions
+
+
+def _target_retrieval_text(target: QuantitativeTarget) -> str:
+    phrases = [
+        *_target_retrieval_dimensions(target).values(),
+        *target.other_constraints,
+    ]
+    unique: list[str] = []
+    seen: set[str] = set()
+    for phrase in phrases:
+        normalized = " ".join(str(phrase).split())
+        if not normalized or normalized.casefold() in seen:
+            continue
+        seen.add(normalized.casefold())
+        unique.append(normalized)
+    if target.unit:
+        unique.append(f"reported in {target.unit}")
+    return " ".join(unique)
 
 
 def _system_prompt_for_variable(
@@ -269,14 +321,24 @@ def _system_prompt_for_variable(
         )
     if attribute.quantitative_targets:
         parts.append(
-            "Verified quantitative targets (immutable IDs):\n"
-            + "\n".join(
-                f"- {target.id}: {target.label}"
-                for target in attribute.quantitative_targets
+            "Threshold-neutral quantitative retrieval descriptors (immutable IDs):\n"
+            + json.dumps(
+                [
+                    _target_retrieval_descriptor(target)
+                    for target in attribute.quantitative_targets
+                ],
+                ensure_ascii=False,
+                indent=2,
             )
             + "\nThe returned set must cover every listed target at least once. "
             "For a target-specific query, copy its ID into target_ids. Do not attach "
-            "an ID when the query is only general field coverage."
+            "an ID when the query is only general field coverage. For each target-specific "
+            "query, search for reported numeric results matching its measure and endpoint; "
+            "include its other specified dimensions when they materially distinguish the "
+            "comparison. Use result language appropriate to the statistic, such as estimate, "
+            "rate, confidence interval, or study result. NEVER include the document's target "
+            "value, comparator, threshold/optimal role, or pass/fail wording in a query: valid "
+            "comparators on either side of the target must remain retrievable."
         )
     parts.append(
         f"Return EXACTLY {queries_per_variable} quer"
@@ -295,14 +357,14 @@ def _system_prompt_for_variable(
 
 def _user_message_for_variable(attribute: Attribute, document_context: str) -> str:
     quantitative_targets = "\n".join(
-        f"- [{target.id}] {target.label}"
+        json.dumps(_target_retrieval_descriptor(target), ensure_ascii=False)
         for target in attribute.quantitative_targets
     ) or "(none)"
     return (
         f"variable: {attribute.name}\n"
         f"What this variable covers: {attribute.description}\n\n"
         f"Canonical document target: {attribute.document_target or '(not stated)'}\n\n"
-        f"Verified quantitative targets:\n{quantitative_targets}\n\n"
+        f"Threshold-neutral quantitative retrieval descriptors:\n{quantitative_targets}\n\n"
         "Relevant uploaded-document blocks (claims to test, not external evidence):\n"
         f"{document_context or '(no relevant document text found)'}\n\n"
         "Generate the queries for this variable now."

@@ -59,6 +59,7 @@ MEASUREMENT_KINDS = frozenset(
 MEASUREMENT_STATUSES = frozenset(
     {"comparable", "contextual", "incompatible", "unknown"}
 )
+TERNARY_DECISION_STATES = frozenset({"yes", "no", "unknown"})
 QUANTITATIVE_TARGET_STATUSES = frozenset(
     {"not_evaluated", "present", "not_applicable", "uncertain"}
 )
@@ -366,6 +367,65 @@ class SemanticSlot:
 
 
 @dataclass
+class TernaryDecision:
+    """One auditable yes/no/unknown semantic decision made by the model."""
+
+    state: str
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        self.state = self.state.strip().lower()
+        self.reason = " ".join(self.reason.split())
+        if self.state not in TERNARY_DECISION_STATES:
+            raise ValueError(f"invalid ternary decision state: {self.state}")
+        if self.state != "yes" and not self.reason:
+            raise ValueError("no and unknown decisions require a reason")
+
+
+@dataclass
+class SemanticDimensionAssessment:
+    """Source meaning and its compatibility with one target dimension."""
+
+    source: SemanticSlot
+    compatibility: TernaryDecision
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, SemanticSlot):
+            self.source = SemanticSlot(**self.source)
+        if not isinstance(self.compatibility, TernaryDecision):
+            self.compatibility = TernaryDecision(**self.compatibility)
+
+
+@dataclass
+class MeasurementSemanticAssessment:
+    """The complete semantic admission input for one source measurement."""
+
+    source_ownership: TernaryDecision
+    dimensions: dict[str, SemanticDimensionAssessment]
+    constraints_compatibility: TernaryDecision
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_ownership, TernaryDecision):
+            self.source_ownership = TernaryDecision(**self.source_ownership)
+        if not isinstance(self.constraints_compatibility, TernaryDecision):
+            self.constraints_compatibility = TernaryDecision(
+                **self.constraints_compatibility
+            )
+        if set(self.dimensions) != set(QUANTITATIVE_SEMANTIC_FIELDS):
+            raise ValueError(
+                "semantic assessment requires every quantitative dimension"
+            )
+        self.dimensions = {
+            field_name: (
+                value
+                if isinstance(value, SemanticDimensionAssessment)
+                else SemanticDimensionAssessment(**value)
+            )
+            for field_name, value in self.dimensions.items()
+        }
+
+
+@dataclass
 class DocumentSpan:
     """One exact document quotation supporting a canonical numeric target."""
 
@@ -423,10 +483,6 @@ class NumericExpression:
                 raise ValueError(f"{self.kind} cannot carry value or comparator")
         elif self.comparator not in {"", ">", ">=", "<", "<="}:
             raise ValueError("invalid numeric expression comparator")
-
-
-def _unknown_numeric_expression() -> NumericExpression:
-    return NumericExpression(kind="unknown", unit="")
 
 
 def _default_semantic_profile() -> dict[str, SemanticSlot]:
@@ -556,7 +612,8 @@ class Measurement:
     into this calculation contract.
     """
 
-    expression: NumericExpression = field(default_factory=_unknown_numeric_expression)
+    expression: NumericExpression
+    semantic_assessment: MeasurementSemanticAssessment
     candidate_id: str = ""
     url: str = ""
     insight_id: str = ""
@@ -565,9 +622,6 @@ class Measurement:
     source_identity_status: str = "url_fallback"
     semantic_status: str = "unknown"
     semantic_reason: str = ""
-    semantic_profile: dict[str, SemanticSlot] = field(
-        default_factory=_default_semantic_profile
-    )
     inclusion_reason: str = ""
     exclusion_reasons: list[str] = field(default_factory=list)
     age_months: float | None = None
@@ -575,17 +629,12 @@ class Measurement:
     def __post_init__(self) -> None:
         if not isinstance(self.expression, NumericExpression):
             self.expression = NumericExpression(**self.expression)
+        if not isinstance(self.semantic_assessment, MeasurementSemanticAssessment):
+            self.semantic_assessment = MeasurementSemanticAssessment(
+                **self.semantic_assessment
+            )
         if self.semantic_status not in MEASUREMENT_STATUSES:
             raise ValueError("invalid measurement semantic status")
-        self.semantic_profile = {
-            field_name: (
-                value
-                if isinstance(value, SemanticSlot)
-                else SemanticSlot(**value)
-            )
-            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
-            for value in [self.semantic_profile.get(field_name, SemanticSlot())]
-        }
 
     @property
     def value(self) -> float | None:

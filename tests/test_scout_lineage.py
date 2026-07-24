@@ -51,6 +51,7 @@ from services.scout.stages.evidence_assessor import assess_evidence
 from services.scout.stages.precedent_classifier import classify_precedent
 from services.scout.stages.query_extractor import (
     _parse_queries,
+    _target_retrieval_descriptor,
     extract_queries_for_variable,
 )
 from services.scout.stages.intent_builder import build_retrieval_intents
@@ -173,10 +174,10 @@ def normalize_conformity_fixture(
                     "role": "threshold",
                     "quote": response.get("target_quote"),
                     "doc_block_ids": response.get("doc_block_ids", []),
-                    "semantic_profile": semantic_profile(
+                    "semantic_profile": response.get("semantic_profile") or semantic_profile(
                         str(response.get("target_label", "numeric measure"))
                     ),
-                    "other_constraints": [],
+                    "other_constraints": response.get("other_constraints", []),
                 }
             ]
         }
@@ -193,16 +194,6 @@ def normalize_conformity_fixture(
         ]
         normalized = []
         for item in source_measurements:
-            relations = [
-                axis_item.get("relation", "unknown")
-                for axis_item in (item.get("comparability") or {}).values()
-                if isinstance(axis_item, dict)
-            ]
-            status = (
-                "incompatible" if "different" in relations
-                else "unknown" if "unknown" in relations
-                else "comparable"
-            )
             normalized.append({
                 "quote": item.get("source_quote", ""),
                 "expression": {
@@ -213,9 +204,11 @@ def normalize_conformity_fixture(
                     "upper": item.get("upper"),
                     "comparator": item.get("comparator", ""),
                 },
-                "semantic_status": status,
-                "semantic_reason": "Historical fixture normalized at the test boundary.",
-                "semantic_profile": item.get("semantic_profile", semantic_profile()),
+                "semantic_assessment": item.get("semantic_assessment") or semantic_assessment(
+                    source_profile=item.get("semantic_profile"),
+                    comparability=item.get("comparability"),
+                    ownership=item.get("source_ownership"),
+                ),
             })
         decisions.append({
             "source_id": source_id,
@@ -293,15 +286,43 @@ def finding(
 
 def same_comparability() -> dict[str, dict[str, str]]:
     return {
-        axis: {"relation": "same", "reason": f"same {axis.replace('_', ' ')}"}
+        axis: {"state": "yes", "reason": f"compatible {axis.replace('_', ' ')}"}
         for axis in (
-            "endpoint",
+            "measure", "endpoint",
             "population",
             "intervention",
             "regimen",
             "time_horizon",
             "statistic",
         )
+    }
+
+
+def semantic_assessment(
+    *,
+    source_profile: dict | None = None,
+    comparability: dict | None = None,
+    ownership: dict | None = None,
+    constraints: dict | None = None,
+) -> dict:
+    profile = source_profile or semantic_profile()
+    decisions = comparability or same_comparability()
+    return {
+        "source_ownership": ownership or {
+            "state": "yes",
+            "reason": "",
+        },
+        "dimensions": {
+            field_name: {
+                "source": profile[field_name],
+                "compatibility": decisions[field_name],
+            }
+            for field_name in profile
+        },
+        "constraints_compatibility": constraints or {
+            "state": "yes",
+            "reason": "",
+        },
     }
 
 
@@ -447,6 +468,21 @@ class SearchProvenanceTests(unittest.TestCase):
             [(path.query, path.lane) for path in merged.retrieval_paths],
             [("first", "web"), ("second", "pubmed")],
         )
+
+    def test_tracking_parameters_do_not_create_distinct_source_identity(self) -> None:
+        first = finding(
+            "https://example.test/paper?id=4&utm_source=web",
+            query="first",
+            source="web",
+        )
+        second = finding(
+            "https://example.test/paper?id=4&utm_campaign=test",
+            query="second",
+            source="pubmed",
+        )
+
+        self.assertEqual(first.url, "https://example.test/paper?id=4")
+        self.assertEqual(second.url, first.url)
 
     def test_reference_excerpt_cannot_leak_into_merged_evidence(self) -> None:
         evidence = finding(
@@ -664,8 +700,45 @@ class RetrievalPlanningTests(unittest.TestCase):
         self.assertEqual(intents[0].doc_block_ids, ["doc/b-0002"])
 
     def test_each_canonical_numeric_target_gets_retrieval_coverage_and_lineage(self) -> None:
-        targets = [
-            QuantitativeTarget(
+        targets = []
+        for value, role, quote, block_id, time_horizon in (
+            (80, "threshold", "At least 80% at 6 months.", "doc/b-0002", "6 months"),
+            (90, "optimal", "At least 90% at 12 months.", "doc/b-0003", "12 months"),
+        ):
+            profile = semantic_profile("protective efficacy")
+            profile.update({
+                "endpoint": {
+                    "state": "specified",
+                    "value": "malaria infection",
+                    "other": "",
+                },
+                "intervention": {
+                    "state": "specified",
+                    "value": "malaria vaccine",
+                    "other": "",
+                },
+                "population": {
+                    "state": "specified",
+                    "value": "children",
+                    "other": "",
+                },
+                "regimen": {
+                    "state": "specified",
+                    "value": "primary immunization series",
+                    "other": "",
+                },
+                "time_horizon": {
+                    "state": "specified",
+                    "value": time_horizon,
+                    "other": "",
+                },
+                "statistic": {
+                    "state": "specified",
+                    "value": "efficacy point estimate",
+                    "other": "",
+                },
+            })
+            targets.append(QuantitativeTarget(
                 attribute_ref="efficacy",
                 expression=NumericExpression(
                     kind="bound", value=value, comparator=">=", unit="%"
@@ -673,13 +746,8 @@ class RetrievalPlanningTests(unittest.TestCase):
                 role=role,
                 quote=quote,
                 doc_block_ids=[block_id],
-                semantic_profile=semantic_profile("protective efficacy"),
-            )
-            for value, label, role, quote, block_id in (
-                (80, "threshold >=80% at 6 months", "threshold", "At least 80% at 6 months.", "doc/b-0002"),
-                (90, "optimal >=90% at 12 months", "optimal", "At least 90% at 12 months.", "doc/b-0003"),
-            )
-        ]
+                semantic_profile=profile,
+            ))
         attribute = Attribute(
             "efficacy",
             "Protective efficacy",
@@ -717,6 +785,28 @@ class RetrievalPlanningTests(unittest.TestCase):
             {target_id for query in queries for target_id in query.target_ids},
             {target.id for target in targets},
         )
+        target_queries = [query for query in queries if query.target_ids]
+        self.assertTrue(
+            all("protective efficacy" in query.text for query in target_queries)
+        )
+        self.assertTrue(all("malaria infection" in query.text for query in target_queries))
+        self.assertTrue(
+            all("reported numeric results" in query.text for query in target_queries)
+        )
+        self.assertFalse(
+            any("80" in query.text or "90" in query.text for query in target_queries)
+        )
+        self.assertFalse(
+            any(
+                "threshold" in query.text or "optimal" in query.text
+                for query in target_queries
+            )
+        )
+        descriptors = [_target_retrieval_descriptor(target) for target in targets]
+        self.assertEqual(descriptors[0]["dimensions"]["time_horizon"], "6 months")
+        self.assertNotIn("value", descriptors[0])
+        self.assertNotIn("comparator", descriptors[0])
+        self.assertNotIn("role", descriptors[0])
         requests = plan_requests(
             build_retrieval_intents(
                 {attribute.name: queries},
@@ -736,7 +826,6 @@ class RetrievalPlanningTests(unittest.TestCase):
             role="optimal",
             quote="Dose volume: <0.5 mL/dose for pediatric use.",
             doc_block_ids=["document/b-0003"],
-            semantic_profile=semantic_profile("dose volume"),
         )
         attributes = [
             Attribute(
@@ -746,7 +835,11 @@ class RetrievalPlanningTests(unittest.TestCase):
                 block_ids=shared["doc_block_ids"],
                 target_resolved=True,
                 quantitative_targets=[
-                    QuantitativeTarget(attribute_ref="vaccine.product", **shared)
+                    QuantitativeTarget(
+                        attribute_ref="vaccine.product",
+                        semantic_profile=semantic_profile("formulation dose volume"),
+                        **shared,
+                    )
                 ],
             ),
             Attribute(
@@ -756,7 +849,11 @@ class RetrievalPlanningTests(unittest.TestCase):
                 block_ids=shared["doc_block_ids"],
                 target_resolved=True,
                 quantitative_targets=[
-                    QuantitativeTarget(attribute_ref="vaccine.dose_volume", **shared)
+                    QuantitativeTarget(
+                        attribute_ref="vaccine.dose_volume",
+                        semantic_profile=semantic_profile("dose volume in mL per dose"),
+                        **shared,
+                    )
                 ],
             ),
         ]
@@ -1351,11 +1448,13 @@ class ReasoningLineageTests(unittest.TestCase):
     def test_below_target_point_estimate_remains_comparable(self) -> None:
         measurement = Measurement(
             expression=NumericExpression(kind="point_estimate", value=50.3, unit="%"),
+            semantic_assessment=semantic_assessment(
+                source_profile=semantic_profile("protective efficacy")
+            ),
             candidate_id="qc-below",
             source_record_id="doi:10.1/example",
             semantic_status="comparable",
             semantic_reason="Same efficacy endpoint, population, and time horizon.",
-            semantic_profile=semantic_profile("protective efficacy"),
         )
         target = QuantitativeTarget(
             attribute_ref="efficacy",
@@ -1375,11 +1474,13 @@ class ReasoningLineageTests(unittest.TestCase):
             expression=NumericExpression(
                 kind="rate", value=2.4, unit="per 100 person-years"
             ),
+            semantic_assessment=semantic_assessment(
+                source_profile=semantic_profile("incidence rate")
+            ),
             candidate_id="qm-rate",
             source_record_id="doi:10.1/rate",
             semantic_status="comparable",
             semantic_reason="Same incidence rate and population.",
-            semantic_profile=semantic_profile("incidence rate"),
         )
         target = QuantitativeTarget(
             attribute_ref="incidence",
@@ -1394,6 +1495,195 @@ class ReasoningLineageTests(unittest.TestCase):
         included, excluded = _partition_cohort([measurement], target)
         self.assertEqual(included, [measurement])
         self.assertEqual(excluded, [])
+
+    def test_endpoint_mismatch_is_context_not_a_comparator(self) -> None:
+        target_profile = semantic_profile("protective efficacy")
+        target_profile["endpoint"] = {
+            "state": "specified",
+            "value": "prevention of infection",
+            "other": "",
+        }
+        source_profile = semantic_profile("protective efficacy")
+        source_profile["endpoint"] = {
+            "state": "specified",
+            "value": "clinical malaria",
+            "other": "",
+        }
+        decisions = same_comparability()
+        decisions["endpoint"] = {
+            "state": "no",
+            "reason": "Clinical disease is not infection or parasitemia.",
+        }
+        measurement = Measurement(
+            expression=NumericExpression(kind="point_estimate", value=77, unit="%"),
+            semantic_assessment=semantic_assessment(
+                source_profile=source_profile,
+                comparability=decisions,
+            ),
+            candidate_id="qm-endpoint-mismatch",
+            source_record_id="clinical_trial:nct-example",
+        )
+        target = QuantitativeTarget(
+            attribute_ref="efficacy",
+            expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
+            role="optimal",
+            quote="Target efficacy is more than 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=target_profile,
+        )
+
+        included, excluded = _partition_cohort([measurement], target)
+
+        self.assertEqual(included, [])
+        self.assertEqual(excluded, [measurement])
+        self.assertEqual(measurement.semantic_status, "contextual")
+
+    def test_background_claim_is_context_even_when_dimensions_match(self) -> None:
+        measurement = Measurement(
+            expression=NumericExpression(kind="point_estimate", value=77, unit="%"),
+            semantic_assessment=semantic_assessment(
+                source_profile=semantic_profile("protective efficacy"),
+                ownership={
+                    "state": "no",
+                    "reason": "The registry passage summarizes an earlier study.",
+                },
+            ),
+            candidate_id="qm-background",
+            source_record_id="clinical_trial:nct-example",
+        )
+        target = QuantitativeTarget(
+            attribute_ref="efficacy",
+            expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
+            role="optimal",
+            quote="Target efficacy is more than 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("protective efficacy"),
+        )
+
+        included, excluded = _partition_cohort([measurement], target)
+
+        self.assertEqual(included, [])
+        self.assertEqual(excluded, [measurement])
+        self.assertEqual(measurement.semantic_status, "contextual")
+
+    def test_unknown_source_ownership_fails_closed(self) -> None:
+        measurement = Measurement(
+            expression=NumericExpression(kind="point_estimate", value=77, unit="%"),
+            semantic_assessment=semantic_assessment(
+                source_profile=semantic_profile("protective efficacy"),
+                ownership={
+                    "state": "unknown",
+                    "reason": "The retained passage does not identify who produced the result.",
+                },
+            ),
+            candidate_id="qm-unknown-owner",
+            source_record_id="clinical_trial:nct-example",
+        )
+        target = QuantitativeTarget(
+            attribute_ref="efficacy",
+            expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
+            role="optimal",
+            quote="Target efficacy is more than 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("protective efficacy"),
+        )
+
+        included, excluded = _partition_cohort([measurement], target)
+
+        self.assertEqual(included, [])
+        self.assertEqual(excluded, [measurement])
+        self.assertEqual(measurement.semantic_status, "unknown")
+
+    def test_unconstrained_dimension_does_not_exclude_a_comparator(self) -> None:
+        source_profile = semantic_profile("protective efficacy")
+        source_profile["population"] = {
+            "state": "specified",
+            "value": "adults",
+            "other": "",
+        }
+        decisions = same_comparability()
+        decisions["population"] = {
+            "state": "no",
+            "reason": "The source population is adults.",
+        }
+        measurement = Measurement(
+            expression=NumericExpression(kind="point_estimate", value=77, unit="%"),
+            semantic_assessment=semantic_assessment(
+                source_profile=source_profile,
+                comparability=decisions,
+            ),
+            source_record_id="doi:10.1/unconstrained-population",
+        )
+        target = QuantitativeTarget(
+            attribute_ref="efficacy",
+            expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
+            role="optimal",
+            quote="Target efficacy is more than 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("protective efficacy"),
+        )
+
+        included, excluded = _partition_cohort([measurement], target)
+
+        self.assertEqual(included, [measurement])
+        self.assertEqual(excluded, [])
+
+    def test_ambiguous_target_dimension_fails_closed(self) -> None:
+        target_profile = semantic_profile("protective efficacy")
+        target_profile["endpoint"] = {
+            "state": "unknown",
+            "value": "",
+            "other": "",
+        }
+        measurement = Measurement(
+            expression=NumericExpression(kind="point_estimate", value=77, unit="%"),
+            semantic_assessment=semantic_assessment(
+                source_profile=semantic_profile("protective efficacy")
+            ),
+            source_record_id="doi:10.1/ambiguous-target",
+        )
+        target = QuantitativeTarget(
+            attribute_ref="efficacy",
+            expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
+            role="optimal",
+            quote="Target efficacy is more than 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=target_profile,
+        )
+
+        included, excluded = _partition_cohort([measurement], target)
+
+        self.assertEqual(included, [])
+        self.assertEqual(excluded, [measurement])
+        self.assertEqual(measurement.semantic_status, "unknown")
+
+    def test_additional_target_constraint_is_part_of_admission(self) -> None:
+        measurement = Measurement(
+            expression=NumericExpression(kind="point_estimate", value=80, unit="%"),
+            semantic_assessment=semantic_assessment(
+                source_profile=semantic_profile("protective efficacy"),
+                constraints={
+                    "state": "no",
+                    "reason": "The estimate comes from CHMI rather than a field trial.",
+                },
+            ),
+            source_record_id="doi:10.1/chmi",
+        )
+        target = QuantitativeTarget(
+            attribute_ref="efficacy",
+            expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
+            role="optimal",
+            quote="Target efficacy is more than 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("protective efficacy"),
+            other_constraints=["Field trial efficacy, not CHMI."],
+        )
+
+        included, excluded = _partition_cohort([measurement], target)
+
+        self.assertEqual(included, [])
+        self.assertEqual(excluded, [measurement])
+        self.assertEqual(measurement.semantic_status, "contextual")
 
     def test_repeated_target_statements_merge_provenance_not_ledgers(self) -> None:
         document = (
@@ -1667,9 +1957,23 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_conformity_retains_semantic_exclusions_outside_statistics(self) -> None:
+        target_profile = semantic_profile("protective efficacy")
+        target_profile["population"] = {
+            "state": "specified",
+            "value": "infants",
+            "other": "",
+        }
+        infant_profile = semantic_profile("protective efficacy")
+        infant_profile["population"] = target_profile["population"]
+        adult_profile = semantic_profile("protective efficacy")
+        adult_profile["population"] = {
+            "state": "specified",
+            "value": "adults",
+            "other": "",
+        }
         mismatched = same_comparability()
         mismatched["population"] = {
-            "relation": "different",
+            "state": "no",
             "reason": "adult evidence versus infant target",
         }
         client = StaticClient(
@@ -1681,6 +1985,7 @@ class ReasoningLineageTests(unittest.TestCase):
                 "target_label": "threshold >=80%",
                 "target_quote": "Target efficacy is at least 80%.",
                 "doc_block_ids": ["document/b-0003"],
+                "semantic_profile": target_profile,
                 "measurements": [
                     {
                         "value": 82,
@@ -1692,6 +1997,7 @@ class ReasoningLineageTests(unittest.TestCase):
                         "url": "https://example.test/used",
                         "source_quote": "The reported efficacy was 82% in the target population.",
                         "comparability": same_comparability(),
+                        "semantic_profile": infant_profile,
                     },
                     {
                         "value": 90,
@@ -1703,6 +2009,7 @@ class ReasoningLineageTests(unittest.TestCase):
                         "url": "https://example.test/unused",
                         "source_quote": "The reported efficacy was 90% in the target population.",
                         "comparability": mismatched,
+                        "semantic_profile": adult_profile,
                     },
                 ],
             }
@@ -1721,7 +2028,7 @@ class ReasoningLineageTests(unittest.TestCase):
         assert result is not None
         self.assertEqual(result.benchmark_count, 1)
         self.assertEqual(len(result.excluded_measurements), 1)
-        self.assertIn("semantic status: incompatible", result.excluded_measurements[0].exclusion_reasons[0])
+        self.assertIn("semantic status: contextual", result.excluded_measurements[0].exclusion_reasons[0])
 
     def test_conformity_rejects_incompatible_units_without_conversion(self) -> None:
         fraction_insight = Insight(

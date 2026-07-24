@@ -125,6 +125,10 @@ Preserve these invariants:
   the user's configured indication.
 - Query generation sees the relevant uploaded-document blocks and returns the
   exact `doc_block_ids` that shaped each query.
+- Every verified quantitative target receives threshold-neutral retrieval
+  coverage derived from its canonical semantic dimensions and unit. Query text
+  must seek reported numeric results without including the document's target
+  magnitude, comparator, or threshold/optimal role.
 - Relevance-selected document context is used only to resolve a fixed field's
   canonical binding. Raw bound blocks are then used only to exact-quote or
   revalidate document facts. Query and reasoning stages receive the canonical
@@ -217,10 +221,14 @@ Scout's four result axes are intentionally orthogonal:
   regex-produced numeric-fragment fan-out. Target and source meaning use the
   same typed profile (`measure`, `endpoint`, `intervention`,
   `population`, `regimen`, `time_horizon`, `statistic`) whose slots distinguish
-  `specified`, `not_specified`, `unknown`, and `other`. AI owns this semantic
-  normalization and one closed `comparable | contextual | incompatible | unknown`
-  decision; deterministic code must not reconstruct meaning with regexes or
-  scattered per-axis gates. Query
+  `specified`, `not_specified`, `unknown`, and `other`. One measurement semantic
+  assessment co-locates each normalized source dimension with a closed
+  `yes | no | unknown` compatibility decision, source ownership, and additional
+  target-constraint compatibility. Deterministic code derives the aggregate
+  `comparable | contextual | incompatible | unknown` disposition using only
+  dimensions actually constrained by the target; ambiguous target dimensions
+  fail closed. Do not reconstruct meaning with regexes or restore parallel
+  semantic/comparability structures. Query
   and request target IDs are retrieval-coverage lineage only; they never imply
   that a returned source semantically supports that target. If one exact target
   appears under overlapping fields, assign it once to the most specific closed
@@ -241,7 +249,7 @@ deduplication and rollups. Do not restore holistic “basis” tags.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 19, separating analysis from
+  (`web/lib/result-file.ts`), currently version 20, separating analysis from
   `source_documents`.
 - A completed Scout run is the sole producer of its quantitative ledgers. Export
   and import preserve that canonical result without rerunning or mutating any

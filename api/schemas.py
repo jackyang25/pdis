@@ -300,6 +300,32 @@ class VariableOut(BaseModel):
     quantitative_target_status_reason: str = ""
 
 
+class TernaryDecisionOut(BaseModel):
+    state: Literal["yes", "no", "unknown"]
+    reason: str = ""
+
+
+class SemanticDimensionAssessmentOut(BaseModel):
+    source: SemanticSlotOut
+    compatibility: TernaryDecisionOut
+
+
+class MeasurementSemanticDimensionsOut(BaseModel):
+    measure: SemanticDimensionAssessmentOut
+    endpoint: SemanticDimensionAssessmentOut
+    intervention: SemanticDimensionAssessmentOut
+    population: SemanticDimensionAssessmentOut
+    regimen: SemanticDimensionAssessmentOut
+    time_horizon: SemanticDimensionAssessmentOut
+    statistic: SemanticDimensionAssessmentOut
+
+
+class MeasurementSemanticAssessmentOut(BaseModel):
+    source_ownership: TernaryDecisionOut
+    dimensions: MeasurementSemanticDimensionsOut
+    constraints_compatibility: TernaryDecisionOut
+
+
 class MeasurementOut(BaseModel):
     expression: NumericExpressionOut
     candidate_id: str = ""
@@ -308,9 +334,9 @@ class MeasurementOut(BaseModel):
     source_quote: str = ""
     source_record_id: str = ""
     source_identity_status: Literal["canonical", "title_fallback", "url_fallback"] = "url_fallback"
+    semantic_assessment: MeasurementSemanticAssessmentOut
     semantic_status: Literal["comparable", "contextual", "incompatible", "unknown"] = "unknown"
     semantic_reason: str = ""
-    semantic_profile: QuantitativeSemanticProfileOut
     inclusion_reason: str = ""
     exclusion_reasons: list[str] = Field(default_factory=list)
     age_months: float | None = None

@@ -465,9 +465,7 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
   );
 }
 
-/** True count of DISTINCT sources cited anywhere in the result (by URL).
- * Unlike stats.unique_findings (per-variable findings summed, which double-counts
- * a source cited under several variables), this counts each source once. */
+/** True count of distinct sources cited anywhere in the result. */
 function distinctSourceCount(result: ScoutResponse): number {
   const urls = new Set<string>();
   for (const m of result.matches ?? [])
@@ -1208,11 +1206,11 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
                     <ul className="mt-1 space-y-0.5 pl-3">
                       <li>Status: {measurement.semantic_status.replace("_", " ")} — {measurement.semantic_reason}</li>
                       <li>Expression: {measurement.expression.kind.replaceAll("_", " ")}</li>
-                      {Object.entries(measurement.semantic_profile)
-                        .filter(([, slot]) => slot.state === "specified" || slot.state === "other")
-                        .map(([field, slot]) => (
+                      {Object.entries(measurement.semantic_assessment.dimensions)
+                        .filter(([, dimension]) => dimension.source.state === "specified" || dimension.source.state === "other")
+                        .map(([field, dimension]) => (
                           <li key={field}>
-                            {field.replace("_", " ")}: {slot.state === "specified" ? slot.value : slot.other}
+                            {field.replace("_", " ")}: {dimension.source.state === "specified" ? dimension.source.value : dimension.source.other}
                           </li>
                         ))}
                     </ul>

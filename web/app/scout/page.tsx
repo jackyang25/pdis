@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, Check, ChevronDown, Copy, FileText, Search } from "lucide-react";
+import { AlertTriangle, ChevronDown, Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { ConfigurationFields } from "@/components/configuration-fields";
@@ -43,7 +43,11 @@ import {
 } from "@/components/scout-signal-help";
 import { SourceAttributions } from "@/components/source-attributions";
 import { ComparatorDistributionPlot } from "@/components/comparator-distribution-plot";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DocumentSourceProvider,
+  DocumentSourceTrace,
+  type DocumentSpan,
+} from "@/components/document-source-trace";
 
 const ScoutEvidenceMap = dynamic(
   () =>
@@ -574,9 +578,14 @@ function FieldGrid({
       row.matches.some((match) => match.relation === relationFilter);
     return matchesSearch && matchesRelation;
   });
+  const unresolvedFields = variables.filter(
+    (variable) => !variable.target_resolved,
+  );
+  const unresolvedFieldCount = unresolvedFields.length;
 
   return (
-    <div className="flex flex-col gap-4">
+    <DocumentSourceProvider blocks={result.blocks ?? []}>
+      <div className="flex flex-col gap-4">
       <CollapsibleCard
         title={`${variables.length} fields`}
         subtitle={`${distinctSourceCount(result).toLocaleString()} sources · ${
@@ -609,6 +618,40 @@ function FieldGrid({
             </TabsList>
           </div>
           <TabsContent value="fields" className="mt-0">
+            {(unresolvedFieldCount > 0 || result.quantitative_ledger.status === "uncertain") && (
+              <div className="flex items-start gap-2 border-b border-border/80 bg-muted/20 px-5 py-3 text-xs text-muted-foreground sm:px-6">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div className="space-y-1">
+                  {unresolvedFieldCount > 0 && (
+                    <div>
+                      <p>
+                        Document interpretation stopped before retrieval because {unresolvedFieldCount} {unresolvedFieldCount === 1 ? "field" : "fields"} could not be bound safely.
+                      </p>
+                      <details className="mt-1.5">
+                        <summary className="cursor-pointer font-medium text-foreground/80">
+                          Review unresolved fields
+                        </summary>
+                        <ul className="mt-1.5 space-y-1 pl-4">
+                          {unresolvedFields.map((variable) => (
+                            <li key={variable.name} className="list-disc">
+                              <span className="font-medium text-foreground/80">
+                                {displayAttributeLabel(variable.name)}:
+                              </span>{" "}
+                              {variable.target_resolution_reason || "No validated decision was returned."}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    </div>
+                  )}
+                  {result.quantitative_ledger.status === "uncertain" && (
+                    <p>
+                      Numeric interpretation stopped before retrieval because one or more document statements remained unresolved after one retry.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="flex flex-col gap-2 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
               <label className="relative min-w-0 flex-1 sm:max-w-xs">
                 <span className="sr-only">Search fields</span>
@@ -654,6 +697,9 @@ function FieldGrid({
                 precedent={row.precedent}
                 quantitativeTargetStatus={row.variable.quantitative_target_status}
                 quantitativeTargetStatusReason={row.variable.quantitative_target_status_reason}
+                targetResolved={row.variable.target_resolved}
+                targetResolutionReason={row.variable.target_resolution_reason}
+                documentSpans={row.variable.document_spans}
               />
             ))}
             {visibleRows.length === 0 && (
@@ -681,7 +727,8 @@ function FieldGrid({
           className="border-t border-border/80 px-5 py-3 sm:px-6"
         />
       </CollapsibleCard>
-    </div>
+      </div>
+    </DocumentSourceProvider>
   );
 }
 
@@ -830,6 +877,9 @@ function FieldRow({
   precedent,
   quantitativeTargetStatus,
   quantitativeTargetStatusReason,
+  targetResolved,
+  targetResolutionReason,
+  documentSpans,
 }: {
   name: string;
   description: string;
@@ -839,6 +889,9 @@ function FieldRow({
   precedent: PrecedentSignal | null;
   quantitativeTargetStatus: "not_evaluated" | "present" | "not_applicable" | "uncertain";
   quantitativeTargetStatusReason: string;
+  targetResolved: boolean;
+  targetResolutionReason: string;
+  documentSpans: DocumentSpan[];
 }) {
   const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
   const precedentMeta = precedent ? precedentView(precedent) : null;
@@ -908,11 +961,19 @@ function FieldRow({
       </summary>
 
       <div className="animate-in space-y-3 border-t border-border/70 bg-muted/15 px-5 py-5 fade-in duration-150 motion-reduce:animate-none sm:px-6">
+        {!targetResolved && (
+          <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
+            <SectionLabel>Document interpretation · unresolved</SectionLabel>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {targetResolutionReason || "No validated document-claim decision was returned."}
+            </p>
+          </div>
+        )}
         {assessment?.doc_target && (
           <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
             <div className="flex items-center justify-between gap-3">
               <SectionLabel>Document target · AI extracted</SectionLabel>
-              <BlockTrace blockIds={assessment.doc_block_ids} />
+              <DocumentSourceTrace blockIds={assessment.doc_block_ids} spans={documentSpans} />
             </div>
             <p className="mt-1 text-sm leading-relaxed text-foreground">
               {assessment.doc_target}
@@ -956,66 +1017,6 @@ function FieldRow({
         <MatchesBlock matches={matches} />
       </div>
     </details>
-  );
-}
-
-function BlockTrace({ blockIds }: { blockIds?: string[] }) {
-  const [copiedBlockId, setCopiedBlockId] = useState<string | null>(null);
-  if (!blockIds?.length) return null;
-
-  async function copyBlockId(blockId: string) {
-    try {
-      await navigator.clipboard.writeText(blockId);
-      setCopiedBlockId(blockId);
-      window.setTimeout(() => setCopiedBlockId(null), 1400);
-    } catch {
-      setCopiedBlockId(null);
-    }
-  }
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          onClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-transparent px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
-          aria-label={`Show ${blockIds.length} source document ${blockIds.length === 1 ? "block" : "blocks"}`}
-        >
-          <FileText className="h-3 w-3" />
-          Trace
-          <span className="tabular-nums text-muted-foreground/70">{blockIds.length}</span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={6} className="w-[min(380px,calc(100vw-32px))] p-3">
-        <div>
-          <h3 className="text-xs font-semibold text-foreground">Document trace</h3>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            Exact uploaded-document blocks used to establish this target.
-          </p>
-        </div>
-        <ul className="mt-3 max-h-52 space-y-1.5 overflow-y-auto pr-1">
-          {blockIds.map((blockId) => (
-            <li key={blockId} className="group/block flex items-center gap-2 rounded-md border border-border/70 bg-muted/30 px-2.5 py-2">
-              <code className="min-w-0 flex-1 break-all font-mono text-[10px] leading-relaxed text-foreground/80">
-                {blockId}
-              </code>
-              <button
-                type="button"
-                onClick={() => void copyBlockId(blockId)}
-                aria-label={`Copy block ID ${blockId}`}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-card hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
-              >
-                {copiedBlockId === blockId
-                  ? <Check className="h-3.5 w-3.5" />
-                  : <Copy className="h-3.5 w-3.5" />}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </PopoverContent>
-    </Popover>
   );
 }
 
@@ -1073,7 +1074,12 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
             {targetRoleLabel}
           </span>
         </div>
-        <BlockTrace blockIds={conformity.doc_block_ids} />
+        <DocumentSourceTrace
+          blockIds={conformity.doc_block_ids}
+          spans={conformity.target_quote && conformity.doc_block_ids?.length
+            ? [{ quote: conformity.target_quote, block_ids: conformity.doc_block_ids }]
+            : []}
+        />
       </div>
       <p className="mt-0.5 text-[11px] text-muted-foreground/80">
         Complete source measurements are semantically mapped, exact-quote verified,
@@ -1400,7 +1406,7 @@ function MatchesBlock({ matches }: { matches: Match[] }) {
                 {match.reason}
               </p>
             )}
-            <BlockTrace blockIds={match.doc_block_ids} />
+            <DocumentSourceTrace blockIds={match.doc_block_ids} />
             <SourceList findings={match.insight.supporting_findings} />
             <p className="mt-2 truncate text-[11px] text-muted-foreground/60">
               searched: {match.insight.query}

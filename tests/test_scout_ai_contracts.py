@@ -6,10 +6,11 @@ from types import SimpleNamespace
 
 from services.scout.ai import request_structured
 from services.scout.ai_contracts import (
-    CONTEXT_VALIDATION,
+    DOCUMENT_QUANTITATIVE_LEDGER_BATCH,
     DRIFT_BATCH,
-    QUANTITATIVE_TARGET_SET,
+    context_validation,
     source_measurement_batch,
+    target_binding_batch,
 )
 from shared.openai_client import OpenAIClient
 
@@ -47,11 +48,31 @@ class _ChatCompletions:
 
 
 class ScoutAIContractTests(unittest.TestCase):
+    def test_claim_schema_allows_only_complete_canonical_block_ids(self) -> None:
+        allowed = ["DRAFT AIV iTPP v1 13July2016/b-0084"]
+        contract = target_binding_batch(allowed)
+        block_id_schema = (
+            contract.schema["properties"]["bindings"]["items"]["properties"]
+            ["spans"]["items"]["properties"]["block_ids"]["items"]
+        )
+
+        self.assertEqual(block_id_schema["enum"], allowed)
+        self.assertNotIn("b-0084", block_id_schema["enum"])
+
+    def test_context_schema_allows_only_visible_canonical_block_ids(self) -> None:
+        allowed = ["DRAFT AIV iTPP v1 13July2016/b-0001"]
+        contract = context_validation(allowed)
+        block_id_schema = contract.schema["properties"]["block_ids"]["items"]
+
+        self.assertEqual(block_id_schema["enum"], allowed)
+        self.assertNotIn("b-0001", block_id_schema["enum"])
+
     def test_all_schema_objects_are_closed_and_fully_required(self) -> None:
         contracts = [
-            CONTEXT_VALIDATION,
+            context_validation(["document/b-0001"]),
             DRIFT_BATCH,
-            QUANTITATIVE_TARGET_SET,
+            DOCUMENT_QUANTITATIVE_LEDGER_BATCH,
+            target_binding_batch(["document/b-0001", "document/b-0002"]),
             source_measurement_batch({"measure", "endpoint"}),
         ]
 
@@ -114,12 +135,13 @@ class ScoutAIContractTests(unittest.TestCase):
             chat=SimpleNamespace(completions=completions)
         )
 
+        contract = context_validation(["doc/b-0001"])
         result = client.call_structured(
             "system",
             "user",
             500,
-            schema_name=CONTEXT_VALIDATION.name,
-            schema=CONTEXT_VALIDATION.schema,
+            schema_name=contract.name,
+            schema=contract.schema,
         )
 
         self.assertEqual(result["status"], "match")

@@ -28,8 +28,6 @@ from .context import (
     document_block_ids,
     render_canonical_binding,
     render_document_context,
-    select_binding_context,
-    select_resolution_context,
 )
 from .contract import validate_result_contract
 from .models import (
@@ -44,15 +42,17 @@ from .models import (
     ScoutResult,
     ScoutTypeConfig,
     PrecedentSignal,
+    QuantitativeLedger,
     QueryIntent,
     SearchTrace,
     load_attributes,
 )
 from .projections import build_development_landscape, build_safety_signals
 from .stages.conformity import (
+    assemble_quantitative_document_ledger,
     empty_conformity_scores,
-    extract_quantitative_target_set,
-    resolve_quantitative_target_ownership,
+    extract_quantitative_ledger_batch,
+    prepare_quantitative_ledger_batches,
     score_conformity,
 )
 from .stages.context_validator import mismatch_message, validate_document_context
@@ -62,12 +62,11 @@ from .stages.insight_extractor import extract_insights, merge_duplicate_insights
 from .stages.precedent_classifier import classify_precedent
 from .stages.query_extractor import extract_queries_for_variable
 from .stages.intent_builder import build_retrieval_intents
-from .stages.target_resolver import resolve_document_target
+from .stages.target_resolver import resolve_document_targets
 from .stages.unit_extractor import extract_units
 
 FINDINGS_BATCH_SIZE = 40
 FINDINGS_BATCH_CHARS = 240_000
-TARGET_CONTEXT_CHARS = 40_000
 SEARCH_MAX_TOKENS = 8000
 SEARCH_MAX_USES = 10
 
@@ -139,63 +138,85 @@ def run_pipeline(
             blocks=blocks,
         ))
 
-    # Provider-specific work ends here. Fixed definitions are bound to their
-    # document target; dynamically extracted units arrive already bound. Every
-    # later stage receives the same resolved Attribute contract.
-    seed_contexts = {
-        attribute.name: select_resolution_context(
-            blocks,
-            attribute,
-            max_chars=TARGET_CONTEXT_CHARS,
-        )
-        for attribute in attributes
-    }
+    # Provider-specific work ends here. Fixed definitions are resolved in
+    # bounded output batches that share the same document and complete field
+    # catalog; dynamically extracted units arrive already bound. Every later
+    # stage receives the same canonical Attribute contract.
     attributes = _resolve_targets_all(
         attributes,
-        seed_contexts,
+        doc_text,
         blocks,
         openai_client,
         progress=progress_callback,
     )
-    semantic_contexts = {
-        attribute.name: select_resolution_context(
-            blocks,
-            attribute,
-            max_chars=TARGET_CONTEXT_CHARS,
+    unresolved_attributes = [
+        attribute for attribute in attributes if not attribute.target_resolved
+    ]
+    if unresolved_attributes:
+        return _empty_result(
+            blocks=blocks,
+            variables=attributes,
+            quantitative_ledger=QuantitativeLedger(
+                status="not_applicable",
+                reason=(
+                    "Numeric interpretation did not run because document claim "
+                    "resolution stopped before retrieval: "
+                    f"{len(unresolved_attributes)} field decision(s) remained unresolved "
+                    "after one bounded retry."
+                ),
+            ),
+            context_validation=context_validation,
         )
-        for attribute in attributes
-    }
-    attributes = _extract_quantitative_targets_all(
-        attributes,
-        {
-            attribute.name: select_binding_context(blocks, attribute)
-            for attribute in attributes
-        },
-        semantic_contexts,
-        blocks,
-        openai_client,
-        indication=indication,
-        intervention_class=intervention_class,
-        framing=config.quantitative_target_framing,
+    ledger_batches = prepare_quantitative_ledger_batches(blocks)
+
+    def map_ledger_batch(batch):
+        return extract_quantitative_ledger_batch(
+            batch,
+            attributes,
+            openai_client,
+            indication=indication,
+            intervention_class=intervention_class,
+            framing=config.quantitative_target_framing,
+        )
+
+    ledger_results = _parallel_map(
+        ledger_batches,
+        map_ledger_batch,
+        workers=MAX_WORKERS,
+        stage="quantitative_targets",
         progress=progress_callback,
     )
-    attributes = resolve_quantitative_target_ownership(attributes, openai_client)
+    attributes, quantitative_ledger = assemble_quantitative_document_ledger(
+        attributes,
+        ledger_batches,
+        ledger_results,
+    )
+    if quantitative_ledger.status == "uncertain":
+        return _empty_result(
+            blocks=blocks,
+            variables=attributes,
+            quantitative_ledger=quantitative_ledger,
+            context_validation=context_validation,
+        )
+    searchable_attributes = [
+        attribute for attribute in attributes if attribute.document_target
+    ]
     attribute_descriptions = {
-        attribute.name: attribute.description for attribute in attributes
+        attribute.name: attribute.description for attribute in searchable_attributes
     }
     # The broader definition view has completed its bounded binding/semantic
     # jobs. Every later reasoning stage receives the canonical target with its
     # exact block markers, not the rest of a potentially multi-topic table row.
     attribute_contexts = {
         attribute.name: render_canonical_binding(attribute)
-        for attribute in attributes
+        for attribute in searchable_attributes
     }
     attribute_images = _images_for_contexts(attribute_contexts, blocks)
 
     if progress_callback:
         progress_callback("queries")
     attribute_queries = _extract_queries_all_variables(
-        attributes,
+        searchable_attributes,
         config,
         openai_client,
         query_contexts=attribute_contexts,
@@ -211,6 +232,7 @@ def run_pipeline(
         return _empty_result(
             blocks=blocks,
             variables=attributes,
+            quantitative_ledger=quantitative_ledger,
             context_validation=context_validation,
         )
 
@@ -218,7 +240,7 @@ def run_pipeline(
         progress_callback("search")
     retrieval_intents = build_retrieval_intents(
         attribute_queries,
-        attributes,
+        searchable_attributes,
         indication=indication,
         intervention_class=intervention_class,
     )
@@ -233,6 +255,7 @@ def run_pipeline(
             queries=len(flat),
             blocks=blocks,
             variables=attributes,
+            quantitative_ledger=quantitative_ledger,
             search_plan=search_plan,
             context_validation=context_validation,
         )
@@ -295,7 +318,7 @@ def run_pipeline(
     if progress_callback:
         progress_callback("evidence")
     assessments = _assess_evidence_all_variables(
-        attributes,
+        searchable_attributes,
         attribute_contexts,
         insights,
         openai_client,
@@ -309,7 +332,7 @@ def run_pipeline(
     if progress_callback:
         progress_callback("conformity")
     conformity = _score_conformity_all_variables(
-        attributes,
+        searchable_attributes,
         insights,
         openai_client,
         indication=indication,
@@ -320,7 +343,7 @@ def run_pipeline(
     if progress_callback:
         progress_callback("precedent")
     precedents = _classify_precedent_all_variables(
-        attributes,
+        searchable_attributes,
         attribute_contexts,
         insights,
         openai_client,
@@ -353,6 +376,7 @@ def run_pipeline(
         development_landscape=development_landscape,
         safety_signals=safety_signals,
         context_validation=context_validation,
+        quantitative_ledger=quantitative_ledger,
         variables=attributes,
         blocks=blocks,
     ))
@@ -495,80 +519,28 @@ def _extract_queries_all_variables(
 
 def _resolve_targets_all(
     attributes: list[Attribute],
-    contexts: dict[str, str],
+    document_context: str,
     blocks: list[ContentBlock],
     openai_client: LLMClientProtocol,
     *,
     progress: ProgressFn | None = None,
 ) -> list[Attribute]:
-    """Resolve fixed and dynamic definitions to one document-bound shape."""
-    images_by_attribute = _images_for_contexts(contexts, blocks)
-
-    def one(attribute: Attribute) -> Attribute:
-        return resolve_document_target(
-            attribute,
-            contexts.get(attribute.name, ""),
-            openai_client,
-            images=images_by_attribute.get(attribute.name) or None,
-        )
-
-    return _parallel_map(
+    """Build one canonical claim ledger, then expose its Attribute projection."""
+    resolved = resolve_document_targets(
         attributes,
-        one,
-        workers=MAX_WORKERS,
-        stage="targets",
-        progress=progress,
+        document_context,
+        openai_client,
+        images=[
+            {"block_id": block.id, "data_url": block.image.data_url()}
+            for block in blocks
+            if block.image
+        ]
+        or None,
+        progress_callback=(
+            (lambda **counts: progress("targets", **counts)) if progress else None
+        ),
     )
-
-
-def _extract_quantitative_targets_all(
-    attributes: list[Attribute],
-    binding_contexts: dict[str, str],
-    semantic_contexts: dict[str, str],
-    blocks: list[ContentBlock],
-    openai_client: LLMClientProtocol,
-    *,
-    indication: str,
-    intervention_class: str,
-    framing: str,
-    progress: ProgressFn | None = None,
-) -> list[Attribute]:
-    """Bind each verified numeric claim once, before retrieval planning."""
-    images_by_attribute = _images_for_contexts(semantic_contexts, blocks)
-
-    def one(attribute: Attribute) -> Attribute:
-        if not attribute.document_target:
-            return replace(
-                attribute,
-                quantitative_target_status="not_applicable",
-                quantitative_target_status_reason=(
-                    "The canonical field has no document-stated target to calibrate."
-                ),
-            )
-        extraction = extract_quantitative_target_set(
-            attribute,
-            binding_contexts.get(attribute.name, ""),
-            openai_client,
-            semantic_context=semantic_contexts.get(attribute.name, ""),
-            indication=indication,
-            intervention_class=intervention_class,
-            framing=framing,
-            images=images_by_attribute.get(attribute.name) or None,
-        )
-        return replace(
-            attribute,
-            quantitative_targets=extraction.targets,
-            quantitative_target_status=extraction.status,
-            quantitative_target_status_reason=extraction.reason,
-        )
-
-    return _parallel_map(
-        attributes,
-        one,
-        workers=MAX_WORKERS,
-        stage="quantitative_targets",
-        progress=progress,
-    )
+    return resolved
 
 
 def _images_for_contexts(
@@ -920,6 +892,7 @@ def _empty_result(
     insights: int = 0,
     blocks: list[ContentBlock] | None = None,
     variables: list[Attribute] | None = None,
+    quantitative_ledger: QuantitativeLedger | None = None,
     search_plan: list[SearchTrace] | None = None,
 ) -> ScoutResult:
     return validate_result_contract(ScoutResult(
@@ -934,6 +907,7 @@ def _empty_result(
             assessments=0,
         ),
         variables=variables or [],
+        quantitative_ledger=quantitative_ledger or QuantitativeLedger(),
         conformity=empty_conformity_scores(variables or []),
         search_plan=search_plan or [],
         context_validation=context_validation,

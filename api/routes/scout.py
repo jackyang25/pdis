@@ -29,12 +29,11 @@ from api.schemas import (
     DevelopmentProgramOut,
     DocumentContextValidationOut,
     EvidenceAssessmentOut,
-    EvidenceEntityOut,
     FindingOut,
     FunnelStatsOut,
     InsightOut,
     MatchOut,
-    QuantitativeTargetOut,
+    QuantitativeLedgerOut,
     ScoutRunResponse,
     SafetySignalOut,
     SearchTraceOut,
@@ -115,30 +114,11 @@ async def run_scout(
                     reason=result.context_validation.reason,
                     doc_block_ids=result.context_validation.doc_block_ids,
                 ),
+                quantitative_ledger=QuantitativeLedgerOut.model_validate(
+                    asdict(result.quantitative_ledger)
+                ),
                 variables=[
-                    VariableOut(
-                        name=variable.name,
-                        description=variable.description,
-                        block_ids=variable.block_ids,
-                        document_target=variable.document_target,
-                        definition_mode=variable.definition_mode,
-                        target_resolved=variable.target_resolved,
-                        evidence_domain=variable.evidence_domain,
-                        quantitative_target_status=variable.quantitative_target_status,
-                        quantitative_target_status_reason=variable.quantitative_target_status_reason,
-                        entities=[
-                            EvidenceEntityOut(
-                                name=entity.name,
-                                entity_type=entity.entity_type,
-                                identifier=entity.identifier,
-                            )
-                            for entity in variable.entities
-                        ],
-                        quantitative_targets=[
-                            QuantitativeTargetOut.model_validate(asdict(target))
-                            for target in variable.quantitative_targets
-                        ],
-                    )
+                    VariableOut.model_validate(asdict(variable))
                     for variable in variables
                 ],
                 search_plan=[

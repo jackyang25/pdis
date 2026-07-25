@@ -140,17 +140,32 @@ Scout evaluates one canonical `Attribute` shape regardless of document type:
 | `description` | Neutral definition of what is evaluated |
 | `document_target` | Exact document claim, constraint, or commitment |
 | `block_ids` | Document blocks supporting that target |
+| `document_spans` | Exact quote-to-block provenance from which the canonical target is derived |
 | `definition_mode` | `fixed` for vocabulary TPP fields or `dynamic` for extracted IPDP claims |
 | `target_resolved` | Whether document binding has completed, including an intentionally absent target |
+| `target_resolution_reason` | Explicit outcome or fail-closed reason for the binding decision |
 | `evidence_domain` | One closed domain used for deterministic source applicability |
 | `entities` | Explicitly document-stated typed entities and optional stated identifiers |
-| `quantitative_targets` | Atomic numeric claims with one canonical field owner, immutable semantic identity, one shared numeric-expression shape, exact provenance spans, role, and one shared typed semantic profile |
+| `quantitative_targets` | Independently calibratable scalar claims with one canonical owner, exact provenance, typed meaning, and explicit comparison dimensions |
+| `quantitative_statement_dispositions` | Exact cited numeric-looking statements intentionally retained as contextual, non-scalar, range/set, or uncertain instead of being coerced into targets |
 | `quantitative_target_status` | `present`, `not_applicable`, or `uncertain`, so an empty target list is never ambiguous |
 
-TPP fields come from `shared/attributes.yaml` and are bound to document targets.
-IPDP fields are dynamically extracted checkable claims. Both converge to the
-same shape before query generation; downstream reasoning cannot rewrite the
-canonical target.
+The run also carries one canonical `QuantitativeLedger`. It reviews each
+non-overlapping document statement exactly once, retains an explicit
+classification for every statement, and is the sole source from which the
+per-field quantitative targets and dispositions are projected. A missing or
+invalid statement review therefore remains visible as `uncertain` instead of
+silently disappearing.
+
+TPP fields come from `shared/attributes.yaml`. They are resolved in bounded
+output batches that each see one complete block-aligned document chunk and the
+complete field catalog. All ordered chunks are then merged into one
+document-level claim ledger using exact
+quoted spans. A structurally missing or invalid decision is retried once; any
+remaining uncertainty stops before numeric interpretation or retrieval. IPDP
+fields are dynamically extracted checkable claims from block-aligned document context.
+Both converge to the same `Attribute` ledger before query generation;
+downstream reasoning cannot rewrite the canonical target.
 
 Evidence domains are `general`, `biological`, `clinical`, `safety`,
 `regulatory`, `product`, `manufacturing`, `delivery`, and
@@ -163,9 +178,11 @@ and `other`.
 ```text
 parse document blocks and visuals
 → validate configured indication against cited document context
-→ resolve canonical fields and targets
-→ bind every independently calibratable exact or directional scalar target
-→ assign overlapping target families to one canonical field owner
+→ resolve one canonical document-claim ledger in bounded outputs over ordered document chunks and the complete field catalog
+→ stop before retrieval if claim resolution remains incomplete after one targeted retry
+→ map non-overlapping document statements into one canonical numeric ledger with one targeted retry
+→ stop before retrieval if numeric statement coverage remains incomplete
+→ deterministically project each mapped target to its one canonical field
 → generate threshold-neutral source-neutral query intents with block and target lineage
 → determine source applicability from closed metadata
 → compile source-native requests in each adapter
@@ -189,16 +206,25 @@ target; target IDs remain retrieval lineage and never imply that a returned
 source semantically supports the target. Calibration consumes this same target
 bundle rather than asking the model to extract a second, potentially different
 set after retrieval.
-After fixed-field resolution, exact target expressions remain restricted to the
-canonical binding blocks. A bounded neighboring/definition context may clarify
-the target's meaning, but every specified semantic field must cite its own exact
-document span. Queries and judgments reuse that one canonical target, preventing
-adjacent table-cell spillover or a second interpretation downstream. When
-overlapping field definitions produce the same exact numeric claim, a closed arbitration step
-assigns it once to the most specific candidate field and retains that decision.
+Only resolved fields with document-present targets proceed to retrieval; absent
+fields remain visible in the result without generating evidence queries.
+After fixed-field resolution, Scout partitions the document into stable,
+non-overlapping statement units. Each unit is reviewed once across the complete
+canonical field catalog. Independently comparable scalars become atomic targets;
+conditions, numeric categories, ranges/sets, nonnumeric text, and unresolved
+wording receive explicit ledger classifications. Exact target syntax remains
+quote-verified against its source unit. Missing, duplicated, or invalid reviews
+are retried once by statement ID, then fail closed as ledger uncertainty. Field
+targets are deterministic projections
+of this one ledger; there is no per-field extraction competition, retry mapper,
+or downstream ownership-repair pass. Numeric mapping cannot create a target for
+an unresolved qualitative field or reassign a statement outside that field's
+canonical cited blocks.
 Targets use an eight-slot semantic profile (measure, endpoint, intervention,
-population, regimen, time horizon, statistic, and conditions). Conditions are
-restricted to measurement settings that affect numeric comparability. Each
+population, regimen, time horizon, statistic, and conditions) plus explicit
+comparison dimensions. Essential but unresolved dimensions therefore fail
+closed rather than being treated as unconstrained. Conditions are restricted to
+measurement settings that affect numeric comparability. Each
 source measurement has one semantic assessment that returns only the slots
 constrained by that target, co-locating the normalized source value and a closed
 yes/no/unknown compatibility decision, plus source ownership. Code fills the

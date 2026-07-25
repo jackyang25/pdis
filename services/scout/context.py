@@ -1,10 +1,8 @@
-"""Document-context rendering and bounded, block-aware selection for Scout.
+"""Document-context rendering and exact block provenance for Scout.
 
-Every reasoning stage receives explicit ``[block:<id>]`` markers so a model can
-return document citations that the pipeline validates.  Long documents are
-selected per variable by lexical relevance plus neighboring blocks; remaining
-space is filled with evenly distributed blocks rather than silently keeping
-only the beginning of the document.
+Every reasoning stage receives explicit ``[block:<id>]`` markers so model
+citations can be validated. Long documents are split only between complete
+blocks; canonical field views are rendered only from their verified spans.
 """
 
 from __future__ import annotations
@@ -16,17 +14,15 @@ from services.chunker import ContentBlock
 
 from .models import Attribute
 
-ATTRIBUTE_CONTEXT_CHARS = 160_000
 WHOLE_DOCUMENT_CONTEXT_CHARS = 500_000
+DOCUMENT_CHUNK_CHARS = 350_000
 
 _BLOCK_ID_RE = re.compile(r"\[block:([^\]]+)\]")
 _BLOCK_MARKER_RE = re.compile(r"^\[block:([^\]]+)\]$")
-_WORD_RE = re.compile(r"[a-z0-9]+")
-_STOPWORDS = {
-    "about", "against", "and", "are", "for", "from", "into", "its",
-    "that", "the", "their", "this", "through", "with", "within",
-    "product", "target", "variable", "document", "evidence",
-}
+_RENDERED_BLOCK_CONTENT_RE = re.compile(
+    r"(?m)^\[block:([^\]]+)\][^\n]*\n(.*?)(?=\n\n\[block:|\Z)",
+    re.DOTALL,
+)
 
 # One canonical JSON contract shared by every Scout prompt that asks a model to
 # cite document blocks. Rendered context uses ``[block:<id>]`` markers, while
@@ -44,89 +40,30 @@ def render_document_context(blocks: Iterable[ContentBlock]) -> str:
     return "\n\n".join(_render_block(block) for block in blocks)
 
 
-def select_resolution_context(
-    blocks: list[ContentBlock],
-    attribute: Attribute,
+def chunk_document_context(
+    document_context: str,
     *,
-    max_chars: int = ATTRIBUTE_CONTEXT_CHARS,
-) -> str:
-    """Return a bounded document view for binding or defining one field.
-
-    This relevance-selected view is intentionally broader than the field's fact
-    boundary. Fixed fields use it to locate their canonical binding; resolved
-    fields may reuse it to clarify semantic terms, but only with exact cited
-    spans. Numeric expressions themselves remain restricted to
-    :func:`select_binding_context`.
-    """
-    if not blocks:
-        return ""
-    rendered = [_render_block(block) for block in blocks]
-    full = "\n\n".join(rendered)
-    if len(full) <= max_chars:
-        return full
-
-    terms = _terms(f"{attribute.name} {attribute.description}")
-    scored: list[tuple[int, int]] = []
-    for index, block in enumerate(blocks):
-        haystack = " ".join(
-            [
-                getattr(block, "content", "") or "",
-                " ".join(getattr(block, "heading_stack", []) or []),
-                getattr(block, "section_label", "") or "",
-            ]
-        ).lower()
-        score = sum(1 for term in terms if term in haystack)
-        if score:
-            scored.append((score, index))
-
-    selected: set[int] = set()
-    # Extracted units already carry exact originating blocks. Seed those before
-    # lexical selection so a long document cannot lose its own source claim.
-    originating_ids = set(attribute.block_ids)
-    originating_indices = [
-        index for index, block in enumerate(blocks) if block.id in originating_ids
-    ]
-    # Definitions, table annotations, and endpoint qualifiers commonly live a
-    # few rows away from the numeric target. Keep a small structural halo around
-    # an already-cited binding; this supplies document meaning without turning
-    # every target call into a full-document dump.
-    for origin in originating_indices:
-        candidates = {
-            index
-            for index in range(origin - 3, origin + 4)
-            if 0 <= index < len(blocks)
-        }
-        if _selection_size(rendered, selected | candidates) <= max_chars:
-            selected.update(candidates)
-        else:
-            selected.add(origin)
-    # Retain document boundaries when they fit. Originating blocks take
-    # precedence, because they are stronger provenance than a generic preamble.
-    boundary_indices = [
-        *range(min(3, len(blocks))),
-        *range(max(0, len(blocks) - 3), len(blocks)),
-    ]
-    for index in boundary_indices:
-        if _selection_size(rendered, selected | {index}) <= max_chars:
-            selected.add(index)
-
-    # Add highest-signal blocks plus immediate context while respecting budget;
-    # ties preserve document order. Final rendering restores document order.
-    for _, index in sorted(scored, key=lambda item: (-item[0], item[1])):
-        candidates = {
-            i for i in (index - 1, index, index + 1)
-            if 0 <= i < len(blocks)
-        }
-        if _selection_size(rendered, selected | candidates) <= max_chars:
-            selected.update(candidates)
-
-    # Fill unused space with an evenly distributed safety net for synonyms that
-    # lexical scoring may miss.
-    for index in _even_indices(len(blocks)):
-        if _selection_size(rendered, selected | {index}) <= max_chars:
-            selected.add(index)
-
-    return _render_with_budget(rendered, selected, max_chars)
+    max_chars: int = DOCUMENT_CHUNK_CHARS,
+) -> list[str]:
+    """Split rendered context only between complete annotated blocks."""
+    if not document_context.strip():
+        return []
+    rendered_blocks = re.split(r"\n\n(?=\[block:[^\]]+\])", document_context)
+    chunks: list[str] = []
+    current: list[str] = []
+    current_chars = 0
+    for rendered_block in rendered_blocks:
+        separator = 2 if current else 0
+        if current and current_chars + separator + len(rendered_block) > max_chars:
+            chunks.append("\n\n".join(current))
+            current = []
+            current_chars = 0
+            separator = 0
+        current.append(rendered_block)
+        current_chars += separator + len(rendered_block)
+    if current:
+        chunks.append("\n\n".join(current))
+    return chunks
 
 
 def select_binding_context(
@@ -176,6 +113,22 @@ def document_block_ids(text: str) -> set[str]:
     return set(_BLOCK_ID_RE.findall(text))
 
 
+def rendered_block_texts(document_context: str) -> dict[str, str]:
+    """Return exact block text keyed by its rendered stable ID."""
+    return {
+        block_id: text
+        for block_id, text in _RENDERED_BLOCK_CONTENT_RE.findall(document_context)
+    }
+
+
+def quote_in_text(quote: str, text: str) -> bool:
+    """Compare quotations after whitespace/case normalization only."""
+    normalized_quote = " ".join(quote.casefold().split())
+    return bool(normalized_quote) and normalized_quote in " ".join(
+        text.casefold().split()
+    )
+
+
 def validated_block_ids(raw: object, allowed: set[str]) -> list[str]:
     """Return exact allowed IDs in model order, accepting one safe legacy form.
 
@@ -209,40 +162,3 @@ def _render_block(block: ContentBlock) -> str:
         metadata.append(f"section={section}")
     suffix = f" ({'; '.join(metadata)})" if metadata else ""
     return f"[block:{block.id}]{suffix}\n{block.content}"
-
-
-def _terms(text: str) -> set[str]:
-    return {
-        token
-        for token in _WORD_RE.findall(text.lower())
-        if len(token) >= 3 and token not in _STOPWORDS
-    }
-
-
-def _even_indices(length: int) -> list[int]:
-    if length <= 12:
-        return list(range(length))
-    # A deterministic document-wide safety net for terminology mismatches.
-    return sorted({round(i * (length - 1) / 11) for i in range(12)})
-
-
-def _render_with_budget(rendered: list[str], selected: set[int], max_chars: int) -> str:
-    out: list[str] = []
-    used = 0
-    for index in sorted(selected):
-        block = rendered[index]
-        separator = 2 if out else 0
-        remaining = max_chars - used - separator
-        if remaining <= 0:
-            break
-        if len(block) > remaining:
-            if not out:
-                out.append(block[:remaining])
-            break
-        out.append(block)
-        used += separator + len(block)
-    return "\n\n".join(out)
-
-
-def _selection_size(rendered: list[str], selected: set[int]) -> int:
-    return sum(len(rendered[index]) for index in selected) + max(0, 2 * (len(selected) - 1))

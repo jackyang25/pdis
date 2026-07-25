@@ -115,28 +115,39 @@ _TERNARY = _object(
 )
 
 
-CONTEXT_VALIDATION = AIContract(
-    "scout_context_validation",
-    _object(
-        {
-            "status": _string(enum=["match", "mismatch", "uncertain"]),
-            "document_indication": _string(),
-            "reason": _string(),
-            "block_ids": _BLOCK_IDS,
-        }
-    ),
-)
+def context_validation(allowed_block_ids: list[str]) -> AIContract:
+    """Constrain the document-indication citation to IDs in its exact input."""
+    exact_ids = list(dict.fromkeys(allowed_block_ids))
+    return AIContract(
+        "scout_context_validation",
+        _object(
+            {
+                "status": _string(enum=["match", "mismatch", "uncertain"]),
+                "document_indication": _string(),
+                "reason": _string(),
+                "block_ids": _array(_string(enum=exact_ids)),
+            }
+        ),
+    )
 
-TARGET_BINDING = AIContract(
-    "scout_target_binding",
-    _object(
-        {
-            "document_target": _string(),
-            "block_ids": _BLOCK_IDS,
-            "entities": _array(_ENTITY),
-        }
-    ),
-)
+def target_binding_batch(allowed_block_ids: list[str]) -> AIContract:
+    """Constrain claim citations to exact IDs from the supplied document chunk."""
+    exact_ids = list(dict.fromkeys(allowed_block_ids))
+    block_ids = _array(_string(enum=exact_ids))
+    span = _object({"quote": _string(), "block_ids": block_ids})
+    return _wrapped(
+        "scout_document_claim_ledger",
+        "bindings",
+        _object(
+            {
+                "attribute_ref": _string(),
+                "status": _string(enum=["present", "absent", "uncertain"]),
+                "reason": _string(),
+                "spans": _array(span),
+                "entities": _array(_ENTITY),
+            }
+        ),
+    )
 
 UNIT_BATCH = _wrapped(
     "scout_unit_batch",
@@ -146,8 +157,7 @@ UNIT_BATCH = _wrapped(
             "name": _string(),
             "description": _string(),
             "evidence_domain": _string(enum=sorted(EVIDENCE_DOMAINS)),
-            "document_target": _string(),
-            "block_ids": _BLOCK_IDS,
+            "spans": _array(_SPAN),
             "entities": _array(_ENTITY),
         }
     ),
@@ -216,45 +226,56 @@ PRECEDENT_ASSESSMENT = AIContract(
     ),
 )
 
-QUANTITATIVE_TARGET_SET = AIContract(
-    "scout_quantitative_target_set",
-    _object(
-        {
-            "status": _string(enum=["present", "not_applicable", "uncertain"]),
-            "status_reason": _string(),
-            "targets": _array(
-                _object(
-                    {
-                        "expression": _TARGET_EXPRESSION,
-                        "role": _string(enum=["threshold", "optimal", "other"]),
-                        "semantic_profile": _SEMANTIC_PROFILE,
-                        "semantic_provenance": _SEMANTIC_PROVENANCE,
-                        "provenance_spans": _array(_SPAN),
-                        "ownership_reason": _string(),
-                    }
-                )
-            ),
-        }
-    ),
+_QUANTITATIVE_TARGET = _object(
+    {
+        "expression": _TARGET_EXPRESSION,
+        "role": _string(enum=["threshold", "optimal", "other"]),
+        "comparison_dimensions": _array(
+            _string(enum=list(QUANTITATIVE_SEMANTIC_FIELDS))
+        ),
+        "semantic_profile": _SEMANTIC_PROFILE,
+        "semantic_provenance": _SEMANTIC_PROVENANCE,
+        "provenance_spans": _array(_SPAN),
+        "ownership_reason": _string(),
+    }
 )
 
-TARGET_OWNERSHIP = AIContract(
-    "scout_target_ownership",
+
+DOCUMENT_QUANTITATIVE_LEDGER_BATCH = AIContract(
+    "scout_document_quantitative_ledger_batch",
     _object(
         {
-            "owners": _array(
+            "reviews": _array(
                 _object(
                     {
-                        "group_id": _string(),
+                        "unit_id": _string(),
+                        "classification": _string(
+                            enum=[
+                                "target",
+                                "context_only",
+                                "non_scalar",
+                                "range_or_set",
+                                "non_numeric",
+                                "uncertain",
+                            ]
+                        ),
                         "attribute_ref": _string(),
                         "reason": _string(),
+                        "targets": _array(
+                            _object(
+                                {
+                                    "attribute_ref": _string(),
+                                    "quote": _string(),
+                                    **_QUANTITATIVE_TARGET["properties"],
+                                }
+                            )
+                        ),
                     }
                 )
             )
         }
     ),
 )
-
 
 def source_measurement_batch(required_fields: set[str]) -> AIContract:
     """Build the smallest source-mapping schema required by one target.

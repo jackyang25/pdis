@@ -1,12 +1,12 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 23 as const;
-// Version 23 restricts target conditions to comparison-relevant settings,
-// prevents numeric-target leakage without a domain-specific unit vocabulary,
-// and maps only dimensions that can affect cohort admission.
-const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 23 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | typeof RESULT_VERSION;
+const RESULT_VERSION = 26 as const;
+// Version 26 preserves exact claim spans and resolution reasons through the API
+// boundary. Version 24 introduced the document-first quantitative ledger.
+const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 24 as const;
+const SCOUT_CLAIM_CONTRACT_SINCE_VERSION = 26 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -200,7 +200,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.result_type === "aligner" ||
@@ -302,6 +302,10 @@ function normalizeScoutResult(
       reason: "This imported result predates document-context validation.",
       doc_block_ids: [],
     },
+    quantitative_ledger: normalizeQuantitativeLedger(
+      raw.quantitative_ledger,
+      raw.variables ?? [],
+    ),
     assessments: (raw.assessments ?? []).map((assessment: Record<string, any>) => {
       const { basis: _removedBasis, ...current } = assessment;
       return {
@@ -374,6 +378,12 @@ function normalizeScoutResult(
         ...variable,
         block_ids: blockIds,
         document_target: documentTarget,
+        document_spans:
+          sourceVersion != null
+            && sourceVersion >= SCOUT_CLAIM_CONTRACT_SINCE_VERSION
+            && Array.isArray(variable.document_spans)
+            ? variable.document_spans
+            : [],
         definition_mode: definitionMode,
         evidence_domain: variable.evidence_domain ?? "general",
         entities: Array.isArray(variable.entities) ? variable.entities : [],
@@ -395,6 +405,9 @@ function normalizeScoutResult(
             target.semantic_profile,
             String(target.label ?? variable.name ?? "numeric measure"),
           ),
+          comparison_dimensions: Array.isArray(target.comparison_dimensions)
+            ? target.comparison_dimensions
+            : ["measure"],
           semantic_provenance: normalizeSemanticProvenance(target.semantic_provenance),
           provenance_spans: Array.isArray(target.provenance_spans)
             ? target.provenance_spans
@@ -402,6 +415,14 @@ function normalizeScoutResult(
           ownership_reason: target.ownership_reason
             ?? "Imported target predates canonical ownership arbitration.",
         })),
+        quantitative_statement_dispositions: Array.isArray(
+          variable.quantitative_statement_dispositions,
+        ) ? variable.quantitative_statement_dispositions.map(
+          (disposition: Record<string, any>) => ({
+            ...disposition,
+            attribute_ref: disposition.attribute_ref ?? String(variable.name ?? ""),
+          }),
+        ) : [],
         quantitative_target_status: variable.quantitative_target_status
           ?? ((Array.isArray(variable.quantitative_targets)
             ? variable.quantitative_targets
@@ -411,9 +432,16 @@ function normalizeScoutResult(
         quantitative_target_status_reason: variable.quantitative_target_status_reason
           ?? "This imported result predates explicit numeric-target status.",
         target_resolved:
-          typeof variable.target_resolved === "boolean"
+          sourceVersion != null
+            && sourceVersion >= SCOUT_CLAIM_CONTRACT_SINCE_VERSION
+            && typeof variable.target_resolved === "boolean"
             ? variable.target_resolved
-            : Boolean(documentTarget || assessment),
+            : false,
+        target_resolution_reason:
+          sourceVersion != null
+            && sourceVersion >= SCOUT_CLAIM_CONTRACT_SINCE_VERSION
+            ? String(variable.target_resolution_reason ?? "")
+            : "This imported result predates traced document-claim resolution.",
       };
     }),
     matches: (raw.matches ?? []).map((match: Record<string, any>) => ({
@@ -425,6 +453,44 @@ function normalizeScoutResult(
     })),
     blocks,
   } as ScoutResponse;
+}
+
+function normalizeQuantitativeLedger(
+  value: unknown,
+  variables: Record<string, any>[],
+): ScoutResponse["quantitative_ledger"] {
+  const raw = value as Record<string, any> | null | undefined;
+  if (raw && Array.isArray(raw.reviews) && Array.isArray(raw.targets)) {
+    return {
+      status: raw.status === "complete" || raw.status === "not_applicable"
+        ? raw.status
+        : "uncertain",
+      reason: String(raw.reason ?? ""),
+      block_ids: Array.isArray(raw.block_ids) ? raw.block_ids : [],
+      reviews: raw.reviews.map((review: Record<string, any>) => ({
+        unit_id: String(review.unit_id ?? ""),
+        block_id: String(review.block_id ?? ""),
+        quote: String(review.quote ?? ""),
+        classification: review.classification,
+        reason: String(review.reason ?? ""),
+        attribute_ref: String(review.attribute_ref ?? ""),
+        target_ids: Array.isArray(review.target_ids) ? review.target_ids : [],
+      })),
+      targets: raw.targets,
+    };
+  }
+  const targets = variables.flatMap((variable) =>
+    Array.isArray(variable.quantitative_targets) ? variable.quantitative_targets : []
+  );
+  return {
+    status: targets.length > 0 ? "uncertain" : "not_applicable",
+    reason: targets.length > 0
+      ? "This imported result predates the canonical document-first quantitative ledger."
+      : "This imported result contains no canonical quantitative ledger.",
+    block_ids: [],
+    reviews: [],
+    targets,
+  };
 }
 
 function normalizeConformity(

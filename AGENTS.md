@@ -98,7 +98,7 @@ Scout operates per `Attribute`. TPP attributes come from
 `shared/attributes.yaml`; IPDP attributes are checkable claims extracted from
 the document. Both must converge before retrieval to the same document-bound
 `Attribute`: stable name, neutral definition, canonical `document_target`, exact
-block IDs, resolved status, one closed `evidence_domain`, and zero or more
+quote-to-block `document_spans`, derived block IDs, resolved status, one closed `evidence_domain`, and zero or more
 document-stated typed entities. `definition_mode` (`fixed | dynamic`) records
 only how the definition was supplied; downstream fields must not change meaning
 by document type. Fixed domains are authored in `shared/attributes.yaml`;
@@ -130,12 +130,21 @@ Preserve these invariants:
   must seek reported numeric results without including the document's target
   magnitude, comparator, or threshold/optimal role—even when an LLM repeats the
   magnitude inside a semantic slot.
-- Relevance-selected context resolves a fixed field's canonical binding. A
-  bounded context seeded by that binding and its structural neighbors may then
-  clarify target semantics, but every specified semantic field must cite an
-  exact document span. Numeric expressions remain restricted to raw bound
-  blocks. Query and reasoning stages receive the resulting canonical target, so
-  adjacent table cells cannot donate another field's number or meaning.
+- Fixed fields are resolved into one document-level claim ledger through bounded
+  output groups over ordered block-aligned document chunks. Every group must see
+  the complete field catalog; never restore context-poor independent per-field
+  binding calls. Chunk decisions merge into one ledger. Present bindings require
+  exact quoted spans and block IDs. The claim-ledger response schema enumerates
+  only the complete canonical block IDs available in its document chunk; never
+  accept shortened IDs through suffix or fuzzy matching.
+  Retry only structurally missing or invalid decisions once, retain an explicit
+  `target_resolution_reason`, and stop before numeric interpretation or
+  retrieval if any field remains unresolved. Valid decisions must not be rerun.
+  Numeric expressions remain restricted to their exact statement units and may
+  bind only to a resolved field within its canonical cited blocks. The numeric
+  ledger receives the same one-retry/fail-closed treatment. Only resolved fields
+  with document-present targets proceed to query generation, so adjacent table
+  cells cannot donate another field's number or meaning.
 - Rendered model context labels blocks as `[block:<id>]`; structured JSON outputs
   the complete bare ID inside that marker. Validation permits an exactly wrapped
   legacy marker only long enough to canonicalize it, then requires exact
@@ -255,9 +264,10 @@ Scout AI mappings use strict schemas from `services/scout/ai_contracts.py`
 through `services/scout/ai.py` and `OpenAIClient.call_structured`. Do not add
 stage-local JSON/fence recovery or treat schema validity as provenance validity.
 Original-document authority narrows monotonically: document-wide context may
-validate configuration; field-resolution context binds meaning; exact binding
-blocks own numeric syntax. Downstream retrieval and calibration consume that
-canonical target and must not independently reinterpret the uploaded document.
+validate configuration; the document-level claim ledger binds meaning across
+the complete fixed-field catalog; exact statement units own numeric syntax.
+Downstream retrieval and calibration consume that canonical target and must not
+independently reinterpret the uploaded document.
 
 ## Ask and saved-result contract
 
@@ -267,7 +277,7 @@ canonical target and must not independently reinterpret the uploaded document.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 23, separating analysis from
+  (`web/lib/result-file.ts`), currently version 26, separating analysis from
   `source_documents`.
 - A completed Scout run is the sole producer of its quantitative ledgers. Export
   and import preserve that canonical result without rerunning or mutating any

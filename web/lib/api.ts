@@ -339,8 +339,10 @@ export type Variable = {
   description: string;
   block_ids?: string[];
   document_target: string;
+  document_spans: Array<{ quote: string; block_ids: string[] }>;
   definition_mode: "fixed" | "dynamic";
   target_resolved: boolean;
+  target_resolution_reason: string;
   evidence_domain:
     | "general"
     | "biological"
@@ -357,6 +359,7 @@ export type Variable = {
     identifier: string;
   }>;
   quantitative_targets: QuantitativeTarget[];
+  quantitative_statement_dispositions: QuantitativeStatementDisposition[];
   quantitative_target_status: "not_evaluated" | "present" | "not_applicable" | "uncertain";
   quantitative_target_status_reason: string;
 };
@@ -368,6 +371,7 @@ export type QuantitativeTarget = {
   role: "threshold" | "optimal" | "other";
   quote: string;
   doc_block_ids: string[];
+  comparison_dimensions: Array<keyof QuantitativeSemanticProfile>;
   semantic_profile: QuantitativeSemanticProfile;
   semantic_provenance: Record<keyof QuantitativeSemanticProfile, Array<{
     quote: string;
@@ -375,6 +379,32 @@ export type QuantitativeTarget = {
   }>>;
   provenance_spans: Array<{ quote: string; block_ids: string[] }>;
   ownership_reason: string;
+};
+
+export type QuantitativeStatementDisposition = {
+  quote: string;
+  block_ids: string[];
+  disposition: "context_only" | "non_scalar" | "range_or_set" | "uncertain";
+  reason: string;
+  attribute_ref: string;
+};
+
+export type QuantitativeLedgerReview = {
+  unit_id: string;
+  block_id: string;
+  quote: string;
+  classification: "target" | "context_only" | "non_scalar" | "range_or_set" | "non_numeric" | "uncertain";
+  reason: string;
+  attribute_ref: string;
+  target_ids: string[];
+};
+
+export type QuantitativeLedger = {
+  status: "complete" | "not_applicable" | "uncertain";
+  reason: string;
+  block_ids: string[];
+  reviews: QuantitativeLedgerReview[];
+  targets: QuantitativeTarget[];
 };
 
 export type NumericExpression = {
@@ -415,6 +445,7 @@ export type ScoutResponse = {
     reason: string;
     doc_block_ids: string[];
   };
+  quantitative_ledger: QuantitativeLedger;
   variables: Variable[];
   search_plan?: SearchTrace[];
   matches: Match[];

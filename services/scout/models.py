@@ -64,6 +64,19 @@ TERNARY_DECISION_STATES = frozenset({"yes", "no", "unknown"})
 QUANTITATIVE_TARGET_STATUSES = frozenset(
     {"not_evaluated", "present", "not_applicable", "uncertain"}
 )
+QUANTITATIVE_LEDGER_STATUSES = frozenset(
+    {"complete", "not_applicable", "uncertain"}
+)
+QUANTITATIVE_REVIEW_CLASSIFICATIONS = frozenset(
+    {
+        "target",
+        "context_only",
+        "non_scalar",
+        "range_or_set",
+        "non_numeric",
+        "uncertain",
+    }
+)
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> "ScoutTypeConfig":
@@ -161,6 +174,20 @@ def parse_evidence_entities(raw: object) -> list[EvidenceEntity]:
 
 
 @dataclass
+class DocumentSpan:
+    """One exact document quotation supporting a canonical document fact."""
+
+    quote: str
+    block_ids: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.quote = " ".join(self.quote.split())
+        self.block_ids = list(dict.fromkeys(self.block_ids))
+        if not self.quote or not self.block_ids:
+            raise ValueError("document span requires a quote and block IDs")
+
+
+@dataclass
 class Attribute:
     """One canonical document-bound investigation unit.
 
@@ -175,17 +202,22 @@ class Attribute:
     # Exact document blocks supporting ``document_target``.
     block_ids: list[str] = field(default_factory=list)
     document_target: str = ""
+    document_spans: list[DocumentSpan] = field(default_factory=list)
     # The only intentional TPP/IPDP distinction: how the definition was
     # supplied. All downstream stages consume the same bound shape.
     definition_mode: str = "fixed"  # fixed | dynamic
     # Distinguishes an intentionally absent target from a unit not yet bound to
     # its document. Runtime pipeline units are always resolved before search.
     target_resolved: bool = False
+    target_resolution_reason: str = ""
     evidence_domain: str = "general"
     entities: list[EvidenceEntity] = field(default_factory=list)
     # Independently qualified numeric claims extracted once before retrieval.
     # Qualitative stages continue to use the canonical document_target binding.
     quantitative_targets: list["QuantitativeTarget"] = field(default_factory=list)
+    quantitative_statement_dispositions: list["QuantitativeStatementDisposition"] = field(
+        default_factory=list
+    )
     quantitative_target_status: str = "not_evaluated"
     quantitative_target_status_reason: str = ""
 
@@ -199,13 +231,35 @@ class Attribute:
         self.name = self.name.strip()
         self.description = self.description.strip()
         self.document_target = self.document_target.strip()
+        self.target_resolution_reason = " ".join(
+            self.target_resolution_reason.split()
+        )
         self.quantitative_target_status_reason = " ".join(
             self.quantitative_target_status_reason.split()
         )
+        self.document_spans = [
+            span if isinstance(span, DocumentSpan) else DocumentSpan(**span)
+            for span in self.document_spans
+        ]
+        if self.document_spans:
+            self.document_target = " ".join(
+                dict.fromkeys(span.quote for span in self.document_spans)
+            )
+            self.block_ids = [
+                block_id
+                for span in self.document_spans
+                for block_id in span.block_ids
+            ]
         self.block_ids = list(dict.fromkeys(self.block_ids))
         self.entities = list(dict.fromkeys(self.entities))
         self.quantitative_targets = list(
             {target.id: target for target in self.quantitative_targets}.values()
+        )
+        self.quantitative_statement_dispositions = list(
+            {
+                (item.quote, tuple(item.block_ids), item.disposition): item
+                for item in self.quantitative_statement_dispositions
+            }.values()
         )
 
 
@@ -435,20 +489,6 @@ class MeasurementSemanticAssessment:
 
 
 @dataclass
-class DocumentSpan:
-    """One exact document quotation supporting a canonical numeric target."""
-
-    quote: str
-    block_ids: list[str] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        self.quote = " ".join(self.quote.split())
-        self.block_ids = list(dict.fromkeys(self.block_ids))
-        if not self.quote or not self.block_ids:
-            raise ValueError("document span requires a quote and block IDs")
-
-
-@dataclass
 class NumericExpression:
     """One numeric statement, without any clinical interpretation.
 
@@ -507,6 +547,7 @@ class QuantitativeTarget:
     role: str
     quote: str
     doc_block_ids: list[str]
+    comparison_dimensions: list[str] = field(default_factory=list)
     semantic_profile: dict[str, SemanticSlot] = field(
         default_factory=_default_semantic_profile
     )
@@ -536,6 +577,21 @@ class QuantitativeTarget:
         }
         if self.semantic_profile["measure"].state != "specified":
             raise ValueError("quantitative target requires a specified measure")
+        if not self.comparison_dimensions:
+            self.comparison_dimensions = [
+                field_name
+                for field_name, slot in self.semantic_profile.items()
+                if slot.state in {"specified", "other"}
+            ]
+        self.comparison_dimensions = list(dict.fromkeys(self.comparison_dimensions))
+        if (
+            not self.comparison_dimensions
+            or "measure" not in self.comparison_dimensions
+            or set(self.comparison_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS)
+        ):
+            raise ValueError(
+                "quantitative target requires valid comparison dimensions including measure"
+            )
         self.semantic_provenance = {
             field_name: [
                 span if isinstance(span, DocumentSpan) else DocumentSpan(**span)
@@ -575,6 +631,7 @@ class QuantitativeTarget:
                     self.expression.comparator,
                     str(self.expression.value),
                     self.expression.unit.casefold(),
+                    *self.comparison_dimensions,
                     *semantic_material,
                 )
             )
@@ -609,6 +666,87 @@ class QuantitativeTarget:
         number = f"{self.value:g}{self.unit}"
         core = f"{measure} {self.comparator}{number}".strip()
         return " · ".join((core, *qualifiers))
+
+
+@dataclass
+class QuantitativeStatementDisposition:
+    """A cited numeric-looking document statement intentionally not calibrated."""
+
+    quote: str
+    block_ids: list[str]
+    disposition: str
+    reason: str
+    attribute_ref: str = ""
+
+    def __post_init__(self) -> None:
+        self.quote = " ".join(self.quote.split())
+        self.block_ids = list(dict.fromkeys(self.block_ids))
+        self.disposition = self.disposition.strip().lower()
+        self.reason = " ".join(self.reason.split())
+        self.attribute_ref = self.attribute_ref.strip()
+        if self.disposition not in {
+            "context_only",
+            "non_scalar",
+            "range_or_set",
+            "uncertain",
+        }:
+            raise ValueError("invalid quantitative statement disposition")
+        if not self.quote or not self.block_ids or not self.reason:
+            raise ValueError("quantitative statement disposition requires cited reasoning")
+
+
+@dataclass
+class QuantitativeLedgerReview:
+    """One non-overlapping document statement reviewed by the numeric ledger."""
+
+    unit_id: str
+    block_id: str
+    quote: str
+    classification: str
+    reason: str
+    attribute_ref: str = ""
+    target_ids: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.unit_id = self.unit_id.strip()
+        self.block_id = self.block_id.strip()
+        self.quote = " ".join(self.quote.split())
+        self.classification = self.classification.strip().lower()
+        self.reason = " ".join(self.reason.split())
+        self.attribute_ref = self.attribute_ref.strip()
+        self.target_ids = list(dict.fromkeys(self.target_ids))
+        if self.classification not in QUANTITATIVE_REVIEW_CLASSIFICATIONS:
+            raise ValueError("invalid quantitative ledger classification")
+        if not self.unit_id or not self.block_id or not self.quote or not self.reason:
+            raise ValueError("quantitative ledger review requires traced reasoning")
+        if self.classification == "target" and not self.target_ids:
+            raise ValueError("target ledger review requires at least one target")
+        if self.classification != "target" and self.target_ids:
+            raise ValueError("non-target ledger review cannot reference targets")
+
+
+@dataclass
+class QuantitativeLedger:
+    """The one authoritative document-first numeric interpretation for a run."""
+
+    status: str = "not_applicable"
+    reason: str = ""
+    block_ids: list[str] = field(default_factory=list)
+    reviews: list[QuantitativeLedgerReview] = field(default_factory=list)
+    targets: list[QuantitativeTarget] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.status = self.status.strip().lower()
+        self.reason = " ".join(self.reason.split())
+        self.block_ids = list(dict.fromkeys(self.block_ids))
+        if self.status not in QUANTITATIVE_LEDGER_STATUSES:
+            raise ValueError("invalid quantitative ledger status")
+        review_ids = [review.unit_id for review in self.reviews]
+        if len(review_ids) != len(set(review_ids)):
+            raise ValueError("quantitative ledger contains duplicate statement units")
+        target_ids = [target.id for target in self.targets]
+        if len(target_ids) != len(set(target_ids)):
+            raise ValueError("quantitative ledger contains duplicate targets")
 
 
 @dataclass
@@ -783,6 +921,7 @@ class ScoutResult:
     assessments: list[EvidenceAssessment]
     stats: FunnelStats
     context_validation: DocumentContextValidation
+    quantitative_ledger: QuantitativeLedger = field(default_factory=QuantitativeLedger)
     conformity: list[ConformityScore] = field(default_factory=list)
     precedents: list[PrecedentSignal] = field(default_factory=list)
     search_plan: list[SearchTrace] = field(default_factory=list)

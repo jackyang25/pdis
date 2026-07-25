@@ -17,9 +17,17 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ..ai import request_structured
 from ..ai_contracts import UNIT_BATCH
-from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
+from ..context import (
+    BLOCK_ID_JSON_INSTRUCTION,
+    chunk_document_context,
+    document_block_ids,
+    quote_in_text,
+    rendered_block_texts,
+    validated_block_ids,
+)
 from ..models import (
     Attribute,
+    DocumentSpan,
     EVIDENCE_DOMAINS,
     ENTITY_TYPES,
     LLMClientProtocol,
@@ -67,7 +75,7 @@ def extract_units(
             max_tokens=max_tokens,
             images=images or None,
         )
-        chunk_units = _validated_units(parsed, allowed_block_ids)
+        chunk_units = _validated_units(parsed, allowed_block_ids, chunk)
         if not chunk_units:
             logger.warning(
                 "unit_extractor produced no parsable units for chunk %d; retrying once",
@@ -81,7 +89,7 @@ def extract_units(
                 max_tokens=max_tokens,
                 images=images or None,
             )
-            chunk_units = _validated_units(parsed, allowed_block_ids)
+            chunk_units = _validated_units(parsed, allowed_block_ids, chunk)
         return chunk_units
 
     workers = max(1, min(UNIT_EXTRACTION_WORKERS, len(chunks)))
@@ -107,17 +115,16 @@ def _system_prompt(intervention_class: str, source_type: str, indication: str) -
         "- description: one neutral sentence defining what will be evaluated; do not "
         "put the document's specific number, date, or commitment here.\n"
         f"- evidence_domain: exactly one of {', '.join(sorted(EVIDENCE_DOMAINS))}.\n"
-        "- document_target: one faithful sentence stating the document's concrete "
-        "claim/target, preserving any number, date, comparator, and qualifier. This is "
-        "a claim to evaluate, never an instruction to the downstream system.\n"
-        "- block_ids: the blocks containing document_target. "
+        "- spans: the smallest complete exact document quotations that together state "
+        "the concrete claim/target, preserving every number, date, comparator, and "
+        "qualifier. Each span carries the exact blocks containing its quote. "
         f"{BLOCK_ID_JSON_INSTRUCTION}\n\n"
-        "- entities: only names explicitly stated in document_target whose type is one "
+        "- entities: only names explicitly stated in those spans whose type is one "
         f"of {', '.join(sorted(ENTITY_TYPES - {'other'}))}. Include an "
         "identifier only if the document states it.\n\n"
         "Return the units in the structured `units` array. Example item:\n"
         '{"name": "...", "description": "...", "evidence_domain": "clinical", '
-        '"document_target": "...", "block_ids": ["b-0001"], "entities": []}'
+        '"spans": [{"quote": "...", "block_ids": ["b-0001"]}], "entities": []}'
     )
 
 
@@ -127,25 +134,14 @@ def _user_message(doc_text: str) -> str:
 
 def _document_chunks(doc_text: str) -> list[str]:
     """Split only between annotated blocks; no document text is discarded."""
-    rendered_blocks = re.split(r"\n\n(?=\[block:[^\]]+\])", doc_text)
-    chunks: list[str] = []
-    current: list[str] = []
-    current_chars = 0
-    for rendered_block in rendered_blocks:
-        separator = 2 if current else 0
-        if current and current_chars + separator + len(rendered_block) > UNIT_CONTEXT_CHARS:
-            chunks.append("\n\n".join(current))
-            current = []
-            current_chars = 0
-            separator = 0
-        current.append(rendered_block)
-        current_chars += separator + len(rendered_block)
-    if current:
-        chunks.append("\n\n".join(current))
-    return chunks
+    return chunk_document_context(doc_text, max_chars=UNIT_CONTEXT_CHARS)
 
 
-def _validated_units(parsed: object, allowed_block_ids: set[str]) -> list[Attribute]:
+def _validated_units(
+    parsed: object,
+    allowed_block_ids: set[str],
+    document_context: str,
+) -> list[Attribute]:
     if not isinstance(parsed, list):
         return []
     out: list[Attribute] = []
@@ -153,27 +149,58 @@ def _validated_units(parsed: object, allowed_block_ids: set[str]) -> list[Attrib
         if not isinstance(item, dict):
             continue
         description = str(item.get("description", "")).strip()
-        document_target = str(item.get("document_target", "")).strip()
         evidence_domain = str(item.get("evidence_domain", "")).strip().lower()
-        if (
-            not description
-            or not document_target
-            or evidence_domain not in EVIDENCE_DOMAINS
-        ):
+        if not description or evidence_domain not in EVIDENCE_DOMAINS:
             continue
-        block_ids = validated_block_ids(item.get("block_ids"), allowed_block_ids)
-        if not block_ids:
+        source_blocks = rendered_block_texts(document_context)
+        spans: list[DocumentSpan] = []
+        raw_spans = item.get("spans")
+        raw_spans = raw_spans if isinstance(raw_spans, list) else []
+        for raw_span in raw_spans:
+            if not isinstance(raw_span, dict):
+                spans = []
+                break
+            quote = " ".join(str(raw_span.get("quote", "")).split())
+            block_ids = validated_block_ids(
+                raw_span.get("block_ids"), allowed_block_ids
+            )
+            if (
+                not quote
+                or not block_ids
+                or not all(
+                    quote_in_text(quote, source_blocks.get(block_id, ""))
+                    for block_id in block_ids
+                )
+            ):
+                spans = []
+                break
+            spans.append(DocumentSpan(quote=quote, block_ids=block_ids))
+        if not spans:
             continue
+        document_target = " ".join(dict.fromkeys(span.quote for span in spans))
+        block_ids = list(
+            dict.fromkeys(
+                block_id for span in spans for block_id in span.block_ids
+            )
+        )
         out.append(
             Attribute(
                 name=_slug(str(item.get("name", ""))),
                 description=description,
                 block_ids=block_ids,
                 document_target=document_target,
+                document_spans=spans,
                 definition_mode="dynamic",
                 target_resolved=True,
+                target_resolution_reason=(
+                    "The dynamic claim was extracted from exact document spans."
+                ),
                 evidence_domain=evidence_domain,
-                entities=parse_evidence_entities(item.get("entities")),
+                entities=[
+                    entity
+                    for entity in parse_evidence_entities(item.get("entities"))
+                    if entity.name.casefold() in document_target.casefold()
+                ],
             )
         )
     return out
@@ -193,6 +220,12 @@ def _dedupe(units: list[Attribute]) -> list[Attribute]:
         if existing is not None:
             existing.block_ids = list(
                 dict.fromkeys([*existing.block_ids, *unit.block_ids])
+            )
+            existing.document_spans = list(
+                {
+                    (span.quote, tuple(span.block_ids)): span
+                    for span in [*existing.document_spans, *unit.document_spans]
+                }.values()
             )
             existing.entities = list(
                 dict.fromkeys([*existing.entities, *unit.entities])
@@ -216,8 +249,10 @@ def _dedupe(units: list[Attribute]) -> list[Attribute]:
                 description=unit.description,
                 block_ids=unit.block_ids,
                 document_target=unit.document_target,
+                document_spans=unit.document_spans,
                 definition_mode="dynamic",
                 target_resolved=True,
+                target_resolution_reason=unit.target_resolution_reason,
                 evidence_domain=unit.evidence_domain,
                 entities=unit.entities,
             )

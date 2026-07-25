@@ -35,13 +35,102 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
     if len(variables) != len(result.variables):
         raise ValueError("Scout result contains duplicate field names")
 
+    _require_subset(
+        result.quantitative_ledger.block_ids,
+        known_blocks,
+        "quantitative ledger document blocks",
+    )
+    ledger_targets = {target.id: target for target in result.quantitative_ledger.targets}
+    if len(ledger_targets) != len(result.quantitative_ledger.targets):
+        raise ValueError("quantitative ledger contains duplicate target IDs")
+    review_ids: set[str] = set()
+    reviewed_target_ids: set[str] = set()
+    for review in result.quantitative_ledger.reviews:
+        if review.unit_id in review_ids:
+            raise ValueError("quantitative ledger contains duplicate statement units")
+        review_ids.add(review.unit_id)
+        _require_subset(
+            [review.block_id],
+            set(result.quantitative_ledger.block_ids),
+            f"quantitative ledger review {review.unit_id!r}",
+        )
+        _require_subset(
+            review.target_ids,
+            set(ledger_targets),
+            f"quantitative ledger review {review.unit_id!r} targets",
+        )
+        reviewed_target_ids.update(review.target_ids)
+        if review.attribute_ref:
+            _require_field(
+                review.attribute_ref,
+                variables,
+                f"quantitative ledger review {review.unit_id!r}",
+            )
+    if reviewed_target_ids != set(ledger_targets):
+        raise ValueError(
+            "quantitative ledger targets are not covered exactly by statement reviews"
+        )
+    for target in ledger_targets.values():
+        _require_field(
+            target.attribute_ref,
+            variables,
+            f"quantitative ledger target {target.id!r}",
+        )
+        _require_subset(
+            target.doc_block_ids,
+            set(result.quantitative_ledger.block_ids),
+            f"quantitative ledger target {target.id!r} document blocks",
+        )
+
     targets_by_id = {}
     for attribute in result.variables:
+        if not attribute.target_resolution_reason:
+            raise ValueError(
+                f"field {attribute.name!r} has no document-resolution reason"
+            )
         _require_subset(
             attribute.block_ids,
             known_blocks,
             f"field {attribute.name!r} document blocks",
         )
+        if attribute.document_target and not attribute.block_ids:
+            raise ValueError(
+                f"field {attribute.name!r} has a document target without source blocks"
+            )
+        if attribute.document_target and not attribute.document_spans:
+            raise ValueError(
+                f"field {attribute.name!r} has a document target without exact spans"
+            )
+        if attribute.document_spans:
+            span_block_ids = list(
+                dict.fromkeys(
+                    block_id
+                    for span in attribute.document_spans
+                    for block_id in span.block_ids
+                )
+            )
+            _require_subset(
+                span_block_ids,
+                known_blocks,
+                f"field {attribute.name!r} document spans",
+            )
+            if span_block_ids != attribute.block_ids:
+                raise ValueError(
+                    f"field {attribute.name!r} block IDs diverge from its exact spans"
+                )
+            span_target = " ".join(
+                dict.fromkeys(span.quote for span in attribute.document_spans)
+            )
+            if span_target != attribute.document_target:
+                raise ValueError(
+                    f"field {attribute.name!r} target diverges from its exact spans"
+                )
+        if not attribute.target_resolved and (
+            attribute.document_target or attribute.block_ids or attribute.entities
+        ):
+            raise ValueError(
+                f"unresolved field {attribute.name!r} carries document facts"
+            )
         if (
             attribute.quantitative_target_status == "present"
             and not attribute.quantitative_targets
@@ -83,7 +172,34 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                         known_blocks,
                         f"quantitative target {target.id!r} {field_name} provenance",
                     )
+            if (
+                "measure" not in target.comparison_dimensions
+                or set(target.comparison_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS)
+            ):
+                raise ValueError(
+                    f"quantitative target {target.id!r} has invalid comparison dimensions"
+                )
             targets_by_id[target.id] = target
+        for disposition in attribute.quantitative_statement_dispositions:
+            if disposition.attribute_ref and disposition.attribute_ref != attribute.name:
+                raise ValueError(
+                    "quantitative statement disposition is projected onto the wrong field"
+                )
+            _require_subset(
+                disposition.block_ids,
+                set(attribute.block_ids),
+                f"quantitative statement disposition for {attribute.name!r}",
+            )
+
+    if set(targets_by_id) != set(ledger_targets):
+        raise ValueError(
+            "field quantitative targets are not an exact projection of the document ledger"
+        )
+    for target_id, target in targets_by_id.items():
+        if target != ledger_targets[target_id]:
+            raise ValueError(
+                f"field quantitative target {target_id!r} drifted from the document ledger"
+            )
 
     insight_by_id = {}
     for match in result.matches:

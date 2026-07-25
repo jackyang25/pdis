@@ -56,6 +56,13 @@ const scout: ScoutResponse = {
     reason: "The configured indication matches the document.",
     doc_block_ids: [block.id],
   },
+  quantitative_ledger: {
+    status: "not_applicable",
+    reason: "No document statements were mapped.",
+    block_ids: [],
+    reviews: [],
+    targets: [],
+  },
   variables: [],
   search_plan: [],
   matches: [],
@@ -104,7 +111,7 @@ const scout: ScoutResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 23);
+  assert.equal(packed.version, 26);
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
   assert.equal("blocks" in packed.analysis.inspection, false);
@@ -129,7 +136,7 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 23);
+  assert.equal(packed.version, 26);
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
   assert.equal(packed.source_documents.length, 2);
@@ -138,8 +145,34 @@ test("Aligner results separate both source documents from the analysis", () => {
 
 test("current Scout export and import preserve the canonical result exactly", () => {
   const packed = packScoutResult(scout);
-  assert.equal(packed.version, 23);
+  assert.equal(packed.version, 26);
   assert.deepEqual(unpackScoutResult(packed), scout);
+});
+
+test("version 25 Scout fields predate the complete API claim contract", () => {
+  const previous = structuredClone(packScoutResult(scout)) as any;
+  previous.version = 25;
+  previous.analysis.variables = [{
+    name: "efficacy",
+    description: "Protective efficacy",
+    block_ids: [block.id],
+    document_target: "Source text",
+    document_spans: [{ quote: "Source text", block_ids: [block.id] }],
+    definition_mode: "fixed",
+    target_resolved: true,
+    target_resolution_reason: "Resolved from exact spans.",
+    evidence_domain: "clinical",
+    entities: [],
+    quantitative_targets: [],
+    quantitative_statement_dispositions: [],
+    quantitative_target_status: "not_applicable",
+    quantitative_target_status_reason: "No numeric target.",
+  }];
+
+  const imported = unpackScoutResult(previous);
+
+  assert.equal(imported.variables[0].target_resolved, false);
+  assert.deepEqual(imported.variables[0].document_spans, []);
 });
 
 test("version 20 Scout calibration predates atomic ownership and exact targets", () => {

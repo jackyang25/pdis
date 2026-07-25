@@ -31,18 +31,18 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import yaml
 
+from services.chunker import ContentBlock
 from services.searcher import Finding
 
 from ..ai import request_structured
 from ..ai_contracts import (
-    QUANTITATIVE_TARGET_SET,
-    TARGET_OWNERSHIP,
+    DOCUMENT_QUANTITATIVE_LEDGER_BATCH,
     source_measurement_batch,
 )
 from ..context import (
     BLOCK_ID_JSON_INSTRUCTION,
     document_block_ids,
-    limit_document_context,
+    render_document_context,
     validated_block_ids,
 )
 from ..models import (
@@ -56,8 +56,11 @@ from ..models import (
     MeasurementSemanticAssessment,
     NumericExpression,
     QUANTITATIVE_SEMANTIC_FIELDS,
+    QuantitativeLedger,
+    QuantitativeLedgerReview,
     SEMANTIC_SLOT_STATES,
     QuantitativeTarget,
+    QuantitativeStatementDisposition,
     SemanticDimensionAssessment,
     SemanticSlot,
     SourcePassageDisposition,
@@ -67,10 +70,11 @@ from ..models import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 16000
-OWNERSHIP_MAX_TOKENS = 8000
 SOURCE_BATCH_SIZE = 3
 MAX_SOURCE_PASSAGE_CHARS = 8_000
 MAX_TARGET_QUOTE_CHARS = 800
+LEDGER_BATCH_MAX_UNITS = 40
+LEDGER_BATCH_MAX_CHARS = 24_000
 # Keep in lockstep with drift_classifier / evidence_assessor so all three
 # doc-reading stages see the SAME baseline and a target near the end of a long
 # doc is never cut off in one stage but not another.
@@ -98,12 +102,34 @@ class _SourcePassage:
 
 
 @dataclass(frozen=True)
-class QuantitativeTargetExtraction:
-    """One explicit target-detection outcome for a canonical field."""
+class QuantitativeStatementUnit:
+    """One non-overlapping, exact document statement reviewed exactly once."""
 
-    status: str
-    reason: str
+    id: str
+    block_id: str
+    quote: str
+
+
+@dataclass(frozen=True)
+class QuantitativeLedgerBatch:
+    """A bounded set of statement units plus their original source blocks."""
+
+    units: list[QuantitativeStatementUnit]
+    blocks: list[ContentBlock]
+
+
+@dataclass(frozen=True)
+class QuantitativeLedgerBatchResult:
+    """Validated output for one non-overlapping ledger batch."""
+
+    reviews: list[QuantitativeLedgerReview]
     targets: list[QuantitativeTarget]
+
+
+@dataclass(frozen=True)
+class _QuantitativeBatchValidation:
+    result: QuantitativeLedgerBatchResult
+    retry_unit_ids: set[str]
 
 
 def score_conformity(
@@ -378,332 +404,613 @@ def _age_months(published) -> float | None:
 
 
 # ---------------------------------------------------------------------------
-# LLM extraction
+# Canonical document-first target ledger
 # ---------------------------------------------------------------------------
 
 
-def extract_quantitative_targets(
-    attribute: Attribute,
-    doc_text: str,
-    llm_client: LLMClientProtocol,
+def prepare_quantitative_ledger_batches(
+    blocks: list[ContentBlock],
     *,
-    semantic_context: str = "",
-    indication: str,
-    intervention_class: str,
-    framing: str = "",
-    images: list[dict[str, str]] | None = None,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> list[QuantitativeTarget]:
-    """Compatibility wrapper for consumers that only need validated targets."""
-    return extract_quantitative_target_set(
-        attribute,
-        doc_text,
-        llm_client,
-        semantic_context=semantic_context,
-        indication=indication,
-        intervention_class=intervention_class,
-        framing=framing,
-        images=images,
-        max_tokens=max_tokens,
-    ).targets
+    max_units: int = LEDGER_BATCH_MAX_UNITS,
+    max_chars: int = LEDGER_BATCH_MAX_CHARS,
+) -> list[QuantitativeLedgerBatch]:
+    """Partition the complete document once, preserving structural blocks.
+
+    A source block is never sent once per field.  It belongs to exactly one
+    batch even when several fields cite it, so the model produces one document
+    interpretation instead of competing field-local interpretations.
+    """
+    # The ledger is intentionally independent of the earlier per-field binding:
+    # a field resolver cannot hide a document statement simply by missing its
+    # block. Visual-only blocks are reviewed too: the model may safely classify
+    # them as non-numeric, or mark them uncertain when a numeric statement is
+    # visible but no exact source text exists for deterministic verification.
+    relevant_blocks = [
+        block for block in blocks if (block.content or "").strip() or block.image
+    ]
+    batches: list[QuantitativeLedgerBatch] = []
+    batch_blocks: list[ContentBlock] = []
+    batch_units: list[QuantitativeStatementUnit] = []
+    batch_chars = 0
+
+    def flush() -> None:
+        nonlocal batch_blocks, batch_units, batch_chars
+        if batch_units:
+            batches.append(
+                QuantitativeLedgerBatch(units=batch_units, blocks=batch_blocks)
+            )
+        batch_blocks = []
+        batch_units = []
+        batch_chars = 0
+
+    for block in relevant_blocks:
+        units = _statement_units(block)
+        if not units:
+            continue
+        block_chars = len(block.content or "")
+        if batch_units and (
+            len(batch_units) + len(units) > max_units
+            or batch_chars + block_chars > max_chars
+        ):
+            flush()
+        batch_blocks.append(block)
+        batch_units.extend(units)
+        batch_chars += block_chars
+    flush()
+    return batches
 
 
-def extract_quantitative_target_set(
-    attribute: Attribute,
-    doc_text: str,
-    llm_client: LLMClientProtocol,
-    *,
-    semantic_context: str = "",
-    indication: str,
-    intervention_class: str,
-    framing: str = "",
-    images: list[dict[str, str]] | None = None,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> QuantitativeTargetExtraction:
-    attempts = 2 if _looks_numeric_target(attribute.document_target) else 1
-    last_status = "uncertain"
-    last_reason = "The quantitative target mapping did not return a valid decision."
-    for attempt in range(attempts):
-        retry_note = (
-            "\n\nYour prior response omitted or malformed a visible numeric target. "
-            "Return every distinct target as a separate exact-quoted object."
-            if attempt
-            else ""
-        )
-        parsed = request_structured(
-            llm_client,
-            QUANTITATIVE_TARGET_SET,
-            _target_system_prompt(
-                attribute,
-                indication,
-                intervention_class,
-                framing=framing,
-            ),
-            _target_user_message(
-                attribute,
-                doc_text,
-                semantic_context or doc_text,
-            ) + retry_note,
-            max_tokens=max_tokens,
-            images=images,
-        )
-        parsed = parsed if isinstance(parsed, dict) else {}
-        status = str(parsed.get("status", "uncertain")).strip().lower()
-        reason = " ".join(str(parsed.get("status_reason", "")).split())
-        if status not in {"present", "not_applicable", "uncertain"}:
-            status = "uncertain"
-        last_status = status
-        last_reason = reason or {
-            "present": "The document states at least one exact or directional numeric target.",
-            "not_applicable": "The canonical field does not state a directional numeric target.",
-            "uncertain": "The document wording was insufficient to resolve a numeric target.",
-        }[status]
-        targets = _validated_targets(
-            parsed.get("targets"),
-            attribute=attribute,
-            doc_text=doc_text,
-            semantic_context=semantic_context or doc_text,
-        )
-        if targets:
-            return QuantitativeTargetExtraction("present", last_reason, targets)
-        if status != "present" and attempts == 1:
-            return QuantitativeTargetExtraction(status, last_reason, [])
-    if last_status == "present":
-        last_reason = (
-            "A numeric target was proposed, but its exact value, direction, unit, "
-            "or document provenance did not pass deterministic validation."
-        )
-        return QuantitativeTargetExtraction("uncertain", last_reason, [])
-    return QuantitativeTargetExtraction(last_status, last_reason, [])
-
-
-def resolve_quantitative_target_ownership(
+def extract_quantitative_ledger_batch(
+    batch: QuantitativeLedgerBatch,
     attributes: list[Attribute],
     llm_client: LLMClientProtocol,
     *,
-    max_tokens: int = OWNERSHIP_MAX_TOKENS,
-) -> list[Attribute]:
-    """Assign one semantic target to one owner and merge all exact provenance.
+    indication: str,
+    intervention_class: str,
+    framing: str = "",
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> QuantitativeLedgerBatchResult:
+    """Review a bounded statement batch, retrying incomplete items once."""
+    system_prompt = _document_ledger_system_prompt(
+        attributes,
+        indication=indication,
+        intervention_class=intervention_class,
+        framing=framing,
+    )
+    images = [
+        {"block_id": block.id, "data_url": block.image.data_url()}
+        for block in batch.blocks
+        if block.image
+    ] or None
 
-    Semantic identity deliberately excludes quote and block location. Repeated
-    statements therefore become one target with multiple provenance spans,
-    instead of duplicate ledgers. Cross-field ambiguity is resolved only among
-    fields that independently emitted the same atomic semantic target.
-    """
-    attributes_by_name = {attribute.name: attribute for attribute in attributes}
-    groups = _target_ownership_groups(
-        [target for attribute in attributes for target in attribute.quantitative_targets]
+    def request(current: QuantitativeLedgerBatch) -> object | None:
+        return request_structured(
+            llm_client,
+            DOCUMENT_QUANTITATIVE_LEDGER_BATCH,
+            system_prompt,
+            _document_ledger_user_message(current),
+            max_tokens=max_tokens,
+            images=images,
+        )
+
+    first = _validated_quantitative_ledger_batch(
+        request(batch),
+        batch=batch,
+        attributes=attributes,
+    )
+    if not first.retry_unit_ids:
+        return first.result
+    retry_batch = QuantitativeLedgerBatch(
+        units=[unit for unit in batch.units if unit.id in first.retry_unit_ids],
+        blocks=batch.blocks,
+    )
+    retry = _validated_quantitative_ledger_batch(
+        request(retry_batch),
+        batch=retry_batch,
+        attributes=attributes,
+    )
+    retained_reviews = [
+        review
+        for review in first.result.reviews
+        if review.unit_id not in first.retry_unit_ids
+    ]
+    review_by_id = {
+        review.unit_id: review
+        for review in [*retained_reviews, *retry.result.reviews]
+    }
+    merged_reviews = [review_by_id[unit.id] for unit in batch.units]
+    retained_target_ids = {
+        target_id for review in retained_reviews for target_id in review.target_ids
+    }
+    target_by_id = {
+        target.id: target
+        for target in [
+            *(
+                target
+                for target in first.result.targets
+                if target.id in retained_target_ids
+            ),
+            *retry.result.targets,
+        ]
+    }
+    return QuantitativeLedgerBatchResult(
+        reviews=merged_reviews,
+        targets=list(target_by_id.values()),
     )
 
-    ambiguous: dict[str, list[QuantitativeTarget]] = {}
-    owner_by_group: dict[str, tuple[str, str]] = {}
-    group_ids: dict[int, str] = {}
-    for index, targets in enumerate(groups):
-        material = json.dumps(
-            sorted((target.attribute_ref, target.id) for target in targets),
-            ensure_ascii=False,
-        )
-        group_id = "qg-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
-        group_ids[index] = group_id
-        candidate_refs = list(dict.fromkeys(target.attribute_ref for target in targets))
-        if len(candidate_refs) == 1:
-            owner_by_group[group_id] = (
-                candidate_refs[0],
-                "Only this canonical field emitted the semantic target.",
-            )
-        else:
-            ambiguous[group_id] = targets
 
-    if ambiguous:
-        system_prompt = _ownership_system_prompt()
-        user_message = _ownership_user_message(ambiguous, attributes_by_name)
-        for attempt in range(2):
-            parsed = request_structured(
-                llm_client,
-                TARGET_OWNERSHIP,
-                system_prompt,
-                user_message
-                + (
-                    "\n\nA prior response was incomplete. Return one owner for every "
-                    "group ID above."
-                    if attempt
+def _validated_quantitative_ledger_batch(
+    parsed: object,
+    *,
+    batch: QuantitativeLedgerBatch,
+    attributes: list[Attribute],
+) -> _QuantitativeBatchValidation:
+    """Validate one response and identify only structurally failed units."""
+    attributes_by_name = {attribute.name: attribute for attribute in attributes}
+    batch_text = render_document_context(batch.blocks)
+    raw_reviews = parsed.get("reviews") if isinstance(parsed, dict) else None
+    raw_reviews = raw_reviews if isinstance(raw_reviews, list) else []
+    by_id: dict[str, dict] = {}
+    duplicate_ids: set[str] = set()
+    for raw in raw_reviews:
+        if not isinstance(raw, dict):
+            continue
+        unit_id = str(raw.get("unit_id", "")).strip()
+        if not unit_id:
+            continue
+        if unit_id in by_id:
+            duplicate_ids.add(unit_id)
+        else:
+            by_id[unit_id] = raw
+
+    batch_block_ids = {block.id for block in batch.blocks}
+    reviews: list[QuantitativeLedgerReview] = []
+    targets: list[QuantitativeTarget] = []
+    retry_unit_ids: set[str] = set()
+    for unit in batch.units:
+        raw = by_id.get(unit.id)
+        if raw is None or unit.id in duplicate_ids:
+            retry_unit_ids.add(unit.id)
+            reviews.append(
+                _uncertain_unit_review(
+                    unit,
+                    "The model did not return one unique review for this statement.",
+                )
+            )
+            continue
+        classification = str(raw.get("classification", "")).strip().lower()
+        reason = " ".join(str(raw.get("reason", "")).split())
+        attribute_ref = str(raw.get("attribute_ref", "")).strip()
+        raw_targets = raw.get("targets")
+        raw_targets = raw_targets if isinstance(raw_targets, list) else []
+        if (
+            classification not in {
+                "target", "context_only", "non_scalar", "range_or_set",
+                "non_numeric", "uncertain",
+            }
+            or not reason
+            or (attribute_ref and attribute_ref not in attributes_by_name)
+        ):
+            retry_unit_ids.add(unit.id)
+            reviews.append(
+                _uncertain_unit_review(
+                    unit,
+                    "The model returned an invalid statement classification.",
+                    attribute_ref=(
+                        attribute_ref if attribute_ref in attributes_by_name else ""
+                    ),
+                )
+            )
+            continue
+
+        if classification != "target":
+            if raw_targets:
+                retry_unit_ids.add(unit.id)
+                reviews.append(
+                    _uncertain_unit_review(
+                        unit,
+                        "A non-target statement incorrectly carried target objects.",
+                        attribute_ref=attribute_ref,
+                    )
+                )
+                continue
+            if classification == "non_numeric":
+                attribute_ref = ""
+            reviews.append(
+                QuantitativeLedgerReview(
+                    unit_id=unit.id,
+                    block_id=unit.block_id,
+                    quote=unit.quote,
+                    classification=classification,
+                    attribute_ref=attribute_ref,
+                    reason=reason,
+                )
+            )
+            continue
+
+        validated: list[QuantitativeTarget] = []
+        invalid_target = False
+        for raw_target in raw_targets:
+            if not isinstance(raw_target, dict):
+                invalid_target = True
+                continue
+            owner = str(raw_target.get("attribute_ref", "")).strip()
+            quote = " ".join(str(raw_target.get("quote", "")).split())
+            attribute = attributes_by_name.get(owner)
+            if (
+                attribute is None
+                or not attribute.target_resolved
+                or not attribute.document_target
+                or unit.block_id not in attribute.block_ids
+                or not quote
+                or not _quote_in_text(quote, unit.quote)
+            ):
+                invalid_target = True
+                continue
+            candidate = dict(raw_target)
+            candidate["provenance_spans"] = [
+                {"quote": quote, "block_ids": [unit.block_id]}
+            ]
+            candidate["ownership_reason"] = (
+                " ".join(str(raw_target.get("ownership_reason", "")).split())
+                or reason
+            )
+            mapped = _validated_targets(
+                [candidate],
+                attribute=attribute,
+                doc_text=batch_text,
+                semantic_context=batch_text,
+                allowed_target_block_ids=set(attribute.block_ids) & batch_block_ids,
+                require_document_target_support=True,
+            )
+            if len(mapped) != 1:
+                invalid_target = True
+                continue
+            validated.extend(mapped)
+        if invalid_target or not validated:
+            retry_unit_ids.add(unit.id)
+            reviews.append(
+                _uncertain_unit_review(
+                    unit,
+                    "One or more target mappings failed deterministic quote, expression, "
+                    "provenance, or field validation.",
+                    attribute_ref=(
+                        attribute_ref if attribute_ref in attributes_by_name else ""
+                    ),
+                )
+            )
+            continue
+        targets.extend(validated)
+        validated_attribute_refs = {target.attribute_ref for target in validated}
+        reviews.append(
+            QuantitativeLedgerReview(
+                unit_id=unit.id,
+                block_id=unit.block_id,
+                quote=unit.quote,
+                classification="target",
+                reason=reason,
+                attribute_ref=(
+                    next(iter(validated_attribute_refs))
+                    if len(validated_attribute_refs) == 1
                     else ""
                 ),
-                max_tokens=max_tokens,
-            )
-            parsed = parsed if isinstance(parsed, dict) else {}
-            owner_by_group.update(_validated_ownership_decisions(parsed, ambiguous))
-            if set(ambiguous).issubset(owner_by_group):
-                break
-
-    owned: dict[str, list[QuantitativeTarget]] = {name: [] for name in attributes_by_name}
-    unresolved_owners: set[str] = set()
-    for index, targets in enumerate(groups):
-        group_id = group_ids[index]
-        decision = owner_by_group.get(group_id)
-        if decision is None:
-            logger.warning(
-                "quantitative target ownership unresolved for %s; omitting target",
-                group_id,
-            )
-            unresolved_owners.update(target.attribute_ref for target in targets)
-            continue
-        owner, reason = decision
-        owned[owner].extend(_owned_targets_for_group(targets, owner, reason))
-
-    resolved: list[Attribute] = []
-    for attribute in attributes:
-        targets = owned[attribute.name]
-        if attribute.name in unresolved_owners:
-            resolved.append(
-                replace(
-                    attribute,
-                    quantitative_targets=targets,
-                    quantitative_target_status="uncertain",
-                    quantitative_target_status_reason=(
-                        "Numeric target ownership could not be resolved safely."
-                    ),
-                )
-            )
-        elif attribute.quantitative_targets and not targets:
-            resolved.append(
-                replace(
-                    attribute,
-                    quantitative_targets=[],
-                    quantitative_target_status="not_applicable",
-                    quantitative_target_status_reason=(
-                        "Numeric claims were assigned to a more specific canonical field."
-                    ),
-                )
-            )
-        else:
-            resolved.append(replace(attribute, quantitative_targets=targets))
-    return resolved
-
-
-def _owned_targets_for_group(
-    targets: list[QuantitativeTarget],
-    owner: str,
-    reason: str,
-) -> list[QuantitativeTarget]:
-    """Retain the chosen field's atomic variants and merge matching provenance."""
-    selected_by_key: dict[tuple[object, ...], QuantitativeTarget] = {}
-    for target in targets:
-        if target.attribute_ref != owner:
-            continue
-        key = _semantic_target_key(target, include_owner=False)
-        selected_by_key.setdefault(key, target)
-
-    output: list[QuantitativeTarget] = []
-    for key, selected in selected_by_key.items():
-        spans: list[DocumentSpan] = []
-        semantic_spans: dict[str, list[DocumentSpan]] = {
-            field_name: [] for field_name in QUANTITATIVE_SEMANTIC_FIELDS
-        }
-        seen: set[tuple[str, tuple[str, ...]]] = set()
-        semantic_seen: dict[str, set[tuple[str, tuple[str, ...]]]] = {
-            field_name: set() for field_name in QUANTITATIVE_SEMANTIC_FIELDS
-        }
-        for candidate in targets:
-            if _semantic_target_key(candidate, include_owner=False) != key:
-                continue
-            for span in candidate.provenance_spans:
-                span_key = (_normalize_quote(span.quote), tuple(span.block_ids))
-                if span_key in seen:
-                    continue
-                seen.add(span_key)
-                spans.append(span)
-            for field_name, candidate_spans in candidate.semantic_provenance.items():
-                for span in candidate_spans:
-                    span_key = (_normalize_quote(span.quote), tuple(span.block_ids))
-                    if span_key in semantic_seen[field_name]:
-                        continue
-                    semantic_seen[field_name].add(span_key)
-                    semantic_spans[field_name].append(span)
-        output.append(
-            replace(
-                selected,
-                provenance_spans=spans,
-                doc_block_ids=list(
-                    dict.fromkeys(
-                        block_id for span in spans for block_id in span.block_ids
-                    )
-                ),
-                semantic_provenance=semantic_spans,
-                quote=spans[0].quote,
-                ownership_reason=reason,
-                id="",
+                target_ids=[target.id for target in validated],
             )
         )
-    return output
+    return _QuantitativeBatchValidation(
+        result=QuantitativeLedgerBatchResult(reviews=reviews, targets=targets),
+        retry_unit_ids=retry_unit_ids,
+    )
 
 
-def _target_ownership_groups(
+def assemble_quantitative_document_ledger(
+    attributes: list[Attribute],
+    batches: list[QuantitativeLedgerBatch],
+    results: list[QuantitativeLedgerBatchResult],
+) -> tuple[list[Attribute], QuantitativeLedger]:
+    """Merge batch outputs once and derive every field-local quantitative view."""
+    reviews = [review for result in results for review in result.reviews]
+    targets = _merge_document_targets(
+        [target for result in results for target in result.targets]
+    )
+    known_target_ids = {target.id for target in targets}
+    reviews = [
+        replace(
+            review,
+            target_ids=[
+                target_id
+                for target_id in review.target_ids
+                if target_id in known_target_ids
+            ],
+        )
+        for review in reviews
+    ]
+    uncertain_count = sum(review.classification == "uncertain" for review in reviews)
+    numeric_non_targets = sum(
+        review.classification
+        in {"context_only", "non_scalar", "range_or_set", "uncertain"}
+        for review in reviews
+    )
+    if uncertain_count:
+        status = "uncertain"
+    elif targets or numeric_non_targets:
+        status = "complete"
+    else:
+        status = "not_applicable"
+    reason = (
+        f"Reviewed {len(reviews)} non-overlapping document statements; mapped "
+        f"{len(targets)} numeric targets; retained {numeric_non_targets} numeric "
+        f"non-target statements; {uncertain_count} statements remain uncertain."
+    )
+    ledger = QuantitativeLedger(
+        status=status,
+        reason=reason,
+        block_ids=list(
+            dict.fromkeys(
+                block.id for batch in batches for block in batch.blocks
+            )
+        ),
+        reviews=reviews,
+        targets=targets,
+    )
+    return _project_ledger_to_attributes(attributes, ledger), ledger
+
+
+def _statement_units(block: ContentBlock) -> list[QuantitativeStatementUnit]:
+    units: list[QuantitativeStatementUnit] = []
+    ordinal = 0
+    for raw_line in (block.content or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Semicolons commonly separate independently qualified numeric claims
+        # inside one table cell.  Splitting only at this explicit delimiter
+        # avoids language-specific sentence heuristics.
+        pieces = [piece.strip() for piece in re.split(r"\s*;\s*", line) if piece.strip()]
+        for piece in pieces:
+            material = f"{block.id}\n{ordinal}\n{piece}"
+            unit_id = "qlu-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+            units.append(
+                QuantitativeStatementUnit(
+                    id=unit_id,
+                    block_id=block.id,
+                    quote=piece,
+                )
+            )
+            ordinal += 1
+    if not units and block.image:
+        material = f"{block.id}\nvisual"
+        units.append(
+            QuantitativeStatementUnit(
+                id="qlu-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16],
+                block_id=block.id,
+                quote="[visual content]",
+            )
+        )
+    return units
+
+
+def _uncertain_unit_review(
+    unit: QuantitativeStatementUnit,
+    reason: str,
+    *,
+    attribute_ref: str = "",
+) -> QuantitativeLedgerReview:
+    return QuantitativeLedgerReview(
+        unit_id=unit.id,
+        block_id=unit.block_id,
+        quote=unit.quote,
+        classification="uncertain",
+        reason=reason,
+        attribute_ref=attribute_ref,
+    )
+
+
+def _merge_document_targets(
     targets: list[QuantitativeTarget],
-) -> list[list[QuantitativeTarget]]:
-    """Join semantically repeated or overlapping cross-field claim families.
-
-    The owner decision is field-level: when a broad field emits one compound
-    target and a specific field emits atomic population variants from the same
-    passage, the specific field wins while all of its atomic variants survive.
-    """
-    if not targets:
-        return []
-    parents = list(range(len(targets)))
-
-    def find(index: int) -> int:
-        while parents[index] != index:
-            parents[index] = parents[parents[index]]
-            index = parents[index]
-        return index
-
-    def union(left: int, right: int) -> None:
-        left_root, right_root = find(left), find(right)
-        if left_root != right_root:
-            parents[right_root] = left_root
-
-    first_by_semantic_key: dict[tuple[object, ...], int] = {}
-    for index, target in enumerate(targets):
-        key = _semantic_target_key(target, include_owner=False)
-        first = first_by_semantic_key.setdefault(key, index)
-        union(first, index)
-
-    for left, left_target in enumerate(targets):
-        for right in range(left + 1, len(targets)):
-            right_target = targets[right]
-            if (
-                left_target.attribute_ref != right_target.attribute_ref
-                and _overlapping_document_claim(left_target, right_target)
-            ):
-                union(left, right)
-
-    grouped: dict[int, list[QuantitativeTarget]] = {}
-    for index, target in enumerate(targets):
-        grouped.setdefault(find(index), []).append(target)
-    return list(grouped.values())
+) -> list[QuantitativeTarget]:
+    merged: dict[str, QuantitativeTarget] = {}
+    for target in targets:
+        existing = merged.get(target.id)
+        if existing is None:
+            merged[target.id] = target
+            continue
+        spans = list(existing.provenance_spans)
+        span_keys = {(_normalize_quote(span.quote), tuple(span.block_ids)) for span in spans}
+        spans.extend(
+            span for span in target.provenance_spans
+            if (_normalize_quote(span.quote), tuple(span.block_ids)) not in span_keys
+        )
+        semantic_provenance: dict[str, list[DocumentSpan]] = {}
+        for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+            field_spans = list(existing.semantic_provenance.get(field_name, []))
+            field_keys = {
+                (_normalize_quote(span.quote), tuple(span.block_ids))
+                for span in field_spans
+            }
+            field_spans.extend(
+                span for span in target.semantic_provenance.get(field_name, [])
+                if (_normalize_quote(span.quote), tuple(span.block_ids)) not in field_keys
+            )
+            semantic_provenance[field_name] = field_spans
+        merged[target.id] = replace(
+            existing,
+            provenance_spans=spans,
+            semantic_provenance=semantic_provenance,
+            id=existing.id,
+        )
+    return list(merged.values())
 
 
-def _overlapping_document_claim(
-    left: QuantitativeTarget,
-    right: QuantitativeTarget,
-) -> bool:
-    if (
-        (left.role != right.role and "other" not in {left.role, right.role})
-        or left.comparator != right.comparator
-        or not math.isclose(left.value, right.value, rel_tol=1e-9, abs_tol=1e-9)
-        or _canonical_unit(left.unit) != _canonical_unit(right.unit)
-    ):
-        return False
-    for left_span in left.provenance_spans:
-        left_quote = _normalize_quote(left_span.quote).strip(" .;,:\t")
-        left_blocks = set(left_span.block_ids)
-        for right_span in right.provenance_spans:
-            if not left_blocks.intersection(right_span.block_ids):
-                continue
-            right_quote = _normalize_quote(right_span.quote).strip(" .;,:\t")
-            if left_quote in right_quote or right_quote in left_quote:
-                return True
-    return False
+def _project_ledger_to_attributes(
+    attributes: list[Attribute],
+    ledger: QuantitativeLedger,
+) -> list[Attribute]:
+    targets_by_attribute: dict[str, list[QuantitativeTarget]] = {
+        attribute.name: [] for attribute in attributes
+    }
+    for target in ledger.targets:
+        targets_by_attribute[target.attribute_ref].append(target)
+    attributes_by_block: dict[str, set[str]] = {}
+    for attribute in attributes:
+        for block_id in attribute.block_ids:
+            attributes_by_block.setdefault(block_id, set()).add(attribute.name)
+    dispositions_by_attribute: dict[str, list[QuantitativeStatementDisposition]] = {
+        attribute.name: [] for attribute in attributes
+    }
+    for review in ledger.reviews:
+        if (
+            review.attribute_ref in dispositions_by_attribute
+            and review.attribute_ref
+            in attributes_by_block.get(review.block_id, set())
+            and review.classification
+            in {"context_only", "non_scalar", "range_or_set", "uncertain"}
+        ):
+            dispositions_by_attribute[review.attribute_ref].append(
+                QuantitativeStatementDisposition(
+                    quote=review.quote,
+                    block_ids=[review.block_id],
+                    disposition=review.classification,
+                    reason=review.reason,
+                    attribute_ref=review.attribute_ref,
+                )
+            )
+    uncertain_attribute_refs: set[str] = set()
+    for review in ledger.reviews:
+        owners = attributes_by_block.get(review.block_id, set())
+        if review.classification != "uncertain":
+            continue
+        if review.attribute_ref in owners:
+            uncertain_attribute_refs.add(review.attribute_ref)
+        elif len(owners) == 1:
+            uncertain_attribute_refs.update(owners)
+    projected: list[Attribute] = []
+    for attribute in attributes:
+        targets = targets_by_attribute[attribute.name]
+        dispositions = dispositions_by_attribute[attribute.name]
+        block_ids = list(
+            dict.fromkeys(
+                [
+                    *attribute.block_ids,
+                    *(block_id for target in targets for block_id in target.doc_block_ids),
+                ]
+            )
+        )
+        document_target = attribute.document_target
+        document_spans = list(attribute.document_spans)
+        if targets:
+            document_spans = list(
+                {
+                    (span.quote, tuple(span.block_ids)): span
+                    for span in [
+                        *document_spans,
+                        *(
+                            span
+                            for target in targets
+                            for span in target.provenance_spans
+                        ),
+                    ]
+                }.values()
+            )
+        if document_spans:
+            document_target = " ".join(
+                dict.fromkeys(span.quote for span in document_spans)
+            )
+        if targets:
+            status = "present"
+            status_reason = (
+                f"The document ledger assigned {len(targets)} independently "
+                "calibratable numeric target(s) to this field."
+            )
+        elif attribute.name in uncertain_attribute_refs:
+            status = "uncertain"
+            status_reason = (
+                "One or more statements in this field's source blocks could not be "
+                "mapped or validated safely."
+            )
+        else:
+            status = "not_applicable"
+            status_reason = (
+                "The complete document ledger assigned no independently calibratable "
+                "numeric target to this field."
+            )
+        projected.append(
+            replace(
+                attribute,
+                block_ids=block_ids,
+                document_target=document_target,
+                document_spans=document_spans,
+                target_resolved=attribute.target_resolved or bool(document_target),
+                quantitative_targets=targets,
+                quantitative_statement_dispositions=dispositions,
+                quantitative_target_status=status,
+                quantitative_target_status_reason=status_reason,
+            )
+        )
+    return projected
+
+
+def _document_ledger_system_prompt(
+    attributes: list[Attribute],
+    *,
+    indication: str,
+    intervention_class: str,
+    framing: str,
+) -> str:
+    field_catalog = "\n".join(
+        f"- {attribute.name}: {attribute.description}"
+        for attribute in attributes
+    )
+    framing = (
+        framing.strip()
+        or "Interpret each statement according to the uploaded document's own role."
+    ).replace("{intervention_class}", intervention_class).replace(
+        "{indication}", indication
+    )
+    return (
+        "You create one document-first quantitative statement ledger. The supplied "
+        "statement units are non-overlapping and each unit must appear exactly once in "
+        "reviews. Do not read the same unit once per field.\n\n"
+        f"Product class: {intervention_class}. Indication: {indication}.\n"
+        f"Document framing: {framing}\n\n"
+        "Canonical fields:\n"
+        f"{field_catalog}\n\n"
+        "For every unit choose target, context_only, non_scalar, range_or_set, "
+        "non_numeric, or uncertain. Use uncertain instead of guessing. A target is an "
+        "explicit exact or directional scalar that can be compared independently. Split "
+        "distinct roles, populations, regimens, time horizons, and semicolon-delimited "
+        "claims into atomic target objects. A unit may contain multiple target objects. "
+        "For each target choose exactly one canonical attribute_ref from the catalog; "
+        "never use a broad field when a specific field directly names the quantity. "
+        "If a non-target clearly belongs to one field, set its attribute_ref; otherwise "
+        "use an empty string. A [visual content] unit may be classified non_numeric when "
+        "the image has no numeric claim; otherwise classify it uncertain because it has "
+        "no exact source text from which a target can be verified.\n\n"
+        "Target quote must be an exact substring of that unit and must support the value, "
+        "operator, and unit. Numeric syntax may come only from the unit. The surrounding "
+        "source block may establish threshold/optimal role and semantic meaning. Preserve "
+        "the document's row or endpoint label. semantic_profile and comparison_dimensions "
+        "use measure, endpoint, intervention, population, regimen, time_horizon, statistic, "
+        "and conditions. Cite each specified/other semantic value in semantic_provenance "
+        "using exact supplied block text. Essential unresolved meaning must be unknown and "
+        "comparison-required. Conditions includes only settings that change numeric "
+        "interpretation. Do not judge whether external evidence passes the target.\n\n"
+        "For non-target reviews targets must be empty. For target reviews include every "
+        "atomic target in the unit. Copy unit IDs exactly. Return only the schema JSON."
+    )
+
+
+def _document_ledger_user_message(batch: QuantitativeLedgerBatch) -> str:
+    units = "\n".join(
+        f"[unit:{unit.id}] [block:{unit.block_id}] {unit.quote}"
+        for unit in batch.units
+    )
+    return (
+        "Original source blocks (structural context):\n"
+        f"{render_document_context(batch.blocks)}\n\n"
+        "Review each statement unit exactly once:\n"
+        f"{units}"
+    )
 
 
 def _validated_targets(
@@ -712,6 +1019,8 @@ def _validated_targets(
     attribute: Attribute,
     doc_text: str,
     semantic_context: str,
+    allowed_target_block_ids: set[str] | None = None,
+    require_document_target_support: bool = True,
 ) -> list[QuantitativeTarget]:
     if not isinstance(items, list):
         return []
@@ -719,7 +1028,11 @@ def _validated_targets(
     # found in relevance-selected context. Both the rendered input and the
     # binding must authorize its exact source block.
     rendered_ids = document_block_ids(doc_text)
-    allowed_ids = set(attribute.block_ids)
+    allowed_ids = (
+        set(allowed_target_block_ids)
+        if allowed_target_block_ids is not None
+        else set(attribute.block_ids)
+    )
     if rendered_ids:
         allowed_ids &= rendered_ids
     semantic_allowed_ids = document_block_ids(semantic_context)
@@ -729,7 +1042,7 @@ def _validated_targets(
             continue
         expression = _validated_numeric_expression(item.get("expression"))
         role = str(item.get("role", "other")).strip().lower()
-        quote = str(item.get("quote", "")).strip()
+        raw_dimensions = item.get("comparison_dimensions")
         semantic_profile = _validated_semantic_profile(item.get("semantic_profile"))
         ownership_reason = str(item.get("ownership_reason", "")).strip()
         if (
@@ -737,6 +1050,25 @@ def _validated_targets(
             or expression.kind != "bound"
             or role not in VALID_TARGET_ROLES
             or semantic_profile is None
+            or not isinstance(raw_dimensions, list)
+        ):
+            continue
+        comparison_dimensions = list(
+            dict.fromkeys(
+                str(value).strip()
+                for value in raw_dimensions
+                if isinstance(value, str)
+            )
+        )
+        asserted_dimensions = {
+            field_name
+            for field_name, slot in semantic_profile.items()
+            if slot.state in {"specified", "other"}
+        }
+        if (
+            "measure" not in comparison_dimensions
+            or set(comparison_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS)
+            or not asserted_dimensions.issubset(comparison_dimensions)
         ):
             continue
         semantic_provenance = _validated_semantic_provenance(
@@ -753,7 +1085,7 @@ def _validated_targets(
         unit = expression.unit
         raw_spans = item.get("provenance_spans")
         if not isinstance(raw_spans, list) or not raw_spans:
-            raw_spans = [{"quote": quote, "block_ids": item.get("doc_block_ids")}]
+            continue
         spans: list[DocumentSpan] = []
         seen_spans: set[tuple[str, tuple[str, ...]]] = set()
         for raw_span in raw_spans:
@@ -771,16 +1103,20 @@ def _validated_targets(
                 or not _quote_in_text(span_quote, span_text)
                 or not _value_unit_supported(float(value), unit, span_quote)
                 or not _comparator_supported(comparator, span_quote)
+                or not _is_atomic_bound_span(expression, span_quote)
             ):
                 continue
             seen_spans.add(span_key)
             spans.append(DocumentSpan(quote=span_quote, block_ids=span_ids))
-        if (
-            not spans
-            or not _target_supported_by_binding(
-                float(value), comparator, unit, attribute.document_target
-            )
-        ):
+        if not spans:
+            continue
+        if require_document_target_support and not _target_supported_by_binding(
+                float(value),
+                comparator,
+                unit,
+                attribute.document_target,
+                supporting_quotes=[span.quote for span in spans],
+            ):
             continue
         target = QuantitativeTarget(
             attribute_ref=attribute.name,
@@ -790,6 +1126,7 @@ def _validated_targets(
             doc_block_ids=list(
                 dict.fromkeys(block_id for span in spans for block_id in span.block_ids)
             ),
+            comparison_dimensions=comparison_dimensions,
             semantic_profile=semantic_profile,
             semantic_provenance=semantic_provenance,
             provenance_spans=spans,
@@ -1096,11 +1433,7 @@ def _validated_semantic_slot(raw: object) -> SemanticSlot | None:
 
 def _required_comparison_axes(target: QuantitativeTarget) -> set[str]:
     """Return target dimensions whose compatibility is necessary for admission."""
-    return {
-        field_name
-        for field_name, slot in target.semantic_profile.items()
-        if slot.state in {"specified", "other"}
-    }
+    return set(target.comparison_dimensions)
 
 
 def _derived_semantic_status(
@@ -1154,162 +1487,6 @@ def _derived_semantic_status(
         "comparable",
         "The source owns the result and every required target dimension is compatible.",
     )
-
-
-def _target_system_prompt(
-    attribute: Attribute,
-    indication: str,
-    intervention_class: str,
-    *,
-    framing: str = "",
-) -> str:
-    framing = (
-        framing.strip()
-        or "Interpret each numeric statement according to the uploaded document's own role."
-    ).replace("{intervention_class}", intervention_class).replace(
-        "{indication}", indication
-    )
-    return (
-        "You normalize exact quantitative document targets for ONE variable into atomic "
-        "semantic records.\n\n"
-        f"Product class: {intervention_class}. Indication: {indication}.\n"
-        f"Variable: {attribute.name}\nDefinition: {attribute.description}\n"
-        f"Canonical binding: {attribute.document_target or '(not stated)'}\n"
-        f"Document-specific interpretation:\n{framing}\n\n"
-        "Return EVERY distinct exact or directional scalar target directly stated for this variable. "
-        "Split compound cells into atomic targets: adult and pediatric values, optimal and "
-        "threshold values, and different time horizons are separate objects. A repeated semantic "
-        "target is one object even when the document states it in multiple places; include every "
-        "exact occurrence in provenance_spans. "
-        "For each target return expression={kind:bound,value,comparator,unit} and "
-        "role=threshold|optimal|other. In each provenance_span, "
-        "quote the shortest exact fragment that uniquely supports this ONE value and its "
-        "qualifiers; never return a whole compound row when a shorter fragment is available. "
-        "Normalize meaning into semantic_profile with exactly these fields: measure, endpoint, "
-        "intervention, population, regimen, time_horizon, statistic, conditions. conditions holds "
-        "ONLY a compact measurement setting that changes numeric interpretation or comparability, "
-        "such as 'at 37 C' or 'field trial rather than CHMI'. Do not put implementation feasibility, "
-        "policy or donor authorities, acceptability, rationale, evidence requirements, or surrounding "
-        "prose in conditions. Each field is an object with "
-        "state=specified|not_specified|unknown|other, value, and other. specified requires a concise "
-        "value; other requires an explanation in other; absent qualifiers are not_specified; use "
-        "unknown only when the document is ambiguous. measure must be specified. Use the document's "
-        "own terminology and never make a semantic value more specific than its cited text. Every "
-        "specified value (or other explanation) must be directly and completely supported by one of "
-        "that field's exact semantic-provenance spans; the span must contain enough text to audit the "
-        "normalization and cannot be only a heading or label. Resolve generic words such as 'response' "
-        "or 'protection' from an explicit cited document definition; otherwise use unknown rather than "
-        "guessing the endpoint. The unit "
-        "definition and product configuration explain the task but are not evidence. For every specified "
-        "or other field, semantic_provenance must contain at least one shortest exact supporting quote "
-        "and its block IDs from the supplied definition context; absent and unknown fields must cite none. "
-        "The numeric expression and role may come ONLY from canonical target blocks. Definition-context "
-        "blocks may clarify meaning but may not donate another field's numeric target. Semantic-profile "
-        "values describe meaning and qualifiers only; never repeat the target's own numeric magnitude "
-        "inside any semantic field. The expression unit must be only the actual numeric unit; a qualifier "
-        "such as 'at 37 C' belongs in conditions, never in unit. Use comparator '=' for an exact scalar target "
-        "such as 'two doses'. Use a directional comparator only when the quoted wording supplies that "
-        "direction. Do not force a true interval or choice set into one scalar bound; retain any other "
-        "independently supported exact or directional targets from the same field. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} Deterministic code verifies every field. Also return "
-        "status=present|not_applicable|uncertain and a concise status_reason. Use not_applicable "
-        "only when the field clearly has no exact or directional scalar target; use uncertain when the "
-        "wording may contain one but cannot be mapped faithfully. If no validated direct numeric "
-        "target exists, return an empty targets list.\n\n"
-        "Set ownership_reason to an empty string here; cross-field ownership is resolved "
-        "by the dedicated ownership stage. Include null lower/upper expression fields.\n\n"
-        "Return ONLY JSON: "
-        '{"status":"present","status_reason":"The field states a response threshold.",'
-        '"targets":[{"expression":{"kind":"bound","value":80,'
-        '"lower":null,"upper":null,"comparator":">","unit":"%"},"role":"threshold",'
-        '"semantic_profile":{"measure":{"state":"specified","value":"response rate","other":""},'
-        '"endpoint":{"state":"specified","value":"document-defined outcome","other":""},'
-        '"intervention":{"state":"not_specified","value":"","other":""},'
-        '"population":{"state":"not_specified","value":"","other":""},'
-        '"regimen":{"state":"not_specified","value":"","other":""},'
-        '"time_horizon":{"state":"specified","value":"6 months","other":""},'
-        '"statistic":{"state":"specified","value":"response rate","other":""},'
-        '"conditions":{"state":"not_specified","value":"","other":""}},'
-        '"semantic_provenance":{'
-        '"measure":[{"quote":"Threshold response rate >80% at 6 months.","block_ids":["document/b-0001"]}],'
-        '"endpoint":[{"quote":"The response measures the document-defined outcome.","block_ids":["document/b-0002"]}],'
-        '"intervention":[],"population":[],"regimen":[],'
-        '"time_horizon":[{"quote":"Threshold response rate >80% at 6 months.","block_ids":["document/b-0001"]}],'
-        '"statistic":[{"quote":"Threshold response rate >80% at 6 months.","block_ids":["document/b-0001"]}],'
-        '"conditions":[]},"provenance_spans":['
-        '{"quote":"Threshold response rate >80% at 6 months.",'
-        '"block_ids":["document/b-0001"]}],"ownership_reason":""}]}'
-    )
-
-
-def _ownership_system_prompt() -> str:
-    return (
-        "You assign each overlapping document-target family to ONE canonical field owner. "
-        "A family may contain multiple atomic qualifier variants from the same source "
-        "claim; choose the owning field, not a preferred variant. Every atomic variant "
-        "emitted by the winning field is retained. Target values, comparators, units, "
-        "quotes, semantic qualifiers, and block provenance are immutable. "
-        "Choose only among each group's candidate attribute_ref values. Select the most "
-        "specific neutral field definition that directly describes the measured quantity. "
-        "Do not choose a broad product/container field when a candidate field explicitly "
-        "names the quantity. Do not assign an efficacy value to a clinical-endpoint field: "
-        "the endpoint field owns what is measured, while efficacy owns the numeric effect. "
-        "Likewise, dose volume belongs to dose volume rather than presentation or schedule. "
-        "This is ownership normalization, not evidence judgment. Return one non-empty reason "
-        "for every group and do not invent another field.\n\n"
-        "Return ONLY JSON: "
-        '{"owners":[{"group_id":"qg-...","attribute_ref":"vaccine.efficacy",'
-        '"reason":"The value directly measures protective efficacy."}]}'
-    )
-
-
-def _ownership_user_message(
-    groups: dict[str, list[QuantitativeTarget]],
-    attributes: dict[str, Attribute],
-) -> str:
-    lines = ["Overlapping document-target families:"]
-    for group_id, targets in groups.items():
-        target = targets[0]
-        lines.extend(
-            [
-                "",
-                f"[group:{group_id}] {target.role} {target.comparator} "
-                f"{target.value} {target.unit}",
-                f"Exact target: {target.quote}",
-                "Candidate fields:",
-            ]
-        )
-        for candidate in targets:
-            attribute = attributes[candidate.attribute_ref]
-            binding = " ".join(attribute.document_target.split())[:1_200]
-            lines.append(
-                f"- {attribute.name}: {attribute.description} | canonical binding: {binding}"
-            )
-    lines.append("\nReturn one canonical owner for every group now.")
-    return "\n".join(lines)
-
-
-def _validated_ownership_decisions(
-    parsed: dict,
-    groups: dict[str, list[QuantitativeTarget]],
-) -> dict[str, tuple[str, str]]:
-    raw = parsed.get("owners")
-    if not isinstance(raw, list):
-        return {}
-    output: dict[str, tuple[str, str]] = {}
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        group_id = str(item.get("group_id", "")).strip()
-        owner = str(item.get("attribute_ref", "")).strip()
-        reason = str(item.get("reason", "")).strip()
-        candidates = {
-            target.attribute_ref for target in groups.get(group_id, [])
-        }
-        if group_id in output or owner not in candidates or not reason:
-            continue
-        output[group_id] = (owner, reason[:500])
-    return output
 
 
 def _semantic_profile_json(profile: dict[str, SemanticSlot]) -> str:
@@ -1441,49 +1618,48 @@ def _expression_supported(expression: NumericExpression, quote: str) -> bool:
     return bool(_NUMBER_RE.search(quote))
 
 
-def _semantic_target_key(
-    target: QuantitativeTarget,
-    *,
-    include_owner: bool,
-) -> tuple[object, ...]:
-    profile = tuple(
-        (
-            field_name,
-            slot.state,
-            slot.value.casefold(),
-            slot.other.casefold(),
-        )
-        for field_name, slot in target.semantic_profile.items()
-    )
-    return (
-        *((target.attribute_ref,) if include_owner else ()),
-        target.role,
-        target.comparator,
-        target.value,
-        _canonical_unit(target.unit),
-        profile,
-    )
+def _is_atomic_bound_span(expression: NumericExpression, quote: str) -> bool:
+    """Reject a range or choice that was incorrectly collapsed into one bound.
+
+    This validates numeric grammar only. It does not infer clinical meaning: a
+    bound is atomic only when its exact span couples one distinct value to the
+    target unit. Time-horizon and other differently-unitized qualifiers remain
+    available to the semantic profile.
+    """
+    if expression.kind != "bound" or expression.value is None:
+        return False
+    if _contains_same_unit_range_or_choice(quote, expression.unit):
+        return False
+    values = {
+        round(value, 12)
+        for value in _numeric_values_for_unit(quote, expression.unit)
+    }
+    return values == {round(expression.value, 12)}
 
 
-def _target_user_message(
-    attribute: Attribute,
-    binding_text: str,
-    semantic_context: str,
-) -> str:
-    return "\n".join(
-        (
-            f"Variable: {attribute.name}",
-            f"Definition: {attribute.description}",
-            f"Canonical binding: {attribute.document_target or '(not stated)'}",
-            f"Known canonical binding blocks: {', '.join(attribute.block_ids) or '(none)'}",
-            "",
-            "Canonical target blocks (only these may supply numeric targets):",
-            limit_document_context(binding_text),
-            "",
-            "Bounded document definition context (may clarify cited meaning only):",
-            limit_document_context(semantic_context),
-            "",
-            "Enumerate the independent numeric targets now.",
+def _contains_same_unit_range_or_choice(text: str, unit: str) -> bool:
+    """Recognize two values sharing one trailing unit as non-atomic syntax."""
+    number = (
+        r"(?:[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.·]\d+)?"
+        rf"|\b(?:{_NUMBER_WORD_PATTERN})\b)"
+    )
+    canonical = _canonical_unit(unit)
+    unit_patterns = {
+        "%": r"(?:%|percent(?:age)?\b|pct\b)",
+        "year": r"(?:years?|yrs?)\b",
+        "years": r"(?:years?|yrs?)\b",
+        "month": r"(?:months?|mos?)\b",
+        "months": r"(?:months?|mos?)\b",
+        "hour": r"(?:hours?|hrs?)\b",
+        "hours": r"(?:hours?|hrs?)\b",
+    }
+    unit_pattern = unit_patterns.get(canonical, re.escape(unit.strip()))
+    connector = r"(?:-|–|—|\bto\b|\bthrough\b|\bor\b|\band\b)"
+    return bool(
+        re.search(
+            rf"{number}\s*{connector}\s*{number}\s*{unit_pattern}",
+            text,
+            re.IGNORECASE,
         )
     )
 
@@ -1668,10 +1844,6 @@ _NUMBER_WORD_PATTERN = "|".join(_NUMBER_WORD_VALUES)
 _NUMBER_WORD_RE = re.compile(rf"\b(?:{_NUMBER_WORD_PATTERN})\b", re.IGNORECASE)
 
 
-def _looks_numeric_target(text: str) -> bool:
-    return bool(text and (_NUMBER_RE.search(text) or _NUMBER_WORD_RE.search(text)))
-
-
 def _value_unit_supported(value: float, unit: str, quote: str) -> bool:
     """Require the selected number to be grammatically coupled to its unit."""
     return any(
@@ -1705,6 +1877,8 @@ def _target_supported_by_binding(
     comparator: str,
     unit: str,
     binding: str,
+    *,
+    supporting_quotes: list[str],
 ) -> bool:
     """Require the canonical field binding itself to own the numeric target.
 
@@ -1713,10 +1887,20 @@ def _target_supported_by_binding(
     an incompletely bound target, but it prevents a neighboring field from
     donating one.
     """
-    return (
-        bool(binding)
-        and _value_unit_supported(value, unit, binding)
-        and _comparator_supported(comparator, binding)
+    if not binding or not _value_unit_supported(value, unit, binding):
+        return False
+    if any(
+        _quote_in_text(quote, binding)
+        and _value_unit_supported(value, unit, quote)
+        and _comparator_supported(comparator, quote)
+        for quote in supporting_quotes
+    ):
+        return True
+    clauses = re.split(r"(?<=[.;])\s+|\n+", binding)
+    return any(
+        _value_unit_supported(value, unit, clause)
+        and _comparator_supported(comparator, clause)
+        for clause in clauses
     )
 
 

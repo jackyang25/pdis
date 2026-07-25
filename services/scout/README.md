@@ -15,11 +15,14 @@ TPP definitions and IPDP claims converge to one `Attribute` before retrieval:
 | `description` | Neutral definition of the field |
 | `document_target` | Faithful document claim or commitment |
 | `block_ids` | Exact blocks supporting the target |
+| `document_spans` | Exact quote-to-block provenance that deterministically derives the target and block IDs |
 | `definition_mode` | `fixed` vocabulary or `dynamic` extraction provenance |
 | `target_resolved` | Binding completed, including an intentionally absent target |
+| `target_resolution_reason` | Explicit binding outcome or fail-closed reason |
 | `evidence_domain` | Closed source-applicability domain |
 | `entities` | Explicit document-stated typed entities |
 | `quantitative_targets` | Atomic numeric claims with one canonical field owner, one shared `NumericExpression`, immutable semantic IDs, exact provenance spans, roles, and a typed target semantic profile |
+| `quantitative_statement_dispositions` | Cited contextual, non-scalar, range/set, or uncertain numeric statements that were intentionally not calibrated |
 | `quantitative_target_status` | Explicitly distinguishes a present target, a non-numeric field, and unresolved wording |
 
 No reasoning stage may rewrite this canonical target.
@@ -89,9 +92,9 @@ as external evidence underneath it.
 
 1. **parse** - chunker parses each uploaded doc without section mapping.
 2. **validate context** - a conservative, block-cited check compares the configured indication with the document. A clear mismatch stops before retrieval; absent or ambiguous context remains `uncertain`, never guessed or silently rewritten.
-3. **resolve targets** - fixed TPP definitions are bound to the document's exact target, blocks, and explicitly stated entities; dynamic IPDP units arrive already bound. Both have the same canonical shape, including one closed evidence domain, with `definition_mode` preserving only their provider provenance. Fixed domains are authored in the shared vocabulary; dynamic domains are selected from the same enum.
-4. **bind quantitative targets** - the model enumerates every independently calibratable exact or directional scalar claim from the resolved field. Numeric expressions may come only from canonical binding blocks. A bounded neighboring/definition context may clarify meaning, but every specified semantic field must cite its own exact document span. `conditions` is limited to compact measurement settings that change comparability; policy, feasibility, rationale, and implementation prose stay outside the numeric contract. The model separates the actual unit from semantic conditions; deterministic code verifies the exact quote, numeric token (including common written numbers), comparison operator, unit coupling, role, and document blocks without maintaining a domain-specific unit vocabulary. Overlapping cross-field claim families receive one canonical field owner; the winning field retains all of its atomic role/population/time variants. This bundle becomes part of the canonical `Attribute` before retrieval.
-5. **per-unit query intents** - LLM generates document-aware intents from the canonical definition and target across general, geographic, counterfactual, and precedent tracks. The general track must cover every verified quantitative target. Numeric retrieval descriptors reuse the target's canonical semantic dimensions and unit while mechanically omitting any phrase that restates its magnitude/unit, as well as its comparator and threshold/optimal role, so evidence on either side remains discoverable. Numeric-spelling variants such as decimal commas and written numbers are checked before a target-linked query is accepted. Each intent carries both block lineage and the target IDs it was designed to cover.
+3. **resolve the document claim ledger** - fixed TPP decisions are requested in bounded output groups over ordered, block-aligned document chunks. Every group sees the complete field catalog, so batching limits response size without turning fields into isolated interpretations. Decisions bind to exact quoted spans, blocks, and explicitly stated entities; the chunk decisions merge into one document ledger. Only structurally missing or invalid decisions are retried once; remaining uncertainty is retained with a reason and stops before numeric interpretation or retrieval. Dynamic IPDP units arrive already bound from their block-aligned extraction. Both paths produce the same canonical `Attribute` ledger, including one closed evidence domain, with `definition_mode` preserving only provider provenance. Fixed domains are authored in the shared vocabulary; dynamic domains are selected from the same enum.
+4. **map the document-first numeric ledger** - Scout partitions all nonempty document blocks into stable, non-overlapping statement units and reviews each unit exactly once against the complete canonical field catalog. Independently comparable exact or directional scalars become atomic targets owned by one resolved, document-present field; conditions, numeric categories, ranges/sets, nonnumeric text, and unresolved wording receive explicit classifications. Only structurally missing or invalid reviews are retried once by statement ID. Remaining uncertainty stops before retrieval. Numeric expressions may come only from exact unit quotes and cannot override the claim ledger or cross a field's canonical cited blocks. Code verifies expression grammar, units, operators, field keys, semantic citations, and block lineage. Per-field target arrays and status text are projections of this ledger; no field independently re-extracts targets and no ownership-repair pass follows it.
+5. **per-unit query intents** - only resolved fields with document-present targets continue. The LLM generates document-aware intents from the canonical definition and target across general, geographic, counterfactual, and precedent tracks. The general track must cover every verified quantitative target. Numeric retrieval descriptors reuse the target's canonical semantic dimensions and unit while mechanically omitting any phrase that restates its magnitude/unit, as well as its comparator and threshold/optimal role, so evidence on either side remains discoverable. Numeric-spelling variants such as decimal commas and written numbers are checked before a target-linked query is accepted. Each intent carries both block lineage and the target IDs it was designed to cover.
 6. **plan + search** - Scout converts units to Searcher's neutral `RetrievalIntent`. The generic controller compares the unit's evidence domain and document-stated entity types with each enabled adapter's declared capabilities. Applicable adapters receive the complete bundle and independently compile source-native requests; non-applicable adapters emit explicit traced skips without connector calls. The controller centrally attaches target lineage to every compiled request and verifies complete intent coverage, so source adapters do not duplicate this policy. It then executes fair per-source queues with adapter-owned rate/concurrency policy. `search_plan` retains every native request or skip, its exact input intent IDs/texts, applicability reason, status, document blocks, quantitative target IDs, track, result count, and source URLs. URL dedupe preserves every retrieval path and the exact lanes supplying title, excerpt, and publication date.
 7. **deterministic projections** - typed development and safety records are grouped into a development landscape and safety-signal view. Missing fields remain missing; no LLM or source-specific parsing runs in Scout.
 8. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches from evidence-role Findings only. Reference-only catalog/entity records cannot influence reasoning. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs. Insights retain which target-specific requests retrieved their sources, explicitly as coverage rather than evidence support.
@@ -110,8 +113,8 @@ the original document.
 |---|---|---|---|
 | Indication preflight | Bounded document-wide block view and configured indication | Cited `DocumentContextValidation` | Fields, targets, or evidence judgments |
 | Unit provider | Fixed shared vocabulary, or large block-aligned document chunks for dynamic plans | Neutral unit definition and exact document claim in `Attribute` | Retrieval grammar or evidence meaning |
-| Field binding | Broad per-field resolution view with a document-wide safety net | One faithful `document_target`, exact block IDs, explicit entities | Numeric calibration or external evidence |
-| Numeric target binding | Exact field-owned target blocks for numeric syntax; bounded, block-cited definition context for semantic qualifiers | Atomic `QuantitativeTarget` records with expression, role, semantic profile, and exact provenance | Source interpretation or cohort statistics |
+| Document claim ledger | Complete fixed-field catalog plus one ordered block-aligned document chunk per bounded output group, or block-aligned dynamic-plan extraction | Canonical `Attribute`s with exact quoted targets, block IDs, explicit entities, and fail-closed unresolved reasons | Numeric calibration or external evidence |
+| Numeric statement ledger | Every non-overlapping document statement, its source block, and the complete canonical field catalog | One reviewed document ledger with atomic targets or explicit non-target/uncertain classifications | Source interpretation or cohort statistics |
 | Query generation | Canonical `Attribute` and threshold-neutral target descriptors | Source-neutral `QueryIntent`s with block and target lineage | Source grammar, credentials, or result parsing |
 | Source planning/execution | Complete intent bundle and adapter capability metadata | Source-native requests and normalized `Finding`s | Document interpretation |
 | Insight extraction | One field definition plus bounded external Findings | Atomic source-cited `Insight`s | Document comparison or target rewriting |
@@ -139,12 +142,22 @@ number/operator/unit support, complete lineage, field ownership, source identity
 deduplication, and rollups. A schema-valid response therefore cannot bypass
 provenance or semantic admission.
 
-Long documents are not truncated from the end. Fixed vocabulary units receive a
-relevance-selected context with neighboring blocks and a document-wide safety
-net while their canonical binding is resolved. Quantitative semantic resolution
-then receives a bounded context seeded by the binding and its structural halo;
-numeric expressions remain restricted to the binding blocks, while each
-specified semantic field must cite an exact span from that bounded context.
+Claim-ledger schemas enumerate the complete canonical block IDs available in
+their document chunk. This prevents a model from shortening a stable ID while
+preserving exact membership validation; suffix and fuzzy ID repair remain
+forbidden.
+
+Fixed vocabulary units are resolved through bounded output groups over ordered
+block-aligned chunks, always with the complete field catalog. This prevents
+neighboring fields from independently claiming the same statement while
+avoiding oversized responses. Quantitative interpretation is separate: the
+complete document is partitioned into bounded batches of
+non-overlapping statement units. Every unit ID must be returned exactly once,
+and each target must quote its own unit. A numeric target may be assigned only to
+a resolved field and a statement inside that field's canonical cited blocks.
+Missing or invalid decisions receive one targeted retry; remaining failures stay
+explicitly unresolved and stop the run before retrieval rather than being
+silently repaired downstream.
 Query generation and later reasoning consume the resulting canonical target.
 Parallel calls are isolated by variable and `_parallel_map` preserves input order.
 

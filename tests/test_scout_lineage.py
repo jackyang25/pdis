@@ -13,7 +13,6 @@ from services.assistant import document as document_reader
 from services.scout.context import (
     render_canonical_binding,
     select_binding_context,
-    select_resolution_context,
     validated_block_ids,
 )
 from services.scout.projections import (
@@ -33,16 +32,14 @@ from services.scout.models import (
     load_config,
 )
 from services.scout.stages.conformity import (
+    _document_ledger_system_prompt,
     _measurement_system_prompt,
     _expression_supported,
     _meets_target,
     _partition_cohort,
-    _target_system_prompt,
+    _validated_targets,
     _validated_measurement_semantic_assessment,
     _value_unit_supported,
-    extract_quantitative_target_set,
-    extract_quantitative_targets,
-    resolve_quantitative_target_ownership,
     score_conformity as _score_conformity_ledgers,
 )
 from services.scout.stages.context_validator import (
@@ -60,10 +57,6 @@ from services.scout.stages.query_extractor import (
     extract_queries_for_variable,
 )
 from services.scout.stages.intent_builder import build_retrieval_intents
-from services.scout.stages.target_resolver import (
-    DEFAULT_MAX_TOKENS as TARGET_RESOLVER_MAX_TOKENS,
-    resolve_document_target,
-)
 from services.scout.stages.unit_extractor import _document_chunks, extract_units
 from services.searcher import (
     DevelopmentRecord,
@@ -130,12 +123,12 @@ def normalize_conformity_fixture(
     """Adapt historical fixtures at the test boundary to the current wire contract."""
     if not isinstance(response, dict):
         return response
-    if "normalize exact quantitative document targets" in system_prompt.lower():
+    if "complete numeric-statement ledger" in system_prompt.lower():
         if "targets" in response:
             return {
                 **response,
-                "status": response.get("status", "present"),
                 "status_reason": response.get("status_reason", "Fixture contains targets."),
+                "excluded_statements": response.get("excluded_statements", []),
                 "targets": [
                     {
                         **target,
@@ -151,6 +144,14 @@ def normalize_conformity_fixture(
                             "semantic_profile",
                             semantic_profile(str(target.get("label", "numeric measure"))),
                         ),
+                        "comparison_dimensions": target.get("comparison_dimensions") or [
+                            field_name
+                            for field_name, slot in target.get(
+                                "semantic_profile",
+                                semantic_profile(str(target.get("label", "numeric measure"))),
+                            ).items()
+                            if slot["state"] in {"specified", "other"}
+                        ],
                         "semantic_provenance": target.get("semantic_provenance")
                         or semantic_provenance(
                             target.get(
@@ -160,6 +161,10 @@ def normalize_conformity_fixture(
                             target.get("quote", ""),
                             target.get("doc_block_ids", []),
                         ),
+                        "provenance_spans": target.get("provenance_spans") or [{
+                            "quote": target.get("quote", ""),
+                            "block_ids": target.get("doc_block_ids", []),
+                        }],
                     }
                     for target in response.get("targets", [])
                     if isinstance(target, dict)
@@ -167,13 +172,13 @@ def normalize_conformity_fixture(
             }
         if not response.get("is_quantitative"):
             return {
-                "status": "not_applicable",
                 "status_reason": "Fixture has no numeric target.",
                 "targets": [],
+                "excluded_statements": response.get("excluded_statements", []),
             }
         return {
-            "status": "present",
             "status_reason": "Fixture contains a numeric target.",
+            "excluded_statements": [],
             "targets": [
                 {
                     "expression": {
@@ -185,6 +190,14 @@ def normalize_conformity_fixture(
                         "unit": response.get("unit"),
                     },
                     "role": "threshold",
+                    "comparison_dimensions": [
+                        field_name
+                        for field_name, slot in (
+                            response.get("semantic_profile")
+                            or semantic_profile(str(response.get("target_label", "numeric measure")))
+                        ).items()
+                        if slot["state"] in {"specified", "other"}
+                    ],
                     "quote": response.get("target_quote"),
                     "doc_block_ids": response.get("doc_block_ids", []),
                     "semantic_profile": response.get("semantic_profile") or semantic_profile(
@@ -197,6 +210,10 @@ def normalize_conformity_fixture(
                         str(response.get("target_quote", "")),
                         response.get("doc_block_ids", []),
                     ),
+                    "provenance_spans": [{
+                        "quote": response.get("target_quote", ""),
+                        "block_ids": response.get("doc_block_ids", []),
+                    }],
                 }
             ]
         }
@@ -258,6 +275,43 @@ def semantic_provenance(profile: dict, quote: str, block_ids: list[str]) -> dict
         field_name: [span] if slot["state"] in {"specified", "other"} else []
         for field_name, slot in profile.items()
     }
+
+
+def extract_quantitative_targets(
+    attribute,
+    document,
+    client,
+    *,
+    semantic_context="",
+    **_kwargs,
+):
+    """Exercise the shared deterministic validator with historical fixtures."""
+    parsed = json.loads(
+        client.call(
+            "complete numeric-statement ledger",
+            document,
+            16_000,
+        )
+    )
+    return _validated_targets(
+        parsed.get("targets") if isinstance(parsed, dict) else None,
+        attribute=attribute,
+        doc_text=document,
+        semantic_context=semantic_context or document,
+    )
+
+
+def extract_quantitative_target_set(*args, **kwargs):
+    targets = extract_quantitative_targets(*args, **kwargs)
+    return type(
+        "TargetFixtureResult",
+        (),
+        {
+            "status": "present" if targets else "uncertain",
+            "targets": targets,
+            "dispositions": [],
+        },
+    )()
 
 
 def score_conformity_ledgers(attribute, document, insights, client, **kwargs):
@@ -840,154 +894,6 @@ class RetrievalPlanningTests(unittest.TestCase):
         )
         self.assertEqual(set(requests[0].target_refs), {target.id for target in targets})
 
-    def test_repeated_numeric_claim_has_one_canonical_field_owner(self) -> None:
-        shared = dict(
-            expression=NumericExpression(
-                kind="bound", value=0.5, comparator="<", unit="mL/dose"
-            ),
-            quote="Dose volume: <0.5 mL/dose for pediatric use.",
-            doc_block_ids=["document/b-0003"],
-        )
-        attributes = [
-            Attribute(
-                name="vaccine.product",
-                description="Candidate platform and formulation",
-                document_target=shared["quote"],
-                block_ids=shared["doc_block_ids"],
-                target_resolved=True,
-                quantitative_targets=[
-                    QuantitativeTarget(
-                        attribute_ref="vaccine.product",
-                        role="other",
-                        semantic_profile=semantic_profile("formulation dose volume"),
-                        **shared,
-                    )
-                ],
-            ),
-            Attribute(
-                name="vaccine.dose_volume",
-                description="Volume per dose in mL",
-                document_target=shared["quote"],
-                block_ids=shared["doc_block_ids"],
-                target_resolved=True,
-                quantitative_targets=[
-                    QuantitativeTarget(
-                        attribute_ref="vaccine.dose_volume",
-                        role="optimal",
-                        semantic_profile=semantic_profile("dose volume in mL per dose"),
-                        **shared,
-                    )
-                ],
-            ),
-        ]
-
-        class OwnershipClient:
-            def call(self, system_prompt, user_message, max_tokens, *, images=None):
-                group_id = re.search(r"\[group:(qg-[a-f0-9]+)\]", user_message)
-                assert group_id is not None
-                return json.dumps(
-                    {
-                        "owners": [
-                            {
-                                "group_id": group_id.group(1),
-                                "attribute_ref": "vaccine.dose_volume",
-                                "reason": "This field directly names the measured quantity.",
-                            }
-                        ]
-                    }
-                )
-
-        resolved = resolve_quantitative_target_ownership(
-            attributes, OwnershipClient()
-        )
-
-        self.assertEqual(resolved[0].quantitative_targets, [])
-        self.assertEqual(resolved[0].quantitative_target_status, "not_applicable")
-        self.assertIn(
-            "more specific canonical field",
-            resolved[0].quantitative_target_status_reason,
-        )
-        self.assertEqual(len(resolved[1].quantitative_targets), 1)
-        target = resolved[1].quantitative_targets[0]
-        self.assertEqual(target.attribute_ref, "vaccine.dose_volume")
-        self.assertIn("directly names", target.ownership_reason)
-
-    def test_field_ownership_retains_specific_atomic_population_variants(self) -> None:
-        quote = "Dose count: up to three doses for pediatric and adult use."
-        block_ids = ["document/b-0003"]
-
-        def profile(population: str) -> dict:
-            value = semantic_profile("primary-series dose count")
-            value["population"] = {
-                "state": "specified",
-                "value": population,
-                "other": "",
-            }
-            return value
-
-        expression = NumericExpression(
-            kind="bound", value=3, comparator="<=", unit="doses"
-        )
-        broad = QuantitativeTarget(
-            attribute_ref="drug.product",
-            expression=expression,
-            role="threshold",
-            quote=quote,
-            doc_block_ids=block_ids,
-            semantic_profile=profile("pediatric and adult"),
-        )
-        specific = [
-            QuantitativeTarget(
-                attribute_ref="drug.dose_count",
-                expression=expression,
-                role="threshold",
-                quote="up to three doses for pediatric and adult use",
-                doc_block_ids=block_ids,
-                semantic_profile=profile(population),
-            )
-            for population in ("pediatric", "adult")
-        ]
-        attributes = [
-            Attribute(
-                "drug.product",
-                "Candidate and formulation",
-                document_target=quote,
-                block_ids=block_ids,
-                target_resolved=True,
-                quantitative_targets=[broad],
-            ),
-            Attribute(
-                "drug.dose_count",
-                "Number of doses in the primary series",
-                document_target=quote,
-                block_ids=block_ids,
-                target_resolved=True,
-                quantitative_targets=specific,
-            ),
-        ]
-
-        class OwnershipClient:
-            def call(self, system_prompt, user_message, max_tokens, *, images=None):
-                group_id = re.search(r"\[group:(qg-[a-f0-9]+)\]", user_message)
-                assert group_id is not None
-                return json.dumps({
-                    "owners": [{
-                        "group_id": group_id.group(1),
-                        "attribute_ref": "drug.dose_count",
-                        "reason": "The specific field owns the measured dose count.",
-                    }]
-                })
-
-        resolved = resolve_quantitative_target_ownership(attributes, OwnershipClient())
-
-        self.assertEqual(resolved[0].quantitative_targets, [])
-        retained = resolved[1].quantitative_targets
-        self.assertEqual(len(retained), 2)
-        self.assertEqual(
-            {target.semantic_profile["population"].value for target in retained},
-            {"pediatric", "adult"},
-        )
-
     def test_query_projection_removes_only_the_target_magnitude(self) -> None:
         profile = semantic_profile("storage temperature tolerance")
         profile["endpoint"] = {
@@ -1184,7 +1090,12 @@ class DocumentContextTests(unittest.TestCase):
                     "name": "timeline",
                     "description": "Regulatory approval timing and feasibility.",
                     "evidence_domain": "regulatory",
-                    "document_target": "Approval is targeted for 2030.",
+                    "spans": [
+                        {
+                            "quote": "RTS,S approval is targeted for 2030.",
+                            "block_ids": ["document/b-0002"],
+                        }
+                    ],
                     "entities": [
                         {
                             "name": "RTS,S",
@@ -1192,13 +1103,12 @@ class DocumentContextTests(unittest.TestCase):
                             "identifier": "",
                         }
                     ],
-                    "block_ids": ["document/b-0002"],
                 }
             ]
         )
 
         units = extract_units(
-            "[block:document/b-0002]\n[image]",
+            "[block:document/b-0002]\nRTS,S approval is targeted for 2030.",
             intervention_class="vaccine",
             source_type="ipdp",
             indication="malaria",
@@ -1212,7 +1122,10 @@ class DocumentContextTests(unittest.TestCase):
             units[0].description,
             "Regulatory approval timing and feasibility.",
         )
-        self.assertEqual(units[0].document_target, "Approval is targeted for 2030.")
+        self.assertEqual(
+            units[0].document_target,
+            "RTS,S approval is targeted for 2030.",
+        )
         self.assertEqual(units[0].evidence_domain, "regulatory")
         self.assertEqual(units[0].entities[0].name, "RTS,S")
         self.assertEqual(units[0].entities[0].entity_type, "vaccine")
@@ -1226,89 +1139,6 @@ class DocumentContextTests(unittest.TestCase):
                 }
             ],
         )
-
-    def test_fixed_and_dynamic_units_converge_to_the_same_bound_shape(self) -> None:
-        fixed_client = StaticClient(
-            {
-                "document_target": "Complete Phase 2 by 2028.",
-                "block_ids": ["[block:document/b-0002]", "invented/b-9999"],
-            }
-        )
-        fixed = resolve_document_target(
-            Attribute(
-                name="clinical_development_timeline",
-                description="Timing and feasibility of clinical development milestones.",
-                definition_mode="fixed",
-            ),
-            "[block:document/b-0002]\nComplete Phase 2 by 2028.",
-            fixed_client,
-        )
-        dynamic_client = StaticClient({"unexpected": True})
-        dynamic = resolve_document_target(
-            Attribute(
-                name="clinical_development_timeline",
-                description="Timing and feasibility of clinical development milestones.",
-                block_ids=["document/b-0002"],
-                document_target="Complete Phase 2 by 2028.",
-                definition_mode="dynamic",
-                target_resolved=True,
-            ),
-            "[block:document/b-0002]\nComplete Phase 2 by 2028.",
-            dynamic_client,
-        )
-
-        for unit in (fixed, dynamic):
-            self.assertEqual(unit.name, "clinical_development_timeline")
-            self.assertEqual(
-                unit.description,
-                "Timing and feasibility of clinical development milestones.",
-            )
-            self.assertEqual(unit.document_target, "Complete Phase 2 by 2028.")
-            self.assertEqual(unit.block_ids, ["document/b-0002"])
-            self.assertTrue(unit.target_resolved)
-        self.assertEqual(fixed.definition_mode, "fixed")
-        self.assertEqual(dynamic.definition_mode, "dynamic")
-        self.assertEqual(fixed_client.calls, 1)
-        self.assertEqual(
-            fixed_client.token_budgets,
-            [TARGET_RESOLVER_MAX_TOKENS],
-        )
-        self.assertEqual(dynamic_client.calls, 0)
-
-    def test_fixed_target_without_exact_lineage_fails_closed_after_retry(self) -> None:
-        client = StaticClient(
-            {
-                "document_target": "Complete Phase 2 by 2028.",
-                "block_ids": ["b-0002"],
-            }
-        )
-
-        resolved = resolve_document_target(
-            Attribute(
-                name="clinical_development_timeline",
-                description="Timing and feasibility of clinical development milestones.",
-                definition_mode="fixed",
-            ),
-            "[block:document/b-0002]\nComplete Phase 2 by 2028.",
-            client,
-        )
-
-        self.assertEqual(client.calls, 2)
-        self.assertTrue(resolved.target_resolved)
-        self.assertEqual(resolved.document_target, "")
-        self.assertEqual(resolved.block_ids, [])
-
-    def test_extracted_unit_origin_survives_bounded_selection(self) -> None:
-        blocks = [block(i, "generic content " * 15) for i in range(20)]
-        attribute = Attribute(
-            name="timeline",
-            description="A milestone date",
-            block_ids=["document/b-0012"],
-        )
-
-        context = select_resolution_context(blocks, attribute, max_chars=1_200)
-
-        self.assertIn("[block:document/b-0012]", context)
 
     def test_reasoning_binding_excludes_adjacent_table_cell_content(self) -> None:
         blocks = [
@@ -2155,30 +1985,67 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(targets[0].comparator, "=")
         self.assertEqual(targets[0].value, 2)
 
-    def test_numeric_not_applicable_status_survives_retry(self) -> None:
-        document = "[block:document/b-0003]\nPhase 4 follow-up is described qualitatively."
+    def test_target_range_cannot_be_collapsed_into_one_scalar(self) -> None:
+        document = "[block:document/b-0003]\nDuration is 2 to 3 years."
         attribute = replace(
             self.attribute,
-            name="drug.follow_up",
-            document_target="Phase 4 follow-up is described qualitatively.",
+            name="drug.duration",
+            document_target="Duration is 2 to 3 years.",
             block_ids=["document/b-0003"],
         )
-        response = {
-            "status": "not_applicable",
-            "status_reason": "Phase 4 names a stage, not a directional target.",
-            "targets": [],
-        }
-
         extraction = extract_quantitative_target_set(
             attribute,
             document,
-            SequenceClient([response, response]),
+            StaticClient({
+                "targets": [{
+                    "expression": {
+                        "kind": "bound",
+                        "value": 3,
+                        "comparator": "=",
+                        "unit": "years",
+                    },
+                    "role": "other",
+                    "quote": "Duration is 2 to 3 years.",
+                    "doc_block_ids": ["document/b-0003"],
+                    "semantic_profile": semantic_profile("duration"),
+                }],
+            }),
             indication="example condition",
             intervention_class="drug",
         )
 
-        self.assertEqual(extraction.status, "not_applicable")
+        self.assertEqual(extraction.status, "uncertain")
         self.assertEqual(extraction.targets, [])
+
+    def test_hyphenated_positive_range_cannot_become_negative_scalar(self) -> None:
+        document = "[block:document/b-0003]\nObserved efficacy was 36-50%."
+        attribute = replace(
+            self.attribute,
+            document_target="Observed efficacy was 36-50%.",
+            block_ids=["document/b-0003"],
+        )
+        targets = extract_quantitative_targets(
+            attribute,
+            document,
+            StaticClient({
+                "targets": [{
+                    "expression": {
+                        "kind": "bound",
+                        "value": -50,
+                        "comparator": "=",
+                        "unit": "%",
+                    },
+                    "role": "other",
+                    "quote": "Observed efficacy was 36-50%.",
+                    "doc_block_ids": ["document/b-0003"],
+                    "semantic_profile": semantic_profile("efficacy"),
+                }],
+            }),
+            indication="example condition",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(targets, [])
 
     def test_target_contract_separates_unit_from_conditions(self) -> None:
         attribute = replace(
@@ -2187,15 +2054,18 @@ class ReasoningLineageTests(unittest.TestCase):
             document_target="Stable for at least 6 hours at 37°C.",
             block_ids=["document/b-0003"],
         )
-        prompt = _target_system_prompt(
-            attribute,
+        prompt = _document_ledger_system_prompt(
+            [attribute],
             indication="example condition",
             intervention_class="diagnostic",
+            framing="",
         )
 
-        self.assertIn("actual numeric unit", prompt)
-        self.assertIn("belongs in conditions, never in unit", prompt)
-        self.assertIn("measurement setting that changes numeric", prompt)
+        self.assertIn("canonical fields", prompt.lower())
+        self.assertIn("exact substring", prompt)
+        self.assertIn("Conditions includes only settings", prompt)
+        self.assertIn("change numeric interpretation", prompt)
+        self.assertIn("unknown and comparison-required", prompt)
 
     def test_identical_scalar_under_multiple_roles_preserves_both_roles(self) -> None:
         document = (
@@ -2397,7 +2267,7 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(result.benchmark_count, 0)
         self.assertEqual(result.verdict, "No validated claim-compatible comparators")
 
-    def test_conformity_retries_an_apparently_numeric_target_that_was_missed(self) -> None:
+    def test_conformity_does_not_retry_and_rank_an_omitted_numeric_target(self) -> None:
         attribute = Attribute(
             name="efficacy",
             description="Target product efficacy",
@@ -2430,8 +2300,8 @@ class ReasoningLineageTests(unittest.TestCase):
             intervention_class="vaccine",
         )
 
-        self.assertIsNotNone(result)
-        self.assertEqual(client.calls, 2)
+        self.assertIsNone(result)
+        self.assertEqual(client.calls, 1)
 
     def test_conformity_calibrates_target_against_validated_benchmarks(self) -> None:
         client = StaticClient(
@@ -2802,7 +2672,7 @@ class ReasoningLineageTests(unittest.TestCase):
         class WrongSpanClient(StaticClient):
             def call(self, system_prompt, user_message, max_tokens, *, images=None):
                 self.calls += 1
-                if "normalize exact quantitative document targets" in system_prompt.lower():
+                if "complete numeric-statement ledger" in system_prompt.lower():
                     return json.dumps(normalize_conformity_fixture(
                         target_response, system_prompt, user_message
                     ))

@@ -279,10 +279,42 @@ class QuantitativeTargetOut(BaseModel):
     role: Literal["threshold", "optimal", "other"]
     quote: str
     doc_block_ids: list[str] = Field(default_factory=list)
+    comparison_dimensions: list[Literal[
+        "measure", "endpoint", "intervention", "population", "regimen",
+        "time_horizon", "statistic", "conditions",
+    ]] = Field(min_length=1)
     semantic_profile: QuantitativeSemanticProfileOut
     semantic_provenance: dict[str, list[DocumentSpanOut]]
     provenance_spans: list[DocumentSpanOut] = Field(min_length=1)
     ownership_reason: str = ""
+
+
+class QuantitativeStatementDispositionOut(BaseModel):
+    quote: str
+    block_ids: list[str] = Field(min_length=1)
+    disposition: Literal["context_only", "non_scalar", "range_or_set", "uncertain"]
+    reason: str
+    attribute_ref: str = ""
+
+
+class QuantitativeLedgerReviewOut(BaseModel):
+    unit_id: str
+    block_id: str
+    quote: str
+    classification: Literal[
+        "target", "context_only", "non_scalar", "range_or_set", "non_numeric", "uncertain"
+    ]
+    reason: str
+    attribute_ref: str = ""
+    target_ids: list[str] = Field(default_factory=list)
+
+
+class QuantitativeLedgerOut(BaseModel):
+    status: Literal["complete", "not_applicable", "uncertain"]
+    reason: str = ""
+    block_ids: list[str] = Field(default_factory=list)
+    reviews: list[QuantitativeLedgerReviewOut] = Field(default_factory=list)
+    targets: list[QuantitativeTargetOut] = Field(default_factory=list)
 
 
 class VariableOut(BaseModel):
@@ -290,11 +322,16 @@ class VariableOut(BaseModel):
     description: str
     block_ids: list[str] = Field(default_factory=list)
     document_target: str = ""
+    document_spans: list[DocumentSpanOut] = Field(default_factory=list)
     definition_mode: Literal["fixed", "dynamic"] = "fixed"
     target_resolved: bool = False
+    target_resolution_reason: str = ""
     evidence_domain: str = "general"
     entities: list[EvidenceEntityOut] = Field(default_factory=list)
     quantitative_targets: list[QuantitativeTargetOut] = Field(default_factory=list)
+    quantitative_statement_dispositions: list[QuantitativeStatementDispositionOut] = Field(
+        default_factory=list
+    )
     quantitative_target_status: Literal[
         "not_evaluated", "present", "not_applicable", "uncertain"
     ] = "not_evaluated"
@@ -430,6 +467,7 @@ class ScoutRunResponse(BaseModel):
     intervention_class: str
     indication: str
     context_validation: DocumentContextValidationOut
+    quantitative_ledger: QuantitativeLedgerOut
     variables: list[VariableOut]
     search_plan: list[SearchTraceOut] = Field(default_factory=list)
     matches: list[MatchOut]

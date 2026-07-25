@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 
 from ..ai import request_structured
-from ..ai_contracts import CONTEXT_VALIDATION
+from ..ai_contracts import context_validation
 from ..context import (
     BLOCK_ID_JSON_INSTRUCTION,
     document_block_ids,
@@ -43,12 +43,14 @@ def validate_document_context(
             reason="The uploaded document contained no readable content to validate.",
         )
 
-    allowed_ids = document_block_ids(document_context)
+    bounded_context = limit_document_context(document_context)
+    allowed_ids = document_block_ids(bounded_context)
+    contract = context_validation(sorted(allowed_ids))
     parsed = request_structured(
         llm_client,
-        CONTEXT_VALIDATION,
+        contract,
         _system_prompt(configured),
-        _user_message(document_context),
+        _user_message(bounded_context),
         max_tokens=max_tokens,
         images=images,
     )
@@ -56,9 +58,9 @@ def validate_document_context(
         logger.warning("context_validator produced no structured decision; retrying once")
         parsed = request_structured(
             llm_client,
-            CONTEXT_VALIDATION,
+            contract,
             _system_prompt(configured),
-            _user_message(document_context),
+            _user_message(bounded_context),
             max_tokens=max_tokens,
             images=images,
         )
@@ -127,6 +129,6 @@ def _system_prompt(indication: str) -> str:
 def _user_message(document_context: str) -> str:
     return (
         "Uploaded document blocks:\n"
-        f"{limit_document_context(document_context)}\n\n"
+        f"{document_context}\n\n"
         "Validate the configured indication now."
     )

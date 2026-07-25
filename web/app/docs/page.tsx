@@ -54,7 +54,7 @@ const QUERY_TRACKS = [
 const EVIDENCE_AXES = [
   ["Target relationship", "Conflicts · Adds context · Supports · Unrelated", "How one insight relates to the canonical document target."],
   ["Grounding", "Well grounded · Partial · Thin · Unsupported · Unknown", "How strongly selected evidence justifies the target."],
-  ["Quantitative calibration", "Validated comparator cohort", "AI maps exact spans into one typed semantic profile; code verifies provenance, numeric integrity, deduplication, and arithmetic."],
+  ["Quantitative calibration", "Document ledger → validated comparator cohort", "Each document statement is mapped once; code verifies target provenance, source comparability, deduplication, and arithmetic."],
   ["Precedent", "Direct · Adjacent · None · Unknown", "Whether comparable prior work exists; its outcome is reported separately."],
 ] as const;
 
@@ -211,8 +211,10 @@ export default function DocsPage() {
               a population estimate, confidence interval, probability of success, or causal claim.
             </Warning>
             <Note title="How numeric evidence is admitted">
-              Document targets and source measurements share one numeric-expression shape and one
-              semantic profile. Scout reviews each bounded source-owned passage as a whole and
+              Scout first reviews each non-overlapping document statement once and projects its
+              validated targets onto canonical fields. Missing or invalid mappings remain explicit
+              uncertainty. Document targets and source measurements then share one numeric-expression
+              shape and one semantic profile. Scout reviews each bounded source-owned passage as a whole and
               returns complete exact-quoted measurements, no relevant measurement, or uncertain.
               Code then verifies the quote, every number, operator, unit, URL, and source identity;
               only comparable atomic scalars in the target unit enter the statistics.

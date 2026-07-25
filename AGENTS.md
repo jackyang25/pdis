@@ -225,8 +225,12 @@ Scout's four result axes are intentionally orthogonal:
   same typed profile (`measure`, `endpoint`, `intervention`,
   `population`, `regimen`, `time_horizon`, `statistic`, `conditions`) whose slots distinguish
   `specified`, `not_specified`, `unknown`, and `other`. One measurement semantic
-  assessment co-locates each normalized source dimension with a closed
-  `yes | no | unknown` compatibility decision and source ownership.
+  assessment returns only dimensions constrained by that target, co-locating
+  each normalized source value with a closed `yes | no | unknown` compatibility
+  decision and source ownership; code fills unconstrained slots with neutral
+  defaults to preserve the full public shape. `conditions` is only a compact
+  measurement setting that changes numeric comparability, never rationale,
+  policy, acceptability, or implementation prose.
   Deterministic code derives the aggregate
   `comparable | contextual | incompatible | unknown` disposition using only
   dimensions actually constrained by the target; ambiguous target dimensions
@@ -247,6 +251,14 @@ AI may select or label evidence only from closed, semantically distinct enums.
 Deterministic code validates document IDs, insight IDs, URLs, units, provenance,
 deduplication and rollups. Do not restore holistic “basis” tags.
 
+Scout AI mappings use strict schemas from `services/scout/ai_contracts.py`
+through `services/scout/ai.py` and `OpenAIClient.call_structured`. Do not add
+stage-local JSON/fence recovery or treat schema validity as provenance validity.
+Original-document authority narrows monotonically: document-wide context may
+validate configuration; field-resolution context binds meaning; exact binding
+blocks own numeric syntax. Downstream retrieval and calibration consume that
+canonical target and must not independently reinterpret the uploaded document.
+
 ## Ask and saved-result contract
 
 - Ask is read-only and result-agnostic. It navigates result JSON, parsed document
@@ -255,7 +267,7 @@ deduplication and rollups. Do not restore holistic “basis” tags.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 22, separating analysis from
+  (`web/lib/result-file.ts`), currently version 23, separating analysis from
   `source_documents`.
 - A completed Scout run is the sole producer of its quantitative ledgers. Export
   and import preserve that canonical result without rerunning or mutating any

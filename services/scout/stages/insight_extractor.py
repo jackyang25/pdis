@@ -7,12 +7,13 @@ Findings by URL. We then re-attach the full Finding objects.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 
 from services.searcher import Finding
 
+from ..ai import request_structured
+from ..ai_contracts import INSIGHT_BATCH
 from ..models import Insight, LLMClientProtocol
 
 logger = logging.getLogger(__name__)
@@ -45,15 +46,22 @@ def extract_insights(
     )
     user_message = _user_message(findings, query_tracks=query_tracks)
 
-    raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
-    parsed = _parse_insights(raw)
-    if not parsed and raw.strip():
-        # A non-empty but unparseable reply is a transient formatting glitch -
-        # worth one retry. An EMPTY reply means the model found nothing to
-        # extract or the prompt was refused by content policy; that won't
-        # change on retry, so skip it quietly instead of spamming + re-calling.
-        raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
-        parsed = _parse_insights(raw)
+    parsed = request_structured(
+        llm_client,
+        INSIGHT_BATCH,
+        system_prompt,
+        user_message,
+        max_tokens=max_tokens,
+    )
+    if not isinstance(parsed, list):
+        parsed = request_structured(
+            llm_client,
+            INSIGHT_BATCH,
+            system_prompt,
+            user_message,
+            max_tokens=max_tokens,
+        )
+    parsed = _validated_insights(parsed)
 
     findings_by_url = {f.url: f for f in findings}
     insights: list[Insight] = []
@@ -145,11 +153,9 @@ def _system_prompt(
         "they are not observed results. State them as planned only when that planning fact is "
         "itself relevant to this variable.\n"
         "- Do not invent facts not present in the findings.\n\n"
-        "Return ONLY JSON. No markdown, no preamble. Format:\n"
-        "[\n"
+        "Return the insights in the structured `insights` array. Items:\n"
         '  {"statement": "...", "supporting_finding_urls": ["https://...", "https://..."]},\n'
-        "  ...\n"
-        "]"
+        "  ..."
     )
 
 
@@ -217,31 +223,7 @@ def merge_duplicate_insights(insights: list[Insight]) -> list[Insight]:
     return out
 
 
-def _parse_insights(raw: str) -> list[dict]:
-    text = _strip_fences(raw).strip()
-    try:
-        parsed = json.loads(_extract_json_array(text))
-    except (json.JSONDecodeError, ValueError):
-        return []
+def _validated_insights(parsed: object) -> list[dict]:
     if not isinstance(parsed, list):
         return []
     return [p for p in parsed if isinstance(p, dict)]
-
-
-def _strip_fences(s: str) -> str:
-    m = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", s, re.DOTALL)
-    return m.group(1) if m else s
-
-
-def _extract_json_array(s: str) -> str:
-    decoder = json.JSONDecoder()
-    for i, ch in enumerate(s):
-        if ch != "[":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(s[i:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, list):
-            return s[i : i + end]
-    return s

@@ -197,9 +197,12 @@ adjacent table-cell spillover or a second interpretation downstream. When
 overlapping field definitions produce the same exact numeric claim, a closed arbitration step
 assigns it once to the most specific candidate field and retains that decision.
 Targets use an eight-slot semantic profile (measure, endpoint, intervention,
-population, regimen, time horizon, statistic, and conditions). Each source measurement has one
-semantic assessment that co-locates the normalized source value and a closed
-yes/no/unknown compatibility decision for each slot, plus source ownership.
+population, regimen, time horizon, statistic, and conditions). Conditions are
+restricted to measurement settings that affect numeric comparability. Each
+source measurement has one semantic assessment that returns only the slots
+constrained by that target, co-locating the normalized source value and a closed
+yes/no/unknown compatibility decision, plus source ownership. Code fills the
+unconstrained slots neutrally to preserve the full public contract.
 Only target-constrained slots can exclude
 a measurement; ambiguous target slots fail closed. Code derives the aggregate
 cohort disposition and never trusts a free aggregate label or rebuilds clinical

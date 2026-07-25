@@ -7,6 +7,8 @@ silently attach evidence, targets, or document citations to another field.
 
 from __future__ import annotations
 
+import math
+
 from .models import (
     QUANTITATIVE_SEMANTIC_FIELDS,
     VALID_EVIDENCE_STRENGTHS,
@@ -195,11 +197,32 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         if score.target_id in score_targets:
             raise ValueError(f"duplicate calibration for target {score.target_id!r}")
         score_targets.add(score.target_id)
+        if (
+            score.target_role != target.role
+            or not math.isclose(score.target_value, target.value)
+            or score.comparator != target.comparator
+            or score.unit != target.unit
+            or score.target_label != target.label
+            or score.target_quote != target.quote
+            or score.doc_block_ids != target.doc_block_ids
+        ):
+            raise ValueError(
+                f"calibration {score.target_id!r} drifted from its canonical target"
+            )
         _require_subset(
             score.doc_block_ids,
-            known_blocks,
+            set(target.doc_block_ids),
             f"calibration {score.target_id!r} document blocks",
         )
+        if score.benchmark_count != len(score.measurements):
+            raise ValueError(
+                f"calibration {score.target_id!r} benchmark count is inconsistent"
+            )
+        candidate_ids = [
+            measurement.candidate_id
+            for measurement in [*score.measurements, *score.excluded_measurements]
+        ]
+        _require_unique(candidate_ids, "quantitative measurement candidate ID")
         for measurement in [*score.measurements, *score.excluded_measurements]:
             _require_insight_ownership(
                 [measurement.insight_id],
@@ -207,10 +230,27 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 insight_by_id,
                 f"measurement {measurement.candidate_id!r}",
             )
+            _require_source_url(
+                measurement.url,
+                measurement.insight_id,
+                insight_by_id,
+                f"measurement {measurement.candidate_id!r}",
+            )
+        for measurement in score.measurements:
+            if measurement.semantic_status != "comparable":
+                raise ValueError(
+                    f"calibration {score.target_id!r} admitted a non-comparable measurement"
+                )
         for disposition in score.source_dispositions:
             _require_insight_ownership(
                 [disposition.insight_id],
                 score.attribute_ref,
+                insight_by_id,
+                f"source disposition {disposition.source_id!r}",
+            )
+            _require_source_url(
+                disposition.url,
+                disposition.insight_id,
                 insight_by_id,
                 f"source disposition {disposition.source_id!r}",
             )
@@ -317,3 +357,16 @@ def _require_finding_lineage(
         allowed_urls,
         f"{context} finding lineage",
     )
+
+
+def _require_source_url(
+    url: str,
+    insight_id: str,
+    insights: dict,
+    context: str,
+) -> None:
+    allowed_urls = {
+        finding.url for finding in insights[insight_id].supporting_findings
+    }
+    if not url or url not in allowed_urls:
+        raise ValueError(f"{context} references a source outside its insight lineage")

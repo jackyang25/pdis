@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Iterable
 
+from ..ai import request_structured
+from ..ai_contracts import QUERY_BATCH
 from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
 from ..models import (
     Attribute,
@@ -167,14 +168,20 @@ def _run_track(
     fallback_context: tuple[str, str, str] | None = None,
 ) -> list[QueryIntent]:
     """Run one query-generation track (call + parse, retry once on empty)."""
-    raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+    raw = request_structured(
+        llm_client,
+        QUERY_BATCH,
+        system_prompt,
+        user_message,
+        max_tokens=max_tokens,
+    )
     queries = _parse_queries(
         raw,
         allowed_block_ids,
         allowed_target_ids=allowed_target_ids,
         target_blocks=target_blocks,
     )
-    queries = _threshold_neutral_queries(queries, targets_by_id.values())
+    queries = _threshold_neutral_queries(queries, targets_by_id)
     missing_targets = _missing_target_ids(queries, required_target_ids or set())
     if not queries or missing_targets:
         logger.warning(
@@ -182,14 +189,20 @@ def _run_track(
             track,
             attribute_name,
         )
-        raw = llm_client.call(system_prompt, user_message, max_tokens=max_tokens)
+        raw = request_structured(
+            llm_client,
+            QUERY_BATCH,
+            system_prompt,
+            user_message,
+            max_tokens=max_tokens,
+        )
         queries = _parse_queries(
             raw,
             allowed_block_ids,
             allowed_target_ids=allowed_target_ids,
             target_blocks=target_blocks,
         )
-        queries = _threshold_neutral_queries(queries, targets_by_id.values())
+        queries = _threshold_neutral_queries(queries, targets_by_id)
     for query in queries:
         query.tracks = [track]
     queries = queries[:cap]
@@ -284,35 +297,63 @@ _NUMBER_WORDS = (
 
 
 def _restates_target_expression(text: str, target: QuantitativeTarget) -> bool:
-    """Detect the target magnitude coupled to its own unit, not other qualifiers."""
-    compact = re.sub(r"[^a-z0-9%]+", "", text.casefold())
-    unit = re.sub(r"[^a-z0-9%]+", "", target.unit.casefold())
-    if not compact or not unit:
-        return False
-    values = [re.sub(r"[^a-z0-9%]+", "", f"{target.value:g}".casefold())]
-    if target.value.is_integer():
-        integer = int(target.value)
-        if 0 <= integer < len(_NUMBER_WORDS):
-            values.append(_NUMBER_WORDS[integer])
-    return any(
-        f"{value}{unit}" in compact or f"{unit}{value}" in compact
-        for value in values
+    """Reject a target-linked phrase that repeats the hidden target magnitude.
+
+    Unit spelling is deliberately irrelevant here. A target-linked query that
+    happens to reuse the same number for another purpose is conservatively
+    retried or replaced by the threshold-neutral fallback, preserving coverage
+    without maintaining a domain-specific unit alias table.
+    """
+    folded = text.casefold().replace("·", ".")
+    number_pattern = re.compile(
+        r"(?<![a-z0-9])(?:[-+]?\d+(?:[.,]\d+)*|"
+        + "|".join(_NUMBER_WORDS)
+        + r")(?![a-z0-9])"
     )
+    for match in number_pattern.finditer(folded):
+        token = match.group(0)
+        if token in _NUMBER_WORDS:
+            candidates = {float(_NUMBER_WORDS.index(token))}
+        else:
+            candidates: set[float] = set()
+            variants = {
+                token,
+                token.replace(",", ""),
+                token.replace(".", ""),
+                token.replace(".", "").replace(",", "."),
+            }
+            for variant in variants:
+                try:
+                    candidates.add(float(variant))
+                except ValueError:
+                    continue
+        if any(abs(value - target.value) <= 1e-9 for value in candidates):
+            return True
+    return False
 
 
 def _threshold_neutral_queries(
     queries: list[QueryIntent],
-    targets: Iterable[QuantitativeTarget],
+    targets_by_id: dict[str, QuantitativeTarget],
 ) -> list[QueryIntent]:
-    target_list = list(targets)  # materialize once for every query
-    return [
-        query
-        for query in queries
-        if not any(
-            _restates_target_expression(query.text, target)
-            for target in target_list
-        )
-    ]
+    output: list[QueryIntent] = []
+    for query in queries:
+        candidate_ids = list(query.target_ids)
+        if not candidate_ids and query.doc_block_ids:
+            query_blocks = set(query.doc_block_ids)
+            candidate_ids = [
+                target_id
+                for target_id, target in targets_by_id.items()
+                if query_blocks.intersection(target.doc_block_ids)
+            ]
+        if any(
+            _restates_target_expression(query.text, targets_by_id[target_id])
+            for target_id in candidate_ids
+            if target_id in targets_by_id
+        ):
+            continue
+        output.append(query)
+    return output
 
 
 def _system_prompt_for_variable(
@@ -393,15 +434,15 @@ def _system_prompt_for_variable(
         )
     parts.append(
         f"Return EXACTLY {queries_per_variable} quer"
-        f"{'y' if queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
+        f"{'y' if queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
         "No markdown, no commentary. Each query 5-15 words. The set must be diverse "
         "across content angles, authoritative institutions, and configured languages. Each query "
         f"must be specific to the {attribute.name} variable. doc_block_ids must contain "
         "the exact uploaded-document blocks whose claim shaped that query; use [] only "
         "for a general coverage query not tied to one document claim. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} Example:\n"
-        '[{"query": "latest WHO RSV vaccine efficacy evidence", '
-        '"doc_block_ids": ["document/b-0004"], "target_ids": ["qt-..."]}]'
+        f"{BLOCK_ID_JSON_INSTRUCTION} Example item:\n"
+        '{"query": "latest WHO RSV vaccine efficacy evidence", '
+        '"doc_block_ids": ["document/b-0004"], "target_ids": ["qt-..."]}'
     )
     return "\n\n".join(parts)
 
@@ -468,7 +509,7 @@ def _system_prompt_for_geographic_variable(
         )
     parts.append(
         f"Return EXACTLY {geographic_queries_per_variable} quer"
-        f"{'y' if geographic_queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
+        f"{'y' if geographic_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
         "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
         f"{BLOCK_ID_JSON_INSTRUCTION} No markdown or commentary. "
         "Each query 5-15 words."
@@ -521,7 +562,7 @@ def _system_prompt_for_counterfactual_variable(
         )
     parts.append(
         f"Return EXACTLY {counterfactual_queries_per_variable} quer"
-        f"{'y' if counterfactual_queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
+        f"{'y' if counterfactual_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
         "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
         f"{BLOCK_ID_JSON_INSTRUCTION} No markdown or commentary. "
         "Each query 5-15 words."
@@ -576,7 +617,7 @@ def _system_prompt_for_precedent_variable(
         )
     parts.append(
         f"Return EXACTLY {precedent_queries_per_variable} quer"
-        f"{'y' if precedent_queries_per_variable == 1 else 'ies'} as a JSON array of objects. "
+        f"{'y' if precedent_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
         "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
         f"{BLOCK_ID_JSON_INSTRUCTION} No markdown or commentary. "
         "Each query 5-15 words."
@@ -614,17 +655,13 @@ def _dedupe_queries(queries: list[QueryIntent]) -> list[QueryIntent]:
 
 
 def _parse_queries(
-    raw: str,
+    raw: object,
     allowed_block_ids: set[str],
     *,
     allowed_target_ids: set[str] | None = None,
     target_blocks: dict[str, list[str]] | None = None,
 ) -> list[QueryIntent]:
-    text = _strip_fences(raw).strip()
-    try:
-        parsed = json.loads(_extract_json_array(text))
-    except (json.JSONDecodeError, ValueError):
-        return []
+    parsed = raw
     if not isinstance(parsed, list):
         return []
     out: list[QueryIntent] = []
@@ -666,22 +703,3 @@ def _parse_queries(
                 )
             )
     return out
-
-
-def _strip_fences(s: str) -> str:
-    m = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", s, re.DOTALL)
-    return m.group(1) if m else s
-
-
-def _extract_json_array(s: str) -> str:
-    decoder = json.JSONDecoder()
-    for i, ch in enumerate(s):
-        if ch != "[":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(s[i:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, list):
-            return s[i : i + end]
-    return s

@@ -10,7 +10,7 @@ import hashlib
 import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from services.searcher import EVIDENCE_DOMAINS, ENTITY_TYPES, Finding, source_keys
 
@@ -91,10 +91,11 @@ def find_config(org: str, source_type: str, intervention_class: str) -> "ScoutTy
 
 
 class LLMClientProtocol(Protocol):
-    """Contract for scout's text-LLM stages (query + insight + drift).
+    """Injected model capability required by Scout.
 
-    Capability-named, not provider-named: any client exposing `call(...)`
-    satisfies it. The concrete client (OpenAIClient today) is injected.
+    Production mappings use ``call_structured``. ``call`` remains in the
+    protocol for lightweight historical test doubles at the centralized test
+    compatibility boundary in :mod:`services.scout.ai`.
     """
 
     def call(
@@ -105,6 +106,18 @@ class LLMClientProtocol(Protocol):
         *,
         images: list[dict[str, str]] | None = None,
     ) -> str:
+        ...
+
+    def call_structured(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int,
+        *,
+        schema_name: str,
+        schema: dict[str, Any],
+        images: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any] | None:
         ...
 
 

@@ -11,11 +11,12 @@ which the pipeline treats like "no attributes" (empty result).
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 
+from ..ai import request_structured
+from ..ai_contracts import UNIT_BATCH
 from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
 from ..models import (
     Attribute,
@@ -58,25 +59,29 @@ def extract_units(
             for block_id, image in (images_by_block_id or {}).items()
             if block_id in allowed_block_ids
         ]
-        raw = llm_client.call(
+        parsed = request_structured(
+            llm_client,
+            UNIT_BATCH,
             system_prompt,
             user_message,
             max_tokens=max_tokens,
             images=images or None,
         )
-        chunk_units = _parse(raw, allowed_block_ids)
+        chunk_units = _validated_units(parsed, allowed_block_ids)
         if not chunk_units:
             logger.warning(
                 "unit_extractor produced no parsable units for chunk %d; retrying once",
                 chunk_index,
             )
-            raw = llm_client.call(
+            parsed = request_structured(
+                llm_client,
+                UNIT_BATCH,
                 system_prompt,
                 user_message,
                 max_tokens=max_tokens,
                 images=images or None,
             )
-            chunk_units = _parse(raw, allowed_block_ids)
+            chunk_units = _validated_units(parsed, allowed_block_ids)
         return chunk_units
 
     workers = max(1, min(UNIT_EXTRACTION_WORKERS, len(chunks)))
@@ -110,9 +115,9 @@ def _system_prompt(intervention_class: str, source_type: str, indication: str) -
         "- entities: only names explicitly stated in document_target whose type is one "
         f"of {', '.join(sorted(ENTITY_TYPES - {'other'}))}. Include an "
         "identifier only if the document states it.\n\n"
-        "Return ONLY a JSON array. No markdown, no commentary:\n"
-        '[{"name": "...", "description": "...", "evidence_domain": "clinical", '
-        '"document_target": "...", "block_ids": ["b-0001"], "entities": []}]'
+        "Return the units in the structured `units` array. Example item:\n"
+        '{"name": "...", "description": "...", "evidence_domain": "clinical", '
+        '"document_target": "...", "block_ids": ["b-0001"], "entities": []}'
     )
 
 
@@ -140,12 +145,7 @@ def _document_chunks(doc_text: str) -> list[str]:
     return chunks
 
 
-def _parse(raw: str, allowed_block_ids: set[str]) -> list[Attribute]:
-    text = _strip_fences(raw).strip()
-    try:
-        parsed = json.loads(_extract_json_array(text))
-    except (json.JSONDecodeError, ValueError):
-        return []
+def _validated_units(parsed: object, allowed_block_ids: set[str]) -> list[Attribute]:
     if not isinstance(parsed, list):
         return []
     out: list[Attribute] = []
@@ -228,22 +228,3 @@ def _dedupe(units: list[Attribute]) -> list[Attribute]:
 def _slug(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
     return slug or "unit"
-
-
-def _strip_fences(s: str) -> str:
-    m = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", s, re.DOTALL)
-    return m.group(1) if m else s
-
-
-def _extract_json_array(s: str) -> str:
-    decoder = json.JSONDecoder()
-    for i, ch in enumerate(s):
-        if ch != "[":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(s[i:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, list):
-            return s[i : i + end]
-    return s

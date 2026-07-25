@@ -9,10 +9,10 @@ It blocks only explicit mismatches; absent or ambiguous context remains
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 
+from ..ai import request_structured
+from ..ai_contracts import CONTEXT_VALIDATION
 from ..context import (
     BLOCK_ID_JSON_INSTRUCTION,
     document_block_ids,
@@ -44,24 +44,26 @@ def validate_document_context(
         )
 
     allowed_ids = document_block_ids(document_context)
-    raw = llm_client.call(
+    parsed = request_structured(
+        llm_client,
+        CONTEXT_VALIDATION,
         _system_prompt(configured),
         _user_message(document_context),
         max_tokens=max_tokens,
         images=images,
     )
-    parsed = _parse(raw)
-    if parsed is None:
-        logger.warning("context_validator produced no parsable JSON; retrying once")
-        raw = llm_client.call(
+    if not isinstance(parsed, dict):
+        logger.warning("context_validator produced no structured decision; retrying once")
+        parsed = request_structured(
+            llm_client,
+            CONTEXT_VALIDATION,
             _system_prompt(configured),
             _user_message(document_context),
             max_tokens=max_tokens,
             images=images,
         )
-        parsed = _parse(raw)
 
-    if parsed is None:
+    if not isinstance(parsed, dict):
         return DocumentContextValidation(
             status="uncertain",
             configured_indication=configured,
@@ -128,31 +130,3 @@ def _user_message(document_context: str) -> str:
         f"{limit_document_context(document_context)}\n\n"
         "Validate the configured indication now."
     )
-
-
-def _parse(raw: str) -> dict | None:
-    text = _strip_fences(raw).strip()
-    try:
-        parsed = json.loads(_extract_json_object(text))
-    except (json.JSONDecodeError, ValueError):
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
-def _strip_fences(value: str) -> str:
-    match = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", value, re.DOTALL)
-    return match.group(1) if match else value
-
-
-def _extract_json_object(value: str) -> str:
-    decoder = json.JSONDecoder()
-    for index, character in enumerate(value):
-        if character != "{":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(value[index:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return value[index : index + end]
-    raise ValueError("no JSON object")

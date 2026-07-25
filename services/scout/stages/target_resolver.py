@@ -8,11 +8,11 @@ document statement. Both paths leave this stage with the same resolved
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from dataclasses import replace
 
+from ..ai import request_structured
+from ..ai_contracts import TARGET_BINDING
 from ..context import (
     BLOCK_ID_JSON_INSTRUCTION,
     document_block_ids,
@@ -54,25 +54,29 @@ def resolve_document_target(
         return replace(attribute, target_resolved=True)
 
     allowed_ids = document_block_ids(document_context)
-    raw = llm_client.call(
+    parsed = request_structured(
+        llm_client,
+        TARGET_BINDING,
         _system_prompt(attribute),
         _user_message(document_context),
         max_tokens=max_tokens,
         images=images,
     )
-    binding = _validated_binding(raw, allowed_ids)
+    binding = _validated_binding(parsed, allowed_ids)
     if binding is None:
         logger.warning(
             "target_resolver produced no valid cited binding for %s; retrying once",
             attribute.name,
         )
-        raw = llm_client.call(
+        parsed = request_structured(
+            llm_client,
+            TARGET_BINDING,
             _system_prompt(attribute),
             _user_message(document_context),
             max_tokens=max_tokens,
             images=images,
         )
-        binding = _validated_binding(raw, allowed_ids)
+        binding = _validated_binding(parsed, allowed_ids)
 
     if binding is None:
         # Never propagate a model-authored target without exact block lineage.
@@ -97,12 +101,11 @@ def resolve_document_target(
 
 
 def _validated_binding(
-    raw: str,
+    parsed: object,
     allowed_ids: set[str],
 ) -> tuple[str, list[str], list[EvidenceEntity]] | None:
     """Parse one binding and reject a non-empty target without exact lineage."""
-    parsed = _parse(raw)
-    if parsed is None:
+    if not isinstance(parsed, dict):
         return None
     target = str(parsed.get("document_target", "")).strip()
     if not target:
@@ -145,31 +148,3 @@ def _user_message(document_context: str) -> str:
         f"{limit_document_context(document_context)}\n\n"
         "Bind the unit to its document target now."
     )
-
-
-def _parse(raw: str) -> dict | None:
-    text = _strip_fences(raw).strip()
-    try:
-        parsed = json.loads(_extract_json_object(text))
-    except (json.JSONDecodeError, ValueError):
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
-def _strip_fences(value: str) -> str:
-    match = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", value, re.DOTALL)
-    return match.group(1) if match else value
-
-
-def _extract_json_object(value: str) -> str:
-    decoder = json.JSONDecoder()
-    for index, character in enumerate(value):
-        if character != "{":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(value[index:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return value[index : index + end]
-    raise ValueError("no JSON object")

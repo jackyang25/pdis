@@ -7,6 +7,7 @@ whole API. Used by all services for text generation and web search.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any, Iterator
@@ -36,28 +37,7 @@ class OpenAIClient:
         *,
         images: list[dict[str, str]] | None = None,
     ) -> str:
-        user_content: Any = user_message
-        if images:
-            user_content = [
-                {"type": "text", "text": user_message},
-                *[
-                    item
-                    for image in images
-                    for item in (
-                        {
-                            "type": "text",
-                            "text": f"Visual for document block [{image['block_id']}]:",
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": image["data_url"],
-                                "detail": "high",
-                            },
-                        },
-                    )
-                ],
-            ]
+        user_content = _user_content(user_message, images)
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -73,6 +53,71 @@ class OpenAIClient:
                 return ""
             raise
         return _response_text(response)
+
+    def call_structured(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int,
+        *,
+        schema_name: str,
+        schema: dict[str, Any],
+        images: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any] | None:
+        """Return one strict JSON-Schema response.
+
+        Provider syntax and refusal/incomplete handling live here so services
+        define only their stage contract and domain validation.  A normal
+        response is guaranteed by OpenAI to match ``schema``; deterministic
+        service code still validates provenance and cross-record invariants.
+        """
+        user_content = _user_content(user_message, images)
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                max_completion_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema_name,
+                        "strict": True,
+                        "schema": schema,
+                    },
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            if _is_content_refusal(exc):
+                logger.warning("Structured prompt refused by content policy.")
+                return None
+            raise
+        choices = getattr(response, "choices", [])
+        if not choices:
+            logger.warning("OpenAI structured response had no choices")
+            return None
+        choice = choices[0]
+        message = getattr(choice, "message", None)
+        refusal = getattr(message, "refusal", None) if message is not None else None
+        if refusal:
+            logger.warning("OpenAI structured response was refused: %s", refusal)
+            return None
+        content = getattr(message, "content", "") if message is not None else ""
+        if not content:
+            logger.warning(
+                "OpenAI structured response had no content. finish_reason=%s usage=%s",
+                getattr(choice, "finish_reason", None),
+                getattr(response, "usage", None),
+            )
+            return None
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            logger.warning("OpenAI structured response was not valid JSON")
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
     def chat(
         self,
@@ -197,6 +242,35 @@ def _is_content_refusal(exc: Exception) -> bool:
         return True
     text = str(exc)
     return "invalid_prompt" in text or "limited access to this content" in text
+
+
+def _user_content(
+    user_message: str,
+    images: list[dict[str, str]] | None,
+) -> Any:
+    """Build the shared text/multimodal user payload without losing block IDs."""
+    if not images:
+        return user_message
+    return [
+        {"type": "text", "text": user_message},
+        *[
+            item
+            for image in images
+            for item in (
+                {
+                    "type": "text",
+                    "text": f"Visual for document block [{image['block_id']}]:",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": image["data_url"],
+                        "detail": "high",
+                    },
+                },
+            )
+        ],
+    ]
 
 
 def _response_text(response: Any) -> str:

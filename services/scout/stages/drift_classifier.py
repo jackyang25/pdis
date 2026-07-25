@@ -17,10 +17,10 @@ layer over Insights, not a load-bearing stage.
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 
+from ..ai import request_structured
+from ..ai_contracts import DRIFT_BATCH
 from ..context import (
     BLOCK_ID_JSON_INSTRUCTION,
     document_block_ids,
@@ -74,19 +74,27 @@ def classify_drift(
     user_message = _user_message(doc_excerpts, insights)
     allowed_block_ids = document_block_ids("\n".join(doc_excerpts))
 
-    raw = llm_client.call(
-        system_prompt, user_message, max_tokens=max_tokens, images=images
-    )
-    parsed = _parse(raw)
+    parsed = _validated_matches(request_structured(
+        llm_client,
+        DRIFT_BATCH,
+        system_prompt,
+        user_message,
+        max_tokens=max_tokens,
+        images=images,
+    ))
     if not _has_complete_lineage(parsed, len(insights), allowed_block_ids):
         logger.warning(
             "drift_classifier expected %d complete traced entries, got %d; retrying once",
             len(insights), len(parsed),
         )
-        raw = llm_client.call(
-            system_prompt, user_message, max_tokens=max_tokens, images=images
-        )
-        parsed = _parse(raw)
+        parsed = _validated_matches(request_structured(
+            llm_client,
+            DRIFT_BATCH,
+            system_prompt,
+            user_message,
+            max_tokens=max_tokens,
+            images=images,
+        ))
 
     by_index: dict[int, dict] = {
         p["index"]: p for p in parsed if isinstance(p.get("index"), int)
@@ -193,11 +201,9 @@ def _system_prompt(
         "a different disease, a different product class, or administrative noise.\n"
         "- Do not invent doc content not present in the excerpts.\n\n"
         "- Discovery-track labels are retrieval provenance only; they never determine the relation.\n\n"
-        "Return ONLY valid JSON. No markdown, no preamble. Format:\n"
-        "[\n"
+        "Return every decision in the structured `matches` array. Items:\n"
         '  {"index": 0, "relation": "contradicts", "reason": "...", "doc_block_ids": ["b-0001"]},\n'
         '  {"index": 1, "relation": "extends", "reason": "...", "doc_block_ids": ["b-0008"]}\n'
-        "]\n"
         "Every Insight index from the input MUST appear exactly once in the output."
     )
 
@@ -215,31 +221,7 @@ def _user_message(doc_excerpts: list[str], insights: list[Insight]) -> str:
     return "\n".join(lines)
 
 
-def _parse(raw: str) -> list[dict]:
-    text = _strip_fences(raw).strip()
-    try:
-        parsed = json.loads(_extract_json_array(text))
-    except (json.JSONDecodeError, ValueError):
-        return []
+def _validated_matches(parsed: object) -> list[dict]:
     if not isinstance(parsed, list):
         return []
     return [p for p in parsed if isinstance(p, dict)]
-
-
-def _strip_fences(s: str) -> str:
-    m = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", s, re.DOTALL)
-    return m.group(1) if m else s
-
-
-def _extract_json_array(s: str) -> str:
-    decoder = json.JSONDecoder()
-    for i, ch in enumerate(s):
-        if ch != "[":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(s[i:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, list):
-            return s[i : i + end]
-    return s

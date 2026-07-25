@@ -33,6 +33,12 @@ import yaml
 
 from services.searcher import Finding
 
+from ..ai import request_structured
+from ..ai_contracts import (
+    QUANTITATIVE_TARGET_SET,
+    TARGET_OWNERSHIP,
+    source_measurement_batch,
+)
 from ..context import (
     BLOCK_ID_JSON_INSTRUCTION,
     document_block_ids,
@@ -424,7 +430,9 @@ def extract_quantitative_target_set(
             if attempt
             else ""
         )
-        raw = llm_client.call(
+        parsed = request_structured(
+            llm_client,
+            QUANTITATIVE_TARGET_SET,
             _target_system_prompt(
                 attribute,
                 indication,
@@ -439,7 +447,7 @@ def extract_quantitative_target_set(
             max_tokens=max_tokens,
             images=images,
         )
-        parsed = _parse(raw) or {}
+        parsed = parsed if isinstance(parsed, dict) else {}
         status = str(parsed.get("status", "uncertain")).strip().lower()
         reason = " ".join(str(parsed.get("status_reason", "")).split())
         if status not in {"present", "not_applicable", "uncertain"}:
@@ -465,7 +473,8 @@ def extract_quantitative_target_set(
             "A numeric target was proposed, but its exact value, direction, unit, "
             "or document provenance did not pass deterministic validation."
         )
-    return QuantitativeTargetExtraction("uncertain", last_reason, [])
+        return QuantitativeTargetExtraction("uncertain", last_reason, [])
+    return QuantitativeTargetExtraction(last_status, last_reason, [])
 
 
 def resolve_quantitative_target_ownership(
@@ -509,7 +518,9 @@ def resolve_quantitative_target_ownership(
         system_prompt = _ownership_system_prompt()
         user_message = _ownership_user_message(ambiguous, attributes_by_name)
         for attempt in range(2):
-            raw = llm_client.call(
+            parsed = request_structured(
+                llm_client,
+                TARGET_OWNERSHIP,
                 system_prompt,
                 user_message
                 + (
@@ -520,7 +531,7 @@ def resolve_quantitative_target_ownership(
                 ),
                 max_tokens=max_tokens,
             )
-            parsed = _parse(raw) or {}
+            parsed = parsed if isinstance(parsed, dict) else {}
             owner_by_group.update(_validated_ownership_decisions(parsed, ambiguous))
             if set(ambiguous).issubset(owner_by_group):
                 break
@@ -677,7 +688,7 @@ def _overlapping_document_claim(
     right: QuantitativeTarget,
 ) -> bool:
     if (
-        left.role != right.role
+        (left.role != right.role and "other" not in {left.role, right.role})
         or left.comparator != right.comparator
         or not math.isclose(left.value, right.value, rel_tol=1e-9, abs_tol=1e-9)
         or _canonical_unit(left.unit) != _canonical_unit(right.unit)
@@ -844,12 +855,15 @@ def _extract_target_measurements(
             intervention_class=intervention_class,
         )
         user_message = _measurement_user_message(batch)
-        raw = llm_client.call(
+        contract = source_measurement_batch(_required_comparison_axes(target))
+        parsed = request_structured(
+            llm_client,
+            contract,
             system_prompt,
             user_message,
             max_tokens=max_tokens,
         )
-        parsed = _parse(raw) or {}
+        parsed = parsed if isinstance(parsed, dict) else {}
         batch_measurements, batch_dispositions = _validated_source_decisions(
             parsed.get("sources"),
             passages={passage.id: passage for passage in batch},
@@ -858,14 +872,16 @@ def _extract_target_measurements(
         batch_decided = {item.source_id for item in batch_dispositions}
         missing = [passage for passage in batch if passage.id not in batch_decided]
         if missing:
-            retry = llm_client.call(
+            retry_parsed = request_structured(
+                llm_client,
+                contract,
                 system_prompt,
                 _measurement_user_message(missing)
                 + "\n\nA prior response omitted or malformed these source decisions. "
                 "Return exactly one complete decision for every source ID above.",
                 max_tokens=max_tokens,
             )
-            retry_parsed = _parse(retry) or {}
+            retry_parsed = retry_parsed if isinstance(retry_parsed, dict) else {}
             recovered_measurements, recovered_dispositions = _validated_source_decisions(
                 retry_parsed.get("sources"),
                 passages={passage.id: passage for passage in missing},
@@ -963,7 +979,8 @@ def _validated_passage_measurement(
     quote = " ".join(str(raw.get("quote", "")).split())
     expression = _validated_numeric_expression(raw.get("expression"))
     semantic_assessment = _validated_measurement_semantic_assessment(
-        raw.get("semantic_assessment")
+        raw.get("semantic_assessment"),
+        required_fields=_required_comparison_axes(target),
     )
     if (
         not quote
@@ -1020,6 +1037,8 @@ def _validated_ternary_decision(raw: object) -> TernaryDecision | None:
 
 def _validated_measurement_semantic_assessment(
     raw: object,
+    *,
+    required_fields: set[str],
 ) -> MeasurementSemanticAssessment | None:
     if not isinstance(raw, dict) or set(raw) != {
         "source_ownership",
@@ -1031,12 +1050,19 @@ def _validated_measurement_semantic_assessment(
     if (
         ownership is None
         or not isinstance(dimensions_raw, dict)
-        or set(dimensions_raw) != set(QUANTITATIVE_SEMANTIC_FIELDS)
+        or not required_fields.issubset(dimensions_raw)
+        or not set(dimensions_raw).issubset(QUANTITATIVE_SEMANTIC_FIELDS)
     ):
         return None
     dimensions: dict[str, SemanticDimensionAssessment] = {}
     for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
         item = dimensions_raw.get(field_name)
+        if item is None and field_name not in required_fields:
+            dimensions[field_name] = SemanticDimensionAssessment(
+                source=SemanticSlot(state="not_specified"),
+                compatibility=TernaryDecision(state="yes"),
+            )
+            continue
         if not isinstance(item, dict) or set(item) != {"source", "compatibility"}:
             return None
         source_profile = _validated_semantic_slot(item.get("source"))
@@ -1047,7 +1073,7 @@ def _validated_measurement_semantic_assessment(
             source=source_profile,
             compatibility=compatibility,
         )
-    if dimensions["measure"].source.state != "specified":
+    if dimensions["measure"].source.state not in {"specified", "other"}:
         return None
     return MeasurementSemanticAssessment(
         source_ownership=ownership,
@@ -1161,18 +1187,27 @@ def _target_system_prompt(
         "qualifiers; never return a whole compound row when a shorter fragment is available. "
         "Normalize meaning into semantic_profile with exactly these fields: measure, endpoint, "
         "intervention, population, regimen, time_horizon, statistic, conditions. conditions holds "
-        "experimental or operational qualifiers that do not belong in another field. Each field is an object with "
+        "ONLY a compact measurement setting that changes numeric interpretation or comparability, "
+        "such as 'at 37 C' or 'field trial rather than CHMI'. Do not put implementation feasibility, "
+        "policy or donor authorities, acceptability, rationale, evidence requirements, or surrounding "
+        "prose in conditions. Each field is an object with "
         "state=specified|not_specified|unknown|other, value, and other. specified requires a concise "
         "value; other requires an explanation in other; absent qualifiers are not_specified; use "
         "unknown only when the document is ambiguous. measure must be specified. Use the document's "
-        "own terminology and never make a semantic value more specific than its cited text. The unit "
+        "own terminology and never make a semantic value more specific than its cited text. Every "
+        "specified value (or other explanation) must be directly and completely supported by one of "
+        "that field's exact semantic-provenance spans; the span must contain enough text to audit the "
+        "normalization and cannot be only a heading or label. Resolve generic words such as 'response' "
+        "or 'protection' from an explicit cited document definition; otherwise use unknown rather than "
+        "guessing the endpoint. The unit "
         "definition and product configuration explain the task but are not evidence. For every specified "
         "or other field, semantic_provenance must contain at least one shortest exact supporting quote "
         "and its block IDs from the supplied definition context; absent and unknown fields must cite none. "
         "The numeric expression and role may come ONLY from canonical target blocks. Definition-context "
         "blocks may clarify meaning but may not donate another field's numeric target. Semantic-profile "
-        "values describe meaning and qualifiers only; never repeat the target's own value, comparator, "
-        "or unit inside measure, endpoint, or statistic. Use comparator '=' for an exact scalar target "
+        "values describe meaning and qualifiers only; never repeat the target's own numeric magnitude "
+        "inside any semantic field. The expression unit must be only the actual numeric unit; a qualifier "
+        "such as 'at 37 C' belongs in conditions, never in unit. Use comparator '=' for an exact scalar target "
         "such as 'two doses'. Use a directional comparator only when the quoted wording supplies that "
         "direction. Do not force a true interval or choice set into one scalar bound; retain any other "
         "independently supported exact or directional targets from the same field. "
@@ -1181,17 +1216,19 @@ def _target_system_prompt(
         "only when the field clearly has no exact or directional scalar target; use uncertain when the "
         "wording may contain one but cannot be mapped faithfully. If no validated direct numeric "
         "target exists, return an empty targets list.\n\n"
+        "Set ownership_reason to an empty string here; cross-field ownership is resolved "
+        "by the dedicated ownership stage. Include null lower/upper expression fields.\n\n"
         "Return ONLY JSON: "
         '{"status":"present","status_reason":"The field states a response threshold.",'
         '"targets":[{"expression":{"kind":"bound","value":80,'
-        '"comparator":">","unit":"%"},"role":"threshold",'
+        '"lower":null,"upper":null,"comparator":">","unit":"%"},"role":"threshold",'
         '"semantic_profile":{"measure":{"state":"specified","value":"response rate","other":""},'
         '"endpoint":{"state":"specified","value":"document-defined outcome","other":""},'
         '"intervention":{"state":"not_specified","value":"","other":""},'
         '"population":{"state":"not_specified","value":"","other":""},'
         '"regimen":{"state":"not_specified","value":"","other":""},'
-        '"time_horizon":{"state":"specified","value":"6 months after primary series","other":""},'
-        '"statistic":{"state":"specified","value":"response point estimate","other":""},'
+        '"time_horizon":{"state":"specified","value":"6 months","other":""},'
+        '"statistic":{"state":"specified","value":"response rate","other":""},'
         '"conditions":{"state":"not_specified","value":"","other":""}},'
         '"semantic_provenance":{'
         '"measure":[{"quote":"Threshold response rate >80% at 6 months.","block_ids":["document/b-0001"]}],'
@@ -1201,7 +1238,7 @@ def _target_system_prompt(
         '"statistic":[{"quote":"Threshold response rate >80% at 6 months.","block_ids":["document/b-0001"]}],'
         '"conditions":[]},"provenance_spans":['
         '{"quote":"Threshold response rate >80% at 6 months.",'
-        '"block_ids":["document/b-0001"]}]}]}'
+        '"block_ids":["document/b-0001"]}],"ownership_reason":""}]}'
     )
 
 
@@ -1458,6 +1495,44 @@ def _measurement_system_prompt(
     indication: str,
     intervention_class: str,
 ) -> str:
+    required_fields = sorted(_required_comparison_axes(target))
+    example_dimensions = {
+        field_name: {
+            "source": {
+                "state": "specified",
+                "value": f"source-stated {field_name.replace('_', ' ')}",
+                "other": "",
+            },
+            "compatibility": {"state": "yes", "reason": ""},
+        }
+        for field_name in required_fields
+    }
+    response_example = {
+        "sources": [
+            {
+                "source_id": "sp-123",
+                "status": "measurements_found",
+                "reason": "The passage reports one target-relevant estimate.",
+                "measurements": [
+                    {
+                        "quote": "The response rate was 50.3% at 12 months.",
+                        "expression": {
+                            "kind": "point_estimate",
+                            "unit": "%",
+                            "value": 50.3,
+                            "lower": None,
+                            "upper": None,
+                            "comparator": "",
+                        },
+                        "semantic_assessment": {
+                            "source_ownership": {"state": "yes", "reason": ""},
+                            "dimensions": example_dimensions,
+                        },
+                    }
+                ],
+            }
+        ]
+    }
     return (
         "You extract complete numeric measurements from bounded, source-owned passages "
         "against one atomic semantic target.\n\n"
@@ -1490,7 +1565,8 @@ def _measurement_system_prompt(
         "general background, a protocol assumption, a planned outcome, or an unsupported assertion; "
         "use unknown when ownership cannot be established. A registry sentence can appear verbatim "
         "yet still be background rather than a result of that registered study. "
-        "Inside dimensions return all eight target fields. Each field contains source={state,value,other} "
+        f"Inside dimensions return exactly the target-constrained fields: {json.dumps(required_fields)}. "
+        "Do not assess unconstrained fields: they cannot affect this cohort. Each returned field contains source={state,value,other} "
         "and compatibility={state,reason}. Compatibility yes means the source value is semantically "
         "compatible with that target "
         "dimension for direct numeric comparison; it does not require identical wording. no means a "
@@ -1505,23 +1581,8 @@ def _measurement_system_prompt(
         "Use no_relevant_measurement when the passage contains no relevant complete numeric "
         "statement. Use uncertain when one may exist but the supplied passage cannot support a "
         "faithful mapping. Never infer omitted context.\n\n"
-        "Return ONLY JSON: "
-        '{"sources":[{"source_id":"sp-123","status":"measurements_found",'
-        '"reason":"The passage reports a target-relevant response estimate.","measurements":['
-        '{"quote":"The response rate was 50.3% at 12 months.",'
-        '"expression":{"kind":"point_estimate","unit":"%","value":50.3,'
-        '"lower":null,"upper":null,"comparator":""},'
-        '"semantic_assessment":{'
-        '"source_ownership":{"state":"yes","reason":""},'
-        '"dimensions":{'
-        '"measure":{"source":{"state":"specified","value":"response rate","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"endpoint":{"source":{"state":"specified","value":"document-defined outcome","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"intervention":{"source":{"state":"not_specified","value":"","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"population":{"source":{"state":"not_specified","value":"","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"regimen":{"source":{"state":"specified","value":"primary series","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"time_horizon":{"source":{"state":"specified","value":"12 months","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"statistic":{"source":{"state":"specified","value":"response point estimate","other":""},"compatibility":{"state":"yes","reason":""}},'
-        '"conditions":{"source":{"state":"not_specified","value":"","other":""},"compatibility":{"state":"yes","reason":""}}}}}]}]}'
+        "Return ONLY JSON matching this shape: "
+        + json.dumps(response_example, ensure_ascii=False, separators=(",", ":"))
     )
 
 
@@ -1813,15 +1874,6 @@ def _source_record_identity(finding: Finding) -> tuple[str, str]:
     return f"url:{digest}", "url_fallback"
 
 
-def _parse(raw: str) -> dict | None:
-    text = _strip_fences(raw).strip()
-    try:
-        parsed = json.loads(_extract_json_object(text))
-    except (json.JSONDecodeError, ValueError):
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
 def _canonical_unit(unit: str) -> str:
     """Normalize spelling only; never perform dimensional conversion."""
     normalized = re.sub(r"[\s._-]+", "", unit.strip().lower())
@@ -1833,22 +1885,3 @@ def _canonical_unit(unit: str) -> str:
         "$": "usd",
     }
     return aliases.get(normalized, normalized)
-
-
-def _strip_fences(s: str) -> str:
-    m = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", s, re.DOTALL)
-    return m.group(1) if m else s
-
-
-def _extract_json_object(s: str) -> str:
-    decoder = json.JSONDecoder()
-    for i, ch in enumerate(s):
-        if ch != "{":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(s[i:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return s[i : i + end]
-    return s

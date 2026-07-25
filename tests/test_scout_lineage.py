@@ -37,7 +37,10 @@ from services.scout.stages.conformity import (
     _expression_supported,
     _meets_target,
     _partition_cohort,
+    _target_system_prompt,
+    _validated_measurement_semantic_assessment,
     _value_unit_supported,
+    extract_quantitative_target_set,
     extract_quantitative_targets,
     resolve_quantitative_target_ownership,
     score_conformity as _score_conformity_ledgers,
@@ -706,14 +709,13 @@ class RetrievalPlanningTests(unittest.TestCase):
         self.assertEqual({task.source for task in literature_only}, {"pubmed"})
 
     def test_query_parser_validates_document_lineage(self) -> None:
-        raw = json.dumps(
-            [
-                {
-                    "query": "malaria vaccine dose target",
-                    "doc_block_ids": ["doc/b-0002", "invented/b-9999"],
-                }
-            ]
-        )
+        raw = [
+            {
+                "query": "malaria vaccine dose target",
+                "doc_block_ids": ["doc/b-0002", "invented/b-9999"],
+                "target_ids": [],
+            }
+        ]
 
         intents = _parse_queries(raw, {"doc/b-0002"})
 
@@ -843,7 +845,6 @@ class RetrievalPlanningTests(unittest.TestCase):
             expression=NumericExpression(
                 kind="bound", value=0.5, comparator="<", unit="mL/dose"
             ),
-            role="optimal",
             quote="Dose volume: <0.5 mL/dose for pediatric use.",
             doc_block_ids=["document/b-0003"],
         )
@@ -857,6 +858,7 @@ class RetrievalPlanningTests(unittest.TestCase):
                 quantitative_targets=[
                     QuantitativeTarget(
                         attribute_ref="vaccine.product",
+                        role="other",
                         semantic_profile=semantic_profile("formulation dose volume"),
                         **shared,
                     )
@@ -871,6 +873,7 @@ class RetrievalPlanningTests(unittest.TestCase):
                 quantitative_targets=[
                     QuantitativeTarget(
                         attribute_ref="vaccine.dose_volume",
+                        role="optimal",
                         semantic_profile=semantic_profile("dose volume in mL per dose"),
                         **shared,
                     )
@@ -1071,7 +1074,14 @@ class RetrievalPlanningTests(unittest.TestCase):
         queries = extract_queries_for_variable(
             attribute,
             config,
-            SequenceClient([invalid, invalid]),
+            SequenceClient([
+                invalid,
+                [{
+                    "query": "device stability above eight degrees Celsius reported results",
+                    "doc_block_ids": ["document/b-0004"],
+                    "target_ids": [],
+                }],
+            ]),
             indication="example condition",
             queries_per_variable=1,
             document_context="[block:document/b-0004]\nTemperature tolerance greater than 8°C.",
@@ -1081,6 +1091,55 @@ class RetrievalPlanningTests(unittest.TestCase):
         self.assertEqual(queries[0].target_ids, [target.id])
         self.assertNotIn("8", queries[0].text)
         self.assertIn("reported numeric results", queries[0].text)
+
+    def test_target_query_rejects_locale_decimal_magnitude(self) -> None:
+        target = QuantitativeTarget(
+            attribute_ref="device.dose_volume",
+            expression=NumericExpression(
+                kind="bound", value=0.5, comparator="<", unit="mL/dose"
+            ),
+            role="optimal",
+            quote="Dose volume below 0.5 mL/dose.",
+            doc_block_ids=["document/b-0005"],
+            semantic_profile=semantic_profile("dose volume"),
+        )
+        attribute = Attribute(
+            "device.dose_volume",
+            "Volume per dose",
+            document_target=target.quote,
+            block_ids=target.doc_block_ids,
+            target_resolved=True,
+            quantitative_targets=[target],
+        )
+        config = replace(
+            load_config(
+                str(
+                    Path(__file__).resolve().parents[1]
+                    / "services/scout/configs/bmgf_itpp_vaccine.yaml"
+                )
+            ),
+            geographic_queries_per_variable=0,
+            counterfactual_queries_per_variable=0,
+            precedent_queries_per_variable=0,
+        )
+        invalid = [{
+            "query": "dose volume below 0,5 mL reported results",
+            "doc_block_ids": ["document/b-0005"],
+            "target_ids": [target.id],
+        }]
+
+        queries = extract_queries_for_variable(
+            attribute,
+            config,
+            SequenceClient([invalid, invalid]),
+            indication="example condition",
+            queries_per_variable=1,
+            document_context="[block:document/b-0005]\nDose volume below 0.5 mL/dose.",
+        )
+
+        self.assertEqual(len(queries), 1)
+        self.assertNotIn("0.5", queries[0].text)
+        self.assertNotIn("0,5", queries[0].text)
 
     def test_plain_text_literature_plan_covers_every_variant(self) -> None:
         attribute = Attribute("durability", "Duration of protection")
@@ -2096,6 +2155,98 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(targets[0].comparator, "=")
         self.assertEqual(targets[0].value, 2)
 
+    def test_numeric_not_applicable_status_survives_retry(self) -> None:
+        document = "[block:document/b-0003]\nPhase 4 follow-up is described qualitatively."
+        attribute = replace(
+            self.attribute,
+            name="drug.follow_up",
+            document_target="Phase 4 follow-up is described qualitatively.",
+            block_ids=["document/b-0003"],
+        )
+        response = {
+            "status": "not_applicable",
+            "status_reason": "Phase 4 names a stage, not a directional target.",
+            "targets": [],
+        }
+
+        extraction = extract_quantitative_target_set(
+            attribute,
+            document,
+            SequenceClient([response, response]),
+            indication="example condition",
+            intervention_class="drug",
+        )
+
+        self.assertEqual(extraction.status, "not_applicable")
+        self.assertEqual(extraction.targets, [])
+
+    def test_target_contract_separates_unit_from_conditions(self) -> None:
+        attribute = replace(
+            self.attribute,
+            name="diagnostic.stability",
+            document_target="Stable for at least 6 hours at 37°C.",
+            block_ids=["document/b-0003"],
+        )
+        prompt = _target_system_prompt(
+            attribute,
+            indication="example condition",
+            intervention_class="diagnostic",
+        )
+
+        self.assertIn("actual numeric unit", prompt)
+        self.assertIn("belongs in conditions, never in unit", prompt)
+        self.assertIn("measurement setting that changes numeric", prompt)
+
+    def test_identical_scalar_under_multiple_roles_preserves_both_roles(self) -> None:
+        document = (
+            "[block:document/b-0003]\nOptimal: at most 2 products.\n\n"
+            "[block:document/b-0004]\nThreshold: at most 2 products."
+        )
+        attribute = replace(
+            self.attribute,
+            name="vaccine.presentation",
+            document_target="Optimal and threshold are at most 2 products.",
+            block_ids=["document/b-0003", "document/b-0004"],
+        )
+        profile = semantic_profile("number of products")
+        targets = []
+        for role, block_id, quote in (
+            ("optimal", "document/b-0003", "Optimal: at most 2 products."),
+            ("threshold", "document/b-0004", "Threshold: at most 2 products."),
+        ):
+            targets.append({
+                "expression": {
+                    "kind": "bound",
+                    "value": 2,
+                    "comparator": "<=",
+                    "unit": "products",
+                },
+                "role": role,
+                "quote": quote,
+                "doc_block_ids": [block_id],
+                "semantic_profile": profile,
+                "semantic_provenance": semantic_provenance(
+                    profile, quote, [block_id]
+                ),
+            })
+
+        extracted = extract_quantitative_targets(
+            attribute,
+            document,
+            StaticClient({
+                "status": "present",
+                "status_reason": "The repeated scalar has two document labels.",
+                "targets": targets,
+            }),
+            indication="example condition",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(len(extracted), 2)
+        self.assertEqual(
+            {target.role for target in extracted}, {"optimal", "threshold"}
+        )
+
     def test_semantic_slot_preserves_other_without_guessing(self) -> None:
         slot = SemanticSlot(state="other", other="Composite endpoint not in the core schema")
         self.assertEqual(slot.state, "other")
@@ -2118,12 +2269,55 @@ class ReasoningLineageTests(unittest.TestCase):
             indication="malaria",
             intervention_class="vaccine",
         )
+        self.assertIn('target-constrained fields: ["measure"]', prompt)
+        self.assertIn("source-stated measure", prompt)
+        self.assertNotIn("source-stated endpoint", prompt)
         self.assertIn("Target semantic profile", prompt)
         self.assertNotIn(target.quote, prompt)
         self.assertNotIn("80", prompt)
         self.assertIn("self-contained exact quote", prompt)
         self.assertIn("storage temperature", prompt)
         self.assertIn("return uncertain rather than a measurement", prompt)
+
+    def test_measurement_contract_accepts_only_target_constrained_dimensions(self) -> None:
+        assessment = _validated_measurement_semantic_assessment(
+            {
+                "source_ownership": {"state": "yes", "reason": ""},
+                "dimensions": {
+                    "measure": {
+                        "source": {
+                            "state": "specified",
+                            "value": "protective efficacy",
+                            "other": "",
+                        },
+                        "compatibility": {"state": "yes", "reason": ""},
+                    }
+                },
+            },
+            required_fields={"measure"},
+        )
+
+        self.assertIsNotNone(assessment)
+        assert assessment is not None
+        self.assertEqual(
+            set(assessment.dimensions),
+            {
+                "measure",
+                "endpoint",
+                "intervention",
+                "population",
+                "regimen",
+                "time_horizon",
+                "statistic",
+                "conditions",
+            },
+        )
+        self.assertEqual(
+            assessment.dimensions["endpoint"].source.state, "not_specified"
+        )
+        self.assertEqual(
+            assessment.dimensions["endpoint"].compatibility.state, "yes"
+        )
 
     def test_conformity_never_treats_web_citation_context_as_source_quote(self) -> None:
         web_insight = Insight(

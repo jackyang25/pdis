@@ -24,20 +24,30 @@ import json
 import logging
 import math
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 from statistics import fmean, stdev
+from typing import Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import yaml
+from pydantic import ValidationError
 
 from services.chunker import ContentBlock
 from services.searcher import Finding
 
 from ..ai import request_structured
 from ..ai_contracts import (
-    DOCUMENT_QUANTITATIVE_LEDGER_BATCH,
+    document_quantitative_ledger_batch,
     source_measurement_batch,
+)
+from ..ai_wire import (
+    NumericExpressionWire,
+    SemanticSlotWire,
+    SourceNumericSyntaxWire,
+    TernaryDecisionWire,
 )
 from ..context import (
     BLOCK_ID_JSON_INSTRUCTION,
@@ -51,7 +61,6 @@ from ..models import (
     DocumentSpan,
     Insight,
     LLMClientProtocol,
-    MEASUREMENT_KINDS,
     Measurement,
     MeasurementSemanticAssessment,
     NumericExpression,
@@ -71,9 +80,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 16000
 SOURCE_BATCH_SIZE = 3
+SOURCE_MAPPING_MAX_WORKERS = 6
 MAX_SOURCE_PASSAGE_CHARS = 8_000
 MAX_TARGET_QUOTE_CHARS = 800
-LEDGER_BATCH_MAX_UNITS = 40
+LEDGER_BATCH_MAX_UNITS = 24
 LEDGER_BATCH_MAX_CHARS = 24_000
 # Keep in lockstep with drift_classifier / evidence_assessor so all three
 # doc-reading stages see the SAME baseline and a target near the end of a long
@@ -127,9 +137,57 @@ class QuantitativeLedgerBatchResult:
 
 
 @dataclass(frozen=True)
+class _CanonicalNumericBinding:
+    """One upstream document binding available as semantic context."""
+
+    ref: str
+    attribute_ref: str
+    document_target: str
+    spans: tuple[DocumentSpan, ...]
+    entities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class _QuantitativeBatchValidation:
     result: QuantitativeLedgerBatchResult
     retry_unit_ids: set[str]
+
+
+@dataclass(frozen=True)
+class _NumericMappingValidation:
+    """One normalized expression plus its deterministic admission outcome."""
+
+    expression: NumericExpression | None = None
+    code: str = ""
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class _TargetMappingValidation:
+    targets: list[QuantitativeTarget]
+    issues: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _PassageMeasurementValidation:
+    measurement: Measurement | None = None
+    code: str = ""
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class _CalibrationTask:
+    """One independent target-relative source-passage mapping request."""
+
+    attribute: Attribute
+    target: QuantitativeTarget
+    passages: list[_SourcePassage]
+
+
+@dataclass(frozen=True)
+class _CalibrationBatchResult:
+    measurements: list[Measurement]
+    dispositions: list[SourcePassageDisposition]
 
 
 def score_conformity(
@@ -153,20 +211,113 @@ def score_conformity(
             intervention_class=intervention_class,
             max_tokens=max_tokens,
         )
-        measurements, excluded_measurements = _partition_cohort(candidates, target)
-        if not measurements:
-            scores.append(_empty_score(target, excluded_measurements, dispositions))
-            continue
-        _attach_dates(measurements, insights)
         scores.append(
-            _combine(
-                target,
-                measurements,
-                excluded_measurements,
-                dispositions,
-            )
+            _finalize_target_score(target, candidates, dispositions, insights)
         )
     return scores
+
+
+def score_conformity_all(
+    attributes: list[Attribute],
+    insights_by_attribute: dict[str, list[Insight]],
+    llm_client: LLMClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_workers: int = SOURCE_MAPPING_MAX_WORKERS,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> list[ConformityScore]:
+    """Calibrate all targets through one bounded, ordered work queue.
+
+    Each target/passage batch is semantically independent. Concurrency changes
+    only request scheduling: task inputs, local retry behavior, validation, and
+    deterministic cohort assembly are shared with the sequential entry point.
+    """
+    target_order: list[tuple[Attribute, QuantitativeTarget, list[Insight]]] = []
+    tasks: list[_CalibrationTask] = []
+    for attribute in attributes:
+        insights = insights_by_attribute.get(attribute.name, [])
+        passages = _source_passages(insights)
+        for target in attribute.quantitative_targets:
+            target_order.append((attribute, target, insights))
+            tasks.extend(
+                _CalibrationTask(
+                    attribute=attribute,
+                    target=target,
+                    passages=passages[start : start + SOURCE_BATCH_SIZE],
+                )
+                for start in range(0, len(passages), SOURCE_BATCH_SIZE)
+            )
+
+    total = len(tasks)
+    if progress_callback and total:
+        progress_callback(0, total)
+    completed = 0
+    progress_lock = threading.Lock()
+
+    def run(task: _CalibrationTask) -> _CalibrationBatchResult:
+        nonlocal completed
+        result = _map_source_passage_batch(
+            task.attribute,
+            task.target,
+            task.passages,
+            llm_client,
+            indication=indication,
+            intervention_class=intervention_class,
+            max_tokens=max_tokens,
+        )
+        if progress_callback:
+            with progress_lock:
+                completed += 1
+                progress_callback(completed, total)
+        return result
+
+    if tasks:
+        worker_count = max(1, min(max_workers, total))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            batch_results = list(executor.map(run, tasks))
+    else:
+        batch_results = []
+
+    mapped: dict[
+        tuple[str, str], tuple[list[Measurement], list[SourcePassageDisposition]]
+    ] = {}
+    for task, result in zip(tasks, batch_results):
+        key = (task.attribute.name, task.target.id)
+        measurements, dispositions = mapped.setdefault(key, ([], []))
+        measurements.extend(result.measurements)
+        dispositions.extend(result.dispositions)
+
+    scores: list[ConformityScore] = []
+    for attribute, target, insights in target_order:
+        candidates, dispositions = mapped.get(
+            (attribute.name, target.id),
+            ([], []),
+        )
+        scores.append(
+            _finalize_target_score(target, candidates, dispositions, insights)
+        )
+    return scores
+
+
+def _finalize_target_score(
+    target: QuantitativeTarget,
+    candidates: list[Measurement],
+    dispositions: list[SourcePassageDisposition],
+    insights: list[Insight],
+) -> ConformityScore:
+    """Apply the one deterministic cohort and statistics boundary."""
+    measurements, excluded_measurements = _partition_cohort(candidates, target)
+    if not measurements:
+        return _empty_score(target, excluded_measurements, dispositions)
+    _attach_dates(measurements, insights)
+    return _combine(
+        target,
+        measurements,
+        excluded_measurements,
+        dispositions,
+    )
 
 
 def empty_conformity_scores(
@@ -231,7 +382,7 @@ def _partition_cohort(
             reasons.append(
                 f"numeric expression is {candidate.expression_kind}, not an atomic scalar"
             )
-        if _canonical_unit(candidate.unit) != _canonical_unit(target.unit):
+        if _unit_key(candidate.unit) != _unit_key(target.unit):
             reasons.append("numeric unit is incompatible with the document target")
         if reasons:
             candidate.exclusion_reasons = reasons
@@ -416,9 +567,9 @@ def prepare_quantitative_ledger_batches(
 ) -> list[QuantitativeLedgerBatch]:
     """Partition the complete document once, preserving structural blocks.
 
-    A source block is never sent once per field.  It belongs to exactly one
-    batch even when several fields cite it, so the model produces one document
-    interpretation instead of competing field-local interpretations.
+    Every statement unit belongs to exactly one batch. An unusually dense
+    source block may be repeated as structural context across bounded batches,
+    but no statement is reviewed twice.
     """
     # The ledger is intentionally independent of the earlier per-field binding:
     # a field resolver cannot hide a document statement simply by missing its
@@ -444,20 +595,131 @@ def prepare_quantitative_ledger_batches(
         batch_chars = 0
 
     for block in relevant_blocks:
-        units = _statement_units(block)
-        if not units:
-            continue
-        block_chars = len(block.content or "")
-        if batch_units and (
-            len(batch_units) + len(units) > max_units
-            or batch_chars + block_chars > max_chars
-        ):
-            flush()
-        batch_blocks.append(block)
-        batch_units.extend(units)
-        batch_chars += block_chars
+        for unit in _statement_units(block):
+            block_is_new = all(item.id != block.id for item in batch_blocks)
+            added_chars = len(block.content or "") if block_is_new else 0
+            if batch_units and (
+                len(batch_units) + 1 > max_units
+                or batch_chars + added_chars > max_chars
+            ):
+                flush()
+                block_is_new = True
+                added_chars = len(block.content or "")
+            if block_is_new:
+                batch_blocks.append(block)
+                batch_chars += added_chars
+            batch_units.append(unit)
     flush()
     return batches
+
+
+def _canonical_numeric_bindings(
+    attributes: list[Attribute],
+) -> list[_CanonicalNumericBinding]:
+    """Project the upstream claim ledger into stable semantic context refs.
+
+    Only exact, document-present bindings qualify. The opaque refs are local to
+    one model request and resolve back to already-validated ``DocumentSpan``
+    objects; they never become result data.
+    """
+    bindings: list[_CanonicalNumericBinding] = []
+    for index, attribute in enumerate(attributes, 1):
+        if (
+            not attribute.target_resolved
+            or not attribute.document_target
+            or not attribute.document_spans
+        ):
+            continue
+        bindings.append(
+            _CanonicalNumericBinding(
+                ref=f"binding-{index:04d}",
+                attribute_ref=attribute.name,
+                document_target=attribute.document_target,
+                spans=tuple(attribute.document_spans),
+                entities=tuple(
+                    dict.fromkeys(
+                        f"{entity.entity_type}: {entity.name}"
+                        + (f" ({entity.identifier})" if entity.identifier else "")
+                        for entity in attribute.entities
+                    )
+                ),
+            )
+        )
+    return bindings
+
+
+def _resolve_document_semantic_provenance(
+    raw_profile: object,
+    *,
+    unit: QuantitativeStatementUnit,
+    bindings_by_ref: dict[str, _CanonicalNumericBinding],
+) -> dict[str, list[dict[str, object]]] | None:
+    """Resolve model-selected context refs to exact canonical source spans."""
+    if not isinstance(raw_profile, dict) or set(raw_profile) != set(
+        QUANTITATIVE_SEMANTIC_FIELDS
+    ):
+        return None
+    output: dict[str, list[dict[str, object]]] = {}
+    for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+        raw_slot = raw_profile.get(field_name)
+        if not isinstance(raw_slot, dict):
+            return None
+        state = str(raw_slot.get("state", "")).strip().lower()
+        raw_refs = raw_slot.get("source_refs")
+        if state not in SEMANTIC_SLOT_STATES or not isinstance(raw_refs, list):
+            return None
+        refs = list(
+            dict.fromkeys(
+                str(value).strip()
+                for value in raw_refs
+                if isinstance(value, str) and str(value).strip()
+            )
+        )
+        asserted = state in {"specified", "other"}
+        if asserted != bool(refs):
+            return None
+        spans: list[DocumentSpan] = []
+        for ref in refs:
+            if ref == "statement":
+                spans.append(DocumentSpan(quote=unit.quote, block_ids=[unit.block_id]))
+                continue
+            binding = bindings_by_ref.get(ref)
+            if binding is None:
+                return None
+            spans.extend(binding.spans)
+        deduplicated: list[DocumentSpan] = []
+        seen: set[tuple[str, tuple[str, ...]]] = set()
+        for span in spans:
+            key = (span.quote.casefold(), tuple(span.block_ids))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduplicated.append(span)
+        if asserted and not deduplicated:
+            return None
+        output[field_name] = [
+            {"quote": span.quote, "block_ids": list(span.block_ids)}
+            for span in deduplicated
+        ]
+    return output
+
+
+def _render_document_semantic_context(
+    blocks: list[ContentBlock],
+    canonical_bindings: list[_CanonicalNumericBinding],
+) -> str:
+    """Render local blocks plus exact upstream spans for provenance checks."""
+    sections = [render_document_context(blocks)]
+    seen: set[tuple[str, str]] = set()
+    for binding in canonical_bindings:
+        for span in binding.spans:
+            for block_id in span.block_ids:
+                key = (block_id, span.quote)
+                if key in seen:
+                    continue
+                seen.add(key)
+                sections.append(f"[block:{block_id}]\n{span.quote}")
+    return "\n\n".join(section for section in sections if section)
 
 
 def extract_quantitative_ledger_batch(
@@ -471,8 +733,10 @@ def extract_quantitative_ledger_batch(
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> QuantitativeLedgerBatchResult:
     """Review a bounded statement batch, retrying incomplete items once."""
+    canonical_bindings = _canonical_numeric_bindings(attributes)
     system_prompt = _document_ledger_system_prompt(
         attributes,
+        canonical_bindings=canonical_bindings,
         indication=indication,
         intervention_class=intervention_class,
         framing=framing,
@@ -483,12 +747,31 @@ def extract_quantitative_ledger_batch(
         if block.image
     ] or None
 
-    def request(current: QuantitativeLedgerBatch) -> object | None:
+    def request(
+        current: QuantitativeLedgerBatch,
+        feedback: dict[str, str] | None = None,
+    ) -> object | None:
+        contract = document_quantitative_ledger_batch(
+            [binding.ref for binding in canonical_bindings],
+            [unit.id for unit in current.units],
+            [attribute.name for attribute in attributes],
+        )
+        user_message = _document_ledger_user_message(current)
+        if feedback:
+            details = "\n".join(
+                f"- [unit:{unit_id}] {reason}"
+                for unit_id, reason in feedback.items()
+            )
+            user_message += (
+                "\n\nA prior mapping for these units failed deterministic admission. "
+                "Correct only the cited contract violations; do not change valid source meaning:\n"
+                f"{details}"
+            )
         return request_structured(
             llm_client,
-            DOCUMENT_QUANTITATIVE_LEDGER_BATCH,
+            contract,
             system_prompt,
-            _document_ledger_user_message(current),
+            user_message,
             max_tokens=max_tokens,
             images=images,
         )
@@ -497,6 +780,7 @@ def extract_quantitative_ledger_batch(
         request(batch),
         batch=batch,
         attributes=attributes,
+        canonical_bindings=canonical_bindings,
     )
     if not first.retry_unit_ids:
         return first.result
@@ -504,10 +788,16 @@ def extract_quantitative_ledger_batch(
         units=[unit for unit in batch.units if unit.id in first.retry_unit_ids],
         blocks=batch.blocks,
     )
+    retry_feedback = {
+        review.unit_id: review.reason
+        for review in first.result.reviews
+        if review.unit_id in first.retry_unit_ids
+    }
     retry = _validated_quantitative_ledger_batch(
-        request(retry_batch),
+        request(retry_batch, retry_feedback),
         batch=retry_batch,
         attributes=attributes,
+        canonical_bindings=canonical_bindings,
     )
     retained_reviews = [
         review
@@ -544,10 +834,16 @@ def _validated_quantitative_ledger_batch(
     *,
     batch: QuantitativeLedgerBatch,
     attributes: list[Attribute],
+    canonical_bindings: list[_CanonicalNumericBinding],
 ) -> _QuantitativeBatchValidation:
     """Validate one response and identify only structurally failed units."""
     attributes_by_name = {attribute.name: attribute for attribute in attributes}
+    bindings_by_ref = {binding.ref: binding for binding in canonical_bindings}
     batch_text = render_document_context(batch.blocks)
+    semantic_context = _render_document_semantic_context(
+        batch.blocks,
+        canonical_bindings,
+    )
     raw_reviews = parsed.get("reviews") if isinstance(parsed, dict) else None
     raw_reviews = raw_reviews if isinstance(raw_reviews, list) else []
     by_id: dict[str, dict] = {}
@@ -629,51 +925,62 @@ def _validated_quantitative_ledger_batch(
             continue
 
         validated: list[QuantitativeTarget] = []
-        invalid_target = False
+        validation_issues: list[str] = []
         for raw_target in raw_targets:
             if not isinstance(raw_target, dict):
-                invalid_target = True
+                validation_issues.append("invalid_target_object")
                 continue
             owner = str(raw_target.get("attribute_ref", "")).strip()
-            quote = " ".join(str(raw_target.get("quote", "")).split())
             attribute = attributes_by_name.get(owner)
             if (
                 attribute is None
                 or not attribute.target_resolved
                 or not attribute.document_target
                 or unit.block_id not in attribute.block_ids
-                or not quote
-                or not _quote_in_text(quote, unit.quote)
             ):
-                invalid_target = True
+                validation_issues.append("invalid_field_ownership")
                 continue
             candidate = dict(raw_target)
+            candidate["attribute_ref"] = owner
             candidate["provenance_spans"] = [
-                {"quote": quote, "block_ids": [unit.block_id]}
+                {"quote": unit.quote, "block_ids": [unit.block_id]}
             ]
+            raw_profile = raw_target.get("semantic_profile")
+            semantic_provenance = _resolve_document_semantic_provenance(
+                raw_profile,
+                unit=unit,
+                bindings_by_ref=bindings_by_ref,
+            )
+            if semantic_provenance is None:
+                validation_issues.append("invalid_semantic_provenance")
+                continue
+            candidate["semantic_provenance"] = semantic_provenance
             candidate["ownership_reason"] = (
                 " ".join(str(raw_target.get("ownership_reason", "")).split())
                 or reason
             )
-            mapped = _validated_targets(
+            mapping = _validated_targets_with_issues(
                 [candidate],
                 attribute=attribute,
                 doc_text=batch_text,
-                semantic_context=batch_text,
+                semantic_context=semantic_context,
                 allowed_target_block_ids=set(attribute.block_ids) & batch_block_ids,
                 require_document_target_support=True,
+                canonical_semantic_provenance=True,
             )
-            if len(mapped) != 1:
-                invalid_target = True
+            if len(mapping.targets) != 1:
+                validation_issues.extend(mapping.issues or ("invalid_target_mapping",))
                 continue
-            validated.extend(mapped)
-        if invalid_target or not validated:
+            validated.extend(mapping.targets)
+        if validation_issues or not validated:
             retry_unit_ids.add(unit.id)
+            issue_text = ", ".join(dict.fromkeys(
+                validation_issues or ["missing_target_mapping"]
+            ))
             reviews.append(
                 _uncertain_unit_review(
                     unit,
-                    "One or more target mappings failed deterministic quote, expression, "
-                    "provenance, or field validation.",
+                    f"Target mapping rejected [{issue_text}].",
                     attribute_ref=(
                         attribute_ref if attribute_ref in attributes_by_name else ""
                     ),
@@ -726,12 +1033,24 @@ def assemble_quantitative_document_ledger(
         for review in reviews
     ]
     uncertain_count = sum(review.classification == "uncertain" for review in reviews)
+    attribute_names = {attribute.name for attribute in attributes}
+    owned_block_ids = {
+        block_id for attribute in attributes for block_id in attribute.block_ids
+    }
+    target_context_uncertain_count = sum(
+        review.classification == "uncertain"
+        and (
+            review.attribute_ref in attribute_names
+            or review.block_id in owned_block_ids
+        )
+        for review in reviews
+    )
     numeric_non_targets = sum(
         review.classification
         in {"context_only", "non_scalar", "range_or_set", "uncertain"}
         for review in reviews
     )
-    if uncertain_count:
+    if target_context_uncertain_count:
         status = "uncertain"
     elif targets or numeric_non_targets:
         status = "complete"
@@ -739,8 +1058,11 @@ def assemble_quantitative_document_ledger(
         status = "not_applicable"
     reason = (
         f"Reviewed {len(reviews)} non-overlapping document statements; mapped "
-        f"{len(targets)} numeric targets; retained {numeric_non_targets} numeric "
-        f"non-target statements; {uncertain_count} statements remain uncertain."
+        f"{len(targets)} numeric targets; retained {numeric_non_targets} non-target "
+        f"or unresolved numeric statements; {uncertain_count} statements remain uncertain, "
+        f"including {target_context_uncertain_count} in target-bearing document "
+        "context. Uncertain statements are excluded from target-specific retrieval "
+        "and calibration without blocking qualitative evidence retrieval."
     )
     ledger = QuantitativeLedger(
         status=status,
@@ -953,6 +1275,7 @@ def _project_ledger_to_attributes(
 def _document_ledger_system_prompt(
     attributes: list[Attribute],
     *,
+    canonical_bindings: list[_CanonicalNumericBinding] | None = None,
     indication: str,
     intervention_class: str,
     framing: str,
@@ -961,6 +1284,24 @@ def _document_ledger_system_prompt(
         f"- {attribute.name}: {attribute.description}"
         for attribute in attributes
     )
+    canonical_bindings = canonical_bindings or _canonical_numeric_bindings(attributes)
+    binding_catalog = "\n".join(
+        (
+            f"[context:{binding.ref}]\n"
+            f"field: {binding.attribute_ref}\n"
+            f"canonical target: {binding.document_target}\n"
+            "source blocks: "
+            + ", ".join(
+                dict.fromkeys(
+                    block_id
+                    for span in binding.spans
+                    for block_id in span.block_ids
+                )
+            )
+            + ("\nentities: " + "; ".join(binding.entities) if binding.entities else "")
+        )
+        for binding in canonical_bindings
+    ) or "(No document-present canonical bindings.)"
     framing = (
         framing.strip()
         or "Interpret each statement according to the uploaded document's own role."
@@ -975,6 +1316,8 @@ def _document_ledger_system_prompt(
         f"Document framing: {framing}\n\n"
         "Canonical fields:\n"
         f"{field_catalog}\n\n"
+        "Canonical document bindings (authoritative cross-block context):\n"
+        f"{binding_catalog}\n\n"
         "For every unit choose target, context_only, non_scalar, range_or_set, "
         "non_numeric, or uncertain. Use uncertain instead of guessing. A target is an "
         "explicit exact or directional scalar that can be compared independently. Split "
@@ -986,14 +1329,24 @@ def _document_ledger_system_prompt(
         "use an empty string. A [visual content] unit may be classified non_numeric when "
         "the image has no numeric claim; otherwise classify it uncertain because it has "
         "no exact source text from which a target can be verified.\n\n"
-        "Target quote must be an exact substring of that unit and must support the value, "
-        "operator, and unit. Numeric syntax may come only from the unit. The surrounding "
-        "source block may establish threshold/optimal role and semantic meaning. Preserve "
+        "Numeric syntax may come only from the supplied unit. Canonical bindings provide "
+        "cross-block meaning but are not additional numeric statements to extract in this "
+        "batch. For each target, source_syntax selects the smallest complete literal numeric "
+        "expression from the unit and its exact value, comparator, and unit substrings. Use "
+        "empty strings for syntax parts that do not apply. expression is the normalized form: "
+        "its numeric value must remain identical to the literal source value; do not scale or "
+        "convert magnitudes. The canonical unit may normalize spelling, while interpreting its "
+        "meaning remains your responsibility. Deterministic code attaches exact source text "
+        "and block provenance; do not "
+        "retype either. The surrounding source block may establish threshold/optimal role "
+        "and semantic meaning. Preserve "
         "the document's row or endpoint label. semantic_profile and comparison_dimensions "
         "use measure, endpoint, intervention, population, regimen, time_horizon, statistic, "
-        "and conditions. Cite each specified/other semantic value in semantic_provenance "
-        "using exact supplied block text. Essential unresolved meaning must be unknown and "
-        "comparison-required. Conditions includes only settings that change numeric "
+        "and conditions. Essential unresolved meaning must be unknown and "
+        "comparison-required. For every semantic slot, source_refs must identify where its "
+        "meaning came from: statement for the reviewed unit, or one or more exact "
+        "[context:<ref>] bindings above. Asserted slots require at least one source_ref; "
+        "unasserted slots require none. Conditions includes only settings that change numeric "
         "interpretation. Do not judge whether external evidence passes the target.\n\n"
         "For non-target reviews targets must be empty. For target reviews include every "
         "atomic target in the unit. Copy unit IDs exactly. Return only the schema JSON."
@@ -1021,9 +1374,32 @@ def _validated_targets(
     semantic_context: str,
     allowed_target_block_ids: set[str] | None = None,
     require_document_target_support: bool = True,
+    canonical_semantic_provenance: bool = False,
 ) -> list[QuantitativeTarget]:
+    """Compatibility wrapper for callers that only need admitted targets."""
+    return _validated_targets_with_issues(
+        items,
+        attribute=attribute,
+        doc_text=doc_text,
+        semantic_context=semantic_context,
+        allowed_target_block_ids=allowed_target_block_ids,
+        require_document_target_support=require_document_target_support,
+        canonical_semantic_provenance=canonical_semantic_provenance,
+    ).targets
+
+
+def _validated_targets_with_issues(
+    items: object,
+    *,
+    attribute: Attribute,
+    doc_text: str,
+    semantic_context: str,
+    allowed_target_block_ids: set[str] | None = None,
+    require_document_target_support: bool = True,
+    canonical_semantic_provenance: bool = False,
+) -> _TargetMappingValidation:
     if not isinstance(items, list):
-        return []
+        return _TargetMappingValidation([], ("invalid_target_list",))
     # A target is a fact owned by the canonical field binding, not merely a fact
     # found in relevance-selected context. Both the rendered input and the
     # binding must authorize its exact source block.
@@ -1037,21 +1413,40 @@ def _validated_targets(
         allowed_ids &= rendered_ids
     semantic_allowed_ids = document_block_ids(semantic_context)
     targets_by_id: dict[str, QuantitativeTarget] = {}
+    issues: list[str] = []
     for item in items:
         if not isinstance(item, dict):
+            issues.append("invalid_target_object")
             continue
-        expression = _validated_numeric_expression(item.get("expression"))
+        raw_spans = item.get("provenance_spans")
+        first_span = (
+            raw_spans[0]
+            if isinstance(raw_spans, list)
+            and raw_spans
+            and isinstance(raw_spans[0], dict)
+            else {}
+        )
+        syntax_validation = _validated_expression_mapping(
+            item.get("expression"),
+            item.get("source_syntax"),
+            quote=str(first_span.get("quote", "")),
+            required_kind="bound",
+        )
+        expression = syntax_validation.expression
         role = str(item.get("role", "other")).strip().lower()
         raw_dimensions = item.get("comparison_dimensions")
         semantic_profile = _validated_semantic_profile(item.get("semantic_profile"))
         ownership_reason = str(item.get("ownership_reason", "")).strip()
         if (
             expression is None
-            or expression.kind != "bound"
             or role not in VALID_TARGET_ROLES
             or semantic_profile is None
             or not isinstance(raw_dimensions, list)
         ):
+            issues.append(
+                syntax_validation.code
+                or "invalid_target_semantic_contract"
+            )
             continue
         comparison_dimensions = list(
             dict.fromkeys(
@@ -1070,21 +1465,22 @@ def _validated_targets(
             or set(comparison_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS)
             or not asserted_dimensions.issubset(comparison_dimensions)
         ):
+            issues.append("invalid_comparison_dimensions")
             continue
         semantic_provenance = _validated_semantic_provenance(
             item.get("semantic_provenance"),
             semantic_profile,
             semantic_context,
             semantic_allowed_ids,
+            max_quote_chars=(
+                None if canonical_semantic_provenance else MAX_TARGET_QUOTE_CHARS
+            ),
         )
         if semantic_provenance is None:
+            issues.append("invalid_semantic_provenance")
             continue
-        assert expression.value is not None
-        value = expression.value
-        comparator = expression.comparator
-        unit = expression.unit
-        raw_spans = item.get("provenance_spans")
         if not isinstance(raw_spans, list) or not raw_spans:
+            issues.append("missing_target_provenance")
             continue
         spans: list[DocumentSpan] = []
         seen_spans: set[tuple[str, tuple[str, ...]]] = set()
@@ -1101,22 +1497,18 @@ def _validated_targets(
                 or not span_quote
                 or len(span_quote) > MAX_TARGET_QUOTE_CHARS
                 or not _quote_in_text(span_quote, span_text)
-                or not _value_unit_supported(float(value), unit, span_quote)
-                or not _comparator_supported(comparator, span_quote)
-                or not _is_atomic_bound_span(expression, span_quote)
             ):
                 continue
             seen_spans.add(span_key)
             spans.append(DocumentSpan(quote=span_quote, block_ids=span_ids))
         if not spans:
+            issues.append("invalid_target_provenance")
             continue
-        if require_document_target_support and not _target_supported_by_binding(
-                float(value),
-                comparator,
-                unit,
-                attribute.document_target,
-                supporting_quotes=[span.quote for span in spans],
-            ):
+        if require_document_target_support and not all(
+            _quote_in_text(span.quote, attribute.document_target)
+            for span in spans
+        ):
+            issues.append("target_outside_canonical_binding")
             continue
         target = QuantitativeTarget(
             attribute_ref=attribute.name,
@@ -1165,7 +1557,10 @@ def _validated_targets(
             semantic_provenance=merged_semantic_provenance,
             id=existing.id,
         )
-    return list(targets_by_id.values())
+    return _TargetMappingValidation(
+        list(targets_by_id.values()),
+        tuple(dict.fromkeys(issues)),
+    )
 
 
 def _extract_target_measurements(
@@ -1178,71 +1573,109 @@ def _extract_target_measurements(
     intervention_class: str,
     max_tokens: int,
 ) -> tuple[list[Measurement], list[SourcePassageDisposition]]:
-    """Map bounded source-owned passages directly into complete measurements."""
+    """Sequential compatibility entry point used by focused callers/tests."""
     passages = _source_passages(insights)
     measurements: list[Measurement] = []
     dispositions: list[SourcePassageDisposition] = []
-    decided: set[str] = set()
     for start in range(0, len(passages), SOURCE_BATCH_SIZE):
         batch = passages[start : start + SOURCE_BATCH_SIZE]
-        system_prompt = _measurement_system_prompt(
+        result = _map_source_passage_batch(
             attribute,
-            target=target,
+            target,
+            batch,
+            llm_client,
             indication=indication,
             intervention_class=intervention_class,
-        )
-        user_message = _measurement_user_message(batch)
-        contract = source_measurement_batch(_required_comparison_axes(target))
-        parsed = request_structured(
-            llm_client,
-            contract,
-            system_prompt,
-            user_message,
             max_tokens=max_tokens,
         )
-        parsed = parsed if isinstance(parsed, dict) else {}
-        batch_measurements, batch_dispositions = _validated_source_decisions(
-            parsed.get("sources"),
-            passages={passage.id: passage for passage in batch},
-            target=target,
+        measurements.extend(result.measurements)
+        dispositions.extend(result.dispositions)
+    return measurements, dispositions
+
+
+def _map_source_passage_batch(
+    attribute: Attribute,
+    target: QuantitativeTarget,
+    batch: list[_SourcePassage],
+    llm_client: LLMClientProtocol,
+    *,
+    indication: str,
+    intervention_class: str,
+    max_tokens: int,
+) -> _CalibrationBatchResult:
+    """Map one independent batch, including its one local corrective retry."""
+    system_prompt = _measurement_system_prompt(
+        attribute,
+        target=target,
+        indication=indication,
+        intervention_class=intervention_class,
+    )
+    contract = source_measurement_batch(
+        _required_comparison_axes(target),
+        [passage.id for passage in batch],
+    )
+    parsed = request_structured(
+        llm_client,
+        contract,
+        system_prompt,
+        _measurement_user_message(batch),
+        max_tokens=max_tokens,
+    )
+    parsed = parsed if isinstance(parsed, dict) else {}
+    measurements, dispositions, issues = _validated_source_decisions(
+        parsed.get("sources"),
+        passages={passage.id: passage for passage in batch},
+        target=target,
+    )
+    decided = {item.source_id for item in dispositions}
+    missing = [passage for passage in batch if passage.id not in decided]
+    if missing:
+        retry_contract = source_measurement_batch(
+            _required_comparison_axes(target),
+            [passage.id for passage in missing],
         )
-        batch_decided = {item.source_id for item in batch_dispositions}
-        missing = [passage for passage in batch if passage.id not in batch_decided]
-        if missing:
-            retry_parsed = request_structured(
-                llm_client,
-                contract,
-                system_prompt,
-                _measurement_user_message(missing)
-                + "\n\nA prior response omitted or malformed these source decisions. "
-                "Return exactly one complete decision for every source ID above.",
-                max_tokens=max_tokens,
-            )
-            retry_parsed = retry_parsed if isinstance(retry_parsed, dict) else {}
-            recovered_measurements, recovered_dispositions = _validated_source_decisions(
+        retry_parsed = request_structured(
+            llm_client,
+            retry_contract,
+            system_prompt,
+            _measurement_user_message(missing)
+            + "\n\nA prior response omitted or malformed these source decisions. "
+            "Correct only these deterministic admission failures and return exactly "
+            "one complete decision for every source ID above:\n"
+            + "\n".join(
+                f"- [source:{passage.id}] "
+                f"{issues.get(passage.id, 'missing_source_decision')}"
+                for passage in missing
+            ),
+            max_tokens=max_tokens,
+        )
+        retry_parsed = retry_parsed if isinstance(retry_parsed, dict) else {}
+        recovered_measurements, recovered_dispositions, retry_issues = (
+            _validated_source_decisions(
                 retry_parsed.get("sources"),
                 passages={passage.id: passage for passage in missing},
                 target=target,
             )
-            batch_measurements.extend(recovered_measurements)
-            batch_dispositions.extend(recovered_dispositions)
-        measurements.extend(batch_measurements)
-        dispositions.extend(batch_dispositions)
-        decided.update(item.source_id for item in batch_dispositions)
+        )
+        measurements.extend(recovered_measurements)
+        dispositions.extend(recovered_dispositions)
+        issues.update(retry_issues)
 
-    for passage in passages:
+    decided = {item.source_id for item in dispositions}
+    for passage in batch:
         if passage.id in decided:
             continue
+        issue = issues.get(passage.id, "missing_source_decision")
         dispositions.append(
             SourcePassageDisposition(
                 source_id=passage.id,
                 status="uncertain",
-                reason="No complete validated semantic decision was returned for this passage.",
+                reason=f"Source mapping rejected [{issue}] after one retry.",
                 url=passage.finding.url,
                 insight_id=passage.insight.id,
             )
         )
-    return measurements, dispositions
+    return _CalibrationBatchResult(measurements, dispositions)
 
 
 def _validated_source_decisions(
@@ -1250,11 +1683,18 @@ def _validated_source_decisions(
     *,
     passages: dict[str, _SourcePassage],
     target: QuantitativeTarget,
-) -> tuple[list[Measurement], list[SourcePassageDisposition]]:
+) -> tuple[
+    list[Measurement],
+    list[SourcePassageDisposition],
+    dict[str, str],
+]:
     if not isinstance(items, list):
-        return [], []
+        return [], [], {
+            source_id: "invalid_source_decision_list" for source_id in passages
+        }
     output: list[Measurement] = []
     dispositions: list[SourcePassageDisposition] = []
+    issues: dict[str, str] = {}
     seen: set[str] = set()
     for item in items:
         if not isinstance(item, dict):
@@ -1270,26 +1710,34 @@ def _validated_source_decisions(
             "no_relevant_measurement",
             "uncertain",
         } or not reason:
+            issues[source_id] = "invalid_source_decision"
             continue
         raw_measurements = item.get("measurements")
         if status == "measurements_found" and not isinstance(raw_measurements, list):
+            issues[source_id] = "invalid_measurement_list"
             continue
         validated: list[Measurement] = []
+        measurement_issues: list[str] = []
         for raw_measurement in raw_measurements if isinstance(raw_measurements, list) else []:
-            measurement = _validated_passage_measurement(
+            validation = _validated_passage_measurement(
                 raw_measurement,
                 passage=passage,
                 target=target,
             )
-            if measurement is not None:
-                validated.append(measurement)
+            if validation.measurement is not None:
+                validated.append(validation.measurement)
+            else:
+                measurement_issues.append(validation.code or "invalid_measurement")
         if isinstance(raw_measurements, list) and len(validated) != len(raw_measurements):
             # Never silently keep only the convenient subset of a model
             # decision. Retry the whole source or preserve it as uncertain.
+            issues[source_id] = ", ".join(dict.fromkeys(measurement_issues))
             continue
         if status == "measurements_found" and not validated:
+            issues[source_id] = "missing_validated_measurement"
             continue
         if status != "measurements_found" and validated:
+            issues[source_id] = "unexpected_measurement_payload"
             continue
         output.extend(validated)
         dispositions.append(
@@ -1302,7 +1750,10 @@ def _validated_source_decisions(
             )
         )
         seen.add(source_id)
-    return output, dispositions
+    for source_id in passages:
+        if source_id not in seen and source_id not in issues:
+            issues[source_id] = "missing_source_decision"
+    return output, dispositions, issues
 
 
 def _validated_passage_measurement(
@@ -1310,30 +1761,47 @@ def _validated_passage_measurement(
     *,
     passage: _SourcePassage,
     target: QuantitativeTarget,
-) -> Measurement | None:
+) -> _PassageMeasurementValidation:
     if not isinstance(raw, dict):
-        return None
+        return _PassageMeasurementValidation(
+            code="invalid_measurement_object",
+            reason="Measurement was not an object.",
+        )
     quote = " ".join(str(raw.get("quote", "")).split())
-    expression = _validated_numeric_expression(raw.get("expression"))
+    if not quote or not _quote_in_text(quote, passage.text):
+        return _PassageMeasurementValidation(
+            code="source_quote_not_found",
+            reason="The exact quote was not found in its retained source passage.",
+        )
+    syntax_validation = _validated_expression_mapping(
+        raw.get("expression"),
+        raw.get("source_syntax"),
+        quote=quote,
+    )
+    expression = syntax_validation.expression
     semantic_assessment = _validated_measurement_semantic_assessment(
         raw.get("semantic_assessment"),
         required_fields=_required_comparison_axes(target),
     )
     if (
-        not quote
-        or not _quote_in_text(quote, passage.text)
-        or expression is None
-        or not _expression_supported(expression, quote)
-        or semantic_assessment is None
+        expression is None
     ):
-        return None
+        return _PassageMeasurementValidation(
+            code=syntax_validation.code,
+            reason=syntax_validation.reason,
+        )
+    if semantic_assessment is None:
+        return _PassageMeasurementValidation(
+            code="invalid_measurement_semantics",
+            reason="Measurement semantics did not satisfy the target contract.",
+        )
     material = json.dumps(
         {
             "source_id": passage.id,
             "quote": _normalize_quote(quote),
             "expression": {
                 "kind": expression.kind,
-                "unit": _canonical_unit(expression.unit),
+                "unit": _unit_key(expression.unit),
                 "value": expression.value,
                 "lower": expression.lower,
                 "upper": expression.upper,
@@ -1357,18 +1825,17 @@ def _validated_passage_measurement(
     measurement.semantic_status, measurement.semantic_reason = (
         _derived_semantic_status(measurement, target)
     )
-    return measurement
+    return _PassageMeasurementValidation(measurement=measurement)
 
 
 def _validated_ternary_decision(raw: object) -> TernaryDecision | None:
-    if not isinstance(raw, dict) or set(raw) != {"state", "reason"}:
-        return None
     try:
+        wire = TernaryDecisionWire.model_validate(raw)
         return TernaryDecision(
-            state=str(raw.get("state", "")),
-            reason=str(raw.get("reason", "")),
+            state=wire.state,
+            reason=wire.reason,
         )
-    except ValueError:
+    except (ValidationError, ValueError):
         return None
 
 
@@ -1419,15 +1886,14 @@ def _validated_measurement_semantic_assessment(
 
 
 def _validated_semantic_slot(raw: object) -> SemanticSlot | None:
-    if not isinstance(raw, dict) or set(raw) != {"state", "value", "other"}:
-        return None
     try:
+        wire = SemanticSlotWire.model_validate(raw)
         return SemanticSlot(
-            state=str(raw.get("state", "")),
-            value=str(raw.get("value", "")),
-            other=str(raw.get("other", "")),
+            state=wire.state,
+            value=wire.value,
+            other=wire.other,
         )
-    except ValueError:
+    except (ValidationError, ValueError):
         return None
 
 
@@ -1533,6 +1999,7 @@ def _validated_semantic_provenance(
     profile: dict[str, SemanticSlot],
     context: str,
     allowed_ids: set[str],
+    max_quote_chars: int | None = MAX_TARGET_QUOTE_CHARS,
 ) -> dict[str, list[DocumentSpan]] | None:
     """Require every asserted target dimension to cite exact document text."""
     if not isinstance(raw, dict) or set(raw) != set(QUANTITATIVE_SEMANTIC_FIELDS):
@@ -1553,7 +2020,7 @@ def _validated_semantic_provenance(
             if (
                 not quote
                 or not block_ids
-                or len(quote) > MAX_TARGET_QUOTE_CHARS
+                or (max_quote_chars is not None and len(quote) > max_quote_chars)
                 or key in seen
                 or not _quote_in_text(quote, _text_for_blocks(context, block_ids))
             ):
@@ -1570,98 +2037,137 @@ def _validated_semantic_provenance(
 
 def _validated_numeric_expression(raw: object) -> NumericExpression | None:
     """Validate the one syntax-only numeric contract returned by the model."""
-    if not isinstance(raw, dict):
-        return None
-    kind = str(raw.get("kind", "")).strip().lower()
-    unit = str(raw.get("unit", "")).strip()
-    if kind not in MEASUREMENT_KINDS:
-        return None
-    if kind not in {"other", "unknown"} and not unit:
-        return None
     try:
+        wire = NumericExpressionWire.model_validate(raw)
         return NumericExpression(
-            kind=kind,
-            unit=unit,
-            value=raw.get("value"),
-            lower=raw.get("lower"),
-            upper=raw.get("upper"),
-            comparator=str(raw.get("comparator", "")),
+            **wire.model_dump()
         )
-    except (TypeError, ValueError):
+    except (ValidationError, TypeError, ValueError):
         return None
 
 
-def _expression_supported(expression: NumericExpression, quote: str) -> bool:
-    """Require every structured number and operator to appear in its exact quote."""
-    if expression.kind in {"point_estimate", "count", "rate"}:
-        return (
-            expression.value is not None
-            and _value_unit_supported(expression.value, expression.unit, quote)
-        )
-    if expression.kind == "bound":
-        return (
-            expression.value is not None
-            and _value_unit_supported(expression.value, expression.unit, quote)
-            and _comparator_supported(expression.comparator, quote)
-        )
-    if expression.kind in {"range", "confidence_interval"}:
-        return (
-            expression.lower is not None
-            and expression.upper is not None
-            and _number_supported(expression.lower, quote)
-            and _number_supported(expression.upper, quote)
-            and (
-                _value_unit_supported(expression.lower, expression.unit, quote)
-                or _value_unit_supported(expression.upper, expression.unit, quote)
-            )
-        )
-    return bool(_NUMBER_RE.search(quote))
+def _validated_expression_mapping(
+    raw_expression: object,
+    raw_syntax: object,
+    *,
+    quote: str,
+    required_kind: str | None = None,
+) -> _NumericMappingValidation:
+    """Admit one AI-normalized expression using literal source syntax only.
 
-
-def _is_atomic_bound_span(expression: NumericExpression, quote: str) -> bool:
-    """Reject a range or choice that was incorrectly collapsed into one bound.
-
-    This validates numeric grammar only. It does not infer clinical meaning: a
-    bound is atomic only when its exact span couples one distinct value to the
-    target unit. Time-horizon and other differently-unitized qualifiers remain
-    available to the semantic profile.
+    AI owns semantic interpretation and the proposed canonical unit. Pydantic
+    owns the wire shape. Code verifies that selected literals exist and checks
+    numeric equality only when a literal is mechanically machine-readable.
+    No prose-level number, unit, range, or clinical meaning is reinterpreted.
     """
-    if expression.kind != "bound" or expression.value is None:
-        return False
-    if _contains_same_unit_range_or_choice(quote, expression.unit):
-        return False
-    values = {
-        round(value, 12)
-        for value in _numeric_values_for_unit(quote, expression.unit)
-    }
-    return values == {round(expression.value, 12)}
-
-
-def _contains_same_unit_range_or_choice(text: str, unit: str) -> bool:
-    """Recognize two values sharing one trailing unit as non-atomic syntax."""
-    number = (
-        r"(?:[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.·]\d+)?"
-        rf"|\b(?:{_NUMBER_WORD_PATTERN})\b)"
-    )
-    canonical = _canonical_unit(unit)
-    unit_patterns = {
-        "%": r"(?:%|percent(?:age)?\b|pct\b)",
-        "year": r"(?:years?|yrs?)\b",
-        "years": r"(?:years?|yrs?)\b",
-        "month": r"(?:months?|mos?)\b",
-        "months": r"(?:months?|mos?)\b",
-        "hour": r"(?:hours?|hrs?)\b",
-        "hours": r"(?:hours?|hrs?)\b",
-    }
-    unit_pattern = unit_patterns.get(canonical, re.escape(unit.strip()))
-    connector = r"(?:-|–|—|\bto\b|\bthrough\b|\bor\b|\band\b)"
-    return bool(
-        re.search(
-            rf"{number}\s*{connector}\s*{number}\s*{unit_pattern}",
-            text,
-            re.IGNORECASE,
+    expression = _validated_numeric_expression(raw_expression)
+    if expression is None or (required_kind and expression.kind != required_kind):
+        return _NumericMappingValidation(
+            code="invalid_numeric_expression",
+            reason="The normalized numeric expression did not satisfy its schema.",
         )
-    )
+    try:
+        syntax_wire = SourceNumericSyntaxWire.model_validate(raw_syntax)
+    except ValidationError:
+        return _NumericMappingValidation(
+            code="missing_source_syntax",
+            reason="The mapping did not provide the complete literal source syntax.",
+        )
+    syntax = syntax_wire.model_dump()
+    expression_text = syntax["expression_text"]
+    if not expression_text or not _quote_in_text(expression_text, quote):
+        return _NumericMappingValidation(
+            code="source_expression_not_found",
+            reason="The literal numeric expression was not found in the exact quote.",
+        )
+    for field_name in (
+        "value_text",
+        "lower_text",
+        "upper_text",
+        "comparator_text",
+        "unit_text",
+    ):
+        literal = syntax[field_name]
+        if literal and (
+            not _literal_in_text(literal, expression_text)
+            or not _literal_in_text(literal, quote)
+        ):
+            return _NumericMappingValidation(
+                code=f"{field_name}_not_found",
+                reason=f"The literal {field_name} was not found in the source expression.",
+            )
+
+    if expression.kind in {"point_estimate", "count", "rate", "bound"}:
+        if (
+            not syntax["value_text"]
+            or syntax["lower_text"]
+            or syntax["upper_text"]
+            or expression.value is None
+        ):
+            return _NumericMappingValidation(
+                code="invalid_scalar_source_syntax",
+                reason="A scalar mapping requires one literal value and no bounds.",
+            )
+        literal_value = _parse_machine_number(syntax["value_text"])
+        if literal_value is not None and not math.isclose(
+            literal_value, expression.value, rel_tol=1e-9, abs_tol=1e-9
+        ):
+            return _NumericMappingValidation(
+                code="source_value_mismatch",
+                reason="The normalized value did not equal the literal source value.",
+            )
+    elif expression.kind in {"range", "confidence_interval"}:
+        if (
+            syntax["value_text"]
+            or not syntax["lower_text"]
+            or not syntax["upper_text"]
+            or expression.lower is None
+            or expression.upper is None
+        ):
+            return _NumericMappingValidation(
+                code="invalid_interval_source_syntax",
+                reason="An interval mapping requires literal lower and upper values.",
+            )
+        lower = _parse_machine_number(syntax["lower_text"])
+        upper = _parse_machine_number(syntax["upper_text"])
+        if (
+            lower is not None
+            and not math.isclose(lower, expression.lower, rel_tol=1e-9, abs_tol=1e-9)
+        ) or (
+            upper is not None
+            and not math.isclose(upper, expression.upper, rel_tol=1e-9, abs_tol=1e-9)
+        ):
+            return _NumericMappingValidation(
+                code="source_interval_mismatch",
+                reason="Normalized bounds did not equal the literal source bounds.",
+            )
+
+    if expression.kind == "bound":
+        comparator_text = syntax["comparator_text"]
+        if expression.comparator != "=" and not comparator_text:
+            return _NumericMappingValidation(
+                code="missing_source_comparator",
+                reason="A directional bound requires its literal source comparator.",
+            )
+        literal_operator = _symbolic_comparator(comparator_text)
+        if literal_operator and literal_operator != expression.comparator:
+            return _NumericMappingValidation(
+                code="source_comparator_mismatch",
+                reason="The normalized operator contradicted the literal source symbol.",
+            )
+    elif syntax["comparator_text"] or expression.comparator:
+        return _NumericMappingValidation(
+            code="unexpected_source_comparator",
+            reason="A non-bound expression cannot carry a comparison operator.",
+        )
+
+    if expression.kind not in {"other", "unknown"} and not syntax["unit_text"]:
+        return _NumericMappingValidation(
+            code="missing_source_unit",
+            reason="A numeric expression requires its exact literal source unit.",
+        )
+
+    return _NumericMappingValidation(expression=expression)
 
 
 def _measurement_system_prompt(
@@ -1672,43 +2178,6 @@ def _measurement_system_prompt(
     intervention_class: str,
 ) -> str:
     required_fields = sorted(_required_comparison_axes(target))
-    example_dimensions = {
-        field_name: {
-            "source": {
-                "state": "specified",
-                "value": f"source-stated {field_name.replace('_', ' ')}",
-                "other": "",
-            },
-            "compatibility": {"state": "yes", "reason": ""},
-        }
-        for field_name in required_fields
-    }
-    response_example = {
-        "sources": [
-            {
-                "source_id": "sp-123",
-                "status": "measurements_found",
-                "reason": "The passage reports one target-relevant estimate.",
-                "measurements": [
-                    {
-                        "quote": "The response rate was 50.3% at 12 months.",
-                        "expression": {
-                            "kind": "point_estimate",
-                            "unit": "%",
-                            "value": 50.3,
-                            "lower": None,
-                            "upper": None,
-                            "comparator": "",
-                        },
-                        "semantic_assessment": {
-                            "source_ownership": {"state": "yes", "reason": ""},
-                            "dimensions": example_dimensions,
-                        },
-                    }
-                ],
-            }
-        ]
-    }
     return (
         "You extract complete numeric measurements from bounded, source-owned passages "
         "against one atomic semantic target.\n\n"
@@ -1725,7 +2194,13 @@ def _measurement_system_prompt(
         "Do not enumerate every number. Extract only complete statements that measure the target "
         "or a meaningfully related quantity. Each extracted measurement must contain the shortest "
         "self-contained exact quote that explicitly connects the number to the measured outcome "
-        "or property and preserves its qualifiers, plus one expression object. A dose, exposure "
+        "or property and preserves its qualifiers, plus one expression object and source_syntax. "
+        "source_syntax selects the smallest complete literal numeric expression inside the quote "
+        "and its exact value, bounds, comparator, and unit substrings; use empty strings for parts "
+        "that do not apply. expression is the normalized form and its numeric values must remain "
+        "identical to the literal values—do not scale or convert magnitudes. Use the document "
+        "target unit exactly when the source has the same unit meaning; otherwise retain a concise "
+        "canonical source unit so code excludes it from direct statistics. A dose, exposure "
         "condition, storage temperature, visit time, follow-up duration, or sample size alone is "
         "NOT an outcome measurement. For example, 'stored for 6 weeks at 60 C' is not evidence of "
         "thermostability unless the same contiguous quote also states what stability, potency, or "
@@ -1756,9 +2231,7 @@ def _measurement_system_prompt(
         "you, derives the final cohort disposition from these decisions.\n\n"
         "Use no_relevant_measurement when the passage contains no relevant complete numeric "
         "statement. Use uncertain when one may exist but the supplied passage cannot support a "
-        "faithful mapping. Never infer omitted context.\n\n"
-        "Return ONLY JSON matching this shape: "
-        + json.dumps(response_example, ensure_ascii=False, separators=(",", ":"))
+        "faithful mapping. Never infer omitted context. Return only the schema-bound response."
     )
 
 
@@ -1810,14 +2283,6 @@ def _source_passages(insights: list[Insight]) -> list[_SourcePassage]:
     return passages
 
 
-def _is_finite_number(value: object) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(float(value))
-    )
-
-
 def _normalize_quote(value: str) -> str:
     return " ".join(html.unescape(value).split()).casefold()
 
@@ -1830,178 +2295,48 @@ def _quote_in_text(quote: str, source_text: str) -> bool:
 _NUMBER_RE = re.compile(
     r"(?<![A-Za-z0-9])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.·]\d+)?(?:[eE][-+]?\d+)?"
 )
-_NUMBER_WORD_VALUES = {
-    word: float(value)
-    for value, word in enumerate(
-        (
-            "zero", "one", "two", "three", "four", "five", "six", "seven",
-            "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
-            "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
-        )
-    )
-}
-_NUMBER_WORD_PATTERN = "|".join(_NUMBER_WORD_VALUES)
-_NUMBER_WORD_RE = re.compile(rf"\b(?:{_NUMBER_WORD_PATTERN})\b", re.IGNORECASE)
-
-
-def _value_unit_supported(value: float, unit: str, quote: str) -> bool:
-    """Require the selected number to be grammatically coupled to its unit."""
-    return any(
-        math.isclose(candidate, value, rel_tol=1e-9, abs_tol=1e-9)
-        for candidate in _numeric_values_for_unit(quote, unit)
-    )
-
-
-def _number_supported(value: float, quote: str) -> bool:
-    """Verify a number literally appears, independent of shared range-unit syntax."""
-    for match in _NUMBER_RE.finditer(quote):
-        try:
-            candidate = float(match.group(0).replace(",", "").replace("·", "."))
-        except ValueError:
-            continue
-        if math.isclose(candidate, value, rel_tol=1e-9, abs_tol=1e-9):
-            return True
-    for match in _NUMBER_WORD_RE.finditer(quote):
-        if math.isclose(
-            _NUMBER_WORD_VALUES[match.group(0).casefold()],
-            value,
-            rel_tol=1e-9,
-            abs_tol=1e-9,
-        ):
-            return True
-    return False
-
-
-def _target_supported_by_binding(
-    value: float,
-    comparator: str,
-    unit: str,
-    binding: str,
-    *,
-    supporting_quotes: list[str],
-) -> bool:
-    """Require the canonical field binding itself to own the numeric target.
-
-    Exact source blocks prove that a number exists in the document. This check
-    separately proves that the resolved field owns it. Failing closed may omit
-    an incompletely bound target, but it prevents a neighboring field from
-    donating one.
-    """
-    if not binding or not _value_unit_supported(value, unit, binding):
+def _literal_in_text(literal: str, text: str) -> bool:
+    """Check an exact model-selected literal without interpreting its meaning."""
+    normalized_literal = " ".join(literal.split())
+    normalized_text = " ".join(text.split())
+    if not normalized_literal:
         return False
-    if any(
-        _quote_in_text(quote, binding)
-        and _value_unit_supported(value, unit, quote)
-        and _comparator_supported(comparator, quote)
-        for quote in supporting_quotes
-    ):
-        return True
-    clauses = re.split(r"(?<=[.;])\s+|\n+", binding)
-    return any(
-        _value_unit_supported(value, unit, clause)
-        and _comparator_supported(comparator, clause)
-        for clause in clauses
-    )
-
-
-def _numeric_values_for_unit(text: str, unit: str) -> list[float]:
-    # A hyphen between digits is a range separator, never a unary minus. Keep
-    # both endpoints for traceability; the semantic normalizer classifies the
-    # expression as ``range`` so neither enters point-estimate statistics.
-    text = re.sub(r"(?<=\d)\s*[-–—]\s*(?=\d)", " to ", text)
-    canonical = _canonical_unit(unit)
-    number = (
-        r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.·]\d+)?(?:[eE][-+]?\d+)?"
-        rf"|\b(?:{_NUMBER_WORD_PATTERN})\b"
-    )
-    patterns: list[str]
-    if canonical == "%":
-        patterns = [rf"(?P<value>{number})\s*(?:%|percent(?:age)?\b|pct\b)"]
-    elif canonical == "usd":
-        patterns = [
-            rf"(?:US\s*)?\$\s*(?P<value>{number})",
-            rf"\bUSD\s*(?P<value>{number})",
-            rf"(?P<value>{number})\s*(?:USD\b|US\s+dollars?\b)",
-        ]
-    elif canonical in {"hour", "hours"}:
-        patterns = [rf"(?P<value>{number})\s*(?:hours?|hrs?)\b"]
-    elif canonical in {"month", "months"}:
-        patterns = [rf"(?P<value>{number})\s*(?:months?|mos?)\b"]
-    elif canonical in {"year", "years"}:
-        patterns = [rf"(?P<value>{number})\s*(?:years?|yrs?)\b"]
-    elif canonical == "ml/dose":
-        patterns = [
-            rf"(?P<value>{number})\s*mL(?:\s*/\s*dose|\s+per\s+dose)?\b"
-        ]
-    elif canonical == "x/year":
-        patterns = [
-            rf"(?P<value>{number})\s*(?:times?|doses?|administrations?|boosters?)\s+per\s+year\b",
-            rf"(?P<value>{number})\s*(?:x\s*/\s*year)\b",
-        ]
-    else:
-        escaped = re.escape(unit.strip())
-        patterns = [
-            rf"(?P<value>{number})\s*{escaped}(?![A-Za-z0-9])",
-            rf"(?<![A-Za-z0-9]){escaped}\s*(?P<value>{number})",
-        ]
-
-    values: list[float] = []
-    for pattern in patterns:
-        for match in re.finditer(pattern, text, re.IGNORECASE):
-            try:
-                value = _parse_number_token(match.group("value"))
-            except (ValueError, IndexError):
-                continue
-            if not any(
-                math.isclose(existing, value, rel_tol=1e-9, abs_tol=1e-9)
-                for existing in values
-            ):
-                values.append(value)
-    return values
-
-
-def _parse_number_token(token: str) -> float:
-    written = _NUMBER_WORD_VALUES.get(token.casefold())
-    if written is not None:
-        return written
-    return float(token.replace(",", "").replace("·", "."))
-
-
-def _comparator_supported(comparator: str, quote: str) -> bool:
-    folded = _normalize_quote(quote)
-    if comparator == "=":
-        if re.search(r"(?<![<>=])=(?!=)", folded) or any(
-            phrase in folded for phrase in ("exactly", "equal to")
-        ):
-            return True
-        return not any(
-            phrase in folded
-            for phrase in (
-                ">", "<", "≥", "≤", "at least", "at most", "minimum",
-                "maximum", "no more than", "not less than", "greater than",
-                "more than", "less than", "below", "up to",
+    if _parse_machine_number(normalized_literal) is not None:
+        return bool(
+            re.search(
+                rf"(?<![\d.]){re.escape(normalized_literal)}(?![\d.])",
+                normalized_text,
+                re.IGNORECASE,
             )
         )
-    if comparator == ">":
-        return bool(re.search(r"(?<![<>=])>(?!=)", folded)) or any(
-            phrase in folded for phrase in ("greater than", "more than", "exceeds")
-        )
-    if comparator == "<":
-        return bool(re.search(r"(?<![<>=])<(?!=)", folded)) or any(
-            phrase in folded for phrase in ("less than", "below")
-        )
-    phrases = {
-        ">=": (
-            ">=", "≥", "at least", "minimum", "min.", "not less than",
-            "no lower than", "or greater", "or more", "not before",
-            "not prior to", "not required prior to", "no earlier than",
-        ),
-        "<=": (
-            "<=", "≤", "at most", "maximum", "max.", "no more than",
-            "not greater than", "up to", "or less",
-        ),
-    }
-    return any(phrase in folded for phrase in phrases[comparator])
+    return normalized_literal.casefold() in normalized_text.casefold()
+
+
+def _parse_machine_number(value: str) -> float | None:
+    """Parse only unambiguous machine-readable numeric tokens."""
+    token = value.strip()
+    if _NUMBER_RE.fullmatch(token):
+        try:
+            return float(token.replace(",", "").replace("·", "."))
+        except ValueError:
+            return None
+    return None
+
+
+def _symbolic_comparator(value: str) -> str:
+    """Verify literal mathematical symbols; natural-language meaning stays with AI."""
+    compact = re.sub(r"\s+", "", value)
+    return {
+        "=": "=",
+        ">": ">",
+        "<": "<",
+        ">=": ">=",
+        "=>": ">=",
+        "≥": ">=",
+        "<=": "<=",
+        "=<": "<=",
+        "≤": "<=",
+    }.get(compact, "")
 
 
 def _text_for_blocks(document_text: str, block_ids: list[str]) -> str:
@@ -2058,14 +2393,6 @@ def _source_record_identity(finding: Finding) -> tuple[str, str]:
     return f"url:{digest}", "url_fallback"
 
 
-def _canonical_unit(unit: str) -> str:
-    """Normalize spelling only; never perform dimensional conversion."""
-    normalized = re.sub(r"[\s._-]+", "", unit.strip().lower())
-    aliases = {
-        "percent": "%",
-        "percentage": "%",
-        "pct": "%",
-        "us$": "usd",
-        "$": "usd",
-    }
-    return aliases.get(normalized, normalized)
+def _unit_key(unit: str) -> str:
+    """Compare AI-produced unit identifiers without reinterpreting source text."""
+    return re.sub(r"\s+", "", unit.strip().casefold().replace("⁄", "/"))

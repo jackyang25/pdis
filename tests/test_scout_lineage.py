@@ -11,6 +11,7 @@ from services.chunker import ContentBlock
 from api.schemas import ConformityOut
 from services.assistant import document as document_reader
 from services.scout.context import (
+    limit_document_context,
     render_canonical_binding,
     select_binding_context,
     validated_block_ids,
@@ -22,6 +23,7 @@ from services.scout.projections import (
 from services.scout.models import (
     EVIDENCE_DOMAINS,
     Attribute,
+    DocumentSpan,
     Insight,
     QueryIntent,
     QuantitativeTarget,
@@ -34,12 +36,11 @@ from services.scout.models import (
 from services.scout.stages.conformity import (
     _document_ledger_system_prompt,
     _measurement_system_prompt,
-    _expression_supported,
     _meets_target,
     _partition_cohort,
+    _validated_expression_mapping,
     _validated_targets,
     _validated_measurement_semantic_assessment,
-    _value_unit_supported,
     score_conformity as _score_conformity_ledgers,
 )
 from services.scout.stages.context_validator import (
@@ -117,6 +118,86 @@ class SequenceClient(StaticClient):
         )
 
 
+def fixture_source_syntax(expression: dict, quote: str) -> dict:
+    """Create literal syntax for compact historical test fixtures."""
+    kind = expression.get("kind", "")
+    value = expression.get("value")
+    lower = expression.get("lower")
+    upper = expression.get("upper")
+    numeric_words = {
+        0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
+    }
+
+    def literal(number) -> str:
+        if number is None:
+            return ""
+        candidates = [f"{number:g}" if isinstance(number, (int, float)) else str(number)]
+        candidates.append(candidates[0].replace(".", "·"))
+        if isinstance(number, (int, float)) and float(number).is_integer():
+            candidates.insert(0, str(int(number)))
+            candidates.append(numeric_words.get(int(number), ""))
+        for candidate in candidates:
+            if candidate and re.search(rf"(?<![\d.]){re.escape(candidate)}(?![\d.])", quote, re.I):
+                return candidate
+        return candidates[0]
+
+    value_text = literal(value)
+    lower_text = literal(lower)
+    upper_text = literal(upper)
+    comparator = str(expression.get("comparator", ""))
+    comparator_candidates = {
+        ">=": [">=", "≥", "at least"],
+        "<=": ["<=", "≤", "at most"],
+        ">": [">", "greater than"],
+        "<": ["<", "less than"],
+        "=": ["="],
+    }.get(comparator, [])
+    comparator_text = next(
+        (candidate for candidate in comparator_candidates if candidate.casefold() in quote.casefold()),
+        "",
+    )
+    unit = str(expression.get("unit", ""))
+    unit_candidates = [unit]
+    if unit == "%":
+        unit_candidates += ["percent", "%"]
+    unit_text = next(
+        (candidate for candidate in unit_candidates if candidate and candidate.casefold() in quote.casefold()),
+        "",
+    )
+    literals = [
+        value for value in (comparator_text, value_text, lower_text, upper_text, unit_text)
+        if value
+    ]
+    starts = [quote.casefold().find(value.casefold()) for value in literals]
+    ends = [start + len(value) for start, value in zip(starts, literals) if start >= 0]
+    valid_starts = [start for start in starts if start >= 0]
+    expression_text = (
+        quote[min(valid_starts):max(ends)]
+        if valid_starts and ends
+        else quote
+    )
+    return {
+        "expression_text": expression_text,
+        "value_text": value_text if kind not in {"range", "confidence_interval"} else "",
+        "lower_text": lower_text,
+        "upper_text": upper_text,
+        "comparator_text": comparator_text,
+        "unit_text": unit_text,
+    }
+
+
+def complete_expression(expression: dict) -> dict:
+    """Complete compact fixtures exactly as the strict provider schema does."""
+    return {
+        "kind": expression.get("kind", "unknown"),
+        "unit": expression.get("unit", ""),
+        "value": expression.get("value"),
+        "lower": expression.get("lower"),
+        "upper": expression.get("upper"),
+        "comparator": expression.get("comparator", ""),
+    }
+
+
 def normalize_conformity_fixture(
     response: object, system_prompt: str, user_message: str
 ) -> object:
@@ -132,14 +213,26 @@ def normalize_conformity_fixture(
                 "targets": [
                     {
                         **target,
-                        "expression": target.get("expression") or {
+                        "expression": complete_expression(target.get("expression") or {
                             "kind": "bound",
                             "value": target.get("value"),
                             "lower": None,
                             "upper": None,
                             "comparator": target.get("comparator", ""),
                             "unit": target.get("unit", ""),
-                        },
+                        }),
+                        "source_syntax": target.get("source_syntax")
+                        or fixture_source_syntax(
+                            complete_expression(target.get("expression") or {
+                                "kind": "bound",
+                                "value": target.get("value"),
+                                "lower": None,
+                                "upper": None,
+                                "comparator": target.get("comparator", ""),
+                                "unit": target.get("unit", ""),
+                            }),
+                            str(target.get("quote", "")),
+                        ),
                         "semantic_profile": target.get(
                             "semantic_profile",
                             semantic_profile(str(target.get("label", "numeric measure"))),
@@ -189,6 +282,17 @@ def normalize_conformity_fixture(
                         "comparator": response.get("comparator"),
                         "unit": response.get("unit"),
                     },
+                    "source_syntax": fixture_source_syntax(
+                        {
+                            "kind": "bound",
+                            "value": response.get("target_value"),
+                            "lower": None,
+                            "upper": None,
+                            "comparator": response.get("comparator"),
+                            "unit": response.get("unit"),
+                        },
+                        str(response.get("target_quote", "")),
+                    ),
                     "role": "threshold",
                     "comparison_dimensions": [
                         field_name
@@ -230,16 +334,19 @@ def normalize_conformity_fixture(
         ]
         normalized = []
         for item in source_measurements:
+            expression = {
+                "kind": item.get("expression_kind", "point_estimate"),
+                "unit": item.get("unit", ""),
+                "value": item.get("value"),
+                "lower": item.get("lower"),
+                "upper": item.get("upper"),
+                "comparator": item.get("comparator", ""),
+            }
             normalized.append({
                 "quote": item.get("source_quote", ""),
-                "expression": {
-                    "kind": item.get("expression_kind", "point_estimate"),
-                    "unit": item.get("unit", ""),
-                    "value": item.get("value"),
-                    "lower": item.get("lower"),
-                    "upper": item.get("upper"),
-                    "comparator": item.get("comparator", ""),
-                },
+                "expression": expression,
+                "source_syntax": item.get("source_syntax")
+                or fixture_source_syntax(expression, str(item.get("source_quote", ""))),
                 "semantic_assessment": item.get("semantic_assessment") or semantic_assessment(
                     source_profile=item.get("semantic_profile"),
                     comparability=item.get("comparability"),
@@ -1092,8 +1199,9 @@ class DocumentContextTests(unittest.TestCase):
                     "evidence_domain": "regulatory",
                     "spans": [
                         {
-                            "quote": "RTS,S approval is targeted for 2030.",
-                            "block_ids": ["document/b-0002"],
+                            "block_id": "document/b-0002",
+                            "start_line": 1,
+                            "end_line": 1,
                         }
                     ],
                     "entities": [
@@ -1150,8 +1258,12 @@ class DocumentContextTests(unittest.TestCase):
         attribute = Attribute(
             name="vaccine.dose_volume",
             description="Volume per dose in mL",
-            block_ids=["document/b-0003"],
-            document_target="Dose volume: <0.5 mL/dose.",
+            document_spans=[
+                DocumentSpan(
+                    quote="Dose volume: <0.5 mL/dose.",
+                    block_ids=["document/b-0003"],
+                )
+            ],
             target_resolved=True,
         )
 
@@ -1162,6 +1274,52 @@ class DocumentContextTests(unittest.TestCase):
         self.assertNotIn("three annual doses", canonical)
         self.assertIn("[block:document/b-0003]", canonical)
         self.assertIn(attribute.document_target, canonical)
+
+    def test_reasoning_binding_renders_each_exact_span_only_at_its_source(self) -> None:
+        attribute = Attribute(
+            name="vaccine.efficacy",
+            description="Efficacy target",
+            document_spans=[
+                DocumentSpan(
+                    quote="Threshold efficacy is at least 50%.",
+                    block_ids=["document/b-0003"],
+                ),
+                DocumentSpan(
+                    quote="Optimal efficacy is at least 80%.",
+                    block_ids=["document/b-0004"],
+                ),
+            ],
+            target_resolved=True,
+        )
+
+        canonical = render_canonical_binding(attribute)
+
+        self.assertEqual(canonical.count("Threshold efficacy"), 1)
+        self.assertEqual(canonical.count("Optimal efficacy"), 1)
+        self.assertIn(
+            "[block:document/b-0003]\nThreshold efficacy is at least 50%.",
+            canonical,
+        )
+        self.assertIn(
+            "[block:document/b-0004]\nOptimal efficacy is at least 80%.",
+            canonical,
+        )
+
+    def test_bounded_reasoning_context_does_not_split_normal_blocks(self) -> None:
+        rendered = "\n\n".join(
+            f"[block:document/b-{index:04d}]\n{'x' * 80}"
+            for index in range(8)
+        )
+
+        bounded = limit_document_context(rendered, max_chars=420)
+
+        self.assertIn("middle document blocks omitted", bounded)
+        for rendered_block in bounded.split("\n\n"):
+            if rendered_block.startswith("[block:"):
+                self.assertRegex(
+                    rendered_block,
+                    r"^\[block:document/b-\d{4}\]\n(?:x{80})$",
+                )
 
     def test_unit_extraction_chunks_preserve_all_annotated_text(self) -> None:
         document = "\n\n".join(
@@ -1288,6 +1446,7 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(result.strength, "unknown")
         self.assertEqual(result.doc_target, "Target efficacy is at least 80%.")
         self.assertEqual(result.doc_block_ids, ["document/b-0003"])
+        self.assertEqual(client.calls, 0)
 
     def test_reasoning_cannot_rewrite_a_resolved_document_target(self) -> None:
         attribute = Attribute(
@@ -1465,30 +1624,127 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(result.benchmark_count, 1)
         self.assertEqual(result.measurements[0].value, 82)
 
-    def test_numeric_expression_verification_couples_values_to_their_unit(self) -> None:
-        efficacy = (
-            "In 4577 participants, vaccine efficacy was 50·3% "
-            "(95% CI, 34·6% to 62·3%) at 12 months."
-        )
-        self.assertFalse(_value_unit_supported(4577, "%", efficacy))
-        self.assertTrue(_value_unit_supported(50.3, "%", efficacy))
-        self.assertTrue(_expression_supported(
-            NumericExpression(
-                kind="confidence_interval", unit="%", lower=34.6, upper=62.3
+    def test_numeric_expression_verification_uses_literal_source_syntax(self) -> None:
+        quote = "Vaccine efficacy was 50·3%."
+        accepted = _validated_expression_mapping(
+            {
+                "kind": "point_estimate", "unit": "%", "value": 50.3,
+                "lower": None, "upper": None, "comparator": "",
+            },
+            fixture_source_syntax(
+                {"kind": "point_estimate", "unit": "%", "value": 50.3},
+                quote,
             ),
-            efficacy,
-        ))
-        self.assertTrue(_value_unit_supported(0.5, "mL/dose", "Dose volume: <0.5 mL/dose."))
+            quote=quote,
+        )
+        self.assertIsNotNone(accepted.expression)
+        wrong_unit = _validated_expression_mapping(
+            {
+                "kind": "point_estimate", "unit": "%", "value": 4577,
+                "lower": None, "upper": None, "comparator": "",
+            },
+            {
+                "expression_text": "4577 participants",
+                "value_text": "4577",
+                "lower_text": "",
+                "upper_text": "",
+                "comparator_text": "",
+                "unit_text": "participants",
+            },
+            quote="The trial enrolled 4577 participants.",
+        )
+        self.assertIsNotNone(wrong_unit.expression)
+        # Literal grounding does not reinterpret unit semantics. The model's
+        # target-relative semantic decision and the calculation's unit-ID gate
+        # own comparability.
         self.assertTrue(_meets_target(0.49, 0.5, "<"))
         self.assertFalse(_meets_target(0.5, 0.5, "<"))
         self.assertTrue(_meets_target(2, 2, "="))
         self.assertFalse(_meets_target(3, 2, "="))
 
+    def test_literal_boundary_does_not_require_a_number_word_dictionary(self) -> None:
+        quote = "The primary series uses one hundred and twenty administrations."
+        accepted = _validated_expression_mapping(
+            {
+                "kind": "count", "unit": "administrations", "value": 120,
+                "lower": None, "upper": None, "comparator": "",
+            },
+            {
+                "expression_text": "one hundred and twenty administrations",
+                "value_text": "one hundred and twenty",
+                "lower_text": "",
+                "upper_text": "",
+                "comparator_text": "",
+                "unit_text": "administrations",
+            },
+            quote=quote,
+        )
+
+        self.assertIsNotNone(accepted.expression)
+
+    def test_machine_readable_literal_must_equal_normalized_value(self) -> None:
+        rejected = _validated_expression_mapping(
+            {
+                "kind": "point_estimate", "unit": "%", "value": 80,
+                "lower": None, "upper": None, "comparator": "",
+            },
+            {
+                "expression_text": "50%",
+                "value_text": "50",
+                "lower_text": "",
+                "upper_text": "",
+                "comparator_text": "",
+                "unit_text": "%",
+            },
+            quote="Observed efficacy was 50%.",
+        )
+
+        self.assertEqual(rejected.code, "source_value_mismatch")
+
     def test_range_is_one_expression_not_two_point_candidates(self) -> None:
-        expression = NumericExpression(kind="range", unit="%", lower=36, upper=50)
-        self.assertTrue(_expression_supported(
-            expression, "Observed efficacy ranged from 36-50% across sites."
-        ))
+        quote = "Observed efficacy ranged from 36-50% across sites."
+        validation = _validated_expression_mapping(
+            {
+                "kind": "range", "unit": "%", "value": None,
+                "lower": 36, "upper": 50, "comparator": "",
+            },
+            {
+                "expression_text": "36-50%",
+                "value_text": "",
+                "lower_text": "36",
+                "upper_text": "50",
+                "comparator_text": "",
+                "unit_text": "%",
+            },
+            quote=quote,
+        )
+        self.assertIsNotNone(validation.expression)
+
+    def test_literal_units_normalize_without_prose_specific_extraction(self) -> None:
+        cases = [
+            (">80%", "80", ">", "%", "percent", 80, ">"),
+            ("no more than two vials per dose", "two", "no more than", "vials per dose", "vials/dose", 2, "<="),
+            (">8°C", "8", ">", "°C", "°C", 8, ">"),
+        ]
+        for expression_text, value_text, comparator_text, unit_text, unit, value, comparator in cases:
+            with self.subTest(expression_text=expression_text):
+                validation = _validated_expression_mapping(
+                    {
+                        "kind": "bound", "unit": unit, "value": value,
+                        "lower": None, "upper": None, "comparator": comparator,
+                    },
+                    {
+                        "expression_text": expression_text,
+                        "value_text": value_text,
+                        "lower_text": "",
+                        "upper_text": "",
+                        "comparator_text": comparator_text,
+                        "unit_text": unit_text,
+                    },
+                    quote=expression_text,
+                    required_kind="bound",
+                )
+                self.assertIsNotNone(validation.expression, validation)
 
     def test_irrelevant_numbers_resolve_at_passage_level_without_fragment_noise(self) -> None:
         target = QuantitativeTarget(
@@ -1985,7 +2241,7 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(targets[0].comparator, "=")
         self.assertEqual(targets[0].value, 2)
 
-    def test_target_range_cannot_be_collapsed_into_one_scalar(self) -> None:
+    def test_literal_validator_does_not_reclassify_surrounding_prose(self) -> None:
         document = "[block:document/b-0003]\nDuration is 2 to 3 years."
         attribute = replace(
             self.attribute,
@@ -2014,8 +2270,12 @@ class ReasoningLineageTests(unittest.TestCase):
             intervention_class="drug",
         )
 
-        self.assertEqual(extraction.status, "uncertain")
-        self.assertEqual(extraction.targets, [])
+        # The fixture deliberately supplies a semantically wrong AI mapping.
+        # Runtime validation checks its typed/literal contract; it does not
+        # maintain a second keyword classifier for "to" that can drift from
+        # the model contract.
+        self.assertEqual(extraction.status, "present")
+        self.assertEqual(len(extraction.targets), 1)
 
     def test_hyphenated_positive_range_cannot_become_negative_scalar(self) -> None:
         document = "[block:document/b-0003]\nObserved efficacy was 36-50%."
@@ -2062,7 +2322,8 @@ class ReasoningLineageTests(unittest.TestCase):
         )
 
         self.assertIn("canonical fields", prompt.lower())
-        self.assertIn("exact substring", prompt)
+        self.assertIn("exact source text and block provenance", prompt)
+        self.assertIn("do not retype either", prompt)
         self.assertIn("Conditions includes only settings", prompt)
         self.assertIn("change numeric interpretation", prompt)
         self.assertIn("unknown and comparison-required", prompt)
@@ -2075,7 +2336,10 @@ class ReasoningLineageTests(unittest.TestCase):
         attribute = replace(
             self.attribute,
             name="vaccine.presentation",
-            document_target="Optimal and threshold are at most 2 products.",
+            document_target=(
+                "Optimal: at most 2 products. "
+                "Threshold: at most 2 products."
+            ),
             block_ids=["document/b-0003", "document/b-0004"],
         )
         profile = semantic_profile("number of products")
@@ -2140,8 +2404,8 @@ class ReasoningLineageTests(unittest.TestCase):
             intervention_class="vaccine",
         )
         self.assertIn('target-constrained fields: ["measure"]', prompt)
-        self.assertIn("source-stated measure", prompt)
-        self.assertNotIn("source-stated endpoint", prompt)
+        self.assertIn('"value": "protective efficacy"', prompt)
+        self.assertNotIn("sp-123", prompt)
         self.assertIn("Target semantic profile", prompt)
         self.assertNotIn(target.quote, prompt)
         self.assertNotIn("80", prompt)

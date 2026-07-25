@@ -146,7 +146,7 @@ Scout evaluates one canonical `Attribute` shape regardless of document type:
 | `target_resolution_reason` | Explicit outcome or fail-closed reason for the binding decision |
 | `evidence_domain` | One closed domain used for deterministic source applicability |
 | `entities` | Explicitly document-stated typed entities and optional stated identifiers |
-| `quantitative_targets` | Independently calibratable scalar claims with one canonical owner, exact provenance, typed meaning, and explicit comparison dimensions |
+| `quantitative_targets` | Independently calibratable scalar claims with one canonical owner, exact literal numeric grounding, typed meaning, and explicit comparison dimensions |
 | `quantitative_statement_dispositions` | Exact cited numeric-looking statements intentionally retained as contextual, non-scalar, range/set, or uncertain instead of being coerced into targets |
 | `quantitative_target_status` | `present`, `not_applicable`, or `uncertain`, so an empty target list is never ambiguous |
 
@@ -180,8 +180,8 @@ parse document blocks and visuals
 → validate configured indication against cited document context
 → resolve one canonical document-claim ledger in bounded outputs over ordered document chunks and the complete field catalog
 → stop before retrieval if claim resolution remains incomplete after one targeted retry
-→ map non-overlapping document statements into one canonical numeric ledger with one targeted retry
-→ stop before retrieval if numeric statement coverage remains incomplete
+→ map non-overlapping document statements into one canonical numeric ledger, inheriting the resolved document-claim ledger as cross-block context, with one targeted retry
+→ retain unresolved numeric statements for audit and exclude them from numeric retrieval/calibration without blocking qualitative retrieval
 → deterministically project each mapped target to its one canonical field
 → generate threshold-neutral source-neutral query intents with block and target lineage
 → determine source applicability from closed metadata
@@ -194,7 +194,7 @@ parse document blocks and visuals
 → normalize target/source meaning and source ownership into one typed semantic contract
 → derive cohort admission from closed yes/no/unknown compatibility decisions
 → map each bounded source-owned passage to complete measurements or an explicit no-result/uncertain disposition
-→ verify immutable target/source spans, numeric expressions, and provenance
+→ validate the shared typed wire contract, immutable spans, literal syntax, mechanically readable magnitudes, and provenance
 → calculate one traceable descriptive calibration per target over a deduplicated cohort
 → assess precedent coverage and outcome
 ```
@@ -210,7 +210,13 @@ Only resolved fields with document-present targets proceed to retrieval; absent
 fields remain visible in the result without generating evidence queries.
 After fixed-field resolution, Scout partitions the document into stable,
 non-overlapping statement units. Each unit is reviewed once across the complete
-canonical field catalog. Independently comparable scalars become atomic targets;
+canonical field catalog and the already-resolved document bindings. The local
+source block supplies numeric syntax; the model returns both its exact literal
+parts and normalized expression, while opaque context references let it
+select cross-block meaning from canonical bindings without retyping quotations
+or block IDs. Code resolves those references back to exact source spans and
+verifies that numeric magnitudes were not changed.
+Independently comparable scalars become atomic targets;
 conditions, numeric categories, ranges/sets, nonnumeric text, and unresolved
 wording receive explicit ledger classifications. Exact target syntax remains
 quote-verified against its source unit. Missing, duplicated, or invalid reviews
@@ -394,7 +400,7 @@ tool execution remains private while final tokens render incrementally.
 ## Portable result files
 
 Inspector, Aligner, and Scout downloads use the versioned `pdis.result` envelope,
-currently version **22**:
+currently version **26**:
 
 ```text
 schema + version + result_type

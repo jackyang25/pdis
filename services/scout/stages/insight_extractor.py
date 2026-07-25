@@ -13,7 +13,7 @@ import re
 from services.searcher import Finding
 
 from ..ai import request_structured
-from ..ai_contracts import INSIGHT_BATCH
+from ..ai_contracts import insight_batch
 from ..models import Insight, LLMClientProtocol
 
 logger = logging.getLogger(__name__)
@@ -45,10 +45,11 @@ def extract_insights(
         attribute_description=attribute_description,
     )
     user_message = _user_message(findings, query_tracks=query_tracks)
+    contract = insight_batch(list(dict.fromkeys(finding.url for finding in findings)))
 
     parsed = request_structured(
         llm_client,
-        INSIGHT_BATCH,
+        contract,
         system_prompt,
         user_message,
         max_tokens=max_tokens,
@@ -56,7 +57,7 @@ def extract_insights(
     if not isinstance(parsed, list):
         parsed = request_structured(
             llm_client,
-            INSIGHT_BATCH,
+            contract,
             system_prompt,
             user_message,
             max_tokens=max_tokens,
@@ -153,9 +154,7 @@ def _system_prompt(
         "they are not observed results. State them as planned only when that planning fact is "
         "itself relevant to this variable.\n"
         "- Do not invent facts not present in the findings.\n\n"
-        "Return the insights in the structured `insights` array. Items:\n"
-        '  {"statement": "...", "supporting_finding_urls": ["https://...", "https://..."]},\n'
-        "  ..."
+        "Return only the schema-bound `insights` response."
     )
 
 

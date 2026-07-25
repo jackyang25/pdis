@@ -16,11 +16,12 @@ from dataclasses import dataclass, replace
 from ..ai import request_structured
 from ..ai_contracts import target_binding_batch
 from ..context import (
+    LINE_SPAN_JSON_INSTRUCTION,
     chunk_document_context,
     document_block_ids,
-    quote_in_text,
+    render_line_addressable_context,
     rendered_block_texts,
-    validated_block_ids,
+    selected_source_lines,
 )
 from ..models import (
     Attribute,
@@ -85,7 +86,10 @@ def resolve_document_targets(
     def resolve_batch(task: tuple[str, list[Attribute]]) -> dict[str, Attribute]:
         chunk, requested = task
         chunk_ids = document_block_ids(chunk)
-        contract = target_binding_batch(sorted(chunk_ids))
+        contract = target_binding_batch(
+            sorted(chunk_ids),
+            [attribute.name for attribute in requested],
+        )
         parsed = request_structured(
             llm_client,
             contract,
@@ -104,9 +108,13 @@ def resolve_document_targets(
             if attribute.name not in validation.valid_refs
         ]
         if missing:
+            retry_contract = target_binding_batch(
+                sorted(chunk_ids),
+                [attribute.name for attribute in missing],
+            )
             retry_parsed = request_structured(
                 llm_client,
-                contract,
+                retry_contract,
                 _ledger_system_prompt(fixed, missing, retry=True),
                 _ledger_user_message(chunk, missing),
                 max_tokens=max_tokens,
@@ -298,18 +306,15 @@ def _validated_ledger(
                 span_failure = validation
                 logger.warning(
                     "target_resolver rejected span for %s: code=%s reason=%s "
-                    "block_ids=%r quote_chars=%d",
+                    "block_id=%r",
                     attribute_ref,
                     validation.code,
                     validation.reason,
                     (
-                        raw_span.get("block_ids")
+                        raw_span.get("block_id")
                         if isinstance(raw_span, dict)
                         else None
                     ),
-                    len(str(raw_span.get("quote", "")))
-                    if isinstance(raw_span, dict)
-                    else 0,
                 )
                 break
             quote = validation.span.quote
@@ -351,68 +356,41 @@ def _validated_claim_span(
     raw_span: object,
     source_blocks: dict[str, str],
 ) -> _SpanValidation:
-    """Validate one proposed citation and retain a precise rejection class."""
+    """Resolve one selected source range into an exact canonical quotation."""
     if not isinstance(raw_span, dict):
         return _SpanValidation(
             span=None,
             code="invalid_span_shape",
-            reason="A supporting span was not a structured quote/block object.",
+            reason="A supporting span was not a structured source-line selection.",
         )
-    quote = " ".join(str(raw_span.get("quote", "")).split())
-    if not quote:
+    block_id = str(raw_span.get("block_id", "")).strip()
+    if block_id not in source_blocks:
         return _SpanValidation(
             span=None,
-            code="empty_quote",
-            reason="A supporting span contained an empty quotation.",
-        )
-    raw_block_ids = raw_span.get("block_ids")
-    if not isinstance(raw_block_ids, list) or not raw_block_ids:
-        return _SpanValidation(
-            span=None,
-            code="missing_block_ids",
-            reason="A supporting span contained no document block IDs.",
-        )
-    cited_ids: list[str] = []
-    unknown_ids: list[str] = []
-    allowed_ids = set(source_blocks)
-    for raw_id in raw_block_ids:
-        validated = validated_block_ids([raw_id], allowed_ids)
-        if not validated:
-            unknown_ids.append(str(raw_id).strip() or "<empty>")
-            continue
-        if validated[0] not in cited_ids:
-            cited_ids.append(validated[0])
-    if unknown_ids:
-        return _SpanValidation(
-            span=None,
-            code="unknown_block_ids",
+            code="unknown_block_id",
             reason=(
-                "A supporting span cited unknown document block ID(s): "
-                + ", ".join(unknown_ids[:4])
-                + ("." if len(unknown_ids) <= 4 else ", …")
-            ),
-        )
-    missing_quote_blocks = [
-        block_id
-        for block_id in cited_ids
-        if not quote_in_text(quote, source_blocks[block_id])
-    ]
-    if missing_quote_blocks:
-        return _SpanValidation(
-            span=None,
-            code="quote_not_found",
-            reason=(
-                "The proposed exact quotation was not found in cited block(s): "
-                + ", ".join(missing_quote_blocks)
+                "A supporting span cited an unknown document block ID: "
+                + (block_id or "<empty>")
                 + "."
             ),
         )
+    selected = selected_source_lines(raw_span, source_blocks)
+    if selected is None:
+        return _SpanValidation(
+            span=None,
+            code="invalid_line_range",
+            reason=(
+                "A supporting span selected an invalid or empty source line range in "
+                + block_id
+                + "."
+            ),
+        )
+    quote, block_id = selected
     return _SpanValidation(
-        span=DocumentSpan(quote=quote, block_ids=cited_ids),
+        span=DocumentSpan(quote=quote, block_ids=[block_id]),
         code="valid",
-        reason="The exact quotation and document blocks were validated.",
+        reason="The selected source lines were copied from the cited document block.",
     )
-
 
 def _ledger_system_prompt(
     attributes: list[Attribute],
@@ -445,12 +423,16 @@ def _ledger_system_prompt(
         "content that is unreadable, incomplete, or genuinely conflicting, not merely a "
         "missing target. Do not map a possible downstream "
         "implication or a neighboring table value. A source statement may bind multiple "
-        "fields only when it directly and independently states each meaning.\n\n"
-        "For present bindings, spans must contain the smallest complete exact document "
-        "quotations needed to preserve labels, numbers, dates, comparators, populations, "
-        "regimens, and qualifiers. Copy bare block IDs exactly. For absent or uncertain "
+        "fields only when it directly and independently states each meaning. An unfilled "
+        "heading, template prompt, or question is not a claim. In question-and-answer "
+        "documents, select the answer block; include the question block only when its "
+        "wording is necessary to preserve the answer's meaning.\n\n"
+        "For present bindings, spans must select the smallest complete source line range "
+        "needed to preserve labels, numbers, dates, comparators, populations, regimens, "
+        f"and qualifiers. {LINE_SPAN_JSON_INSTRUCTION} For absent or uncertain "
         "bindings spans and entities must be empty. Extract entities only when explicitly "
-        "named in the cited spans. If a target is visible only in an image and has no "
+        "named in the cited spans, and copy each name exactly as written there. If a "
+        "target is visible only in an image and has no "
         "exact supplied source text, use uncertain rather than inventing a quotation. "
         "Return only the schema JSON."
     )
@@ -462,6 +444,6 @@ def _ledger_user_message(
 ) -> str:
     requested_refs = ", ".join(attribute.name for attribute in requested)
     return (
-        f"Uploaded document blocks:\n{document_context}\n\n"
+        f"Uploaded document blocks:\n{render_line_addressable_context(document_context)}\n\n"
         f"Return one decision for each required field: {requested_refs}."
     )

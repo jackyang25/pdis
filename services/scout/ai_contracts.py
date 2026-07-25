@@ -11,10 +11,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .ai_wire import (
+    NumericExpressionWire,
+    SemanticSlotWire,
+    SourceNumericSyntaxWire,
+    TargetExpressionWire,
+    TernaryDecisionWire,
+    inline_json_schema,
+)
 from .models import (
     EVIDENCE_DOMAINS,
     ENTITY_TYPES,
-    MEASUREMENT_KINDS,
     QUANTITATIVE_SEMANTIC_FIELDS,
     SEMANTIC_SLOT_STATES,
     VALID_EVIDENCE_STRENGTHS,
@@ -56,16 +63,17 @@ def _string(*, enum: list[str] | None = None) -> JsonSchema:
     return schema
 
 
-def _nullable_number() -> JsonSchema:
-    return {"type": ["number", "null"]}
+def _integer(*, minimum: int | None = None) -> JsonSchema:
+    schema: JsonSchema = {"type": "integer"}
+    if minimum is not None:
+        schema["minimum"] = minimum
+    return schema
 
 
 def _wrapped(name: str, key: str, item: JsonSchema) -> AIContract:
     return AIContract(name=name, schema=_object({key: _array(item)}), payload_key=key)
 
 
-_BLOCK_IDS = _array(_string())
-_INDICES = _array({"type": "integer"})
 _ENTITY = _object(
     {
         "name": _string(),
@@ -73,46 +81,11 @@ _ENTITY = _object(
         "identifier": _string(),
     }
 )
-_SPAN = _object({"quote": _string(), "block_ids": _BLOCK_IDS})
-_SEMANTIC_SLOT = _object(
-    {
-        "state": _string(enum=sorted(SEMANTIC_SLOT_STATES)),
-        "value": _string(),
-        "other": _string(),
-    }
-)
-_SEMANTIC_PROFILE = _object(
-    {field_name: _SEMANTIC_SLOT for field_name in QUANTITATIVE_SEMANTIC_FIELDS}
-)
-_SEMANTIC_PROVENANCE = _object(
-    {field_name: _array(_SPAN) for field_name in QUANTITATIVE_SEMANTIC_FIELDS}
-)
-_NUMERIC_EXPRESSION = _object(
-    {
-        "kind": _string(enum=sorted(MEASUREMENT_KINDS)),
-        "unit": _string(),
-        "value": _nullable_number(),
-        "lower": _nullable_number(),
-        "upper": _nullable_number(),
-        "comparator": _string(),
-    }
-)
-_TARGET_EXPRESSION = _object(
-    {
-        "kind": _string(enum=["bound"]),
-        "unit": _string(),
-        "value": {"type": "number"},
-        "lower": {"type": "null"},
-        "upper": {"type": "null"},
-        "comparator": _string(enum=["=", "<", "<=", ">", ">="]),
-    }
-)
-_TERNARY = _object(
-    {
-        "state": _string(enum=["yes", "no", "unknown"]),
-        "reason": _string(),
-    }
-)
+_SEMANTIC_SLOT = inline_json_schema(SemanticSlotWire)
+_NUMERIC_EXPRESSION = inline_json_schema(NumericExpressionWire)
+_TARGET_EXPRESSION = inline_json_schema(TargetExpressionWire)
+_SOURCE_NUMERIC_SYNTAX = inline_json_schema(SourceNumericSyntaxWire)
+_TERNARY = inline_json_schema(TernaryDecisionWire)
 
 
 def context_validation(allowed_block_ids: list[str]) -> AIContract:
@@ -130,17 +103,25 @@ def context_validation(allowed_block_ids: list[str]) -> AIContract:
         ),
     )
 
-def target_binding_batch(allowed_block_ids: list[str]) -> AIContract:
-    """Constrain claim citations to exact IDs from the supplied document chunk."""
+def target_binding_batch(
+    allowed_block_ids: list[str],
+    allowed_attribute_refs: list[str] | None = None,
+) -> AIContract:
+    """Constrain claim citations to source-addressable lines in one chunk."""
     exact_ids = list(dict.fromkeys(allowed_block_ids))
-    block_ids = _array(_string(enum=exact_ids))
-    span = _object({"quote": _string(), "block_ids": block_ids})
+    span = _object(
+        {
+            "block_id": _string(enum=exact_ids),
+            "start_line": _integer(minimum=1),
+            "end_line": _integer(minimum=1),
+        }
+    )
     return _wrapped(
         "scout_document_claim_ledger",
         "bindings",
         _object(
             {
-                "attribute_ref": _string(),
+                "attribute_ref": _string(enum=allowed_attribute_refs),
                 "status": _string(enum=["present", "absent", "uncertain"]),
                 "reason": _string(),
                 "spans": _array(span),
@@ -149,135 +130,197 @@ def target_binding_batch(allowed_block_ids: list[str]) -> AIContract:
         ),
     )
 
-UNIT_BATCH = _wrapped(
-    "scout_unit_batch",
-    "units",
-    _object(
+def unit_batch(allowed_block_ids: list[str]) -> AIContract:
+    """Constrain dynamic-unit citations to source-addressable lines in one chunk."""
+    exact_ids = list(dict.fromkeys(allowed_block_ids))
+    span = _object(
         {
-            "name": _string(),
-            "description": _string(),
-            "evidence_domain": _string(enum=sorted(EVIDENCE_DOMAINS)),
-            "spans": _array(_SPAN),
-            "entities": _array(_ENTITY),
+            "block_id": _string(enum=exact_ids),
+            "start_line": _integer(minimum=1),
+            "end_line": _integer(minimum=1),
         }
-    ),
-)
-
-QUERY_BATCH = _wrapped(
-    "scout_query_batch",
-    "queries",
-    _object(
-        {
-            "query": _string(),
-            "doc_block_ids": _BLOCK_IDS,
-            "target_ids": _array(_string()),
-        }
-    ),
-)
-
-INSIGHT_BATCH = _wrapped(
-    "scout_insight_batch",
-    "insights",
-    _object(
-        {
-            "statement": _string(),
-            "supporting_finding_urls": _array(_string()),
-        }
-    ),
-)
-
-DRIFT_BATCH = _wrapped(
-    "scout_drift_batch",
-    "matches",
-    _object(
-        {
-            "index": {"type": "integer"},
-            "relation": _string(enum=sorted(VALID_RELATIONS)),
-            "reason": _string(),
-            "doc_block_ids": _BLOCK_IDS,
-        }
-    ),
-)
-
-EVIDENCE_ASSESSMENT = AIContract(
-    "scout_evidence_assessment",
-    _object(
-        {
-            "strength": _string(enum=sorted(VALID_EVIDENCE_STRENGTHS)),
-            "doc_target": _string(),
-            "doc_block_ids": _BLOCK_IDS,
-            "supporting_insight_indices": _INDICES,
-            "reason": _string(),
-        }
-    ),
-)
-
-PRECEDENT_ASSESSMENT = AIContract(
-    "scout_precedent_assessment",
-    _object(
-        {
-            "precedent": _string(enum=sorted(VALID_PRECEDENT)),
-            "outcome": _string(enum=sorted(VALID_PRECEDENT_OUTCOMES)),
-            "reason": _string(),
-            "doc_block_ids": _BLOCK_IDS,
-            "coverage_insight_indices": _INDICES,
-            "outcome_insight_indices": _INDICES,
-        }
-    ),
-)
-
-_QUANTITATIVE_TARGET = _object(
-    {
-        "expression": _TARGET_EXPRESSION,
-        "role": _string(enum=["threshold", "optimal", "other"]),
-        "comparison_dimensions": _array(
-            _string(enum=list(QUANTITATIVE_SEMANTIC_FIELDS))
+    )
+    return _wrapped(
+        "scout_unit_batch",
+        "units",
+        _object(
+            {
+                "name": _string(),
+                "description": _string(),
+                "evidence_domain": _string(enum=sorted(EVIDENCE_DOMAINS)),
+                "spans": _array(span),
+                "entities": _array(_ENTITY),
+            }
         ),
-        "semantic_profile": _SEMANTIC_PROFILE,
-        "semantic_provenance": _SEMANTIC_PROVENANCE,
-        "provenance_spans": _array(_SPAN),
-        "ownership_reason": _string(),
-    }
-)
+    )
+
+def query_batch(
+    allowed_block_ids: list[str],
+    allowed_target_ids: list[str],
+) -> AIContract:
+    """Constrain query lineage to canonical document and target identities."""
+    return _wrapped(
+        "scout_query_batch",
+        "queries",
+        _object(
+            {
+                "query": _string(),
+                "doc_block_ids": _array(_string(enum=allowed_block_ids)),
+                "target_ids": _array(_string(enum=allowed_target_ids or None)),
+            }
+        ),
+    )
 
 
-DOCUMENT_QUANTITATIVE_LEDGER_BATCH = AIContract(
-    "scout_document_quantitative_ledger_batch",
-    _object(
+def insight_batch(allowed_urls: list[str]) -> AIContract:
+    """Constrain insight citations to Findings present in the request."""
+    return _wrapped(
+        "scout_insight_batch",
+        "insights",
+        _object(
+            {
+                "statement": _string(),
+                "supporting_finding_urls": _array(_string(enum=allowed_urls)),
+            }
+        ),
+    )
+
+
+def _indices(count: int) -> JsonSchema:
+    if count <= 0:
+        return _array({"type": "integer"})
+    return _array({"type": "integer", "minimum": 0, "maximum": count - 1})
+
+
+def drift_batch(insight_count: int, allowed_block_ids: list[str]) -> AIContract:
+    """Constrain drift decisions to supplied insight indices and document blocks."""
+    return _wrapped(
+        "scout_drift_batch",
+        "matches",
+        _object(
+            {
+                "index": (
+                    {"type": "integer", "minimum": 0, "maximum": insight_count - 1}
+                    if insight_count > 0
+                    else {"type": "integer"}
+                ),
+                "relation": _string(enum=sorted(VALID_RELATIONS)),
+                "reason": _string(),
+                "doc_block_ids": _array(_string(enum=allowed_block_ids)),
+            }
+        ),
+    )
+
+
+def evidence_assessment(insight_count: int) -> AIContract:
+    """Return only the terminal grounding judgment and selected evidence."""
+    return AIContract(
+        "scout_evidence_assessment",
+        _object(
+            {
+                "strength": _string(enum=sorted(VALID_EVIDENCE_STRENGTHS)),
+                "supporting_insight_indices": _indices(insight_count),
+                "reason": _string(),
+            }
+        ),
+    )
+
+
+def precedent_assessment(insight_count: int) -> AIContract:
+    """Return only terminal precedent axes and their selected evidence."""
+    return AIContract(
+        "scout_precedent_assessment",
+        _object(
+            {
+                "precedent": _string(enum=sorted(VALID_PRECEDENT)),
+                "outcome": _string(enum=sorted(VALID_PRECEDENT_OUTCOMES)),
+                "reason": _string(),
+                "coverage_insight_indices": _indices(insight_count),
+                "outcome_insight_indices": _indices(insight_count),
+            }
+        ),
+    )
+
+def document_quantitative_ledger_batch(
+    allowed_context_refs: list[str],
+    allowed_unit_ids: list[str] | None = None,
+    allowed_attribute_refs: list[str] | None = None,
+) -> AIContract:
+    """Constrain semantic provenance to exact canonical document bindings.
+
+    ``statement`` refers to the statement unit currently being reviewed. Every
+    other reference is an opaque ID rendered beside one already-validated
+    upstream document binding. The model therefore selects semantic sources
+    without copying quotations or block IDs back across the model boundary.
+    """
+    context_refs = list(dict.fromkeys(["statement", *allowed_context_refs]))
+    document_semantic_slot = _object(
         {
-            "reviews": _array(
-                _object(
-                    {
-                        "unit_id": _string(),
-                        "classification": _string(
-                            enum=[
-                                "target",
-                                "context_only",
-                                "non_scalar",
-                                "range_or_set",
-                                "non_numeric",
-                                "uncertain",
-                            ]
-                        ),
-                        "attribute_ref": _string(),
-                        "reason": _string(),
-                        "targets": _array(
-                            _object(
-                                {
-                                    "attribute_ref": _string(),
-                                    "quote": _string(),
-                                    **_QUANTITATIVE_TARGET["properties"],
-                                }
-                            )
-                        ),
-                    }
-                )
-            )
+            "state": _string(enum=sorted(SEMANTIC_SLOT_STATES)),
+            "value": _string(),
+            "other": _string(),
+            "source_refs": _array(_string(enum=context_refs)),
         }
-    ),
-)
+    )
+    document_semantic_profile = _object(
+        {
+            field_name: document_semantic_slot
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+        }
+    )
+    document_target = _object(
+        {
+            "expression": _TARGET_EXPRESSION,
+            "source_syntax": _SOURCE_NUMERIC_SYNTAX,
+            "role": _string(enum=["threshold", "optimal", "other"]),
+            "comparison_dimensions": _array(
+                _string(enum=list(QUANTITATIVE_SEMANTIC_FIELDS))
+            ),
+            "semantic_profile": document_semantic_profile,
+            "ownership_reason": _string(),
+        }
+    )
+    return AIContract(
+        "scout_document_quantitative_ledger_batch",
+        _object(
+            {
+                "reviews": _array(
+                    _object(
+                        {
+                            "unit_id": _string(enum=allowed_unit_ids),
+                            "classification": _string(
+                                enum=[
+                                    "target",
+                                    "context_only",
+                                    "non_scalar",
+                                    "range_or_set",
+                                    "non_numeric",
+                                    "uncertain",
+                                ]
+                            ),
+                            "attribute_ref": _string(enum=allowed_attribute_refs),
+                            "reason": _string(),
+                            "targets": _array(
+                                _object(
+                                    {
+                                        "attribute_ref": _string(
+                                            enum=allowed_attribute_refs
+                                        ),
+                                        **document_target["properties"],
+                                    }
+                                )
+                            ),
+                        }
+                    )
+                )
+            }
+        ),
+    )
 
-def source_measurement_batch(required_fields: set[str]) -> AIContract:
+def source_measurement_batch(
+    required_fields: set[str],
+    allowed_source_ids: list[str] | None = None,
+) -> AIContract:
     """Build the smallest source-mapping schema required by one target.
 
     Target-constrained dimensions are decided by AI. Unconstrained dimensions
@@ -300,6 +343,7 @@ def source_measurement_batch(required_fields: set[str]) -> AIContract:
         {
             "quote": _string(),
             "expression": _NUMERIC_EXPRESSION,
+            "source_syntax": _SOURCE_NUMERIC_SYNTAX,
             "semantic_assessment": _object(
                 {
                     "source_ownership": _TERNARY,
@@ -310,7 +354,7 @@ def source_measurement_batch(required_fields: set[str]) -> AIContract:
     )
     source = _object(
         {
-            "source_id": _string(),
+            "source_id": _string(enum=allowed_source_ids),
             "status": _string(
                 enum=[
                     "measurements_found",

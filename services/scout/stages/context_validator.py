@@ -46,13 +46,18 @@ def validate_document_context(
     bounded_context = limit_document_context(document_context)
     allowed_ids = document_block_ids(bounded_context)
     contract = context_validation(sorted(allowed_ids))
+    bounded_images = [
+        image
+        for image in (images or [])
+        if image.get("block_id") in allowed_ids
+    ] or None
     parsed = request_structured(
         llm_client,
         contract,
         _system_prompt(configured),
         _user_message(bounded_context),
         max_tokens=max_tokens,
-        images=images,
+        images=bounded_images,
     )
     if not isinstance(parsed, dict):
         logger.warning("context_validator produced no structured decision; retrying once")
@@ -62,7 +67,7 @@ def validate_document_context(
             _system_prompt(configured),
             _user_message(bounded_context),
             max_tokens=max_tokens,
-            images=images,
+            images=bounded_images,
         )
 
     if not isinstance(parsed, dict):
@@ -120,9 +125,8 @@ def _system_prompt(indication: str) -> str:
         "enough evidence to decide.\n\n"
         "Cite the document blocks that establish the document indication. "
         "For match or mismatch, at least one block is required. Keep the reason factual "
-        f"and under 30 words. {BLOCK_ID_JSON_INSTRUCTION}\n\nReturn ONLY JSON:\n"
-        '{"status":"match|mismatch|uncertain","document_indication":"...",'
-        '"reason":"...","block_ids":["document/b-0001"]}'
+        f"and under 30 words. {BLOCK_ID_JSON_INSTRUCTION}\n\n"
+        "Return only the schema-bound response."
     )
 
 

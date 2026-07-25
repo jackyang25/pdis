@@ -12,7 +12,7 @@ import logging
 import re
 
 from ..ai import request_structured
-from ..ai_contracts import QUERY_BATCH
+from ..ai_contracts import query_batch
 from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
 from ..models import (
     Attribute,
@@ -43,6 +43,8 @@ def extract_queries_for_variable(
     losslessly: general coverage, optional Global-South emphasis, and optional
     counterfactual (disconfirming) evidence.
     """
+    if not attribute.target_resolved or not attribute.document_target:
+        return []
     user_message = _user_message_for_variable(attribute, document_context)
     target_blocks = {
         target.id: target.doc_block_ids for target in attribute.quantitative_targets
@@ -168,9 +170,13 @@ def _run_track(
     fallback_context: tuple[str, str, str] | None = None,
 ) -> list[QueryIntent]:
     """Run one query-generation track (call + parse, retry once on empty)."""
+    contract = query_batch(
+        sorted(allowed_block_ids),
+        sorted(allowed_target_ids),
+    )
     raw = request_structured(
         llm_client,
-        QUERY_BATCH,
+        contract,
         system_prompt,
         user_message,
         max_tokens=max_tokens,
@@ -191,7 +197,7 @@ def _run_track(
         )
         raw = request_structured(
             llm_client,
-            QUERY_BATCH,
+            contract,
             system_prompt,
             user_message,
             max_tokens=max_tokens,
@@ -368,7 +374,6 @@ def _system_prompt_for_variable(
         f"relevant to ONE variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
-        f"Canonical document target: {attribute.document_target or '(not stated)'}",
         "SCOPE: Every query must be about the specific variable named above and "
         "nothing else. This document has separate variables for efficacy, safety, "
         "dosing, duration, cost, etc. - do NOT pull those topics into this variable's "
@@ -440,24 +445,16 @@ def _system_prompt_for_variable(
         f"must be specific to the {attribute.name} variable. doc_block_ids must contain "
         "the exact uploaded-document blocks whose claim shaped that query; use [] only "
         "for a general coverage query not tied to one document claim. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} Example item:\n"
-        '{"query": "latest WHO RSV vaccine efficacy evidence", '
-        '"doc_block_ids": ["document/b-0004"], "target_ids": ["qt-..."]}'
+        f"{BLOCK_ID_JSON_INSTRUCTION} Return only the schema-bound response."
     )
     return "\n\n".join(parts)
 
 
 def _user_message_for_variable(attribute: Attribute, document_context: str) -> str:
-    quantitative_targets = "\n".join(
-        json.dumps(_target_retrieval_descriptor(target), ensure_ascii=False)
-        for target in attribute.quantitative_targets
-    ) or "(none)"
     return (
         f"variable: {attribute.name}\n"
         f"What this variable covers: {attribute.description}\n\n"
-        f"Canonical document target: {attribute.document_target or '(not stated)'}\n\n"
-        f"Threshold-neutral quantitative retrieval descriptors:\n{quantitative_targets}\n\n"
-        "Relevant uploaded-document blocks (claims to test, not external evidence):\n"
+        "Canonical document binding (authoritative claims to test):\n"
         f"{document_context or '(no relevant document text found)'}\n\n"
         "Generate the queries for this variable now."
     )
@@ -476,7 +473,6 @@ def _system_prompt_for_geographic_variable(
         f"variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
-        f"Canonical document target: {attribute.document_target or '(not stated)'}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this "
         "variable is that topic.",
@@ -510,8 +506,8 @@ def _system_prompt_for_geographic_variable(
     parts.append(
         f"Return EXACTLY {geographic_queries_per_variable} quer"
         f"{'y' if geographic_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
-        "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} No markdown or commentary. "
+        "Return only the schema-bound response. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} "
         "Each query 5-15 words."
     )
     return "\n\n".join(parts)
@@ -532,7 +528,6 @@ def _system_prompt_for_counterfactual_variable(
         f"variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
-        f"Canonical document target: {attribute.document_target or '(not stated)'}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this variable "
         "is that topic.",
@@ -563,8 +558,8 @@ def _system_prompt_for_counterfactual_variable(
     parts.append(
         f"Return EXACTLY {counterfactual_queries_per_variable} quer"
         f"{'y' if counterfactual_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
-        "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} No markdown or commentary. "
+        "Return only the schema-bound response. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} "
         "Each query 5-15 words."
     )
     return "\n\n".join(parts)
@@ -586,7 +581,6 @@ def _system_prompt_for_precedent_variable(
         f"variable: {attribute.name}.",
         f"Product class: {config.intervention_class}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
-        f"Canonical document target: {attribute.document_target or '(not stated)'}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this variable "
         "is that topic.",
@@ -618,8 +612,8 @@ def _system_prompt_for_precedent_variable(
     parts.append(
         f"Return EXACTLY {precedent_queries_per_variable} quer"
         f"{'y' if precedent_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
-        "Each object is {\"query\": \"...\", \"doc_block_ids\": [\"exact/id\"]}. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} No markdown or commentary. "
+        "Return only the schema-bound response. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} "
         "Each query 5-15 words."
     )
     return "\n\n".join(parts)

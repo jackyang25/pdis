@@ -53,7 +53,7 @@ from .stages.conformity import (
     empty_conformity_scores,
     extract_quantitative_ledger_batch,
     prepare_quantitative_ledger_batches,
-    score_conformity,
+    score_conformity_all,
 )
 from .stages.context_validator import mismatch_message, validate_document_context
 from .stages.drift_classifier import INSIGHTS_BATCH_SIZE, classify_drift
@@ -150,7 +150,15 @@ def run_pipeline(
         progress=progress_callback,
     )
     unresolved_attributes = [
-        attribute for attribute in attributes if not attribute.target_resolved
+        attribute
+        for attribute in attributes
+        if (
+            not attribute.target_resolved
+            or (
+                bool(attribute.document_target)
+                and not attribute.document_spans
+            )
+        )
     ]
     if unresolved_attributes:
         return _empty_result(
@@ -191,15 +199,14 @@ def run_pipeline(
         ledger_batches,
         ledger_results,
     )
-    if quantitative_ledger.status == "uncertain":
-        return _empty_result(
-            blocks=blocks,
-            variables=attributes,
-            quantitative_ledger=quantitative_ledger,
-            context_validation=context_validation,
-        )
+    # Numeric interpretation is load-bearing only for quantitative calibration.
+    # An unresolved statement remains excluded from target-specific queries and
+    # statistics, but it must not discard the already verified document-claim
+    # ledger or prevent the independent qualitative evidence workflow.
     searchable_attributes = [
-        attribute for attribute in attributes if attribute.document_target
+        attribute
+        for attribute in attributes
+        if attribute.document_target and attribute.document_spans
     ]
     attribute_descriptions = {
         attribute.name: attribute.description for attribute in searchable_attributes
@@ -801,7 +808,7 @@ def _score_conformity_all_variables(
     intervention_class: str,
     progress: ProgressFn | None = None,
 ) -> list[ConformityScore]:
-    """Score quantitative conformity per attribute with bounded concurrency.
+    """Score quantitative conformity through one bounded global work queue.
 
     Self-gating: returns ledgers only for variables with an exact-quoted numeric
     target. A valid target with no admitted comparators remains an explicit
@@ -812,19 +819,22 @@ def _score_conformity_all_variables(
         insights, {attribute.name for attribute in attributes}
     )
 
-    def one(attribute: Attribute) -> list[ConformityScore]:
-        return score_conformity(
-            attribute,
-            insights_by_attribute.get(attribute.name, []),
-            openai_client,
-            indication=indication,
-            intervention_class=intervention_class,
-        )
-
-    results = _parallel_map(
-        attributes, one, workers=MAX_WORKERS, stage="conformity", progress=progress
+    return score_conformity_all(
+        attributes,
+        insights_by_attribute,
+        openai_client,
+        indication=indication,
+        intervention_class=intervention_class,
+        progress_callback=(
+            (
+                lambda completed, total: progress(
+                    "conformity", completed=completed, total=total
+                )
+            )
+            if progress
+            else None
+        ),
     )
-    return [score for target_scores in results for score in target_scores]
 
 
 def _classify_precedent_all_variables(

@@ -142,13 +142,21 @@ Preserve these invariants:
   retrieval if any field remains unresolved. Valid decisions must not be rerun.
   Numeric expressions remain restricted to their exact statement units and may
   bind only to a resolved field within its canonical cited blocks. The numeric
-  ledger receives the same one-retry/fail-closed treatment. Only resolved fields
-  with document-present targets proceed to query generation, so adjacent table
-  cells cannot donate another field's number or meaning.
+  ledger receives the same one-retry/fail-closed treatment per statement:
+  unresolved numeric statements remain auditable and cannot enter target-specific
+  retrieval or calibration, but they do not block qualitative retrieval from the
+  verified claim ledger. Only resolved fields with document-present targets
+  proceed to query generation, so adjacent table cells cannot donate another
+  field's number or meaning.
 - Rendered model context labels blocks as `[block:<id>]`; structured JSON outputs
   the complete bare ID inside that marker. Validation permits an exactly wrapped
   legacy marker only long enough to canonicalize it, then requires exact
   membership in the supplied block set—never suffix, substring, or fuzzy matching.
+- Global Scout halts are reserved for an explicit document/configuration mismatch
+  or an unresolved canonical document-claim ledger. Numeric mapping uncertainty
+  fails closed for that target or source passage only; adapter failures remain
+  source-local, and terminal drift/grounding/precedent failures emit their closed
+  unknown/unrelated result rather than invalidating independent work.
 - General, geographic, counterfactual, and precedent tracks are additive. Their
   budgets come from Scout config; deduplication must not erase track lineage.
 - Scout owns document meaning. Searcher adapters own source-specific query
@@ -180,6 +188,10 @@ Preserve these invariants:
   field-level source lane. `SearchTrace` records the native request, compiled
   intent IDs/input queries, track, document blocks, status/error, count, and
   returned URLs.
+- AI wire schemas enumerate request-local IDs, URLs, indices, and context refs.
+  Models select those opaque references; deterministic code resolves them to
+  canonical upstream objects. Do not ask a downstream model to echo or rebuild
+  canonical targets, quotations, provenance, or identities it does not own.
 - Adding a source means: implement an adapter, register it, inject its connector
   through `SearchRuntime.integrations`, and opt configs into its key. Do not add
   source branches to Scout, API schemas, Ask, or UI.
@@ -223,14 +235,23 @@ Scout's four result axes are intentionally orthogonal:
   convert incompatible units, treat a synthesized Insight as numeric provenance,
   or present cohort spread/percentiles as inferential uncertainty or likelihood
   of success. The model receives immutable target and source-passage IDs and
-  proposes a typed mapping; deterministic code verifies every returned value,
-  operator, unit, URL, exact quote, and block/source provenance before use.
+  proposes one typed semantic mapping plus the exact literal numeric expression
+  and its value/operator/unit substrings. Service-owned Pydantic wire models
+  define both the provider schema and runtime structural validation.
+  Deterministic code verifies literal presence, mechanically readable numeric
+  equality, symbolic operators, URLs, IDs, and block/source provenance before
+  use. It compares the AI-produced unit identifiers required by calculation but
+  must not classify number words, ranges, units, or clinical meaning from prose,
+  and must not perform dimensional/scale conversion.
   Targets and measurements share one syntax-only `NumericExpression`; do not
   restore separate flat value/unit/expression-kind shapes. Each deduplicated,
   source-owned passage gets exactly one `measurements_found`,
   `no_relevant_measurement`, or `uncertain` disposition. AI extracts zero or
   more complete exact-quoted measurements from that passage; never restore
-  regex-produced numeric-fragment fan-out. Target and source meaning use the
+  regex-produced numeric-fragment fan-out or field-nested serial mapping.
+  Quantitative target/passage batches run through one globally bounded queue,
+  preserve request order on assembly, and keep corrective retries local to
+  their original batch. Target and source meaning use the
   same typed profile (`measure`, `endpoint`, `intervention`,
   `population`, `regimen`, `time_horizon`, `statistic`, `conditions`) whose slots distinguish
   `specified`, `not_specified`, `unknown`, and `other`. One measurement semantic

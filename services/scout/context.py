@@ -34,6 +34,13 @@ BLOCK_ID_JSON_INSTRUCTION = (
     "the [block:...] wrapper, shorten the ID, or invent an ID."
 )
 
+LINE_SPAN_JSON_INSTRUCTION = (
+    "Document text lines are labeled [line:N] within each [block:<id>]. For every "
+    "source span, select one complete bare block_id plus inclusive start_line and "
+    "end_line values exactly as displayed. Do not retype or paraphrase source text; "
+    "deterministic code will copy the selected lines from the original block."
+)
+
 
 def render_document_context(blocks: Iterable[ContentBlock]) -> str:
     """Render ordered blocks with stable IDs and lightweight structural context."""
@@ -91,22 +98,59 @@ def render_canonical_binding(attribute: Attribute) -> str:
     should reason over that target—not the rest of the coarse source row—while
     retaining the exact block IDs that authorize citations.
     """
-    if not attribute.document_target or not attribute.block_ids:
+    if (
+        not attribute.document_target
+        or not attribute.block_ids
+        or not attribute.document_spans
+    ):
         return ""
-    return "\n\n".join(
-        f"[block:{block_id}]\n{attribute.document_target}"
-        for block_id in attribute.block_ids
-    )
+    rendered: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for span in attribute.document_spans:
+        for block_id in span.block_ids:
+            key = (block_id, span.quote)
+            if key in seen:
+                continue
+            seen.add(key)
+            rendered.append(f"[block:{block_id}]\n{span.quote}")
+    return "\n\n".join(rendered)
 
 
 def limit_document_context(text: str, *, max_chars: int = WHOLE_DOCUMENT_CONTEXT_CHARS) -> str:
-    """Bound already-rendered context while retaining both document boundaries."""
+    """Bound rendered context at block boundaries, retaining both document ends."""
     if len(text) <= max_chars:
         return text
     marker = "\n\n[... middle document blocks omitted for context budget ...]\n\n"
+    rendered_blocks = re.split(r"\n\n(?=\[block:[^\]]+\])", text)
+    if len(rendered_blocks) <= 1:
+        remaining = max(0, max_chars - len(marker))
+        head = int(remaining * 0.6)
+        return text[:head] + marker + text[-(remaining - head):]
+
     remaining = max(0, max_chars - len(marker))
-    head = int(remaining * 0.6)
-    return text[:head] + marker + text[-(remaining - head):]
+    head_budget = int(remaining * 0.6)
+    tail_budget = remaining - head_budget
+    head: list[str] = []
+    head_chars = 0
+    for block in rendered_blocks:
+        added = len(block) + (2 if head else 0)
+        if head and head_chars + added > head_budget:
+            break
+        head.append(block)
+        head_chars += added
+    tail: list[str] = []
+    tail_chars = 0
+    head_count = len(head)
+    for block in reversed(rendered_blocks[head_count:]):
+        added = len(block) + (2 if tail else 0)
+        if tail and tail_chars + added > tail_budget:
+            break
+        tail.append(block)
+        tail_chars += added
+    tail.reverse()
+    if head_count + len(tail) >= len(rendered_blocks):
+        return text
+    return "\n\n".join(head) + marker + "\n\n".join(tail)
 
 
 def document_block_ids(text: str) -> set[str]:
@@ -119,6 +163,56 @@ def rendered_block_texts(document_context: str) -> dict[str, str]:
         block_id: text
         for block_id, text in _RENDERED_BLOCK_CONTENT_RE.findall(document_context)
     }
+
+
+def render_line_addressable_context(document_context: str) -> str:
+    """Label physical source lines without changing their canonical text.
+
+    This wire view lets a model select source passages while deterministic code
+    remains solely responsible for copying exact quotations into result data.
+    """
+    rendered_blocks = re.split(r"\n\n(?=\[block:[^\]]+\])", document_context)
+    addressed: list[str] = []
+    for rendered_block in rendered_blocks:
+        lines = rendered_block.splitlines()
+        if not lines:
+            continue
+        header, content_lines = lines[0], lines[1:]
+        addressed.append(
+            "\n".join(
+                [header]
+                + [f"[line:{index}] {line}" for index, line in enumerate(content_lines, 1)]
+            )
+        )
+    return "\n\n".join(addressed)
+
+
+def selected_source_lines(
+    raw_span: object,
+    source_blocks: dict[str, str],
+) -> tuple[str, str] | None:
+    """Resolve one model-selected line range to exact canonical source text."""
+    if not isinstance(raw_span, dict):
+        return None
+    block_id = str(raw_span.get("block_id", "")).strip()
+    if block_id not in source_blocks:
+        return None
+    start_line = raw_span.get("start_line")
+    end_line = raw_span.get("end_line")
+    if (
+        isinstance(start_line, bool)
+        or isinstance(end_line, bool)
+        or not isinstance(start_line, int)
+        or not isinstance(end_line, int)
+    ):
+        return None
+    lines = source_blocks[block_id].splitlines()
+    if not (1 <= start_line <= end_line <= len(lines)):
+        return None
+    quote = "\n".join(lines[start_line - 1:end_line]).strip()
+    if not quote:
+        return None
+    return quote, block_id
 
 
 def quote_in_text(quote: str, text: str) -> bool:

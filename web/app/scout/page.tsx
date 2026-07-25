@@ -646,7 +646,7 @@ function FieldGrid({
                   )}
                   {result.quantitative_ledger.status === "uncertain" && (
                     <p>
-                      Numeric interpretation stopped before retrieval because one or more document statements remained unresolved after one retry.
+                      Some numeric statements remained unresolved after one retry. They were retained for audit and excluded from quantitative calibration; the verified document claims still proceeded through evidence retrieval.
                     </p>
                   )}
                 </div>

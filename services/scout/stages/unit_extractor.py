@@ -16,14 +16,14 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 
 from ..ai import request_structured
-from ..ai_contracts import UNIT_BATCH
+from ..ai_contracts import unit_batch
 from ..context import (
-    BLOCK_ID_JSON_INSTRUCTION,
+    LINE_SPAN_JSON_INSTRUCTION,
     chunk_document_context,
     document_block_ids,
-    quote_in_text,
+    render_line_addressable_context,
     rendered_block_texts,
-    validated_block_ids,
+    selected_source_lines,
 )
 from ..models import (
     Attribute,
@@ -62,6 +62,7 @@ def extract_units(
         chunk_index, chunk = indexed
         user_message = _user_message(chunk)
         allowed_block_ids = document_block_ids(chunk)
+        contract = unit_batch(sorted(allowed_block_ids))
         images = [
             {"block_id": block_id, "data_url": image}
             for block_id, image in (images_by_block_id or {}).items()
@@ -69,13 +70,13 @@ def extract_units(
         ]
         parsed = request_structured(
             llm_client,
-            UNIT_BATCH,
+            contract,
             system_prompt,
             user_message,
             max_tokens=max_tokens,
             images=images or None,
         )
-        chunk_units = _validated_units(parsed, allowed_block_ids, chunk)
+        chunk_units = _validated_units(parsed, chunk)
         if not chunk_units:
             logger.warning(
                 "unit_extractor produced no parsable units for chunk %d; retrying once",
@@ -83,13 +84,13 @@ def extract_units(
             )
             parsed = request_structured(
                 llm_client,
-                UNIT_BATCH,
+                contract,
                 system_prompt,
                 user_message,
                 max_tokens=max_tokens,
                 images=images or None,
             )
-            chunk_units = _validated_units(parsed, allowed_block_ids, chunk)
+            chunk_units = _validated_units(parsed, chunk)
         return chunk_units
 
     workers = max(1, min(UNIT_EXTRACTION_WORKERS, len(chunks)))
@@ -108,28 +109,32 @@ def _system_prompt(intervention_class: str, source_type: str, indication: str) -
         "challenged by external evidence - a milestone with a date, a timeline, a cost or "
         "volume projection, a regulatory expectation, a feasibility or efficacy assumption, "
         "a manufacturing or access plan. Skip pure background, narrative, and boilerplate "
-        "that makes no testable claim.\n\n"
+        "that makes no testable claim. An unfilled heading, template prompt, or question "
+        "is not a unit. In question-and-answer documents, extract the answer's concrete "
+        "claim and select its answer block; include the question only when needed to "
+        "preserve meaning.\n\n"
         "For each unit return:\n"
         "- name: a short snake_case label, unique within the document (e.g. "
         '"regulatory_approval_timeline", "cogs_per_dose_target").\n'
         "- description: one neutral sentence defining what will be evaluated; do not "
         "put the document's specific number, date, or commitment here.\n"
         f"- evidence_domain: exactly one of {', '.join(sorted(EVIDENCE_DOMAINS))}.\n"
-        "- spans: the smallest complete exact document quotations that together state "
-        "the concrete claim/target, preserving every number, date, comparator, and "
-        "qualifier. Each span carries the exact blocks containing its quote. "
-        f"{BLOCK_ID_JSON_INSTRUCTION}\n\n"
+        "- spans: the smallest complete source line selections that together state "
+        "the concrete claim/target while preserving every number, date, comparator, "
+        f"and qualifier. {LINE_SPAN_JSON_INSTRUCTION}\n\n"
         "- entities: only names explicitly stated in those spans whose type is one "
         f"of {', '.join(sorted(ENTITY_TYPES - {'other'}))}. Include an "
-        "identifier only if the document states it.\n\n"
-        "Return the units in the structured `units` array. Example item:\n"
-        '{"name": "...", "description": "...", "evidence_domain": "clinical", '
-        '"spans": [{"quote": "...", "block_ids": ["b-0001"]}], "entities": []}'
+        "identifier only if the document states it. Copy each entity name exactly "
+        "as written in the selected source lines.\n\n"
+        "Return the units in the schema-bound `units` array."
     )
 
 
 def _user_message(doc_text: str) -> str:
-    return f"Document:\n{doc_text}\n\nExtract the checkable units now."
+    return (
+        f"Document:\n{render_line_addressable_context(doc_text)}\n\n"
+        "Extract the checkable units now."
+    )
 
 
 def _document_chunks(doc_text: str) -> list[str]:
@@ -139,7 +144,6 @@ def _document_chunks(doc_text: str) -> list[str]:
 
 def _validated_units(
     parsed: object,
-    allowed_block_ids: set[str],
     document_context: str,
 ) -> list[Attribute]:
     if not isinstance(parsed, list):
@@ -157,24 +161,12 @@ def _validated_units(
         raw_spans = item.get("spans")
         raw_spans = raw_spans if isinstance(raw_spans, list) else []
         for raw_span in raw_spans:
-            if not isinstance(raw_span, dict):
+            selected = selected_source_lines(raw_span, source_blocks)
+            if selected is None:
                 spans = []
                 break
-            quote = " ".join(str(raw_span.get("quote", "")).split())
-            block_ids = validated_block_ids(
-                raw_span.get("block_ids"), allowed_block_ids
-            )
-            if (
-                not quote
-                or not block_ids
-                or not all(
-                    quote_in_text(quote, source_blocks.get(block_id, ""))
-                    for block_id in block_ids
-                )
-            ):
-                spans = []
-                break
-            spans.append(DocumentSpan(quote=quote, block_ids=block_ids))
+            quote, block_id = selected
+            spans.append(DocumentSpan(quote=quote, block_ids=[block_id]))
         if not spans:
             continue
         document_target = " ".join(dict.fromkeys(span.quote for span in spans))

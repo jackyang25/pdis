@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 
 from ..ai import request_structured
-from ..ai_contracts import DRIFT_BATCH
+from ..ai_contracts import drift_batch
 from ..context import (
     BLOCK_ID_JSON_INSTRUCTION,
     document_block_ids,
@@ -73,10 +73,11 @@ def classify_drift(
     )
     user_message = _user_message(doc_excerpts, insights)
     allowed_block_ids = document_block_ids("\n".join(doc_excerpts))
+    contract = drift_batch(len(insights), sorted(allowed_block_ids))
 
     parsed = _validated_matches(request_structured(
         llm_client,
-        DRIFT_BATCH,
+        contract,
         system_prompt,
         user_message,
         max_tokens=max_tokens,
@@ -89,7 +90,7 @@ def classify_drift(
         )
         parsed = _validated_matches(request_structured(
             llm_client,
-            DRIFT_BATCH,
+            contract,
             system_prompt,
             user_message,
             max_tokens=max_tokens,
@@ -201,9 +202,7 @@ def _system_prompt(
         "a different disease, a different product class, or administrative noise.\n"
         "- Do not invent doc content not present in the excerpts.\n\n"
         "- Discovery-track labels are retrieval provenance only; they never determine the relation.\n\n"
-        "Return every decision in the structured `matches` array. Items:\n"
-        '  {"index": 0, "relation": "contradicts", "reason": "...", "doc_block_ids": ["b-0001"]},\n'
-        '  {"index": 1, "relation": "extends", "reason": "...", "doc_block_ids": ["b-0008"]}\n'
+        "Return every decision in the schema-bound `matches` array. "
         "Every Insight index from the input MUST appear exactly once in the output."
     )
 

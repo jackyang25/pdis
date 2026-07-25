@@ -44,18 +44,25 @@ def _block() -> ContentBlock:
 
 def _profile(population: str) -> dict:
     profile = {
-        field_name: {"state": "not_specified", "value": "", "other": ""}
+        field_name: {
+            "state": "not_specified",
+            "value": "",
+            "other": "",
+            "source_refs": [],
+        }
         for field_name in QUANTITATIVE_SEMANTIC_FIELDS
     }
     profile["measure"] = {
         "state": "specified",
         "value": "Dose volume",
         "other": "",
+        "source_refs": ["statement"],
     }
     profile["population"] = {
         "state": "specified",
         "value": population,
         "other": "",
+        "source_refs": ["statement"],
     }
     return profile
 
@@ -76,6 +83,14 @@ def _target(quote: str, value: float, role: str, population: str) -> dict:
             "upper": None,
             "comparator": "<",
         },
+        "source_syntax": {
+            "expression_text": f"<{value} mL/dose",
+            "value_text": str(value),
+            "lower_text": "",
+            "upper_text": "",
+            "comparator_text": "<",
+            "unit_text": "mL/dose",
+        },
         "role": role,
         "comparison_dimensions": ["measure", "population"],
         "semantic_profile": profile,
@@ -89,9 +104,13 @@ class _LedgerClient:
     def __init__(self, reviews: list[dict]):
         self.reviews = reviews
         self.calls = 0
+        self.system_prompt = ""
+        self.user_message = ""
 
-    def call_structured(self, *_args, **_kwargs):
+    def call_structured(self, system_prompt, user_message, *_args, **_kwargs):
         self.calls += 1
+        self.system_prompt = system_prompt
+        self.user_message = user_message
         return {"reviews": self.reviews}
 
 
@@ -99,8 +118,10 @@ class _SequenceLedgerClient:
     def __init__(self, responses: list[list[dict]]):
         self.responses = responses
         self.calls = 0
+        self.schemas: list[dict] = []
 
-    def call_structured(self, *_args, **_kwargs):
+    def call_structured(self, *_args, schema, **_kwargs):
+        self.schemas.append(schema)
         response = self.responses[min(self.calls, len(self.responses) - 1)]
         self.calls += 1
         return {"reviews": response}
@@ -132,6 +153,146 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         ]
         self.batches = prepare_quantitative_ledger_batches([_block()])
         self.assertEqual(len(self.batches), 1)
+
+    def test_dense_source_block_is_split_into_bounded_unit_batches(self) -> None:
+        source = ContentBlock(
+            id="document/b-dense",
+            doc_id="document",
+            ordinal=2,
+            block_type="table_row",
+            content="\n".join(f"Constraint {index}: {index} units" for index in range(50)),
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+
+        batches = prepare_quantitative_ledger_batches([source], max_units=10)
+        unit_ids = [unit.id for batch in batches for unit in batch.units]
+
+        self.assertEqual(len(batches), 5)
+        self.assertTrue(all(len(batch.units) <= 10 for batch in batches))
+        self.assertEqual(len(unit_ids), len(set(unit_ids)))
+        self.assertTrue(all(batch.blocks == [source] for batch in batches))
+
+    def test_numeric_batch_inherits_cross_field_canonical_context_with_exact_provenance(
+        self,
+    ) -> None:
+        numeric_block = ContentBlock(
+            id="document/b-0005",
+            doc_id="document",
+            ordinal=5,
+            block_type="paragraph",
+            content="Target protective efficacy is >80%.",
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        population_block = ContentBlock(
+            id="document/b-0002",
+            doc_id="document",
+            ordinal=2,
+            block_type="paragraph",
+            content="Target population: children aged 5-17 months.",
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        efficacy = Attribute(
+            name="vaccine.efficacy",
+            description="Protective efficacy",
+            document_spans=[
+                DocumentSpan(quote=numeric_block.content, block_ids=[numeric_block.id])
+            ],
+            target_resolved=True,
+        )
+        population = Attribute(
+            name="vaccine.target_population",
+            description="Intended population",
+            document_spans=[
+                DocumentSpan(
+                    quote=population_block.content,
+                    block_ids=[population_block.id],
+                )
+            ],
+            target_resolved=True,
+        )
+        batch = prepare_quantitative_ledger_batches([numeric_block])[0]
+        unit = batch.units[0]
+        profile = {
+            field_name: {
+                "state": "not_specified",
+                "value": "",
+                "other": "",
+                "source_refs": [],
+            }
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+        }
+        profile["measure"] = {
+            "state": "specified",
+            "value": "protective efficacy",
+            "other": "",
+            "source_refs": ["statement"],
+        }
+        profile["population"] = {
+            "state": "specified",
+            "value": "children aged 5-17 months",
+            "other": "",
+            "source_refs": ["binding-0002"],
+        }
+        client = _LedgerClient([
+            {
+                "unit_id": unit.id,
+                "classification": "target",
+                "attribute_ref": efficacy.name,
+                "reason": "The statement sets the efficacy target.",
+                "targets": [
+                    {
+                        "attribute_ref": efficacy.name,
+                        "expression": {
+                            "kind": "bound",
+                            "unit": "%",
+                            "value": 80,
+                            "lower": None,
+                            "upper": None,
+                            "comparator": ">",
+                        },
+                        "source_syntax": {
+                            "expression_text": ">80%",
+                            "value_text": "80",
+                            "lower_text": "",
+                            "upper_text": "",
+                            "comparator_text": ">",
+                            "unit_text": "%",
+                        },
+                        "role": "threshold",
+                        "comparison_dimensions": ["measure", "population"],
+                        "semantic_profile": profile,
+                        "ownership_reason": "The local statement is an efficacy target.",
+                    }
+                ],
+            }
+        ])
+
+        result = extract_quantitative_ledger_batch(
+            batch,
+            [efficacy, population],
+            client,
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(len(result.targets), 1)
+        target = result.targets[0]
+        self.assertEqual(
+            target.semantic_provenance["measure"][0].block_ids,
+            [numeric_block.id],
+        )
+        self.assertEqual(
+            target.semantic_provenance["population"][0].block_ids,
+            [population_block.id],
+        )
+        self.assertIn(population_block.content, client.system_prompt)
+        self.assertNotIn(population_block.content, client.user_message)
 
     def test_one_document_ledger_captures_atomic_targets_without_field_competition(self) -> None:
         units = {unit.quote: unit for unit in self.batches[0].units}
@@ -245,7 +406,10 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             doc_id="document",
             ordinal=5,
             block_type="paragraph",
-            content="Phase 4 follow-up is planned.",
+            content=(
+                "Development work remains active.\n"
+                "Phase 4 follow-up is planned."
+            ),
             heading_stack=[],
             structural_meta={},
             style_hint={},
@@ -260,7 +424,14 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             target_resolution_reason="Resolved from exact document spans.",
         )
         batch = prepare_quantitative_ledger_batches([source])[0]
-        unit = batch.units[0]
+        first_unit, unit = batch.units
+        retained = {
+            "unit_id": first_unit.id,
+            "classification": "non_numeric",
+            "attribute_ref": "",
+            "reason": "The statement contains no numeric content.",
+            "targets": [],
+        }
         recovered = {
             "unit_id": unit.id,
             "classification": "non_scalar",
@@ -268,7 +439,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             "reason": "The phase is a development category, not a scalar target.",
             "targets": [],
         }
-        client = _SequenceLedgerClient([[], [recovered]])
+        client = _SequenceLedgerClient([[retained], [recovered]])
 
         result = extract_quantitative_ledger_batch(
             batch,
@@ -279,7 +450,20 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         )
 
         self.assertEqual(client.calls, 2)
-        self.assertEqual(result.reviews[0].classification, "non_scalar")
+        self.assertEqual(
+            [review.classification for review in result.reviews],
+            ["non_numeric", "non_scalar"],
+        )
+        first_ids = (
+            client.schemas[0]["properties"]["reviews"]["items"]["properties"]
+            ["unit_id"]["enum"]
+        )
+        retry_ids = (
+            client.schemas[1]["properties"]["reviews"]["items"]["properties"]
+            ["unit_id"]["enum"]
+        )
+        self.assertEqual(first_ids, [first_unit.id, unit.id])
+        self.assertEqual(retry_ids, [unit.id])
 
     def test_context_and_numeric_categories_are_retained_without_calibration(self) -> None:
         source = ContentBlock(
@@ -394,6 +578,60 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertEqual(attributes[0].quantitative_statement_dispositions, [])
         self.assertEqual(attributes[0].block_ids, [claim_block.id])
         self.assertEqual(attributes[0].quantitative_target_status, "not_applicable")
+
+    def test_unowned_semantic_uncertainty_does_not_block_other_fields(self) -> None:
+        claim_block = ContentBlock(
+            id="document/b-0010",
+            doc_id="document",
+            ordinal=10,
+            block_type="paragraph",
+            content="Dose must be below 5 mg.",
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        background = ContentBlock(
+            id="document/b-0030",
+            doc_id="document",
+            ordinal=30,
+            block_type="paragraph",
+            content="The global strategy targets elimination by 2040.",
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        attribute = Attribute(
+            name="drug.dose",
+            description="Dose",
+            document_spans=[
+                DocumentSpan(quote=claim_block.content, block_ids=[claim_block.id])
+            ],
+            target_resolved=True,
+        )
+        batch = prepare_quantitative_ledger_batches([background])[0]
+        unit = batch.units[0]
+        result = extract_quantitative_ledger_batch(
+            batch,
+            [attribute],
+            _LedgerClient([
+                {
+                    "unit_id": unit.id,
+                    "classification": "uncertain",
+                    "attribute_ref": "",
+                    "reason": "The date is background strategy context.",
+                    "targets": [],
+                }
+            ]),
+            indication="example condition",
+            intervention_class="drug",
+        )
+
+        _, ledger = assemble_quantitative_document_ledger(
+            [attribute], [batch], [result]
+        )
+
+        self.assertEqual(ledger.status, "complete")
+        self.assertEqual(ledger.reviews[0].classification, "uncertain")
 
 
 if __name__ == "__main__":

@@ -7,13 +7,8 @@ import logging
 from services.searcher import Finding
 
 from ..ai import request_structured
-from ..ai_contracts import EVIDENCE_ASSESSMENT
-from ..context import (
-    BLOCK_ID_JSON_INSTRUCTION,
-    document_block_ids,
-    limit_document_context,
-    validated_block_ids,
-)
+from ..ai_contracts import evidence_assessment
+from ..context import limit_document_context
 from ..models import (
     Attribute,
     EvidenceAssessment,
@@ -40,6 +35,16 @@ def assess_evidence(
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> EvidenceAssessment:
     """Assess whether external evidence grounds the document target for one unit."""
+    if not attribute.target_resolved or not attribute.document_target:
+        return _failed_assessment(
+            attribute,
+            reason="No resolved document target was available for assessment.",
+        )
+    if not insights:
+        return _failed_assessment(
+            attribute,
+            reason="No external-evidence insights were available for assessment.",
+        )
     system_prompt = _system_prompt(
         attribute=attribute,
         indication=indication,
@@ -48,9 +53,10 @@ def assess_evidence(
     )
     user_message = _user_message(attribute, doc_text, insights)
 
+    contract = evidence_assessment(len(insights))
     parsed = request_structured(
         llm_client,
-        EVIDENCE_ASSESSMENT,
+        contract,
         system_prompt,
         user_message,
         max_tokens=max_tokens,
@@ -60,7 +66,7 @@ def assess_evidence(
         logger.warning("evidence_assessor produced no complete structured decision for %s; retrying once", attribute.name)
         parsed = request_structured(
             llm_client,
-            EVIDENCE_ASSESSMENT,
+            contract,
             system_prompt,
             user_message,
             max_tokens=max_tokens,
@@ -74,18 +80,6 @@ def assess_evidence(
     if strength not in VALID_EVIDENCE_STRENGTHS:
         strength = "unknown"
     reason = str(parsed.get("reason", "")).strip() or "assessment failed"
-    doc_target = (
-        attribute.document_target
-        if attribute.target_resolved
-        else str(parsed.get("doc_target", "")).strip()
-    )
-    doc_block_ids = (
-        list(attribute.block_ids)
-        if attribute.target_resolved
-        else validated_block_ids(
-            parsed.get("doc_block_ids"), document_block_ids(doc_text)
-        )
-    )
     selected = _selected_insights(parsed, insights)
     supporting_findings = _dedupe_findings(
         finding for insight in selected for finding in insight.supporting_findings
@@ -94,8 +88,8 @@ def assess_evidence(
         attribute_ref=attribute.name,
         strength=strength,
         reason=reason,
-        doc_target=doc_target,
-        doc_block_ids=doc_block_ids,
+        doc_target=attribute.document_target,
+        doc_block_ids=list(attribute.block_ids),
         supporting_insight_ids=[insight.id for insight in selected],
         supporting_findings=supporting_findings,
     )
@@ -115,29 +109,15 @@ def _system_prompt(
     ).replace("{intervention_class}", intervention_class).replace(
         "{indication}", indication
     )
-    target_output_rule = (
-        "Echo the canonical doc_target and its supplied block IDs exactly; do not "
-        "re-extract or paraphrase them."
-        if attribute.target_resolved
-        else (
-            "Return doc_target as a short faithful phrase from the document and return "
-            "the exact supporting blocks. " + BLOCK_ID_JSON_INSTRUCTION
-        )
-    )
     return (
         "You assess weight of evidence for ONE variable.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}\n"
         f"Definition: {attribute.description}\n"
-        f"Canonical document target: {attribute.document_target or '(not stated)'}\n"
-        f"Canonical target blocks: {', '.join(attribute.block_ids) or '(none)'}\n"
-        f"Target binding status: {'resolved' if attribute.target_resolved else 'unresolved'}\n\n"
         f"Document-specific interpretation:\n{framing}\n\n"
         "Task:\n"
-        "1. Assess the canonical document target above. When its binding status is "
-        "resolved, do not rewrite, broaden, or replace it. If it is not stated, return "
-        "strength=unknown. Only for an unresolved direct call may you locate the target "
-        "in the document text.\n"
+        "1. Assess only the canonical document binding supplied in the user message. "
+        "Do not rewrite, broaden, or replace it.\n"
         "If no external-evidence insights are supplied, preserve the target but return "
         "strength=unknown with no supporting insight indices.\n"
         "2. Identify which claim form applies:\n"
@@ -151,15 +131,12 @@ def _system_prompt(
         "- thin: evidence is sparse, indirect, or preclinical-only.\n"
         "- unsupported: no evidence supports the target being achievable or justified. Do NOT use this merely because a threshold target is unambitious or already met - that is well_grounded.\n"
         "- unknown: the evidence cannot be assessed.\n\n"
-        f"{target_output_rule}\n"
         "Return supporting_insight_indices containing ONLY the numbered insights actually used "
         "for the grounding judgment; do not cite every available insight.\n"
         "Discovery-track labels are retrieval provenance only. Never treat a counterfactual "
+        "track as negative evidence by itself.\n"
         "reason: one sentence (<=25 words) giving ONLY your evidence judgment - do NOT restate "
-        "the document target (that is doc_target's job).\n\n"
-        "Return ONLY JSON. No markdown, no commentary. Format:\n"
-        '{"strength": "partial", "doc_target": "...", "doc_block_ids": ["b-0001"], '
-        '"supporting_insight_indices": [0, 2], "reason": "..."}'
+        "the document target. Return only the schema-bound response."
     )
 
 
@@ -170,13 +147,8 @@ def _user_message(
 ) -> str:
     doc_text = limit_document_context(doc_text)
     lines = [
-        "Document text:",
+        "Canonical document binding (authoritative; do not reinterpret):",
         doc_text,
-        "",
-        f"Variable: {attribute.name}",
-        f"Definition: {attribute.description}",
-        f"Canonical document target: {attribute.document_target or '(not stated)'}",
-        f"Canonical target blocks: {', '.join(attribute.block_ids) or '(none)'}",
         "",
         "External-evidence insights for this variable:",
     ]
@@ -191,11 +163,15 @@ def _user_message(
     return "\n".join(lines)
 
 
-def _failed_assessment(attribute: Attribute) -> EvidenceAssessment:
+def _failed_assessment(
+    attribute: Attribute,
+    *,
+    reason: str = "assessment failed",
+) -> EvidenceAssessment:
     return EvidenceAssessment(
         attribute_ref=attribute.name,
         strength="unknown",
-        reason="assessment failed",
+        reason=reason,
         doc_target=attribute.document_target if attribute.target_resolved else "",
         doc_block_ids=list(attribute.block_ids) if attribute.target_resolved else [],
         supporting_findings=[],

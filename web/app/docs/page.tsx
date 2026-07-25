@@ -213,10 +213,12 @@ export default function DocsPage() {
             <Note title="How numeric evidence is admitted">
               Scout first reviews each non-overlapping document statement once and projects its
               validated targets onto canonical fields. Missing or invalid mappings remain explicit
-              uncertainty. Document targets and source measurements then share one numeric-expression
-              shape and one semantic profile. Scout reviews each bounded source-owned passage as a whole and
+              uncertainty and are excluded from numeric retrieval and calibration without blocking
+              qualitative evidence retrieval. Document targets and source measurements then share one numeric-expression
+              shape and one semantic profile. The model selects the exact literal expression and its
+              source value, operator, and unit alongside that normalized form. Scout reviews each bounded source-owned passage as a whole and
               returns complete exact-quoted measurements, no relevant measurement, or uncertain.
-              Code then verifies the quote, every number, operator, unit, URL, and source identity;
+              One typed wire contract governs model output and runtime parsing. Code verifies literal grounding, mechanically readable numeric equality, identifiers, URL, and source identity without reinterpreting prose;
               only comparable atomic scalars in the target unit enter the statistics.
             </Note>
           </DocSection>

@@ -24,13 +24,8 @@ import logging
 from services.searcher import Finding
 
 from ..ai import request_structured
-from ..ai_contracts import PRECEDENT_ASSESSMENT
-from ..context import (
-    BLOCK_ID_JSON_INSTRUCTION,
-    document_block_ids,
-    limit_document_context,
-    validated_block_ids,
-)
+from ..ai_contracts import precedent_assessment
+from ..context import limit_document_context
 from ..models import (
     Attribute,
     Insight,
@@ -64,7 +59,11 @@ def classify_precedent(
     Returns None for variables with no external evidence: with nothing retrieved we
     cannot distinguish absent precedent from a search miss, so we decline to
     label rather than invent coverage."""
-    if not insights or (attribute.target_resolved and not attribute.document_target):
+    if (
+        not attribute.target_resolved
+        or not attribute.document_target
+        or not insights
+    ):
         return None
 
     system_prompt = _system_prompt(
@@ -75,9 +74,10 @@ def classify_precedent(
     )
     user_message = _user_message(attribute, doc_text, insights)
 
+    contract = precedent_assessment(len(insights))
     parsed = request_structured(
         llm_client,
-        PRECEDENT_ASSESSMENT,
+        contract,
         system_prompt,
         user_message,
         max_tokens=max_tokens,
@@ -90,7 +90,7 @@ def classify_precedent(
         )
         parsed = request_structured(
             llm_client,
-            PRECEDENT_ASSESSMENT,
+            contract,
             system_prompt,
             user_message,
             max_tokens=max_tokens,
@@ -134,13 +134,7 @@ def classify_precedent(
         precedent=precedent,
         outcome=outcome,
         reason=reason,
-        doc_block_ids=(
-            list(attribute.block_ids)
-            if attribute.target_resolved
-            else validated_block_ids(
-                parsed.get("doc_block_ids"), document_block_ids(doc_text)
-            )
-        ),
+        doc_block_ids=list(attribute.block_ids),
         coverage_insight_ids=[insight.id for insight in coverage_insights],
         outcome_insight_ids=[insight.id for insight in outcome_insights],
         supporting_insight_ids=[insight.id for insight in selected],
@@ -175,9 +169,9 @@ def _system_prompt(
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Variable: {attribute.name}\n"
         f"Definition: {attribute.description}\n"
-        f"Canonical document target: {attribute.document_target or '(not stated)'}\n"
-        f"Canonical target blocks: {', '.join(attribute.block_ids) or '(none)'}\n\n"
         + framing + "\n\n"
+        "Assess only the canonical document binding supplied in the user message; "
+        "do not rewrite, broaden, or replace it.\n\n"
         "Return TWO independent labels. Do not collapse them into one axis.\n"
         "precedent (coverage):\n"
         "- direct: prior comparable attempts pursue this target/approach in this or a "
@@ -198,16 +192,11 @@ def _system_prompt(
         "- Judge the target/approach, not whether the number is ambitious.\n\n"
         "reason: one sentence (<=25 words) citing the specific evidence (or its telling "
         "absence) behind your label.\n\n"
-        "Return doc_block_ids for the document target/approach you assessed. "
-        f"{BLOCK_ID_JSON_INSTRUCTION} Return coverage_insight_indices and "
+        "Return coverage_insight_indices and "
         "outcome_insight_indices separately, containing ONLY the numbered insights used "
         "for each axis. outcome_insight_indices may be empty when outcome=unknown.\n\n"
         "Discovery-track labels are retrieval provenance only; classify the stated evidence, "
-        "not the track name.\n\n"
-        "Return ONLY JSON. No markdown, no commentary. Format:\n"
-        '{"precedent": "none", "outcome": "unknown", "reason": "...", '
-        '"doc_block_ids": ["b-0001"], '
-        '"coverage_insight_indices": [0, 2], "outcome_insight_indices": []}'
+        "not the track name. Return only the schema-bound response."
     )
 
 
@@ -218,13 +207,8 @@ def _user_message(
 ) -> str:
     doc_text = limit_document_context(doc_text)
     lines = [
-        "Document text:",
+        "Canonical document binding (authoritative; do not reinterpret):",
         doc_text,
-        "",
-        f"Variable: {attribute.name}",
-        f"Definition: {attribute.description}",
-        f"Canonical document target: {attribute.document_target or '(not stated)'}",
-        f"Canonical target blocks: {', '.join(attribute.block_ids) or '(none)'}",
         "",
         "External-evidence insights for this variable:",
     ]

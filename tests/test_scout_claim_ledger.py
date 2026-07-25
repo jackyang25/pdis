@@ -4,6 +4,11 @@ import json
 import unittest
 
 from services.scout.models import Attribute
+from services.scout.context import (
+    render_line_addressable_context,
+    rendered_block_texts,
+    selected_source_lines,
+)
 from services.scout.stages.target_resolver import resolve_document_targets
 
 
@@ -28,17 +33,57 @@ class _SequenceClient:
         return json.dumps(response)
 
 
+class _StructuredSequenceClient:
+    def __init__(self, responses: list[list[dict]]):
+        self.responses = responses
+        self.calls = 0
+        self.schemas: list[dict] = []
+
+    def call_structured(self, *_args, schema, **_kwargs):
+        self.schemas.append(schema)
+        response = self.responses[min(self.calls, len(self.responses) - 1)]
+        self.calls += 1
+        return {"bindings": response}
+
+
 def _binding(attribute_ref: str, quote: str, block_id: str) -> dict:
     return {
         "attribute_ref": attribute_ref,
         "status": "present",
         "reason": "The cited statement directly defines this field.",
-        "spans": [{"quote": quote, "block_ids": [block_id]}],
+        "spans": [{"block_id": block_id, "start_line": 1, "end_line": 1}],
         "entities": [],
     }
 
 
 class DocumentClaimLedgerTests(unittest.TestCase):
+    def test_line_selection_copies_exact_multiline_source_text(self) -> None:
+        context = (
+            "[block:DRAFT AIV iTPP/b-0089]\n"
+            "Variable: Dosing Schedule\n"
+            "Two doses (prime-boost configuration).\n"
+            "No booster."
+        )
+
+        self.assertIn(
+            "[line:2] Two doses (prime-boost configuration).",
+            render_line_addressable_context(context),
+        )
+        self.assertEqual(
+            selected_source_lines(
+                {
+                    "block_id": "DRAFT AIV iTPP/b-0089",
+                    "start_line": 2,
+                    "end_line": 3,
+                },
+                rendered_block_texts(context),
+            ),
+            (
+                "Two doses (prime-boost configuration).\nNo booster.",
+                "DRAFT AIV iTPP/b-0089",
+            ),
+        )
+
     def test_large_catalog_is_batched_without_losing_full_coverage(self) -> None:
         attributes = [
             Attribute(name=f"drug.field_{index}", description=f"Field {index}")
@@ -79,7 +124,7 @@ class DocumentClaimLedgerTests(unittest.TestCase):
             "Approval is targeted for 2028.",
             "document/b-0002",
         )
-        client = _SequenceClient([
+        client = _StructuredSequenceClient([
             [dose_binding],
             [timeline_binding],
         ])
@@ -96,6 +141,16 @@ class DocumentClaimLedgerTests(unittest.TestCase):
             [attribute.document_target for attribute in resolved],
             ["Dose is 50 mg.", "Approval is targeted for 2028."],
         )
+        first_refs = (
+            client.schemas[0]["properties"]["bindings"]["items"]["properties"]
+            ["attribute_ref"]["enum"]
+        )
+        retry_refs = (
+            client.schemas[1]["properties"]["bindings"]["items"]["properties"]
+            ["attribute_ref"]["enum"]
+        )
+        self.assertEqual(first_refs, [dose.name, timeline.name])
+        self.assertEqual(retry_refs, [timeline.name])
 
     def test_one_generic_contract_binds_cross_domain_claim_shapes(self) -> None:
         cases = [
@@ -146,8 +201,9 @@ class DocumentClaimLedgerTests(unittest.TestCase):
                     "reason": "Timeline",
                     "spans": [
                         {
-                            "quote": "Invented approval in 2028.",
-                            "block_ids": ["document/b-0002"],
+                            "block_id": "document/b-0002",
+                            "start_line": 2,
+                            "end_line": 2,
                         }
                     ],
                     "entities": [],
@@ -167,7 +223,7 @@ class DocumentClaimLedgerTests(unittest.TestCase):
         self.assertEqual(resolved[1].document_target, "")
         self.assertFalse(resolved[1].target_resolved)
         self.assertIn(
-            "not found in cited block(s): document/b-0002",
+            "invalid or empty source line range in document/b-0002",
             resolved[1].target_resolution_reason,
         )
 
@@ -181,8 +237,9 @@ class DocumentClaimLedgerTests(unittest.TestCase):
                     "reason": "Dose",
                     "spans": [
                         {
-                            "quote": "Dose is 50 mg.",
-                            "block_ids": ["document/b-0001", "document/b-9999"],
+                            "block_id": "document/b-9999",
+                            "start_line": 1,
+                            "end_line": 1,
                         }
                     ],
                     "entities": [],
@@ -199,7 +256,7 @@ class DocumentClaimLedgerTests(unittest.TestCase):
         self.assertFalse(resolved.target_resolved)
         self.assertEqual(
             resolved.target_resolution_reason,
-            "A supporting span cited unknown document block ID(s): document/b-9999.",
+            "A supporting span cited an unknown document block ID: document/b-9999.",
         )
 
     def test_missing_present_spans_has_a_distinct_diagnostic(self) -> None:

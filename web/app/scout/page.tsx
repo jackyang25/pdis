@@ -1878,6 +1878,7 @@ function FieldGrid({
                 quantitativeTargetStatusReason={row.variable.quantitative_target_status_reason}
                 targetResolved={row.variable.target_resolved}
                 targetResolutionReason={row.variable.target_resolution_reason}
+                documentTarget={row.variable.document_target}
                 documentSpans={row.variable.document_spans}
               />
             ))}
@@ -2058,6 +2059,7 @@ function FieldRow({
   quantitativeTargetStatusReason,
   targetResolved,
   targetResolutionReason,
+  documentTarget,
   documentSpans,
 }: {
   name: string;
@@ -2070,6 +2072,7 @@ function FieldRow({
   quantitativeTargetStatusReason: string;
   targetResolved: boolean;
   targetResolutionReason: string;
+  documentTarget: string;
   documentSpans: DocumentSpan[];
 }) {
   const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
@@ -2085,6 +2088,8 @@ function FieldRow({
     (total, score) => total + score.benchmark_count,
     0,
   );
+  const hasDocumentTarget = Boolean(documentTarget.trim() || assessment?.doc_target?.trim());
+  const targetNotStated = targetResolved && !hasDocumentTarget;
   return (
     <details className="group/field border-b border-border/80 last:border-b-0">
       <summary className="flex cursor-pointer select-none items-start justify-between gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/field:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden">
@@ -2095,51 +2100,68 @@ function FieldRow({
           <p className="mt-1 line-clamp-1 text-xs leading-relaxed text-muted-foreground">
             {description}
           </p>
-          <div className="mt-2.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,0.9fr)]">
-            <SignalSummary
-              label="Evidence relationships"
-              value={relationSummary(counts)}
-              helpTopic="relationships"
-            />
-            <SignalSummary
-              label="Evidence · Grounding"
-              value={assessment && evidenceMeta ? evidenceMeta.label : "—"}
-              detail={assessment ? countLabel(assessment.supporting_findings.length, "source") : undefined}
-              dot={assessment && evidenceMeta ? evidenceMeta.dot : undefined}
-              helpTopic="grounding"
-            />
-            <SignalSummary
-              label="Evidence · Quantitative calibration"
-              value={hasLegacyConformity
-                ? "Rerun required"
-                : verifiedConformities.length > 0
-                  ? countLabel(verifiedConformities.length, "numeric target")
-                  : quantitativeTargetStatus === "not_applicable"
-                    ? "Not a numeric target"
-                    : quantitativeTargetStatus === "uncertain"
-                      ? "Needs review"
-                      : "Not evaluated"}
-              detail={hasLegacyConformity
-                ? "unverified legacy result"
-                : verifiedConformities.length > 0
-                  ? countLabel(comparatorCount, "admitted comparator")
-                  : undefined}
-              dot={quantitativeTargetStatus === "present" ? TARGET_ALIGNMENT_DOT : undefined}
-              helpTopic="alignment"
-            />
-            <SignalSummary
-              label="Precedent"
-              value={precedent && precedentMeta ? `${precedentMeta.coverage} · ${precedentMeta.outcome}` : "—"}
-              detail={precedent ? countLabel(precedent.supporting_findings.length, "source") : undefined}
-              dot={precedent && precedentMeta ? precedentMeta.dot : undefined}
-              helpTopic="precedent"
-            />
-          </div>
+          {targetNotStated ? (
+            <p className="mt-2.5 text-xs font-medium text-muted-foreground">
+              Not stated in document
+              <span className="font-normal text-muted-foreground/70">
+                {" "}· No document target was available for evidence analysis.
+              </span>
+            </p>
+          ) : (
+            <div className="mt-2.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,0.9fr)]">
+              <SignalSummary
+                label="Evidence relationships"
+                value={relationSummary(counts)}
+                helpTopic="relationships"
+              />
+              <SignalSummary
+                label="Evidence · Grounding"
+                value={assessment && evidenceMeta ? evidenceMeta.label : "—"}
+                detail={assessment ? countLabel(assessment.supporting_findings.length, "source") : undefined}
+                dot={assessment && evidenceMeta ? evidenceMeta.dot : undefined}
+                helpTopic="grounding"
+              />
+              <SignalSummary
+                label="Evidence · Quantitative calibration"
+                value={hasLegacyConformity
+                  ? "Rerun required"
+                  : verifiedConformities.length > 0
+                    ? countLabel(verifiedConformities.length, "numeric target")
+                    : quantitativeTargetStatus === "not_applicable"
+                      ? "No numeric target stated"
+                      : quantitativeTargetStatus === "uncertain"
+                        ? "Needs review"
+                        : "Not evaluated"}
+                detail={hasLegacyConformity
+                  ? "unverified legacy result"
+                  : verifiedConformities.length > 0
+                    ? countLabel(comparatorCount, "admitted comparator")
+                    : undefined}
+                dot={quantitativeTargetStatus === "present" ? TARGET_ALIGNMENT_DOT : undefined}
+                helpTopic="alignment"
+              />
+              <SignalSummary
+                label="Precedent"
+                value={precedent && precedentMeta ? `${precedentMeta.coverage} · ${precedentMeta.outcome}` : "—"}
+                detail={precedent ? countLabel(precedent.supporting_findings.length, "source") : undefined}
+                dot={precedent && precedentMeta ? precedentMeta.dot : undefined}
+                helpTopic="precedent"
+              />
+            </div>
+          )}
         </div>
         <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/field:rotate-180" />
       </summary>
 
       <div className="animate-in space-y-3 border-t border-border/70 bg-muted/15 px-5 py-5 fade-in duration-150 motion-reduce:animate-none sm:px-6">
+        {targetNotStated && (
+          <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
+            <SectionLabel>Document target</SectionLabel>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Not stated in document. Scout did not run evidence analysis for this field.
+            </p>
+          </div>
+        )}
         {!targetResolved && (
           <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
             <SectionLabel>Document interpretation · unresolved</SectionLabel>
@@ -2179,7 +2201,7 @@ function FieldRow({
             ))}
           </div>
         )}
-        {conformities.length === 0 && quantitativeTargetStatusReason && (
+        {!targetNotStated && conformities.length === 0 && quantitativeTargetStatusReason && (
           <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
             <SectionLabel>Evidence · quantitative calibration</SectionLabel>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -2193,7 +2215,7 @@ function FieldRow({
         {precedent && precedentMeta && (
           <PrecedentBlock precedent={precedent} precedentMeta={precedentMeta} matches={matches} />
         )}
-        <MatchesBlock matches={matches} />
+        {!targetNotStated && <MatchesBlock matches={matches} />}
       </div>
     </details>
   );

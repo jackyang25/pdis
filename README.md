@@ -1,6 +1,6 @@
-# PDIS
+# Product Development Intelligence Suite (PDIS) for the Discovery of New  Health Interventions
 
-![PDIS — Product Development Intelligence Suite](docs/banner.png)
+PDIS — Product Development Intelligence Suite
 
 Traceable document intelligence for product-development plans, evidence, and decisions.
 
@@ -20,6 +20,8 @@ behind every result.
 - [Deployment](#deployment)
 - [Contributing](#contributing)
 - [License](#license)
+
+
 
 ## Background
 
@@ -48,9 +50,9 @@ Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and a shared
 `TOOLUNIVERSE_API_TOKEN` in `.env`. Set `SEMANTIC_SCHOLAR_API_KEY` in
 `.env.tooluniverse` when that source is enabled.
 
-Open the application at <http://localhost:3000>. The API health endpoint and
-OpenAPI reference are available at <http://localhost:8000/api/health> and
-<http://localhost:8000/docs>.
+Open the application at [http://localhost:3000](http://localhost:3000). The API health endpoint and
+OpenAPI reference are available at [http://localhost:8000/api/health](http://localhost:8000/api/health) and
+[http://localhost:8000/docs](http://localhost:8000/docs).
 
 ### Dependencies
 
@@ -74,6 +76,8 @@ npm install
 npm run dev
 ```
 
+
+
 ## Usage
 
 1. Open the workspace and choose a tool.
@@ -88,14 +92,16 @@ evidence.
 
 ## Tools
 
-| Tool | Responsibility |
-|---|---|
-| [Inspector](services/inspector/README.md) | Grade document completeness, adherence, rigor, and consistency. |
-| [Aligner](services/aligner/README.md) | Trace commitments and changes across two documents. |
-| [Scout](services/scout/README.md) | Test document targets against evidence, comparators, and precedent. |
-| [Chunker](services/chunker/README.md) | Produce ordered, citable text, table, and image blocks. |
-| [Searcher](services/searcher/README.md) | Execute normalized retrieval across registered evidence sources. |
-| [Ask](services/assistant/README.md) | Answer read-only questions from saved results and cited material. |
+
+| Tool                                      | Responsibility                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| [Inspector](services/inspector/README.md) | Grade document completeness, adherence, rigor, and consistency.     |
+| [Aligner](services/aligner/README.md)     | Trace commitments and changes across two documents.                 |
+| [Scout](services/scout/README.md)         | Test document targets against evidence, comparators, and precedent. |
+| [Chunker](services/chunker/README.md)     | Produce ordered, citable text, table, and image blocks.             |
+| [Searcher](services/searcher/README.md)   | Execute normalized retrieval across registered evidence sources.    |
+| [Ask](services/assistant/README.md)       | Answer read-only questions from saved results and cited material.   |
+
 
 External GHIDE decision workflows appear as labeled shortcuts in the workspace;
 they are not executed by this repository.

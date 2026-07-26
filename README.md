@@ -2,8 +2,6 @@
 
 ![PDIS product-development workflow](./docs/banner.png)
 
-PDIS — Product Development Intelligence Suite
-
 Traceable document intelligence for product-development plans, evidence, and decisions.
 
 PDIS turns DOCX, PDF, and PPTX product-development documents into citable

@@ -389,6 +389,8 @@ class MeasurementOut(BaseModel):
     semantic_status: Literal["comparable", "contextual", "incompatible", "unknown"] = "unknown"
     semantic_reason: str = ""
     evidence_mode: Literal["prose", "structured_fact"] = "prose"
+    ai_recommendation: Literal["admit", "reject", "flag"] = "flag"
+    ai_review_reason: str = ""
     admission_status: Literal[
         "needs_review", "approved", "rejected", "not_eligible", "auto_admitted"
     ] = "needs_review"

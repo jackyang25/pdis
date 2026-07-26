@@ -1,7 +1,8 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 31 as const;
+const RESULT_VERSION = 32 as const;
+// Version 32 carries independent AI evidence-admission recommendations.
 // Version 31 carries independent AI target-review recommendations.
 // Version 30 freezes reviewed document targets before retrieval and records the
 // explicit Scout phase. Only final results are exportable.
@@ -12,7 +13,7 @@ const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 24 as const;
 const SCOUT_CLAIM_CONTRACT_SINCE_VERSION = 26 as const;
 const SCOUT_ADMISSION_CONTRACT_SINCE_VERSION = 27 as const;
 const SCOUT_EVIDENCE_UNIT_CONTRACT_SINCE_VERSION = 29 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | typeof RESULT_VERSION;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -266,7 +267,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.version !== RESULT_VERSION || candidate.state === "final") &&
@@ -783,6 +784,9 @@ function normalizeMeasurement(
     semantic_status: current.semantic_status ?? "unknown",
     semantic_reason: current.semantic_reason ?? "Imported measurement predates semantic normalization.",
     evidence_mode: current.evidence_mode ?? "prose",
+    ai_recommendation: current.ai_recommendation ?? "flag",
+    ai_review_reason: current.ai_review_reason
+      ?? "This imported measurement predates independent AI evidence review.",
     admission_status: current.admission_status ?? "needs_review",
     admission_reason: current.admission_reason ?? "Imported prose-derived candidate requires review.",
     inclusion_reason: current.inclusion_reason ?? "",

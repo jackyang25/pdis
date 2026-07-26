@@ -8,60 +8,42 @@ import {
   Info,
 } from "lucide-react";
 
-type DocsNavigationGroup = {
-  label: string;
-  items: readonly (readonly [string, string])[];
-};
+const NAVIGATION = [
+  ["overview", "Overview"],
+  ["tools", "Tools"],
+  ["scout", "Scout evidence"],
+  ["results", "Saved results"],
+  ["development", "Development"],
+  ["faq", "FAQ"],
+] as const;
 
-const NAVIGATION: readonly DocsNavigationGroup[] = [
-  {
-    label: "Introduction",
-    items: [["overview", "Overview"], ["tools", "Tool responsibilities"]],
-  },
-  {
-    label: "System",
-    items: [
-      ["architecture", "Architecture"],
-      ["queries", "Scout queries"],
-      ["evidence", "Evidence semantics"],
-    ],
-  },
-  {
-    label: "Reference",
-    items: [
-      ["results", "Results and provenance"],
-      ["operations", "Local setup"],
-      ["faq", "FAQ"],
-    ],
-  },
-];
-
-const TOOL_ROWS = [
-  ["Inspector", "Document quality", "Completeness, rubric adherence, rigor, and cross-section consistency."],
-  ["Aligner", "Cross-document traceability", "Commitments and changes across a reference and comparison document."],
-  ["Scout", "Evidence diligence", "External evidence, quantitative comparators, and development precedent."],
-  ["Chunker", "Document processing", "Ordered, citable text, table, and image blocks from DOCX, PDF, and PPTX."],
-  ["Searcher", "Direct retrieval", "Free-text retrieval through registered evidence-source adapters."],
+const TOOLS = [
+  ["Inspector", "Document quality", "Grades completeness, adherence, rigor, and cross-section consistency."],
+  ["Aligner", "Document alignment", "Traces commitments and changes between a reference and comparison document."],
+  ["Scout", "Evidence diligence", "Tests document targets against external evidence, comparators, and precedent."],
+  ["Chunker", "Document processing", "Produces ordered, citable text, table, and image blocks."],
+  ["Searcher", "Direct retrieval", "Runs free-text searches through registered evidence-source adapters."],
+  ["Ask", "Result navigation", "Answers read-only questions from a result and its cited material."],
 ] as const;
 
 const QUERY_TRACKS = [
-  ["General", "Current evidence scoped to one canonical field or extracted claim."],
-  ["Geographic", "Additive LMIC and Global-South regulatory, access, implementation, and local-language evidence."],
-  ["Counterfactual", "Evidence that could weaken, contradict, or constrain the document target."],
-  ["Precedent", "Comparable products and programs that show whether an approach has been tried before."],
+  ["General", "Current evidence for the document-bound field or claim."],
+  ["Geographic", "LMIC, implementation, access, regulatory, and local-language evidence."],
+  ["Counterfactual", "Evidence that may weaken or constrain the stated target."],
+  ["Precedent", "Comparable products or programs that show whether an approach has been tried."],
 ] as const;
 
 const EVIDENCE_AXES = [
-  ["Target relationship", "Conflicts · Adds context · Supports · Unrelated", "How one insight relates to the canonical document target."],
-  ["Grounding", "Well grounded · Partial · Thin · Unsupported · Unknown", "How strongly selected evidence justifies the target."],
-  ["Quantitative calibration", "Document ledger → reviewable evidence units → admitted cohort", "AI maps exact-quoted candidates to a source record or explicitly distinct arm/cohort. Reviewers choose one alternative per evidence unit; deterministic code owns provenance checks, deduplication, and arithmetic."],
-  ["Precedent", "Direct · Adjacent · None · Unknown", "Whether comparable prior work exists; its outcome is reported separately."],
+  ["Relationship", "Contradicts · Extends · Confirms · Unrelated"],
+  ["Grounding", "Well grounded · Partial · Thin · Unsupported · Unknown"],
+  ["Quantitative calibration", "Reviewed comparators and deterministic descriptive statistics"],
+  ["Precedent", "Direct · Adjacent · None · Unknown, with outcome reported separately"],
 ] as const;
 
 export default function DocsPage() {
   return (
     <div className="pb-16">
-      <div className="grid gap-10 lg:grid-cols-[180px_minmax(0,760px)] lg:justify-center lg:gap-14">
+      <div className="grid gap-10 lg:grid-cols-[160px_minmax(0,760px)] lg:justify-center lg:gap-14">
         <DocsNavigation />
 
         <article className="min-w-0">
@@ -74,8 +56,7 @@ export default function DocsPage() {
               Product Development Intelligence Suite
             </h1>
             <p className="mt-3 max-w-2xl text-[15px] leading-6 text-muted-foreground">
-              How PDIS processes documents, generates evidence queries, preserves provenance,
-              and keeps each analytical tool within a clear responsibility.
+              A concise guide to choosing a tool, interpreting Scout evidence, and working with portable results.
             </p>
             <div className="mt-5 flex flex-wrap items-center gap-2">
               <Link
@@ -103,193 +84,89 @@ export default function DocsPage() {
           <DocSection
             id="overview"
             title="Overview"
-            intro="PDIS turns product-development documents into traceable, citable analysis. It is stateless: each run or Ask request carries the source material and result data it needs."
+            intro="PDIS turns product-development documents into traceable analysis while keeping document quality, document alignment, and external evidence as separate responsibilities."
           >
-            <ol className="mt-6 border-l border-border">
-              <Step number="1" title="Choose the responsibility">
-                Start with document quality, cross-document traceability, external evidence diligence,
-                or a lower-level utility—not a generic all-purpose analysis.
-              </Step>
-              <Step number="2" title="Provide document context">
-                Upload source files and, where required, select organization, document type,
-                intervention, and indication.
-              </Step>
-              <Step number="3" title="Follow the trace">
-                Expand cited blocks and sources, inspect exclusions and limitations, then download
-                the portable result when the analysis is complete.
-              </Step>
+            <ol className="mt-6 space-y-4 border-l border-border pl-5">
+              <Step number="1" title="Choose a tool">Start with the question you need answered rather than a generic analysis.</Step>
+              <Step number="2" title="Provide context">Upload the source material and select the requested product context.</Step>
+              <Step number="3" title="Inspect the trace">Review cited blocks, sources, exclusions, and limitations before downloading the result.</Step>
             </ol>
             <Note>
-              Inspector, Aligner, and Scout deliberately produce different outputs. Keeping those
-              responsibilities separate prevents document quality, feasibility, and funding risk
-              from collapsing into one ambiguous score.
+              Inspector, Aligner, and Scout intentionally produce different outputs. None is a funding recommendation or a universal product score.
             </Note>
           </DocSection>
 
           <DocSection
             id="tools"
-            title="Tool responsibilities"
-            intro="Native PDIS tools share document primitives, but each owns one analytical responsibility. GHIDE decision-workflow shortcuts remain external and are labeled separately in the workspace."
+            title="Tools"
+            intro="Native tools share parsed document blocks and provenance, but each owns one product responsibility. GHIDE shortcuts remain external and are labeled separately."
           >
-            <div className="mt-6 border-y border-border">
-              {TOOL_ROWS.map(([name, capability, description]) => (
-                <div
-                  key={name}
-                  className="grid gap-1 border-b border-border py-3.5 last:border-b-0 sm:grid-cols-[96px_150px_minmax(0,1fr)] sm:gap-4"
-                >
-                  <p className="text-xs font-semibold">{name}</p>
-                  <p className="text-[11px] font-medium text-muted-foreground">{capability}</p>
-                  <p className="text-xs leading-5 text-muted-foreground">{description}</p>
-                </div>
-              ))}
-            </div>
+            <DefinitionRows rows={TOOLS.map(([name, role, description]) => [name, `${role} — ${description}`] as const)} />
           </DocSection>
 
           <DocSection
-            id="architecture"
-            title="Architecture"
-            intro="Ownership flows in one direction. Services remain stateless and may consume another service only through its public package contract."
+            id="scout"
+            title="Scout evidence"
+            intro="Scout binds document meaning before retrieval, generates source-neutral query intents, and keeps its evidence judgments independent."
           >
-            <div className="mt-6 overflow-x-auto border-y border-border py-5">
-              <div className="flex min-w-[580px] items-center justify-between gap-3">
-                <ArchitectureNode name="web" detail="Next.js interface" />
-                <ArchitectureArrow />
-                <ArchitectureNode name="api" detail="Composition boundary" />
-                <ArchitectureArrow />
-                <ArchitectureNode name="services" detail="Domain pipelines" />
-                <ArchitectureArrow />
-                <ArchitectureNode name="shared" detail="Model client and vocabularies" />
-              </div>
-            </div>
-            <DefinitionRows rows={[
-              ["Document contract", "Chunker emits ordered ContentBlocks with stable IDs. Retained images remain attached to exact blocks and travel with portable result JSON."],
-              ["Configuration contract", "Organization, source type, and intervention select YAML configuration; indication scopes Scout retrieval."],
-              ["Model contract", "OpenAI is constructed once at the shared boundary. Tools do not expose per-request provider or model switches."],
-            ]} />
-          </DocSection>
-
-          <DocSection
-            id="queries"
-            title="How Scout generates queries"
-            intro="Scout does not use a fixed list. It generates source-neutral, document-aware intents for one canonical field or extracted claim at a time."
-          >
-            <Pipeline />
-            <h3 className="mt-8 text-xs font-semibold">Additive query tracks</h3>
+            <h3 className="mt-6 text-xs font-semibold">Query tracks</h3>
             <DefinitionRows rows={QUERY_TRACKS} />
-            <Note title="What query generation sees">
-              Broad relevant blocks are used only to resolve a field. Query generation then sees
-              its canonical target, field definition, exact binding IDs, indication, intervention
-              class, and product configuration—not neighboring cells from a shared table row.
-              Each intent records the exact block IDs that shaped it; configured track budgets are
-              additive and preserve lineage. Shortened, invented, and fuzzy IDs are rejected.
-            </Note>
-            <p className="mt-5 text-xs leading-5 text-muted-foreground">
-              Search adapters then translate those neutral intents into valid web, literature,
-              registry, regulatory, or molecular requests. Source failures are isolated, and
-              request order, returned URLs, retrieval paths, and field-level source lanes remain traced.
-            </p>
-          </DocSection>
 
-          <DocSection
-            id="evidence"
-            title="Evidence semantics"
-            intro="Scout keeps four axes independent so a result cannot silently reinterpret one kind of evidence judgment as another."
-          >
-            <div className="mt-6 border-y border-border">
-              {EVIDENCE_AXES.map(([title, values, description]) => (
-                <div key={title} className="border-b border-border py-4 last:border-b-0">
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
-                    <h3 className="text-xs font-semibold">{title}</h3>
-                    <p className="font-mono text-[10px] text-muted-foreground">{values}</p>
-                  </div>
-                  <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{description}</p>
-                </div>
-              ))}
-            </div>
-            <Warning title="Quantitative calibration is descriptive">
-              Its distribution describes only the admitted, validated comparator cohort. It is not
-              a population estimate, confidence interval, probability of success, or causal claim.
-            </Warning>
-            <Note title="How numeric evidence is admitted">
-              Scout first reviews each non-overlapping document statement once and projects its
-              validated targets onto canonical fields. Missing or invalid mappings remain explicit
-              uncertainty and are excluded from numeric retrieval and calibration without blocking
-              qualitative evidence retrieval. Document targets and source measurements then share one numeric-expression
-              shape and one semantic profile. The model selects the exact literal expression and its
-              source value, operator, and unit alongside that normalized form. Scout reviews each bounded source-owned passage as a whole and
-              returns complete exact-quoted measurements, no relevant measurement, or uncertain.
-              One typed wire contract governs model output and runtime parsing. Code verifies literal grounding, mechanically readable numeric equality, identifiers, URL, and source identity without reinterpreting prose;
-              comparable prose scalars remain in a client-held review draft until explicitly
-              admitted or rejected in a focused target-versus-evidence checkpoint. Only admitted records enter statistics. Download and Ask unlock
-              after an explicit final review confirmation, producing one artifact that import never recalculates.
+            <h3 className="mt-8 text-xs font-semibold">Result axes</h3>
+            <DefinitionRows rows={EVIDENCE_AXES} />
+
+            <Note title="Quantitative review">
+              Anthropic maps document targets and retrieved measurements into typed proposals. OpenAI independently recommends whether each proposal should be confirmed, excluded, admitted, rejected, or reviewed manually. Human decisions control admission; code owns provenance checks, deduplication, units, and arithmetic.
             </Note>
+            <Warning title="Calibration is descriptive">
+              Quantitative distributions describe only the admitted comparator cohort. They are not confidence intervals, population estimates, causal claims, or probabilities of success.
+            </Warning>
           </DocSection>
 
           <DocSection
             id="results"
-            title="Results and provenance"
-            intro="Portable Inspector, Aligner, and Scout downloads separate analysis from parsed source documents and retained visuals. Ask remains read-only and bound to that supplied material."
+            title="Saved results"
+            intro="Inspector, Aligner, and Scout downloads are portable, versioned artifacts. Their analysis and source documents travel together."
           >
-            <pre className="mt-6 overflow-x-auto border-y border-border bg-muted/35 px-4 py-4 font-mono text-[11px] leading-6 text-muted-foreground">
-              <code>{`pdis.result
-├── schema + version + state: final + result_type
-├── analysis
-└── source_documents[]
-    └── ordered text, table, and image blocks`}</code>
-            </pre>
+            <DefinitionRows rows={[
+              ["Analysis", "Tool-specific judgments, traces, and derived views."],
+              ["Source documents", "Ordered text, table, and retained image blocks with stable IDs."],
+              ["Ask", "Read-only navigation over the supplied result, blocks, visuals, and already-cited URLs."],
+            ]} />
             <Warning title="Unverified legacy result">
-              The imported file predates the current exact-span, semantic-normalization, deduplication,
-              or retrieval-lineage contract. PDIS can keep the old content viewable, but it cannot
-              reconstruct evidence that was never saved. Rerun Scout before using legacy
-              quantitative alignment for a decision.
+              An older file may remain viewable, but missing source spans, visuals, query lineage, or retrieval provenance cannot be reconstructed. Rerun the analysis before relying on unavailable evidence.
             </Warning>
           </DocSection>
 
           <DocSection
-            id="operations"
-            title="Local setup"
-            intro="The production-like topology is a public web service, public API, and private ToolUniverse connector. The same shape deploys through Render without depending on a developer workstation."
+            id="development"
+            title="Development"
+            intro="Repository setup, environment variables, deployment, contribution guidance, and service contracts live with the code so they remain versioned with the implementation."
           >
-            <pre className="mt-6 overflow-x-auto rounded-md bg-foreground px-4 py-4 font-mono text-[11px] leading-5 text-background">
-              <code>{`cp .env.example .env
-cp .env.tooluniverse.example .env.tooluniverse
-cp web/.env.local.example web/.env.local
-docker compose up --build`}</code>
-            </pre>
-            <DefinitionRows rows={[
-              ["pdis-web", "Next.js interface · public"],
-              ["pdis-api", "FastAPI application · public"],
-              ["pdis-tooluniverse", "Scientific connector service · private"],
-            ]} />
-            <p className="mt-5 text-xs leading-5 text-muted-foreground">
-              Model and connector credentials remain server-side. Browser-visible environment
-              variables contain only the API origin, never provider secrets.
-            </p>
+            <div className="mt-6 divide-y divide-border border-y border-border">
+              <ReferenceLink href="https://github.com/jackyang25/pdis#install" title="Install and run" description="Docker and native development instructions." />
+              <ReferenceLink href="https://github.com/jackyang25/pdis#configuration" title="Configuration" description="Product context, credentials, and configuration ownership." />
+              <ReferenceLink href="https://github.com/jackyang25/pdis/tree/main/services" title="Service contracts" description="Compact references for each internal service boundary." />
+            </div>
           </DocSection>
 
           <DocSection
             id="faq"
             title="FAQ"
-            intro="Short answers to questions that affect result interpretation."
+            intro="Answers to questions that affect how a result should be interpreted."
           >
             <div className="mt-6 border-y border-border">
               <Faq question="Does Scout read the uploaded document?">
-                Yes. Query generation and reasoning receive relevant parsed document blocks and
-                preserve their IDs. Older imported results may lack newer lineage fields.
+                Yes. It binds claims to parsed document blocks before generating queries or judging evidence.
               </Faq>
-              <Faq question="Why do some tabs or graphs not appear?">
-                Derived views appear only when their underlying data exists. Safety requires safety
-                signals; quantitative plots require at least one complete comparable or contextual
-                measurement. A verified target with no such measurement remains visible without an
-                empty chart.
+              <Faq question="Why is a chart or tab absent?">
+                Derived views appear only when their required data exists. An absent chart does not imply a favorable or unfavorable result.
               </Faq>
               <Faq question="Does ToolUniverse choose sources autonomously?">
-                No. Scout configuration enables registered lanes; deterministic applicability and
-                adapters convert neutral intents into source-native requests.
+                No. Configuration enables registered source lanes; adapters translate neutral intents into source-native requests.
               </Faq>
-              <Faq question="Can an old JSON be upgraded without rerunning?">
-                It can be normalized for viewing, but missing quotes, visuals, query lineage, and
-                provenance cannot be invented. Rerun for a fully current result.
+              <Faq question="Can an old result be upgraded without rerunning?">
+                It can be normalized for viewing, but evidence or provenance that was never saved cannot be invented.
               </Faq>
             </div>
           </DocSection>
@@ -302,25 +179,15 @@ docker compose up --build`}</code>
 function DocsNavigation() {
   return (
     <aside className="hidden lg:block">
-      <nav aria-label="Documentation sections" className="sticky top-24 space-y-5">
-        {NAVIGATION.map((group) => (
-          <div key={group.label}>
-            <p className="px-2 text-[9px] font-semibold uppercase tracking-[0.11em] text-muted-foreground/70">
-              {group.label}
-            </p>
-            <div className="mt-1 space-y-0.5">
-              {group.items.map(([href, label]) => (
-                <a
-                  key={href}
-                  href={`#${href}`}
-                  className="block rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  {label}
-                </a>
-              ))}
-            </div>
-          </div>
-        ))}
+      <nav aria-label="Documentation sections" className="sticky top-24">
+        <p className="px-2 text-[9px] font-semibold uppercase tracking-[0.11em] text-muted-foreground/70">On this page</p>
+        <div className="mt-1 space-y-0.5">
+          {NAVIGATION.map(([href, label]) => (
+            <a key={href} href={`#${href}`} className="block rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+              {label}
+            </a>
+          ))}
+        </div>
       </nav>
     </aside>
   );
@@ -329,14 +196,10 @@ function DocsNavigation() {
 function MobileContents() {
   return (
     <details className="mt-5 rounded-md border border-border px-3 py-2.5 lg:hidden">
-      <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
-        On this page
-      </summary>
+      <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">On this page</summary>
       <div className="mt-2 grid grid-cols-2 gap-1 border-t border-border pt-2">
-        {NAVIGATION.flatMap((group) => group.items).map(([href, label]) => (
-          <a key={href} href={`#${href}`} className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground">
-            {label}
-          </a>
+        {NAVIGATION.map(([href, label]) => (
+          <a key={href} href={`#${href}`} className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground">{label}</a>
         ))}
       </div>
     </details>
@@ -355,10 +218,8 @@ function DocSection({ id, title, intro, children }: { id: string; title: string;
 
 function Step({ number, title, children }: { number: string; title: string; children: React.ReactNode }) {
   return (
-    <li className="relative pb-6 pl-7 last:pb-0">
-      <span className="absolute -left-3 top-0 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background font-mono text-[9px] text-muted-foreground">
-        {number}
-      </span>
+    <li className="relative">
+      <span className="absolute -left-[29px] top-0 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-background font-mono text-[8px] text-muted-foreground">{number}</span>
       <h3 className="text-xs font-semibold">{title}</h3>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">{children}</p>
     </li>
@@ -367,7 +228,7 @@ function Step({ number, title, children }: { number: string; title: string; chil
 
 function DefinitionRows({ rows }: { rows: readonly (readonly [string, string])[] }) {
   return (
-    <dl className="mt-5 border-t border-border">
+    <dl className="mt-4 border-t border-border">
       {rows.map(([term, description]) => (
         <div key={term} className="grid gap-1 border-b border-border py-3 sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-5">
           <dt className="text-xs font-medium text-foreground">{term}</dt>
@@ -375,46 +236,6 @@ function DefinitionRows({ rows }: { rows: readonly (readonly [string, string])[]
         </div>
       ))}
     </dl>
-  );
-}
-
-function ArchitectureNode({ name, detail }: { name: string; detail: string }) {
-  return (
-    <div className="min-w-[105px] text-center">
-      <code className="text-xs font-semibold text-foreground">{name}</code>
-      <p className="mt-1 text-[10px] text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
-
-function ArchitectureArrow() {
-  return <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />;
-}
-
-function Pipeline() {
-  const steps = [
-    "Document blocks",
-    "Canonical targets",
-    "Query intents",
-    "Source requests",
-    "Findings",
-    "Insights",
-    "Reasoning",
-  ];
-  return (
-    <div className="mt-6 overflow-x-auto border-y border-border py-4">
-      <ol className="flex min-w-[650px] items-center">
-        {steps.map((step, index) => (
-          <li key={step} className="flex flex-1 items-center last:flex-none">
-            <span className="whitespace-nowrap font-mono text-[10px] font-medium text-foreground">
-              <span className="mr-1.5 text-muted-foreground/60">{String(index + 1).padStart(2, "0")}</span>
-              {step}
-            </span>
-            {index < steps.length - 1 && <span className="mx-3 h-px flex-1 bg-border" />}
-          </li>
-        ))}
-      </ol>
-    </div>
   );
 }
 
@@ -439,6 +260,18 @@ function Warning({ title, children }: { title: string; children: React.ReactNode
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{children}</p>
       </div>
     </div>
+  );
+}
+
+function ReferenceLink({ href, title, description }: { href: string; title: string; description: string }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 py-3.5 text-xs transition-colors hover:text-foreground">
+      <span>
+        <span className="font-medium text-foreground">{title}</span>
+        <span className="ml-2 text-muted-foreground">{description}</span>
+      </span>
+      <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </a>
   );
 }
 

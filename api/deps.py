@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from fastapi import HTTPException
 
-from shared.anthropic_client import AnthropicReviewClient
+from shared.anthropic_client import AnthropicQuantitativeClient
 from shared.openai_client import OpenAIClient
 from services.searcher import (
     SearchRuntime,
@@ -28,15 +28,14 @@ def get_openai_client() -> OpenAIClient:
     return OpenAIClient()
 
 
-def get_target_review_client() -> AnthropicReviewClient | None:
-    """Build the optional, provider-diverse Scout target verifier.
-
-    A missing Anthropic credential does not route review back through OpenAI;
-    Scout instead leaves every proposal flagged for explicit human review.
-    """
+def get_quantitative_anthropic_client() -> AnthropicQuantitativeClient:
+    """Build Scout's server-owned Opus quantitative mapping client."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        return None
-    return AnthropicReviewClient()
+        raise HTTPException(
+            status_code=500,
+            detail="Missing ANTHROPIC_API_KEY in server environment.",
+        )
+    return AnthropicQuantitativeClient()
 
 
 def get_search_runtime(

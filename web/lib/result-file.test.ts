@@ -112,7 +112,7 @@ const scout: ScoutResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 31);
+  assert.equal(packed.version, 32);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
@@ -138,7 +138,7 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 31);
+  assert.equal(packed.version, 32);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
@@ -148,7 +148,7 @@ test("Aligner results separate both source documents from the analysis", () => {
 
 test("current Scout export and import preserve the canonical result exactly", () => {
   const packed = packScoutResult(scout);
-  assert.equal(packed.version, 31);
+  assert.equal(packed.version, 32);
   assert.equal(packed.state, "final");
   assert.deepEqual(unpackScoutResult(packed), scout);
 });
@@ -174,6 +174,8 @@ test("Scout export rejects a quantitative review draft", () => {
     semantic_status: "comparable",
     semantic_reason: "Compatible result.",
     evidence_mode: "prose",
+    ai_recommendation: "flag",
+    ai_review_reason: "Manual review required.",
     admission_status: "needs_review",
     admission_reason: "Review required.",
     inclusion_reason: "",

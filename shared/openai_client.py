@@ -3,9 +3,9 @@
 OpenAI remains the primary provider for document interpretation, retrieval,
 evidence reasoning, Ask, and the other product tools. Services select only a
 stable task class; model names stay centralized here and in environment
-configuration. Browser requests can never choose a model. Scout's independent,
-non-authoritative target verifier is the sole Anthropic boundary and lives in
-``shared.anthropic_client``.
+configuration. Browser requests can never choose a model. Within Scout's two
+quantitative checkpoints, Anthropic performs schema-bound mapping and OpenAI
+independently reviews the resulting immutable proposals.
 """
 
 from __future__ import annotations

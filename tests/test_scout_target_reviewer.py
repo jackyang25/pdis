@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 import unittest
 
 from services.chunker import ContentBlock
@@ -51,6 +53,36 @@ class _Client:
         return {"reviews": self.reviews}
 
 
+class _ConcurrentClient:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+
+    def call_structured(self, _system, _user_message, *_args, **kwargs):
+        target_ids = kwargs["schema"]["properties"]["reviews"]["items"][
+            "properties"
+        ]["target_id"]["enum"]
+        with self._lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            time.sleep(0.03)
+            return {
+                "reviews": [
+                    {
+                        "target_id": target_id,
+                        "decision": "confirm",
+                        "reason": "The cited passage explicitly states the target.",
+                    }
+                    for target_id in target_ids
+                ]
+            }
+        finally:
+            with self._lock:
+                self.active -= 1
+
+
 class TargetReviewerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.quote = "Threshold efficacy must exceed 80% at 12 months."
@@ -95,7 +127,7 @@ class TargetReviewerTests(unittest.TestCase):
         self.assertEqual(reviewed.expression, self.target.expression)
         self.assertEqual(reviewed.provenance_spans, self.target.provenance_spans)
         self.assertEqual(reviewed.ai_recommendation, "confirm")
-        self.assertEqual(reviewed.review_status, "approved")
+        self.assertEqual(reviewed.review_status, "needs_review")
         self.assertEqual(attributes[0].quantitative_targets, [reviewed])
         self.assertIn("Background incidence was 14%", client.user_message)
 
@@ -111,6 +143,59 @@ class TargetReviewerTests(unittest.TestCase):
                 )
                 self.assertEqual(ledger.targets[0].ai_recommendation, "flag")
                 self.assertEqual(ledger.targets[0].review_status, "needs_review")
+
+    def test_review_batches_run_concurrently_without_cross_batch_ids(self) -> None:
+        targets = [
+            _target(index + 1, f"Target {index + 1} must exceed {index + 1}%.")
+            for index in range(17)
+        ]
+        attribute = Attribute(
+            name="vaccine.efficacy",
+            description="Protective efficacy target",
+            document_target=" ".join(target.quote for target in targets),
+            document_spans=[
+                DocumentSpan(
+                    quote=" ".join(target.quote for target in targets),
+                    block_ids=[BLOCK_ID],
+                )
+            ],
+            target_resolved=True,
+            quantitative_targets=targets,
+        )
+        block = ContentBlock(
+            id=BLOCK_ID,
+            doc_id="document",
+            ordinal=1,
+            block_type="paragraph",
+            content=attribute.document_target,
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        ledger = QuantitativeLedger(
+            status="complete",
+            block_ids=[BLOCK_ID],
+            targets=targets,
+        )
+        client = _ConcurrentClient()
+
+        reviewed_attributes, reviewed_ledger = prefill_target_review(
+            [attribute], ledger, [block], client,
+        )
+
+        self.assertGreater(client.max_active, 1)
+        self.assertEqual(
+            [target.id for target in reviewed_ledger.targets],
+            [target.id for target in targets],
+        )
+        self.assertTrue(all(
+            target.review_status == "needs_review"
+            for target in reviewed_ledger.targets
+        ))
+        self.assertEqual(
+            reviewed_attributes[0].quantitative_targets,
+            reviewed_ledger.targets,
+        )
 
 
 if __name__ == "__main__":

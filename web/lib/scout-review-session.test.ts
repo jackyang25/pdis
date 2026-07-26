@@ -11,26 +11,20 @@ test("review lifecycle requires explicit finalization and supports undo", () => 
 
   const previousScore = {} as Conformity;
   store.getState().recordDecision({
-    targetId: "target",
-    candidateIds: ["candidate"],
-    selectedCandidateId: "candidate",
     decision: "approve",
-    previousScore,
+    previousConformity: [previousScore],
   }, false);
   assert.equal(store.getState().status, "ready");
   assert.equal(store.getState().history.length, 1);
 
   const undone = store.getState().undoLast();
-  assert.equal(undone?.previousScore, previousScore);
+  assert.equal(undone?.previousConformity[0], previousScore);
   assert.equal(store.getState().status, "reviewing");
   assert.equal(store.getState().history.length, 0);
 
   store.getState().recordDecision({
-    targetId: "target",
-    candidateIds: ["candidate"],
-    selectedCandidateId: null,
     decision: "reject",
-    previousScore,
+    previousConformity: [previousScore],
   }, false);
   store.getState().finalize();
   assert.equal(store.getState().status, "final");

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 from services.chunker import ContentBlock
@@ -15,6 +16,7 @@ from ..models import Attribute, LLMClientProtocol, QuantitativeLedger, Quantitat
 
 MAX_TOKENS = 5000
 MAX_TARGETS_PER_REVIEW = 16
+MAX_REVIEW_WORKERS = 4
 logger = logging.getLogger(__name__)
 
 
@@ -76,11 +78,16 @@ def prefill_target_review(
             ledger,
             {},
             missing_reason=(
-                "Anthropic target verification is not configured; review this proposal manually."
+                "Independent target verification is not configured; review this proposal manually."
             ),
         )
-    for offset in range(0, len(target_ids), MAX_TARGETS_PER_REVIEW):
-        batch_ids = target_ids[offset : offset + MAX_TARGETS_PER_REVIEW]
+
+    batches = [
+        target_ids[offset : offset + MAX_TARGETS_PER_REVIEW]
+        for offset in range(0, len(target_ids), MAX_TARGETS_PER_REVIEW)
+    ]
+
+    def review_batch(batch_ids: list[str]) -> object | None:
         message = (
             "Review these existing proposals:\n\n"
             + "\n\n".join(proposals[target_id] for target_id in batch_ids)
@@ -103,7 +110,13 @@ def prefill_target_review(
                 len(batch_ids),
                 exc,
             )
-            raw = None
+            return None
+        return raw
+
+    with ThreadPoolExecutor(max_workers=min(MAX_REVIEW_WORKERS, len(batches))) as executor:
+        responses = list(executor.map(review_batch, batches))
+
+    for batch_ids, raw in zip(batches, responses):
         if isinstance(raw, list):
             for item in raw:
                 if not isinstance(item, dict):
@@ -135,16 +148,14 @@ def _apply_recommendations(
             target.id,
             ("flag", missing_reason),
         )
-        status = {
-            "confirm": "approved",
-            "exclude": "rejected",
-            "flag": "needs_review",
-        }[decision]
         reviewed_targets.append(replace(
             target,
             ai_recommendation=decision,
             ai_review_reason=reason,
-            review_status=status,
+            # AI triage is a recommendation, not the human decision boundary.
+            # This matches evidence review: explicit UI acceptance is the only
+            # operation that changes a review item to approved or rejected.
+            review_status="needs_review",
             id=target.id,
         ))
 

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Conformity, Measurement } from "./api.ts";
 import {
+  applyEvidenceReviewRecommendations,
+  evidenceReviewRecommendationSummary,
   reviewQuantitativeCandidate,
   reviewQuantitativeCandidateGroup,
 } from "./quantitative-review.ts";
@@ -33,6 +35,8 @@ function candidate(id: string, value: number): Measurement {
     semantic_status: "comparable",
     semantic_reason: "Compatible result.",
     evidence_mode: "prose",
+    ai_recommendation: "flag",
+    ai_review_reason: "Review manually.",
     admission_status: "needs_review",
     admission_reason: "Review required.",
     inclusion_reason: "",
@@ -141,4 +145,37 @@ test("none applies rejects every alternative without changing statistics", () =>
   assert.ok(reviewed.excluded_measurements.every(
     (item) => item.admission_status === "rejected",
   ));
+});
+
+test("complete AI recommendations can be accepted in one deterministic action", () => {
+  const recommended = score();
+  recommended.excluded_measurements = recommended.excluded_measurements.map(
+    (item, index) => ({
+      ...item,
+      evidence_unit_id: `unit-${index + 1}`,
+      ai_recommendation: index === 0 ? "reject" : "admit",
+      ai_review_reason: index === 0 ? "Not directly comparable." : "Direct comparator.",
+    }),
+  );
+
+  assert.deepEqual(evidenceReviewRecommendationSummary([recommended]), {
+    admit: 1,
+    reject: 1,
+    flag: 0,
+    total: 2,
+  });
+  const [reviewed] = applyEvidenceReviewRecommendations([recommended]);
+  assert.equal(reviewed.benchmark_count, 1);
+  assert.equal(reviewed.measurements[0].candidate_id, "high");
+  assert.equal(
+    reviewed.excluded_measurements.find((item) => item.candidate_id === "low")?.admission_status,
+    "rejected",
+  );
+});
+
+test("flagged AI recommendations remain pending for focused review", () => {
+  const recommended = score();
+  const [reviewed] = applyEvidenceReviewRecommendations([recommended]);
+  assert.equal(reviewed, recommended);
+  assert.equal(evidenceReviewRecommendationSummary([recommended]).flag, 2);
 });

@@ -11,6 +11,7 @@ from services.scout.ai_contracts import (
     context_validation,
     drift_batch,
     document_quantitative_ledger_batch,
+    evidence_review_batch,
     evidence_assessment,
     insight_batch,
     precedent_assessment,
@@ -106,6 +107,14 @@ class ScoutAIContractTests(unittest.TestCase):
             ["confirm", "exclude", "flag"],
         )
 
+    def test_evidence_review_schema_can_only_select_existing_candidates(self) -> None:
+        contract = evidence_review_batch(["group-one"], ["candidate-one"])
+        item = contract.schema["properties"]["reviews"]["items"]["properties"]
+
+        self.assertEqual(item["group_id"]["enum"], ["group-one"])
+        self.assertEqual(item["decision"]["enum"], ["admit", "reject", "flag"])
+        self.assertEqual(item["selected_candidate_id"]["enum"], ["", "candidate-one"])
+
     def test_dynamic_unit_schema_allows_only_chunk_block_ids(self) -> None:
         allowed = ["IPDP Development Plan/b-0042"]
         contract = unit_batch(allowed)
@@ -142,6 +151,16 @@ class ScoutAIContractTests(unittest.TestCase):
             review["targets"]["items"]["properties"]["attribute_ref"]["enum"],
             ["field.one"],
         )
+        target_properties = review["targets"]["items"]["properties"]
+        self.assertIn("quote", target_properties)
+        self.assertNotIn("source_syntax", target_properties)
+
+        measurement_properties = (
+            source_measurement_batch({"measure"}, ["source-1"])
+            .schema["properties"]["sources"]["items"]["properties"]
+            ["measurements"]["items"]["properties"]
+        )
+        self.assertNotIn("source_syntax", measurement_properties)
 
     def test_request_local_lineage_is_closed_in_every_stage(self) -> None:
         query = query_batch(["doc/b-0001"], ["target-1"])
@@ -178,6 +197,7 @@ class ScoutAIContractTests(unittest.TestCase):
             context_validation(["document/b-0001"]),
             drift_batch(1, ["document/b-0001"]),
             evidence_assessment(1),
+            evidence_review_batch(["group-1"], ["candidate-1"]),
             insight_batch(["https://example.test/source"]),
             precedent_assessment(1),
             query_batch(["document/b-0001"], ["target-1"]),

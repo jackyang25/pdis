@@ -1,9 +1,9 @@
-"""Shared Anthropic client for the independent Scout target verifier.
+"""Shared Anthropic client for Scout's bounded quantitative mapping.
 
-Anthropic is intentionally not a general pipeline provider.  This client is
+Anthropic is intentionally not a general pipeline provider. This client is
 constructed only at the API composition boundary and injected into Scout's
-non-authoritative document-target review stage.  Browser requests cannot select
-the provider or model.
+schema-bound document-target and retrieved-evidence mappers. Browser
+requests cannot select the provider or model.
 """
 
 from __future__ import annotations
@@ -13,11 +13,11 @@ import os
 from typing import Any
 
 
-DEFAULT_REVIEW_MODEL = "claude-opus-5"
+DEFAULT_QUANTITATIVE_MODEL = "claude-opus-5"
 
 
-class AnthropicReviewClient:
-    """Minimal Claude Messages wrapper with forced schema-shaped tool output."""
+class AnthropicQuantitativeClient:
+    """Minimal Claude Messages wrapper for schema-bound quantitative mapping."""
 
     def __init__(
         self,
@@ -33,8 +33,10 @@ class AnthropicReviewClient:
         self.client = Anthropic(api_key=api_key)
         self.model = (
             model
-            or os.environ.get("ANTHROPIC_REVIEW_MODEL")
-            or DEFAULT_REVIEW_MODEL
+            or os.environ.get("ANTHROPIC_QUANTITATIVE_MODEL")
+            # Environment import boundary for existing local/deployed setups.
+            or os.environ.get("ANTHROPIC_EXTRACTION_MODEL")
+            or DEFAULT_QUANTITATIVE_MODEL
         )
 
     def call(
@@ -49,7 +51,8 @@ class AnthropicReviewClient:
         """Return plain text for protocol completeness.
 
         ``task`` is accepted only to satisfy the shared injected-client
-        protocol.  Anthropic is already scoped to one server-owned review task.
+        protocol. Anthropic is already scoped to one server-owned quantitative
+        mapping responsibility.
         """
         del task
         response = self.client.messages.create(
@@ -86,7 +89,7 @@ class AnthropicReviewClient:
             tools=[{
                 "name": tool_name,
                 "description": (
-                    "Return the complete review decision payload. Use this tool exactly "
+                    "Return the complete schema-bound extraction payload. Use this tool exactly "
                     "once and follow its input schema without adding prose."
                 ),
                 "input_schema": schema,

@@ -39,7 +39,7 @@ from services.scout.stages.conformity import (
     _measurement_system_prompt,
     _meets_target,
     _partition_cohort,
-    _validated_expression_mapping,
+    _validated_numeric_expression,
     _validated_targets,
     _validated_measurement_semantic_assessment,
     score_conformity as _score_conformity_ledgers,
@@ -119,74 +119,6 @@ class SequenceClient(StaticClient):
         )
 
 
-def fixture_source_syntax(expression: dict, quote: str) -> dict:
-    """Create literal syntax for compact historical test fixtures."""
-    kind = expression.get("kind", "")
-    value = expression.get("value")
-    lower = expression.get("lower")
-    upper = expression.get("upper")
-    numeric_words = {
-        0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
-    }
-
-    def literal(number) -> str:
-        if number is None:
-            return ""
-        candidates = [f"{number:g}" if isinstance(number, (int, float)) else str(number)]
-        candidates.append(candidates[0].replace(".", "·"))
-        if isinstance(number, (int, float)) and float(number).is_integer():
-            candidates.insert(0, str(int(number)))
-            candidates.append(numeric_words.get(int(number), ""))
-        for candidate in candidates:
-            if candidate and re.search(rf"(?<![\d.]){re.escape(candidate)}(?![\d.])", quote, re.I):
-                return candidate
-        return candidates[0]
-
-    value_text = literal(value)
-    lower_text = literal(lower)
-    upper_text = literal(upper)
-    comparator = str(expression.get("comparator", ""))
-    comparator_candidates = {
-        ">=": [">=", "≥", "at least"],
-        "<=": ["<=", "≤", "at most"],
-        ">": [">", "greater than"],
-        "<": ["<", "less than"],
-        "=": ["="],
-    }.get(comparator, [])
-    comparator_text = next(
-        (candidate for candidate in comparator_candidates if candidate.casefold() in quote.casefold()),
-        "",
-    )
-    unit = str(expression.get("unit", ""))
-    unit_candidates = [unit]
-    if unit == "%":
-        unit_candidates += ["percent", "%"]
-    unit_text = next(
-        (candidate for candidate in unit_candidates if candidate and candidate.casefold() in quote.casefold()),
-        "",
-    )
-    literals = [
-        value for value in (comparator_text, value_text, lower_text, upper_text, unit_text)
-        if value
-    ]
-    starts = [quote.casefold().find(value.casefold()) for value in literals]
-    ends = [start + len(value) for start, value in zip(starts, literals) if start >= 0]
-    valid_starts = [start for start in starts if start >= 0]
-    expression_text = (
-        quote[min(valid_starts):max(ends)]
-        if valid_starts and ends
-        else quote
-    )
-    return {
-        "expression_text": expression_text,
-        "value_text": value_text if kind not in {"range", "confidence_interval"} else "",
-        "lower_text": lower_text,
-        "upper_text": upper_text,
-        "comparator_text": comparator_text,
-        "unit_text": unit_text,
-    }
-
-
 def complete_expression(expression: dict) -> dict:
     """Complete compact fixtures exactly as the strict provider schema does."""
     return {
@@ -222,18 +154,6 @@ def normalize_conformity_fixture(
                             "comparator": target.get("comparator", ""),
                             "unit": target.get("unit", ""),
                         }),
-                        "source_syntax": target.get("source_syntax")
-                        or fixture_source_syntax(
-                            complete_expression(target.get("expression") or {
-                                "kind": "bound",
-                                "value": target.get("value"),
-                                "lower": None,
-                                "upper": None,
-                                "comparator": target.get("comparator", ""),
-                                "unit": target.get("unit", ""),
-                            }),
-                            str(target.get("quote", "")),
-                        ),
                         "semantic_profile": target.get(
                             "semantic_profile",
                             semantic_profile(str(target.get("label", "numeric measure"))),
@@ -283,17 +203,6 @@ def normalize_conformity_fixture(
                         "comparator": response.get("comparator"),
                         "unit": response.get("unit"),
                     },
-                    "source_syntax": fixture_source_syntax(
-                        {
-                            "kind": "bound",
-                            "value": response.get("target_value"),
-                            "lower": None,
-                            "upper": None,
-                            "comparator": response.get("comparator"),
-                            "unit": response.get("unit"),
-                        },
-                        str(response.get("target_quote", "")),
-                    ),
                     "role": "threshold",
                     "comparison_dimensions": [
                         field_name
@@ -346,8 +255,6 @@ def normalize_conformity_fixture(
             normalized.append({
                 "quote": item.get("source_quote", ""),
                 "expression": expression,
-                "source_syntax": item.get("source_syntax")
-                or fixture_source_syntax(expression, str(item.get("source_quote", ""))),
                 "evidence_unit": item.get("evidence_unit") or {
                     "status": "record_level",
                     "group": {
@@ -1558,7 +1465,7 @@ class ReasoningLineageTests(unittest.TestCase):
                         "development_phase": "phase_3",
                         "source_record_type": "peer_reviewed",
                         "insight_index": 0,
-                        "url": "https://example.test/unused",
+                        "url": "https://example.test/not-owned",
                         "source_quote": "The reported efficacy was 90% in the target population.",
                         "comparability": same_comparability(),
                     },
@@ -1644,127 +1551,43 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(result.excluded_measurements[0].value, 82)
         self.assertEqual(result.excluded_measurements[0].admission_status, "needs_review")
 
-    def test_numeric_expression_verification_uses_literal_source_syntax(self) -> None:
-        quote = "Vaccine efficacy was 50·3%."
-        accepted = _validated_expression_mapping(
+    def test_numeric_expression_schema_accepts_semantic_normalization(self) -> None:
+        expressions = [
             {
                 "kind": "point_estimate", "unit": "%", "value": 50.3,
                 "lower": None, "upper": None, "comparator": "",
             },
-            fixture_source_syntax(
-                {"kind": "point_estimate", "unit": "%", "value": 50.3},
-                quote,
-            ),
-            quote=quote,
-        )
-        self.assertIsNotNone(accepted.expression)
-        wrong_unit = _validated_expression_mapping(
-            {
-                "kind": "point_estimate", "unit": "%", "value": 4577,
-                "lower": None, "upper": None, "comparator": "",
-            },
-            {
-                "expression_text": "4577 participants",
-                "value_text": "4577",
-                "lower_text": "",
-                "upper_text": "",
-                "comparator_text": "",
-                "unit_text": "participants",
-            },
-            quote="The trial enrolled 4577 participants.",
-        )
-        self.assertIsNotNone(wrong_unit.expression)
-        # Literal grounding does not reinterpret unit semantics. The model's
-        # target-relative semantic decision and the calculation's unit-ID gate
-        # own comparability.
-        self.assertTrue(_meets_target(0.49, 0.5, "<"))
-        self.assertFalse(_meets_target(0.5, 0.5, "<"))
-        self.assertTrue(_meets_target(2, 2, "="))
-        self.assertFalse(_meets_target(3, 2, "="))
-
-    def test_literal_boundary_does_not_require_a_number_word_dictionary(self) -> None:
-        quote = "The primary series uses one hundred and twenty administrations."
-        accepted = _validated_expression_mapping(
             {
                 "kind": "count", "unit": "administrations", "value": 120,
                 "lower": None, "upper": None, "comparator": "",
             },
             {
-                "expression_text": "one hundred and twenty administrations",
-                "value_text": "one hundred and twenty",
-                "lower_text": "",
-                "upper_text": "",
-                "comparator_text": "",
-                "unit_text": "administrations",
+                "kind": "bound", "unit": "vials/dose", "value": 2,
+                "lower": None, "upper": None, "comparator": "<=",
             },
-            quote=quote,
-        )
+        ]
+        for expression in expressions:
+            with self.subTest(expression=expression):
+                self.assertIsNotNone(_validated_numeric_expression(expression))
 
-        self.assertIsNotNone(accepted.expression)
+        # Calculation semantics remain deterministic after AI normalization.
+        self.assertTrue(_meets_target(0.49, 0.5, "<"))
+        self.assertFalse(_meets_target(0.5, 0.5, "<"))
+        self.assertTrue(_meets_target(2, 2, "="))
+        self.assertFalse(_meets_target(3, 2, "="))
 
-    def test_machine_readable_literal_must_equal_normalized_value(self) -> None:
-        rejected = _validated_expression_mapping(
-            {
-                "kind": "point_estimate", "unit": "%", "value": 80,
-                "lower": None, "upper": None, "comparator": "",
-            },
-            {
-                "expression_text": "50%",
-                "value_text": "50",
-                "lower_text": "",
-                "upper_text": "",
-                "comparator_text": "",
-                "unit_text": "%",
-            },
-            quote="Observed efficacy was 50%.",
-        )
-
-        self.assertEqual(rejected.code, "source_value_mismatch")
+    def test_numeric_expression_schema_rejects_malformed_values(self) -> None:
+        self.assertIsNone(_validated_numeric_expression({
+            "kind": "bound", "unit": "", "value": 2,
+            "lower": None, "upper": None, "comparator": "<=",
+        }))
 
     def test_range_is_one_expression_not_two_point_candidates(self) -> None:
-        quote = "Observed efficacy ranged from 36-50% across sites."
-        validation = _validated_expression_mapping(
-            {
-                "kind": "range", "unit": "%", "value": None,
-                "lower": 36, "upper": 50, "comparator": "",
-            },
-            {
-                "expression_text": "36-50%",
-                "value_text": "",
-                "lower_text": "36",
-                "upper_text": "50",
-                "comparator_text": "",
-                "unit_text": "%",
-            },
-            quote=quote,
-        )
-        self.assertIsNotNone(validation.expression)
-
-    def test_literal_units_normalize_without_prose_specific_extraction(self) -> None:
-        cases = [
-            (">80%", "80", ">", "%", "percent", 80, ">"),
-            ("no more than two vials per dose", "two", "no more than", "vials per dose", "vials/dose", 2, "<="),
-            (">8°C", "8", ">", "°C", "°C", 8, ">"),
-        ]
-        for expression_text, value_text, comparator_text, unit_text, unit, value, comparator in cases:
-            with self.subTest(expression_text=expression_text):
-                validation = _validated_expression_mapping(
-                    {
-                        "kind": "bound", "unit": unit, "value": value,
-                        "lower": None, "upper": None, "comparator": comparator,
-                    },
-                    {
-                        "expression_text": expression_text,
-                        "value_text": value_text,
-                        "lower_text": "",
-                        "upper_text": "",
-                        "comparator_text": comparator_text,
-                        "unit_text": unit_text,
-                    },
-                    quote=expression_text,
-                    required_kind="bound",
-                )
-                self.assertIsNotNone(validation.expression, validation)
+        expression = _validated_numeric_expression({
+            "kind": "range", "unit": "%", "value": None,
+            "lower": 36, "upper": 50, "comparator": "",
+        })
+        self.assertIsNotNone(expression)
 
     def test_irrelevant_numbers_resolve_at_passage_level_without_fragment_noise(self) -> None:
         target = QuantitativeTarget(
@@ -2335,11 +2158,11 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(extraction.status, "present")
         self.assertEqual(len(extraction.targets), 1)
 
-    def test_hyphenated_positive_range_cannot_become_negative_scalar(self) -> None:
-        document = "[block:document/b-0003]\nObserved efficacy was 36-50%."
+    def test_prose_number_normalization_uses_typed_model_contract(self) -> None:
+        document = "[block:document/b-0003]\nNo more than two vials per dose."
         attribute = replace(
             self.attribute,
-            document_target="Observed efficacy was 36-50%.",
+            document_target="No more than two vials per dose.",
             block_ids=["document/b-0003"],
         )
         targets = extract_quantitative_targets(
@@ -2349,21 +2172,23 @@ class ReasoningLineageTests(unittest.TestCase):
                 "targets": [{
                     "expression": {
                         "kind": "bound",
-                        "value": -50,
-                        "comparator": "=",
-                        "unit": "%",
+                        "value": 2,
+                        "comparator": "<=",
+                        "unit": "vials/dose",
                     },
                     "role": "other",
-                    "quote": "Observed efficacy was 36-50%.",
+                    "quote": "No more than two vials per dose.",
                     "doc_block_ids": ["document/b-0003"],
-                    "semantic_profile": semantic_profile("efficacy"),
+                    "semantic_profile": semantic_profile("vials per dose"),
                 }],
             }),
             indication="example condition",
             intervention_class="vaccine",
         )
 
-        self.assertEqual(targets, [])
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].expression.value, 2)
+        self.assertEqual(targets[0].expression.comparator, "<=")
 
     def test_target_contract_separates_unit_from_conditions(self) -> None:
         attribute = replace(
@@ -2380,8 +2205,8 @@ class ReasoningLineageTests(unittest.TestCase):
         )
 
         self.assertIn("canonical fields", prompt.lower())
-        self.assertIn("exact source text and block provenance", prompt)
-        self.assertIn("do not retype either", prompt)
+        self.assertIn("Copy the short exact excerpt", prompt)
+        self.assertIn("without reinterpreting its numeric meaning", prompt)
         self.assertIn("Conditions includes only settings", prompt)
         self.assertIn("change numeric interpretation", prompt)
         self.assertIn("unknown and comparison-required", prompt)

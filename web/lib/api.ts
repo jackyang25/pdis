@@ -242,6 +242,8 @@ export type Measurement = {
   semantic_status: "comparable" | "contextual" | "incompatible" | "unknown";
   semantic_reason: string;
   evidence_mode: "prose" | "structured_fact";
+  ai_recommendation: "admit" | "reject" | "flag";
+  ai_review_reason: string;
   admission_status: "needs_review" | "approved" | "rejected" | "not_eligible" | "auto_admitted";
   admission_reason: string;
   inclusion_reason: string;

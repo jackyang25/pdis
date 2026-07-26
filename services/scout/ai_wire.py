@@ -136,17 +136,6 @@ class TargetExpressionWire(_WireModel):
         return self
 
 
-class SourceNumericSyntaxWire(_WireModel):
-    """Exact source substrings selected by the model, without interpretation."""
-
-    expression_text: str
-    value_text: str
-    lower_text: str
-    upper_text: str
-    comparator_text: str
-    unit_text: str
-
-
 def inline_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     """Return a self-contained schema fragment suitable for composition.
 

@@ -2,8 +2,9 @@
 
 These schemas describe only what one model stage may decide.  They are not the
 public Scout result model: stage code still maps them into canonical dataclasses
-and deterministically verifies IDs, quotations, provenance, units, lineage,
-deduplication, and rollups.
+and deterministically verifies typed shape, IDs, cited quotations, provenance,
+lineage, calculation compatibility, deduplication, and rollups. Models own
+semantic interpretation and prose-to-normalized-value conversion.
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ from .ai_wire import (
     EvidenceUnitIdentityWire,
     NumericExpressionWire,
     SemanticSlotWire,
-    SourceNumericSyntaxWire,
     TargetExpressionWire,
     TernaryDecisionWire,
     inline_json_schema,
@@ -85,7 +85,6 @@ _ENTITY = _object(
 _SEMANTIC_SLOT = inline_json_schema(SemanticSlotWire)
 _NUMERIC_EXPRESSION = inline_json_schema(NumericExpressionWire)
 _TARGET_EXPRESSION = inline_json_schema(TargetExpressionWire)
-_SOURCE_NUMERIC_SYNTAX = inline_json_schema(SourceNumericSyntaxWire)
 _TERNARY = inline_json_schema(TernaryDecisionWire)
 _EVIDENCE_UNIT = inline_json_schema(EvidenceUnitIdentityWire)
 
@@ -272,8 +271,8 @@ def document_quantitative_ledger_batch(
     )
     document_target = _object(
         {
+            "quote": _string(),
             "expression": _TARGET_EXPRESSION,
-            "source_syntax": _SOURCE_NUMERIC_SYNTAX,
             "role": _string(enum=["threshold", "optimal", "other"]),
             "comparison_dimensions": _array(
                 _string(enum=list(QUANTITATIVE_SEMANTIC_FIELDS))
@@ -334,6 +333,27 @@ def target_review_batch(allowed_target_ids: list[str]) -> AIContract:
         ),
     )
 
+
+def evidence_review_batch(
+    allowed_group_ids: list[str],
+    allowed_candidate_ids: list[str],
+) -> AIContract:
+    """Constrain independent evidence triage to existing candidate groups."""
+    return _wrapped(
+        "scout_quantitative_evidence_review",
+        "reviews",
+        _object(
+            {
+                "group_id": _string(enum=list(dict.fromkeys(allowed_group_ids))),
+                "decision": _string(enum=["admit", "reject", "flag"]),
+                "selected_candidate_id": _string(
+                    enum=["", *list(dict.fromkeys(allowed_candidate_ids))]
+                ),
+                "reason": _string(),
+            }
+        ),
+    )
+
 def source_measurement_batch(
     required_fields: set[str],
     allowed_source_ids: list[str] | None = None,
@@ -360,7 +380,6 @@ def source_measurement_batch(
         {
             "quote": _string(),
             "expression": _NUMERIC_EXPRESSION,
-            "source_syntax": _SOURCE_NUMERIC_SYNTAX,
             "evidence_unit": _EVIDENCE_UNIT,
             "semantic_assessment": _object(
                 {

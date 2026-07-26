@@ -16,8 +16,8 @@ services:
       - key: OPENAI_API_KEY
         sync: false        # set in dashboard (secret)
       - key: ANTHROPIC_API_KEY
-        sync: false        # independent Scout target-review verifier
-      - key: ANTHROPIC_REVIEW_MODEL
+        sync: false        # Scout quantitative target and evidence mapping
+      - key: ANTHROPIC_QUANTITATIVE_MODEL
         value: claude-opus-5
       - key: NCBI_API_KEY
         sync: false        # optional: raises PubMed rate limit; safe to leave unset

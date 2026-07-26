@@ -36,7 +36,11 @@ from services.scout import (
 )
 from services.chunker import ContentBlock, ImageAsset
 
-from api.deps import get_openai_client, get_search_runtime, get_target_review_client
+from api.deps import (
+    get_openai_client,
+    get_quantitative_anthropic_client,
+    get_search_runtime,
+)
 from api.schemas import (
     ConformityOut,
     ContentBlockOut,
@@ -286,7 +290,7 @@ async def run_scout(
                 source_type=source_type,
                 intervention_class=intervention_class,
                 indication=indication,
-                target_review_client=get_target_review_client(),
+                quantitative_mapping_client=get_quantitative_anthropic_client(),
                 progress_callback=progress,
             )
             return _response_from_result(
@@ -319,6 +323,7 @@ async def continue_scout(payload: ScoutContinueRequest) -> StreamingResponse:
             prepared,
             config=config,
             openai_client=openai_client,
+            quantitative_mapping_client=get_quantitative_anthropic_client(),
             retrieval_runtime=get_search_runtime(openai_client),
             org=draft.org,
             source_type=draft.source_type,

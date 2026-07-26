@@ -7,11 +7,8 @@ import type { QuantitativeReviewDecision } from "./quantitative-review";
 export type ScoutReviewStatus = "idle" | "reviewing" | "ready" | "final";
 
 export type ScoutReviewHistoryEntry = {
-  targetId: string;
-  candidateIds: string[];
-  selectedCandidateId: string | null;
-  decision: QuantitativeReviewDecision;
-  previousScore: Conformity;
+  decision: QuantitativeReviewDecision | "bulk";
+  previousConformity: Conformity[];
 };
 
 type ScoutReviewSession = {

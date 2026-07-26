@@ -63,6 +63,7 @@ MEASUREMENT_STATUSES = frozenset(
 MEASUREMENT_ADMISSION_STATUSES = frozenset(
     {"needs_review", "approved", "rejected", "not_eligible", "auto_admitted"}
 )
+MEASUREMENT_AI_RECOMMENDATIONS = frozenset({"admit", "reject", "flag"})
 MEASUREMENT_EVIDENCE_MODES = frozenset({"prose", "structured_fact"})
 EVIDENCE_UNIT_STATUSES = frozenset({"resolved", "record_level", "uncertain"})
 TERNARY_DECISION_STATES = frozenset({"yes", "no", "unknown"})
@@ -538,8 +539,8 @@ class EvidenceUnitIdentity:
 class NumericExpression:
     """One numeric statement, without any clinical interpretation.
 
-    The same shape represents document targets and external measurements. The
-    expression owns syntax only; ``QuantitativeTarget`` and ``Measurement`` own
+    The same model-normalized shape represents document targets and external
+    measurements. ``QuantitativeTarget`` and ``Measurement`` own the surrounding
     semantic meaning and provenance.
     """
 
@@ -831,6 +832,8 @@ class Measurement:
     semantic_status: str = "unknown"
     semantic_reason: str = ""
     evidence_mode: str = "prose"
+    ai_recommendation: str = "flag"
+    ai_review_reason: str = ""
     admission_status: str = "needs_review"
     admission_reason: str = ""
     inclusion_reason: str = ""
@@ -852,8 +855,11 @@ class Measurement:
             raise ValueError("invalid measurement semantic status")
         if self.evidence_mode not in MEASUREMENT_EVIDENCE_MODES:
             raise ValueError("invalid measurement evidence mode")
+        if self.ai_recommendation not in MEASUREMENT_AI_RECOMMENDATIONS:
+            raise ValueError("invalid measurement AI recommendation")
         if self.admission_status not in MEASUREMENT_ADMISSION_STATUSES:
             raise ValueError("invalid measurement admission status")
+        self.ai_review_reason = " ".join(self.ai_review_reason.split())
         self.admission_reason = " ".join(self.admission_reason.split())
 
     @property

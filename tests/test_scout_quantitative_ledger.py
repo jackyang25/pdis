@@ -84,14 +84,6 @@ def _target(quote: str, value: float, role: str, population: str) -> dict:
             "upper": None,
             "comparator": "<",
         },
-        "source_syntax": {
-            "expression_text": f"<{value} mL/dose",
-            "value_text": str(value),
-            "lower_text": "",
-            "upper_text": "",
-            "comparator_text": "<",
-            "unit_text": "mL/dose",
-        },
         "role": role,
         "comparison_dimensions": ["measure", "population"],
         "semantic_profile": profile,
@@ -308,6 +300,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
                 "targets": [
                     {
                         "attribute_ref": efficacy.name,
+                        "quote": numeric_block.content,
                         "expression": {
                             "kind": "bound",
                             "unit": "%",
@@ -315,14 +308,6 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
                             "lower": None,
                             "upper": None,
                             "comparator": ">",
-                        },
-                        "source_syntax": {
-                            "expression_text": ">80%",
-                            "value_text": "80",
-                            "lower_text": "",
-                            "upper_text": "",
-                            "comparator_text": ">",
-                            "unit_text": "%",
                         },
                         "role": "threshold",
                         "comparison_dimensions": ["measure", "population"],
@@ -353,6 +338,81 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         )
         self.assertIn(population_block.content, client.system_prompt)
         self.assertNotIn(population_block.content, client.user_message)
+
+    def test_long_field_span_uses_atomic_target_quote_as_provenance(self) -> None:
+        atomic_quote = "Target efficacy >80% at 12 months."
+        long_content = atomic_quote + " " + ("Supporting context without a new target. " * 30)
+        self.assertGreater(len(long_content), 800)
+        block = ContentBlock(
+            id="document/b-0010",
+            doc_id="document",
+            ordinal=10,
+            block_type="paragraph",
+            content=long_content,
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        attribute = Attribute(
+            name="vaccine.efficacy",
+            description="Protective efficacy",
+            document_spans=[DocumentSpan(quote=long_content, block_ids=[block.id])],
+            target_resolved=True,
+        )
+        batch = prepare_quantitative_ledger_batches([block], [attribute])[0]
+        unit = batch.units[0]
+        profile = {
+            field_name: {
+                "state": "not_specified",
+                "value": "",
+                "other": "",
+                "source_refs": [],
+            }
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+        }
+        profile["measure"] = {
+            "state": "specified",
+            "value": "protective efficacy",
+            "other": "",
+            "source_refs": ["statement"],
+        }
+        client = _LedgerClient([
+            {
+                "unit_id": unit.id,
+                "classification": "target",
+                "attribute_ref": attribute.name,
+                "reason": "The statement sets an efficacy target.",
+                "targets": [{
+                    "attribute_ref": attribute.name,
+                    "quote": atomic_quote,
+                    "expression": {
+                        "kind": "bound",
+                        "unit": "%",
+                        "value": 80,
+                        "lower": None,
+                        "upper": None,
+                        "comparator": ">",
+                    },
+                    "role": "optimal",
+                    "comparison_dimensions": ["measure"],
+                    "semantic_profile": profile,
+                    "ownership_reason": "The exact excerpt states the target.",
+                }],
+            }
+        ])
+
+        result = extract_quantitative_ledger_batch(
+            batch,
+            [attribute],
+            client,
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(len(result.targets), 1)
+        self.assertEqual(result.targets[0].quote, atomic_quote)
+        self.assertEqual(result.targets[0].doc_block_ids, [block.id])
+        self.assertEqual(result.reviews[0].classification, "target")
 
     def test_one_document_ledger_captures_atomic_targets_without_field_competition(self) -> None:
         units = {unit.quote: unit for unit in self.batches[0].units}

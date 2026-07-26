@@ -1,54 +1,32 @@
 # Aligner
 
-Builds a traceable comparison between two product-development documents. The
-reference artifact supplies the commitments expected to carry forward; the
-comparison artifact is the later or downstream document being checked.
+Trace commitments and changes between a reference and comparison document.
 
-## Boundary
+## Background
 
-Aligner answers one question: what was preserved, changed, contradicted,
-omitted, or newly introduced across the two documents? It does not grade
-document quality, search external evidence, estimate feasibility, or assign
-investment risk.
+Aligner reports what was preserved, modified, contradicted, omitted, or newly
+introduced. It does not grade either document, search external evidence, assign
+feasibility, or estimate investment risk.
 
-## Pipeline
+## Usage
 
-```text
-two source documents
-→ Chunker parse + section mapping (concurrent)
-→ explicit AlignmentUnits (concurrent, bounded batches)
-→ reference-to-comparison links (bounded batches)
-→ deterministic missing/introduced completion and counts
-```
+Import `run_pipeline`, `load_config`, public result models, and serializers from
+`services.aligner`.
 
-Both documents use Chunker's public `(org, source_type, intervention_class)`
-configuration contract. The shared indication and all document identities are
-retained as result provenance.
+## Contract
 
-## Controlled semantics
+| Direction | Value |
+|---|---|
+| Input | Two documents, their source types, shared product context, config, and an injected model client |
+| Output | Two unit ledgers, traceable links, and deterministic relation counts |
 
-Units use exactly one type from `target`, `activity`, `milestone`, `requirement`,
-`dependency`, or `risk_response`. Links use exactly one relation from `aligned`,
-`modified`, `conflict`, `missing`, or `introduced`. Human-owned definitions and
-document-role framing live in `configs/alignment.yaml` and travel with the
-result so saved artifacts remain self-describing.
+Units use the closed `target`, `activity`, `milestone`, `requirement`,
+`dependency`, and `risk_response` vocabulary. Relations are `aligned`,
+`modified`, `conflict`, `missing`, or `introduced`. Every unit and link retains
+exact source block IDs; code derives omissions, additions, and counts.
 
-Every unit cites exact source block IDs. Code rejects invented IDs and labels,
-fills any reference unit omitted by the model as `missing`, derives
-`introduced` from comparison units that were never linked, and calculates the
-summary counts. Images are passed to extraction with their exact block IDs.
-Semantic unit IDs do not change when duplicate source occurrences add more
-provenance. Before a result leaves the service, a deterministic integrity check
-verifies document ownership, unit/link lineage, exhaustive reference coverage,
-introduced-unit completion, and summary counts.
-Structurally invalid extraction/linking responses fail the run after one retry;
-invented labels or lineage are never converted into apparently valid results.
-Valid linking responses may omit a reference unit, which is deliberately and
-deterministically completed as `missing` by the service contract after one
-attempt to recover a complete response.
+## Development
 
-## Public contract
-
-Consumers import configuration, models, serialization, and `run_pipeline` only
-from `services.aligner`. Aligner imports Chunker only through
-`services.chunker.__init__` and remains stateless.
+Shared unit and relation definitions live in `configs/alignment.yaml`. Aligner
+uses Chunker through its public package and keeps document-type differences in
+configuration rather than pipeline branches.

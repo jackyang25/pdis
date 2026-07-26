@@ -59,6 +59,7 @@ from .stages.conformity import (
 from .stages.context_validator import mismatch_message, validate_document_context
 from .stages.drift_classifier import INSIGHTS_BATCH_SIZE, classify_drift
 from .stages.evidence_assessor import assess_evidence
+from .stages.evidence_reviewer import prefill_evidence_review
 from .stages.insight_extractor import extract_insights, merge_duplicate_insights
 from .stages.precedent_classifier import classify_precedent
 from .stages.query_extractor import extract_queries_for_variable
@@ -75,6 +76,7 @@ SEARCH_MAX_USES = 10
 # Parallelism for Scout's LLM reasoning fan-outs. Retrieval concurrency belongs
 # to each Searcher source adapter and is not duplicated here.
 MAX_WORKERS = 32
+QUANTITATIVE_EXTRACTION_WORKERS = 8
 
 
 def run_pipeline(
@@ -83,12 +85,12 @@ def run_pipeline(
     doc_ids: list[str] | None = None,
     config: ScoutTypeConfig,
     openai_client: LLMClientProtocol,
+    quantitative_mapping_client: LLMClientProtocol,
     retrieval_runtime: SearchRuntime,
     org: str,
     source_type: str,
     intervention_class: str,
     indication: str,
-    target_review_client: LLMClientProtocol | None = None,
     progress_callback=None,
 ) -> ScoutResult:
     """Prepare one canonical, client-held document-target review draft.
@@ -189,7 +191,7 @@ def run_pipeline(
         return extract_quantitative_ledger_batch(
             batch,
             attributes,
-            openai_client,
+            quantitative_mapping_client,
             indication=indication,
             intervention_class=intervention_class,
             framing=config.quantitative_target_framing,
@@ -198,7 +200,7 @@ def run_pipeline(
     ledger_results = _parallel_map(
         ledger_batches,
         map_ledger_batch,
-        workers=MAX_WORKERS,
+        workers=QUANTITATIVE_EXTRACTION_WORKERS,
         stage="quantitative_targets",
         progress=progress_callback,
     )
@@ -213,7 +215,7 @@ def run_pipeline(
         attributes,
         quantitative_ledger,
         blocks,
-        target_review_client,
+        openai_client,
     )
     return validate_result_contract(ScoutResult(
         matches=[],
@@ -239,6 +241,7 @@ def continue_pipeline(
     *,
     config: ScoutTypeConfig,
     openai_client: LLMClientProtocol,
+    quantitative_mapping_client: LLMClientProtocol,
     retrieval_runtime: SearchRuntime,
     org: str,
     source_type: str,
@@ -398,10 +401,17 @@ def continue_pipeline(
     conformity = _score_conformity_all_variables(
         searchable_attributes,
         insights,
-        openai_client,
+        quantitative_mapping_client,
         indication=indication,
         intervention_class=intervention_class,
         progress=progress_callback,
+    )
+    if progress_callback:
+        progress_callback("evidence_review")
+    conformity = prefill_evidence_review(
+        conformity,
+        searchable_attributes,
+        openai_client,
     )
 
     if progress_callback:

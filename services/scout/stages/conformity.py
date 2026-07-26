@@ -6,8 +6,8 @@ efficacy >= 80%), this:
 
   1. (LLM) normalizes the meaning of exact document/source spans into one
      typed semantic contract with honest unknown/other states.
-  2. (code) verifies quotes, values, units, URLs, document blocks, enums, and
-     source identities; then admits only atomic comparable measurements.
+  2. (code) verifies schemas, cited passages, IDs, URLs, provenance, and source
+     identities; then admits only structurally valid atomic measurements.
   3. (math) reports observed cohort statistics and the literal share meeting
      the target. No weighting or inferential confidence interval is implied.
 
@@ -47,7 +47,6 @@ from ..ai_wire import (
     EvidenceUnitIdentityWire,
     NumericExpressionWire,
     SemanticSlotWire,
-    SourceNumericSyntaxWire,
     TernaryDecisionWire,
 )
 from ..context import (
@@ -154,15 +153,6 @@ class _CanonicalNumericBinding:
 class _QuantitativeBatchValidation:
     result: QuantitativeLedgerBatchResult
     retry_unit_ids: set[str]
-
-
-@dataclass(frozen=True)
-class _NumericMappingValidation:
-    """One normalized expression plus its deterministic admission outcome."""
-
-    expression: NumericExpression | None = None
-    code: str = ""
-    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -483,7 +473,7 @@ def _partition_cohort(
             continue
         selected, *duplicates = unit_candidates
         selected.inclusion_reason = (
-            "This admitted measurement passed exact quote/value/unit validation and "
+            "This admitted measurement satisfied the typed calculation contract and "
             f"was deduplicated as evidence unit {evidence_unit_id}. "
             f"{selected.admission_reason}"
         )
@@ -880,7 +870,7 @@ def extract_quantitative_ledger_batch(
                 for unit_id, reason in feedback.items()
             )
             user_message += (
-                "\n\nA prior mapping for these units failed deterministic admission. "
+                "\n\nA prior mapping for these units failed its typed or source-lineage contract. "
                 "Correct only the cited contract violations; do not change valid source meaning:\n"
                 f"{details}"
             )
@@ -1064,10 +1054,18 @@ def _validated_quantitative_ledger_batch(
             ):
                 validation_issues.append("invalid_field_ownership")
                 continue
+            target_quote = " ".join(str(raw_target.get("quote", "")).split())
+            if (
+                not target_quote
+                or len(target_quote) > MAX_TARGET_QUOTE_CHARS
+                or not _quote_in_text(target_quote, unit.quote)
+            ):
+                validation_issues.append("invalid_target_quote")
+                continue
             candidate = dict(raw_target)
             candidate["attribute_ref"] = owner
             candidate["provenance_spans"] = [
-                {"quote": unit.quote, "block_ids": [unit.block_id]}
+                {"quote": target_quote, "block_ids": [unit.block_id]}
             ]
             raw_profile = raw_target.get("semantic_profile")
             semantic_provenance = _resolve_document_semantic_provenance(
@@ -1499,14 +1497,17 @@ def _document_ledger_system_prompt(
         "as 'as opposed to' are context_only, never targets. Numeric syntax may come only from "
         "the supplied unit. Canonical bindings provide "
         "cross-block meaning but are not additional numeric statements to extract in this "
-        "batch. For each target, source_syntax selects the smallest complete literal numeric "
-        "expression from the unit and its exact value, comparator, and unit substrings. Use "
-        "empty strings for syntax parts that do not apply. expression is the normalized form: "
-        "its numeric value must remain identical to the literal source value; do not scale or "
-        "convert magnitudes. The canonical unit may normalize spelling, while interpreting its "
-        "meaning remains your responsibility. Deterministic code attaches exact source text "
-        "and block provenance; do not "
-        "retype either. The surrounding source block may establish threshold/optimal role "
+        "batch. For each target, quote copies the shortest complete, exact source excerpt that "
+        "asserts that one target. It must include its numeric expression and enough local wording "
+        "to identify the measure and qualifiers, must be a verbatim substring of the supplied "
+        "unit, and must not exceed 800 characters. Do not return the whole field span when a "
+        "shorter target-specific excerpt is available. expression is your normalized semantic "
+        "reading of that excerpt. Convert written quantities and directional prose into the typed "
+        "numeric schema, preserve the stated magnitude, and use a concise canonical unit. Do not "
+        "invent a target or infer one from background knowledge. Copy the short exact excerpt "
+        "into quote; code binds that citation to the unit's existing block provenance without "
+        "reinterpreting its numeric meaning. The surrounding source block may establish "
+        "threshold/optimal role "
         "and semantic meaning. Preserve "
         "the document's row or endpoint label. semantic_profile uses measure, endpoint, "
         "intervention, population, regimen, time_horizon, statistic, and conditions. "
@@ -1589,34 +1590,19 @@ def _validated_targets_with_issues(
             issues.append("invalid_target_object")
             continue
         raw_spans = item.get("provenance_spans")
-        first_span = (
-            raw_spans[0]
-            if isinstance(raw_spans, list)
-            and raw_spans
-            and isinstance(raw_spans[0], dict)
-            else {}
-        )
-        syntax_validation = _validated_expression_mapping(
-            item.get("expression"),
-            item.get("source_syntax"),
-            quote=str(first_span.get("quote", "")),
-            required_kind="bound",
-        )
-        expression = syntax_validation.expression
+        expression = _validated_numeric_expression(item.get("expression"))
         role = str(item.get("role", "other")).strip().lower()
         raw_dimensions = item.get("comparison_dimensions")
         semantic_profile = _validated_semantic_profile(item.get("semantic_profile"))
         ownership_reason = str(item.get("ownership_reason", "")).strip()
         if (
             expression is None
+            or expression.kind != "bound"
             or role not in VALID_TARGET_ROLES
             or semantic_profile is None
             or not isinstance(raw_dimensions, list)
         ):
-            issues.append(
-                syntax_validation.code
-                or "invalid_target_semantic_contract"
-            )
+            issues.append("invalid_target_semantic_contract")
             continue
         proposed_dimensions = list(
             dict.fromkeys(
@@ -1824,7 +1810,7 @@ def _map_source_passage_batch(
             system_prompt,
             _measurement_user_message(missing)
             + "\n\nA prior response omitted or malformed these source decisions. "
-            "Correct only these deterministic admission failures and return exactly "
+            "Correct only these typed or source-lineage failures and return exactly "
             "one complete decision for every source ID above:\n"
             + "\n".join(
                 f"- [source:{passage.id}] "
@@ -1961,12 +1947,7 @@ def _validated_passage_measurement(
             code="source_quote_not_found",
             reason="The exact quote was not found in its retained source passage.",
         )
-    syntax_validation = _validated_expression_mapping(
-        raw.get("expression"),
-        raw.get("source_syntax"),
-        quote=quote,
-    )
-    expression = syntax_validation.expression
+    expression = _validated_numeric_expression(raw.get("expression"))
     semantic_assessment = _validated_measurement_semantic_assessment(
         raw.get("semantic_assessment"),
         required_fields=_required_comparison_axes(target),
@@ -1976,8 +1957,8 @@ def _validated_passage_measurement(
         expression is None
     ):
         return _PassageMeasurementValidation(
-            code=syntax_validation.code,
-            reason=syntax_validation.reason,
+            code="invalid_numeric_expression",
+            reason="The normalized numeric expression did not satisfy its schema.",
         )
     if semantic_assessment is None:
         return _PassageMeasurementValidation(
@@ -2270,7 +2251,7 @@ def _validated_semantic_provenance(
 
 
 def _validated_numeric_expression(raw: object) -> NumericExpression | None:
-    """Validate the one syntax-only numeric contract returned by the model."""
+    """Parse the model-owned normalized value through its typed calculation shape."""
     try:
         wire = NumericExpressionWire.model_validate(raw)
         return NumericExpression(
@@ -2278,137 +2259,6 @@ def _validated_numeric_expression(raw: object) -> NumericExpression | None:
         )
     except (ValidationError, TypeError, ValueError):
         return None
-
-
-def _validated_expression_mapping(
-    raw_expression: object,
-    raw_syntax: object,
-    *,
-    quote: str,
-    required_kind: str | None = None,
-) -> _NumericMappingValidation:
-    """Admit one AI-normalized expression using literal source syntax only.
-
-    AI owns semantic interpretation and the proposed canonical unit. Pydantic
-    owns the wire shape. Code verifies that selected literals exist and checks
-    numeric equality only when a literal is mechanically machine-readable.
-    No prose-level number, unit, range, or clinical meaning is reinterpreted.
-    """
-    expression = _validated_numeric_expression(raw_expression)
-    if expression is None or (required_kind and expression.kind != required_kind):
-        return _NumericMappingValidation(
-            code="invalid_numeric_expression",
-            reason="The normalized numeric expression did not satisfy its schema.",
-        )
-    try:
-        syntax_wire = SourceNumericSyntaxWire.model_validate(raw_syntax)
-    except ValidationError:
-        return _NumericMappingValidation(
-            code="missing_source_syntax",
-            reason="The mapping did not provide the complete literal source syntax.",
-        )
-    syntax = syntax_wire.model_dump()
-    expression_text = syntax["expression_text"]
-    if not expression_text or not _quote_in_text(expression_text, quote):
-        return _NumericMappingValidation(
-            code="source_expression_not_found",
-            reason="The literal numeric expression was not found in the exact quote.",
-        )
-    for field_name in (
-        "value_text",
-        "lower_text",
-        "upper_text",
-        "comparator_text",
-        "unit_text",
-    ):
-        literal = syntax[field_name]
-        if literal and (
-            not _literal_in_text(literal, expression_text)
-            or not _literal_in_text(literal, quote)
-        ):
-            return _NumericMappingValidation(
-                code=f"{field_name}_not_found",
-                reason=f"The literal {field_name} was not found in the source expression.",
-            )
-
-    if expression.kind in {"point_estimate", "count", "rate", "bound"}:
-        if (
-            not syntax["value_text"]
-            or syntax["lower_text"]
-            or syntax["upper_text"]
-            or expression.value is None
-        ):
-            return _NumericMappingValidation(
-                code="invalid_scalar_source_syntax",
-                reason="A scalar mapping requires one literal value and no bounds.",
-            )
-        literal_value = _parse_machine_number(syntax["value_text"])
-        if literal_value is not None and not math.isclose(
-            literal_value, expression.value, rel_tol=1e-9, abs_tol=1e-9
-        ):
-            return _NumericMappingValidation(
-                code="source_value_mismatch",
-                reason="The normalized value did not equal the literal source value.",
-            )
-    elif expression.kind in {"range", "confidence_interval"}:
-        if (
-            syntax["value_text"]
-            or not syntax["lower_text"]
-            or not syntax["upper_text"]
-            or expression.lower is None
-            or expression.upper is None
-        ):
-            return _NumericMappingValidation(
-                code="invalid_interval_source_syntax",
-                reason="An interval mapping requires literal lower and upper values.",
-            )
-        lower = _parse_machine_number(syntax["lower_text"])
-        upper = _parse_machine_number(syntax["upper_text"])
-        if (
-            lower is not None
-            and not math.isclose(lower, expression.lower, rel_tol=1e-9, abs_tol=1e-9)
-        ) or (
-            upper is not None
-            and not math.isclose(upper, expression.upper, rel_tol=1e-9, abs_tol=1e-9)
-        ):
-            return _NumericMappingValidation(
-                code="source_interval_mismatch",
-                reason="Normalized bounds did not equal the literal source bounds.",
-            )
-
-    if expression.kind == "bound":
-        comparator_text = syntax["comparator_text"]
-        if expression.comparator != "=" and not comparator_text:
-            return _NumericMappingValidation(
-                code="missing_source_comparator",
-                reason="A directional bound requires its literal source comparator.",
-            )
-        literal_operator = _symbolic_comparator(comparator_text)
-        if literal_operator and literal_operator != expression.comparator:
-            return _NumericMappingValidation(
-                code="source_comparator_mismatch",
-                reason="The normalized operator contradicted the literal source symbol.",
-            )
-    elif expression.comparator:
-        return _NumericMappingValidation(
-            code="unexpected_source_comparator",
-            reason="A non-bound expression cannot carry a comparison operator.",
-        )
-    elif syntax["comparator_text"] and _symbolic_comparator(
-        syntax["comparator_text"]
-    ) not in {"", "="}:
-        return _NumericMappingValidation(
-            code="unexpected_source_comparator",
-            reason="A non-bound expression cannot carry a directional operator.",
-        )
-
-    if expression.kind not in {"other", "unknown"} and not syntax["unit_text"]:
-        return _NumericMappingValidation(
-            code="missing_source_unit",
-            reason="A numeric expression requires its exact literal source unit.",
-        )
-
-    return _NumericMappingValidation(expression=expression)
 
 
 def _measurement_system_prompt(
@@ -2435,7 +2285,7 @@ def _measurement_system_prompt(
         "Do not enumerate every number. Extract only complete statements that measure the target "
         "or a meaningfully related quantity. Each extracted measurement must contain the shortest "
         "self-contained exact quote that explicitly connects the number to the measured outcome "
-        "or property and preserves its qualifiers, plus one expression object and source_syntax. "
+        "or property and preserves its qualifiers, plus one normalized expression object. "
         "Also return evidence_unit for the distinct source group that owns the measurement. "
         "Use status=resolved only when the passage explicitly distinguishes that arm or cohort from "
         "another non-overlapping comparison arm or cohort in the same source record. Put that identity "
@@ -2443,10 +2293,9 @@ def _measurement_system_prompt(
         "timepoint, statistic, or analysis method. Use record_level when the source reports only one "
         "aggregate group, even when that population is described. Use uncertain when groups may overlap or the passage suggests multiple groups but "
         "does not identify which one owns the value. Do not invent arm or cohort names. "
-        "source_syntax selects the smallest complete literal numeric expression inside the quote "
-        "and its exact value, bounds, comparator, and unit substrings; use empty strings for parts "
-        "that do not apply. expression is the normalized form and its numeric values must remain "
-        "identical to the literal values—do not scale or convert magnitudes. Use the document "
+        "expression is your normalized semantic reading of the exact quote. Convert written "
+        "quantities and directional prose into the typed numeric schema without inventing or "
+        "changing the reported magnitude. Use the document "
         "target unit exactly when the source has the same unit meaning; otherwise retain a concise "
         "canonical source unit so code excludes it from direct statistics. A dose, exposure "
         "condition, storage temperature, visit time, follow-up duration, or sample size alone is "
@@ -2538,53 +2387,6 @@ def _normalize_quote(value: str) -> str:
 def _quote_in_text(quote: str, source_text: str) -> bool:
     normalized_quote = _normalize_quote(quote)
     return bool(normalized_quote) and normalized_quote in _normalize_quote(source_text)
-
-
-_NUMBER_RE = re.compile(
-    r"(?<![A-Za-z0-9])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.·]\d+)?(?:[eE][-+]?\d+)?"
-)
-def _literal_in_text(literal: str, text: str) -> bool:
-    """Check an exact model-selected literal without interpreting its meaning."""
-    normalized_literal = " ".join(literal.split())
-    normalized_text = " ".join(text.split())
-    if not normalized_literal:
-        return False
-    if _parse_machine_number(normalized_literal) is not None:
-        return bool(
-            re.search(
-                rf"(?<![\d.]){re.escape(normalized_literal)}(?![\d.])",
-                normalized_text,
-                re.IGNORECASE,
-            )
-        )
-    return normalized_literal.casefold() in normalized_text.casefold()
-
-
-def _parse_machine_number(value: str) -> float | None:
-    """Parse only unambiguous machine-readable numeric tokens."""
-    token = value.strip()
-    if _NUMBER_RE.fullmatch(token):
-        try:
-            return float(token.replace(",", "").replace("·", "."))
-        except ValueError:
-            return None
-    return None
-
-
-def _symbolic_comparator(value: str) -> str:
-    """Verify literal mathematical symbols; natural-language meaning stays with AI."""
-    compact = re.sub(r"\s+", "", value)
-    return {
-        "=": "=",
-        ">": ">",
-        "<": "<",
-        ">=": ">=",
-        "=>": ">=",
-        "≥": ">=",
-        "<=": "<=",
-        "=<": "<=",
-        "≤": "<=",
-    }.get(compact, "")
 
 
 def _text_for_blocks(document_text: str, block_ids: list[str]) -> str:

@@ -1,63 +1,32 @@
 # Chunker
 
-Parses documents (`.docx`, `.pdf`, `.pptx`) into ordered, citable
-`ContentBlock`s. Embedded DOCX visuals and rendered PPTX slides become portable
-image assets; an optional LLM mapper labels sections without replacing visuals
-with generated text.
+Convert DOCX, PDF, and PPTX files into ordered, citable content blocks.
 
-## Inputs and outputs
+## Background
 
-| | |
+Chunker is the shared document boundary. It preserves source order, stable block
+IDs, provenance, tables, and visuals without replacing images with generated
+descriptions.
+
+## Usage
+
+Import pipeline entry points, config lookup, `ContentBlock`, `ImageAsset`, and
+serializers from `services.chunker`.
+
+## Contract
+
+| Direction | Value |
 |---|---|
-| Input | One document (`.docx`, `.pdf`, or `.pptx`) + header `(org, source_type, intervention_class, indication)` |
-| Output | `list[ContentBlock]` — each block stamped with the header |
+| Input | A document, stable `doc_id`, optional `DocumentTypeConfig`, and provenance |
+| Output | Ordered `ContentBlock` records with stable IDs and retained visuals |
 
-The caller must pass the original filename stem as `doc_id` when parsing a
-temporary upload. Stable IDs are derived from this value, so temporary names
-must never reach downstream citations. The header is stamped on every block so
-downstream tools can route by provenance.
-Image blocks carry a typed image payload (`media_type`, base64 bytes, hash, and
-source media type). The mapper, Inspector, Scout's document-reasoning stages, and
-Ask receive those visuals as block-labeled multimodal inputs.
+The API supplies the original filename stem as `doc_id`; temporary upload names
+never enter citations. DOCX preserves body order and embedded images, PDF
+preserves page metadata, and PPTX retains slide text, tables, notes, positions,
+and rendered slide images when available.
 
-## Files
+## Development
 
-| File | Purpose |
-|---|---|
-| `models.py` | `ContentBlock` and `DocumentTypeConfig` dataclasses; YAML loader. |
-| `pipeline.py` | `run_pipeline(file, doc_id, ...)` — parse → optional label. |
-| `stages/parser.py` | Format dispatcher for DOCX, PDF, and PPTX. |
-| `stages/parser_docx.py` | Walks Word XML in body order; populates `heading_stack` from heading styles. |
-| `stages/parser_pdf.py` | `pdfplumber`-based; populates `structural_meta.page`. |
-| `stages/parser_pptx.py` | Extracts slide titles, text, tables, notes, positions, and portable visuals. |
-| `stages/image_assets.py` | Resolves DOCX image relationships and attaches portable raster assets. |
-| `stages/rasterizer.py` | Optional LibreOffice boundary for vectors and PPTX slide rendering. |
-| `stages/mapper.py` | LLM section-labeler; constrained to the config's `section_taxonomy`. |
-| `cli.py` | Headless batch export to CSV/JSONL. |
-| `configs/` | One YAML per `(org, source_type, intervention)` combination. |
-
-## Configs
-
-Filename: `{org}_{source_type}_{intervention}.yaml`. Each file declares the
-section taxonomy the mapper labels against. Bundled BMGF configs cover `itpp`
-and `ctpp` for vaccine, drug, diagnostic, and device, plus `ipdp` for vaccine,
-drug, and diagnostic. `CONFIG_TEMPLATE.yaml` documents the extension shape.
-
-## Public contract
-
-From `__init__.py`:
-
-- `run_pipeline`, `run_pipeline_batch`, `map_blocks_batch`
-- `ContentBlock`, `DocumentTypeConfig`, `PipelineResult`
-- `find_config`, `blocks_to_dicts`
-- `DEFAULT_MAX_OUTPUT_TOKENS`
-
-External callers (`api/routes/chunker.py`, `inspector`, `scout`) import only from this surface.
-
-## Dependencies
-
-Chunker is the root of the service graph and imports from no service. Standard
-raster images need no system dependency. LibreOffice Draw converts unsupported
-vector formats; LibreOffice Impress plus PDFium renders complete PPTX slides.
-When rendering is unavailable, PPTX text/tables still parse and embedded
-pictures are retained as the visual fallback.
+Configs use `{org}_{source_type}_{intervention}.yaml`. Pillow normalizes raster
+formats. LibreOffice is an optional boundary for vector conversion and full-slide
+rendering. Chunker imports no other service.

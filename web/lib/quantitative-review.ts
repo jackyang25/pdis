@@ -2,6 +2,50 @@ import type { Conformity, Measurement } from "./api";
 
 export type QuantitativeReviewDecision = "approve" | "reject";
 
+export type EvidenceReviewRecommendationSummary = {
+  admit: number;
+  reject: number;
+  flag: number;
+  total: number;
+};
+
+/** Count one recommendation per target/evidence-unit review decision. */
+export function evidenceReviewRecommendationSummary(
+  scores: Conformity[],
+): EvidenceReviewRecommendationSummary {
+  const summary = { admit: 0, reject: 0, flag: 0, total: 0 };
+  for (const score of scores) {
+    for (const candidates of pendingEvidenceUnits(score)) {
+      const recommendation = groupRecommendation(candidates);
+      summary[recommendation] += 1;
+      summary.total += 1;
+    }
+  }
+  return summary;
+}
+
+/** Apply every complete AI recommendation; flagged groups remain pending. */
+export function applyEvidenceReviewRecommendations(
+  scores: Conformity[],
+): Conformity[] {
+  return scores.map((original) => {
+    let score = original;
+    for (const candidates of pendingEvidenceUnits(original)) {
+      const recommendation = groupRecommendation(candidates);
+      if (recommendation === "flag") continue;
+      const selected = recommendation === "admit"
+        ? candidates.find((candidate) => candidate.ai_recommendation === "admit")
+        : undefined;
+      score = reviewQuantitativeCandidateGroup(
+        score,
+        candidates.map((candidate) => candidate.candidate_id),
+        selected?.candidate_id ?? null,
+      );
+    }
+    return score;
+  });
+}
+
 /**
  * Apply one explicit human admission decision and deterministically rebuild the
  * descriptive cohort. No retrieval or AI call occurs; the returned object is
@@ -49,7 +93,7 @@ export function reviewQuantitativeCandidateGroup(
           ? "Explicitly rejected by a user for this independent evidence unit."
           : "Not selected among alternative estimates from this independent evidence unit.",
       inclusion_reason: approved
-        ? "Manually selected; exact quote/value/unit validation and evidence-unit deduplication were retained."
+        ? "Manually selected; typed calculation inputs and evidence-unit deduplication were retained."
         : "",
       exclusion_reasons: approved
         ? []
@@ -147,6 +191,39 @@ function calculateCohort(
 
 function evidenceUnitId(measurement: Measurement): string {
   return measurement.evidence_unit_id || measurement.source_record_id;
+}
+
+function pendingEvidenceUnits(score: Conformity): Measurement[][] {
+  const byUnit = new Map<string, Measurement[]>();
+  for (const measurement of [...score.measurements, ...score.excluded_measurements]) {
+    if (
+      measurement.evidence_mode !== "prose"
+      || measurement.admission_status !== "needs_review"
+    ) continue;
+    const unitId = evidenceUnitId(measurement);
+    byUnit.set(unitId, [...(byUnit.get(unitId) ?? []), measurement]);
+  }
+  return Array.from(byUnit.values());
+}
+
+function groupRecommendation(
+  candidates: Measurement[],
+): "admit" | "reject" | "flag" {
+  const admitted = candidates.filter(
+    (candidate) => candidate.ai_recommendation === "admit",
+  );
+  if (
+    admitted.length === 1
+    && candidates.every((candidate) =>
+      candidate.ai_recommendation === "admit"
+      || candidate.ai_recommendation === "reject"
+    )
+  ) return "admit";
+  if (
+    candidates.length > 0
+    && candidates.every((candidate) => candidate.ai_recommendation === "reject")
+  ) return "reject";
+  return "flag";
 }
 
 function meetsTarget(value: number, target: number, comparator: Conformity["comparator"]): boolean {

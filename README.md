@@ -1,4 +1,4 @@
-# Product Development Intelligence Suite (PDIS) for Health Intervention
+# Product Development Intelligence Suite (PDIS) for New Health Interventions
 
 ![PDIS product-development workflow](./docs/banner.png)
 

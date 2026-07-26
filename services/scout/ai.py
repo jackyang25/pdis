@@ -20,6 +20,7 @@ def request_structured(
     *,
     max_tokens: int,
     images: list[dict[str, str]] | None = None,
+    task: str = "reasoning",
 ) -> object | None:
     """Request one schema-bound decision and expose its stage payload.
 
@@ -29,21 +30,47 @@ def request_structured(
     """
     method = getattr(llm_client, "call_structured", None)
     if callable(method):
-        payload = method(
-            system_prompt,
-            user_message,
-            max_tokens,
-            schema_name=contract.name,
-            schema=contract.schema,
-            images=images,
-        )
+        try:
+            payload = method(
+                system_prompt,
+                user_message,
+                max_tokens,
+                schema_name=contract.name,
+                schema=contract.schema,
+                images=images,
+                task=task,
+            )
+        except TypeError as exc:
+            # Test doubles predating task routing remain usable; production's
+            # OpenAIClient always accepts the closed task class.
+            if "task" not in str(exc):
+                raise
+            payload = method(
+                system_prompt,
+                user_message,
+                max_tokens,
+                schema_name=contract.name,
+                schema=contract.schema,
+                images=images,
+            )
     else:
-        raw = llm_client.call(
-            system_prompt,
-            user_message,
-            max_tokens,
-            images=images,
-        )
+        try:
+            raw = llm_client.call(
+                system_prompt,
+                user_message,
+                max_tokens,
+                images=images,
+                task=task,
+            )
+        except TypeError as exc:
+            if "task" not in str(exc):
+                raise
+            raw = llm_client.call(
+                system_prompt,
+                user_message,
+                max_tokens,
+                images=images,
+            )
         payload = _legacy_test_payload(raw, contract.payload_key)
     if not isinstance(payload, dict):
         return None

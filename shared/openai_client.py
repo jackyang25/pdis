@@ -1,8 +1,11 @@
-"""Shared OpenAI client.
+"""Shared OpenAI client and server-owned model policy.
 
-One provider (OpenAI) and one process-level model. Production falls back to
-gpt-5.5; local or deployed environments may set ``OPENAI_MODEL`` once for the
-whole API. Used by all services for text generation and web search.
+OpenAI remains the primary provider for document interpretation, retrieval,
+evidence reasoning, Ask, and the other product tools. Services select only a
+stable task class; model names stay centralized here and in environment
+configuration. Browser requests can never choose a model. Scout's independent,
+non-authoritative target verifier is the sole Anthropic boundary and lives in
+``shared.anthropic_client``.
 """
 
 from __future__ import annotations
@@ -10,24 +13,54 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-5.5"
+ModelTask = Literal["fast", "reasoning"]
+
+DEFAULT_FAST_MODEL = "gpt-5.4-mini"
+DEFAULT_REASONING_MODEL = "gpt-5.4"
 
 
 class OpenAIClient:
     """Thin OpenAI wrapper exposing text generation and web search."""
 
-    def __init__(self, api_key: str | None = None, model: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        *,
+        fast_model: str | None = None,
+        reasoning_model: str | None = None,
+    ):
         from openai import OpenAI  # type: ignore[reportMissingImports]
 
         api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY is required")
         self.client = OpenAI(api_key=api_key)
-        self.model = model or os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL
+        legacy_model = model or os.environ.get("OPENAI_MODEL")
+        self.models: dict[ModelTask, str] = {
+            "fast": fast_model
+            or os.environ.get("OPENAI_MODEL_FAST")
+            or legacy_model
+            or DEFAULT_FAST_MODEL,
+            "reasoning": reasoning_model
+            or os.environ.get("OPENAI_MODEL_REASONING")
+            or legacy_model
+            or DEFAULT_REASONING_MODEL,
+        }
+        # Compatibility/readability for diagnostics that historically exposed
+        # one model.  Load-bearing reasoning is the safe default.
+        self.model = self.models["reasoning"]
+
+    def model_for(self, task: ModelTask) -> str:
+        """Resolve one closed task class to a server-configured model."""
+        models = getattr(self, "models", None)
+        if models is None:  # supports lightweight __new__ test construction
+            return self.model
+        return models[task]
 
     def call(
         self,
@@ -36,11 +69,12 @@ class OpenAIClient:
         max_tokens: int,
         *,
         images: list[dict[str, str]] | None = None,
+        task: ModelTask = "reasoning",
     ) -> str:
         user_content = _user_content(user_message, images)
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self.model_for(task),
                 max_completion_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -63,6 +97,7 @@ class OpenAIClient:
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
+        task: ModelTask = "reasoning",
     ) -> dict[str, Any] | None:
         """Return one strict JSON-Schema response.
 
@@ -74,7 +109,7 @@ class OpenAIClient:
         user_content = _user_content(user_message, images)
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self.model_for(task),
                 max_completion_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -125,6 +160,7 @@ class OpenAIClient:
         *,
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = 4000,
+        task: ModelTask = "reasoning",
     ) -> Any:
         """Chat-completions call with optional tool (function) calling.
 
@@ -132,7 +168,7 @@ class OpenAIClient:
         and `.tool_calls`. Powers the Ask assistant's hand-rolled agent loop.
         """
         kwargs: dict[str, Any] = {
-            "model": self.model,
+            "model": self.model_for(task),
             "max_completion_tokens": max_tokens,
             "messages": messages,
         }
@@ -157,6 +193,7 @@ class OpenAIClient:
         *,
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = 4000,
+        task: ModelTask = "reasoning",
     ) -> Iterator[Any]:
         """Stream chat-completion chunks with optional function calling.
 
@@ -165,7 +202,7 @@ class OpenAIClient:
         without embedding any agent or UI semantics in the shared client.
         """
         kwargs: dict[str, Any] = {
-            "model": self.model,
+            "model": self.model_for(task),
             "max_completion_tokens": max_tokens,
             "messages": messages,
             "stream": True,
@@ -194,6 +231,7 @@ class OpenAIClient:
         *,
         max_tokens: int = 4000,
         max_uses: int = 5,
+        task: ModelTask = "fast",
     ) -> Any:
         """Run an LLM-driven web search via OpenAI's Responses API.
 
@@ -208,7 +246,7 @@ class OpenAIClient:
 
         def _create(tool: str):
             return self.client.responses.create(
-                model=self.model,
+                model=self.model_for(task),
                 input=query,
                 tools=[{"type": tool}],
                 max_output_tokens=max_tokens,

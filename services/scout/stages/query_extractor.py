@@ -180,6 +180,7 @@ def _run_track(
         system_prompt,
         user_message,
         max_tokens=max_tokens,
+        task="fast",
     )
     queries = _parse_queries(
         raw,
@@ -201,6 +202,7 @@ def _run_track(
             system_prompt,
             user_message,
             max_tokens=max_tokens,
+            task="fast",
         )
         queries = _parse_queries(
             raw,

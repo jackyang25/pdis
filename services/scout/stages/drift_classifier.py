@@ -82,6 +82,7 @@ def classify_drift(
         user_message,
         max_tokens=max_tokens,
         images=images,
+        task="fast",
     ))
     if not _has_complete_lineage(parsed, len(insights), allowed_block_ids):
         logger.warning(
@@ -95,6 +96,7 @@ def classify_drift(
             user_message,
             max_tokens=max_tokens,
             images=images,
+            task="fast",
         ))
 
     by_index: dict[int, dict] = {

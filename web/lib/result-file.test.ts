@@ -45,6 +45,7 @@ const inspection: InspectorResponse = {
 };
 
 const scout: ScoutResponse = {
+  phase: "final",
   org: "bmgf",
   source_type: "itpp",
   intervention_class: "vaccine",
@@ -111,7 +112,8 @@ const scout: ScoutResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 26);
+  assert.equal(packed.version, 31);
+  assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
   assert.equal("blocks" in packed.analysis.inspection, false);
@@ -136,7 +138,8 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 26);
+  assert.equal(packed.version, 31);
+  assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
   assert.equal(packed.source_documents.length, 2);
@@ -145,8 +148,81 @@ test("Aligner results separate both source documents from the analysis", () => {
 
 test("current Scout export and import preserve the canonical result exactly", () => {
   const packed = packScoutResult(scout);
-  assert.equal(packed.version, 26);
+  assert.equal(packed.version, 31);
+  assert.equal(packed.state, "final");
   assert.deepEqual(unpackScoutResult(packed), scout);
+});
+
+test("Scout export rejects a quantitative review draft", () => {
+  const draft = structuredClone(scout);
+  draft.conformity[0].excluded_measurements = [{
+    candidate_id: "pending",
+    expression: { kind: "point_estimate", value: 82, lower: null, upper: null, comparator: "", unit: "%" },
+    url: "https://example.test/study",
+    insight_id: "insight-1",
+    source_quote: "The result was 82%.",
+    source_record_id: "doi:example",
+    source_identity_status: "canonical",
+    evidence_unit_id: "doi:example/unit:record",
+    evidence_unit: {
+      status: "record_level",
+      group: { state: "not_specified", value: "", other: "" },
+      cohort: { state: "not_specified", value: "", other: "" },
+      reason: "One aggregate source group.",
+    },
+    semantic_assessment: {} as any,
+    semantic_status: "comparable",
+    semantic_reason: "Compatible result.",
+    evidence_mode: "prose",
+    admission_status: "needs_review",
+    admission_reason: "Review required.",
+    inclusion_reason: "",
+    exclusion_reasons: ["Review required."],
+    age_months: null,
+  }];
+
+  assert.throws(() => packScoutResult(draft), /review is incomplete/);
+});
+
+test("current portable envelopes must explicitly be final", () => {
+  const malformed = structuredClone(packScoutResult(scout)) as any;
+  delete malformed.state;
+
+  assert.throws(
+    () => unpackScoutResult(malformed),
+    /invalid or incomplete pdis.result envelope/,
+  );
+});
+
+test("version 26 prose comparators migrate to review candidates", () => {
+  const previous = structuredClone(packScoutResult(scout)) as any;
+  previous.version = 26;
+  const measurement = {
+    candidate_id: "candidate-1",
+    expression: { kind: "point_estimate", value: 82, lower: null, upper: null, comparator: "", unit: "%" },
+    url: "https://example.test/study",
+    insight_id: "insight-1",
+    source_quote: "The result was 82%.",
+    source_record_id: "doi:example",
+    source_identity_status: "canonical",
+    semantic_assessment: {},
+    semantic_status: "comparable",
+    semantic_reason: "Compatible result.",
+    inclusion_reason: "Previously admitted automatically.",
+    exclusion_reasons: [],
+    age_months: null,
+  };
+  previous.analysis.conformity[0].measurements = [measurement];
+  previous.analysis.conformity[0].benchmark_count = 1;
+
+  const imported = unpackScoutResult(previous);
+  assert.equal(imported.conformity[0].benchmark_count, 0);
+  assert.equal(imported.conformity[0].measurements.length, 0);
+  assert.equal(imported.conformity[0].excluded_measurements.length, 1);
+  assert.equal(
+    imported.conformity[0].excluded_measurements[0].admission_status,
+    "needs_review",
+  );
 });
 
 test("version 25 Scout fields predate the complete API claim contract", () => {
@@ -205,7 +281,7 @@ test("version 22 Scout calibration predates constrained semantic mapping", () =>
   assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
 });
 
-test("current-version measurements missing the semantic assessment fail closed", () => {
+test("current final artifacts with malformed measurements are rejected", () => {
   const malformed = structuredClone(packScoutResult(scout)) as any;
   malformed.analysis.conformity[0].calibration_status = "sufficient";
   malformed.analysis.conformity[0].measurements = [{
@@ -214,8 +290,18 @@ test("current-version measurements missing the semantic assessment fail closed",
     source_quote: "Efficacy was 82%.",
   }];
 
-  const imported = unpackScoutResult(malformed);
+  assert.throws(
+    () => unpackScoutResult(malformed),
+    /incomplete quantitative evidence contract/,
+  );
+});
 
+test("version 28 Scout calibration is viewable but predates evidence-unit identity", () => {
+  const previous = structuredClone(packScoutResult(scout)) as any;
+  previous.version = 28;
+  previous.analysis.conformity[0].calibration_status = "sufficient";
+
+  const imported = unpackScoutResult(previous);
   assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
 });
 

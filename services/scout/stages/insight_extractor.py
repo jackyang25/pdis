@@ -53,6 +53,7 @@ def extract_insights(
         system_prompt,
         user_message,
         max_tokens=max_tokens,
+        task="fast",
     )
     if not isinstance(parsed, list):
         parsed = request_structured(
@@ -61,6 +62,7 @@ def extract_insights(
             system_prompt,
             user_message,
             max_tokens=max_tokens,
+            task="fast",
         )
     parsed = _validated_insights(parsed)
 

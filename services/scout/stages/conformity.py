@@ -44,6 +44,7 @@ from ..ai_contracts import (
     source_measurement_batch,
 )
 from ..ai_wire import (
+    EvidenceUnitIdentityWire,
     NumericExpressionWire,
     SemanticSlotWire,
     SourceNumericSyntaxWire,
@@ -63,6 +64,7 @@ from ..models import (
     LLMClientProtocol,
     Measurement,
     MeasurementSemanticAssessment,
+    EvidenceUnitIdentity,
     NumericExpression,
     QUANTITATIVE_SEMANTIC_FIELDS,
     QuantitativeLedger,
@@ -113,11 +115,12 @@ class _SourcePassage:
 
 @dataclass(frozen=True)
 class QuantitativeStatementUnit:
-    """One non-overlapping, exact document statement reviewed exactly once."""
+    """One exact canonical field span reviewed without rebinding ownership."""
 
     id: str
     block_id: str
     quote: str
+    attribute_ref: str = ""
 
 
 @dataclass(frozen=True)
@@ -171,8 +174,68 @@ class _TargetMappingValidation:
 @dataclass(frozen=True)
 class _PassageMeasurementValidation:
     measurement: Measurement | None = None
+    candidate_key: "_MeasurementCandidateKey | None" = None
     code: str = ""
     reason: str = ""
+
+
+@dataclass(frozen=True)
+class _MeasurementCandidateKey:
+    """The one canonical identity for a target-relative source proposal."""
+
+    canonical_json: str
+
+    @classmethod
+    def from_validated(
+        cls,
+        *,
+        target_id: str,
+        source_id: str,
+        quote: str,
+        expression: NumericExpression,
+        evidence_unit_id: str,
+        evidence_unit: EvidenceUnitIdentity,
+        semantic_assessment: MeasurementSemanticAssessment,
+    ) -> "_MeasurementCandidateKey":
+        payload = {
+            "target_id": target_id,
+            "source_id": source_id,
+            "quote": _normalize_quote(quote),
+            "expression": {
+                "kind": expression.kind,
+                "unit": _unit_key(expression.unit),
+                "value": expression.value,
+                "lower": expression.lower,
+                "upper": expression.upper,
+                "comparator": expression.comparator,
+            },
+            "evidence_unit": {
+                "id": evidence_unit_id,
+                "status": evidence_unit.status,
+            },
+            "semantic_assessment": {
+                "source_ownership": semantic_assessment.source_ownership.state,
+                "dimensions": {
+                    field_name: {
+                        "source": {
+                            "state": assessment.source.state,
+                            "value": assessment.source.value.casefold(),
+                            "other": assessment.source.other.casefold(),
+                        },
+                        "compatibility": assessment.compatibility.state,
+                    }
+                    for field_name, assessment in sorted(
+                        semantic_assessment.dimensions.items()
+                    )
+                },
+            },
+        }
+        return cls(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+
+    @property
+    def candidate_id(self) -> str:
+        digest = hashlib.sha256(self.canonical_json.encode("utf-8")).hexdigest()
+        return f"qm-{digest}"
 
 
 @dataclass(frozen=True)
@@ -361,13 +424,13 @@ def _partition_cohort(
 ) -> tuple[list[Measurement], list[Measurement]]:
     """Apply the small deterministic admission contract.
 
-    AI owns the bounded yes/no/unknown semantic decisions. Code derives the
-    aggregate status and admits only an atomic scalar whose source owns the
-    claim and whose required target dimensions are compatible.
+    AI owns bounded semantic mapping, but prose-derived measurements are only
+    candidates. Code admits a semantically eligible scalar only after explicit
+    review, or when a future adapter supplies a typed structured fact.
     """
     included: list[Measurement] = []
     excluded: list[Measurement] = []
-    eligible_by_record: dict[str, list[Measurement]] = {}
+    eligible_by_unit: dict[str, list[Measurement]] = {}
     for candidate in candidates:
         candidate.semantic_status, candidate.semantic_reason = (
             _derived_semantic_status(candidate, target)
@@ -384,31 +447,51 @@ def _partition_cohort(
             )
         if _unit_key(candidate.unit) != _unit_key(target.unit):
             reasons.append("numeric unit is incompatible with the document target")
+        if candidate.semantic_status == "comparable":
+            if candidate.evidence_mode == "structured_fact":
+                candidate.admission_status = "auto_admitted"
+                candidate.admission_reason = (
+                    "The adapter supplied a typed source-owned numeric fact."
+                )
+            elif candidate.admission_status not in {"approved", "rejected"}:
+                candidate.admission_status = "needs_review"
+                candidate.admission_reason = (
+                    "This candidate was semantically mapped from prose and requires "
+                    "explicit review before it can enter descriptive statistics."
+                )
+        else:
+            candidate.admission_status = "not_eligible"
+            candidate.admission_reason = candidate.semantic_reason
+        if candidate.admission_status not in {"approved", "auto_admitted"}:
+            reasons.append(candidate.admission_reason or "candidate is not admitted")
         if reasons:
             candidate.exclusion_reasons = reasons
             excluded.append(candidate)
             continue
-        eligible_by_record.setdefault(candidate.source_record_id, []).append(candidate)
+        evidence_unit_id = candidate.evidence_unit_id or candidate.source_record_id
+        eligible_by_unit.setdefault(evidence_unit_id, []).append(candidate)
 
-    for record_id, record_candidates in eligible_by_record.items():
-        unique_values = {candidate.value for candidate in record_candidates}
+    for evidence_unit_id, unit_candidates in eligible_by_unit.items():
+        unique_values = {candidate.value for candidate in unit_candidates}
         if len(unique_values) > 1:
-            for candidate in record_candidates:
+            for candidate in unit_candidates:
                 candidate.exclusion_reasons = [
-                    "multiple semantically comparable scalar values from source record "
-                    f"{record_id}; no primary estimate was deterministically identifiable"
+                    "multiple admitted scalar values from evidence unit "
+                    f"{evidence_unit_id}; one estimate must be selected"
                 ]
                 excluded.append(candidate)
             continue
-        selected, *duplicates = record_candidates
+        selected, *duplicates = unit_candidates
         selected.inclusion_reason = (
-            "AI normalized this exact source measurement as semantically comparable; "
-            "the exact quote/value/unit passed deterministic validation and the source "
-            f"was deduplicated as {record_id}."
+            "This admitted measurement passed exact quote/value/unit validation and "
+            f"was deduplicated as evidence unit {evidence_unit_id}. "
+            f"{selected.admission_reason}"
         )
         included.append(selected)
         for duplicate in duplicates:
-            duplicate.exclusion_reasons = [f"duplicate source record and value: {record_id}"]
+            duplicate.exclusion_reasons = [
+                f"duplicate evidence unit and value: {evidence_unit_id}"
+            ]
             excluded.append(duplicate)
     return included, excluded
 
@@ -453,7 +536,7 @@ def _combine(
         target_meeting_count=target_meeting_count,
         target_meeting_rate=round(target_meeting_rate, 3),
         verdict=(
-            f"{target_meeting_count} of {benchmark_count} validated comparators "
+            f"{target_meeting_count} of {benchmark_count} admitted comparators "
             "meet the document target"
         ),
         benchmark_count=benchmark_count,
@@ -561,24 +644,53 @@ def _age_months(published) -> float | None:
 
 def prepare_quantitative_ledger_batches(
     blocks: list[ContentBlock],
+    attributes: list[Attribute] | None = None,
     *,
     max_units: int = LEDGER_BATCH_MAX_UNITS,
     max_chars: int = LEDGER_BATCH_MAX_CHARS,
 ) -> list[QuantitativeLedgerBatch]:
-    """Partition the complete document once, preserving structural blocks.
+    """Batch exact spans from the authoritative document-claim ledger.
 
-    Every statement unit belongs to exactly one batch. An unusually dense
-    source block may be repeated as structural context across bounded batches,
-    but no statement is reviewed twice.
+    Numeric interpretation must not scan the raw document and independently
+    recreate field ownership. Each unit is therefore one complete, already
+    validated field span. Keeping the whole span also preserves table labels,
+    populations, roles, and qualifiers that were previously lost by splitting
+    flattened cells into sentence fragments.
+
+    ``attributes=None`` remains a narrow compatibility path for focused legacy
+    tests; production always supplies the resolved canonical attributes.
     """
-    # The ledger is intentionally independent of the earlier per-field binding:
-    # a field resolver cannot hide a document statement simply by missing its
-    # block. Visual-only blocks are reviewed too: the model may safely classify
-    # them as non-numeric, or mark them uncertain when a numeric statement is
-    # visible but no exact source text exists for deterministic verification.
-    relevant_blocks = [
-        block for block in blocks if (block.content or "").strip() or block.image
-    ]
+    block_by_id = {block.id: block for block in blocks}
+    units: list[QuantitativeStatementUnit] = []
+    seen_units: set[tuple[str, str, tuple[str, ...]]] = set()
+    if attributes is None:
+        for block in blocks:
+            for unit in _statement_units(block):
+                units.append(unit)
+    else:
+        for attribute in attributes:
+            if not attribute.target_resolved or not attribute.document_target:
+                continue
+            for span in attribute.document_spans:
+                block_ids = tuple(
+                    block_id for block_id in span.block_ids if block_id in block_by_id
+                )
+                if not block_ids:
+                    continue
+                key = (attribute.name, _normalize_quote(span.quote), block_ids)
+                if key in seen_units:
+                    continue
+                seen_units.add(key)
+                material = "\n".join((attribute.name, *block_ids, span.quote))
+                units.append(
+                    QuantitativeStatementUnit(
+                        id="qlu-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16],
+                        block_id=block_ids[0],
+                        quote=span.quote,
+                        attribute_ref=attribute.name,
+                    )
+                )
+
     batches: list[QuantitativeLedgerBatch] = []
     batch_blocks: list[ContentBlock] = []
     batch_units: list[QuantitativeStatementUnit] = []
@@ -594,21 +706,26 @@ def prepare_quantitative_ledger_batches(
         batch_units = []
         batch_chars = 0
 
-    for block in relevant_blocks:
-        for unit in _statement_units(block):
-            block_is_new = all(item.id != block.id for item in batch_blocks)
-            added_chars = len(block.content or "") if block_is_new else 0
-            if batch_units and (
-                len(batch_units) + 1 > max_units
-                or batch_chars + added_chars > max_chars
-            ):
-                flush()
-                block_is_new = True
-                added_chars = len(block.content or "")
-            if block_is_new:
-                batch_blocks.append(block)
-                batch_chars += added_chars
-            batch_units.append(unit)
+    for unit in units:
+        unit_blocks = [
+            block_by_id[block_id]
+            for block_id in dict.fromkeys([unit.block_id])
+            if block_id in block_by_id
+        ]
+        added_blocks = [
+            block for block in unit_blocks if all(item.id != block.id for item in batch_blocks)
+        ]
+        added_chars = sum(len(block.content or "") for block in added_blocks)
+        if batch_units and (
+            len(batch_units) + 1 > max_units
+            or batch_chars + added_chars > max_chars
+        ):
+            flush()
+            added_blocks = unit_blocks
+            added_chars = sum(len(block.content or "") for block in added_blocks)
+        batch_blocks.extend(added_blocks)
+        batch_chars += added_chars
+        batch_units.append(unit)
     flush()
     return batches
 
@@ -877,6 +994,7 @@ def _validated_quantitative_ledger_batch(
         classification = str(raw.get("classification", "")).strip().lower()
         reason = " ".join(str(raw.get("reason", "")).split())
         attribute_ref = str(raw.get("attribute_ref", "")).strip()
+        canonical_owner = unit.attribute_ref
         raw_targets = raw.get("targets")
         raw_targets = raw_targets if isinstance(raw_targets, list) else []
         if (
@@ -886,6 +1004,7 @@ def _validated_quantitative_ledger_batch(
             }
             or not reason
             or (attribute_ref and attribute_ref not in attributes_by_name)
+            or (canonical_owner and attribute_ref not in {"", canonical_owner})
         ):
             retry_unit_ids.add(unit.id)
             reviews.append(
@@ -918,8 +1037,11 @@ def _validated_quantitative_ledger_batch(
                     block_id=unit.block_id,
                     quote=unit.quote,
                     classification=classification,
-                    attribute_ref=attribute_ref,
+                    attribute_ref=attribute_ref or canonical_owner,
                     reason=reason,
+                    review_status=(
+                        "needs_review" if classification == "uncertain" else "resolved"
+                    ),
                 )
             )
             continue
@@ -931,6 +1053,8 @@ def _validated_quantitative_ledger_batch(
                 validation_issues.append("invalid_target_object")
                 continue
             owner = str(raw_target.get("attribute_ref", "")).strip()
+            if canonical_owner:
+                owner = canonical_owner
             attribute = attributes_by_name.get(owner)
             if (
                 attribute is None
@@ -955,6 +1079,7 @@ def _validated_quantitative_ledger_batch(
                 validation_issues.append("invalid_semantic_provenance")
                 continue
             candidate["semantic_provenance"] = semantic_provenance
+            candidate["review_status"] = "needs_review"
             candidate["ownership_reason"] = (
                 " ".join(str(raw_target.get("ownership_reason", "")).split())
                 or reason
@@ -1002,6 +1127,7 @@ def _validated_quantitative_ledger_batch(
                     else ""
                 ),
                 target_ids=[target.id for target in validated],
+                review_status="resolved",
             )
         )
     return _QuantitativeBatchValidation(
@@ -1078,6 +1204,38 @@ def assemble_quantitative_document_ledger(
     return _project_ledger_to_attributes(attributes, ledger), ledger
 
 
+def finalize_quantitative_document_review(
+    attributes: list[Attribute],
+    ledger: QuantitativeLedger,
+) -> tuple[list[Attribute], QuantitativeLedger]:
+    """Freeze explicit client-held target decisions before retrieval.
+
+    The client returns the complete portable draft, so no server session or
+    second document interpretation is required. Rejected proposals remain in
+    the ledger audit trail but are not projected into retrieval/calculation.
+    Uncertain statements must be explicitly acknowledged as excluded.
+    """
+    pending_targets = [
+        target.id for target in ledger.targets if target.review_status == "needs_review"
+    ]
+    pending_statements = [
+        review.unit_id
+        for review in ledger.reviews
+        if review.review_status == "needs_review"
+    ]
+    if pending_targets or pending_statements:
+        raise ValueError(
+            "Document target review is incomplete: "
+            f"{len(pending_targets)} target proposal(s) and "
+            f"{len(pending_statements)} unresolved statement(s) remain."
+        )
+    return _project_ledger_to_attributes(
+        attributes,
+        ledger,
+        admitted_statuses={"approved"},
+    ), ledger
+
+
 def _statement_units(block: ContentBlock) -> list[QuantitativeStatementUnit]:
     units: list[QuantitativeStatementUnit] = []
     ordinal = 0
@@ -1097,6 +1255,7 @@ def _statement_units(block: ContentBlock) -> list[QuantitativeStatementUnit]:
                     id=unit_id,
                     block_id=block.id,
                     quote=piece,
+                    attribute_ref="",
                 )
             )
             ordinal += 1
@@ -1107,6 +1266,7 @@ def _statement_units(block: ContentBlock) -> list[QuantitativeStatementUnit]:
                 id="qlu-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16],
                 block_id=block.id,
                 quote="[visual content]",
+                attribute_ref="",
             )
         )
     return units
@@ -1125,6 +1285,7 @@ def _uncertain_unit_review(
         classification="uncertain",
         reason=reason,
         attribute_ref=attribute_ref,
+        review_status="needs_review",
     )
 
 
@@ -1167,12 +1328,15 @@ def _merge_document_targets(
 def _project_ledger_to_attributes(
     attributes: list[Attribute],
     ledger: QuantitativeLedger,
+    *,
+    admitted_statuses: set[str] | None = None,
 ) -> list[Attribute]:
     targets_by_attribute: dict[str, list[QuantitativeTarget]] = {
         attribute.name: [] for attribute in attributes
     }
     for target in ledger.targets:
-        targets_by_attribute[target.attribute_ref].append(target)
+        if admitted_statuses is None or target.review_status in admitted_statuses:
+            targets_by_attribute[target.attribute_ref].append(target)
     attributes_by_block: dict[str, set[str]] = {}
     for attribute in attributes:
         for block_id in attribute.block_ids:
@@ -1309,9 +1473,10 @@ def _document_ledger_system_prompt(
         "{indication}", indication
     )
     return (
-        "You create one document-first quantitative statement ledger. The supplied "
-        "statement units are non-overlapping and each unit must appear exactly once in "
-        "reviews. Do not read the same unit once per field.\n\n"
+        "You create quantitative proposals from the authoritative document-claim ledger. "
+        "Each supplied unit is already bound to exactly one canonical field. Preserve that "
+        "ownership; do not rebind it or interpret unrelated raw-document text. Each unit must "
+        "appear exactly once in reviews.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Document framing: {framing}\n\n"
         "Canonical fields:\n"
@@ -1323,13 +1488,16 @@ def _document_ledger_system_prompt(
         "explicit exact or directional scalar that can be compared independently. Split "
         "distinct roles, populations, regimens, time horizons, and semicolon-delimited "
         "claims into atomic target objects. A unit may contain multiple target objects. "
-        "For each target choose exactly one canonical attribute_ref from the catalog; "
-        "never use a broad field when a specific field directly names the quantity. "
+        "For each target repeat the canonical field shown beside the unit exactly. "
         "If a non-target clearly belongs to one field, set its attribute_ref; otherwise "
         "use an empty string. A [visual content] unit may be classified non_numeric when "
         "the image has no numeric claim; otherwise classify it uncertain because it has "
         "no exact source text from which a target can be verified.\n\n"
-        "Numeric syntax may come only from the supplied unit. Canonical bindings provide "
+        "A number is a target only when the document asserts it as a desired, required, "
+        "threshold, optimal, maximum, minimum, or exact criterion. Values mentioned only in "
+        "a rejected alternative, contrast, example, citation, background fact, or phrase such "
+        "as 'as opposed to' are context_only, never targets. Numeric syntax may come only from "
+        "the supplied unit. Canonical bindings provide "
         "cross-block meaning but are not additional numeric statements to extract in this "
         "batch. For each target, source_syntax selects the smallest complete literal numeric "
         "expression from the unit and its exact value, comparator, and unit substrings. Use "
@@ -1340,10 +1508,12 @@ def _document_ledger_system_prompt(
         "and block provenance; do not "
         "retype either. The surrounding source block may establish threshold/optimal role "
         "and semantic meaning. Preserve "
-        "the document's row or endpoint label. semantic_profile and comparison_dimensions "
-        "use measure, endpoint, intervention, population, regimen, time_horizon, statistic, "
-        "and conditions. Essential unresolved meaning must be unknown and "
-        "comparison-required. For every semantic slot, source_refs must identify where its "
+        "the document's row or endpoint label. semantic_profile uses measure, endpoint, "
+        "intervention, population, regimen, time_horizon, statistic, and conditions. "
+        "Comparison dimensions are derived by code from asserted semantic slots and from slots "
+        "that are unknown and comparison-required; "
+        "return the same set in comparison_dimensions for schema compatibility. For every "
+        "semantic slot, source_refs must identify where its "
         "meaning came from: statement for the reviewed unit, or one or more exact "
         "[context:<ref>] bindings above. Asserted slots require at least one source_ref; "
         "unasserted slots require none. Conditions includes only settings that change numeric "
@@ -1355,7 +1525,7 @@ def _document_ledger_system_prompt(
 
 def _document_ledger_user_message(batch: QuantitativeLedgerBatch) -> str:
     units = "\n".join(
-        f"[unit:{unit.id}] [block:{unit.block_id}] {unit.quote}"
+        f"[unit:{unit.id}] [field:{unit.attribute_ref}] [block:{unit.block_id}] {unit.quote}"
         for unit in batch.units
     )
     return (
@@ -1448,7 +1618,7 @@ def _validated_targets_with_issues(
                 or "invalid_target_semantic_contract"
             )
             continue
-        comparison_dimensions = list(
+        proposed_dimensions = list(
             dict.fromkeys(
                 str(value).strip()
                 for value in raw_dimensions
@@ -1460,12 +1630,25 @@ def _validated_targets_with_issues(
             for field_name, slot in semantic_profile.items()
             if slot.state in {"specified", "other"}
         }
-        if (
-            "measure" not in comparison_dimensions
-            or set(comparison_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS)
-            or not asserted_dimensions.issubset(comparison_dimensions)
-        ):
+        unknown_dimensions = {
+            field_name
+            for field_name, slot in semantic_profile.items()
+            if slot.state == "unknown"
+        }
+        if set(proposed_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS):
             issues.append("invalid_comparison_dimensions")
+            continue
+        # The semantic profile is authoritative. Deriving this projection here
+        # prevents two AI-owned representations of the same meaning from
+        # disagreeing and rejecting an otherwise valid target. Unknown slots
+        # remain comparison-required, which fails closed downstream.
+        comparison_dimensions = [
+            field_name
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+            if field_name in asserted_dimensions or field_name in unknown_dimensions
+        ]
+        if "measure" not in comparison_dimensions:
+            issues.append("invalid_target_semantic_contract")
             continue
         semantic_provenance = _validated_semantic_provenance(
             item.get("semantic_provenance"),
@@ -1523,6 +1706,7 @@ def _validated_targets_with_issues(
             semantic_provenance=semantic_provenance,
             provenance_spans=spans,
             ownership_reason=ownership_reason,
+            review_status=str(item.get("review_status", "approved")),
         )
         existing = targets_by_id.get(target.id)
         if existing is None:
@@ -1716,7 +1900,7 @@ def _validated_source_decisions(
         if status == "measurements_found" and not isinstance(raw_measurements, list):
             issues[source_id] = "invalid_measurement_list"
             continue
-        validated: list[Measurement] = []
+        validated_by_key: dict[str, Measurement] = {}
         measurement_issues: list[str] = []
         for raw_measurement in raw_measurements if isinstance(raw_measurements, list) else []:
             validation = _validated_passage_measurement(
@@ -1724,15 +1908,19 @@ def _validated_source_decisions(
                 passage=passage,
                 target=target,
             )
-            if validation.measurement is not None:
-                validated.append(validation.measurement)
+            if validation.measurement is not None and validation.candidate_key is not None:
+                validated_by_key.setdefault(
+                    validation.candidate_key.canonical_json,
+                    validation.measurement,
+                )
             else:
                 measurement_issues.append(validation.code or "invalid_measurement")
-        if isinstance(raw_measurements, list) and len(validated) != len(raw_measurements):
+        if measurement_issues:
             # Never silently keep only the convenient subset of a model
             # decision. Retry the whole source or preserve it as uncertain.
             issues[source_id] = ", ".join(dict.fromkeys(measurement_issues))
             continue
+        validated = list(validated_by_key.values())
         if status == "measurements_found" and not validated:
             issues[source_id] = "missing_validated_measurement"
             continue
@@ -1783,6 +1971,7 @@ def _validated_passage_measurement(
         raw.get("semantic_assessment"),
         required_fields=_required_comparison_axes(target),
     )
+    evidence_unit = _validated_evidence_unit_identity(raw.get("evidence_unit"))
     if (
         expression is None
     ):
@@ -1795,37 +1984,82 @@ def _validated_passage_measurement(
             code="invalid_measurement_semantics",
             reason="Measurement semantics did not satisfy the target contract.",
         )
-    material = json.dumps(
-        {
-            "source_id": passage.id,
-            "quote": _normalize_quote(quote),
-            "expression": {
-                "kind": expression.kind,
-                "unit": _unit_key(expression.unit),
-                "value": expression.value,
-                "lower": expression.lower,
-                "upper": expression.upper,
-                "comparator": expression.comparator,
-            },
-        },
-        sort_keys=True,
-    )
-    candidate_id = "qm-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+    if evidence_unit is None:
+        return _PassageMeasurementValidation(
+            code="invalid_evidence_unit",
+            reason="Measurement evidence-unit identity did not satisfy the contract.",
+        )
     source_record_id, source_identity_status = _source_record_identity(passage.finding)
+    evidence_unit_id = _evidence_unit_key(source_record_id, evidence_unit)
+    candidate_key = _MeasurementCandidateKey.from_validated(
+        target_id=target.id,
+        source_id=passage.id,
+        quote=quote,
+        expression=expression,
+        evidence_unit_id=evidence_unit_id,
+        evidence_unit=evidence_unit,
+        semantic_assessment=semantic_assessment,
+    )
     measurement = Measurement(
         expression=expression,
-        candidate_id=candidate_id,
+        candidate_id=candidate_key.candidate_id,
         url=passage.finding.url,
         insight_id=passage.insight.id,
         source_quote=quote,
         source_record_id=source_record_id,
         source_identity_status=source_identity_status,
+        evidence_unit_id=evidence_unit_id,
+        evidence_unit=evidence_unit,
         semantic_assessment=semantic_assessment,
     )
     measurement.semantic_status, measurement.semantic_reason = (
         _derived_semantic_status(measurement, target)
     )
-    return _PassageMeasurementValidation(measurement=measurement)
+    return _PassageMeasurementValidation(
+        measurement=measurement,
+        candidate_key=candidate_key,
+    )
+
+
+def _validated_evidence_unit_identity(raw: object) -> EvidenceUnitIdentity | None:
+    try:
+        wire = EvidenceUnitIdentityWire.model_validate(raw)
+        return EvidenceUnitIdentity(
+            status=wire.status,
+            group=SemanticSlot(**wire.group.model_dump()),
+            cohort=SemanticSlot(**wire.cohort.model_dump()),
+            reason=wire.reason,
+        )
+    except (ValidationError, ValueError):
+        return None
+
+
+def _evidence_unit_key(
+    source_record_id: str,
+    identity: EvidenceUnitIdentity,
+) -> str:
+    """Build one deterministic within-record comparison-unit key.
+
+    Unresolved identity deliberately collapses to record level. Resolved units
+    distinguish only the source-stated group and cohort—not endpoint, timepoint,
+    or statistic, which do not make repeated observations independent.
+    """
+    if identity.status != "resolved":
+        return f"{source_record_id}/unit:record"
+
+    def slot_value(slot: SemanticSlot) -> str:
+        value = slot.value if slot.state == "specified" else slot.other
+        return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+
+    material = json.dumps(
+        {
+            "group": slot_value(identity.group),
+            "cohort": slot_value(identity.cohort),
+        },
+        sort_keys=True,
+    )
+    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+    return f"{source_record_id}/unit:{digest}"
 
 
 def _validated_ternary_decision(raw: object) -> TernaryDecision | None:
@@ -2155,10 +2389,17 @@ def _validated_expression_mapping(
                 code="source_comparator_mismatch",
                 reason="The normalized operator contradicted the literal source symbol.",
             )
-    elif syntax["comparator_text"] or expression.comparator:
+    elif expression.comparator:
         return _NumericMappingValidation(
             code="unexpected_source_comparator",
             reason="A non-bound expression cannot carry a comparison operator.",
+        )
+    elif syntax["comparator_text"] and _symbolic_comparator(
+        syntax["comparator_text"]
+    ) not in {"", "="}:
+        return _NumericMappingValidation(
+            code="unexpected_source_comparator",
+            reason="A non-bound expression cannot carry a directional operator.",
         )
 
     if expression.kind not in {"other", "unknown"} and not syntax["unit_text"]:
@@ -2195,6 +2436,13 @@ def _measurement_system_prompt(
         "or a meaningfully related quantity. Each extracted measurement must contain the shortest "
         "self-contained exact quote that explicitly connects the number to the measured outcome "
         "or property and preserves its qualifiers, plus one expression object and source_syntax. "
+        "Also return evidence_unit for the distinct source group that owns the measurement. "
+        "Use status=resolved only when the passage explicitly distinguishes that arm or cohort from "
+        "another non-overlapping comparison arm or cohort in the same source record. Put that identity "
+        "in group and cohort; these labels describe who contributed the observation, not its endpoint, "
+        "timepoint, statistic, or analysis method. Use record_level when the source reports only one "
+        "aggregate group, even when that population is described. Use uncertain when groups may overlap or the passage suggests multiple groups but "
+        "does not identify which one owns the value. Do not invent arm or cohort names. "
         "source_syntax selects the smallest complete literal numeric expression inside the quote "
         "and its exact value, bounds, comparator, and unit substrings; use empty strings for parts "
         "that do not apply. expression is the normalized form and its numeric values must remain "

@@ -15,8 +15,13 @@ web/ → api/ → services/ → shared/
   import another service's `stages/` or `models.py`.
 - Services are stateless. Variability from LLMs and live retrieval is expected;
   hidden server-side session state is not.
-- OpenAI is the sole model provider, constructed in `shared/openai_client.py`.
-  Do not add per-request provider/model switches.
+- OpenAI is the primary model provider, constructed in `shared/openai_client.py`.
+  Services select only the closed server-owned `fast | reasoning` task class;
+  model names live in the shared client/environment and are never request/UI
+  parameters. The sole provider-diversity exception is Scout's independent,
+  non-authoritative document-target verifier, constructed through
+  `shared/anthropic_client.py`. Anthropic must not be used for extraction,
+  retrieval, evidence reasoning, Ask, or as an OpenAI fallback.
 - Engineering behavior belongs in Python/TypeScript. Human-owned domain content
   belongs in `services/*/configs/*.yaml`; controlled vocabularies belong in
   `shared/*.yaml` as flat records keyed by intervention. Scout attributes also
@@ -109,6 +114,9 @@ The retrieval flow is deliberately split:
 
 ```text
 relevant document blocks
+→ canonical document claim ledger
+→ numeric proposals from exact canonical field spans
+→ portable target review and frozen approved targets
 → source-neutral query intents
 → source adapter planning
 → source-native requests
@@ -140,9 +148,11 @@ Preserve these invariants:
   Retry only structurally missing or invalid decisions once, retain an explicit
   `target_resolution_reason`, and stop before numeric interpretation or
   retrieval if any field remains unresolved. Valid decisions must not be rerun.
-  Numeric expressions remain restricted to their exact statement units and may
-  bind only to a resolved field within its canonical cited blocks. The numeric
-  ledger receives the same one-retry/fail-closed treatment per statement:
+  Numeric expressions remain restricted to complete exact spans already bound
+  to a canonical field. Numeric interpretation may not rescan unrelated raw
+  blocks or select field ownership again. The numeric ledger receives the same
+  one-retry/fail-closed treatment per span and then pauses before retrieval for
+  explicit target approval/rejection and acknowledgement of uncertain exclusions:
   unresolved numeric statements remain auditable and cannot enter target-specific
   retrieval or calibration, but they do not block qualitative retrieval from the
   verified claim ledger. Only resolved fields with document-present targets
@@ -228,9 +238,11 @@ Scout's four result axes are intentionally orthogonal:
 
 - drift: `contradicts | extends | confirms | unrelated`
 - grounding: `well_grounded | partial | thin | unsupported | unknown`
-- quantitative alignment and assumption calibration: deterministic calculation
-  over independently retained document targets bound before retrieval and exact-quoted,
-  block/source-validated, semantically normalized, study-deduplicated measurements;
+- quantitative alignment and assumption calibration: AI maps independently
+  retained exact-quoted candidates against document targets bound before
+  retrieval. Prose-derived candidates require explicit review; only typed
+  structured facts may be auto-admitted. Deterministic calculation consumes
+  admitted, source-validated, semantically normalized, study-deduplicated measurements;
   never collapse threshold/optimal or qualifier-specific targets, silently
   convert incompatible units, treat a synthesized Insight as numeric provenance,
   or present cohort spread/percentiles as inferential uncertainty or likelihood
@@ -261,6 +273,16 @@ Scout's four result axes are intentionally orthogonal:
   defaults to preserve the full public shape. `conditions` is only a compact
   measurement setting that changes numeric comparability, never rationale,
   policy, acceptability, or implementation prose.
+  Evidence-unit identity is keyed by source record unless the retained passage
+  explicitly distinguishes a non-overlapping comparison arm/cohort from another
+  arm/cohort in that record. Endpoint, timepoint, statistic, or analysis method
+  never creates a new evidence unit. Alternative values for one
+  target/evidence-unit pair are one review choice; distinct evidence units may
+  both enter the cohort. One canonical target-relative key generates candidate
+  IDs; exact repeated proposals are deduplicated only while validated model
+  output is decoded. Review and calculation consume that already-unique list,
+  and final validation only asserts uniqueness. Keep this identity in the existing source-measurement
+  mapping rather than adding another model stage.
   Deterministic code derives the aggregate
   `comparable | contextual | incompatible | unknown` disposition using only
   dimensions actually constrained by the target; ambiguous target dimensions
@@ -282,8 +304,10 @@ Deterministic code validates document IDs, insight IDs, URLs, units, provenance,
 deduplication and rollups. Do not restore holistic “basis” tags.
 
 Scout AI mappings use strict schemas from `services/scout/ai_contracts.py`
-through `services/scout/ai.py` and `OpenAIClient.call_structured`. Do not add
-stage-local JSON/fence recovery or treat schema validity as provenance validity.
+through `services/scout/ai.py`. Load-bearing stages use
+`OpenAIClient.call_structured`; the independent target verifier alone may use
+`AnthropicReviewClient.call_structured` with that same stage contract. Do not
+add stage-local JSON/fence recovery or treat schema validity as provenance validity.
 Original-document authority narrows monotonically: document-wide context may
 validate configuration; the document-level claim ledger binds meaning across
 the complete fixed-field catalog; exact statement units own numeric syntax.
@@ -298,12 +322,26 @@ independently reinterpret the uploaded document.
 - Ask is stateless: the client sends the result, source document, and conversation
   history every turn.
 - Portable Inspector/Aligner/Scout downloads use the versioned `pdis.result` envelope
-  (`web/lib/result-file.ts`), currently version 26, separating analysis from
+  (`web/lib/result-file.ts`), currently version 31, separating analysis from
   `source_documents`.
-- A completed Scout run is the sole producer of its quantitative ledgers. Export
-  and import preserve that canonical result without rerunning or mutating any
-  reasoning stage. Incompatible old artifacts remain viewable but require a new
-  analysis to adopt a newer contract.
+- Scout first produces a portable `target_review` draft before retrieval. The
+  model may propose numeric meaning only from already-bound canonical field
+  spans and cannot choose field ownership. A separate non-authoritative review
+  call may only recommend confirm/exclude/flag for existing target IDs; it cannot
+  modify target meaning or provenance, and failures must degrade to manual review.
+  Approved targets are frozen through
+  the stateless continuation endpoint; rejected and acknowledged-uncertain
+  items remain auditable and cannot shape queries or statistics.
+- Evidence mapping produces an `evidence_review` draft when prose-derived quantitative
+  candidates need admission decisions. Review groups are keyed by target plus
+  evidence unit (source record, or an explicitly distinguished non-overlapping
+  arm/cohort); alternative estimates within a unit are one multiple-choice
+  decision, while distinct units remain separately admissible. Draft
+  decisions are deterministic, client-held, and undoable; download and Ask
+  remain unavailable until every group is resolved and the user explicitly finalizes. Only then may the
+  client emit a `state: "final"` artifact. Final
+  imports are read-only and are never recalculated. Incompatible old artifacts
+  remain viewable but require a new analysis to adopt a newer extraction contract.
 - Backward compatibility belongs only in the import normalizer. Runtime UI and
   services consume the current contract without legacy branches.
 - Old JSON may remain viewable, but missing images, query lineage, and retrieval
@@ -319,7 +357,7 @@ independently reinterpret the uploaded document.
   proxy.
 - Ask has JSON `/api/assistant/ask` and plain-text streaming
   `/api/assistant/ask/stream` endpoints.
-- Secrets remain server-side: `OPENAI_API_KEY`, optional `NCBI_API_KEY`, the
+- Secrets remain server-side: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, optional `NCBI_API_KEY`, the
   ToolUniverse bearer token, and provider credentials held by that private
   connector service.
 

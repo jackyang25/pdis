@@ -36,7 +36,7 @@ function Point({
           type="button"
           className="absolute z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/30"
           style={{ left: `${point.x}%`, top: `calc(50% + ${laneOffsets[point.lane]}px)` }}
-          aria-label={`${contextual ? "Contextual measurement" : "Included comparator"}: ${formatValue(point.value, unit)}. ${point.source_quote}`}
+          aria-label={`${contextual ? "Non-admitted measurement" : "Admitted comparator"}: ${formatValue(point.value, unit)}. ${point.source_quote}`}
         >
           <span
             className={contextual
@@ -52,7 +52,7 @@ function Point({
         className="w-[min(300px,calc(100vw-32px))] p-3"
       >
         <p className="text-xs font-semibold text-foreground">
-          {formatValue(point.value, unit)} · {contextual ? "Context only" : "Direct comparator"}
+          {formatValue(point.value, unit)} · {contextual ? "Not admitted" : "Admitted comparator"}
         </p>
         <blockquote className="mt-2 border-l-2 border-border pl-2.5 text-[11px] leading-relaxed text-foreground/80">
           {point.source_quote}
@@ -118,14 +118,14 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
         <span className="text-[10px] text-muted-foreground">
           {hasIncluded
             ? `${conformity.target_meeting_count}/${conformity.benchmark_count} meet target · ${Math.round(conformity.target_meeting_rate * 100)}% observed share`
-            : `${model.excluded.length} contextual measurement${model.excluded.length === 1 ? "" : "s"}`}
+            : `${model.excluded.length} non-admitted measurement${model.excluded.length === 1 ? "" : "s"}`}
         </span>
       </figcaption>
 
       <div
         className={`relative mt-5 ${hasIncluded && hasExcluded ? "h-[190px]" : "h-[125px]"}`}
         role="group"
-        aria-label={`Distribution of ${model.included.length} validated comparators and ${model.excluded.length} contextual measurements. Document target ${target}.`}
+        aria-label={`Distribution of ${model.included.length} admitted comparators and ${model.excluded.length} non-admitted measurements. Document target ${target}.`}
       >
         {hasIncluded && (
           <span className="absolute left-0 top-[58px] text-[9px] uppercase tracking-wide text-muted-foreground">
@@ -137,7 +137,7 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
             className="absolute left-0 text-[9px] uppercase tracking-wide text-muted-foreground"
             style={{ top: `${excludedLabelTop}px` }}
           >
-            Context only
+            Not admitted
           </span>
         )}
 
@@ -205,10 +205,10 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
         <span>{formatValue(model.domainMaximum, conformity.unit)}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[9px] text-muted-foreground">
-        {hasIncluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-foreground/75" />Direct comparator</span>}
+        {hasIncluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-foreground/75" />Admitted comparator</span>}
         {showQuartiles && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-5 rounded-sm bg-muted-foreground/20" />Middle 50%</span>}
         <span className="inline-flex items-center gap-1.5"><span className="h-3 border-l border-dashed border-foreground/60" />Document target</span>
-        {hasExcluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full border border-muted-foreground bg-card" />Related context, excluded from statistics</span>}
+        {hasExcluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full border border-muted-foreground bg-card" />Candidate or context, not admitted</span>}
       </div>
       {model.unplottableExcludedCount > 0 && (
         <p className="mt-1.5 text-[9px] text-muted-foreground/70">

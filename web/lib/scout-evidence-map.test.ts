@@ -5,6 +5,7 @@ import type { ScoutResponse } from "./api.ts";
 import { buildScoutEvidenceMap } from "./scout-evidence-map.ts";
 
 const result = {
+  phase: "final" as const,
   org: "bmgf",
   source_type: "itpp",
   intervention_class: "vaccine",

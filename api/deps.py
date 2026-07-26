@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from fastapi import HTTPException
 
+from shared.anthropic_client import AnthropicReviewClient
 from shared.openai_client import OpenAIClient
 from services.searcher import (
     SearchRuntime,
@@ -18,13 +19,24 @@ TOOLUNIVERSE_INTEGRATION = "tooluniverse"
 
 
 def get_openai_client() -> OpenAIClient:
-    """Construct the shared client from OPENAI_API_KEY and optional OPENAI_MODEL."""
+    """Construct the shared client and its server-owned two-tier model policy."""
     if not os.environ.get("OPENAI_API_KEY"):
         raise HTTPException(
             status_code=500,
             detail="Missing OPENAI_API_KEY in server environment.",
         )
     return OpenAIClient()
+
+
+def get_target_review_client() -> AnthropicReviewClient | None:
+    """Build the optional, provider-diverse Scout target verifier.
+
+    A missing Anthropic credential does not route review back through OpenAI;
+    Scout instead leaves every proposal flagged for explicit human review.
+    """
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return None
+    return AnthropicReviewClient()
 
 
 def get_search_runtime(

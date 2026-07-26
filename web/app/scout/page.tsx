@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, ChevronDown, Search } from "lucide-react";
+import { AlertTriangle, ChevronDown, CircleHelp, Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { ConfigurationFields } from "@/components/configuration-fields";
@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/empty-state";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { DownloadButton } from "@/components/download-button";
 import {
+  continueScout,
   runScout,
   type Conformity,
   type DevelopmentProgram,
@@ -18,13 +19,17 @@ import {
   type Finding,
   type Header,
   type Match,
+  type Measurement,
   type NumericExpression,
+  type QuantitativeTarget,
+  type SemanticSlot,
   type ScoutResponse,
   type SafetySignal,
   type PrecedentSignal,
 } from "@/lib/api";
 import { Ask } from "@/components/assistant/ask";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -33,7 +38,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useScoutSession } from "@/lib/session";
-import { packScoutResult, scoutResultFilename, unpackScoutResult } from "@/lib/result-file";
+import { useScoutReviewSession } from "@/lib/scout-review-session";
+import {
+  isScoutResultFinal,
+  packScoutResult,
+  pendingQuantitativeReviewCount,
+  scoutResultFilename,
+  unpackScoutResult,
+} from "@/lib/result-file";
 import { displayAttributeLabel } from "@/lib/scout-evidence-map";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -43,6 +55,9 @@ import {
 } from "@/components/scout-signal-help";
 import { SourceAttributions } from "@/components/source-attributions";
 import { ComparatorDistributionPlot } from "@/components/comparator-distribution-plot";
+import {
+  reviewQuantitativeCandidateGroup,
+} from "@/lib/quantitative-review";
 import {
   DocumentSourceProvider,
   DocumentSourceTrace,
@@ -69,6 +84,7 @@ const SCOUT_STEPS = [
   { key: "context", label: "Validating document context" },
   { key: "targets", label: "Binding document fields" },
   { key: "quantitative_targets", label: "Structuring measurable targets" },
+  { key: "target_review", label: "Prefilling target review" },
   { key: "queries", label: "Extracting queries" },
   { key: "search", label: "Searching evidence sources" },
   { key: "insights", label: "Extracting insights" },
@@ -120,13 +136,16 @@ const TARGET_ALIGNMENT_DOT = "bg-slate-400";
 
 function formatNumericExpression(expression: NumericExpression): string {
   const unit = expression.unit ?? "";
+  const unitSuffix = unit
+    ? /^[%°]/.test(unit) ? unit : ` ${unit}`
+    : "";
   if (expression.kind === "range" || expression.kind === "confidence_interval") {
     return expression.lower == null || expression.upper == null
       ? "Unresolved numeric expression"
-      : `${expression.lower}–${expression.upper}${unit}`;
+      : `${expression.lower}–${expression.upper}${unitSuffix}`;
   }
   if (expression.value == null) return "Unresolved numeric expression";
-  return `${expression.comparator}${expression.value}${unit}`;
+  return `${expression.comparator} ${expression.value}${unitSuffix}`;
 }
 
 const PRECEDENT_META: Record<PrecedentSignal["precedent"], { label: string; dot: string }> = {
@@ -347,6 +366,15 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     setProgress,
     setError,
   } = useScoutSession();
+  const {
+    status: reviewStatus,
+    history: reviewHistory,
+    initialize: initializeReview,
+    recordDecision,
+    undoLast,
+    finalize: finalizeReview,
+    reset: resetReview,
+  } = useScoutReviewSession();
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const [showRunPanel, setShowRunPanel] = useState(!result);
@@ -354,6 +382,12 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   useEffect(() => {
     if (result) setShowRunPanel(false);
   }, [result]);
+
+  useEffect(() => {
+    if (result && result.phase !== "target_review" && reviewStatus === "idle") {
+      initializeReview(!isScoutResultFinal(result));
+    }
+  }, [initializeReview, result, reviewStatus]);
 
   async function handleRun(file: File) {
     setBusy(true);
@@ -366,6 +400,8 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
         setProgress(p ?? null);
       });
       setResult(res);
+      if (res.phase === "target_review") resetReview();
+      else initializeReview(!isScoutResultFinal(res));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -385,9 +421,121 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
       setStage(null);
       setProgress(null);
       setResult(parsed);
+      initializeReview(!isScoutResultFinal(parsed));
     } catch (err) {
       setError(`Could not import result: ${(err as Error).message}`);
     }
+  }
+
+  function handleTargetDecision(targetId: string, decision: "approved" | "rejected") {
+    if (!result || result.phase !== "target_review") return;
+    const updateTarget = (target: QuantitativeTarget): QuantitativeTarget =>
+      target.id === targetId ? { ...target, review_status: decision } : target;
+    setResult({
+      ...result,
+      quantitative_ledger: {
+        ...result.quantitative_ledger,
+        targets: result.quantitative_ledger.targets.map(updateTarget),
+      },
+      variables: result.variables.map((variable) => ({
+        ...variable,
+        quantitative_targets: variable.quantitative_targets.map(updateTarget),
+      })),
+    });
+  }
+
+  function handleStatementDecision(unitId: string) {
+    if (!result || result.phase !== "target_review") return;
+    setResult({
+      ...result,
+      quantitative_ledger: {
+        ...result.quantitative_ledger,
+        reviews: result.quantitative_ledger.reviews.map((review) =>
+          review.unit_id === unitId
+            ? { ...review, review_status: "accepted_exclusion" as const }
+            : review
+        ),
+      },
+    });
+  }
+
+  async function handleContinueAnalysis() {
+    if (!result || result.phase !== "target_review") return;
+    if (pendingQuantitativeReviewCount(result) > 0) {
+      setError("Resolve every document-target review item before continuing.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setStage(null);
+    setProgress(null);
+    try {
+      const completed = await continueScout(result, (s, p) => {
+        setStage(s);
+        setProgress(p ?? null);
+      });
+      setResult(completed);
+      initializeReview(completed.phase === "evidence_review");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleQuantitativeReview(
+    targetId: string,
+    candidateIds: string[],
+    selectedCandidateId: string | null,
+  ) {
+    if (!result) return;
+    const previousScore = result.conformity.find((score) => score.target_id === targetId);
+    if (!previousScore) return;
+    const reviewedScore = reviewQuantitativeCandidateGroup(
+      previousScore,
+      candidateIds,
+      selectedCandidateId,
+    );
+    if (reviewedScore === previousScore) return;
+    const nextResult = {
+      ...result,
+      conformity: result.conformity.map((score) =>
+        score.target_id === targetId ? reviewedScore : score
+      ),
+    };
+    setResult(nextResult);
+    recordDecision(
+      {
+        targetId,
+        candidateIds,
+        selectedCandidateId,
+        decision: selectedCandidateId == null ? "reject" : "approve",
+        previousScore,
+      },
+      pendingQuantitativeReviewCount(nextResult) > 0,
+    );
+  }
+
+  function handleUndoReview() {
+    if (!result) return;
+    const entry = undoLast();
+    if (!entry) return;
+    setResult({
+      ...result,
+      conformity: result.conformity.map((score) =>
+        score.target_id === entry.targetId ? entry.previousScore : score
+      ),
+    });
+  }
+
+  function handleFinalizeReview() {
+    if (!result || pendingQuantitativeReviewCount(result) > 0) {
+      setError("Resolve every quantitative review candidate before finalizing.");
+      return;
+    }
+    setError(null);
+    setResult({ ...result, phase: "final" });
+    finalizeReview();
   }
 
   return (
@@ -431,14 +579,795 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
       {result && <ContextValidationNotice result={result} />}
-      {result && (
-        <FieldGrid
+      {result && result.phase === "target_review" && (
+        <DocumentTargetReviewCheckpoint
           result={result}
+          busy={busy}
+          stage={stage}
+          progress={progress}
+          onTargetDecision={handleTargetDecision}
+          onStatementDecision={handleStatementDecision}
+          onContinue={handleContinueAnalysis}
           onNewAnalysis={() => setShowRunPanel(true)}
         />
       )}
-      {result && <Ask resultType="scout" result={result} />}
+      {result && result.phase === "evidence_review" && reviewStatus === "reviewing" && (
+        <QuantitativeReviewCheckpoint
+          result={result}
+          onNewAnalysis={() => setShowRunPanel(true)}
+          onReview={handleQuantitativeReview}
+          onUndo={handleUndoReview}
+          canUndo={reviewHistory.length > 0}
+        />
+      )}
+      {result && result.phase === "evidence_review" && reviewStatus === "ready" && (
+        <QuantitativeReviewComplete
+          result={result}
+          onUndo={handleUndoReview}
+          onFinalize={handleFinalizeReview}
+        />
+      )}
+      {result && result.phase === "final" && reviewStatus === "final" && (
+        <FieldGrid result={result} onNewAnalysis={() => setShowRunPanel(true)} />
+      )}
+      {result && result.phase === "final" && reviewStatus === "final" && (
+        <Ask resultType="scout" result={result} />
+      )}
     </div>
+  );
+}
+
+function DocumentTargetReviewCheckpoint({
+  result,
+  busy,
+  stage,
+  progress,
+  onTargetDecision,
+  onStatementDecision,
+  onContinue,
+  onNewAnalysis,
+}: {
+  result: ScoutResponse;
+  busy: boolean;
+  stage: string | null;
+  progress: { completed: number; total: number } | null;
+  onTargetDecision: (targetId: string, decision: "approved" | "rejected") => void;
+  onStatementDecision: (unitId: string) => void;
+  onContinue: () => void;
+  onNewAnalysis: () => void;
+}) {
+  const targets = result.quantitative_ledger.targets;
+  const statements = result.quantitative_ledger.reviews.filter(
+    (review) => review.classification === "uncertain",
+  );
+  const pendingTargets = targets.filter((target) => target.review_status === "needs_review");
+  const pendingStatements = statements.filter((review) => review.review_status === "needs_review");
+  const total = targets.length + statements.length;
+  const completed = total - pendingTargets.length - pendingStatements.length;
+  const [selectedItem, setSelectedItem] = useState<string | null>(null);
+  const itemKeys = [
+    ...targets.map((target) => `target:${target.id}`),
+    ...statements.map((statement) => `statement:${statement.unit_id}`),
+  ];
+  const firstPendingKey = pendingTargets[0]
+    ? `target:${pendingTargets[0].id}`
+    : pendingStatements[0]
+      ? `statement:${pendingStatements[0].unit_id}`
+      : itemKeys[0] ?? null;
+
+  useEffect(() => {
+    if (selectedItem && itemKeys.includes(selectedItem)) return;
+    setSelectedItem(firstPendingKey);
+  }, [firstPendingKey, itemKeys, selectedItem]);
+
+  const target = selectedItem?.startsWith("target:")
+    ? targets.find((item) => item.id === selectedItem.slice("target:".length))
+    : undefined;
+  const statement = selectedItem?.startsWith("statement:")
+    ? statements.find((item) => item.unit_id === selectedItem.slice("statement:".length))
+    : undefined;
+  const variable = target
+    ? result.variables.find((item) => item.name === target.attribute_ref)
+    : statement
+      ? result.variables.find((item) => item.name === statement.attribute_ref)
+      : undefined;
+  const confirmedCount = targets.filter((item) => item.review_status === "approved").length;
+  const excludedCount = targets.filter((item) => item.review_status === "rejected").length;
+
+  function nextPendingKey(currentKey: string): string | null {
+    const remaining = [
+      ...pendingTargets
+        .filter((item) => `target:${item.id}` !== currentKey)
+        .map((item) => `target:${item.id}`),
+      ...pendingStatements
+        .filter((item) => `statement:${item.unit_id}` !== currentKey)
+        .map((item) => `statement:${item.unit_id}`),
+    ];
+    return remaining[0] ?? currentKey;
+  }
+
+  function decideTarget(targetId: string, decision: "approved" | "rejected") {
+    const key = `target:${targetId}`;
+    onTargetDecision(targetId, decision);
+    if (target?.review_status === "needs_review") setSelectedItem(nextPendingKey(key));
+  }
+
+  function decideStatement(unitId: string) {
+    const key = `statement:${unitId}`;
+    onStatementDecision(unitId);
+    setSelectedItem(nextPendingKey(key));
+  }
+
+  return (
+    <DocumentSourceProvider blocks={result.blocks ?? []}>
+      <section className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
+        <header className="border-b border-border/80 px-5 py-5 sm:px-7">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Document checkpoint
+                </p>
+                <ReviewHelp>
+                  Scout has already tied each item to a canonical document field and exact source block.
+                  Confirm measurable targets before they shape retrieval and statistics. Excluded items remain
+                  in the audit ledger.
+                </ReviewHelp>
+              </div>
+              <h2 className="mt-1 text-lg font-semibold text-foreground">
+                Review document targets
+              </h2>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                Confirm that each proposed number is a real document commitment—not background context,
+                an example, or a rejected alternative.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {pendingTargets.length + pendingStatements.length === 0 && (
+                <Button size="sm" disabled={busy} onClick={onContinue}>
+                  {busy ? "Continuing…" : "Continue to evidence"}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" disabled={busy} onClick={onNewAnalysis}>
+                New analysis
+              </Button>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <div
+              className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-label="Document target review progress"
+              aria-valuemin={0}
+              aria-valuemax={total}
+              aria-valuenow={completed}
+            >
+              <div
+                className="h-full rounded-full bg-foreground transition-[width] duration-200"
+                style={{ width: `${total ? (completed / total) * 100 : 100}%` }}
+              />
+            </div>
+            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+              {completed} of {total}
+            </span>
+          </div>
+        </header>
+
+        <div className="border-b border-border/80 bg-muted/10 px-5 py-5 sm:px-7">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">AI-prefilled target review</h3>
+              <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
+                Scout reviewed every proposed target against the complete uploaded document. Select any row
+                to inspect its source and change the recommendation before retrieval begins.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-[10px] font-medium text-muted-foreground">
+              <ReviewCount dot="bg-emerald-500" label={`${confirmedCount} confirmed`} />
+              <ReviewCount dot="bg-muted-foreground/50" label={`${excludedCount} excluded`} />
+              <ReviewCount dot="bg-amber-400" label={`${pendingTargets.length} flagged`} />
+            </div>
+          </div>
+
+          <div className="mt-4 max-h-72 overflow-y-auto rounded-lg border border-border/80 bg-card">
+            <div className="divide-y divide-border/70">
+              {targets.map((item) => {
+                const presentation = targetReviewPresentation(item.review_status);
+                const selected = selectedItem === `target:${item.id}`;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setSelectedItem(`target:${item.id}`)}
+                    className={`grid w-full gap-2 px-3 py-2.5 text-left transition-colors hover:bg-muted/35 sm:grid-cols-[minmax(0,0.85fr)_minmax(0,0.7fr)_minmax(0,1.45fr)] sm:items-center ${selected ? "bg-muted/45" : "bg-card"}`}
+                    aria-current={selected ? "true" : undefined}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-[11px] font-medium text-foreground">
+                        {displayAttributeLabel(item.attribute_ref)}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                        {formatNumericExpression(item.expression)}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[10px] font-medium text-foreground">
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${presentation.dot}`} />
+                      {presentation.label}
+                    </span>
+                    <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+                      {item.ai_review_reason || "No reviewer explanation was returned; manual review is required."}
+                    </span>
+                  </button>
+                );
+              })}
+              {statements.map((item) => {
+                const pending = item.review_status === "needs_review";
+                const selected = selectedItem === `statement:${item.unit_id}`;
+                return (
+                  <button
+                    key={item.unit_id}
+                    type="button"
+                    onClick={() => setSelectedItem(`statement:${item.unit_id}`)}
+                    className={`grid w-full gap-2 px-3 py-2.5 text-left transition-colors hover:bg-muted/35 sm:grid-cols-[minmax(0,0.85fr)_minmax(0,0.7fr)_minmax(0,1.45fr)] sm:items-center ${selected ? "bg-muted/45" : "bg-card"}`}
+                    aria-current={selected ? "true" : undefined}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-[11px] font-medium text-foreground">
+                        {displayAttributeLabel(item.attribute_ref || "Document context")}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                        Uncertain numeric statement
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[10px] font-medium text-foreground">
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${pending ? "bg-amber-400" : "bg-muted-foreground/50"}`} />
+                      {pending ? "Flagged" : "Excluded"}
+                    </span>
+                    <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+                      {item.reason}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {target ? (
+          <div className="grid lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="border-b border-border/80 p-5 sm:p-7 lg:border-b-0 lg:border-r">
+              <div className="flex items-center justify-between gap-3">
+                <SectionLabel>Canonical field</SectionLabel>
+                <DocumentSourceTrace
+                  blockIds={target.doc_block_ids}
+                  spans={target.provenance_spans}
+                />
+              </div>
+              <p className="mt-3 text-base font-semibold text-foreground">
+                {displayAttributeLabel(target.attribute_ref)}
+              </p>
+              {variable?.description && (
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {variable.description}
+                </p>
+              )}
+              <blockquote className="mt-4 border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground/85">
+                {target.quote}
+              </blockquote>
+            </div>
+            <div className="p-5 sm:p-7">
+              <SectionLabel>Proposed measurable target</SectionLabel>
+              <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <p className="text-xl font-semibold text-foreground">
+                  {formatNumericExpression(target.expression)}
+                </p>
+                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium capitalize text-muted-foreground">
+                  {target.role}
+                </span>
+              </div>
+              <dl className="mt-5 grid gap-x-5 gap-y-4 sm:grid-cols-2">
+                {target.comparison_dimensions.map((dimension) => (
+                  <div key={dimension} className="min-w-0">
+                    <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {dimensionLabel(dimension)}
+                    </dt>
+                    <dd className="mt-0.5 text-xs leading-relaxed text-foreground">
+                      {semanticSlotLabel(target.semantic_profile[dimension])}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mt-5 text-[11px] leading-relaxed text-muted-foreground">
+                {target.ownership_reason}
+              </p>
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+                <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${aiRecommendationPresentation(target.ai_recommendation).dot}`} />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold text-foreground">
+                    AI recommendation · {aiRecommendationPresentation(target.ai_recommendation).label}
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                    {target.ai_review_reason || "No explanation was returned; review this proposal manually."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : statement ? (
+          <div className="p-5 sm:p-7">
+            <div className="flex items-center justify-between gap-3">
+              <SectionLabel>Uncertain numeric statement</SectionLabel>
+              <DocumentSourceTrace
+                blockIds={[statement.block_id]}
+                spans={[{ quote: statement.quote, block_ids: [statement.block_id] }]}
+              />
+            </div>
+            <p className="mt-3 text-sm font-semibold text-foreground">
+              {displayAttributeLabel(statement.attribute_ref || variable?.name || "Document context")}
+            </p>
+            <blockquote className="mt-3 max-w-4xl border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground/85">
+              {statement.quote}
+            </blockquote>
+            <div className="mt-4 flex max-w-4xl items-start gap-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-xs leading-relaxed text-muted-foreground">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{statement.reason}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="px-5 py-9 sm:px-7">
+            <p className="text-base font-semibold text-foreground">Document targets are resolved</p>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+              Approved targets will shape target-specific queries and quantitative calibration. Rejected and
+              uncertain statements remain traceable but cannot enter calculations.
+            </p>
+          </div>
+        )}
+
+        <footer className="flex flex-col-reverse gap-2 border-t border-border/80 bg-muted/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            {busy
+              ? `${stage ? SCOUT_STEPS.find((item) => item.key === stage)?.label ?? stage : "Continuing analysis"}${progress ? ` · ${progress.completed}/${progress.total}` : ""}`
+              : "Every decision is stored in the portable draft; no hidden server state is used."}
+          </p>
+          <div className="flex gap-2">
+            {target && (
+              <>
+                <Button variant="outline" disabled={busy} onClick={() => decideTarget(target.id, "rejected")}>
+                  Exclude as context
+                </Button>
+                <Button disabled={busy} onClick={() => decideTarget(target.id, "approved")}>
+                  Confirm target
+                </Button>
+              </>
+            )}
+            {statement && (
+              <Button disabled={busy} onClick={() => decideStatement(statement.unit_id)}>
+                Keep excluded
+              </Button>
+            )}
+            {!target && !statement && pendingTargets.length + pendingStatements.length === 0 && (
+              <Button disabled={busy} onClick={onContinue}>
+                {busy ? "Continuing…" : "Continue to evidence"}
+              </Button>
+            )}
+          </div>
+        </footer>
+      </section>
+    </DocumentSourceProvider>
+  );
+}
+
+function ReviewCount({ dot, label }: { dot: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+      {label}
+    </span>
+  );
+}
+
+function targetReviewPresentation(status: QuantitativeTarget["review_status"]): {
+  label: string;
+  dot: string;
+} {
+  if (status === "approved") return { label: "Confirmed", dot: "bg-emerald-500" };
+  if (status === "rejected") return { label: "Excluded", dot: "bg-muted-foreground/50" };
+  return { label: "Flagged", dot: "bg-amber-400" };
+}
+
+function aiRecommendationPresentation(
+  recommendation: QuantitativeTarget["ai_recommendation"],
+): { label: string; dot: string } {
+  if (recommendation === "confirm") return { label: "Confirm", dot: "bg-emerald-500" };
+  if (recommendation === "exclude") return { label: "Exclude", dot: "bg-muted-foreground/50" };
+  return { label: "Review manually", dot: "bg-amber-400" };
+}
+
+function semanticSlotLabel(slot: SemanticSlot | undefined): string {
+  if (!slot) return "Not available";
+  if (slot.state === "specified") return slot.value || "Specified";
+  if (slot.state === "other") return slot.other || "Other";
+  if (slot.state === "unknown") return "Unknown";
+  return "Not specified";
+}
+
+function dimensionLabel(value: string): string {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function evidenceUnitLabel(measurement: Measurement): string {
+  const labels = [measurement.evidence_unit.group, measurement.evidence_unit.cohort]
+    .map(semanticSlotLabel)
+    .filter((label) => !["Not specified", "Not available", "Unknown"].includes(label));
+  return labels.length > 0 ? labels.join(" · ") : "Source-level result";
+}
+
+function QuantitativeReviewCheckpoint({
+  result,
+  onNewAnalysis,
+  onReview,
+  onUndo,
+  canUndo,
+}: {
+  result: ScoutResponse;
+  onNewAnalysis: () => void;
+  onReview: (
+    targetId: string,
+    candidateIds: string[],
+    selectedCandidateId: string | null,
+  ) => void;
+  onUndo: () => void;
+  canUndo: boolean;
+}) {
+  const allCandidates = result.conformity.flatMap((score) =>
+    [...score.measurements, ...score.excluded_measurements].map((measurement) => ({
+      score,
+      measurement,
+    })),
+  ).filter(({ measurement }) =>
+    measurement.evidence_mode === "prose"
+      && ["needs_review", "approved", "rejected"].includes(measurement.admission_status)
+  );
+  const grouped = new Map<string, typeof allCandidates>();
+  for (const item of allCandidates) {
+    const unitId = item.measurement.evidence_unit_id || item.measurement.source_record_id;
+    const key = `${item.score.target_id}::${unitId}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), item]);
+  }
+  const groups = Array.from(grouped.entries());
+  const pendingGroups = groups.filter(([, items]) =>
+    items.some(({ measurement }) => measurement.admission_status === "needs_review")
+  );
+  const current = pendingGroups[0];
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+  useEffect(() => setSelectedCandidateId(null), [current?.[0]]);
+  if (!current) return null;
+
+  const [, groupItems] = current;
+  const pendingItems = groupItems.filter(
+    ({ measurement }) => measurement.admission_status === "needs_review",
+  );
+  const score = pendingItems[0].score;
+  const multiple = pendingItems.length > 1;
+  const activeItem = multiple
+    ? pendingItems.find(({ measurement }) => measurement.candidate_id === selectedCandidateId)
+    : pendingItems[0];
+  const measurement = activeItem?.measurement;
+  const target: QuantitativeTarget | undefined = result.quantitative_ledger.targets.find(
+    (item) => item.id === score.target_id,
+  );
+  const dimensions = measurement
+    ? (target?.comparison_dimensions ?? Object.keys(
+        measurement.semantic_assessment.dimensions,
+      )) as Array<keyof typeof measurement.semantic_assessment.dimensions>
+    : [];
+  const total = groups.length;
+  const completed = total - pendingGroups.length;
+
+  function sourceFindingFor(item: (typeof pendingItems)[number]) {
+    return result.matches.find(
+      (match) => match.insight.id === item.measurement.insight_id,
+    )?.insight.supporting_findings.find(
+      (finding) => finding.url === item.measurement.url,
+    );
+  }
+
+  return (
+    <DocumentSourceProvider blocks={result.blocks ?? []}>
+      <section className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
+        <header className="border-b border-border/80 px-5 py-5 sm:px-7">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Review checkpoint
+                </p>
+                <ReviewHelp>
+                  Admit evidence only when it measures the same outcome, product, population,
+                  regimen, and time horizon as the document target. Rejecting keeps the citation
+                  in the audit trail but excludes it from statistics.
+                </ReviewHelp>
+              </div>
+              <h2 className="mt-1 text-lg font-semibold text-foreground">Review quantitative evidence</h2>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                Decide whether this cited result measures the same target closely enough to enter the comparator statistics.
+              </p>
+            </div>
+            <div className="flex items-center gap-1">
+              {canUndo && (
+                <Button variant="ghost" size="sm" onClick={onUndo}>Undo last decision</Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={onNewAnalysis}>New analysis</Button>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <div
+              className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-label="Quantitative evidence review progress"
+              aria-valuemin={0}
+              aria-valuemax={total}
+              aria-valuenow={completed}
+            >
+              <div
+                className="h-full rounded-full bg-foreground transition-[width] duration-200"
+                style={{ width: `${total ? (completed / total) * 100 : 0}%` }}
+              />
+            </div>
+            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+              {Math.min(completed + 1, total)} of {total}
+            </span>
+          </div>
+        </header>
+
+        <div className="grid lg:grid-cols-2">
+          <div className="border-b border-border/80 p-5 sm:p-7 lg:border-b-0 lg:border-r">
+            <div className="flex items-center justify-between gap-3">
+              <SectionLabel>Document target</SectionLabel>
+              <DocumentSourceTrace
+                blockIds={score.doc_block_ids ?? []}
+                spans={score.target_quote && score.doc_block_ids?.length
+                  ? [{ quote: score.target_quote, block_ids: score.doc_block_ids }]
+                  : []}
+              />
+            </div>
+            <p className="mt-3 text-base font-semibold text-foreground">{score.target_label}</p>
+            <blockquote className="mt-3 border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">
+              {score.target_quote}
+            </blockquote>
+          </div>
+
+          <div className="p-5 sm:p-7">
+            {multiple ? (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <SectionLabel>Choose one estimate</SectionLabel>
+                  <ReviewHelp>
+                    These values belong to the same source arm or cohort for this target.
+                    Select the one that best represents the target, or choose “None apply.”
+                    Distinct non-overlapping arms or cohorts are reviewed separately.
+                  </ReviewHelp>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Same evidence unit · {evidenceUnitLabel(pendingItems[0].measurement)}
+                </p>
+                <div className="mt-3 space-y-2" role="radiogroup" aria-label="Evidence estimate">
+                  {pendingItems.map((item) => {
+                    const option = item.measurement;
+                    const selected = option.candidate_id === selectedCandidateId;
+                    const sourceFinding = sourceFindingFor(item);
+                    return (
+                      <button
+                        key={option.candidate_id}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => setSelectedCandidateId(option.candidate_id)}
+                        className={`w-full rounded-lg border p-3 text-left transition-colors ${selected
+                          ? "border-foreground/45 bg-muted/45"
+                          : "border-border/70 hover:border-foreground/25 hover:bg-muted/20"}`}
+                      >
+                        <span className="flex items-start gap-3">
+                          <span className={`mt-1 h-3.5 w-3.5 shrink-0 rounded-full border ${selected
+                            ? "border-foreground bg-foreground shadow-[inset_0_0_0_3px_hsl(var(--card))]"
+                            : "border-muted-foreground/60"}`} />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-foreground">
+                              {formatNumericExpression(option.expression)}
+                            </span>
+                            <span className="mt-1 line-clamp-3 block text-xs leading-relaxed text-foreground/80">
+                              {option.source_quote}
+                            </span>
+                            <span className="mt-1.5 block truncate text-[11px] text-muted-foreground">
+                              {sourceFinding?.title || option.source_record_id || "Cited source"}
+                            </span>
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : measurement ? (
+              <>
+                <SectionLabel>Cited evidence</SectionLabel>
+                <p className="mt-3 text-base font-semibold text-foreground">
+                  {formatNumericExpression(measurement.expression)}
+                </p>
+                <blockquote className="mt-3 border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground/85">
+                  {measurement.source_quote}
+                </blockquote>
+                <a
+                  href={measurement.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 block truncate text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  {sourceFindingFor(pendingItems[0])?.title || measurement.source_record_id || "Open cited source"}
+                </a>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="border-t border-border/80 px-5 py-5 sm:px-7">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <SectionLabel>Comparison check</SectionLabel>
+            <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+              <span>AI mapped · reviewer decides admission</span>
+              {measurement?.url && (
+                <a
+                  href={measurement.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium hover:text-foreground hover:underline"
+                >
+                  Open source
+                </a>
+              )}
+            </div>
+          </div>
+          {measurement ? <div className="mt-3 overflow-hidden rounded-lg border border-border/70">
+            <div className="hidden grid-cols-[0.8fr_1fr_1fr_0.65fr] gap-4 bg-muted/35 px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+              <span>Dimension</span><span>Target</span><span>Evidence</span><span>Mapping</span>
+            </div>
+            {dimensions.map((dimension) => {
+              const targetSlot = target?.semantic_profile[dimension];
+              const mapped = measurement.semantic_assessment.dimensions[dimension];
+              const compatibility = mapped?.compatibility.state ?? "unknown";
+              return (
+                <div
+                  key={dimension}
+                  className="grid gap-1 border-t border-border/70 px-4 py-3 first:border-t-0 sm:grid-cols-[0.8fr_1fr_1fr_0.65fr] sm:gap-4"
+                >
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-xs sm:normal-case sm:tracking-normal">
+                    {dimensionLabel(dimension)}
+                  </span>
+                  <span className="flex gap-2 text-xs text-foreground">
+                    <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground sm:hidden">Target</span>
+                    {semanticSlotLabel(targetSlot)}
+                  </span>
+                  <span className="flex gap-2 text-xs text-foreground">
+                    <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground sm:hidden">Evidence</span>
+                    {semanticSlotLabel(mapped?.source)}
+                  </span>
+                  <span className="flex gap-2 text-xs font-medium text-muted-foreground">
+                    <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide sm:hidden">Mapping</span>
+                    {compatibility === "yes" ? "Aligned" : compatibility === "no" ? "Different" : "Uncertain"}
+                  </span>
+                </div>
+              );
+            })}
+          </div> : (
+            <p className="mt-3 rounded-lg border border-dashed border-border px-4 py-5 text-xs text-muted-foreground">
+              Select an estimate above to inspect how it maps to the document target.
+            </p>
+          )}
+          {measurement && <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+            {measurement.semantic_reason}
+          </p>}
+        </div>
+
+        <footer className="flex flex-col-reverse gap-2 border-t border-border/80 bg-muted/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            One decision resolves this source evidence unit; its provenance remains traceable.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => onReview(
+                score.target_id,
+                pendingItems.map(({ measurement: item }) => item.candidate_id),
+                null,
+              )}
+            >
+              {multiple ? "None apply" : "Reject comparator"}
+            </Button>
+            <Button
+              disabled={multiple && selectedCandidateId == null}
+              onClick={() => onReview(
+                score.target_id,
+                pendingItems.map(({ measurement: item }) => item.candidate_id),
+                multiple ? selectedCandidateId : pendingItems[0].measurement.candidate_id,
+              )}
+            >
+              {multiple ? "Use selected estimate" : "Admit comparator"}
+            </Button>
+          </div>
+        </footer>
+      </section>
+    </DocumentSourceProvider>
+  );
+}
+
+function ReviewHelp({ children }: { children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Explain this review step"
+          className="rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <CircleHelp className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-3 text-xs leading-relaxed text-muted-foreground">
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function QuantitativeReviewComplete({
+  result,
+  onUndo,
+  onFinalize,
+}: {
+  result: ScoutResponse;
+  onUndo: () => void;
+  onFinalize: () => void;
+}) {
+  const candidates = result.conformity.flatMap((score) => [
+    ...score.measurements,
+    ...score.excluded_measurements,
+  ]).filter((measurement) => measurement.evidence_mode === "prose");
+  const admitted = candidates.filter(
+    (measurement) => measurement.admission_status === "approved",
+  ).length;
+  const rejected = candidates.filter(
+    (measurement) => measurement.admission_status === "rejected",
+  ).length;
+
+  return (
+    <section className="animate-in overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm fade-in duration-150 motion-reduce:animate-none">
+      <div className="px-5 py-7 sm:px-8 sm:py-9">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Review complete
+        </p>
+        <h2 className="mt-1 text-xl font-semibold text-foreground">Finalize Scout result</h2>
+        <p className="mt-2 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+          Every quantitative evidence unit has a recorded decision. Finalizing locks these decisions,
+          enables the complete results and Ask, and produces the only downloadable artifact.
+        </p>
+        <dl className="mt-5 grid max-w-md grid-cols-2 overflow-hidden rounded-lg border border-border/70">
+          <div className="border-r border-border/70 px-4 py-3">
+            <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Admitted estimates</dt>
+            <dd className="mt-0.5 text-lg font-semibold tabular-nums text-foreground">{admitted}</dd>
+          </div>
+          <div className="px-4 py-3">
+            <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Excluded estimates</dt>
+            <dd className="mt-0.5 text-lg font-semibold tabular-nums text-foreground">{rejected}</dd>
+          </div>
+        </dl>
+      </div>
+      <footer className="flex flex-col-reverse gap-2 border-t border-border/80 bg-muted/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-8">
+        <Button variant="outline" onClick={onUndo}>Undo last decision</Button>
+        <Button onClick={onFinalize}>Finalize result</Button>
+      </footer>
+    </section>
   );
 }
 
@@ -599,7 +1528,7 @@ function FieldGrid({
               filename={scoutResultFilename(result)}
               data={packScoutResult(result)}
               format="json"
-              label="Download JSON"
+              label="Download final JSON"
             />
           </>
         }
@@ -943,7 +1872,7 @@ function FieldRow({
               detail={hasLegacyConformity
                 ? "unverified legacy result"
                 : verifiedConformities.length > 0
-                  ? countLabel(comparatorCount, "validated comparator")
+                  ? countLabel(comparatorCount, "admitted comparator")
                   : undefined}
               dot={quantitativeTargetStatus === "present" ? TARGET_ALIGNMENT_DOT : undefined}
               helpTopic="alignment"
@@ -1020,7 +1949,13 @@ function FieldRow({
   );
 }
 
-function ConformityBlock({ conformity, matches }: { conformity: Conformity; matches: Match[] }) {
+function ConformityBlock({
+  conformity,
+  matches,
+}: {
+  conformity: Conformity;
+  matches: Match[];
+}) {
   const targetLabel =
     conformity.target_label ||
     `${conformity.comparator} ${conformity.target_value}${conformity.unit}`;
@@ -1052,6 +1987,7 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
     (item) => item.status === "uncertain",
   );
   const consideredSources = conformity.source_dispositions.length;
+  const otherExcluded = conformity.excluded_measurements;
 
   if (conformity.calibration_status === "legacy_unverified") {
     return (
@@ -1082,8 +2018,8 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
         />
       </div>
       <p className="mt-0.5 text-[11px] text-muted-foreground/80">
-        Complete source measurements are semantically mapped, exact-quote verified,
-        and deduplicated before entering descriptive statistics.
+        AI-mapped prose remains a review candidate. Only explicitly admitted or
+        typed structured evidence enters descriptive statistics.
       </p>
       <p className="mt-1 text-[11px] text-muted-foreground">
         Target <span className="text-foreground">{targetLabel}</span>
@@ -1169,7 +2105,7 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
 
       {conformity.benchmark_count > 0 && (
         <p className="mt-1.5 text-[10px] text-muted-foreground/70">
-          The observed share is a literal count within the validated cohort, not a probability or confidence interval.
+          The observed share is a literal count within the admitted cohort, not a probability or confidence interval.
         </p>
       )}
 
@@ -1229,14 +2165,14 @@ function ConformityBlock({ conformity, matches }: { conformity: Conformity; matc
         </div>
       )}
 
-      {conformity.excluded_measurements.length > 0 && (
+      {otherExcluded.length > 0 && (
         <details className="group/excluded mt-3 border-t border-border/70 pt-3">
           <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
-            {conformity.excluded_measurements.length} complete measurement{conformity.excluded_measurements.length === 1 ? "" : "s"} excluded
+            {otherExcluded.length} measurement{otherExcluded.length === 1 ? "" : "s"} not admitted
             <ChevronDown className="h-3 w-3 transition-transform group-open/excluded:rotate-180" />
           </summary>
           <ul className="mt-2 space-y-2">
-            {conformity.excluded_measurements.map((measurement, index) => (
+            {otherExcluded.map((measurement, index) => (
               <li key={`${measurement.url}-excluded-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
                 <div className="flex justify-between gap-3">
                   <a href={measurement.url} target="_blank" rel="noreferrer" className="truncate hover:text-foreground hover:underline">

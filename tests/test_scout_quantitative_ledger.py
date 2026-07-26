@@ -16,6 +16,7 @@ from services.scout.stages.conformity import (
     assemble_quantitative_document_ledger,
     empty_conformity_scores,
     extract_quantitative_ledger_batch,
+    finalize_quantitative_document_review,
     prepare_quantitative_ledger_batches,
 )
 
@@ -173,6 +174,65 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertTrue(all(len(batch.units) <= 10 for batch in batches))
         self.assertEqual(len(unit_ids), len(set(unit_ids)))
         self.assertTrue(all(batch.blocks == [source] for batch in batches))
+
+    def test_production_batches_preserve_canonical_spans_and_fixed_ownership(self) -> None:
+        full_span = "Optimal: Dose volume <0.5 mL/dose; adult use only."
+        attribute = Attribute(
+            name="vaccine.dose_volume",
+            description="Volume administered per dose",
+            document_spans=[DocumentSpan(quote=full_span, block_ids=[BLOCK_ID])],
+            target_resolved=True,
+            target_resolution_reason="Resolved from an exact field span.",
+        )
+
+        batches = prepare_quantitative_ledger_batches([_block()], [attribute])
+        units = [unit for batch in batches for unit in batch.units]
+
+        self.assertEqual(len(units), 1)
+        self.assertEqual(units[0].quote, full_span)
+        self.assertEqual(units[0].attribute_ref, attribute.name)
+
+    def test_document_target_review_is_required_and_rejections_do_not_project(self) -> None:
+        unit = next(item for item in self.batches[0].units if "<0.5" in item.quote)
+        client = _LedgerClient([
+            (
+                {
+                    "unit_id": other.id,
+                    "classification": "target",
+                    "attribute_ref": "vaccine.dose_volume",
+                    "reason": "The statement sets a dose-volume target.",
+                    "targets": [_target(other.quote, 0.5, "optimal", "pediatric")],
+                }
+                if other.id == unit.id
+                else {
+                    "unit_id": other.id,
+                    "classification": "non_numeric",
+                    "attribute_ref": "",
+                    "reason": "No scalar target.",
+                    "targets": [],
+                }
+            )
+            for other in self.batches[0].units
+        ])
+        result = extract_quantitative_ledger_batch(
+            self.batches[0],
+            self.attributes,
+            client,
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+        projected, ledger = assemble_quantitative_document_ledger(
+            self.attributes,
+            self.batches,
+            [result],
+        )
+        with self.assertRaisesRegex(ValueError, "review is incomplete"):
+            finalize_quantitative_document_review(projected, ledger)
+
+        for target in ledger.targets:
+            target.review_status = "rejected"
+        finalized, _ = finalize_quantitative_document_review(projected, ledger)
+        self.assertTrue(all(not attribute.quantitative_targets for attribute in finalized))
 
     def test_numeric_batch_inherits_cross_field_canonical_context_with_exact_provenance(
         self,
@@ -363,9 +423,9 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
                 document_indication="malaria",
             ),
             quantitative_ledger=ledger,
-            conformity=empty_conformity_scores(attributes),
             variables=attributes,
             blocks=[_block()],
+            phase="target_review",
         )
         self.assertIs(validate_result_contract(result), result)
 

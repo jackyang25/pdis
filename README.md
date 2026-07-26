@@ -8,6 +8,7 @@
   <img alt="Next.js" src="https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=nextdotjs&logoColor=white">
   <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white">
   <img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-412991?style=flat-square&logo=openai&logoColor=white">
+  <img alt="Anthropic" src="https://img.shields.io/badge/Anthropic-191919?style=flat-square&logo=anthropic&logoColor=white">
 </p>
 
 PDIS turns product-development documents into traceable, citable analysis. It
@@ -90,12 +91,12 @@ api/ (FastAPI composition boundary)
   └── services/assistant
           │
           ▼
-shared/ (OpenAI client + controlled vocabularies)
+shared/ (provider clients + controlled vocabularies)
 ```
 
 Imports flow only `web → api → services → shared`. Services use another
 service only through its package `__init__.py`; they never import another
-service's stages or models. The API constructs the shared OpenAI client and
+service's stages or models. The API constructs the shared provider clients and
 connector integrations. Services remain stateless—live retrieval and model
 outputs can vary, but no hidden server session is required.
 
@@ -150,12 +151,12 @@ Scout evaluates one canonical `Attribute` shape regardless of document type:
 | `quantitative_statement_dispositions` | Exact cited numeric-looking statements intentionally retained as contextual, non-scalar, range/set, or uncertain instead of being coerced into targets |
 | `quantitative_target_status` | `present`, `not_applicable`, or `uncertain`, so an empty target list is never ambiguous |
 
-The run also carries one canonical `QuantitativeLedger`. It reviews each
-non-overlapping document statement exactly once, retains an explicit
-classification for every statement, and is the sole source from which the
-per-field quantitative targets and dispositions are projected. A missing or
-invalid statement review therefore remains visible as `uncertain` instead of
-silently disappearing.
+The run also carries one canonical `QuantitativeLedger`. Numeric interpretation
+receives only the exact spans already bound to canonical fields; it does not
+rescan the raw document or choose field ownership again. Proposed targets and
+uncertain exclusions are reviewed before retrieval. The reviewed ledger is the
+sole source from which per-field quantitative targets and dispositions are
+projected.
 
 TPP fields come from `shared/attributes.yaml`. They are resolved in bounded
 output batches that each see one complete block-aligned document chunk and the
@@ -180,9 +181,9 @@ parse document blocks and visuals
 → validate configured indication against cited document context
 → resolve one canonical document-claim ledger in bounded outputs over ordered document chunks and the complete field catalog
 → stop before retrieval if claim resolution remains incomplete after one targeted retry
-→ map non-overlapping document statements into one canonical numeric ledger, inheriting the resolved document-claim ledger as cross-block context, with one targeted retry
-→ retain unresolved numeric statements for audit and exclude them from numeric retrieval/calibration without blocking qualitative retrieval
-→ deterministically project each mapped target to its one canonical field
+→ map each complete canonical field span into target proposals or explicit non-target dispositions, with ownership fixed upstream
+→ review and freeze proposed targets and uncertain exclusions in a portable client-held draft
+→ deterministically project approved targets to their canonical fields
 → generate threshold-neutral source-neutral query intents with block and target lineage
 → determine source applicability from closed metadata
 → compile source-native requests in each adapter
@@ -192,11 +193,13 @@ parse document blocks and visuals
 → classify target relationship
 → assess grounding
 → normalize target/source meaning and source ownership into one typed semantic contract
-→ derive cohort admission from closed yes/no/unknown compatibility decisions
 → map each bounded source-owned passage to complete measurements or an explicit no-result/uncertain disposition
 → validate the shared typed wire contract, immutable spans, literal syntax, mechanically readable magnitudes, and provenance
+→ retain prose-derived measurements in a client-held review draft; auto-admit only typed structured facts
+→ resolve every approve/reject decision before finalization
 → calculate one traceable descriptive calibration per target over a deduplicated cohort
 → assess precedent coverage and outcome
+→ explicitly finalize and emit one immutable portable result
 ```
 
 General, geographic, counterfactual, and precedent query tracks are additive.
@@ -208,14 +211,12 @@ bundle rather than asking the model to extract a second, potentially different
 set after retrieval.
 Only resolved fields with document-present targets proceed to retrieval; absent
 fields remain visible in the result without generating evidence queries.
-After fixed-field resolution, Scout partitions the document into stable,
-non-overlapping statement units. Each unit is reviewed once across the complete
-canonical field catalog and the already-resolved document bindings. The local
-source block supplies numeric syntax; the model returns both its exact literal
-parts and normalized expression, while opaque context references let it
-select cross-block meaning from canonical bindings without retyping quotations
-or block IDs. Code resolves those references back to exact source spans and
-verifies that numeric magnitudes were not changed.
+After field resolution, Scout presents each complete canonical field span to
+numeric interpretation with its owner already fixed. The span retains table
+labels and qualifiers that sentence-level splitting previously lost. The model
+returns its exact literal parts and normalized expression; code resolves
+provenance from the existing span and verifies that numeric magnitudes were not
+changed. The model cannot reassign a proposal to another field.
 Independently comparable scalars become atomic targets;
 conditions, numeric categories, ranges/sets, nonnumeric text, and unresolved
 wording receive explicit ledger classifications. Exact target syntax remains
@@ -235,10 +236,13 @@ source measurement has one semantic assessment that returns only the slots
 constrained by that target, co-locating the normalized source value and a closed
 yes/no/unknown compatibility decision, plus source ownership. Code fills the
 unconstrained slots neutrally to preserve the full public contract.
-Only target-constrained slots can exclude
-a measurement; ambiguous target slots fail closed. Code derives the aggregate
-cohort disposition and never trusts a free aggregate label or rebuilds clinical
-meaning from regexes.
+Only target-constrained slots can make a candidate semantically eligible;
+ambiguous target slots fail closed. Eligibility is not admission: prose-derived
+numbers remain review candidates, while only adapter-owned typed numeric facts
+may be auto-admitted. Explicit approve/reject decisions are completed in the
+client-held draft; the final portable result stores those decisions and cannot
+be emitted while any remain unresolved. Deterministic statistics consume only
+admitted records.
 Every native request records its compiled intent IDs/texts, tracks, options,
 connector operation, status, result count, and URLs.
 
@@ -309,7 +313,7 @@ The four primary axes are independent:
 |---|---|---|
 | Target relationship | `contradicts`, `extends`, `confirms`, `unrelated` | LLM over one insight and cited document blocks |
 | Grounding | `well_grounded`, `partial`, `thin`, `unsupported`, `unknown` | LLM selection over closed labels; cited insight IDs resolved deterministically |
-| Quantitative calibration | Direct/contextual/incompatible cohort ledger, one descriptive distribution per distinct target, observed target-meeting share | AI maps complete source-owned passages into exact-quoted numeric expressions and a closed semantic contract; deterministic code verifies provenance and numeric integrity, deduplicates records, and calculates every statistic |
+| Quantitative calibration | Reviewable numeric-candidate ledger plus one descriptive distribution per target over admitted evidence | AI maps complete source-owned passages into exact-quoted candidates; prose requires explicit review, typed structured facts may be auto-admitted, and deterministic code verifies provenance, deduplicates admitted records, and calculates every statistic |
 | Precedent | Coverage: `direct`, `adjacent`, `none`, `unknown`; outcome tracked separately | LLM selection over distinct closed labels with deterministic lineage validation |
 
 LLMs may classify or select only within closed vocabularies. Code validates
@@ -400,14 +404,30 @@ tool execution remains private while final tokens render incrementally.
 ## Portable result files
 
 Inspector, Aligner, and Scout downloads use the versioned `pdis.result` envelope,
-currently version **26**:
+currently version **31**:
 
 ```text
-schema + version + result_type
+schema + version + state: final + result_type
 ├── analysis
 └── source_documents[]
     └── ordered ContentBlocks (including embedded image bytes)
 ```
+
+For Scout, the initial run produces a client-held document-target review draft
+before retrieval. An independent Anthropic review call prefills each existing target
+as confirmed, excluded, or flagged and supplies a short reason; it cannot change
+the target data or provenance. The board remains fully editable, and only flagged
+items require a manual decision. Approved targets are frozen into the continuation request;
+rejected and acknowledged-uncertain statements remain in the audit ledger but
+cannot shape queries or statistics. Evidence mapping may then produce a second
+review checkpoint. Drafts cannot be downloaded or sent to Ask. Each evidence decision is scoped to
+one target and one evidence unit (a source record, or an explicitly
+distinguished non-overlapping arm/cohort within it). When that unit contains alternative
+estimates, the reviewer selects one or chooses that none apply; distinct arms
+remain separately admissible. After every unit is resolved, PDIS shows a
+review summary where the last decision can still be undone. Explicit
+finalization then emits one final artifact; importing it never recalculates or
+reopens those decisions.
 
 The original PDF/DOCX/PPTX binary is not embedded. Parsed blocks and portable
 image assets are embedded, which keeps Ask portable and stateless but can make
@@ -445,7 +465,10 @@ metadata and consume normalized contracts.
 | File/service | Variable | Required | Purpose |
 |---|---|---:|---|
 | `.env` / API | `OPENAI_API_KEY` | Yes | Section mapping, inspection, alignment, Scout reasoning, Ask, and web search |
-| `.env` / API | `OPENAI_MODEL` | No | One model for the entire API process; defaults to `gpt-5.5`. The local example uses `gpt-5-mini` to reduce development cost. |
+| `.env` / API | `OPENAI_MODEL_FAST` | No | Query generation, evidence summaries, terminal labels, and web search; defaults to `gpt-5.4-mini`. |
+| `.env` / API | `OPENAI_MODEL_REASONING` | No | Canonical document interpretation and quantitative semantic mapping; defaults to `gpt-5.4`. |
+| `.env` / API | `ANTHROPIC_API_KEY` | For AI-prefilled target review | Independent Scout document-target verification; without it all proposals remain manual flags. |
+| `.env` / API | `ANTHROPIC_REVIEW_MODEL` | No | Server-owned verifier model; defaults to `claude-opus-5`. |
 | `.env` / API | `NCBI_API_KEY` | No | Higher NCBI request limits |
 | `.env` / API | `TOOLUNIVERSE_BASE_URL` | For local ToolUniverse | Private connector address |
 | `.env` / API | `TOOLUNIVERSE_API_TOKEN` | With ToolUniverse | Shared bearer token |
@@ -466,7 +489,7 @@ Secrets are server-side and the populated files are Git-ignored.
 
 Create a Render Blueprint from this repository. Render derives the API/web
 addresses, private ToolUniverse host/port, and a shared generated bearer token.
-Enter `OPENAI_API_KEY`, optional `NCBI_API_KEY`, and
+Enter `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, optional `NCBI_API_KEY`, and
 `SEMANTIC_SCHOLAR_API_KEY` when prompted. Render persists them; they are never
 committed or exposed to the browser.
 
@@ -496,7 +519,7 @@ pdis/
 │   ├── inspector/           Rubric inspection and deterministic rollups
 │   ├── scout/               Document-bound evidence reasoning pipeline
 │   └── searcher/            Source registry, planning, execution, Findings
-├── shared/                  OpenAI client and controlled vocabularies
+├── shared/                  Provider clients and controlled vocabularies
 ├── tests/                   Python contract and lineage tests
 ├── web/                     Next.js UI, result import/export, evidence map
 ├── compose.yaml             Local three-service stack

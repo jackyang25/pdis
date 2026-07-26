@@ -52,6 +52,7 @@ from .stages.conformity import (
     assemble_quantitative_document_ledger,
     empty_conformity_scores,
     extract_quantitative_ledger_batch,
+    finalize_quantitative_document_review,
     prepare_quantitative_ledger_batches,
     score_conformity_all,
 )
@@ -63,6 +64,7 @@ from .stages.precedent_classifier import classify_precedent
 from .stages.query_extractor import extract_queries_for_variable
 from .stages.intent_builder import build_retrieval_intents
 from .stages.target_resolver import resolve_document_targets
+from .stages.target_reviewer import prefill_target_review
 from .stages.unit_extractor import extract_units
 
 FINDINGS_BATCH_SIZE = 40
@@ -86,9 +88,15 @@ def run_pipeline(
     source_type: str,
     intervention_class: str,
     indication: str,
+    target_review_client: LLMClientProtocol | None = None,
     progress_callback=None,
 ) -> ScoutResult:
-    """Run scout over every shared attribute variable for the intervention."""
+    """Prepare one canonical, client-held document-target review draft.
+
+    Retrieval intentionally does not begin here. The reviewed draft is passed
+    to :func:`continue_pipeline`, keeping the service stateless while ensuring
+    that no unreviewed numeric interpretation can shape search or statistics.
+    """
     if progress_callback:
         progress_callback("parse")
     blocks = _parse_all_docs(
@@ -175,7 +183,7 @@ def run_pipeline(
             ),
             context_validation=context_validation,
         )
-    ledger_batches = prepare_quantitative_ledger_batches(blocks)
+    ledger_batches = prepare_quantitative_ledger_batches(blocks, attributes)
 
     def map_ledger_batch(batch):
         return extract_quantitative_ledger_batch(
@@ -198,6 +206,55 @@ def run_pipeline(
         attributes,
         ledger_batches,
         ledger_results,
+    )
+    if progress_callback:
+        progress_callback("target_review")
+    attributes, quantitative_ledger = prefill_target_review(
+        attributes,
+        quantitative_ledger,
+        blocks,
+        target_review_client,
+    )
+    return validate_result_contract(ScoutResult(
+        matches=[],
+        assessments=[],
+        stats=FunnelStats(
+            queries=0,
+            findings=0,
+            unique_findings=0,
+            insights=0,
+            matches=0,
+            assessments=0,
+        ),
+        context_validation=context_validation,
+        quantitative_ledger=quantitative_ledger,
+        variables=attributes,
+        blocks=blocks,
+        phase="target_review",
+    ))
+
+
+def continue_pipeline(
+    prepared: ScoutResult,
+    *,
+    config: ScoutTypeConfig,
+    openai_client: LLMClientProtocol,
+    retrieval_runtime: SearchRuntime,
+    org: str,
+    source_type: str,
+    intervention_class: str,
+    indication: str,
+    progress_callback=None,
+) -> ScoutResult:
+    """Continue from one explicitly reviewed, portable target draft."""
+    validate_result_contract(prepared)
+    if prepared.phase != "target_review":
+        raise ValueError("Scout continuation requires a target-review draft")
+    blocks = prepared.blocks
+    context_validation = prepared.context_validation
+    attributes, quantitative_ledger = finalize_quantitative_document_review(
+        prepared.variables,
+        prepared.quantitative_ledger,
     )
     # Numeric interpretation is load-bearing only for quantitative calibration.
     # An unresolved statement remains excluded from target-specific queries and
@@ -373,6 +430,11 @@ def run_pipeline(
         matches=len(matches),
         assessments=len(assessments),
     )
+    has_evidence_review = any(
+        measurement.admission_status == "needs_review"
+        for score in conformity
+        for measurement in [*score.measurements, *score.excluded_measurements]
+    )
     return validate_result_contract(ScoutResult(
         matches=matches,
         assessments=assessments,
@@ -386,6 +448,7 @@ def run_pipeline(
         quantitative_ledger=quantitative_ledger,
         variables=attributes,
         blocks=blocks,
+        phase="evidence_review" if has_evidence_review else "final",
     ))
 
 

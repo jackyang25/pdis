@@ -34,6 +34,16 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
     variables = {attribute.name: attribute for attribute in result.variables}
     if len(variables) != len(result.variables):
         raise ValueError("Scout result contains duplicate field names")
+    if result.phase == "target_review" and any((
+        result.search_plan,
+        result.matches,
+        result.assessments,
+        result.conformity,
+        result.precedents,
+        result.development_landscape,
+        result.safety_signals,
+    )):
+        raise ValueError("target-review result cannot contain downstream analysis")
 
     _require_subset(
         result.quantitative_ledger.block_ids,
@@ -70,6 +80,19 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         raise ValueError(
             "quantitative ledger targets are not covered exactly by statement reviews"
         )
+    if result.phase != "target_review":
+        pending_targets = [
+            target.id
+            for target in ledger_targets.values()
+            if target.review_status == "needs_review"
+        ]
+        pending_statements = [
+            review.unit_id
+            for review in result.quantitative_ledger.reviews
+            if review.review_status == "needs_review"
+        ]
+        if pending_targets or pending_statements:
+            raise ValueError("Scout continued with an incomplete document-target review")
     for target in ledger_targets.values():
         _require_field(
             target.attribute_ref,
@@ -191,12 +214,17 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 f"quantitative statement disposition for {attribute.name!r}",
             )
 
-    if set(targets_by_id) != set(ledger_targets):
+    projected_ledger_targets = {
+        target_id: target
+        for target_id, target in ledger_targets.items()
+        if result.phase == "target_review" or target.review_status != "rejected"
+    }
+    if set(targets_by_id) != set(projected_ledger_targets):
         raise ValueError(
-            "field quantitative targets are not an exact projection of the document ledger"
+            "field quantitative targets are not an exact projection of admitted document targets"
         )
     for target_id, target in targets_by_id.items():
-        if target != ledger_targets[target_id]:
+        if target != projected_ledger_targets[target_id]:
             raise ValueError(
                 f"field quantitative target {target_id!r} drifted from the document ledger"
             )
@@ -357,6 +385,32 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 raise ValueError(
                     f"calibration {score.target_id!r} admitted a non-comparable measurement"
                 )
+            if measurement.admission_status not in {"approved", "auto_admitted"}:
+                raise ValueError(
+                    f"calibration {score.target_id!r} calculated an unadmitted measurement"
+                )
+            if (
+                measurement.admission_status == "auto_admitted"
+                and measurement.evidence_mode != "structured_fact"
+            ):
+                raise ValueError(
+                    f"calibration {score.target_id!r} auto-admitted prose evidence"
+                )
+            if not measurement.evidence_unit_id:
+                raise ValueError(
+                    f"calibration {score.target_id!r} admitted an unidentified evidence unit"
+                )
+        _require_unique(
+            [measurement.evidence_unit_id for measurement in score.measurements],
+            f"calibration {score.target_id!r} admitted evidence unit",
+        )
+        if any(
+            measurement.admission_status in {"approved", "auto_admitted"}
+            for measurement in score.excluded_measurements
+        ):
+            raise ValueError(
+                f"calibration {score.target_id!r} excluded an admitted measurement"
+            )
         for disposition in score.source_dispositions:
             _require_insight_ownership(
                 [disposition.insight_id],
@@ -370,7 +424,7 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 insight_by_id,
                 f"source disposition {disposition.source_id!r}",
             )
-    if score_targets != set(targets_by_id):
+    if result.phase != "target_review" and score_targets != set(targets_by_id):
         missing = set(targets_by_id) - score_targets
         extra = score_targets - set(targets_by_id)
         detail = ", ".join(sorted([*missing, *extra]))

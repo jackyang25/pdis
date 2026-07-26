@@ -24,6 +24,7 @@ from services.scout.models import (
     EVIDENCE_DOMAINS,
     Attribute,
     DocumentSpan,
+    EvidenceUnitIdentity,
     Insight,
     QueryIntent,
     QuantitativeTarget,
@@ -347,6 +348,20 @@ def normalize_conformity_fixture(
                 "expression": expression,
                 "source_syntax": item.get("source_syntax")
                 or fixture_source_syntax(expression, str(item.get("source_quote", ""))),
+                "evidence_unit": item.get("evidence_unit") or {
+                    "status": "record_level",
+                    "group": {
+                        "state": "not_specified",
+                        "value": "",
+                        "other": "",
+                    },
+                    "cohort": {
+                        "state": "not_specified",
+                        "value": "",
+                        "other": "",
+                    },
+                    "reason": "Fixture reports one aggregate record-level group.",
+                },
                 "semantic_assessment": item.get("semantic_assessment") or semantic_assessment(
                     source_profile=item.get("semantic_profile"),
                     comparability=item.get("comparability"),
@@ -1573,12 +1588,16 @@ class ReasoningLineageTests(unittest.TestCase):
 
         self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(len(result.measurements), 1)
-        self.assertEqual(result.measurements[0].url, "https://example.test/used")
-        self.assertEqual(result.measurements[0].insight_id, self.first.id)
-        self.assertEqual(result.measurements[0].expression.kind, "point_estimate")
-        self.assertEqual(result.benchmark_count, 1)
-        self.assertEqual(result.benchmark_median, 82)
+        self.assertEqual(result.measurements, [])
+        pending = [
+            item for item in result.excluded_measurements
+            if item.admission_status == "needs_review"
+        ]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].url, "https://example.test/used")
+        self.assertEqual(pending[0].insight_id, self.first.id)
+        self.assertEqual(pending[0].expression.kind, "point_estimate")
+        self.assertEqual(result.benchmark_count, 0)
         self.assertEqual(result.calibration_status, "insufficient")
 
     def test_conformity_coverage_pass_recovers_omitted_exact_source_value(self) -> None:
@@ -1621,8 +1640,9 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertIsNotNone(result)
         assert result is not None
         self.assertEqual(client.calls, 2)
-        self.assertEqual(result.benchmark_count, 1)
-        self.assertEqual(result.measurements[0].value, 82)
+        self.assertEqual(result.benchmark_count, 0)
+        self.assertEqual(result.excluded_measurements[0].value, 82)
+        self.assertEqual(result.excluded_measurements[0].admission_status, "needs_review")
 
     def test_numeric_expression_verification_uses_literal_source_syntax(self) -> None:
         quote = "Vaccine efficacy was 50·3%."
@@ -1800,6 +1820,7 @@ class ReasoningLineageTests(unittest.TestCase):
             source_record_id="doi:10.1/example",
             semantic_status="comparable",
             semantic_reason="Same efficacy endpoint, population, and time horizon.",
+            evidence_mode="structured_fact",
         )
         target = QuantitativeTarget(
             attribute_ref="efficacy",
@@ -1814,6 +1835,41 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(excluded, [])
         self.assertFalse(_meets_target(measurement.value, 80, ">"))
 
+    def test_distinct_arms_from_one_source_are_independent_evidence_units(self) -> None:
+        target = QuantitativeTarget(
+            attribute_ref="efficacy",
+            expression=NumericExpression(
+                kind="bound", value=80, comparator=">=", unit="%"
+            ),
+            role="threshold",
+            quote="Target efficacy is at least 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("protective efficacy"),
+        )
+        measurements = [
+            Measurement(
+                expression=NumericExpression(kind="point_estimate", value=value, unit="%"),
+                semantic_assessment=semantic_assessment(
+                    source_profile=semantic_profile("protective efficacy")
+                ),
+                candidate_id=f"qm-arm-{index}",
+                source_record_id="doi:10.1/multi-arm",
+                evidence_unit_id=f"doi:10.1/multi-arm/unit:arm-{index}",
+                evidence_unit=EvidenceUnitIdentity(
+                    status="resolved",
+                    group=SemanticSlot(state="specified", value=f"arm {index}"),
+                    reason="The source distinguishes this arm from another arm.",
+                ),
+                evidence_mode="structured_fact",
+            )
+            for index, value in enumerate((72, 88), start=1)
+        ]
+
+        included, excluded = _partition_cohort(measurements, target)
+
+        self.assertEqual(included, measurements)
+        self.assertEqual(excluded, [])
+
     def test_comparable_rate_is_an_atomic_scalar(self) -> None:
         measurement = Measurement(
             expression=NumericExpression(
@@ -1826,6 +1882,7 @@ class ReasoningLineageTests(unittest.TestCase):
             source_record_id="doi:10.1/rate",
             semantic_status="comparable",
             semantic_reason="Same incidence rate and population.",
+            evidence_mode="structured_fact",
         )
         target = QuantitativeTarget(
             attribute_ref="incidence",
@@ -1958,6 +2015,7 @@ class ReasoningLineageTests(unittest.TestCase):
                 comparability=decisions,
             ),
             source_record_id="doi:10.1/unconstrained-population",
+            evidence_mode="structured_fact",
         )
         target = QuantitativeTarget(
             attribute_ref="efficacy",
@@ -2615,20 +2673,118 @@ class ReasoningLineageTests(unittest.TestCase):
 
         self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(result.benchmark_count, 2)
-        self.assertEqual(result.benchmark_median, 86)
-        self.assertEqual(result.benchmark_lower_quartile, 84)
-        self.assertEqual(result.benchmark_upper_quartile, 88)
-        self.assertEqual(result.target_percentile, 0.5)
-        self.assertEqual(result.ambition_percentile, 0.5)
-        self.assertEqual(result.calibration_status, "limited")
-        self.assertEqual(result.target_meeting_count, 1)
-        self.assertEqual(result.target_meeting_rate, 0.5)
-        self.assertEqual(result.benchmark_mean, 86)
-        self.assertAlmostEqual(result.benchmark_standard_deviation or 0, 5.657, places=3)
+        self.assertEqual(result.benchmark_count, 0)
+        self.assertEqual(result.measurements, [])
+        self.assertEqual(len(result.excluded_measurements), 2)
+        self.assertTrue(all(
+            item.admission_status == "needs_review"
+            for item in result.excluded_measurements
+        ))
         wire = ConformityOut(**asdict(result))
-        self.assertEqual(wire.benchmark_count, 2)
-        self.assertEqual(len(wire.measurements), 2)
+        self.assertEqual(wire.benchmark_count, 0)
+        self.assertEqual(len(wire.excluded_measurements), 2)
+
+    def test_repeated_source_candidate_is_deduplicated_before_review(self) -> None:
+        repeated = {
+            "value": 82,
+            "unit": "%",
+            "insight_index": 0,
+            "url": "https://example.test/used",
+            "source_quote": "The reported efficacy was 82% in the target population.",
+            "comparability": same_comparability(),
+        }
+        result = score_conformity(
+            self.attribute,
+            self.document,
+            [self.first],
+            StaticClient({
+                "is_quantitative": True,
+                "target_value": 80,
+                "comparator": ">=",
+                "unit": "%",
+                "target_label": "threshold >=80%",
+                "target_quote": "Target efficacy is at least 80%.",
+                "doc_block_ids": ["document/b-0003"],
+                "measurements": [repeated, dict(repeated)],
+            }),
+            indication="test",
+            intervention_class="vaccine",
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(len(result.excluded_measurements), 1)
+        self.assertEqual(
+            result.excluded_measurements[0].admission_status,
+            "needs_review",
+        )
+
+    def test_distinct_source_candidates_keep_distinct_target_relative_ids(self) -> None:
+        url = "https://example.test/multi-result"
+        insight = Insight(
+            statement="The source reports two arm-level efficacy results.",
+            supporting_findings=[finding(
+                url,
+                source="pubmed",
+                excerpt=(
+                    "Arm A reported efficacy of 72%. "
+                    "Arm B reported efficacy of 88%."
+                ),
+            )],
+            attribute_ref="efficacy",
+        )
+        measurements = [
+            {
+                "value": value,
+                "unit": "%",
+                "url": url,
+                "source_quote": quote,
+                "comparability": same_comparability(),
+                "evidence_unit": {
+                    "status": "resolved",
+                    "group": {
+                        "state": "specified",
+                        "value": arm,
+                        "other": "",
+                    },
+                    "cohort": {
+                        "state": "not_specified",
+                        "value": "",
+                        "other": "",
+                    },
+                    "reason": "The source explicitly distinguishes two arms.",
+                },
+            }
+            for arm, value, quote in (
+                ("Arm A", 72, "Arm A reported efficacy of 72%."),
+                ("Arm B", 88, "Arm B reported efficacy of 88%."),
+            )
+        ]
+        result = score_conformity(
+            self.attribute,
+            self.document,
+            [insight],
+            StaticClient({
+                "is_quantitative": True,
+                "target_value": 80,
+                "comparator": ">=",
+                "unit": "%",
+                "target_label": "threshold >=80%",
+                "target_quote": "Target efficacy is at least 80%.",
+                "doc_block_ids": ["document/b-0003"],
+                "measurements": measurements,
+            }),
+            indication="test",
+            intervention_class="vaccine",
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(len(result.excluded_measurements), 2)
+        self.assertEqual(
+            len({item.candidate_id for item in result.excluded_measurements}),
+            2,
+        )
 
     def test_conformity_rejects_unquoted_numeric_claims(self) -> None:
         client = StaticClient(
@@ -2725,9 +2881,12 @@ class ReasoningLineageTests(unittest.TestCase):
 
         self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(result.benchmark_count, 1)
-        self.assertEqual(len(result.excluded_measurements), 1)
-        self.assertIn("semantic status: contextual", result.excluded_measurements[0].exclusion_reasons[0])
+        self.assertEqual(result.benchmark_count, 0)
+        self.assertEqual(len(result.excluded_measurements), 2)
+        self.assertEqual(
+            {item.admission_status for item in result.excluded_measurements},
+            {"needs_review", "not_eligible"},
+        )
 
     def test_conformity_rejects_incompatible_units_without_conversion(self) -> None:
         fraction_insight = Insight(
@@ -2850,7 +3009,7 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(result.benchmark_count, 0)
         self.assertEqual(len(result.excluded_measurements), 2)
         self.assertTrue(all(
-            "no primary estimate was deterministically identifiable" in item.exclusion_reasons[0]
+            item.admission_status == "needs_review"
             for item in result.excluded_measurements
         ))
 
@@ -2911,9 +3070,16 @@ class ReasoningLineageTests(unittest.TestCase):
 
         self.assertEqual([ledger.target_role for ledger in ledgers], ["threshold", "optimal"])
         self.assertEqual([ledger.target_value for ledger in ledgers], [80, 90])
-        self.assertEqual([ledger.target_meeting_count for ledger in ledgers], [1, 0])
+        self.assertEqual([ledger.target_meeting_count for ledger in ledgers], [0, 0])
         self.assertNotEqual(ledgers[0].target_id, ledgers[1].target_id)
-        self.assertEqual(ledgers[0].measurements[0].semantic_status, "comparable")
+        self.assertNotEqual(
+            ledgers[0].excluded_measurements[0].candidate_id,
+            ledgers[1].excluded_measurements[0].candidate_id,
+        )
+        self.assertEqual(
+            ledgers[0].excluded_measurements[0].admission_status,
+            "needs_review",
+        )
 
     def test_invalid_semantic_conversion_cannot_enter_the_numeric_cohort(self) -> None:
         target_response = {

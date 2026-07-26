@@ -54,7 +54,7 @@ const QUERY_TRACKS = [
 const EVIDENCE_AXES = [
   ["Target relationship", "Conflicts · Adds context · Supports · Unrelated", "How one insight relates to the canonical document target."],
   ["Grounding", "Well grounded · Partial · Thin · Unsupported · Unknown", "How strongly selected evidence justifies the target."],
-  ["Quantitative calibration", "Document ledger → validated comparator cohort", "Each document statement is mapped once; code verifies target provenance, source comparability, deduplication, and arithmetic."],
+  ["Quantitative calibration", "Document ledger → reviewable evidence units → admitted cohort", "AI maps exact-quoted candidates to a source record or explicitly distinct arm/cohort. Reviewers choose one alternative per evidence unit; deterministic code owns provenance checks, deduplication, and arithmetic."],
   ["Precedent", "Direct · Adjacent · None · Unknown", "Whether comparable prior work exists; its outcome is reported separately."],
 ] as const;
 
@@ -219,7 +219,9 @@ export default function DocsPage() {
               source value, operator, and unit alongside that normalized form. Scout reviews each bounded source-owned passage as a whole and
               returns complete exact-quoted measurements, no relevant measurement, or uncertain.
               One typed wire contract governs model output and runtime parsing. Code verifies literal grounding, mechanically readable numeric equality, identifiers, URL, and source identity without reinterpreting prose;
-              only comparable atomic scalars in the target unit enter the statistics.
+              comparable prose scalars remain in a client-held review draft until explicitly
+              admitted or rejected in a focused target-versus-evidence checkpoint. Only admitted records enter statistics. Download and Ask unlock
+              after an explicit final review confirmation, producing one artifact that import never recalculates.
             </Note>
           </DocSection>
 
@@ -230,7 +232,7 @@ export default function DocsPage() {
           >
             <pre className="mt-6 overflow-x-auto border-y border-border bg-muted/35 px-4 py-4 font-mono text-[11px] leading-6 text-muted-foreground">
               <code>{`pdis.result
-├── schema + version + result_type
+├── schema + version + state: final + result_type
 ├── analysis
 └── source_documents[]
     └── ordered text, table, and image blocks`}</code>

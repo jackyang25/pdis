@@ -61,6 +61,7 @@ def assess_evidence(
         user_message,
         max_tokens=max_tokens,
         images=images,
+        task="fast",
     )
     if not isinstance(parsed, dict) or not _has_valid_lineage(parsed, insights):
         logger.warning("evidence_assessor produced no complete structured decision for %s; retrying once", attribute.name)
@@ -71,6 +72,7 @@ def assess_evidence(
             user_message,
             max_tokens=max_tokens,
             images=images,
+            task="fast",
         )
 
     if not isinstance(parsed, dict) or not _has_valid_lineage(parsed, insights):

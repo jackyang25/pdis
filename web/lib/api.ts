@@ -236,12 +236,24 @@ export type Measurement = {
   source_quote: string;
   source_record_id: string;
   source_identity_status: "canonical" | "title_fallback" | "url_fallback";
+  evidence_unit_id: string;
+  evidence_unit: EvidenceUnitIdentity;
   semantic_assessment: MeasurementSemanticAssessment;
   semantic_status: "comparable" | "contextual" | "incompatible" | "unknown";
   semantic_reason: string;
+  evidence_mode: "prose" | "structured_fact";
+  admission_status: "needs_review" | "approved" | "rejected" | "not_eligible" | "auto_admitted";
+  admission_reason: string;
   inclusion_reason: string;
   exclusion_reasons: string[];
   age_months: number | null;
+};
+
+export type EvidenceUnitIdentity = {
+  status: "resolved" | "record_level" | "uncertain";
+  group: SemanticSlot;
+  cohort: SemanticSlot;
+  reason: string;
 };
 
 export type TernaryDecision = {
@@ -379,6 +391,9 @@ export type QuantitativeTarget = {
   }>>;
   provenance_spans: Array<{ quote: string; block_ids: string[] }>;
   ownership_reason: string;
+  ai_recommendation: "confirm" | "exclude" | "flag";
+  ai_review_reason: string;
+  review_status: "needs_review" | "approved" | "rejected";
 };
 
 export type QuantitativeStatementDisposition = {
@@ -397,6 +412,7 @@ export type QuantitativeLedgerReview = {
   reason: string;
   attribute_ref: string;
   target_ids: string[];
+  review_status: "resolved" | "needs_review" | "accepted_exclusion";
 };
 
 export type QuantitativeLedger = {
@@ -434,6 +450,7 @@ export type QuantitativeSemanticProfile = {
 };
 
 export type ScoutResponse = {
+  phase: "target_review" | "evidence_review" | "final";
   org: string;
   source_type: string;
   intervention_class: string;
@@ -660,6 +677,18 @@ export async function runScout(
   }
   appendHeader(form, header);
   return streamRequest("/api/scout/run", form, onStage);
+}
+
+export async function continueScout(
+  draft: ScoutResponse,
+  onStage?: (stage: string, progress?: StageProgress) => void,
+): Promise<ScoutResponse> {
+  return streamRequest(
+    "/api/scout/continue",
+    JSON.stringify({ draft }),
+    onStage,
+    { "Content-Type": "application/json" },
+  );
 }
 
 export async function runAligner(

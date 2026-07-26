@@ -17,6 +17,7 @@ from services.scout.ai_contracts import (
     query_batch,
     source_measurement_batch,
     target_binding_batch,
+    target_review_batch,
     unit_batch,
 )
 from services.scout.ai_wire import NumericExpressionWire, inline_json_schema
@@ -93,6 +94,17 @@ class ScoutAIContractTests(unittest.TestCase):
 
         self.assertEqual(block_id_schema["enum"], allowed)
         self.assertNotIn("b-0001", block_id_schema["enum"])
+
+    def test_target_review_schema_can_only_select_existing_proposals(self) -> None:
+        allowed = ["qt-one", "qt-two"]
+        contract = target_review_batch(allowed)
+        item = contract.schema["properties"]["reviews"]["items"]
+
+        self.assertEqual(item["properties"]["target_id"]["enum"], allowed)
+        self.assertEqual(
+            item["properties"]["decision"]["enum"],
+            ["confirm", "exclude", "flag"],
+        )
 
     def test_dynamic_unit_schema_allows_only_chunk_block_ids(self) -> None:
         allowed = ["IPDP Development Plan/b-0042"]

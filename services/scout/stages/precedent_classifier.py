@@ -82,6 +82,7 @@ def classify_precedent(
         user_message,
         max_tokens=max_tokens,
         images=images,
+        task="fast",
     )
     if not isinstance(parsed, dict) or not _has_valid_lineage(parsed, insights):
         logger.warning(
@@ -95,6 +96,7 @@ def classify_precedent(
             user_message,
             max_tokens=max_tokens,
             images=images,
+            task="fast",
         )
 
     if not isinstance(parsed, dict) or not _has_valid_lineage(parsed, insights):

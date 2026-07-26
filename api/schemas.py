@@ -287,6 +287,9 @@ class QuantitativeTargetOut(BaseModel):
     semantic_provenance: dict[str, list[DocumentSpanOut]]
     provenance_spans: list[DocumentSpanOut] = Field(min_length=1)
     ownership_reason: str = ""
+    ai_recommendation: Literal["confirm", "exclude", "flag"] = "flag"
+    ai_review_reason: str = ""
+    review_status: Literal["needs_review", "approved", "rejected"] = "approved"
 
 
 class QuantitativeStatementDispositionOut(BaseModel):
@@ -307,6 +310,7 @@ class QuantitativeLedgerReviewOut(BaseModel):
     reason: str
     attribute_ref: str = ""
     target_ids: list[str] = Field(default_factory=list)
+    review_status: Literal["resolved", "needs_review", "accepted_exclusion"] = "resolved"
 
 
 class QuantitativeLedgerOut(BaseModel):
@@ -364,6 +368,13 @@ class MeasurementSemanticAssessmentOut(BaseModel):
     dimensions: MeasurementSemanticDimensionsOut
 
 
+class EvidenceUnitIdentityOut(BaseModel):
+    status: Literal["resolved", "record_level", "uncertain"]
+    group: SemanticSlotOut
+    cohort: SemanticSlotOut
+    reason: str
+
+
 class MeasurementOut(BaseModel):
     expression: NumericExpressionOut
     candidate_id: str = ""
@@ -372,9 +383,16 @@ class MeasurementOut(BaseModel):
     source_quote: str = ""
     source_record_id: str = ""
     source_identity_status: Literal["canonical", "title_fallback", "url_fallback"] = "url_fallback"
+    evidence_unit_id: str = ""
+    evidence_unit: EvidenceUnitIdentityOut
     semantic_assessment: MeasurementSemanticAssessmentOut
     semantic_status: Literal["comparable", "contextual", "incompatible", "unknown"] = "unknown"
     semantic_reason: str = ""
+    evidence_mode: Literal["prose", "structured_fact"] = "prose"
+    admission_status: Literal[
+        "needs_review", "approved", "rejected", "not_eligible", "auto_admitted"
+    ] = "needs_review"
+    admission_reason: str = ""
     inclusion_reason: str = ""
     exclusion_reasons: list[str] = Field(default_factory=list)
     age_months: float | None = None
@@ -462,6 +480,7 @@ class DocumentContextValidationOut(BaseModel):
 
 
 class ScoutRunResponse(BaseModel):
+    phase: Literal["target_review", "evidence_review", "final"] = "final"
     org: str
     source_type: str
     intervention_class: str
@@ -480,6 +499,10 @@ class ScoutRunResponse(BaseModel):
     # The parsed source document, carried so the Ask assistant can read the full
     # document behind the distilled analysis. Not used by the Scout UI itself.
     blocks: list[ContentBlockOut] = Field(default_factory=list)
+
+
+class ScoutContinueRequest(BaseModel):
+    draft: ScoutRunResponse
 
 
 class DimensionGradeOut(BaseModel):

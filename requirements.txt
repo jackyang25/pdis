@@ -1,5 +1,5 @@
 # Complete backend runtime deps for the FastAPI gateway + all services.
-# Used for deployment (e.g. Render). Single LLM provider: OpenAI.
+# Used for deployment (e.g. Render).
 fastapi>=0.110
 uvicorn[standard]>=0.27
 python-multipart>=0.0.9
@@ -9,6 +9,7 @@ eval-type-backport>=0.2; python_version < "3.10"
 
 # LLM + config/vocab
 openai>=1.0.0
+anthropic>=0.49.0
 pyyaml>=6.0
 
 # Document parsing (chunker)

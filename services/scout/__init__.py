@@ -18,6 +18,7 @@ from .models import (
     SemanticSlot,
     SemanticDimensionAssessment,
     MeasurementSemanticAssessment,
+    EvidenceUnitIdentity,
     TernaryDecision,
     DevelopmentProgram,
     DocumentContextValidation,
@@ -53,7 +54,7 @@ from .models import (
     precedents_to_dicts,
     safety_signals_to_dicts,
 )
-from .pipeline import run_pipeline
+from .pipeline import continue_pipeline, run_pipeline
 
 __all__ = [
     "Attribute",
@@ -66,6 +67,7 @@ __all__ = [
     "SemanticSlot",
     "SemanticDimensionAssessment",
     "MeasurementSemanticAssessment",
+    "EvidenceUnitIdentity",
     "TernaryDecision",
     "DevelopmentProgram",
     "DocumentContextValidation",
@@ -100,5 +102,6 @@ __all__ = [
     "matches_to_dicts",
     "precedents_to_dicts",
     "safety_signals_to_dicts",
+    "continue_pipeline",
     "run_pipeline",
 ]

@@ -1,12 +1,18 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 26 as const;
-// Version 26 preserves exact claim spans and resolution reasons through the API
-// boundary. Version 24 introduced the document-first quantitative ledger.
+const RESULT_VERSION = 31 as const;
+// Version 31 carries independent AI target-review recommendations.
+// Version 30 freezes reviewed document targets before retrieval and records the
+// explicit Scout phase. Only final results are exportable.
+// Version 29 identifies independent evidence units within source records.
+// Version 28 marks portable artifacts as finalized and prohibits unresolved
+// quantitative review candidates.
 const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 24 as const;
 const SCOUT_CLAIM_CONTRACT_SINCE_VERSION = 26 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | typeof RESULT_VERSION;
+const SCOUT_ADMISSION_CONTRACT_SINCE_VERSION = 27 as const;
+const SCOUT_EVIDENCE_UNIT_CONTRACT_SINCE_VERSION = 29 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -19,6 +25,7 @@ type SourceDocument = {
 type ResultFile<TResultType extends StoredResultType, TAnalysis> = {
   schema: typeof RESULT_SCHEMA;
   version: ResultVersion;
+  state?: "final";
   result_type: TResultType;
   analysis: TAnalysis;
   source_documents: SourceDocument[];
@@ -35,12 +42,53 @@ type AlignerAnalysis = {
   alignment: Omit<AlignerResponse["alignment"], "blocks">;
 };
 
+/** Pending admissions make a Scout analysis a review draft, not a final result. */
+export function pendingQuantitativeReviewCount(result: ScoutResponse): number {
+  const targetReviews = (result.quantitative_ledger?.targets ?? [])
+    .filter((target) => target.review_status === "needs_review").length;
+  const statementReviews = (result.quantitative_ledger?.reviews ?? [])
+    .filter((review) => review.review_status === "needs_review").length;
+  const evidenceReviews = (result.conformity ?? []).reduce(
+    (total, score) => total + [...score.measurements, ...score.excluded_measurements]
+      .filter((measurement) => measurement.admission_status === "needs_review")
+      .length,
+    0,
+  );
+  return targetReviews + statementReviews + evidenceReviews;
+}
+
+export function isScoutResultFinal(result: ScoutResponse): boolean {
+  return result.phase === "final" && pendingQuantitativeReviewCount(result) === 0;
+}
+
+function hasCompleteEvidenceUnitContract(result: ScoutResponse): boolean {
+  return (result.conformity ?? []).every((score) => {
+    const admittedIds = score.measurements.map((measurement) => measurement.evidence_unit_id);
+    return score.calibration_status !== "legacy_unverified"
+      && admittedIds.every(Boolean)
+      && new Set(admittedIds).size === admittedIds.length
+      && score.measurements.every((measurement) =>
+        Boolean(measurement.evidence_unit)
+          && ["approved", "auto_admitted"].includes(measurement.admission_status)
+      )
+      && score.excluded_measurements.every((measurement) =>
+        Boolean(measurement.evidence_unit_id)
+          && Boolean(measurement.evidence_unit)
+          && !["approved", "auto_admitted"].includes(measurement.admission_status)
+      );
+  });
+}
+
 /** Build a portable artifact without coupling the analysis tree to document text. */
 export function packScoutResult(result: ScoutResponse): ResultFile<"scout", ScoutAnalysis> {
+  if (!isScoutResultFinal(result) || !hasCompleteEvidenceUnitContract(result)) {
+    throw new Error("Scout review is incomplete or its quantitative evidence contract is invalid");
+  }
   const { blocks, ...analysis } = result;
   return {
     schema: RESULT_SCHEMA,
     version: RESULT_VERSION,
+    state: "final",
     result_type: "scout",
     analysis,
     source_documents: groupDocuments(blocks),
@@ -77,6 +125,7 @@ export function packInspectorResult(
   return {
     schema: RESULT_SCHEMA,
     version: RESULT_VERSION,
+    state: "final",
     result_type: "inspector",
     analysis: { inspection },
     source_documents: groupDocuments(blocks),
@@ -90,6 +139,7 @@ export function packAlignerResult(
   return {
     schema: RESULT_SCHEMA,
     version: RESULT_VERSION,
+    state: "final",
     result_type: "aligner",
     analysis: { alignment },
     source_documents: groupDocuments(blocks),
@@ -101,11 +151,21 @@ export function packAlignerResult(
 export function unpackScoutResult(value: unknown): ScoutResponse {
   if (isResultFile(value)) {
     assertResultType(value, "scout");
-    return normalizeScoutResult(
+    const result = normalizeScoutResult(
       value.analysis,
       flattenDocuments(value.source_documents),
       value.version,
     );
+    if (value.version === RESULT_VERSION && (
+      !isScoutResultFinal(result)
+      || !hasCompleteEvidenceUnitContract(result)
+    )) {
+      throw new Error("final Scout result contains an incomplete quantitative evidence contract");
+    }
+    return result;
+  }
+  if (isResultEnvelope(value)) {
+    throw new Error("invalid or incomplete pdis.result envelope");
   }
   const raw = value as Partial<ScoutResponse>;
   return normalizeScoutResult(
@@ -139,6 +199,9 @@ export function unpackInspectorResult(value: unknown): InspectorResponse {
     }
     throw new Error(`expected an inspector result, received ${value.result_type}`);
   }
+  if (isResultEnvelope(value)) {
+    throw new Error("invalid or incomplete pdis.result envelope");
+  }
   const raw = value as Partial<InspectorResponse> & {
     review?: InspectorResponse["inspection"];
   };
@@ -165,6 +228,9 @@ export function unpackAlignerResult(value: unknown): AlignerResponse {
         blocks: flattenDocuments(value.source_documents),
       },
     };
+  }
+  if (isResultEnvelope(value)) {
+    throw new Error("invalid or incomplete pdis.result envelope");
   }
   const raw = value as Partial<AlignerResponse>;
   if (!raw.alignment || !Array.isArray(raw.alignment.links)) {
@@ -200,15 +266,24 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
+    (candidate.version !== RESULT_VERSION || candidate.state === "final") &&
     (candidate.result_type === "aligner" ||
       candidate.result_type === "inspector" ||
       candidate.result_type === "reviewer" ||
       candidate.result_type === "scout") &&
     candidate.analysis != null &&
     Array.isArray(candidate.source_documents)
+  );
+}
+
+function isResultEnvelope(value: unknown): boolean {
+  return Boolean(
+    value
+      && typeof value === "object"
+      && (value as { schema?: unknown }).schema === RESULT_SCHEMA,
   );
 }
 
@@ -295,6 +370,9 @@ function normalizeScoutResult(
   }
   return {
     ...raw,
+    phase: raw.phase === "target_review" || raw.phase === "evidence_review"
+      ? raw.phase
+      : "final",
     context_validation: raw.context_validation ?? {
       status: "not_checked",
       configured_indication: String(raw.indication ?? ""),
@@ -322,6 +400,10 @@ function normalizeScoutResult(
         index,
         sourceVersion == null
           || sourceVersion < SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION,
+        sourceVersion == null
+          || sourceVersion < SCOUT_ADMISSION_CONTRACT_SINCE_VERSION,
+        sourceVersion == null
+          || sourceVersion < SCOUT_EVIDENCE_UNIT_CONTRACT_SINCE_VERSION,
       ),
     ),
     precedents: (raw.precedents ?? []).map(normalizePrecedent),
@@ -414,6 +496,10 @@ function normalizeScoutResult(
             : [{ quote: target.quote ?? "", block_ids: target.doc_block_ids ?? [] }],
           ownership_reason: target.ownership_reason
             ?? "Imported target predates canonical ownership arbitration.",
+          ai_recommendation: target.ai_recommendation ?? "flag",
+          ai_review_reason: target.ai_review_reason
+            ?? "This imported target predates independent AI review.",
+          review_status: target.review_status ?? "approved",
         })),
         quantitative_statement_dispositions: Array.isArray(
           variable.quantitative_statement_dispositions,
@@ -475,8 +561,15 @@ function normalizeQuantitativeLedger(
         reason: String(review.reason ?? ""),
         attribute_ref: String(review.attribute_ref ?? ""),
         target_ids: Array.isArray(review.target_ids) ? review.target_ids : [],
+        review_status: review.review_status ?? "resolved",
       })),
-      targets: raw.targets,
+      targets: raw.targets.map((target: Record<string, any>) => ({
+        ...target,
+        ai_recommendation: target.ai_recommendation ?? "flag",
+        ai_review_reason: target.ai_review_reason
+          ?? "This imported target predates independent AI review.",
+        review_status: target.review_status ?? "approved",
+      })) as ScoutResponse["quantitative_ledger"]["targets"],
     };
   }
   const targets = variables.flatMap((variable) =>
@@ -489,7 +582,13 @@ function normalizeQuantitativeLedger(
       : "This imported result contains no canonical quantitative ledger.",
     block_ids: [],
     reviews: [],
-    targets,
+    targets: targets.map((target: Record<string, any>) => ({
+      ...target,
+      ai_recommendation: target.ai_recommendation ?? "flag",
+      ai_review_reason: target.ai_review_reason
+        ?? "This imported target predates independent AI review.",
+      review_status: target.review_status ?? "approved",
+    })) as ScoutResponse["quantitative_ledger"]["targets"],
   };
 }
 
@@ -497,6 +596,8 @@ function normalizeConformity(
   score: Record<string, any>,
   index: number,
   contractPredatesCurrent: boolean,
+  predatesAdmissionContract: boolean,
+  predatesEvidenceUnitContract: boolean,
 ): Record<string, unknown> {
   const {
     conformity: _legacyConformity,
@@ -507,12 +608,22 @@ function normalizeConformity(
   } = score;
   const rawMeasurements: Record<string, any>[] = score.measurements ?? [];
   const rawExcludedMeasurements: Record<string, any>[] = score.excluded_measurements ?? [];
-  const measurements: Record<string, any>[] = rawMeasurements.map(
+  const normalizedIncluded: Record<string, any>[] = rawMeasurements.map(
     (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
   );
-  const excludedMeasurements: Record<string, any>[] = rawExcludedMeasurements.map(
+  const normalizedExcluded: Record<string, any>[] = rawExcludedMeasurements.map(
     (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
   );
+  const requiresAdmissionMigration = predatesAdmissionContract && !contractPredatesCurrent;
+  const measurements = requiresAdmissionMigration ? [] : normalizedIncluded;
+  const excludedMeasurements = requiresAdmissionMigration
+    ? [...normalizedIncluded, ...normalizedExcluded].map((measurement) => ({
+        ...measurement,
+        admission_status: "needs_review",
+        admission_reason: "Imported prose-derived candidate requires explicit review.",
+        inclusion_reason: "",
+      }))
+    : normalizedExcluded;
   const values = measurements
     .map((measurement: Record<string, any>) => Number(measurement.expression?.value))
     .filter(Number.isFinite)
@@ -537,13 +648,18 @@ function normalizeConformity(
     return value === target;
   }).length;
   const targetMeetingRate = count > 0 ? targetMeetingCount / count : 0;
-  const legacyUnverified = contractPredatesCurrent || !score.target_id || !score.target_quote || [
+  const legacyUnverified = contractPredatesCurrent
+    || predatesEvidenceUnitContract
+    || !score.target_id
+    || !score.target_quote || [
     ...rawMeasurements,
     ...rawExcludedMeasurements,
   ].some(
     (measurement) => !measurement.candidate_id
       || !measurement.source_quote
       || !measurement.semantic_assessment
+      || !measurement.evidence_unit_id
+      || !measurement.evidence_unit
       || measurement.expression?.kind === "unknown",
   );
 
@@ -552,25 +668,42 @@ function normalizeConformity(
     target_id: score.target_id ?? `legacy-target-${index + 1}`,
     target_role: score.target_role ?? "other",
     target_quote: score.target_quote ?? "",
-    target_meeting_count: score.target_meeting_count ?? targetMeetingCount,
-    target_meeting_rate: score.target_meeting_rate ?? targetMeetingRate,
-    benchmark_count: score.benchmark_count ?? count,
-    benchmark_minimum: score.benchmark_minimum ?? (count ? values[0] : null),
-    benchmark_maximum: score.benchmark_maximum ?? (count ? values[count - 1] : null),
-    benchmark_mean:
-      score.benchmark_mean ?? (count ? values.reduce((sum, value) => sum + value, 0) / count : null),
-    benchmark_median: score.benchmark_median ?? quantile(values, 0.5),
-    benchmark_lower_quartile:
-      score.benchmark_lower_quartile ?? quantile(values, 0.25),
-    benchmark_upper_quartile:
-      score.benchmark_upper_quartile ?? quantile(values, 0.75),
-    benchmark_standard_deviation:
-      score.benchmark_standard_deviation ?? sampleStandardDeviation(values),
-    target_percentile: score.target_percentile ?? rawPercentile,
-    ambition_percentile: score.ambition_percentile ?? ambitionPercentile,
+    verdict: requiresAdmissionMigration ? "No admitted comparators" : score.verdict,
+    target_meeting_count: requiresAdmissionMigration
+      ? targetMeetingCount
+      : score.target_meeting_count ?? targetMeetingCount,
+    target_meeting_rate: requiresAdmissionMigration
+      ? targetMeetingRate
+      : score.target_meeting_rate ?? targetMeetingRate,
+    benchmark_count: requiresAdmissionMigration ? count : score.benchmark_count ?? count,
+    benchmark_minimum: requiresAdmissionMigration
+      ? null
+      : score.benchmark_minimum ?? (count ? values[0] : null),
+    benchmark_maximum: requiresAdmissionMigration
+      ? null
+      : score.benchmark_maximum ?? (count ? values[count - 1] : null),
+    benchmark_mean: requiresAdmissionMigration
+      ? null
+      : score.benchmark_mean ?? (count ? values.reduce((sum, value) => sum + value, 0) / count : null),
+    benchmark_median: requiresAdmissionMigration
+      ? null
+      : score.benchmark_median ?? quantile(values, 0.5),
+    benchmark_lower_quartile: requiresAdmissionMigration
+      ? null
+      : score.benchmark_lower_quartile ?? quantile(values, 0.25),
+    benchmark_upper_quartile: requiresAdmissionMigration
+      ? null
+      : score.benchmark_upper_quartile ?? quantile(values, 0.75),
+    benchmark_standard_deviation: requiresAdmissionMigration
+      ? null
+      : score.benchmark_standard_deviation ?? sampleStandardDeviation(values),
+    target_percentile: requiresAdmissionMigration ? null : score.target_percentile ?? rawPercentile,
+    ambition_percentile: requiresAdmissionMigration ? null : score.ambition_percentile ?? ambitionPercentile,
     calibration_status: legacyUnverified
       ? "legacy_unverified"
-      : score.calibration_status ?? (count >= 5 ? "sufficient" : count >= 2 ? "limited" : "insufficient"),
+      : requiresAdmissionMigration
+        ? "insufficient"
+        : score.calibration_status ?? (count >= 5 ? "sufficient" : count >= 2 ? "limited" : "insufficient"),
     doc_block_ids: score.doc_block_ids ?? [],
     measurements,
     excluded_measurements: excludedMeasurements,
@@ -634,6 +767,13 @@ function normalizeMeasurement(
     source_quote: current.source_quote ?? "",
     source_record_id: current.source_record_id ?? "",
     source_identity_status: current.source_identity_status ?? "url_fallback",
+    evidence_unit_id: current.evidence_unit_id ?? current.source_record_id ?? "",
+    evidence_unit: current.evidence_unit ?? {
+      status: "record_level",
+      group: { state: "not_specified", value: "", other: "" },
+      cohort: { state: "not_specified", value: "", other: "" },
+      reason: "Imported measurement predates independent evidence-unit identity.",
+    },
     semantic_assessment: normalizeMeasurementSemanticAssessment(
       currentSemanticAssessment,
       legacySourceOwnership,
@@ -642,6 +782,9 @@ function normalizeMeasurement(
     ),
     semantic_status: current.semantic_status ?? "unknown",
     semantic_reason: current.semantic_reason ?? "Imported measurement predates semantic normalization.",
+    evidence_mode: current.evidence_mode ?? "prose",
+    admission_status: current.admission_status ?? "needs_review",
+    admission_reason: current.admission_reason ?? "Imported prose-derived candidate requires review.",
     inclusion_reason: current.inclusion_reason ?? "",
     exclusion_reasons: current.exclusion_reasons ?? [],
     age_months: current.age_months ?? null,

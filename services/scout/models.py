@@ -10,7 +10,7 @@ import hashlib
 import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from services.searcher import EVIDENCE_DOMAINS, ENTITY_TYPES, Finding, source_keys
 
@@ -60,6 +60,11 @@ MEASUREMENT_KINDS = frozenset(
 MEASUREMENT_STATUSES = frozenset(
     {"comparable", "contextual", "incompatible", "unknown"}
 )
+MEASUREMENT_ADMISSION_STATUSES = frozenset(
+    {"needs_review", "approved", "rejected", "not_eligible", "auto_admitted"}
+)
+MEASUREMENT_EVIDENCE_MODES = frozenset({"prose", "structured_fact"})
+EVIDENCE_UNIT_STATUSES = frozenset({"resolved", "record_level", "uncertain"})
 TERNARY_DECISION_STATES = frozenset({"yes", "no", "unknown"})
 QUANTITATIVE_TARGET_STATUSES = frozenset(
     {"not_evaluated", "present", "not_applicable", "uncertain"}
@@ -76,6 +81,15 @@ QUANTITATIVE_REVIEW_CLASSIFICATIONS = frozenset(
         "non_numeric",
         "uncertain",
     }
+)
+QUANTITATIVE_TARGET_REVIEW_STATUSES = frozenset(
+    {"needs_review", "approved", "rejected"}
+)
+QUANTITATIVE_TARGET_AI_RECOMMENDATIONS = frozenset(
+    {"confirm", "exclude", "flag"}
+)
+QUANTITATIVE_STATEMENT_REVIEW_STATUSES = frozenset(
+    {"resolved", "needs_review", "accepted_exclusion"}
 )
 
 
@@ -118,6 +132,7 @@ class LLMClientProtocol(Protocol):
         max_tokens: int,
         *,
         images: list[dict[str, str]] | None = None,
+        task: Literal["fast", "reasoning"] = "reasoning",
     ) -> str:
         ...
 
@@ -130,6 +145,7 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
+        task: Literal["fast", "reasoning"] = "reasoning",
     ) -> dict[str, Any] | None:
         ...
 
@@ -489,6 +505,36 @@ class MeasurementSemanticAssessment:
 
 
 @dataclass
+class EvidenceUnitIdentity:
+    """Within-record identity used only to distinguish source comparison units."""
+
+    status: str = "record_level"
+    group: SemanticSlot = field(default_factory=SemanticSlot)
+    cohort: SemanticSlot = field(default_factory=SemanticSlot)
+    reason: str = "No finer source-supported evidence unit was identified."
+
+    def __post_init__(self) -> None:
+        self.status = self.status.strip().lower()
+        if not isinstance(self.group, SemanticSlot):
+            self.group = SemanticSlot(**self.group)
+        if not isinstance(self.cohort, SemanticSlot):
+            self.cohort = SemanticSlot(**self.cohort)
+        self.reason = " ".join(self.reason.split())
+        if self.status not in EVIDENCE_UNIT_STATUSES:
+            raise ValueError("invalid evidence unit status")
+        asserted = any(
+            slot.state in {"specified", "other"}
+            for slot in (self.group, self.cohort)
+        )
+        if self.status == "resolved" and not asserted:
+            raise ValueError("resolved evidence unit requires a group or cohort")
+        if self.status != "resolved" and asserted:
+            raise ValueError("unresolved evidence unit cannot assert group or cohort")
+        if not self.reason:
+            raise ValueError("evidence unit requires a reason")
+
+
+@dataclass
 class NumericExpression:
     """One numeric statement, without any clinical interpretation.
 
@@ -554,11 +600,21 @@ class QuantitativeTarget:
     semantic_provenance: dict[str, list[DocumentSpan]] = field(default_factory=dict)
     provenance_spans: list[DocumentSpan] = field(default_factory=list)
     ownership_reason: str = ""
+    ai_recommendation: str = "flag"
+    ai_review_reason: str = ""
+    review_status: str = "approved"
     id: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.expression, NumericExpression):
             self.expression = NumericExpression(**self.expression)
+        self.review_status = self.review_status.strip().lower()
+        if self.review_status not in QUANTITATIVE_TARGET_REVIEW_STATUSES:
+            raise ValueError("invalid quantitative target review status")
+        self.ai_recommendation = self.ai_recommendation.strip().lower()
+        if self.ai_recommendation not in QUANTITATIVE_TARGET_AI_RECOMMENDATIONS:
+            raise ValueError("invalid quantitative target AI recommendation")
+        self.ai_review_reason = " ".join(self.ai_review_reason.split())
         if self.expression.kind != "bound":
             raise ValueError("quantitative target expression must be a bound")
         unknown_fields = set(self.semantic_profile) - set(
@@ -706,6 +762,7 @@ class QuantitativeLedgerReview:
     reason: str
     attribute_ref: str = ""
     target_ids: list[str] = field(default_factory=list)
+    review_status: str = "resolved"
 
     def __post_init__(self) -> None:
         self.unit_id = self.unit_id.strip()
@@ -715,6 +772,9 @@ class QuantitativeLedgerReview:
         self.reason = " ".join(self.reason.split())
         self.attribute_ref = self.attribute_ref.strip()
         self.target_ids = list(dict.fromkeys(self.target_ids))
+        self.review_status = self.review_status.strip().lower()
+        if self.review_status not in QUANTITATIVE_STATEMENT_REVIEW_STATUSES:
+            raise ValueError("invalid quantitative statement review status")
         if self.classification not in QUANTITATIVE_REVIEW_CLASSIFICATIONS:
             raise ValueError("invalid quantitative ledger classification")
         if not self.unit_id or not self.block_id or not self.quote or not self.reason:
@@ -766,8 +826,13 @@ class Measurement:
     source_quote: str = ""
     source_record_id: str = ""
     source_identity_status: str = "url_fallback"
+    evidence_unit_id: str = ""
+    evidence_unit: EvidenceUnitIdentity = field(default_factory=EvidenceUnitIdentity)
     semantic_status: str = "unknown"
     semantic_reason: str = ""
+    evidence_mode: str = "prose"
+    admission_status: str = "needs_review"
+    admission_reason: str = ""
     inclusion_reason: str = ""
     exclusion_reasons: list[str] = field(default_factory=list)
     age_months: float | None = None
@@ -779,8 +844,17 @@ class Measurement:
             self.semantic_assessment = MeasurementSemanticAssessment(
                 **self.semantic_assessment
             )
+        if not isinstance(self.evidence_unit, EvidenceUnitIdentity):
+            self.evidence_unit = EvidenceUnitIdentity(**self.evidence_unit)
+        if not self.evidence_unit_id:
+            self.evidence_unit_id = self.source_record_id
         if self.semantic_status not in MEASUREMENT_STATUSES:
             raise ValueError("invalid measurement semantic status")
+        if self.evidence_mode not in MEASUREMENT_EVIDENCE_MODES:
+            raise ValueError("invalid measurement evidence mode")
+        if self.admission_status not in MEASUREMENT_ADMISSION_STATUSES:
+            raise ValueError("invalid measurement admission status")
+        self.admission_reason = " ".join(self.admission_reason.split())
 
     @property
     def value(self) -> float | None:
@@ -934,6 +1008,11 @@ class ScoutResult:
     # consumers (e.g. the Ask assistant) can read the full document behind the
     # distilled analysis. Not used by the analysis itself.
     blocks: list["ContentBlock"] = field(default_factory=list)
+    phase: str = "final"  # target_review | evidence_review | final
+
+    def __post_init__(self) -> None:
+        if self.phase not in {"target_review", "evidence_review", "final"}:
+            raise ValueError("invalid Scout result phase")
 
 
 @dataclass

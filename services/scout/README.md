@@ -30,16 +30,44 @@ No reasoning stage may rewrite this canonical target.
 ## Public contract
 
 ```python
-from services.scout import assessments_to_dicts, find_config, matches_to_dicts, run_pipeline
+from services.scout import (
+    assessments_to_dicts,
+    continue_pipeline,
+    find_config,
+    matches_to_dicts,
+    run_pipeline,
+)
 from services.searcher import SearchRuntime
+from shared.anthropic_client import AnthropicReviewClient
 from shared.openai_client import OpenAIClient
 
 config = find_config("bmgf", "itpp", "vaccine")
 client = OpenAIClient()
+target_reviewer = AnthropicReviewClient()
 # `integrations` is a precomposed connector mapping for config.sources.
 runtime = SearchRuntime(llm_client=client, integrations=integrations)
-result = run_pipeline(
+draft = run_pipeline(
     ["/path/to/doc1.docx"],
+    config=config,
+    openai_client=client,
+    retrieval_runtime=runtime,
+    org="bmgf",
+    source_type="itpp",
+    intervention_class="vaccine",
+    indication="rsv",
+    target_review_client=target_reviewer,
+)
+# A client reviews draft.quantitative_ledger, setting each proposal to approved
+# or rejected and acknowledging any uncertain exclusion. The complete draft is
+# then returned; no server session is retained.
+for target in draft.quantitative_ledger.targets:
+    if target.review_status == "needs_review":
+        target.review_status = "approved"  # explicit example decision
+for review in draft.quantitative_ledger.reviews:
+    if review.review_status == "needs_review":
+        review.review_status = "accepted_exclusion"
+result = continue_pipeline(
+    draft,
     config=config,
     openai_client=client,
     retrieval_runtime=runtime,
@@ -93,14 +121,14 @@ as external evidence underneath it.
 1. **parse** - chunker parses each uploaded doc without section mapping.
 2. **validate context** - a conservative, block-cited check compares the configured indication with the document. A clear mismatch stops before retrieval; absent or ambiguous context remains `uncertain`, never guessed or silently rewritten.
 3. **resolve the document claim ledger** - fixed TPP decisions are requested in bounded output groups over ordered, block-aligned document chunks. Every group sees the complete field catalog, so batching limits response size without turning fields into isolated interpretations. Decisions bind to exact quoted spans, blocks, and explicitly stated entities; the chunk decisions merge into one document ledger. Only structurally missing or invalid decisions are retried once; remaining uncertainty is retained with a reason and stops before numeric interpretation or retrieval. Dynamic IPDP units arrive already bound from their block-aligned extraction. Both paths produce the same canonical `Attribute` ledger, including one closed evidence domain, with `definition_mode` preserving only provider provenance. Fixed domains are authored in the shared vocabulary; dynamic domains are selected from the same enum.
-4. **map the document-first numeric ledger** - Scout partitions all nonempty document blocks into stable, non-overlapping statement units and reviews each unit exactly once against the complete canonical field catalog. Every bounded batch also receives the already-resolved document-claim ledger as authoritative cross-block context. Numeric syntax may come only from the local statement; normalized meaning may cite either that statement or an enumerated canonical binding. For each proposed target the model selects the smallest complete literal expression and its exact value/operator/unit substrings alongside the normalized expression. Service-owned Pydantic wire models supply both the OpenAI schema and runtime shape validation. Code verifies literal presence, mechanically readable numeric equality, symbolic operators, ownership, and provenance without classifying prose-level numbers, ranges, units, or clinical meaning. Independently comparable exact or directional scalars become atomic targets owned by one resolved, document-present field; conditions, numeric categories, ranges/sets, nonnumeric text, and unresolved wording receive explicit classifications. Only structurally missing or invalid reviews are retried once by statement ID with precise rejection codes. Remaining uncertainty stays auditable and is excluded from numeric target queries and calibration; it does not discard the verified claim ledger or block qualitative evidence retrieval. Numeric expressions cannot override the claim ledger or cross a field's canonical cited blocks. Per-field target arrays and status text are projections of this ledger; no field independently re-extracts targets and no ownership-repair pass follows it.
+4. **map and review the document-first numeric ledger** - Scout sends each complete exact span from the resolved claim ledger to numeric interpretation with its canonical field owner already fixed. It does not repartition or rescan unrelated raw-document blocks. For each proposed target the model selects the literal expression and normalized meaning; service-owned Pydantic wire models supply both the OpenAI schema and runtime validation. Code verifies literal presence, readable numeric equality, symbolic operators, ownership, and provenance without classifying prose semantics. A separate, non-authoritative model call then sees the complete uploaded document and every existing proposal; it may only recommend `confirm`, `exclude`, or `flag` for an existing target ID and must give a short reason. It cannot create, rewrite, merge, or reassign targets. Missing or failed recommendations degrade to `flag`. The portable `target_review` draft presents the complete prefilled board and preserves every recommendation for audit. The user may override any target and must resolve flags before retrieval; rejected items remain auditable. The stateless `/api/scout/continue` boundary accepts only this pre-retrieval contract and projects approved targets back to their canonical fields.
 5. **per-unit query intents** - only resolved fields with document-present targets continue. The LLM generates document-aware intents from the canonical definition and target across general, geographic, counterfactual, and precedent tracks. The general track must cover every verified quantitative target. Numeric retrieval descriptors reuse the target's canonical semantic dimensions and unit while mechanically omitting any phrase that restates its magnitude/unit, as well as its comparator and threshold/optimal role, so evidence on either side remains discoverable. Numeric-spelling variants such as decimal commas and written numbers are checked before a target-linked query is accepted. Each intent carries both block lineage and the target IDs it was designed to cover.
 6. **plan + search** - Scout converts units to Searcher's neutral `RetrievalIntent`. The generic controller compares the unit's evidence domain and document-stated entity types with each enabled adapter's declared capabilities. Applicable adapters receive the complete bundle and independently compile source-native requests; non-applicable adapters emit explicit traced skips without connector calls. The controller centrally attaches target lineage to every compiled request and verifies complete intent coverage, so source adapters do not duplicate this policy. It then executes fair per-source queues with adapter-owned rate/concurrency policy. `search_plan` retains every native request or skip, its exact input intent IDs/texts, applicability reason, status, document blocks, quantitative target IDs, track, result count, and source URLs. URL dedupe preserves every retrieval path and the exact lanes supplying title, excerpt, and publication date.
 7. **deterministic projections** - typed development and safety records are grouped into a development landscape and safety-signal view. Missing fields remain missing; no LLM or source-specific parsing runs in Scout.
 8. **per-variable insights** - LLM extracts atomic Insights in count- and payload-bounded batches from evidence-role Findings only. Reference-only catalog/entity records cannot influence reasoning. A deterministic pass merges duplicate facts across batch boundaries and assigns stable IDs. Insights retain which target-specific requests retrieved their sources, explicitly as coverage rather than evidence support.
 9. **classify** - LLM classifies every Insight against a bounded, block-annotated context for that variable and returns validated document block IDs.
 10. **evidence** - LLM assesses grounding and selects only the exact insight indices it used; the service resolves those to stable IDs and sources without allowing the canonical target to drift.
-11. **quantitative calibration** - calibration consumes the already verified target bundle; it never re-extracts targets. Repeated semantic claims merge exact expression and semantic provenance spans, while threshold, optimal, population-specific, and time-specific targets remain separate ledgers. Document targets and source measurements share one syntax-only `NumericExpression` (`point_estimate`, `range`, `bound`, `confidence_interval`, `count`, `rate`, `other`, or `unknown`). Targets use an eight-slot semantic profile (`measure`, `endpoint`, `intervention`, `population`, `regimen`, `time_horizon`, `statistic`, `conditions`) with explicit `specified`, `not_specified`, `unknown`, and `other` states. For each deduplicated source-owned passage, the model returns one `measurements_found`, `no_relevant_measurement`, or `uncertain` disposition and zero or more complete exact-quoted measurements; there is no regex-produced number-fragment fan-out. Target/passage batches run through one globally bounded work queue, retain the same three-passage prompt boundary and local retry, and are restored to canonical target and passage order before cohort construction. Every measurement also carries the smallest complete literal expression and exact syntax parts used to propose its normalized expression. Each semantic assessment returns only the dimensions constrained by that target, co-locating normalized source meaning and yes/no/unknown compatibility plus source ownership. Code supplies neutral values for unconstrained dimensions so the public shape remains stable. The model does not supply the aggregate cohort label: code derives `comparable`, `contextual`, `incompatible`, or `unknown`; missing ownership, required context, or ambiguous target meaning fails closed locally. Code verifies the source ID, exact quote and syntax, machine-readable numeric equality, symbolic operator, enums, URL, source identity, and deduplication. It does not independently reinterpret prose-normalized values or units. Only derived-comparable atomic scalars (`point_estimate`, `count`, or `rate`) with the same AI-produced unit identifier as the target enter minimum/maximum/mean/median/quartiles/observed standard deviation, target/ambition percentiles, and the literal target-meeting share. Contextual and incompatible measurements remain traceable without distorting statistics. These outputs describe the selected cohort only and are never confidence intervals or forecast probabilities.
+11. **quantitative calibration** - calibration consumes the already verified target bundle; it never re-extracts targets. Repeated semantic claims merge exact expression and semantic provenance spans, while threshold, optimal, population-specific, and time-specific targets remain separate ledgers. Document targets and source measurements share one syntax-only `NumericExpression` (`point_estimate`, `range`, `bound`, `confidence_interval`, `count`, `rate`, `other`, or `unknown`). Targets use an eight-slot semantic profile (`measure`, `endpoint`, `intervention`, `population`, `regimen`, `time_horizon`, `statistic`, `conditions`) with explicit `specified`, `not_specified`, `unknown`, and `other` states. For each deduplicated source-owned passage, the model returns one `measurements_found`, `no_relevant_measurement`, or `uncertain` disposition and zero or more complete exact-quoted candidates. It also identifies an evidence unit conservatively: the whole source record by default, or an explicitly distinguished non-overlapping arm/cohort. Endpoint, timepoint, and statistic never create new evidence units. One canonical target-relative key includes every load-bearing source mapping decision and generates a full SHA-256 candidate ID. Exact copies collapse while the validated source response is decoded; review and calculation receive only the resulting unique list, and the final contract merely asserts uniqueness. Target/passage batches run through one globally bounded work queue and are restored to canonical order. Code verifies source IDs, exact quotes and syntax, numeric equality, operators, enums, URLs, source identity, and evidence-unit IDs. A semantically comparable number extracted from prose remains `needs_review`; it does not enter statistics automatically. Alternative estimates for one target/evidence-unit pair are resolved as one selection; distinct units from the same source may both be admitted. Only an explicit portable approval or a typed adapter-owned structured numeric fact admits a value. Rejections, incompatible mappings, and unresolved candidates remain in the audit ledger. Deterministic calculations then operate only on admitted, evidence-unit-deduplicated atomic scalars. These outputs describe the admitted cohort only and are never confidence intervals or forecast probabilities.
 12. **precedent** - LLM separately classifies coverage (direct/adjacent/none/unknown) and outcome (favorable/mixed/unfavorable/unknown), with independent supporting insight IDs and canonical document blocks.
 
 ## Context and ownership boundaries
@@ -114,13 +142,13 @@ the original document.
 | Indication preflight | Bounded document-wide block view and configured indication | Cited `DocumentContextValidation` | Fields, targets, or evidence judgments |
 | Unit provider | Fixed shared vocabulary, or large block-aligned document chunks for dynamic plans | Neutral unit definition and exact document claim in `Attribute` | Retrieval grammar or evidence meaning |
 | Document claim ledger | Complete fixed-field catalog plus one ordered block-aligned document chunk per bounded output group, or block-aligned dynamic-plan extraction | Canonical `Attribute`s with exact quoted targets, block IDs, explicit entities, and fail-closed unresolved reasons | Numeric calibration or external evidence |
-| Numeric statement ledger | Every non-overlapping document statement, its complete local source block, and the resolved canonical document-claim ledger | One reviewed document ledger with atomic targets or explicit non-target/uncertain classifications and exact semantic source spans | Source interpretation or cohort statistics |
+| Numeric target ledger | Complete exact spans from resolved canonical fields, with field ownership fixed upstream | Reviewed atomic targets or explicit non-target/uncertain dispositions with exact provenance | Raw-document rescanning, field rebinding, source interpretation, or cohort statistics |
 | Query generation | Canonical `Attribute` and threshold-neutral target descriptors | Source-neutral `QueryIntent`s with block and target lineage | Source grammar, credentials, or result parsing |
 | Source planning/execution | Complete intent bundle and adapter capability metadata | Source-native requests and normalized `Finding`s | Document interpretation |
 | Insight extraction | One field definition plus bounded external Findings | Atomic source-cited `Insight`s | Document comparison or target rewriting |
 | Drift / grounding / precedent | Immutable canonical target binding plus selected external Insights | Independent cited axis judgments | Rebinding the target or calculating statistics |
-| Source measurement mapping | One canonical target semantic profile plus one bounded, source-owned passage and source identity | Exact-quoted measurement proposals and closed yes/no/unknown semantic decisions | Document reinterpretation, target pass/fail, or aggregate cohort labels |
-| Calibration admission/math | Verified target, proposals, source identity, units, and provenance | Comparable cohort, exclusions, and descriptive statistics | LLM judgment or unit conversion |
+| Source measurement mapping | One canonical target semantic profile plus one bounded, source-owned passage and source identity | Exact-quoted measurement proposals, closed yes/no/unknown semantic decisions, and conservative within-record evidence-unit identity | Document reinterpretation, target pass/fail, or aggregate cohort labels |
+| Calibration admission/math | Verified target, exact-quoted candidates, source/evidence-unit identity, units, provenance, and explicit admission state | Evidence-unit-deduplicated cohort, retained candidates/exclusions, and descriptive statistics | New LLM judgment or unit conversion |
 
 Calibration therefore needs the target expression, semantic profile, semantic
 provenance, target ID, and canonical field owner from upstream. It does **not**
@@ -156,13 +184,10 @@ Fixed vocabulary units are resolved through bounded output groups over ordered
 block-aligned chunks, always with the complete field catalog. This prevents
 neighboring fields from independently claiming the same statement while
 avoiding oversized responses. Quantitative interpretation is separate: the
-complete document is partitioned into bounded batches of
-non-overlapping statement units. Every unit ID must be returned exactly once,
-and each batch retains its complete local source blocks while inheriting the
-canonical document bindings through schema-enumerated context references.
-Numeric syntax is copied from the unit; semantic provenance is resolved from
-the selected unit or binding references. A numeric target may be assigned only to
-a resolved field and a statement inside that field's canonical cited blocks.
+resolved field spans are batched without splitting their exact quotations or
+allowing ownership to be selected again. Every span ID must be returned exactly
+once. Numeric syntax and semantic provenance are copied or resolved from that
+canonical span. A numeric target can belong only to the field that supplied it.
 Missing or invalid decisions receive one targeted retry; remaining failures stay
 explicitly unresolved and are excluded from numeric target retrieval and
 calibration rather than being silently repaired downstream. The independent
@@ -177,7 +202,9 @@ reasoning failures degrade to their closed unknown/unrelated result.
 
 Each step is one stage in `services/scout/stages/`.
 
-The completed pipeline result is canonical. Downloading and importing it does
+The explicitly finalized pipeline result is canonical. Target-review and
+evidence-review drafts are portable only between browser and API during the
+stateless run and cannot be exported. Downloading and importing a final result does
 not rerun, repair, or mutate quantitative calibration. A materially newer
 analysis contract requires a new Scout run, keeping one authoritative result per
 run rather than creating alternate post-processed states.
@@ -231,18 +258,23 @@ Scout configs define query-generation guidance:
 `configs/evidence_methodology.yaml` contains only deterministic cohort-coverage
 thresholds; product/document guidance remains in each triple-specific config.
 
-## One LLM client
+## Provider boundaries
 
-OpenAI (`shared/openai_client.py`) handles Scout's LLM stages and Searcher's web
-adapter. Other Searcher adapters use their own non-LLM APIs and normalize into
-the same `Finding` contract.
+OpenAI (`shared/openai_client.py`) handles Scout's load-bearing extraction and
+evidence-reasoning stages plus Searcher's web adapter. Anthropic
+(`shared/anthropic_client.py`) is injected only into the non-authoritative
+document-target verifier. Other Searcher adapters use their own non-LLM APIs
+and normalize into the same `Finding` contract.
 
 Scout uses OpenAI Structured Outputs rather than asking each stage to recover
 free-form JSON. Provider refusals and incomplete responses fail closed at the
 shared boundary; stage-specific retry/degradation behavior remains local to the
-stage's responsibility.
+stage's responsibility. The Anthropic verifier is forced through the same
+existing target-review JSON Schema using a tool call; it can recommend only
+existing target IDs and cannot alter the canonical ledger.
 
-Scout receives its reasoning client and a generic `SearchRuntime` separately.
+Scout receives its primary reasoning client, optional target-review client, and
+a generic `SearchRuntime` separately.
 The API composes that runtime once, including source credentials and optional
 connector integrations, so Scout never knows which adapters are enabled.
 

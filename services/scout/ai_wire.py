@@ -45,6 +45,29 @@ class TernaryDecisionWire(_WireModel):
         return self
 
 
+class EvidenceUnitIdentityWire(_WireModel):
+    """Source-stated arm/cohort identity only when a record has distinct units."""
+
+    status: Literal["resolved", "record_level", "uncertain"]
+    group: SemanticSlotWire
+    cohort: SemanticSlotWire
+    reason: str
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "EvidenceUnitIdentityWire":
+        asserted = any(
+            slot.state in {"specified", "other"}
+            for slot in (self.group, self.cohort)
+        )
+        if self.status == "resolved" and not asserted:
+            raise ValueError("resolved evidence units require a group or cohort")
+        if self.status != "resolved" and asserted:
+            raise ValueError("unresolved evidence units cannot assert group or cohort identity")
+        if not self.reason:
+            raise ValueError("evidence unit identity requires a reason")
+        return self
+
+
 class NumericExpressionWire(_WireModel):
     kind: Literal[
         "point_estimate",
@@ -70,27 +93,31 @@ class NumericExpressionWire(_WireModel):
         if self.kind not in {"other", "unknown"} and not self.unit:
             raise ValueError("numeric expressions require a unit")
         if self.kind in {"point_estimate", "count", "rate"}:
-            if self.value is None or self.lower is not None or self.upper is not None:
+            if self.value is None:
                 raise ValueError("atomic scalars require exactly one value")
-            if self.comparator:
-                raise ValueError("atomic scalars cannot carry a comparator")
+            # Structured-output schemas cannot express every cross-field rule.
+            # Canonicalize redundant null-equivalent fields rather than losing
+            # a valid measurement because the model repeated '=' or a bound.
+            self.lower = None
+            self.upper = None
+            self.comparator = ""
         elif self.kind == "bound":
             if (
                 self.value is None
-                or self.lower is not None
-                or self.upper is not None
                 or not self.comparator
             ):
                 raise ValueError("bounds require one value and a comparator")
+            self.lower = None
+            self.upper = None
         elif self.kind in {"range", "confidence_interval"}:
             if (
-                self.value is not None
-                or self.lower is None
+                self.lower is None
                 or self.upper is None
                 or self.lower > self.upper
-                or self.comparator
             ):
                 raise ValueError("intervals require ordered lower and upper values")
+            self.value = None
+            self.comparator = ""
         return self
 
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .ai_wire import (
+    EvidenceUnitIdentityWire,
     NumericExpressionWire,
     SemanticSlotWire,
     SourceNumericSyntaxWire,
@@ -86,6 +87,7 @@ _NUMERIC_EXPRESSION = inline_json_schema(NumericExpressionWire)
 _TARGET_EXPRESSION = inline_json_schema(TargetExpressionWire)
 _SOURCE_NUMERIC_SYNTAX = inline_json_schema(SourceNumericSyntaxWire)
 _TERNARY = inline_json_schema(TernaryDecisionWire)
+_EVIDENCE_UNIT = inline_json_schema(EvidenceUnitIdentityWire)
 
 
 def context_validation(allowed_block_ids: list[str]) -> AIContract:
@@ -317,6 +319,21 @@ def document_quantitative_ledger_batch(
         ),
     )
 
+
+def target_review_batch(allowed_target_ids: list[str]) -> AIContract:
+    """Constrain independent target triage to existing proposal identities."""
+    return _wrapped(
+        "scout_document_target_review",
+        "reviews",
+        _object(
+            {
+                "target_id": _string(enum=list(dict.fromkeys(allowed_target_ids))),
+                "decision": _string(enum=["confirm", "exclude", "flag"]),
+                "reason": _string(),
+            }
+        ),
+    )
+
 def source_measurement_batch(
     required_fields: set[str],
     allowed_source_ids: list[str] | None = None,
@@ -344,6 +361,7 @@ def source_measurement_batch(
             "quote": _string(),
             "expression": _NUMERIC_EXPRESSION,
             "source_syntax": _SOURCE_NUMERIC_SYNTAX,
+            "evidence_unit": _EVIDENCE_UNIT,
             "semantic_assessment": _object(
                 {
                     "source_ownership": _TERNARY,

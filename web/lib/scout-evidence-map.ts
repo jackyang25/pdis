@@ -201,7 +201,7 @@ function analysisInsightIds(result: ScoutResponse, attributeRef: string): Set<st
   for (const id of precedent?.supporting_insight_ids ?? []) ids.add(id);
 
   const conformity = result.conformity?.find(
-    (item) => item.attribute_ref === attributeRef,
+    (item) => item.attribute_refs.includes(attributeRef),
   );
   for (const measurement of conformity?.measurements ?? []) {
     if (measurement.insight_id) ids.add(measurement.insight_id);
@@ -356,7 +356,7 @@ export function buildScoutEvidenceMap(
     (item) => item.attribute_ref === attributeRef,
   );
   const conformity = result.conformity?.find(
-    (item) => item.attribute_ref === attributeRef,
+    (item) => item.attribute_refs.includes(attributeRef),
   );
   const precedent = result.precedents?.find(
     (item) => item.attribute_ref === attributeRef,

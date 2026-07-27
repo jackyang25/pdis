@@ -280,7 +280,7 @@ export type SourcePassageDisposition = {
 };
 
 export type Conformity = {
-  attribute_ref: string;
+  attribute_refs: string[];
   target_id: string;
   target_role: "threshold" | "optimal" | "other";
   target_value: number;
@@ -372,7 +372,7 @@ export type Variable = {
     entity_type: string;
     identifier: string;
   }>;
-  quantitative_targets: QuantitativeTarget[];
+  quantitative_target_ids: string[];
   quantitative_statement_dispositions: QuantitativeStatementDisposition[];
   quantitative_target_status: "not_evaluated" | "present" | "not_applicable" | "uncertain";
   quantitative_target_status_reason: string;
@@ -380,11 +380,15 @@ export type Variable = {
 
 export type QuantitativeTarget = {
   id: string;
-  attribute_ref: string;
   expression: NumericExpression;
   role: "threshold" | "optimal" | "other";
   quote: string;
   doc_block_ids: string[];
+  field_links: Array<{
+    attribute_ref: string;
+    relation: "defines" | "constrains" | "context_for";
+    reason: string;
+  }>;
   comparison_dimensions: Array<keyof QuantitativeSemanticProfile>;
   semantic_profile: QuantitativeSemanticProfile;
   semantic_provenance: Record<keyof QuantitativeSemanticProfile, Array<{
@@ -392,7 +396,6 @@ export type QuantitativeTarget = {
     block_ids: string[];
   }>>;
   provenance_spans: Array<{ quote: string; block_ids: string[] }>;
-  ownership_reason: string;
   ai_recommendation: "confirm" | "exclude" | "flag";
   ai_review_reason: string;
   review_status: "needs_review" | "approved" | "rejected";
@@ -403,7 +406,7 @@ export type QuantitativeStatementDisposition = {
   block_ids: string[];
   disposition: "context_only" | "non_scalar" | "range_or_set" | "uncertain";
   reason: string;
-  attribute_ref: string;
+  attribute_refs: string[];
 };
 
 export type QuantitativeLedgerReview = {
@@ -412,7 +415,7 @@ export type QuantitativeLedgerReview = {
   quote: string;
   classification: "target" | "context_only" | "non_scalar" | "range_or_set" | "non_numeric" | "uncertain";
   reason: string;
-  attribute_ref: string;
+  attribute_refs: string[];
   target_ids: string[];
   review_status: "resolved" | "needs_review" | "accepted_exclusion";
 };

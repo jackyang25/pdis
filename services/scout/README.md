@@ -20,7 +20,11 @@ later evidence review finalizes quantitative admission.
 TPP fields and dynamically extracted IPDP claims converge to the same
 document-bound `Attribute` before retrieval. Each attribute retains its stable
 identity, canonical document target, exact source spans, evidence domain,
-entities, and quantitative ledger. Downstream stages cannot rewrite it.
+entities, and an ordered view of applicable quantitative claim IDs. The
+document-level quantitative ledger is the only canonical store for atomic
+targets. Downstream stages cannot rewrite either contract.
+Fixed TPP coverage is maintained in `shared/attributes.yaml`; adding an authored
+domain field extends this vocabulary without adding a pipeline branch.
 
 `ScoutResult` contains attributes, source blocks, query and retrieval traces,
 insights, independent evidence judgments, quantitative review and calibration,
@@ -37,14 +41,24 @@ and deterministic landscape and safety views.
 
 General, geographic, counterfactual, and precedent query tracks are additive and
 retain block, target, intent, adapter, connector, and URL lineage.
+The generated source-neutral intents remain authoritative when literature
+adapters compile their bounded PubMed or Semantic Scholar request grammar.
 
 ## Quantitative calibration
 
-Anthropic Opus maps document spans into typed targets and source passages into
-typed measurement candidates. OpenAI independently reviews both proposal types
-without changing their mapped data. Code validates structural provenance,
-declared-unit compatibility, evidence-unit identity, deduplication, and
-arithmetic.
+Anthropic Opus interprets each cited document block once, regardless of how
+many fields reference it. Every atomic target is document-owned and links to
+product fields through typed `defines`, `constrains`, or `context_for`
+relations. Only defining and constraining links drive retrieval and
+calibration; contextual links remain visible without creating statistics.
+Before review, a document-wide reconciliation pass may group repeated or
+paraphrased representations of the same atomic claim. It can only partition
+existing, calculation-compatible target IDs; code combines their field links
+and exact provenance without rewriting meaning. Anthropic then maps source
+passages into typed measurement candidates. OpenAI
+independently reviews both proposal types without changing their mapped data.
+Code validates structural provenance, declared-unit compatibility,
+evidence-unit identity, deduplication, and arithmetic.
 
 Only explicitly admitted, compatible, evidence-unit-deduplicated scalars enter
 descriptive statistics. Unresolved records remain in the portable audit trail;

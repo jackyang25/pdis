@@ -15,6 +15,7 @@ from services.scout.ai_contracts import (
     evidence_assessment,
     insight_batch,
     precedent_assessment,
+    quantitative_claim_reconciliation,
     query_batch,
     source_measurement_batch,
     target_binding_batch,
@@ -107,6 +108,14 @@ class ScoutAIContractTests(unittest.TestCase):
             ["confirm", "exclude", "flag"],
         )
 
+    def test_claim_reconciliation_can_only_partition_existing_targets(self) -> None:
+        allowed = ["qt-one", "qt-two"]
+        contract = quantitative_claim_reconciliation(allowed)
+        item = contract.schema["properties"]["groups"]["items"]["properties"]
+
+        self.assertEqual(item["representative_target_id"]["enum"], allowed)
+        self.assertEqual(item["member_target_ids"]["items"]["enum"], allowed)
+
     def test_evidence_review_schema_can_only_select_existing_candidates(self) -> None:
         contract = evidence_review_batch(["group-one"], ["candidate-one"])
         item = contract.schema["properties"]["reviews"]["items"]["properties"]
@@ -146,9 +155,13 @@ class ScoutAIContractTests(unittest.TestCase):
 
         review = contract.schema["properties"]["reviews"]["items"]["properties"]
         self.assertEqual(review["unit_id"]["enum"], ["unit-0001"])
-        self.assertEqual(review["attribute_ref"]["enum"], ["field.one"])
         self.assertEqual(
-            review["targets"]["items"]["properties"]["attribute_ref"]["enum"],
+            review["attribute_refs"]["items"]["enum"],
+            ["field.one"],
+        )
+        self.assertEqual(
+            review["targets"]["items"]["properties"]["field_links"]
+            ["items"]["properties"]["attribute_ref"]["enum"],
             ["field.one"],
         )
         target_properties = review["targets"]["items"]["properties"]

@@ -116,7 +116,7 @@ export default function DocsPage() {
             <DefinitionRows rows={EVIDENCE_AXES} />
 
             <Note title="Quantitative review">
-              Anthropic maps document targets and retrieved measurements into typed proposals. OpenAI independently recommends whether each proposal should be confirmed, excluded, admitted, rejected, or reviewed manually. Human decisions control admission; code owns provenance checks, deduplication, units, and arithmetic.
+              Anthropic maps document-owned claims and retrieved measurements into typed proposals. A claim may define or constrain several product fields without being copied; contextual links never create statistics. OpenAI independently recommends whether each proposal should be confirmed, excluded, admitted, rejected, or reviewed manually. Human decisions control admission; code checks structure, provenance, declared-unit compatibility, deduplication, and arithmetic.
             </Note>
             <Warning title="Calibration is descriptive">
               Quantitative distributions describe only the admitted comparator cohort. They are not confidence intervals, population estimates, causal claims, or probabilities of success.

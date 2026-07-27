@@ -11,7 +11,6 @@ from dataclasses import dataclass, replace
 from ..ai import request_structured
 from ..ai_contracts import evidence_review_batch
 from ..models import (
-    Attribute,
     ConformityScore,
     LLMClientProtocol,
     Measurement,
@@ -35,7 +34,7 @@ class _EvidenceReviewGroup:
 
 def prefill_evidence_review(
     scores: list[ConformityScore],
-    attributes: list[Attribute],
+    targets: list[QuantitativeTarget],
     llm_client: LLMClientProtocol | None,
 ) -> list[ConformityScore]:
     """Recommend admission decisions without mutating calculation inputs.
@@ -44,7 +43,7 @@ def prefill_evidence_review(
     one complete evidence unit, or flag it. Human confirmation remains the
     boundary that changes ``admission_status`` and rebuilds statistics.
     """
-    groups = _review_groups(scores, attributes)
+    groups = _review_groups(scores, targets)
     if not groups:
         return scores
     if llm_client is None:
@@ -130,16 +129,12 @@ def prefill_evidence_review(
 
 def _review_groups(
     scores: list[ConformityScore],
-    attributes: list[Attribute],
+    targets: list[QuantitativeTarget],
 ) -> list[_EvidenceReviewGroup]:
-    targets = {
-        target.id: target
-        for attribute in attributes
-        for target in attribute.quantitative_targets
-    }
+    targets_by_id = {target.id: target for target in targets}
     groups: list[_EvidenceReviewGroup] = []
     for score_index, score in enumerate(scores):
-        target = targets.get(score.target_id)
+        target = targets_by_id.get(score.target_id)
         if target is None:
             continue
         by_unit: dict[str, list[Measurement]] = {}
@@ -217,7 +212,7 @@ def _render_group(group: _EvidenceReviewGroup) -> str:
         )))
     return "\n".join((
         f"[group:{group.id}]",
-        f"Canonical field: {target.attribute_ref}",
+        "Linked fields: " + ", ".join(target.attribute_refs),
         f"Document target: {target.label}",
         f"Exact document quote: {target.quote}",
         "Required target dimensions: " + json.dumps(

@@ -27,6 +27,7 @@ from services.scout.models import (
     EvidenceUnitIdentity,
     Insight,
     QueryIntent,
+    QuantitativeFieldLink,
     QuantitativeTarget,
     Measurement,
     NumericExpression,
@@ -322,9 +323,22 @@ def extract_quantitative_targets(
             16_000,
         )
     )
+    items = parsed.get("targets") if isinstance(parsed, dict) else None
+    if isinstance(items, list):
+        items = [
+            {
+                **item,
+                "field_links": item.get("field_links") or [{
+                    "attribute_ref": attribute.name,
+                    "relation": "defines",
+                    "reason": "Test fixture links the claim to its product field.",
+                }],
+            }
+            for item in items
+            if isinstance(item, dict)
+        ]
     return _validated_targets(
-        parsed.get("targets") if isinstance(parsed, dict) else None,
-        attribute=attribute,
+        items,
         doc_text=document,
         semantic_context=semantic_context or document,
     )
@@ -363,7 +377,8 @@ def score_conformity_ledgers(attribute, document, insights, client, **kwargs):
         intervention_class=kwargs["intervention_class"],
     )
     return _score_conformity_ledgers(
-        replace(attribute, quantitative_targets=targets),
+        attribute,
+        targets,
         insights,
         client,
         indication=kwargs["indication"],
@@ -561,6 +576,47 @@ class SearchProvenanceTests(unittest.TestCase):
         self.assertIn("R21 efficacy was 75% at 12 months", findings[0].excerpt or "")
         self.assertEqual(findings[0].excerpt_source_lane, "web")
 
+    def test_web_citations_keep_only_their_nearest_claim(self) -> None:
+        first = "([first](https://example.test/first))"
+        second = "([second](https://example.test/second))"
+        text = f"First claim. {first} Second claim. {second}"
+        response = {
+            "output": [{
+                "type": "message",
+                "content": [{
+                    "text": text,
+                    "annotations": [
+                        {
+                            "type": "url_citation",
+                            "url": "https://example.test/first",
+                            "title": "First",
+                            "start_index": text.index(first),
+                            "end_index": text.index(first) + len(first),
+                        },
+                        {
+                            "type": "url_citation",
+                            "url": "https://example.test/second",
+                            "title": "Second",
+                            "start_index": text.index(second),
+                            "end_index": text.index(second) + len(second),
+                        },
+                    ],
+                }],
+            }]
+        }
+
+        findings = _parse_response_to_findings(
+            response,
+            query="two claims",
+            retrieved_at=datetime.now(timezone.utc),
+        )
+
+        by_url = {finding.url: finding for finding in findings}
+        self.assertIn("First claim", by_url["https://example.test/first"].excerpt or "")
+        self.assertNotIn("Second claim", by_url["https://example.test/first"].excerpt or "")
+        self.assertIn("Second claim", by_url["https://example.test/second"].excerpt or "")
+        self.assertNotIn("First claim", by_url["https://example.test/second"].excerpt or "")
+
     def test_duplicate_urls_merge_queries_and_lanes(self) -> None:
         existing = finding("https://example.test/a", query="first", source="web")
         incoming = finding("https://example.test/a", query="second", source="pubmed")
@@ -673,6 +729,15 @@ class RetrievalPlanningTests(unittest.TestCase):
                 self.assertIn(attribute.evidence_domain, EVIDENCE_DOMAINS)
                 self.assertNotEqual(attribute.evidence_domain, "general")
 
+    def test_drug_vocabulary_owns_core_pk_tolerability_and_resistance_rows(self) -> None:
+        names = {attribute.name for attribute in load_attributes("drug")}
+
+        self.assertTrue({
+            "drug.pharmacokinetic_profile",
+            "drug.tolerability",
+            "drug.resistance_profile",
+        }.issubset(names))
+
     def test_every_product_config_has_responsibility_specific_framing(self) -> None:
         config_dir = Path(__file__).resolve().parents[1] / "services" / "scout" / "configs"
         for path in config_dir.glob("bmgf_*.yaml"):
@@ -756,7 +821,7 @@ class RetrievalPlanningTests(unittest.TestCase):
         )
         self.assertEqual(
             literature.query,
-            "(malaria) AND (vaccine) AND (dose OR regimen) AND (Number OR timing OR doses)",
+            "(malaria) AND ((vaccine AND doses))",
         )
         self.assertNotIn("site:", literature.query)
         registry = next(task for task in tasks if task.source == "clinicaltrials")
@@ -790,6 +855,39 @@ class RetrievalPlanningTests(unittest.TestCase):
         literature_only = plan_requests(retrieval_intents, sources=("pubmed",))
         self.assertTrue(literature_only)
         self.assertEqual({task.source for task in literature_only}, {"pubmed"})
+
+    def test_literature_queries_retain_document_specific_drug_concepts(self) -> None:
+        attribute = Attribute(
+            "drug.pharmacokinetic_profile",
+            "Pharmacokinetic and exposure requirements",
+            document_target="Long-acting injectable for pulmonary tuberculosis.",
+            document_spans=[DocumentSpan(
+                quote="Long-acting injectable for pulmonary tuberculosis.",
+                block_ids=["doc/b-0034"],
+            )],
+            target_resolved=True,
+            evidence_domain="clinical",
+        )
+        queries = [QueryIntent(
+            "tuberculosis long acting injectable pharmacokinetic target attainment",
+            ["general"],
+            ["doc/b-0034"],
+        )]
+        intents = build_retrieval_intents(
+            {attribute.name: queries},
+            [attribute],
+            indication="tb",
+            intervention_class="drug",
+        )
+
+        requests = plan_requests(
+            intents,
+            sources=("pubmed", "semantic_scholar"),
+        )
+
+        self.assertTrue(all("tb" in request.query.casefold() for request in requests))
+        self.assertTrue(all("injectable" in request.query.casefold() for request in requests))
+        self.assertTrue(all("pharmacokinetic" in request.query.casefold() for request in requests))
 
     def test_query_parser_validates_document_lineage(self) -> None:
         raw = [
@@ -844,7 +942,7 @@ class RetrievalPlanningTests(unittest.TestCase):
                 },
             })
             targets.append(QuantitativeTarget(
-                attribute_ref="efficacy",
+                field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
                 expression=NumericExpression(
                     kind="bound", value=value, comparator=">=", unit="%"
                 ),
@@ -860,7 +958,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             block_ids=["doc/b-0002", "doc/b-0003"],
             target_resolved=True,
             evidence_domain="clinical",
-            quantitative_targets=targets,
+            quantitative_target_ids=[target.id for target in targets],
         )
         config = replace(
             load_config(
@@ -875,6 +973,7 @@ class RetrievalPlanningTests(unittest.TestCase):
         )
         queries = extract_queries_for_variable(
             attribute,
+            targets,
             config,
             StaticClient([{"query": "general efficacy evidence", "doc_block_ids": []}]),
             indication="malaria",
@@ -923,7 +1022,7 @@ class RetrievalPlanningTests(unittest.TestCase):
         )
         self.assertEqual(set(requests[0].target_refs), {target.id for target in targets})
 
-    def test_query_projection_removes_only_the_target_magnitude(self) -> None:
+    def test_query_projection_preserves_ai_mapped_semantic_dimensions(self) -> None:
         profile = semantic_profile("storage temperature tolerance")
         profile["endpoint"] = {
             "state": "specified",
@@ -936,7 +1035,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             "other": "",
         }
         target = QuantitativeTarget(
-            attribute_ref="device.storage",
+            field_links=[QuantitativeFieldLink(attribute_ref="device.storage", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(kind="bound", value=8, comparator=">", unit="°C"),
             role="optimal",
             quote="stable for extended periods at temperatures greater than +8°C",
@@ -947,16 +1046,19 @@ class RetrievalPlanningTests(unittest.TestCase):
         descriptor = _target_retrieval_descriptor(target)
         query_text = _target_retrieval_text(target)
 
-        self.assertNotIn("endpoint", descriptor["dimensions"])
+        self.assertEqual(
+            descriptor["dimensions"]["endpoint"],
+            "stability at temperatures greater than +8°C",
+        )
         self.assertEqual(
             descriptor["dimensions"]["time_horizon"], "extended storage period"
         )
-        self.assertNotIn("8", query_text)
+        self.assertIn("+8°C", query_text)
         self.assertIn("storage temperature tolerance", query_text)
 
         dose_profile = semantic_profile("dose volume below 0.5 mL/dose")
         dose_target = QuantitativeTarget(
-            attribute_ref="device.dose_volume",
+            field_links=[QuantitativeFieldLink(attribute_ref="device.dose_volume", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(
                 kind="bound", value=0.5, comparator="<", unit="mL/dose"
             ),
@@ -965,14 +1067,15 @@ class RetrievalPlanningTests(unittest.TestCase):
             doc_block_ids=["document/b-0005"],
             semantic_profile=dose_profile,
         )
-        self.assertNotIn(
-            "measure", _target_retrieval_descriptor(dose_target)["dimensions"]
+        self.assertEqual(
+            _target_retrieval_descriptor(dose_target)["dimensions"]["measure"],
+            "dose volume below 0.5 mL/dose",
         )
 
-    def test_generated_query_that_restates_target_magnitude_is_replaced(self) -> None:
+    def test_generated_query_is_not_reinterpreted_by_string_heuristics(self) -> None:
         profile = semantic_profile("storage temperature tolerance")
         target = QuantitativeTarget(
-            attribute_ref="device.storage",
+            field_links=[QuantitativeFieldLink(attribute_ref="device.storage", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(
                 kind="bound", value=8, comparator=">", unit="°C"
             ),
@@ -987,7 +1090,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             document_target=target.quote,
             block_ids=target.doc_block_ids,
             target_resolved=True,
-            quantitative_targets=[target],
+            quantitative_target_ids=[target.id],
         )
         config = replace(
             load_config(
@@ -1008,6 +1111,7 @@ class RetrievalPlanningTests(unittest.TestCase):
 
         queries = extract_queries_for_variable(
             attribute,
+            [target],
             config,
             SequenceClient([
                 invalid,
@@ -1024,12 +1128,14 @@ class RetrievalPlanningTests(unittest.TestCase):
 
         self.assertEqual(len(queries), 1)
         self.assertEqual(queries[0].target_ids, [target.id])
-        self.assertNotIn("8", queries[0].text)
-        self.assertIn("reported numeric results", queries[0].text)
+        self.assertEqual(
+            queries[0].text,
+            "device stability above 8°C reported results",
+        )
 
-    def test_target_query_rejects_locale_decimal_magnitude(self) -> None:
+    def test_locale_decimal_query_is_preserved_as_ai_authored_intent(self) -> None:
         target = QuantitativeTarget(
-            attribute_ref="device.dose_volume",
+            field_links=[QuantitativeFieldLink(attribute_ref="device.dose_volume", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(
                 kind="bound", value=0.5, comparator="<", unit="mL/dose"
             ),
@@ -1044,7 +1150,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             document_target=target.quote,
             block_ids=target.doc_block_ids,
             target_resolved=True,
-            quantitative_targets=[target],
+            quantitative_target_ids=[target.id],
         )
         config = replace(
             load_config(
@@ -1065,6 +1171,7 @@ class RetrievalPlanningTests(unittest.TestCase):
 
         queries = extract_queries_for_variable(
             attribute,
+            [target],
             config,
             SequenceClient([invalid, invalid]),
             indication="example condition",
@@ -1073,8 +1180,7 @@ class RetrievalPlanningTests(unittest.TestCase):
         )
 
         self.assertEqual(len(queries), 1)
-        self.assertNotIn("0.5", queries[0].text)
-        self.assertNotIn("0,5", queries[0].text)
+        self.assertEqual(queries[0].text, "dose volume below 0,5 mL reported results")
 
     def test_plain_text_literature_plan_covers_every_variant(self) -> None:
         attribute = Attribute("durability", "Duration of protection")
@@ -1103,7 +1209,7 @@ class RetrievalPlanningTests(unittest.TestCase):
         self.assertEqual(requests[0].input_queries, tuple(item.text for item in variants))
         self.assertEqual(
             requests[0].query,
-            "malaria vaccine durability Duration protection",
+            "malaria vaccine durability concept0 concept1 concept2 concept3 concept4 Duration protection",
         )
         self.assertEqual(
             requests[0].document_refs,
@@ -1591,7 +1697,7 @@ class ReasoningLineageTests(unittest.TestCase):
 
     def test_irrelevant_numbers_resolve_at_passage_level_without_fragment_noise(self) -> None:
         target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(
                 kind="bound", value=80, comparator=">=", unit="%"
             ),
@@ -1600,7 +1706,7 @@ class ReasoningLineageTests(unittest.TestCase):
             doc_block_ids=["document/b-0003"],
             semantic_profile=semantic_profile("protective efficacy"),
         )
-        attribute = replace(self.attribute, quantitative_targets=[target])
+        attribute = replace(self.attribute, quantitative_target_ids=[target.id])
         insight = Insight(
             statement="The study enrolled participants.",
             supporting_findings=[finding(
@@ -1624,6 +1730,7 @@ class ReasoningLineageTests(unittest.TestCase):
 
         result = _score_conformity_ledgers(
             attribute,
+            [target],
             [insight],
             NoMeasurementClient(),
             indication="malaria",
@@ -1646,7 +1753,7 @@ class ReasoningLineageTests(unittest.TestCase):
             evidence_mode="structured_fact",
         )
         target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
             role="threshold",
             quote="Target efficacy is more than 80%.",
@@ -1660,7 +1767,7 @@ class ReasoningLineageTests(unittest.TestCase):
 
     def test_distinct_arms_from_one_source_are_independent_evidence_units(self) -> None:
         target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(
                 kind="bound", value=80, comparator=">=", unit="%"
             ),
@@ -1708,7 +1815,7 @@ class ReasoningLineageTests(unittest.TestCase):
             evidence_mode="structured_fact",
         )
         target = QuantitativeTarget(
-            attribute_ref="incidence",
+            field_links=[QuantitativeFieldLink(attribute_ref="incidence", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(
                 kind="bound", value=3, comparator="<=", unit="per 100 person-years"
             ),
@@ -1749,7 +1856,7 @@ class ReasoningLineageTests(unittest.TestCase):
             source_record_id="clinical_trial:nct-example",
         )
         target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
             role="optimal",
             quote="Target efficacy is more than 80%.",
@@ -1777,7 +1884,7 @@ class ReasoningLineageTests(unittest.TestCase):
             source_record_id="clinical_trial:nct-example",
         )
         target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
             role="optimal",
             quote="Target efficacy is more than 80%.",
@@ -1805,7 +1912,7 @@ class ReasoningLineageTests(unittest.TestCase):
             source_record_id="clinical_trial:nct-example",
         )
         target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
             role="optimal",
             quote="Target efficacy is more than 80%.",
@@ -1841,7 +1948,7 @@ class ReasoningLineageTests(unittest.TestCase):
             evidence_mode="structured_fact",
         )
         target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
             role="optimal",
             quote="Target efficacy is more than 80%.",
@@ -1869,7 +1976,7 @@ class ReasoningLineageTests(unittest.TestCase):
             source_record_id="doi:10.1/ambiguous-target",
         )
         target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
             role="optimal",
             quote="Target efficacy is more than 80%.",
@@ -1910,7 +2017,7 @@ class ReasoningLineageTests(unittest.TestCase):
             "other": "",
         }
         target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(kind="bound", value=80, comparator=">", unit="%"),
             role="optimal",
             quote="Target efficacy is more than 80%.",
@@ -2271,7 +2378,7 @@ class ReasoningLineageTests(unittest.TestCase):
 
     def test_coverage_classifier_receives_the_exact_document_target(self) -> None:
         target = QuantitativeTarget(
-            attribute_ref=self.attribute.name,
+            field_links=[QuantitativeFieldLink(attribute_ref=self.attribute.name, relation="defines", reason="Test fixture.")],
             expression=NumericExpression(
                 kind="bound", value=80, comparator=">=", unit="%"
             ),
@@ -2281,7 +2388,7 @@ class ReasoningLineageTests(unittest.TestCase):
             semantic_profile=semantic_profile("protective efficacy"),
         )
         prompt = _measurement_system_prompt(
-            self.attribute,
+            (self.attribute,),
             target=target,
             indication="malaria",
             intervention_class="vaccine",
@@ -2966,7 +3073,7 @@ class ReasoningLineageTests(unittest.TestCase):
 
     def test_missing_candidate_relevance_fails_closed_after_retry(self) -> None:
         target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(
                 kind="bound", value=80, comparator=">=", unit="%"
             ),
@@ -2975,7 +3082,7 @@ class ReasoningLineageTests(unittest.TestCase):
             doc_block_ids=["document/b-0003"],
             semantic_profile=semantic_profile("protective efficacy"),
         )
-        attribute = replace(self.attribute, quantitative_targets=[target])
+        attribute = replace(self.attribute, quantitative_target_ids=[target.id])
 
         class MissingRelevanceClient:
             def __init__(self) -> None:
@@ -3001,6 +3108,7 @@ class ReasoningLineageTests(unittest.TestCase):
         client = MissingRelevanceClient()
         ledgers = _score_conformity_ledgers(
             attribute,
+            [target],
             [self.first],
             client,
             indication="test",

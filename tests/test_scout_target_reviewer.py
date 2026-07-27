@@ -10,6 +10,7 @@ from services.scout.models import (
     DocumentSpan,
     NumericExpression,
     QuantitativeLedger,
+    QuantitativeFieldLink,
     QuantitativeTarget,
     SemanticSlot,
 )
@@ -19,9 +20,14 @@ from services.scout.stages.target_reviewer import prefill_target_review
 BLOCK_ID = "document/b-0001"
 
 
-def _target(value: float, quote: str) -> QuantitativeTarget:
+def _target(
+    value: float,
+    quote: str,
+    *,
+    attribute_ref: str = "vaccine.efficacy",
+) -> QuantitativeTarget:
     return QuantitativeTarget(
-        attribute_ref="vaccine.efficacy",
+        field_links=[QuantitativeFieldLink(attribute_ref=attribute_ref, relation="defines", reason="Test fixture.")],
         expression=NumericExpression(
             kind="bound",
             value=value,
@@ -93,7 +99,7 @@ class TargetReviewerTests(unittest.TestCase):
             document_target=self.quote,
             document_spans=[DocumentSpan(quote=self.quote, block_ids=[BLOCK_ID])],
             target_resolved=True,
-            quantitative_targets=[self.target],
+            quantitative_target_ids=[self.target.id],
         )
         self.block = ContentBlock(
             id=BLOCK_ID,
@@ -128,7 +134,7 @@ class TargetReviewerTests(unittest.TestCase):
         self.assertEqual(reviewed.provenance_spans, self.target.provenance_spans)
         self.assertEqual(reviewed.ai_recommendation, "confirm")
         self.assertEqual(reviewed.review_status, "needs_review")
-        self.assertEqual(attributes[0].quantitative_targets, [reviewed])
+        self.assertEqual(attributes[0].quantitative_target_ids, [reviewed.id])
         self.assertIn("Background incidence was 14%", client.user_message)
 
     def test_missing_or_failed_ai_review_degrades_to_manual_review(self) -> None:
@@ -160,7 +166,7 @@ class TargetReviewerTests(unittest.TestCase):
                 )
             ],
             target_resolved=True,
-            quantitative_targets=targets,
+            quantitative_target_ids=[target.id for target in targets],
         )
         block = ContentBlock(
             id=BLOCK_ID,
@@ -193,10 +199,9 @@ class TargetReviewerTests(unittest.TestCase):
             for target in reviewed_ledger.targets
         ))
         self.assertEqual(
-            reviewed_attributes[0].quantitative_targets,
-            reviewed_ledger.targets,
+            reviewed_attributes[0].quantitative_target_ids,
+            [target.id for target in reviewed_ledger.targets],
         )
-
 
 if __name__ == "__main__":
     unittest.main()

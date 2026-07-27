@@ -37,6 +37,10 @@ adapter failures remain isolated. URL deduplication preserves every query,
 source lane, and retrieval path. Web citation context is not treated as a
 verbatim source passage.
 
+Adapters may compact several neutral intents into one native request, but the
+native query must retain their document-specific concepts and the request must
+carry every input intent ID and text.
+
 ## Sources
 
 | Boundary | Sources |

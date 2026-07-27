@@ -8,6 +8,7 @@ from unittest.mock import patch
 from services.scout.models import (
     Attribute,
     NumericExpression,
+    QuantitativeFieldLink,
     QuantitativeTarget,
     SemanticSlot,
 )
@@ -16,7 +17,7 @@ from services.scout.stages import conformity
 
 def _target(value: float, role: str) -> QuantitativeTarget:
     return QuantitativeTarget(
-        attribute_ref="efficacy",
+        field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
         expression=NumericExpression(
             kind="bound",
             unit="%",
@@ -33,6 +34,74 @@ def _target(value: float, role: str) -> QuantitativeTarget:
 
 
 class ScoutConformityConcurrencyTests(unittest.TestCase):
+    def test_one_claim_calibrates_once_across_multiple_field_views(self) -> None:
+        target = QuantitativeTarget(
+            field_links=[
+                QuantitativeFieldLink(
+                    attribute_ref="presentation",
+                    relation="defines",
+                    reason="The claim specifies presentation.",
+                ),
+                QuantitativeFieldLink(
+                    attribute_ref="programmatic_suitability",
+                    relation="constrains",
+                    reason="The same claim constrains delivery.",
+                ),
+                QuantitativeFieldLink(
+                    attribute_ref="delivery_strategy",
+                    relation="context_for",
+                    reason="The claim is useful delivery context.",
+                ),
+            ],
+            expression=NumericExpression(
+                kind="bound",
+                unit="vials/dose",
+                value=2,
+                comparator="<=",
+            ),
+            role="threshold",
+            quote="No more than two vials per administered dose.",
+            doc_block_ids=["document/b-0001"],
+            semantic_profile={
+                "measure": SemanticSlot(
+                    state="specified",
+                    value="vials per administered dose",
+                )
+            },
+        )
+        attributes = [
+            Attribute(
+                name=name,
+                description=name.replace("_", " "),
+                document_target=target.quote,
+                block_ids=target.doc_block_ids,
+                target_resolved=True,
+                quantitative_target_ids=(
+                    [target.id] if name in target.analysis_attribute_refs else []
+                ),
+            )
+            for name in (
+                "presentation",
+                "programmatic_suitability",
+                "delivery_strategy",
+            )
+        ]
+
+        scores = conformity.score_conformity_all(
+            attributes,
+            [target],
+            {attribute.name: [] for attribute in attributes},
+            object(),
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(len(scores), 1)
+        self.assertEqual(
+            scores[0].attribute_refs,
+            ["presentation", "programmatic_suitability"],
+        )
+
     def test_global_batch_queue_is_bounded_and_preserves_target_order(self) -> None:
         targets = [_target(80, "threshold"), _target(90, "optimal")]
         attribute = Attribute(
@@ -41,7 +110,7 @@ class ScoutConformityConcurrencyTests(unittest.TestCase):
             document_target="Two efficacy targets.",
             block_ids=["document/b-0001"],
             target_resolved=True,
-            quantitative_targets=targets,
+            quantitative_target_ids=[target.id for target in targets],
         )
         # Six passages create two batches per target: four independent jobs.
         passages = [object() for _ in range(6)]
@@ -66,6 +135,7 @@ class ScoutConformityConcurrencyTests(unittest.TestCase):
         ):
             scores = conformity.score_conformity_all(
                 [attribute],
+                targets,
                 {attribute.name: []},
                 object(),
                 indication="malaria",

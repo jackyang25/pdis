@@ -24,6 +24,7 @@ from .models import (
     EVIDENCE_DOMAINS,
     ENTITY_TYPES,
     QUANTITATIVE_SEMANTIC_FIELDS,
+    QUANTITATIVE_FIELD_LINK_RELATIONS,
     SEMANTIC_SLOT_STATES,
     VALID_EVIDENCE_STRENGTHS,
     VALID_PRECEDENT,
@@ -255,6 +256,7 @@ def document_quantitative_ledger_batch(
     without copying quotations or block IDs back across the model boundary.
     """
     context_refs = list(dict.fromkeys(["statement", *allowed_context_refs]))
+    attribute_refs = list(dict.fromkeys(allowed_attribute_refs or []))
     document_semantic_slot = _object(
         {
             "state": _string(enum=sorted(SEMANTIC_SLOT_STATES)),
@@ -278,7 +280,17 @@ def document_quantitative_ledger_batch(
                 _string(enum=list(QUANTITATIVE_SEMANTIC_FIELDS))
             ),
             "semantic_profile": document_semantic_profile,
-            "ownership_reason": _string(),
+            "field_links": _array(
+                _object(
+                    {
+                        "attribute_ref": _string(enum=attribute_refs),
+                        "relation": _string(
+                            enum=sorted(QUANTITATIVE_FIELD_LINK_RELATIONS)
+                        ),
+                        "reason": _string(),
+                    }
+                )
+            ),
         }
     )
     return AIContract(
@@ -299,14 +311,13 @@ def document_quantitative_ledger_batch(
                                     "uncertain",
                                 ]
                             ),
-                            "attribute_ref": _string(enum=allowed_attribute_refs),
+                            "attribute_refs": _array(
+                                _string(enum=attribute_refs)
+                            ),
                             "reason": _string(),
                             "targets": _array(
                                 _object(
                                     {
-                                        "attribute_ref": _string(
-                                            enum=allowed_attribute_refs
-                                        ),
                                         **document_target["properties"],
                                     }
                                 )
@@ -314,6 +325,22 @@ def document_quantitative_ledger_batch(
                         }
                     )
                 )
+            }
+        ),
+    )
+
+
+def quantitative_claim_reconciliation(allowed_target_ids: list[str]) -> AIContract:
+    """Partition potentially duplicate claim IDs without rewriting claim data."""
+    target_ids = list(dict.fromkeys(allowed_target_ids))
+    return _wrapped(
+        "scout_quantitative_claim_reconciliation",
+        "groups",
+        _object(
+            {
+                "representative_target_id": _string(enum=target_ids),
+                "member_target_ids": _array(_string(enum=target_ids)),
+                "reason": _string(),
             }
         ),
     )

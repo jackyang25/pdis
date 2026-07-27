@@ -29,7 +29,7 @@ def prefill_target_review(
     """Recommend decisions without creating a second target interpretation.
 
     The verifier can select only existing target IDs and a closed decision. It
-    cannot rewrite expressions, semantics, ownership, or provenance. Clear
+    cannot rewrite expressions, semantics, field links, or provenance. Clear
     recommendations prefill the client-held review; ambiguity remains pending.
     """
     if not ledger.targets:
@@ -40,15 +40,21 @@ def prefill_target_review(
         "You cannot create, rewrite, merge, or reassign targets. Decide confirm only when "
         "the cited document language makes the proposed number an intended requirement, "
         "constraint, threshold, optimum, or explicitly defined operating/use-case target "
-        "for its canonical field and the displayed semantic mapping is faithful. Decide "
+        "and its displayed semantic mapping and typed field links are faithful. Decide "
         "exclude when the number is merely epidemiology, background evidence, rationale, "
-        "an example, a citation, a rejected alternative, or another field's fact. Decide "
-        "flag whenever intent or mapping is genuinely ambiguous. Review every supplied target ID "
+        "an example, a citation, or a rejected alternative. Decide flag whenever intent or "
+        "mapping is genuinely ambiguous. Fields are product views, not target owners; one "
+        "proposal may define or constrain multiple fields without becoming duplicate targets. "
+        "Review every supplied target ID "
         "exactly once. Give one short, document-specific reason. Return only schema JSON."
     )
     proposals: dict[str, str] = {}
     for target in ledger.targets:
-        attribute = attributes_by_name[target.attribute_ref]
+        linked_fields = [
+            attributes_by_name[link.attribute_ref]
+            for link in target.field_links
+            if link.attribute_ref in attributes_by_name
+        ]
         semantics = "; ".join(
             f"{name}={slot.value or slot.other or slot.state}"
             for name, slot in target.semantic_profile.items()
@@ -57,10 +63,21 @@ def prefill_target_review(
         proposals[target.id] = "\n".join(
             (
                 f"[target:{target.id}]",
-                f"Canonical field: {attribute.name} — {attribute.description}",
-                f"Canonical field binding: {attribute.document_target}",
+                "Field links: " + "; ".join(
+                    f"{link.attribute_ref} ({link.relation}: {link.reason})"
+                    for link in target.field_links
+                ),
+                "Linked field definitions: " + "; ".join(
+                    f"{attribute.name} — {attribute.description}"
+                    for attribute in linked_fields
+                ),
+                "Linked canonical bindings: " + " | ".join(
+                    attribute.document_target for attribute in linked_fields
+                ),
                 f"Proposed target: {target.label}",
-                f"Exact cited passage: {target.quote}",
+                "Exact cited passages: " + " | ".join(
+                    span.quote for span in target.provenance_spans
+                ),
                 f"Mapped meaning: {semantics}",
             )
         )
@@ -83,8 +100,8 @@ def prefill_target_review(
         )
 
     batches = [
-        target_ids[offset : offset + MAX_TARGETS_PER_REVIEW]
-        for offset in range(0, len(target_ids), MAX_TARGETS_PER_REVIEW)
+        target_ids[index:index + MAX_TARGETS_PER_REVIEW]
+        for index in range(0, len(target_ids), MAX_TARGETS_PER_REVIEW)
     ]
 
     def review_batch(batch_ids: list[str]) -> object | None:
@@ -159,14 +176,4 @@ def _apply_recommendations(
             id=target.id,
         ))
 
-    targets_by_id = {target.id: target for target in reviewed_targets}
-    reviewed_attributes = [
-        replace(
-            attribute,
-            quantitative_targets=[
-                targets_by_id[target.id] for target in attribute.quantitative_targets
-            ],
-        )
-        for attribute in attributes
-    ]
-    return reviewed_attributes, replace(ledger, targets=reviewed_targets)
+    return attributes, replace(ledger, targets=reviewed_targets)

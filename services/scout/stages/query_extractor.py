@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 
 from ..ai import request_structured
 from ..ai_contracts import query_batch
@@ -29,6 +28,7 @@ DEFAULT_MAX_TOKENS = 5000
 
 def extract_queries_for_variable(
     attribute: Attribute,
+    quantitative_targets: list[QuantitativeTarget],
     config: ScoutTypeConfig,
     llm_client: LLMClientProtocol,
     *,
@@ -47,14 +47,13 @@ def extract_queries_for_variable(
         return []
     user_message = _user_message_for_variable(attribute, document_context)
     target_blocks = {
-        target.id: target.doc_block_ids for target in attribute.quantitative_targets
+        target.id: target.doc_block_ids for target in quantitative_targets
+        if attribute.name in target.analysis_attribute_refs
     }
     target_query_contexts = {
         target.id: _target_retrieval_text(target)
-        for target in attribute.quantitative_targets
-    }
-    targets_by_id = {
-        target.id: target for target in attribute.quantitative_targets
+        for target in quantitative_targets
+        if attribute.name in target.analysis_attribute_refs
     }
     general_budget = max(queries_per_variable, len(target_blocks))
 
@@ -63,6 +62,7 @@ def extract_queries_for_variable(
             config,
             indication=indication,
             attribute=attribute,
+            quantitative_targets=quantitative_targets,
             queries_per_variable=general_budget,
         ),
         user_message,
@@ -75,7 +75,6 @@ def extract_queries_for_variable(
         allowed_target_ids=set(target_blocks),
         target_blocks=target_blocks,
         target_query_contexts=target_query_contexts,
-        targets_by_id=targets_by_id,
         required_target_ids=set(target_blocks),
         fallback_context=(indication, config.intervention_class, attribute.name),
     )
@@ -98,7 +97,6 @@ def extract_queries_for_variable(
             allowed_target_ids=set(target_blocks),
             target_blocks=target_blocks,
             target_query_contexts=target_query_contexts,
-            targets_by_id=targets_by_id,
         )
 
     if config.counterfactual_queries_per_variable > 0:
@@ -119,7 +117,6 @@ def extract_queries_for_variable(
             allowed_target_ids=set(target_blocks),
             target_blocks=target_blocks,
             target_query_contexts=target_query_contexts,
-            targets_by_id=targets_by_id,
         )
 
     if config.precedent_queries_per_variable > 0:
@@ -140,7 +137,6 @@ def extract_queries_for_variable(
             allowed_target_ids=set(target_blocks),
             target_blocks=target_blocks,
             target_query_contexts=target_query_contexts,
-            targets_by_id=targets_by_id,
         )
 
     total = (
@@ -165,7 +161,6 @@ def _run_track(
     allowed_target_ids: set[str],
     target_blocks: dict[str, list[str]],
     target_query_contexts: dict[str, str],
-    targets_by_id: dict[str, QuantitativeTarget],
     required_target_ids: set[str] | None = None,
     fallback_context: tuple[str, str, str] | None = None,
 ) -> list[QueryIntent]:
@@ -188,7 +183,6 @@ def _run_track(
         allowed_target_ids=allowed_target_ids,
         target_blocks=target_blocks,
     )
-    queries = _threshold_neutral_queries(queries, targets_by_id)
     missing_targets = _missing_target_ids(queries, required_target_ids or set())
     if not queries or missing_targets:
         logger.warning(
@@ -210,7 +204,6 @@ def _run_track(
             allowed_target_ids=allowed_target_ids,
             target_blocks=target_blocks,
         )
-        queries = _threshold_neutral_queries(queries, targets_by_id)
     for query in queries:
         query.tracks = [track]
     queries = queries[:cap]
@@ -275,7 +268,7 @@ def _target_retrieval_dimensions(target: QuantitativeTarget) -> dict[str, str]:
             phrase = slot.value
         elif slot.state == "other" and slot.other:
             phrase = slot.other
-        if phrase and not _restates_target_expression(phrase, target):
+        if phrase:
             dimensions[field_name] = phrase
     return dimensions
 
@@ -297,78 +290,12 @@ def _target_retrieval_text(target: QuantitativeTarget) -> str:
     return " ".join(unique)
 
 
-_NUMBER_WORDS = (
-    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
-    "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
-    "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
-)
-
-
-def _restates_target_expression(text: str, target: QuantitativeTarget) -> bool:
-    """Reject a target-linked phrase that repeats the hidden target magnitude.
-
-    Unit spelling is deliberately irrelevant here. A target-linked query that
-    happens to reuse the same number for another purpose is conservatively
-    retried or replaced by the threshold-neutral fallback, preserving coverage
-    without maintaining a domain-specific unit alias table.
-    """
-    folded = text.casefold().replace("·", ".")
-    number_pattern = re.compile(
-        r"(?<![a-z0-9])(?:[-+]?\d+(?:[.,]\d+)*|"
-        + "|".join(_NUMBER_WORDS)
-        + r")(?![a-z0-9])"
-    )
-    for match in number_pattern.finditer(folded):
-        token = match.group(0)
-        if token in _NUMBER_WORDS:
-            candidates = {float(_NUMBER_WORDS.index(token))}
-        else:
-            candidates: set[float] = set()
-            variants = {
-                token,
-                token.replace(",", ""),
-                token.replace(".", ""),
-                token.replace(".", "").replace(",", "."),
-            }
-            for variant in variants:
-                try:
-                    candidates.add(float(variant))
-                except ValueError:
-                    continue
-        if any(abs(value - target.value) <= 1e-9 for value in candidates):
-            return True
-    return False
-
-
-def _threshold_neutral_queries(
-    queries: list[QueryIntent],
-    targets_by_id: dict[str, QuantitativeTarget],
-) -> list[QueryIntent]:
-    output: list[QueryIntent] = []
-    for query in queries:
-        candidate_ids = list(query.target_ids)
-        if not candidate_ids and query.doc_block_ids:
-            query_blocks = set(query.doc_block_ids)
-            candidate_ids = [
-                target_id
-                for target_id, target in targets_by_id.items()
-                if query_blocks.intersection(target.doc_block_ids)
-            ]
-        if any(
-            _restates_target_expression(query.text, targets_by_id[target_id])
-            for target_id in candidate_ids
-            if target_id in targets_by_id
-        ):
-            continue
-        output.append(query)
-    return output
-
-
 def _system_prompt_for_variable(
     config: ScoutTypeConfig,
     *,
     indication: str,
     attribute: Attribute,
+    quantitative_targets: list[QuantitativeTarget],
     queries_per_variable: int,
 ) -> str:
     parts = [
@@ -418,13 +345,17 @@ def _system_prompt_for_variable(
             + ", ".join(config.modalities)
             + "."
         )
-    if attribute.quantitative_targets:
+    linked_targets = [
+        target for target in quantitative_targets
+        if attribute.name in target.analysis_attribute_refs
+    ]
+    if linked_targets:
         parts.append(
             "Threshold-neutral quantitative retrieval descriptors (immutable IDs):\n"
             + json.dumps(
                 [
                     _target_retrieval_descriptor(target)
-                    for target in attribute.quantitative_targets
+                    for target in linked_targets
                 ],
                 ensure_ascii=False,
                 indent=2,

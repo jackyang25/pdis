@@ -9,6 +9,7 @@ from services.scout.models import (
     Measurement,
     MeasurementSemanticAssessment,
     NumericExpression,
+    QuantitativeFieldLink,
     QuantitativeTarget,
     SemanticDimensionAssessment,
     SemanticSlot,
@@ -79,7 +80,7 @@ class _Client:
 class EvidenceReviewerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.target = QuantitativeTarget(
-            attribute_ref="efficacy",
+            field_links=[QuantitativeFieldLink(attribute_ref="efficacy", relation="defines", reason="Test fixture.")],
             expression=NumericExpression(
                 kind="bound", value=80, comparator=">=", unit="%"
             ),
@@ -96,11 +97,11 @@ class EvidenceReviewerTests(unittest.TestCase):
         self.attribute = Attribute(
             name="efficacy",
             description="Protective efficacy",
-            quantitative_targets=[self.target],
+            quantitative_target_ids=[self.target.id],
         )
         self.measurements = [_measurement("candidate-a", 70), _measurement("candidate-b", 90)]
         self.score = ConformityScore(
-            attribute_ref="efficacy",
+            attribute_refs=["efficacy"],
             target_id=self.target.id,
             target_role="threshold",
             target_value=80,
@@ -114,7 +115,7 @@ class EvidenceReviewerTests(unittest.TestCase):
 
     def test_independent_review_selects_one_existing_candidate_without_admitting_it(self) -> None:
         [reviewed] = prefill_evidence_review(
-            [self.score], [self.attribute], _Client(),
+            [self.score], [self.target], _Client(),
         )
         by_id = {item.candidate_id: item for item in reviewed.excluded_measurements}
         self.assertEqual(by_id["candidate-a"].ai_recommendation, "reject")
@@ -132,7 +133,7 @@ class EvidenceReviewerTests(unittest.TestCase):
         for client in (None, _Client(fail=True)):
             with self.subTest(client=client):
                 [reviewed] = prefill_evidence_review(
-                    [self.score], [self.attribute], client,
+                    [self.score], [self.target], client,
                 )
                 self.assertTrue(all(
                     item.ai_recommendation == "flag"

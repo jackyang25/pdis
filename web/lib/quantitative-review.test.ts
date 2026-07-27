@@ -47,7 +47,7 @@ function candidate(id: string, value: number): Measurement {
 
 function score(): Conformity {
   return {
-    attribute_ref: "efficacy",
+    attribute_refs: ["efficacy"],
     target_id: "target",
     target_role: "threshold",
     target_value: 80,

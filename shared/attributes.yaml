@@ -162,11 +162,11 @@ drug:
 - name: drug.product
   evidence_domain: biological
   description: |
-    Drug name and mechanism of action (Candidate TPP only).
+    Drug name, active ingredient or class, and mechanism of action. Excludes formulation, dose, regimen, presentation, pharmacokinetics, and performance targets owned by their dedicated fields.
 - name: drug.target_population
   evidence_domain: clinical
   description: |
-    Demographic and clinical characteristics of patients. Specify age range, geography, disease stage, and any risk factors.
+    Demographic and clinical characteristics of patients. Preserve every explicitly included population segment, age range, geography, disease stage, and risk factor; do not replace a broad population with one highlighted subgroup.
 - name: drug.target_countries
   evidence_domain: commercial_access
   description: |
@@ -175,10 +175,22 @@ drug:
   evidence_domain: clinical
   description: |
     Primary efficacy endpoints and target levels. Quantitative target like 'at least X% reduction in mortality at Y months.' Should reference comparable interventions.
+- name: drug.pharmacokinetic_profile
+  evidence_domain: clinical
+  description: |
+    Pharmacokinetic and pharmacodynamic requirements, including exposure, release profile, half-life, concentration targets, and probability of target attainment.
+- name: drug.resistance_profile
+  evidence_domain: biological
+  description: |
+    Requirements concerning emergence, selection, prevention, or monitoring of drug resistance and cross-resistance.
 - name: drug.safety
   evidence_domain: safety
   description: |
     Primary safety endpoints and target levels. Quantitative target with acceptable adverse event rates. Reference WHO/regulatory benchmarks.
+- name: drug.tolerability
+  evidence_domain: safety
+  description: |
+    Tolerability and side-effect requirements distinct from serious safety endpoints, including local reactions, treatment discontinuation, and patient acceptability.
 - name: drug.formulation_dosage_and_administration
   evidence_domain: product
   description: |

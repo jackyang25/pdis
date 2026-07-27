@@ -115,13 +115,21 @@ def _citation_context(text: str, start: int, end: int) -> str | None:
         match.end()
         for match in re.finditer(r"(?<=[.!?])\s+", paragraph[:relative_start])
     ]
-    # Citation links are often a sentence of their own after the cited claim.
-    # Keep that claim plus the citation, but not unrelated earlier sentences.
-    sentence_left = prior_boundaries[-2] if len(prior_boundaries) >= 2 else 0
-    following = re.search(r"(?<=[.!?])\s+", paragraph[relative_end:])
-    sentence_right = (
-        relative_end + following.end() if following is not None else len(paragraph)
-    )
+    sentence_left = prior_boundaries[-1] if prior_boundaries else 0
+    before_citation = paragraph[sentence_left:relative_start].strip()
+    # A citation link may form a sentence/line of its own. In that shape, bind
+    # it to exactly the immediately preceding sentence—not the whole paragraph,
+    # which may contain claims supported by different URLs.
+    citation_only_sentence = not before_citation.strip("()[]{}.,;:- \t\r\n")
+    if citation_only_sentence:
+        sentence_left = prior_boundaries[-2] if len(prior_boundaries) >= 2 else 0
+    if citation_only_sentence:
+        sentence_right = relative_end
+    else:
+        following = re.search(r"(?<=[.!?])\s+", paragraph[relative_end:])
+        sentence_right = (
+            relative_end + following.end() if following is not None else len(paragraph)
+        )
     context = paragraph[sentence_left:sentence_right].strip()
     citation = text[start:end].strip()
     if context and context != citation:

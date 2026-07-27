@@ -91,13 +91,20 @@ web/ → api/ → services/ → shared/
 - Fixed fields are resolved in bounded, block-aligned batches that see the full
   field catalog. Cite exact block IDs and source spans. Retry only structurally
   invalid or missing decisions once; unresolved canonical fields stop retrieval.
-- Quantitative extraction receives already-owned canonical spans. It may split a
-  span into multiple atomic targets but may not rescan unrelated blocks or
-  choose field ownership again.
+- Quantitative extraction receives already-owned canonical spans. It may split
+  a span into multiple atomic targets but may not rescan unrelated blocks or
+  choose field ownership again. Atomic targets are document-owned and link to
+  fields through typed `defines | constrains | context_for` relations. Only
+  defining and constraining links drive retrieval and calibration; contextual
+  links remain traceable without creating statistics.
+- Before review, document-wide reconciliation may group repeated or paraphrased
+  representations of the same atomic claim. It may only partition existing,
+  calculation-compatible target IDs; merge their declared links and exact
+  provenance, and never rewrite the target meaning.
 - AI owns prose meaning: written numbers, comparators, units, and clinical
   semantics. Pydantic/JSON Schema owns wire shape. Deterministic code checks only
-  structural safety: known IDs, exact cited-excerpt existence, provenance and
-  ownership membership, declared-unit compatibility, deduplication, and
+  structural safety: known IDs, exact cited-excerpt existence, link and
+  provenance membership, declared-unit compatibility, deduplication, and
   arithmetic invariants. Never re-parse prose to require normalized digits,
   symbols, or unit spellings.
 - Structural checks authorize model output; they do not replace semantic review.

@@ -69,7 +69,7 @@ const scout: ScoutResponse = {
   matches: [],
   assessments: [],
   conformity: [{
-    attribute_ref: "efficacy",
+    attribute_refs: ["efficacy"],
     target_id: "qt-current",
     target_role: "threshold",
     target_value: 80,
@@ -112,7 +112,7 @@ const scout: ScoutResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 32);
+  assert.equal(packed.version, 34);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
@@ -138,7 +138,7 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 32);
+  assert.equal(packed.version, 34);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
@@ -148,7 +148,7 @@ test("Aligner results separate both source documents from the analysis", () => {
 
 test("current Scout export and import preserve the canonical result exactly", () => {
   const packed = packScoutResult(scout);
-  assert.equal(packed.version, 32);
+  assert.equal(packed.version, 34);
   assert.equal(packed.state, "final");
   assert.deepEqual(unpackScoutResult(packed), scout);
 });
@@ -540,13 +540,13 @@ test("version 14 Scout targets migrate onto the canonical variable contract", ()
     source_documents: [{ doc_id: "document", blocks: [block] }],
   });
 
-  assert.equal(imported.variables[0].quantitative_targets.length, 1);
-  assert.equal(imported.variables[0].quantitative_targets[0].id, "qt-123");
+  assert.deepEqual(imported.variables[0].quantitative_target_ids, ["qt-123"]);
+  assert.equal(imported.quantitative_ledger.targets[0].id, "qt-123");
   assert.equal(
-    imported.variables[0].quantitative_targets[0].semantic_profile.measure.state,
+    imported.quantitative_ledger.targets[0].semantic_profile.measure.state,
     "specified",
   );
-  assert.deepEqual(imported.variables[0].quantitative_targets[0].provenance_spans, [{
+  assert.deepEqual(imported.quantitative_ledger.targets[0].provenance_spans, [{
     quote: "Target efficacy is at least 80%.",
     block_ids: ["document/b-0001"],
   }]);

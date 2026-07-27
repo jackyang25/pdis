@@ -43,6 +43,7 @@ from .models import (
     ScoutTypeConfig,
     PrecedentSignal,
     QuantitativeLedger,
+    QuantitativeTarget,
     QueryIntent,
     SearchTrace,
     load_attributes,
@@ -54,6 +55,7 @@ from .stages.conformity import (
     extract_quantitative_ledger_batch,
     finalize_quantitative_document_review,
     prepare_quantitative_ledger_batches,
+    reconcile_quantitative_document_ledger,
     score_conformity_all,
 )
 from .stages.context_validator import mismatch_message, validate_document_context
@@ -209,6 +211,11 @@ def run_pipeline(
         ledger_batches,
         ledger_results,
     )
+    attributes, quantitative_ledger = reconcile_quantitative_document_ledger(
+        attributes,
+        quantitative_ledger,
+        quantitative_mapping_client,
+    )
     if progress_callback:
         progress_callback("target_review")
     attributes, quantitative_ledger = prefill_target_review(
@@ -284,6 +291,7 @@ def continue_pipeline(
         progress_callback("queries")
     attribute_queries = _extract_queries_all_variables(
         searchable_attributes,
+        quantitative_ledger.targets,
         config,
         openai_client,
         query_contexts=attribute_contexts,
@@ -400,6 +408,7 @@ def continue_pipeline(
         progress_callback("conformity")
     conformity = _score_conformity_all_variables(
         searchable_attributes,
+        quantitative_ledger.targets,
         insights,
         quantitative_mapping_client,
         indication=indication,
@@ -410,7 +419,7 @@ def continue_pipeline(
         progress_callback("evidence_review")
     conformity = prefill_evidence_review(
         conformity,
-        searchable_attributes,
+        quantitative_ledger.targets,
         openai_client,
     )
 
@@ -570,6 +579,7 @@ def _parallel_map(
 
 def _extract_queries_all_variables(
     attributes: list[Attribute],
+    quantitative_targets: list[QuantitativeTarget],
     config: ScoutTypeConfig,
     openai_client: LLMClientProtocol,
     *,
@@ -584,6 +594,7 @@ def _extract_queries_all_variables(
     def one(attribute: Attribute) -> tuple[str, list[QueryIntent]]:
         return attribute.name, extract_queries_for_variable(
             attribute,
+            quantitative_targets,
             config,
             openai_client,
             indication=indication,
@@ -874,6 +885,7 @@ def _assess_evidence_all_variables(
 
 def _score_conformity_all_variables(
     attributes: list[Attribute],
+    quantitative_targets: list[QuantitativeTarget],
     insights: list[Insight],
     openai_client: LLMClientProtocol,
     *,
@@ -894,6 +906,7 @@ def _score_conformity_all_variables(
 
     return score_conformity_all(
         attributes,
+        quantitative_targets,
         insights_by_attribute,
         openai_client,
         indication=indication,
@@ -991,7 +1004,9 @@ def _empty_result(
         ),
         variables=variables or [],
         quantitative_ledger=quantitative_ledger or QuantitativeLedger(),
-        conformity=empty_conformity_scores(variables or []),
+        conformity=empty_conformity_scores(
+            (quantitative_ledger.targets if quantitative_ledger else [])
+        ),
         search_plan=search_plan or [],
         context_validation=context_validation,
         blocks=blocks or [],

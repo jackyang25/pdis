@@ -272,13 +272,19 @@ class NumericExpressionOut(BaseModel):
         return self
 
 
+class QuantitativeFieldLinkOut(BaseModel):
+    attribute_ref: str
+    relation: Literal["defines", "constrains", "context_for"]
+    reason: str = ""
+
+
 class QuantitativeTargetOut(BaseModel):
     id: str
-    attribute_ref: str
     expression: NumericExpressionOut
     role: Literal["threshold", "optimal", "other"]
     quote: str
     doc_block_ids: list[str] = Field(default_factory=list)
+    field_links: list[QuantitativeFieldLinkOut] = Field(min_length=1)
     comparison_dimensions: list[Literal[
         "measure", "endpoint", "intervention", "population", "regimen",
         "time_horizon", "statistic", "conditions",
@@ -286,7 +292,6 @@ class QuantitativeTargetOut(BaseModel):
     semantic_profile: QuantitativeSemanticProfileOut
     semantic_provenance: dict[str, list[DocumentSpanOut]]
     provenance_spans: list[DocumentSpanOut] = Field(min_length=1)
-    ownership_reason: str = ""
     ai_recommendation: Literal["confirm", "exclude", "flag"] = "flag"
     ai_review_reason: str = ""
     review_status: Literal["needs_review", "approved", "rejected"] = "approved"
@@ -297,7 +302,7 @@ class QuantitativeStatementDispositionOut(BaseModel):
     block_ids: list[str] = Field(min_length=1)
     disposition: Literal["context_only", "non_scalar", "range_or_set", "uncertain"]
     reason: str
-    attribute_ref: str = ""
+    attribute_refs: list[str] = Field(default_factory=list)
 
 
 class QuantitativeLedgerReviewOut(BaseModel):
@@ -308,7 +313,7 @@ class QuantitativeLedgerReviewOut(BaseModel):
         "target", "context_only", "non_scalar", "range_or_set", "non_numeric", "uncertain"
     ]
     reason: str
-    attribute_ref: str = ""
+    attribute_refs: list[str] = Field(default_factory=list)
     target_ids: list[str] = Field(default_factory=list)
     review_status: Literal["resolved", "needs_review", "accepted_exclusion"] = "resolved"
 
@@ -332,7 +337,7 @@ class VariableOut(BaseModel):
     target_resolution_reason: str = ""
     evidence_domain: str = "general"
     entities: list[EvidenceEntityOut] = Field(default_factory=list)
-    quantitative_targets: list[QuantitativeTargetOut] = Field(default_factory=list)
+    quantitative_target_ids: list[str] = Field(default_factory=list)
     quantitative_statement_dispositions: list[QuantitativeStatementDispositionOut] = Field(
         default_factory=list
     )
@@ -409,7 +414,7 @@ class SourcePassageDispositionOut(BaseModel):
 
 
 class ConformityOut(BaseModel):
-    attribute_ref: str
+    attribute_refs: list[str]
     target_id: str
     target_role: Literal["threshold", "optimal", "other"]
     target_value: float

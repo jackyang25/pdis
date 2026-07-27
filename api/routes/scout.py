@@ -19,6 +19,7 @@ from services.scout import (
     NumericExpression,
     QuantitativeLedger,
     QuantitativeLedgerReview,
+    QuantitativeFieldLink,
     QuantitativeStatementDisposition,
     QuantitativeTarget,
     ScoutResult,
@@ -170,6 +171,9 @@ def _target_from_payload(payload) -> QuantitativeTarget:
     raw["provenance_spans"] = [
         DocumentSpan(**span) for span in raw["provenance_spans"]
     ]
+    raw["field_links"] = [
+        QuantitativeFieldLink(**link) for link in raw["field_links"]
+    ]
     return QuantitativeTarget(**raw)
 
 
@@ -201,10 +205,10 @@ def _result_from_target_review(draft: ScoutRunResponse) -> ScoutResult:
             target_resolution_reason=raw["target_resolution_reason"],
             evidence_domain=raw["evidence_domain"],
             entities=[EvidenceEntity(**entity) for entity in raw["entities"]],
-            quantitative_targets=[
-                targets_by_id[target["id"]]
-                for target in raw["quantitative_targets"]
-                if target["id"] in targets_by_id
+            quantitative_target_ids=[
+                target_id
+                for target_id in raw["quantitative_target_ids"]
+                if target_id in targets_by_id
             ],
             quantitative_statement_dispositions=[
                 QuantitativeStatementDisposition(**disposition)

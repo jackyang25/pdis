@@ -25,6 +25,7 @@ _LOW_SIGNAL_TERMS = {
     "of",
     "on",
     "primary",
+    "pubmed",
     "recent",
     "research",
     "study",
@@ -32,6 +33,7 @@ _LOW_SIGNAL_TERMS = {
     "the",
     "to",
     "variable",
+    "who",
 }
 _TRACK_TERMS = {
     "general": ("clinical", "evidence"),
@@ -68,22 +70,26 @@ def build_pubmed_query(
     track: str,
     queries: list[SourceQueryIntent],
 ) -> str:
-    """Compile a concise PubMed expression from stable intent semantics.
+    """Compile neutral intents into one bounded PubMed Boolean expression.
 
-    Neutral query variants deliberately include web operators, institutions,
-    and several languages. Treating each full sentence as an AND-heavy PubMed
-    clause makes a single foreign-language or regulator-oriented variant erase
-    an otherwise valid literature search. PubMed therefore uses the canonical
-    indication, intervention, field topic, and definition. Every neutral input
-    remains recorded on ``SearchRequest.input_queries`` for lineage, while the
-    provider receives a bounded expression in its own useful grammar.
+    The document-specific neutral queries are the semantic input. Canonical
+    indication/entity anchors keep the OR-packed request on topic; the adapter
+    only translates that input into PubMed grammar and never substitutes a
+    generic field description for it.
     """
-    del queries  # Coverage is retained by request lineage, not query concatenation.
-    groups = _stable_concept_groups(intent)
+    groups = _anchor_groups(intent)
     track_terms = () if track == "general" else _TRACK_TERMS.get(track, ())
+    anchors = " AND ".join(_pubmed_group(group) for group in groups if group)
+    clauses = [
+        _pubmed_clause(terms)
+        for query in queries
+        if (terms := _native_query_terms(query.text, intent, limit=10))
+    ]
+    clauses = list(dict.fromkeys(clauses))
     if track_terms:
-        groups.append(list(track_terms))
-    return " AND ".join(_pubmed_group(group) for group in groups if group)
+        clauses.append(_pubmed_group(list(track_terms)))
+    native = "(" + " OR ".join(clauses) + ")" if clauses else ""
+    return " AND ".join(part for part in (anchors, native) if part)
 
 
 def build_semantic_scholar_query(
@@ -93,34 +99,69 @@ def build_semantic_scholar_query(
     *,
     max_terms: int = 24,
 ) -> str:
-    """Compile one focused plain-text paper query from canonical semantics.
+    """Compile a focused plain-text query without dropping neutral intents.
 
-    The relevance endpoint has no Boolean grammar. Mixing multilingual web
-    phrasings and authority names into one bag of words materially lowers
-    recall, so the native request uses the stable field contract instead. The
-    full neutral bundle remains attached to the request as auditable lineage.
+    Semantic Scholar has no Boolean request grammar, so terms are interleaved
+    across every input intent before generic catalog wording is considered.
+    This keeps one rate-limited request document-specific while its complete
+    input bundle remains inspectable in request lineage.
     """
-    del queries
-    output = [term for group in _stable_concept_groups(intent) for term in group]
+    output = [term for group in _anchor_groups(intent) for term in group]
     output = list(dict.fromkeys(output))
     seen = {term.casefold() for term in output}
+    query_terms = [
+        _native_query_terms(query.text, intent, limit=12) for query in queries
+    ]
+    for offset in range(max((len(terms) for terms in query_terms), default=0)):
+        for terms in query_terms:
+            if offset >= len(terms):
+                continue
+            term = terms[offset]
+            if term.casefold() not in seen:
+                output.append(term)
+                seen.add(term.casefold())
     track_terms = () if track == "general" else _TRACK_TERMS.get(track, ("evidence",))
     for term in track_terms:
         if term.casefold() not in seen:
             output.append(term)
             seen.add(term.casefold())
 
+    if len(output) < max_terms:
+        for group in _fallback_concept_groups(intent):
+            for term in group:
+                if term.casefold() not in seen:
+                    output.append(term)
+                    seen.add(term.casefold())
     return " ".join(output[:max_terms])
 
 
-def _stable_concept_groups(intent: RetrievalIntent) -> list[list[str]]:
-    """Return provider-neutral concept groups from the canonical field shape."""
-    indication = _content_terms(intent.indication, limit=4)
+def _anchor_groups(intent: RetrievalIntent) -> list[list[str]]:
+    """Return explicit disease/product anchors, excluding generic field prose."""
+    indication = _content_terms(intent.indication, limit=4, keep_short=True)
+    explicit_entities = [
+        entity.name
+        for entity in intent.entities
+        if entity.entity_type
+        in {"disease", "pathogen", "vaccine", "drug", "compound", "device"}
+    ]
+    entity_terms = [
+        term
+        for name in explicit_entities
+        for term in _content_terms(name, limit=5, keep_short=True)
+    ]
+    occupied = {term.casefold() for term in indication}
+    entity_terms = [
+        term for term in dict.fromkeys(entity_terms) if term.casefold() not in occupied
+    ]
+    return [group for group in (indication, entity_terms) if group]
+
+
+def _fallback_concept_groups(intent: RetrievalIntent) -> list[list[str]]:
+    """Return generic catalog wording only as a last-resort native fallback."""
     intervention = _content_terms(intent.intervention_class, limit=3)
     topic = _content_terms(intent.topic, limit=5)
     description = _content_terms(intent.description, limit=8)
-
-    occupied = {term.casefold() for term in indication + intervention}
+    occupied = {term.casefold() for term in intervention}
     topic_terms: list[str] = []
     for term in topic:
         folded = term.casefold()
@@ -138,17 +179,40 @@ def _stable_concept_groups(intent: RetrievalIntent) -> list[list[str]]:
             break
     return [
         group
-        for group in (indication, intervention, topic_terms, description_terms)
+        for group in (intervention, topic_terms, description_terms)
         if group
     ]
 
 
-def _content_terms(text: str, *, limit: int) -> list[str]:
+def _native_query_terms(
+    text: str,
+    intent: RetrievalIntent,
+    *,
+    limit: int,
+) -> list[str]:
+    """Translate one AI-authored neutral query into source-native content terms."""
+    anchor_terms = {
+        term.casefold()
+        for group in _anchor_groups(intent)
+        for term in group
+    }
+    terms = _content_terms(text, limit=limit + len(anchor_terms), keep_short=True)
+    return [term for term in terms if term.casefold() not in anchor_terms][:limit]
+
+
+def _content_terms(
+    text: str,
+    *,
+    limit: int,
+    keep_short: bool = False,
+) -> list[str]:
     normalized = re.sub(r"[._/]+", " ", clean_query_text(text))
     return [
         term
         for term in _unique_terms(normalized)
-        if len(term) >= 3 and term.casefold() not in _LOW_SIGNAL_TERMS
+        if (keep_short or len(term) >= 3)
+        and len(term) >= 2
+        and term.casefold() not in _LOW_SIGNAL_TERMS
     ][:limit]
 
 
@@ -157,6 +221,13 @@ def _pubmed_group(terms: list[str]) -> str:
     if len(unique) == 1:
         return f"({unique[0]})"
     return "(" + " OR ".join(unique) + ")"
+
+
+def _pubmed_clause(terms: list[str]) -> str:
+    unique = list(dict.fromkeys(terms))
+    if len(unique) == 1:
+        return unique[0]
+    return "(" + " AND ".join(unique) + ")"
 
 
 def _unique_terms(text: str) -> list[str]:

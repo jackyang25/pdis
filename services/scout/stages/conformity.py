@@ -41,6 +41,7 @@ from services.searcher import Finding
 from ..ai import request_structured
 from ..ai_contracts import (
     document_quantitative_ledger_batch,
+    quantitative_claim_reconciliation,
     source_measurement_batch,
 )
 from ..ai_wire import (
@@ -68,6 +69,7 @@ from ..models import (
     QUANTITATIVE_SEMANTIC_FIELDS,
     QuantitativeLedger,
     QuantitativeLedgerReview,
+    QuantitativeFieldLink,
     SEMANTIC_SLOT_STATES,
     QuantitativeTarget,
     QuantitativeStatementDisposition,
@@ -114,12 +116,12 @@ class _SourcePassage:
 
 @dataclass(frozen=True)
 class QuantitativeStatementUnit:
-    """One exact canonical field span reviewed without rebinding ownership."""
+    """One source block interpreted once across all relevant fields."""
 
     id: str
     block_id: str
     quote: str
-    attribute_ref: str = ""
+    candidate_attribute_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -232,7 +234,7 @@ class _MeasurementCandidateKey:
 class _CalibrationTask:
     """One independent target-relative source-passage mapping request."""
 
-    attribute: Attribute
+    linked_attributes: tuple[Attribute, ...]
     target: QuantitativeTarget
     passages: list[_SourcePassage]
 
@@ -245,6 +247,7 @@ class _CalibrationBatchResult:
 
 def score_conformity(
     attribute: Attribute,
+    targets: list[QuantitativeTarget],
     insights: list[Insight],
     llm_client: LLMClientProtocol,
     *,
@@ -252,9 +255,11 @@ def score_conformity(
     intervention_class: str,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[ConformityScore]:
-    """Calibrate the canonical targets already bound to this Attribute."""
+    """Calibrate canonical targets linked to this field view."""
     scores: list[ConformityScore] = []
-    for target in attribute.quantitative_targets:
+    for target in targets:
+        if attribute.name not in target.analysis_attribute_refs:
+            continue
         candidates, dispositions = _extract_target_measurements(
             attribute,
             target,
@@ -272,6 +277,7 @@ def score_conformity(
 
 def score_conformity_all(
     attributes: list[Attribute],
+    targets: list[QuantitativeTarget],
     insights_by_attribute: dict[str, list[Insight]],
     llm_client: LLMClientProtocol,
     *,
@@ -287,21 +293,32 @@ def score_conformity_all(
     only request scheduling: task inputs, local retry behavior, validation, and
     deterministic cohort assembly are shared with the sequential entry point.
     """
-    target_order: list[tuple[Attribute, QuantitativeTarget, list[Insight]]] = []
+    attributes_by_name = {attribute.name: attribute for attribute in attributes}
+    target_order: list[tuple[QuantitativeTarget, list[Insight]]] = []
     tasks: list[_CalibrationTask] = []
-    for attribute in attributes:
-        insights = insights_by_attribute.get(attribute.name, [])
+    for target in targets:
+        linked_attributes = [
+            attributes_by_name[ref]
+            for ref in target.analysis_attribute_refs
+            if ref in attributes_by_name
+        ]
+        if not linked_attributes:
+            continue
+        insights = list({
+            insight.id: insight
+            for linked in linked_attributes
+            for insight in insights_by_attribute.get(linked.name, [])
+        }.values())
         passages = _source_passages(insights)
-        for target in attribute.quantitative_targets:
-            target_order.append((attribute, target, insights))
-            tasks.extend(
-                _CalibrationTask(
-                    attribute=attribute,
-                    target=target,
-                    passages=passages[start : start + SOURCE_BATCH_SIZE],
-                )
-                for start in range(0, len(passages), SOURCE_BATCH_SIZE)
+        target_order.append((target, insights))
+        tasks.extend(
+            _CalibrationTask(
+                linked_attributes=tuple(linked_attributes),
+                target=target,
+                passages=passages[start : start + SOURCE_BATCH_SIZE],
             )
+            for start in range(0, len(passages), SOURCE_BATCH_SIZE)
+        )
 
     total = len(tasks)
     if progress_callback and total:
@@ -312,7 +329,7 @@ def score_conformity_all(
     def run(task: _CalibrationTask) -> _CalibrationBatchResult:
         nonlocal completed
         result = _map_source_passage_batch(
-            task.attribute,
+            task.linked_attributes,
             task.target,
             task.passages,
             llm_client,
@@ -333,19 +350,17 @@ def score_conformity_all(
     else:
         batch_results = []
 
-    mapped: dict[
-        tuple[str, str], tuple[list[Measurement], list[SourcePassageDisposition]]
-    ] = {}
+    mapped: dict[str, tuple[list[Measurement], list[SourcePassageDisposition]]] = {}
     for task, result in zip(tasks, batch_results):
-        key = (task.attribute.name, task.target.id)
+        key = task.target.id
         measurements, dispositions = mapped.setdefault(key, ([], []))
         measurements.extend(result.measurements)
         dispositions.extend(result.dispositions)
 
     scores: list[ConformityScore] = []
-    for attribute, target, insights in target_order:
+    for target, insights in target_order:
         candidates, dispositions = mapped.get(
-            (attribute.name, target.id),
+            target.id,
             ([], []),
         )
         scores.append(
@@ -374,13 +389,12 @@ def _finalize_target_score(
 
 
 def empty_conformity_scores(
-    attributes: list[Attribute],
+    targets: list[QuantitativeTarget],
 ) -> list[ConformityScore]:
     """Project verified targets when retrieval yields no numeric evidence."""
     return [
         _empty_score(target, [], [])
-        for attribute in attributes
-        for target in attribute.quantitative_targets
+        for target in targets
     ]
 
 
@@ -390,7 +404,7 @@ def _empty_score(
     source_dispositions: list[SourcePassageDisposition],
 ) -> ConformityScore:
     return ConformityScore(
-        attribute_ref=target.attribute_ref,
+        attribute_refs=target.analysis_attribute_refs,
         target_id=target.id,
         target_role=target.role,
         target_value=target.value,
@@ -515,7 +529,7 @@ def _combine(
     )
 
     return ConformityScore(
-        attribute_ref=target.attribute_ref,
+        attribute_refs=target.analysis_attribute_refs,
         target_id=target.id,
         target_role=target.role,
         target_value=target.value,
@@ -639,47 +653,43 @@ def prepare_quantitative_ledger_batches(
     max_units: int = LEDGER_BATCH_MAX_UNITS,
     max_chars: int = LEDGER_BATCH_MAX_CHARS,
 ) -> list[QuantitativeLedgerBatch]:
-    """Batch exact spans from the authoritative document-claim ledger.
+    """Batch document-centric source units from the canonical claim ledger.
 
-    Numeric interpretation must not scan the raw document and independently
-    recreate field ownership. Each unit is therefore one complete, already
-    validated field span. Keeping the whole span also preserves table labels,
-    populations, roles, and qualifiers that were previously lost by splitting
-    flattened cells into sentence fragments.
+    Every cited block is interpreted once even when several canonical fields
+    reference it. Candidate fields express upstream relevance only; the model
+    creates typed field links without assigning ownership to any field.
 
     ``attributes=None`` remains a narrow compatibility path for focused legacy
     tests; production always supplies the resolved canonical attributes.
     """
     block_by_id = {block.id: block for block in blocks}
     units: list[QuantitativeStatementUnit] = []
-    seen_units: set[tuple[str, str, tuple[str, ...]]] = set()
     if attributes is None:
         for block in blocks:
             for unit in _statement_units(block):
                 units.append(unit)
     else:
+        candidates_by_block: dict[str, list[str]] = {}
         for attribute in attributes:
             if not attribute.target_resolved or not attribute.document_target:
                 continue
             for span in attribute.document_spans:
-                block_ids = tuple(
-                    block_id for block_id in span.block_ids if block_id in block_by_id
+                for block_id in span.block_ids:
+                    if block_id in block_by_id:
+                        candidates_by_block.setdefault(block_id, []).append(attribute.name)
+        for block in blocks:
+            candidate_refs = tuple(dict.fromkeys(candidates_by_block.get(block.id, [])))
+            if not candidate_refs:
+                continue
+            quote = block.content or "[visual content]"
+            units.append(
+                QuantitativeStatementUnit(
+                    id="qlu-" + hashlib.sha256(block.id.encode("utf-8")).hexdigest()[:16],
+                    block_id=block.id,
+                    quote=quote,
+                    candidate_attribute_refs=candidate_refs,
                 )
-                if not block_ids:
-                    continue
-                key = (attribute.name, _normalize_quote(span.quote), block_ids)
-                if key in seen_units:
-                    continue
-                seen_units.add(key)
-                material = "\n".join((attribute.name, *block_ids, span.quote))
-                units.append(
-                    QuantitativeStatementUnit(
-                        id="qlu-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16],
-                        block_id=block_ids[0],
-                        quote=span.quote,
-                        attribute_ref=attribute.name,
-                    )
-                )
+            )
 
     batches: list[QuantitativeLedgerBatch] = []
     batch_blocks: list[ContentBlock] = []
@@ -983,8 +993,11 @@ def _validated_quantitative_ledger_batch(
             continue
         classification = str(raw.get("classification", "")).strip().lower()
         reason = " ".join(str(raw.get("reason", "")).split())
-        attribute_ref = str(raw.get("attribute_ref", "")).strip()
-        canonical_owner = unit.attribute_ref
+        attribute_refs = list(dict.fromkeys(
+            str(value).strip()
+            for value in raw.get("attribute_refs", [])
+            if str(value).strip()
+        ))
         raw_targets = raw.get("targets")
         raw_targets = raw_targets if isinstance(raw_targets, list) else []
         if (
@@ -993,17 +1006,16 @@ def _validated_quantitative_ledger_batch(
                 "non_numeric", "uncertain",
             }
             or not reason
-            or (attribute_ref and attribute_ref not in attributes_by_name)
-            or (canonical_owner and attribute_ref not in {"", canonical_owner})
+            or not set(attribute_refs).issubset(attributes_by_name)
         ):
             retry_unit_ids.add(unit.id)
             reviews.append(
                 _uncertain_unit_review(
                     unit,
                     "The model returned an invalid statement classification.",
-                    attribute_ref=(
-                        attribute_ref if attribute_ref in attributes_by_name else ""
-                    ),
+                    attribute_refs=[
+                        ref for ref in attribute_refs if ref in attributes_by_name
+                    ],
                 )
             )
             continue
@@ -1015,19 +1027,19 @@ def _validated_quantitative_ledger_batch(
                     _uncertain_unit_review(
                         unit,
                         "A non-target statement incorrectly carried target objects.",
-                        attribute_ref=attribute_ref,
+                        attribute_refs=attribute_refs,
                     )
                 )
                 continue
             if classification == "non_numeric":
-                attribute_ref = ""
+                attribute_refs = []
             reviews.append(
                 QuantitativeLedgerReview(
                     unit_id=unit.id,
                     block_id=unit.block_id,
                     quote=unit.quote,
                     classification=classification,
-                    attribute_ref=attribute_ref or canonical_owner,
+                    attribute_refs=attribute_refs,
                     reason=reason,
                     review_status=(
                         "needs_review" if classification == "uncertain" else "resolved"
@@ -1042,17 +1054,29 @@ def _validated_quantitative_ledger_batch(
             if not isinstance(raw_target, dict):
                 validation_issues.append("invalid_target_object")
                 continue
-            owner = str(raw_target.get("attribute_ref", "")).strip()
-            if canonical_owner:
-                owner = canonical_owner
-            attribute = attributes_by_name.get(owner)
+            raw_links = raw_target.get("field_links")
+            raw_links = raw_links if isinstance(raw_links, list) else []
+            try:
+                field_links = [
+                    QuantitativeFieldLink(**link)
+                    for link in raw_links
+                    if isinstance(link, dict)
+                ]
+            except (TypeError, ValueError):
+                field_links = []
+            linked_refs = {link.attribute_ref for link in field_links}
             if (
-                attribute is None
-                or not attribute.target_resolved
-                or not attribute.document_target
-                or unit.block_id not in attribute.block_ids
+                not field_links
+                or not linked_refs.issubset(attributes_by_name)
+                or not any(link.relation in {"defines", "constrains"} for link in field_links)
+                or any(
+                    (attribute := attributes_by_name.get(link.attribute_ref)) is None
+                    or not attribute.target_resolved
+                    or not attribute.document_target
+                    for link in field_links
+                )
             ):
-                validation_issues.append("invalid_field_ownership")
+                validation_issues.append("invalid_field_links")
                 continue
             target_quote = " ".join(str(raw_target.get("quote", "")).split())
             if (
@@ -1063,7 +1087,7 @@ def _validated_quantitative_ledger_batch(
                 validation_issues.append("invalid_target_quote")
                 continue
             candidate = dict(raw_target)
-            candidate["attribute_ref"] = owner
+            candidate["field_links"] = field_links
             candidate["provenance_spans"] = [
                 {"quote": target_quote, "block_ids": [unit.block_id]}
             ]
@@ -1078,23 +1102,20 @@ def _validated_quantitative_ledger_batch(
                 continue
             candidate["semantic_provenance"] = semantic_provenance
             candidate["review_status"] = "needs_review"
-            candidate["ownership_reason"] = (
-                " ".join(str(raw_target.get("ownership_reason", "")).split())
-                or reason
-            )
             mapping = _validated_targets_with_issues(
                 [candidate],
-                attribute=attribute,
                 doc_text=batch_text,
                 semantic_context=semantic_context,
-                allowed_target_block_ids=set(attribute.block_ids) & batch_block_ids,
-                require_document_target_support=True,
+                allowed_target_block_ids={unit.block_id} & batch_block_ids,
                 canonical_semantic_provenance=True,
             )
             if len(mapping.targets) != 1:
                 validation_issues.extend(mapping.issues or ("invalid_target_mapping",))
                 continue
             validated.extend(mapping.targets)
+        target_ids = [target.id for target in validated]
+        if len(target_ids) != len(set(target_ids)):
+            validation_issues.append("duplicate_atomic_target")
         if validation_issues or not validated:
             retry_unit_ids.add(unit.id)
             issue_text = ", ".join(dict.fromkeys(
@@ -1104,14 +1125,16 @@ def _validated_quantitative_ledger_batch(
                 _uncertain_unit_review(
                     unit,
                     f"Target mapping rejected [{issue_text}].",
-                    attribute_ref=(
-                        attribute_ref if attribute_ref in attributes_by_name else ""
-                    ),
+                    attribute_refs=[
+                        ref for ref in attribute_refs if ref in attributes_by_name
+                    ],
                 )
             )
             continue
         targets.extend(validated)
-        validated_attribute_refs = {target.attribute_ref for target in validated}
+        validated_attribute_refs = list(dict.fromkeys(
+            ref for target in validated for ref in target.attribute_refs
+        ))
         reviews.append(
             QuantitativeLedgerReview(
                 unit_id=unit.id,
@@ -1119,11 +1142,7 @@ def _validated_quantitative_ledger_batch(
                 quote=unit.quote,
                 classification="target",
                 reason=reason,
-                attribute_ref=(
-                    next(iter(validated_attribute_refs))
-                    if len(validated_attribute_refs) == 1
-                    else ""
-                ),
+                attribute_refs=validated_attribute_refs,
                 target_ids=[target.id for target in validated],
                 review_status="resolved",
             )
@@ -1164,7 +1183,7 @@ def assemble_quantitative_document_ledger(
     target_context_uncertain_count = sum(
         review.classification == "uncertain"
         and (
-            review.attribute_ref in attribute_names
+            bool(set(review.attribute_refs) & attribute_names)
             or review.block_id in owned_block_ids
         )
         for review in reviews
@@ -1200,6 +1219,128 @@ def assemble_quantitative_document_ledger(
         targets=targets,
     )
     return _project_ledger_to_attributes(attributes, ledger), ledger
+
+
+def reconcile_quantitative_document_ledger(
+    attributes: list[Attribute],
+    ledger: QuantitativeLedger,
+    llm_client: LLMClientProtocol,
+    *,
+    max_tokens: int = 6000,
+) -> tuple[list[Attribute], QuantitativeLedger]:
+    """Merge document-wide semantic duplicates before independent review.
+
+    The model may only partition existing IDs and select a representative.
+    Code restricts comparison to claims with identical calculation inputs,
+    then combines declared field links and exact provenance without parsing
+    prose or changing numeric meaning.
+    """
+    candidate_targets = _reconciliation_candidates(ledger.targets)
+    if len(candidate_targets) < 2:
+        return attributes, ledger
+    allowed_ids = [target.id for target in candidate_targets]
+    contract = quantitative_claim_reconciliation(allowed_ids)
+    prompt = (
+        "You reconcile an already-normalized document claim ledger. Group targets only "
+        "when they express the same atomic document requirement repeated or paraphrased "
+        "in different passages. Equal numbers alone are not sufficient: keep different "
+        "roles, populations, regimens, endpoints, time horizons, or operating conditions "
+        "separate. Field names are views and must not prevent a merge. For each group, "
+        "choose the member with the clearest and most generally faithful comparison identity "
+        "as representative. Return every supplied target ID exactly once, including singleton "
+        "groups, and give a short reason. Do not rewrite any target. Return only schema JSON."
+    )
+    payload = json.dumps(
+        [_reconciliation_payload(target) for target in candidate_targets],
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    def request(message: str) -> object | None:
+        try:
+            return request_structured(
+                llm_client,
+                contract,
+                prompt,
+                message,
+                max_tokens=max_tokens,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Quantitative claim reconciliation failed; retaining claims unchanged: %s",
+                exc,
+            )
+            return None
+
+    parsed = request(payload)
+    groups = _validated_reconciliation_groups(
+        parsed,
+        candidate_targets=candidate_targets,
+    )
+    if groups is None:
+        parsed = request(
+            payload
+            + "\n\nThe prior response did not partition every supplied ID exactly once. "
+            "Return a complete partition using only the supplied IDs.",
+        )
+        groups = _validated_reconciliation_groups(
+            parsed,
+            candidate_targets=candidate_targets,
+        )
+    if groups is None:
+        logger.warning(
+            "Quantitative claim reconciliation returned an invalid partition; "
+            "retaining the source-verifiable claims unchanged"
+        )
+        return attributes, ledger
+
+    targets_by_id = {target.id: target for target in ledger.targets}
+    member_to_representative = {
+        member_id: representative_id
+        for representative_id, member_ids, _reason in groups
+        for member_id in member_ids
+    }
+    merged_by_representative = {
+        representative_id: _merge_reconciled_targets(
+            targets_by_id[representative_id],
+            [targets_by_id[member_id] for member_id in member_ids],
+        )
+        for representative_id, member_ids, _reason in groups
+    }
+    reconciled_targets: list[QuantitativeTarget] = []
+    emitted: set[str] = set()
+    for target in ledger.targets:
+        representative_id = member_to_representative.get(target.id, target.id)
+        if representative_id in emitted:
+            continue
+        emitted.add(representative_id)
+        reconciled_targets.append(
+            merged_by_representative.get(representative_id, target)
+        )
+    reconciled_reviews = [
+        replace(
+            review,
+            target_ids=list(
+                dict.fromkeys(
+                    member_to_representative.get(target_id, target_id)
+                    for target_id in review.target_ids
+                )
+            ),
+        )
+        for review in ledger.reviews
+    ]
+    merged_count = len(candidate_targets) - len(groups)
+    reconciled = replace(
+        ledger,
+        targets=reconciled_targets,
+        reviews=reconciled_reviews,
+        reason=(
+            ledger.reason
+            + f" Reconciled {merged_count} repeated target representation(s) "
+            "document-wide before review."
+        ),
+    )
+    return _project_ledger_to_attributes(attributes, reconciled), reconciled
 
 
 def finalize_quantitative_document_review(
@@ -1253,7 +1394,7 @@ def _statement_units(block: ContentBlock) -> list[QuantitativeStatementUnit]:
                     id=unit_id,
                     block_id=block.id,
                     quote=piece,
-                    attribute_ref="",
+                    candidate_attribute_refs=(),
                 )
             )
             ordinal += 1
@@ -1264,7 +1405,7 @@ def _statement_units(block: ContentBlock) -> list[QuantitativeStatementUnit]:
                 id="qlu-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16],
                 block_id=block.id,
                 quote="[visual content]",
-                attribute_ref="",
+                candidate_attribute_refs=(),
             )
         )
     return units
@@ -1274,7 +1415,7 @@ def _uncertain_unit_review(
     unit: QuantitativeStatementUnit,
     reason: str,
     *,
-    attribute_ref: str = "",
+    attribute_refs: list[str] | None = None,
 ) -> QuantitativeLedgerReview:
     return QuantitativeLedgerReview(
         unit_id=unit.id,
@@ -1282,7 +1423,7 @@ def _uncertain_unit_review(
         quote=unit.quote,
         classification="uncertain",
         reason=reason,
-        attribute_ref=attribute_ref,
+        attribute_refs=attribute_refs or [],
         review_status="needs_review",
     )
 
@@ -1290,6 +1431,13 @@ def _uncertain_unit_review(
 def _merge_document_targets(
     targets: list[QuantitativeTarget],
 ) -> list[QuantitativeTarget]:
+    """Merge repeated citations of one already-normalized canonical target.
+
+    Duplicate atomic outputs inside one source unit are rejected before this
+    boundary. Here, an identical target ID represents the same normalized
+    assertion repeated in another cited block; provenance and field views are
+    combined without creating a second statistical target.
+    """
     merged: dict[str, QuantitativeTarget] = {}
     for target in targets:
         existing = merged.get(target.id)
@@ -1316,11 +1464,158 @@ def _merge_document_targets(
             semantic_provenance[field_name] = field_spans
         merged[target.id] = replace(
             existing,
+            field_links=list({
+                (link.attribute_ref, link.relation): link
+                for link in [*existing.field_links, *target.field_links]
+            }.values()),
             provenance_spans=spans,
             semantic_provenance=semantic_provenance,
             id=existing.id,
         )
     return list(merged.values())
+
+
+def _reconciliation_signature(target: QuantitativeTarget) -> tuple[object, ...]:
+    """Return calculation inputs that must already agree before semantic merging."""
+    return (
+        target.expression.kind,
+        target.comparator,
+        target.value,
+        target.unit.casefold(),
+        target.role,
+    )
+
+
+def _reconciliation_candidates(
+    targets: list[QuantitativeTarget],
+) -> list[QuantitativeTarget]:
+    by_signature: dict[tuple[object, ...], list[QuantitativeTarget]] = {}
+    for target in targets:
+        by_signature.setdefault(_reconciliation_signature(target), []).append(target)
+    candidate_ids = {
+        target.id
+        for group in by_signature.values()
+        if len(group) > 1
+        for target in group
+    }
+    return [target for target in targets if target.id in candidate_ids]
+
+
+def _reconciliation_payload(target: QuantitativeTarget) -> dict[str, object]:
+    return {
+        "target_id": target.id,
+        "expression": {
+            "comparator": target.comparator,
+            "value": target.value,
+            "unit": target.unit,
+        },
+        "role": target.role,
+        "comparison_dimensions": target.comparison_dimensions,
+        "semantic_profile": {
+            name: {
+                "state": slot.state,
+                "value": slot.value,
+                "other": slot.other,
+            }
+            for name, slot in target.semantic_profile.items()
+        },
+        "field_links": [
+            {
+                "attribute_ref": link.attribute_ref,
+                "relation": link.relation,
+                "reason": link.reason,
+            }
+            for link in target.field_links
+        ],
+        "source_passages": [
+            {"quote": span.quote, "block_ids": span.block_ids}
+            for span in target.provenance_spans
+        ],
+    }
+
+
+def _validated_reconciliation_groups(
+    parsed: object,
+    *,
+    candidate_targets: list[QuantitativeTarget],
+) -> list[tuple[str, list[str], str]] | None:
+    if not isinstance(parsed, list):
+        return None
+    targets_by_id = {target.id: target for target in candidate_targets}
+    expected_ids = set(targets_by_id)
+    seen: set[str] = set()
+    groups: list[tuple[str, list[str], str]] = []
+    for raw in parsed:
+        if not isinstance(raw, dict):
+            return None
+        representative_id = str(raw.get("representative_target_id", "")).strip()
+        raw_member_ids = raw.get("member_target_ids")
+        reason = " ".join(str(raw.get("reason", "")).split())
+        if not isinstance(raw_member_ids, list):
+            return None
+        member_ids = list(
+            dict.fromkeys(
+                str(value).strip()
+                for value in raw_member_ids
+                if str(value).strip()
+            )
+        )
+        if (
+            not reason
+            or representative_id not in member_ids
+            or not member_ids
+            or not set(member_ids).issubset(expected_ids)
+            or seen.intersection(member_ids)
+        ):
+            return None
+        signatures = {
+            _reconciliation_signature(targets_by_id[target_id])
+            for target_id in member_ids
+        }
+        if len(signatures) != 1:
+            return None
+        seen.update(member_ids)
+        groups.append((representative_id, member_ids, reason))
+    return groups if seen == expected_ids else None
+
+
+def _merge_reconciled_targets(
+    representative: QuantitativeTarget,
+    members: list[QuantitativeTarget],
+) -> QuantitativeTarget:
+    relation_priority = {"defines": 0, "constrains": 1, "context_for": 2}
+    links_by_field: dict[str, QuantitativeFieldLink] = {}
+    for target in members:
+        for link in target.field_links:
+            current = links_by_field.get(link.attribute_ref)
+            if (
+                current is None
+                or relation_priority[link.relation]
+                < relation_priority[current.relation]
+            ):
+                links_by_field[link.attribute_ref] = link
+    provenance_spans = list({
+        (span.quote, tuple(span.block_ids)): span
+        for target in members
+        for span in target.provenance_spans
+    }.values())
+    semantic_provenance: dict[str, list[DocumentSpan]] = {}
+    for field_name, representative_slot in representative.semantic_profile.items():
+        if representative_slot.state not in {"specified", "other"}:
+            semantic_provenance[field_name] = []
+            continue
+        semantic_provenance[field_name] = list({
+            (span.quote, tuple(span.block_ids)): span
+            for target in members
+            for span in target.semantic_provenance.get(field_name, [])
+        }.values())
+    return replace(
+        representative,
+        field_links=list(links_by_field.values()),
+        provenance_spans=provenance_spans,
+        semantic_provenance=semantic_provenance,
+        id=representative.id,
+    )
 
 
 def _project_ledger_to_attributes(
@@ -1329,12 +1624,14 @@ def _project_ledger_to_attributes(
     *,
     admitted_statuses: set[str] | None = None,
 ) -> list[Attribute]:
-    targets_by_attribute: dict[str, list[QuantitativeTarget]] = {
+    target_ids_by_attribute: dict[str, list[str]] = {
         attribute.name: [] for attribute in attributes
     }
     for target in ledger.targets:
         if admitted_statuses is None or target.review_status in admitted_statuses:
-            targets_by_attribute[target.attribute_ref].append(target)
+            for attribute_ref in target.analysis_attribute_refs:
+                if attribute_ref in target_ids_by_attribute:
+                    target_ids_by_attribute[attribute_ref].append(target.id)
     attributes_by_block: dict[str, set[str]] = {}
     for attribute in attributes:
         for block_id in attribute.block_ids:
@@ -1344,66 +1641,40 @@ def _project_ledger_to_attributes(
     }
     for review in ledger.reviews:
         if (
-            review.attribute_ref in dispositions_by_attribute
-            and review.attribute_ref
-            in attributes_by_block.get(review.block_id, set())
+            review.attribute_refs
             and review.classification
             in {"context_only", "non_scalar", "range_or_set", "uncertain"}
         ):
-            dispositions_by_attribute[review.attribute_ref].append(
-                QuantitativeStatementDisposition(
-                    quote=review.quote,
-                    block_ids=[review.block_id],
-                    disposition=review.classification,
-                    reason=review.reason,
-                    attribute_ref=review.attribute_ref,
+            for attribute_ref in review.attribute_refs:
+                if attribute_ref not in dispositions_by_attribute:
+                    continue
+                dispositions_by_attribute[attribute_ref].append(
+                    QuantitativeStatementDisposition(
+                        quote=review.quote,
+                        block_ids=[review.block_id],
+                        disposition=review.classification,
+                        reason=review.reason,
+                        attribute_refs=review.attribute_refs,
+                    )
                 )
-            )
     uncertain_attribute_refs: set[str] = set()
     for review in ledger.reviews:
-        owners = attributes_by_block.get(review.block_id, set())
         if review.classification != "uncertain":
             continue
-        if review.attribute_ref in owners:
-            uncertain_attribute_refs.add(review.attribute_ref)
-        elif len(owners) == 1:
-            uncertain_attribute_refs.update(owners)
+        if review.attribute_refs:
+            uncertain_attribute_refs.update(review.attribute_refs)
+        else:
+            uncertain_attribute_refs.update(
+                attributes_by_block.get(review.block_id, set())
+            )
     projected: list[Attribute] = []
     for attribute in attributes:
-        targets = targets_by_attribute[attribute.name]
+        target_ids = target_ids_by_attribute[attribute.name]
         dispositions = dispositions_by_attribute[attribute.name]
-        block_ids = list(
-            dict.fromkeys(
-                [
-                    *attribute.block_ids,
-                    *(block_id for target in targets for block_id in target.doc_block_ids),
-                ]
-            )
-        )
-        document_target = attribute.document_target
-        document_spans = list(attribute.document_spans)
-        if targets:
-            document_spans = list(
-                {
-                    (span.quote, tuple(span.block_ids)): span
-                    for span in [
-                        *document_spans,
-                        *(
-                            span
-                            for target in targets
-                            for span in target.provenance_spans
-                        ),
-                    ]
-                }.values()
-            )
-        if document_spans:
-            document_target = " ".join(
-                dict.fromkeys(span.quote for span in document_spans)
-            )
-        if targets:
+        if target_ids:
             status = "present"
             status_reason = (
-                f"The document ledger assigned {len(targets)} independently "
+                f"The document ledger linked {len(target_ids)} independently "
                 "calibratable numeric target(s) to this field."
             )
         elif attribute.name in uncertain_attribute_refs:
@@ -1421,11 +1692,7 @@ def _project_ledger_to_attributes(
         projected.append(
             replace(
                 attribute,
-                block_ids=block_ids,
-                document_target=document_target,
-                document_spans=document_spans,
-                target_resolved=attribute.target_resolved or bool(document_target),
-                quantitative_targets=targets,
+                quantitative_target_ids=target_ids,
                 quantitative_statement_dispositions=dispositions,
                 quantitative_target_status=status,
                 quantitative_target_status_reason=status_reason,
@@ -1472,8 +1739,13 @@ def _document_ledger_system_prompt(
     )
     return (
         "You create quantitative proposals from the authoritative document-claim ledger. "
-        "Each supplied unit is already bound to exactly one canonical field. Preserve that "
-        "ownership; do not rebind it or interpret unrelated raw-document text. Each unit must "
+        "Each supplied unit is one source block and lists every canonical field that already "
+        "cites that block. Those fields are candidate product views, never claim owners. "
+        "Interpret the unit once and create one atomic target regardless of how many fields "
+        "expose it. Link fields with defines when the statement directly specifies that field, "
+        "constrains when it imposes a requirement on it, or context_for when it is useful but "
+        "does not define or constrain it. Every target needs at least one defines or constrains "
+        "link. Each unit must "
         "appear exactly once in reviews.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Document framing: {framing}\n\n"
@@ -1486,9 +1758,12 @@ def _document_ledger_system_prompt(
         "explicit exact or directional scalar that can be compared independently. Split "
         "distinct roles, populations, regimens, time horizons, and semicolon-delimited "
         "claims into atomic target objects. A unit may contain multiple target objects. "
-        "For each target repeat the canonical field shown beside the unit exactly. "
-        "If a non-target clearly belongs to one field, set its attribute_ref; otherwise "
-        "use an empty string. A [visual content] unit may be classified non_numeric when "
+        "For each target choose field_links from the canonical field catalog. The unit's "
+        "candidate fields are strong relevance cues, not an ownership boundary; use another "
+        "resolved field only when the authoritative bindings make that relationship explicit. Never emit "
+        "the same atomic assertion again for another field. For a non-target, attribute_refs "
+        "lists every field for which the disposition is relevant and may be empty. A [visual "
+        "content] unit may be classified non_numeric when "
         "the image has no numeric claim; otherwise classify it uncertain because it has "
         "no exact source text from which a target can be verified.\n\n"
         "A number is a target only when the document asserts it as a desired, required, "
@@ -1526,7 +1801,8 @@ def _document_ledger_system_prompt(
 
 def _document_ledger_user_message(batch: QuantitativeLedgerBatch) -> str:
     units = "\n".join(
-        f"[unit:{unit.id}] [field:{unit.attribute_ref}] [block:{unit.block_id}] {unit.quote}"
+        f"[unit:{unit.id}] [candidate-fields:{', '.join(unit.candidate_attribute_refs)}] "
+        f"[block:{unit.block_id}] {unit.quote}"
         for unit in batch.units
     )
     return (
@@ -1540,21 +1816,17 @@ def _document_ledger_user_message(batch: QuantitativeLedgerBatch) -> str:
 def _validated_targets(
     items: object,
     *,
-    attribute: Attribute,
     doc_text: str,
     semantic_context: str,
     allowed_target_block_ids: set[str] | None = None,
-    require_document_target_support: bool = True,
     canonical_semantic_provenance: bool = False,
 ) -> list[QuantitativeTarget]:
     """Compatibility wrapper for callers that only need admitted targets."""
     return _validated_targets_with_issues(
         items,
-        attribute=attribute,
         doc_text=doc_text,
         semantic_context=semantic_context,
         allowed_target_block_ids=allowed_target_block_ids,
-        require_document_target_support=require_document_target_support,
         canonical_semantic_provenance=canonical_semantic_provenance,
     ).targets
 
@@ -1562,23 +1834,20 @@ def _validated_targets(
 def _validated_targets_with_issues(
     items: object,
     *,
-    attribute: Attribute,
     doc_text: str,
     semantic_context: str,
     allowed_target_block_ids: set[str] | None = None,
-    require_document_target_support: bool = True,
     canonical_semantic_provenance: bool = False,
 ) -> _TargetMappingValidation:
     if not isinstance(items, list):
         return _TargetMappingValidation([], ("invalid_target_list",))
-    # A target is a fact owned by the canonical field binding, not merely a fact
-    # found in relevance-selected context. Both the rendered input and the
-    # binding must authorize its exact source block.
+    # A target is an exact document fact. Field links classify product views;
+    # they do not own or authorize the source assertion.
     rendered_ids = document_block_ids(doc_text)
     allowed_ids = (
         set(allowed_target_block_ids)
         if allowed_target_block_ids is not None
-        else set(attribute.block_ids)
+        else set(rendered_ids)
     )
     if rendered_ids:
         allowed_ids &= rendered_ids
@@ -1594,7 +1863,20 @@ def _validated_targets_with_issues(
         role = str(item.get("role", "other")).strip().lower()
         raw_dimensions = item.get("comparison_dimensions")
         semantic_profile = _validated_semantic_profile(item.get("semantic_profile"))
-        ownership_reason = str(item.get("ownership_reason", "")).strip()
+        raw_links = item.get("field_links")
+        if not isinstance(raw_links, list):
+            issues.append("missing_field_links")
+            continue
+        try:
+            field_links = [
+                value
+                if isinstance(value, QuantitativeFieldLink)
+                else QuantitativeFieldLink(**value)
+                for value in raw_links
+            ]
+        except (TypeError, ValueError):
+            issues.append("invalid_field_links")
+            continue
         if (
             expression is None
             or expression.kind != "bound"
@@ -1673,14 +1955,8 @@ def _validated_targets_with_issues(
         if not spans:
             issues.append("invalid_target_provenance")
             continue
-        if require_document_target_support and not all(
-            _quote_in_text(span.quote, attribute.document_target)
-            for span in spans
-        ):
-            issues.append("target_outside_canonical_binding")
-            continue
         target = QuantitativeTarget(
-            attribute_ref=attribute.name,
+            field_links=field_links,
             expression=expression,
             role=role,
             quote=spans[0].quote,
@@ -1691,7 +1967,6 @@ def _validated_targets_with_issues(
             semantic_profile=semantic_profile,
             semantic_provenance=semantic_provenance,
             provenance_spans=spans,
-            ownership_reason=ownership_reason,
             review_status=str(item.get("review_status", "approved")),
         )
         existing = targets_by_id.get(target.id)
@@ -1723,6 +1998,10 @@ def _validated_targets_with_issues(
             merged_semantic_provenance[field_name] = field_spans
         targets_by_id[target.id] = replace(
             existing,
+            field_links=list({
+                (link.attribute_ref, link.relation): link
+                for link in [*existing.field_links, *target.field_links]
+            }.values()),
             provenance_spans=merged_spans,
             semantic_provenance=merged_semantic_provenance,
             id=existing.id,
@@ -1750,7 +2029,7 @@ def _extract_target_measurements(
     for start in range(0, len(passages), SOURCE_BATCH_SIZE):
         batch = passages[start : start + SOURCE_BATCH_SIZE]
         result = _map_source_passage_batch(
-            attribute,
+            (attribute,),
             target,
             batch,
             llm_client,
@@ -1764,7 +2043,7 @@ def _extract_target_measurements(
 
 
 def _map_source_passage_batch(
-    attribute: Attribute,
+    linked_attributes: tuple[Attribute, ...],
     target: QuantitativeTarget,
     batch: list[_SourcePassage],
     llm_client: LLMClientProtocol,
@@ -1775,7 +2054,7 @@ def _map_source_passage_batch(
 ) -> _CalibrationBatchResult:
     """Map one independent batch, including its one local corrective retry."""
     system_prompt = _measurement_system_prompt(
-        attribute,
+        linked_attributes,
         target=target,
         indication=indication,
         intervention_class=intervention_class,
@@ -2262,18 +2541,23 @@ def _validated_numeric_expression(raw: object) -> NumericExpression | None:
 
 
 def _measurement_system_prompt(
-    attribute: Attribute,
+    linked_attributes: tuple[Attribute, ...],
     *,
     target: QuantitativeTarget,
     indication: str,
     intervention_class: str,
 ) -> str:
     required_fields = sorted(_required_comparison_axes(target))
+    linked_field_context = "\n".join(
+        f"- {attribute.name}: {attribute.description}"
+        for attribute in linked_attributes
+    )
     return (
         "You extract complete numeric measurements from bounded, source-owned passages "
         "against one atomic semantic target.\n\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
-        f"Variable: {attribute.name}. Definition: {attribute.description}\n"
+        "Linked product fields (retrieval views, not claim owners):\n"
+        f"{linked_field_context}\n"
         f"Document target ID: {target.id}\n"
         "The target's numeric threshold is intentionally withheld: whether a source value passes "
         "the target must NEVER affect semantic comparability.\n"

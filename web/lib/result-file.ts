@@ -1,7 +1,11 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 32 as const;
+const RESULT_VERSION = 34 as const;
+// Version 34 makes the document-wide quantitative ledger authoritative.
+// Targets link to product fields without being owned or duplicated by them.
+// Version 33 assigned each document numeric assertion one primary field and
+// preserved other relevant fields as non-statistical references.
 // Version 32 carries independent AI evidence-admission recommendations.
 // Version 31 carries independent AI target-review recommendations.
 // Version 30 freezes reviewed document targets before retrieval and records the
@@ -13,7 +17,7 @@ const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 24 as const;
 const SCOUT_CLAIM_CONTRACT_SINCE_VERSION = 26 as const;
 const SCOUT_ADMISSION_CONTRACT_SINCE_VERSION = 27 as const;
 const SCOUT_EVIDENCE_UNIT_CONTRACT_SINCE_VERSION = 29 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | typeof RESULT_VERSION;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -267,7 +271,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.version !== RESULT_VERSION || candidate.state === "final") &&
@@ -350,7 +354,6 @@ function normalizeScoutResult(
     const targets = quantitativeTargetsByAttribute.get(String(score.attribute_ref ?? "")) ?? [];
     targets.push({
       id: score.target_id,
-      attribute_ref: score.attribute_ref,
       expression: {
         kind: "bound",
         value: score.target_value,
@@ -362,13 +365,27 @@ function normalizeScoutResult(
       role: score.target_role ?? "other",
       quote: score.target_quote,
       doc_block_ids: score.doc_block_ids ?? [],
+      field_links: [{
+        attribute_ref: String(score.attribute_ref ?? ""),
+        relation: "defines",
+        reason: "Recovered from a legacy field-owned calibration record.",
+      }],
       semantic_profile: legacySemanticProfile(String(score.attribute_ref ?? "numeric measure")),
       semantic_provenance: emptySemanticProvenance(),
       provenance_spans: [{ quote: score.target_quote, block_ids: score.doc_block_ids ?? [] }],
-      ownership_reason: "Imported target predates canonical ownership arbitration.",
     });
     quantitativeTargetsByAttribute.set(String(score.attribute_ref ?? ""), targets);
   }
+  const variablesForLedger = (raw.variables ?? []).map((variable: Record<string, any>) => ({
+    ...variable,
+    quantitative_targets: Array.isArray(variable.quantitative_targets)
+      ? variable.quantitative_targets
+      : quantitativeTargetsByAttribute.get(String(variable.name ?? "")) ?? [],
+  }));
+  const quantitativeLedger = normalizeQuantitativeLedger(
+    raw.quantitative_ledger,
+    variablesForLedger,
+  );
   return {
     ...raw,
     phase: raw.phase === "target_review" || raw.phase === "evidence_review"
@@ -381,10 +398,7 @@ function normalizeScoutResult(
       reason: "This imported result predates document-context validation.",
       doc_block_ids: [],
     },
-    quantitative_ledger: normalizeQuantitativeLedger(
-      raw.quantitative_ledger,
-      raw.variables ?? [],
-    ),
+    quantitative_ledger: quantitativeLedger,
     assessments: (raw.assessments ?? []).map((assessment: Record<string, any>) => {
       const { basis: _removedBasis, ...current } = assessment;
       return {
@@ -447,6 +461,10 @@ function normalizeScoutResult(
       source_urls: trace.source_urls ?? [],
     })),
     variables: (raw.variables ?? []).map((variable: Record<string, any>) => {
+      const {
+        quantitative_targets: _legacyQuantitativeTargets,
+        ...currentVariable
+      } = variable;
       const assessment = assessmentsByAttribute.get(String(variable.name ?? ""));
       const documentTarget = variable.document_target ?? assessment?.doc_target ?? "";
       const blockIds = variable.block_ids?.length
@@ -458,7 +476,7 @@ function normalizeScoutResult(
           ? variable.definition_mode
           : inferredMode;
       return {
-        ...variable,
+        ...currentVariable,
         block_ids: blockIds,
         document_target: documentTarget,
         document_spans:
@@ -470,50 +488,29 @@ function normalizeScoutResult(
         definition_mode: definitionMode,
         evidence_domain: variable.evidence_domain ?? "general",
         entities: Array.isArray(variable.entities) ? variable.entities : [],
-        quantitative_targets: (
-          Array.isArray(variable.quantitative_targets)
-            ? variable.quantitative_targets
-            : quantitativeTargetsByAttribute.get(String(variable.name ?? "")) ?? []
-        ).map((target: Record<string, any>) => ({
-          ...target,
-          expression: target.expression ?? {
-            kind: "bound",
-            value: target.value ?? null,
-            lower: null,
-            upper: null,
-            comparator: target.comparator ?? "",
-            unit: target.unit ?? "",
-          },
-          semantic_profile: normalizeSemanticProfile(
-            target.semantic_profile,
-            String(target.label ?? variable.name ?? "numeric measure"),
-          ),
-          comparison_dimensions: Array.isArray(target.comparison_dimensions)
-            ? target.comparison_dimensions
-            : ["measure"],
-          semantic_provenance: normalizeSemanticProvenance(target.semantic_provenance),
-          provenance_spans: Array.isArray(target.provenance_spans)
-            ? target.provenance_spans
-            : [{ quote: target.quote ?? "", block_ids: target.doc_block_ids ?? [] }],
-          ownership_reason: target.ownership_reason
-            ?? "Imported target predates canonical ownership arbitration.",
-          ai_recommendation: target.ai_recommendation ?? "flag",
-          ai_review_reason: target.ai_review_reason
-            ?? "This imported target predates independent AI review.",
-          review_status: target.review_status ?? "approved",
-        })),
+        quantitative_target_ids: Array.isArray(variable.quantitative_target_ids)
+          ? variable.quantitative_target_ids
+          : quantitativeLedger.targets
+            .filter((target) => target.field_links.some(
+              (link) => link.attribute_ref === String(variable.name ?? "")
+                && (link.relation === "defines" || link.relation === "constrains"),
+            ))
+            .map((target) => target.id),
         quantitative_statement_dispositions: Array.isArray(
           variable.quantitative_statement_dispositions,
         ) ? variable.quantitative_statement_dispositions.map(
           (disposition: Record<string, any>) => ({
             ...disposition,
-            attribute_ref: disposition.attribute_ref ?? String(variable.name ?? ""),
+            attribute_refs: Array.isArray(disposition.attribute_refs)
+              ? disposition.attribute_refs
+              : [String(disposition.attribute_ref ?? variable.name ?? "")].filter(Boolean),
           }),
         ) : [],
         quantitative_target_status: variable.quantitative_target_status
-          ?? ((Array.isArray(variable.quantitative_targets)
-            ? variable.quantitative_targets
-            : quantitativeTargetsByAttribute.get(String(variable.name ?? "")) ?? []).length > 0
+          ?? (quantitativeLedger.targets.some((target) => target.field_links.some(
+            (link) => link.attribute_ref === String(variable.name ?? "")
+              && (link.relation === "defines" || link.relation === "constrains"),
+          ))
             ? "present"
             : "not_evaluated"),
         quantitative_target_status_reason: variable.quantitative_target_status_reason
@@ -560,22 +557,24 @@ function normalizeQuantitativeLedger(
         quote: String(review.quote ?? ""),
         classification: review.classification,
         reason: String(review.reason ?? ""),
-        attribute_ref: String(review.attribute_ref ?? ""),
+        attribute_refs: Array.isArray(review.attribute_refs)
+          ? review.attribute_refs
+          : [String(review.attribute_ref ?? "")].filter(Boolean),
         target_ids: Array.isArray(review.target_ids) ? review.target_ids : [],
         review_status: review.review_status ?? "resolved",
       })),
-      targets: raw.targets.map((target: Record<string, any>) => ({
-        ...target,
-        ai_recommendation: target.ai_recommendation ?? "flag",
-        ai_review_reason: target.ai_review_reason
-          ?? "This imported target predates independent AI review.",
-        review_status: target.review_status ?? "approved",
-      })) as ScoutResponse["quantitative_ledger"]["targets"],
+      targets: deduplicateTargets(raw.targets.map(
+        (target: Record<string, any>) => normalizeQuantitativeTarget(target),
+      )),
     };
   }
-  const targets = variables.flatMap((variable) =>
-    Array.isArray(variable.quantitative_targets) ? variable.quantitative_targets : []
-  );
+  const targets = deduplicateTargets(variables.flatMap((variable) =>
+    Array.isArray(variable.quantitative_targets)
+      ? variable.quantitative_targets.map((target: Record<string, any>) =>
+        normalizeQuantitativeTarget(target, String(variable.name ?? ""))
+      )
+      : []
+  ));
   return {
     status: targets.length > 0 ? "uncertain" : "not_applicable",
     reason: targets.length > 0
@@ -583,14 +582,96 @@ function normalizeQuantitativeLedger(
       : "This imported result contains no canonical quantitative ledger.",
     block_ids: [],
     reviews: [],
-    targets: targets.map((target: Record<string, any>) => ({
-      ...target,
-      ai_recommendation: target.ai_recommendation ?? "flag",
-      ai_review_reason: target.ai_review_reason
-        ?? "This imported target predates independent AI review.",
-      review_status: target.review_status ?? "approved",
-    })) as ScoutResponse["quantitative_ledger"]["targets"],
+    targets,
   };
+}
+
+function normalizeQuantitativeTarget(
+  target: Record<string, any>,
+  fallbackAttribute = "",
+): ScoutResponse["quantitative_ledger"]["targets"][number] {
+  const {
+    attribute_ref: _legacyAttributeRef,
+    related_attribute_refs: _legacyRelatedAttributeRefs,
+    ownership_reason: _legacyOwnershipReason,
+    value: _legacyValue,
+    comparator: _legacyComparator,
+    unit: _legacyUnit,
+    ...currentTarget
+  } = target;
+  const primary = String(target.attribute_ref ?? fallbackAttribute);
+  const related = Array.isArray(target.related_attribute_refs)
+    ? target.related_attribute_refs.map(String)
+    : [];
+  const fieldLinks = Array.isArray(target.field_links) && target.field_links.length > 0
+    ? target.field_links.map((link: Record<string, any>) => ({
+        attribute_ref: String(link.attribute_ref ?? ""),
+        relation: link.relation === "constrains" || link.relation === "context_for"
+          ? link.relation
+          : "defines" as const,
+        reason: String(link.reason ?? ""),
+      }))
+    : [
+        ...(primary ? [{
+          attribute_ref: primary,
+          relation: "defines" as const,
+          reason: "Recovered from the legacy primary-field projection.",
+        }] : []),
+        ...related.filter((attributeRef: string) => attributeRef && attributeRef !== primary)
+          .map((attributeRef: string) => ({
+            attribute_ref: attributeRef,
+            relation: "context_for" as const,
+            reason: "Recovered from a legacy related-field reference.",
+          })),
+      ];
+  return {
+    ...currentTarget,
+    expression: target.expression ?? {
+      kind: "bound",
+      value: target.value ?? null,
+      lower: null,
+      upper: null,
+      comparator: target.comparator ?? "",
+      unit: target.unit ?? "",
+    },
+    field_links: fieldLinks,
+    semantic_profile: normalizeSemanticProfile(
+      target.semantic_profile,
+      String(target.label ?? primary ?? "numeric measure"),
+    ),
+    comparison_dimensions: Array.isArray(target.comparison_dimensions)
+      ? target.comparison_dimensions
+      : ["measure"],
+    semantic_provenance: normalizeSemanticProvenance(target.semantic_provenance),
+    provenance_spans: Array.isArray(target.provenance_spans)
+      ? target.provenance_spans
+      : [{ quote: target.quote ?? "", block_ids: target.doc_block_ids ?? [] }],
+    ai_recommendation: target.ai_recommendation ?? "flag",
+    ai_review_reason: target.ai_review_reason
+      ?? "This imported target predates independent AI review.",
+    review_status: target.review_status ?? "approved",
+  } as ScoutResponse["quantitative_ledger"]["targets"][number];
+}
+
+function deduplicateTargets(
+  targets: ScoutResponse["quantitative_ledger"]["targets"],
+): ScoutResponse["quantitative_ledger"]["targets"] {
+  const byId = new Map<string, ScoutResponse["quantitative_ledger"]["targets"][number]>();
+  for (const target of targets) {
+    const existing = byId.get(target.id);
+    if (!existing) {
+      byId.set(target.id, target);
+      continue;
+    }
+    const links = [...existing.field_links, ...target.field_links];
+    byId.set(target.id, {
+      ...existing,
+      field_links: Array.from(
+        new Map(links.map((link) => [`${link.attribute_ref}:${link.relation}`, link])).values(),
+      ),
+    });
+  }
+  return Array.from(byId.values());
 }
 
 function normalizeConformity(
@@ -601,6 +682,7 @@ function normalizeConformity(
   predatesEvidenceUnitContract: boolean,
 ): Record<string, unknown> {
   const {
+    attribute_ref: _legacyAttributeRef,
     conformity: _legacyConformity,
     lower: _legacyLower,
     upper: _legacyUpper,
@@ -666,6 +748,9 @@ function normalizeConformity(
 
   return {
     ...currentScore,
+    attribute_refs: Array.isArray(score.attribute_refs)
+      ? score.attribute_refs
+      : [String(score.attribute_ref ?? "")].filter(Boolean),
     target_id: score.target_id ?? `legacy-target-${index + 1}`,
     target_role: score.target_role ?? "other",
     target_quote: score.target_quote ?? "",

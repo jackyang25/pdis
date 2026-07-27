@@ -9,8 +9,14 @@ from services.scout.models import (
     DocumentContextValidation,
     DocumentSpan,
     FunnelStats,
+    NumericExpression,
     QUANTITATIVE_SEMANTIC_FIELDS,
+    QuantitativeFieldLink,
+    QuantitativeLedger,
+    QuantitativeLedgerReview,
+    QuantitativeTarget,
     ScoutResult,
+    SemanticSlot,
 )
 from services.scout.stages.conformity import (
     assemble_quantitative_document_ledger,
@@ -18,6 +24,7 @@ from services.scout.stages.conformity import (
     extract_quantitative_ledger_batch,
     finalize_quantitative_document_review,
     prepare_quantitative_ledger_batches,
+    reconcile_quantitative_document_ledger,
 )
 
 
@@ -74,7 +81,11 @@ def _target(quote: str, value: float, role: str, population: str) -> dict:
     for field_name in ("measure", "population"):
         provenance[field_name] = [{"quote": quote, "block_ids": [BLOCK_ID]}]
     return {
-        "attribute_ref": "vaccine.dose_volume",
+        "field_links": [{
+            "attribute_ref": "vaccine.dose_volume",
+            "relation": "defines",
+            "reason": "The statement directly specifies dose volume.",
+        }],
         "quote": quote,
         "expression": {
             "kind": "bound",
@@ -89,7 +100,38 @@ def _target(quote: str, value: float, role: str, population: str) -> dict:
         "semantic_profile": profile,
         "semantic_provenance": provenance,
         "provenance_spans": [{"quote": quote, "block_ids": [BLOCK_ID]}],
-        "ownership_reason": "Dose volume directly owns the measured quantity.",
+    }
+
+
+def _current_review(review: dict) -> dict:
+    """Migrate compact historical fixtures at the test-provider boundary."""
+    attribute_ref = str(review.get("attribute_ref", ""))
+    targets = []
+    for target in review.get("targets", []):
+        primary_ref = str(target.get("attribute_ref", attribute_ref))
+        related_refs = target.get("related_attribute_refs", [])
+        field_links = target.get("field_links") or [
+            *([{
+                "attribute_ref": primary_ref,
+                "relation": "defines",
+                "reason": "Test fixture links the claim to its product field.",
+            }] if primary_ref else []),
+            *[{
+                "attribute_ref": value,
+                "relation": "context_for",
+                "reason": "Test fixture retains a related product view.",
+            } for value in related_refs if value and value != primary_ref],
+        ]
+        targets.append({
+            key: value
+            for key, value in {**target, "field_links": field_links}.items()
+            if key not in {"attribute_ref", "related_attribute_refs", "ownership_reason"}
+        })
+    return {
+        **review,
+        "attribute_refs": review.get("attribute_refs")
+        or ([attribute_ref] if attribute_ref else []),
+        "targets": targets,
     }
 
 
@@ -104,7 +146,7 @@ class _LedgerClient:
         self.calls += 1
         self.system_prompt = system_prompt
         self.user_message = user_message
-        return {"reviews": self.reviews}
+        return {"reviews": [_current_review(review) for review in self.reviews]}
 
 
 class _SequenceLedgerClient:
@@ -117,7 +159,17 @@ class _SequenceLedgerClient:
         self.schemas.append(schema)
         response = self.responses[min(self.calls, len(self.responses) - 1)]
         self.calls += 1
-        return {"reviews": response}
+        return {"reviews": [_current_review(review) for review in response]}
+
+
+class _ReconciliationClient:
+    def __init__(self, groups: list[dict]):
+        self.groups = groups
+        self.calls = 0
+
+    def call_structured(self, *_args, **_kwargs):
+        self.calls += 1
+        return {"groups": self.groups}
 
 
 class QuantitativeDocumentLedgerTests(unittest.TestCase):
@@ -147,6 +199,145 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.batches = prepare_quantitative_ledger_batches([_block()])
         self.assertEqual(len(self.batches), 1)
 
+    def test_document_wide_reconciliation_merges_one_repeated_atomic_claim(self) -> None:
+        field_names = (
+            "vaccine.regimen_compliance",
+            "vaccine.dosing_schedule",
+            "vaccine.duration_of_protection",
+        )
+        attributes = [
+            Attribute(
+                name=name,
+                description=name.replace("vaccine.", "").replace("_", " "),
+                block_ids=[f"document/b-000{index}"],
+                document_target="Booster no more frequent than annually.",
+                document_spans=[
+                    DocumentSpan(
+                        quote="Booster no more frequent than annually.",
+                        block_ids=[f"document/b-000{index}"],
+                    )
+                ],
+                target_resolved=True,
+            )
+            for index, name in enumerate(field_names, start=1)
+        ]
+
+        def target(index: int, links: list[QuantitativeFieldLink]) -> QuantitativeTarget:
+            quote = (
+                "Booster no more frequent than annually."
+                if index != 2
+                else "At most one booster may be given per year."
+            )
+            block_id = f"document/b-000{index}"
+            profile = {
+                field_name: SemanticSlot()
+                for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+            }
+            profile["measure"] = SemanticSlot(
+                state="specified",
+                value="booster frequency",
+            )
+            span = DocumentSpan(quote=quote, block_ids=[block_id])
+            return QuantitativeTarget(
+                id=f"qt-{index}",
+                expression=NumericExpression(
+                    kind="bound",
+                    unit="boosters/year",
+                    value=1,
+                    comparator="<=",
+                ),
+                role="threshold",
+                quote=quote,
+                doc_block_ids=[block_id],
+                field_links=links,
+                comparison_dimensions=["measure"],
+                semantic_profile=profile,
+                semantic_provenance={"measure": [span]},
+                provenance_spans=[span],
+                review_status="needs_review",
+            )
+
+        targets = [
+            target(1, [
+                QuantitativeFieldLink(
+                    field_names[0], "defines", "Direct regimen limit."
+                ),
+                QuantitativeFieldLink(
+                    field_names[1], "constrains", "Constrains dosing."
+                ),
+            ]),
+            target(2, [
+                QuantitativeFieldLink(
+                    field_names[2], "defines", "Direct duration limit."
+                ),
+                QuantitativeFieldLink(
+                    field_names[1], "constrains", "Constrains dosing."
+                ),
+            ]),
+            target(3, [
+                QuantitativeFieldLink(
+                    field_names[1], "defines", "Direct dosing limit."
+                )
+            ]),
+        ]
+        ledger = QuantitativeLedger(
+            status="complete",
+            reason="Three source-verifiable proposals.",
+            block_ids=[
+                block_id
+                for target_value in targets
+                for block_id in target_value.doc_block_ids
+            ],
+            reviews=[
+                QuantitativeLedgerReview(
+                    unit_id=f"unit-{index}",
+                    block_id=target_value.doc_block_ids[0],
+                    quote=target_value.quote,
+                    classification="target",
+                    reason="Numeric document target.",
+                    attribute_refs=target_value.analysis_attribute_refs,
+                    target_ids=[target_value.id],
+                )
+                for index, target_value in enumerate(targets, start=1)
+            ],
+            targets=targets,
+        )
+        client = _ReconciliationClient([{
+            "representative_target_id": "qt-3",
+            "member_target_ids": ["qt-1", "qt-2", "qt-3"],
+            "reason": "The passages repeat the same annual booster limit.",
+        }])
+
+        projected, reconciled = reconcile_quantitative_document_ledger(
+            attributes,
+            ledger,
+            client,
+        )
+
+        self.assertEqual(client.calls, 1)
+        self.assertEqual([item.id for item in reconciled.targets], ["qt-3"])
+        self.assertEqual(
+            set(reconciled.targets[0].doc_block_ids),
+            {"document/b-0001", "document/b-0002", "document/b-0003"},
+        )
+        self.assertEqual(
+            {
+                (link.attribute_ref, link.relation)
+                for link in reconciled.targets[0].field_links
+            },
+            {
+                (field_names[0], "defines"),
+                (field_names[1], "defines"),
+                (field_names[2], "defines"),
+            },
+        )
+        self.assertTrue(
+            all(review.target_ids == ["qt-3"] for review in reconciled.reviews)
+        )
+        self.assertTrue(
+            all(attribute.quantitative_target_ids == ["qt-3"] for attribute in projected)
+        )
+
     def test_dense_source_block_is_split_into_bounded_unit_batches(self) -> None:
         source = ContentBlock(
             id="document/b-dense",
@@ -167,22 +358,115 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertEqual(len(unit_ids), len(set(unit_ids)))
         self.assertTrue(all(batch.blocks == [source] for batch in batches))
 
-    def test_production_batches_preserve_canonical_spans_and_fixed_ownership(self) -> None:
+    def test_production_batches_interpret_each_shared_source_block_once(self) -> None:
         full_span = "Optimal: Dose volume <0.5 mL/dose; adult use only."
-        attribute = Attribute(
+        first = Attribute(
             name="vaccine.dose_volume",
             description="Volume administered per dose",
             document_spans=[DocumentSpan(quote=full_span, block_ids=[BLOCK_ID])],
             target_resolved=True,
             target_resolution_reason="Resolved from an exact field span.",
         )
+        second = Attribute(
+            name="vaccine.programmatic_suitability",
+            description="Programmatic requirements",
+            document_spans=[DocumentSpan(quote=full_span, block_ids=[BLOCK_ID])],
+            target_resolved=True,
+            target_resolution_reason="Resolved from an exact field span.",
+        )
 
-        batches = prepare_quantitative_ledger_batches([_block()], [attribute])
+        batches = prepare_quantitative_ledger_batches([_block()], [first, second])
         units = [unit for batch in batches for unit in batch.units]
 
         self.assertEqual(len(units), 1)
-        self.assertEqual(units[0].quote, full_span)
-        self.assertEqual(units[0].attribute_ref, attribute.name)
+        self.assertEqual(units[0].quote, _block().content)
+        self.assertEqual(
+            units[0].candidate_attribute_refs,
+            (first.name, second.name),
+        )
+
+    def test_shared_statement_is_one_claim_with_typed_field_links(self) -> None:
+        block = ContentBlock(
+            id="document/b-shared",
+            doc_id="document",
+            ordinal=3,
+            block_type="table_row",
+            content="Threshold: no more than two vials per administered dose.",
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        primary = Attribute(
+            name="product.presentation",
+            description="Container and presentation requirement",
+            document_spans=[DocumentSpan(quote=block.content, block_ids=[block.id])],
+            target_resolved=True,
+        )
+        related = Attribute(
+            name="product.programmatic_suitability",
+            description="Programmatic delivery requirement",
+            document_spans=[DocumentSpan(quote=block.content, block_ids=[block.id])],
+            target_resolved=True,
+        )
+        batch = prepare_quantitative_ledger_batches([block], [primary, related])[0]
+        unit = batch.units[0]
+        profile = {
+            field_name: {
+                "state": "not_specified",
+                "value": "",
+                "other": "",
+                "source_refs": [],
+            }
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+        }
+        profile["measure"] = {
+            "state": "specified",
+            "value": "vials per administered dose",
+            "other": "",
+            "source_refs": ["statement"],
+        }
+        client = _LedgerClient([{
+            "unit_id": unit.id,
+            "classification": "target",
+            "attribute_ref": primary.name,
+            "reason": "The statement sets one presentation constraint.",
+            "targets": [{
+                "attribute_ref": primary.name,
+                "related_attribute_refs": [related.name],
+                "quote": block.content,
+                "expression": {
+                    "kind": "bound",
+                    "unit": "vials/dose",
+                    "value": 2,
+                    "lower": None,
+                    "upper": None,
+                    "comparator": "<=",
+                },
+                "role": "threshold",
+                "comparison_dimensions": ["measure"],
+                "semantic_profile": profile,
+                "ownership_reason": "Presentation directly owns vial count.",
+            }],
+        }])
+
+        result = extract_quantitative_ledger_batch(
+            batch,
+            [primary, related],
+            client,
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+        projected, ledger = assemble_quantitative_document_ledger(
+            [primary, related], [batch], [result],
+        )
+
+        self.assertEqual(len(ledger.targets), 1)
+        self.assertEqual(
+            [(link.attribute_ref, link.relation) for link in ledger.targets[0].field_links],
+            [(primary.name, "defines"), (related.name, "context_for")],
+        )
+        self.assertEqual(projected[0].quantitative_target_ids, [ledger.targets[0].id])
+        self.assertEqual(projected[1].quantitative_target_ids, [])
 
     def test_document_target_review_is_required_and_rejections_do_not_project(self) -> None:
         unit = next(item for item in self.batches[0].units if "<0.5" in item.quote)
@@ -224,7 +508,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         for target in ledger.targets:
             target.review_status = "rejected"
         finalized, _ = finalize_quantitative_document_review(projected, ledger)
-        self.assertTrue(all(not attribute.quantitative_targets for attribute in finalized))
+        self.assertTrue(all(not attribute.quantitative_target_ids for attribute in finalized))
 
     def test_numeric_batch_inherits_cross_field_canonical_context_with_exact_provenance(
         self,
@@ -459,13 +743,22 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertEqual(ledger.status, "complete")
         self.assertEqual(len(ledger.reviews), len(units))
         self.assertEqual(len(ledger.targets), 4)
-        self.assertEqual(attributes[0].quantitative_targets, [])
-        self.assertEqual(len(attributes[1].quantitative_targets), 4)
+        self.assertEqual(attributes[0].quantitative_target_ids, [])
+        self.assertEqual(len(attributes[1].quantitative_target_ids), 4)
         self.assertEqual(attributes[1].block_ids, [BLOCK_ID])
         self.assertIn("<0.5 mL/dose", attributes[1].document_target)
         self.assertEqual(
+            attributes[1].document_spans,
+            self.attributes[1].document_spans,
+        )
+        self.assertEqual(
+            attributes[1].document_target,
+            self.attributes[1].document_target,
+        )
+        self.assertEqual(
             {(target.role, target.semantic_profile["population"].value)
-             for target in attributes[1].quantitative_targets},
+             for target in ledger.targets
+             if target.id in attributes[1].quantitative_target_ids},
             {
                 ("optimal", "pediatric"),
                 ("optimal", "adult"),
@@ -516,7 +809,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertEqual(client.calls, 2)
         self.assertEqual(ledger.reviews[-1].classification, "uncertain")
         self.assertTrue(all(
-            attribute.quantitative_target_status == "not_applicable"
+            attribute.quantitative_target_status == "uncertain"
             for attribute in attributes
         ))
 
@@ -640,7 +933,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             {"context_only", "non_scalar"},
         )
 
-    def test_context_from_an_unowned_block_stays_only_in_document_ledger(self) -> None:
+    def test_cross_block_context_projects_only_when_ai_links_the_field(self) -> None:
         claim_block = ContentBlock(
             id="document/b-0010",
             doc_id="document",
@@ -694,8 +987,11 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             [attribute], batches, [batch_result]
         )
 
-        self.assertEqual(ledger.reviews[0].attribute_ref, attribute.name)
-        self.assertEqual(attributes[0].quantitative_statement_dispositions, [])
+        self.assertEqual(ledger.reviews[0].attribute_refs, [attribute.name])
+        self.assertEqual(
+            [item.disposition for item in attributes[0].quantitative_statement_dispositions],
+            ["non_scalar"],
+        )
         self.assertEqual(attributes[0].block_ids, [claim_block.id])
         self.assertEqual(attributes[0].quantitative_target_status, "not_applicable")
 

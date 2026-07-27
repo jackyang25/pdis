@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 
 from services.chunker import ContentBlock
@@ -14,6 +14,12 @@ from services.scout.models import (
     FunnelStats,
     Insight,
     Match,
+    NumericExpression,
+    QuantitativeLedger,
+    QuantitativeLedgerReview,
+    QuantitativeFieldLink,
+    QuantitativeTarget,
+    SemanticSlot,
     ScoutResult,
 )
 from services.searcher import Finding
@@ -160,6 +166,81 @@ class ScoutResultContractTests(unittest.TestCase):
         result.variables[0].document_spans = []
 
         with self.assertRaisesRegex(ValueError, "without exact spans"):
+            validate_result_contract(result)
+
+    def test_target_field_links_must_reference_known_fields(self) -> None:
+        result = _result()
+        shared_span = DocumentSpan(
+            quote="No more than three injections.",
+            block_ids=[result.blocks[0].id],
+        )
+        result.variables = [
+            replace(attribute, document_spans=[shared_span])
+            for attribute in result.variables
+        ]
+
+        target = QuantitativeTarget(
+                field_links=[
+                    QuantitativeFieldLink(
+                        attribute_ref="efficacy",
+                        relation="defines",
+                        reason="The statement specifies efficacy.",
+                    ),
+                    QuantitativeFieldLink(
+                        attribute_ref="unknown-field",
+                        relation="context_for",
+                        reason="Invalid test link.",
+                    ),
+                ],
+                expression=NumericExpression(
+                    kind="bound",
+                    value=3,
+                    comparator="<=",
+                    unit="injections",
+                ),
+                role="threshold",
+                quote=shared_span.quote,
+                doc_block_ids=shared_span.block_ids,
+                comparison_dimensions=["measure"],
+                semantic_profile={
+                    "measure": SemanticSlot(
+                        state="specified",
+                        value="injections per regimen",
+                    )
+                },
+                provenance_spans=[shared_span],
+                semantic_provenance={"measure": [shared_span]},
+                review_status="approved",
+            )
+        result.variables = [
+            replace(
+                attribute,
+                quantitative_target_ids=[target.id] if attribute.name == "efficacy" else [],
+                quantitative_target_status=(
+                    "present" if attribute.name == "efficacy" else "not_applicable"
+                ),
+            )
+            for attribute in result.variables
+        ]
+        result.quantitative_ledger = QuantitativeLedger(
+            status="complete",
+            block_ids=[result.blocks[0].id],
+            targets=[target],
+            reviews=[
+                QuantitativeLedgerReview(
+                    unit_id="unit-1",
+                    block_id=result.blocks[0].id,
+                    quote=shared_span.quote,
+                    classification="target",
+                    attribute_refs=["efficacy"],
+                    reason="Mapped target.",
+                    target_ids=[target.id],
+                    review_status="resolved",
+                )
+            ],
+        )
+
+        with self.assertRaisesRegex(ValueError, "target .* fields contain unknown IDs"):
             validate_result_contract(result)
 
 

@@ -2,7 +2,7 @@
 
 Stages validate their own model output locally.  This module validates the
 assembled graph once, at the service boundary, so a future stage change cannot
-silently attach evidence, targets, or document citations to another field.
+silently detach evidence, claims, or citations from their declared lineage.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from .models import (
 
 
 def validate_result_contract(result: ScoutResult) -> ScoutResult:
-    """Return ``result`` after enforcing cross-stage ownership and lineage.
+    """Return ``result`` after enforcing cross-stage structure and lineage.
 
     This is intentionally fail-closed. Compatibility repair belongs at the
     saved-result import boundary; a fresh run must never emit a partially
@@ -70,12 +70,11 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
             f"quantitative ledger review {review.unit_id!r} targets",
         )
         reviewed_target_ids.update(review.target_ids)
-        if review.attribute_ref:
-            _require_field(
-                review.attribute_ref,
-                variables,
-                f"quantitative ledger review {review.unit_id!r}",
-            )
+        _require_subset(
+            review.attribute_refs,
+            set(variables),
+            f"quantitative ledger review {review.unit_id!r} fields",
+        )
     if reviewed_target_ids != set(ledger_targets):
         raise ValueError(
             "quantitative ledger targets are not covered exactly by statement reviews"
@@ -94,18 +93,45 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         if pending_targets or pending_statements:
             raise ValueError("Scout continued with an incomplete document-target review")
     for target in ledger_targets.values():
-        _require_field(
-            target.attribute_ref,
-            variables,
-            f"quantitative ledger target {target.id!r}",
+        _require_subset(
+            target.attribute_refs,
+            set(variables),
+            f"quantitative ledger target {target.id!r} fields",
         )
         _require_subset(
             target.doc_block_ids,
             set(result.quantitative_ledger.block_ids),
             f"quantitative ledger target {target.id!r} document blocks",
         )
+        if set(target.semantic_provenance) != set(QUANTITATIVE_SEMANTIC_FIELDS):
+            raise ValueError(
+                f"quantitative target {target.id!r} has incomplete semantic provenance"
+            )
+        for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+            slot = target.semantic_profile[field_name]
+            spans = target.semantic_provenance[field_name]
+            if slot.state in {"specified", "other"} and not spans:
+                raise ValueError(
+                    f"quantitative target {target.id!r} has uncited {field_name} semantics"
+                )
+            if slot.state not in {"specified", "other"} and spans:
+                raise ValueError(
+                    f"quantitative target {target.id!r} cites absent {field_name} semantics"
+                )
+            for span in spans:
+                _require_subset(
+                    span.block_ids,
+                    known_blocks,
+                    f"quantitative target {target.id!r} {field_name} provenance",
+                )
+        if (
+            "measure" not in target.comparison_dimensions
+            or set(target.comparison_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS)
+        ):
+            raise ValueError(
+                f"quantitative target {target.id!r} has invalid comparison dimensions"
+            )
 
-    targets_by_id = {}
     for attribute in result.variables:
         if not attribute.target_resolution_reason:
             raise ValueError(
@@ -156,61 +182,25 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
             )
         if (
             attribute.quantitative_target_status == "present"
-            and not attribute.quantitative_targets
+            and not attribute.quantitative_target_ids
         ):
             raise ValueError(
                 f"field {attribute.name!r} reports present numeric targets but has none"
             )
-        for target in attribute.quantitative_targets:
-            if target.attribute_ref != attribute.name:
+        for target_id in attribute.quantitative_target_ids:
+            target = ledger_targets.get(target_id)
+            if target is None or attribute.name not in target.analysis_attribute_refs:
                 raise ValueError(
-                    f"quantitative target {target.id!r} is owned by "
-                    f"{target.attribute_ref!r}, not {attribute.name!r}"
+                    f"field {attribute.name!r} references an unlinked quantitative target"
                 )
-            if target.id in targets_by_id:
-                raise ValueError(f"duplicate quantitative target ID {target.id!r}")
-            _require_subset(
-                target.doc_block_ids,
-                set(attribute.block_ids),
-                f"quantitative target {target.id!r} document blocks",
-            )
-            if set(target.semantic_provenance) != set(QUANTITATIVE_SEMANTIC_FIELDS):
-                raise ValueError(
-                    f"quantitative target {target.id!r} has incomplete semantic provenance"
-                )
-            for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
-                slot = target.semantic_profile[field_name]
-                spans = target.semantic_provenance[field_name]
-                if slot.state in {"specified", "other"} and not spans:
-                    raise ValueError(
-                        f"quantitative target {target.id!r} has uncited {field_name} semantics"
-                    )
-                if slot.state not in {"specified", "other"} and spans:
-                    raise ValueError(
-                        f"quantitative target {target.id!r} cites absent {field_name} semantics"
-                    )
-                for span in spans:
-                    _require_subset(
-                        span.block_ids,
-                        known_blocks,
-                        f"quantitative target {target.id!r} {field_name} provenance",
-                    )
-            if (
-                "measure" not in target.comparison_dimensions
-                or set(target.comparison_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS)
-            ):
-                raise ValueError(
-                    f"quantitative target {target.id!r} has invalid comparison dimensions"
-                )
-            targets_by_id[target.id] = target
         for disposition in attribute.quantitative_statement_dispositions:
-            if disposition.attribute_ref and disposition.attribute_ref != attribute.name:
+            if attribute.name not in disposition.attribute_refs:
                 raise ValueError(
                     "quantitative statement disposition is projected onto the wrong field"
                 )
             _require_subset(
                 disposition.block_ids,
-                set(attribute.block_ids),
+                known_blocks,
                 f"quantitative statement disposition for {attribute.name!r}",
             )
 
@@ -219,15 +209,18 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         for target_id, target in ledger_targets.items()
         if result.phase == "target_review" or target.review_status != "rejected"
     }
-    if set(targets_by_id) != set(projected_ledger_targets):
-        raise ValueError(
-            "field quantitative targets are not an exact projection of admitted document targets"
-        )
-    for target_id, target in targets_by_id.items():
-        if target != projected_ledger_targets[target_id]:
+    for attribute in result.variables:
+        expected_projection = [
+            target.id
+            for target in projected_ledger_targets.values()
+            if attribute.name in target.analysis_attribute_refs
+        ]
+        if attribute.quantitative_target_ids != expected_projection:
             raise ValueError(
-                f"field quantitative target {target_id!r} drifted from the document ledger"
+                f"field {attribute.name!r} target IDs are not the ordered projection "
+                "of the canonical quantitative ledger"
             )
+    targets_by_id = projected_ledger_targets
 
     insight_by_id = {}
     for match in result.matches:
@@ -245,9 +238,9 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
             f"insight {insight.id!r} retrieval targets",
         )
         for target_id in insight.retrieval_target_ids:
-            if targets_by_id[target_id].attribute_ref != insight.attribute_ref:
+            if insight.attribute_ref not in targets_by_id[target_id].analysis_attribute_refs:
                 raise ValueError(
-                    f"insight {insight.id!r} carries a target from another field"
+                    f"insight {insight.id!r} carries a target not linked to its field"
                 )
         owned_blocks = set(variables[insight.attribute_ref].block_ids)
         _require_subset(
@@ -331,12 +324,10 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
 
     score_targets: set[str] = set()
     for score in result.conformity:
-        _require_field(score.attribute_ref, variables, f"calibration {score.target_id!r}")
         target = targets_by_id.get(score.target_id)
-        if target is None or target.attribute_ref != score.attribute_ref:
+        if target is None or score.attribute_refs != target.analysis_attribute_refs:
             raise ValueError(
-                f"calibration {score.target_id!r} is not owned by field "
-                f"{score.attribute_ref!r}"
+                f"calibration {score.target_id!r} drifted from its target field links"
             )
         if score.target_id in score_targets:
             raise ValueError(f"duplicate calibration for target {score.target_id!r}")
@@ -368,9 +359,9 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         ]
         _require_unique(candidate_ids, "quantitative measurement candidate ID")
         for measurement in [*score.measurements, *score.excluded_measurements]:
-            _require_insight_ownership(
+            _require_insight_scope(
                 [measurement.insight_id],
-                score.attribute_ref,
+                set(score.attribute_refs),
                 insight_by_id,
                 f"measurement {measurement.candidate_id!r}",
             )
@@ -412,9 +403,9 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 f"calibration {score.target_id!r} excluded an admitted measurement"
             )
         for disposition in score.source_dispositions:
-            _require_insight_ownership(
+            _require_insight_scope(
                 [disposition.insight_id],
-                score.attribute_ref,
+                set(score.attribute_refs),
                 insight_by_id,
                 f"source disposition {disposition.source_id!r}",
             )
@@ -449,9 +440,9 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
             f"search trace {trace.query!r} targets",
         )
         for target_id in trace.target_ids:
-            if targets_by_id[target_id].attribute_ref != trace.attribute_ref:
+            if trace.attribute_ref not in targets_by_id[target_id].analysis_attribute_refs:
                 raise ValueError(
-                    f"search trace {trace.query!r} carries a target from another field"
+                    f"search trace {trace.query!r} carries a target not linked to its field"
                 )
         if len(trace.intent_ids) != len(trace.input_queries):
             raise ValueError(
@@ -509,6 +500,18 @@ def _require_insight_ownership(
     for insight_id in insight_ids:
         if insights[insight_id].attribute_ref != attribute_ref:
             raise ValueError(f"{context} cites an insight from another field")
+
+
+def _require_insight_scope(
+    insight_ids: list[str],
+    attribute_refs: set[str],
+    insights: dict,
+    context: str,
+) -> None:
+    _require_subset(insight_ids, set(insights), f"{context} insight lineage")
+    for insight_id in insight_ids:
+        if insights[insight_id].attribute_ref not in attribute_refs:
+            raise ValueError(f"{context} cites an insight outside its linked fields")
 
 
 def _require_finding_lineage(

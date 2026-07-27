@@ -39,7 +39,7 @@ const result = {
       target_resolution_reason: "Resolved from exact document spans.",
       evidence_domain: "clinical",
       entities: [],
-      quantitative_targets: [],
+      quantitative_target_ids: [],
       quantitative_statement_dispositions: [],
       quantitative_target_status: "not_applicable" as const,
       quantitative_target_status_reason: "No numeric target is stated.",

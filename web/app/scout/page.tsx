@@ -151,6 +151,18 @@ function formatNumericExpression(expression: NumericExpression): string {
   return `${expression.comparator} ${expression.value}${unitSuffix}`;
 }
 
+function formatAttributeRefs(attributeRefs: string[], fallback: string): string {
+  const labels = Array.from(new Set(attributeRefs)).map(displayAttributeLabel);
+  return labels.length > 0 ? labels.join(" · ") : fallback;
+}
+
+function formatFieldLinks(fieldLinks: QuantitativeTarget["field_links"]): string {
+  return formatAttributeRefs(
+    fieldLinks.map((link) => link.attribute_ref),
+    "Document claim",
+  );
+}
+
 const PRECEDENT_META: Record<PrecedentSignal["precedent"], { label: string; dot: string }> = {
   direct: { label: "Direct", dot: NEUTRAL_DOT },
   adjacent: { label: "Adjacent", dot: NEUTRAL_DOT },
@@ -440,10 +452,6 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
         ...result.quantitative_ledger,
         targets: result.quantitative_ledger.targets.map(updateTarget),
       },
-      variables: result.variables.map((variable) => ({
-        ...variable,
-        quantitative_targets: variable.quantitative_targets.map(updateTarget),
-      })),
     });
   }
 
@@ -480,10 +488,6 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
         ...result.quantitative_ledger,
         targets: result.quantitative_ledger.targets.map(updateTarget),
       },
-      variables: result.variables.map((variable) => ({
-        ...variable,
-        quantitative_targets: variable.quantitative_targets.map(updateTarget),
-      })),
     });
   }
 
@@ -697,11 +701,12 @@ function DocumentTargetReviewCheckpoint({
   const statement = selectedItem?.startsWith("statement:")
     ? statements.find((item) => item.unit_id === selectedItem.slice("statement:".length))
     : undefined;
-  const variable = target
-    ? result.variables.find((item) => item.name === target.attribute_ref)
-    : statement
-      ? result.variables.find((item) => item.name === statement.attribute_ref)
-      : undefined;
+  const linkedVariables = target
+    ? target.field_links.flatMap((link) => {
+        const variable = result.variables.find((item) => item.name === link.attribute_ref);
+        return variable ? [{ link, variable }] : [];
+      })
+    : [];
   const confirmedCount = targets.filter((item) => item.review_status === "approved").length;
   const excludedCount =
     targets.filter((item) => item.review_status === "rejected").length
@@ -799,7 +804,7 @@ function DocumentTargetReviewCheckpoint({
                     key={item.id}
                     selected={selected}
                     onSelect={() => setSelectedItem(`target:${item.id}`)}
-                    title={displayAttributeLabel(item.attribute_ref)}
+                    title={formatFieldLinks(item.field_links)}
                     subtitle={formatNumericExpression(item.expression)}
                     status={presentation.label}
                     tone={presentation.tone}
@@ -815,7 +820,7 @@ function DocumentTargetReviewCheckpoint({
                     key={item.unit_id}
                     selected={selected}
                     onSelect={() => setSelectedItem(`statement:${item.unit_id}`)}
-                    title={displayAttributeLabel(item.attribute_ref || "Document context")}
+                    title={formatAttributeRefs(item.attribute_refs, "Document context")}
                     subtitle="Unresolved extraction"
                     status={pending ? "Needs review" : "Excluded"}
                     tone={pending ? "warning" : "neutral"}
@@ -830,21 +835,13 @@ function DocumentTargetReviewCheckpoint({
             left={
               <>
               <div className="flex items-center justify-between gap-3">
-                <SectionLabel>Canonical field</SectionLabel>
+                <SectionLabel>Source passage</SectionLabel>
                 <DocumentSourceTrace
                   blockIds={target.doc_block_ids}
                   spans={target.provenance_spans}
                 />
               </div>
-              <p className="mt-3 text-base font-semibold text-foreground">
-                {displayAttributeLabel(target.attribute_ref)}
-              </p>
-              {variable?.description && (
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  {variable.description}
-                </p>
-              )}
-              <blockquote className="mt-4 border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground/85">
+              <blockquote className="mt-3 border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground/85">
                 {target.quote}
               </blockquote>
               </>
@@ -872,9 +869,22 @@ function DocumentTargetReviewCheckpoint({
                   </div>
                 ))}
               </dl>
-              <p className="mt-5 text-[11px] leading-relaxed text-muted-foreground">
-                {target.ownership_reason}
-              </p>
+              <div className="mt-5 border-t border-border/70 pt-4">
+                <SectionLabel>Linked product fields</SectionLabel>
+                <div className="mt-2 space-y-2">
+                  {linkedVariables.map(({ link, variable }) => (
+                    <div key={`${link.attribute_ref}:${link.relation}`} className="text-[11px] leading-relaxed">
+                      <span className="font-medium text-foreground">
+                        {displayAttributeLabel(variable.name)}
+                      </span>
+                      <span className="ml-2 capitalize text-muted-foreground">
+                        {link.relation.replace("_", " ")}
+                        {link.reason ? ` · ${link.reason}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <ReviewRecommendation
                 label={aiRecommendationPresentation(target.ai_recommendation).label}
                 tone={aiRecommendationPresentation(target.ai_recommendation).tone}
@@ -894,7 +904,7 @@ function DocumentTargetReviewCheckpoint({
               />
             </div>
             <p className="mt-3 text-sm font-semibold text-foreground">
-              {displayAttributeLabel(statement.attribute_ref || variable?.name || "Document context")}
+              {formatAttributeRefs(statement.attribute_refs, "Document context")}
             </p>
             <blockquote className="mt-3 max-w-4xl border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground/85">
               {statement.quote}
@@ -1382,7 +1392,7 @@ function QuantitativeReviewCheckpoint({
                 key={key}
                 selected={selected}
                 onSelect={() => setSelectedGroupKey(key)}
-                title={displayAttributeLabel(representative.score.attribute_ref)}
+                title={formatAttributeRefs(representative.score.attribute_refs, "Document claim")}
                 subtitle={`${formatNumericExpression(representative.measurement.expression)} → ${rowTarget ? formatNumericExpression(rowTarget.expression) : representative.score.target_label}`}
                 status={presentation.label}
                 tone={presentation.tone}
@@ -1405,7 +1415,7 @@ function QuantitativeReviewCheckpoint({
               />
             </div>
             <p className="mt-3 text-base font-semibold text-foreground">
-              {displayAttributeLabel(score.attribute_ref)}
+              {formatAttributeRefs(score.attribute_refs, "Document claim")}
             </p>
             <div className="mt-2 flex flex-wrap items-baseline gap-2">
               <span className="text-lg font-semibold text-foreground">
@@ -1716,9 +1726,11 @@ function FieldGrid({
   }
   const conformityByVariable = new Map<string, Conformity[]>();
   for (const score of result.conformity ?? []) {
-    const scores = conformityByVariable.get(score.attribute_ref) ?? [];
-    scores.push(score);
-    conformityByVariable.set(score.attribute_ref, scores);
+    for (const attributeRef of score.attribute_refs) {
+      const scores = conformityByVariable.get(attributeRef) ?? [];
+      scores.push(score);
+      conformityByVariable.set(attributeRef, scores);
+    }
   }
   const precedentByVariable = new Map<string, PrecedentSignal>();
   for (const signal of result.precedents ?? []) {

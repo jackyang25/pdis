@@ -92,6 +92,9 @@ QUANTITATIVE_TARGET_AI_RECOMMENDATIONS = frozenset(
 QUANTITATIVE_STATEMENT_REVIEW_STATUSES = frozenset(
     {"resolved", "needs_review", "accepted_exclusion"}
 )
+QUANTITATIVE_FIELD_LINK_RELATIONS = frozenset(
+    {"defines", "constrains", "context_for"}
+)
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> "ScoutTypeConfig":
@@ -231,7 +234,9 @@ class Attribute:
     entities: list[EvidenceEntity] = field(default_factory=list)
     # Independently qualified numeric claims extracted once before retrieval.
     # Qualitative stages continue to use the canonical document_target binding.
-    quantitative_targets: list["QuantitativeTarget"] = field(default_factory=list)
+    # Read-only field projection of canonical ledger targets. IDs, rather than
+    # copied target objects, keep the document ledger as the sole authority.
+    quantitative_target_ids: list[str] = field(default_factory=list)
     quantitative_statement_dispositions: list["QuantitativeStatementDisposition"] = field(
         default_factory=list
     )
@@ -269,9 +274,7 @@ class Attribute:
             ]
         self.block_ids = list(dict.fromkeys(self.block_ids))
         self.entities = list(dict.fromkeys(self.entities))
-        self.quantitative_targets = list(
-            {target.id: target for target in self.quantitative_targets}.values()
-        )
+        self.quantitative_target_ids = list(dict.fromkeys(self.quantitative_target_ids))
         self.quantitative_statement_dispositions = list(
             {
                 (item.quote, tuple(item.block_ids), item.disposition): item
@@ -585,22 +588,44 @@ def _default_semantic_profile() -> dict[str, SemanticSlot]:
     return {field_name: SemanticSlot() for field_name in QUANTITATIVE_SEMANTIC_FIELDS}
 
 
-@dataclass
-class QuantitativeTarget:
-    """One atomic document target with semantic identity and exact provenance."""
+@dataclass(frozen=True)
+class QuantitativeFieldLink:
+    """One typed projection from a canonical target into a product field.
+
+    The target itself has no field owner. A field may define the target,
+    receive a constraint from it, or expose it as context without creating a
+    second claim or calculation.
+    """
 
     attribute_ref: str
+    relation: str
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "attribute_ref", self.attribute_ref.strip())
+        object.__setattr__(self, "relation", self.relation.strip().lower())
+        object.__setattr__(self, "reason", " ".join(self.reason.split()))
+        if not self.attribute_ref:
+            raise ValueError("quantitative field link requires a field reference")
+        if self.relation not in QUANTITATIVE_FIELD_LINK_RELATIONS:
+            raise ValueError("invalid quantitative field-link relation")
+
+
+@dataclass
+class QuantitativeTarget:
+    """One field-independent atomic document target with exact provenance."""
+
     expression: NumericExpression
     role: str
     quote: str
     doc_block_ids: list[str]
+    field_links: list[QuantitativeFieldLink] = field(default_factory=list)
     comparison_dimensions: list[str] = field(default_factory=list)
     semantic_profile: dict[str, SemanticSlot] = field(
         default_factory=_default_semantic_profile
     )
     semantic_provenance: dict[str, list[DocumentSpan]] = field(default_factory=dict)
     provenance_spans: list[DocumentSpan] = field(default_factory=list)
-    ownership_reason: str = ""
     ai_recommendation: str = "flag"
     ai_review_reason: str = ""
     review_status: str = "approved"
@@ -609,6 +634,9 @@ class QuantitativeTarget:
     def __post_init__(self) -> None:
         if not isinstance(self.expression, NumericExpression):
             self.expression = NumericExpression(**self.expression)
+        self.role = self.role.strip().lower()
+        if self.role not in {"threshold", "optimal", "other"}:
+            raise ValueError("invalid quantitative target role")
         self.review_status = self.review_status.strip().lower()
         if self.review_status not in QUANTITATIVE_TARGET_REVIEW_STATUSES:
             raise ValueError("invalid quantitative target review status")
@@ -616,6 +644,20 @@ class QuantitativeTarget:
         if self.ai_recommendation not in QUANTITATIVE_TARGET_AI_RECOMMENDATIONS:
             raise ValueError("invalid quantitative target AI recommendation")
         self.ai_review_reason = " ".join(self.ai_review_reason.split())
+        self.field_links = [
+            value if isinstance(value, QuantitativeFieldLink) else QuantitativeFieldLink(**value)
+            for value in self.field_links
+        ]
+        links_by_key = {
+            (link.attribute_ref, link.relation): link for link in self.field_links
+        }
+        self.field_links = list(links_by_key.values())
+        if not self.field_links or not any(
+            link.relation in {"defines", "constrains"} for link in self.field_links
+        ):
+            raise ValueError(
+                "quantitative target requires a defining or constraining field link"
+            )
         if self.expression.kind != "bound":
             raise ValueError("quantitative target expression must be a bound")
         unknown_fields = set(self.semantic_profile) - set(
@@ -673,9 +715,6 @@ class QuantitativeTarget:
             )
         )
         self.quote = self.provenance_spans[0].quote
-        self.ownership_reason = self.ownership_reason.strip() or (
-            "Only this canonical field produced the validated target."
-        )
         if not self.id:
             semantic_material = [
                 f"{field_name}:{slot.state}:{slot.value.casefold()}:{slot.other.casefold()}"
@@ -683,7 +722,6 @@ class QuantitativeTarget:
             ]
             material = "\n".join(
                 (
-                    self.attribute_ref,
                     self.role,
                     self.expression.comparator,
                     str(self.expression.value),
@@ -724,6 +762,21 @@ class QuantitativeTarget:
         core = f"{measure} {self.comparator}{number}".strip()
         return " · ".join((core, *qualifiers))
 
+    @property
+    def attribute_refs(self) -> list[str]:
+        """All fields linked to this claim, including contextual views."""
+        return list(dict.fromkeys(link.attribute_ref for link in self.field_links))
+
+    @property
+    def analysis_attribute_refs(self) -> list[str]:
+        """Fields this claim defines or constrains for retrieval and calibration."""
+        return list(
+            dict.fromkeys(
+                link.attribute_ref
+                for link in self.field_links
+                if link.relation in {"defines", "constrains"}
+            )
+        )
 
 @dataclass
 class QuantitativeStatementDisposition:
@@ -733,14 +786,16 @@ class QuantitativeStatementDisposition:
     block_ids: list[str]
     disposition: str
     reason: str
-    attribute_ref: str = ""
+    attribute_refs: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.quote = " ".join(self.quote.split())
         self.block_ids = list(dict.fromkeys(self.block_ids))
         self.disposition = self.disposition.strip().lower()
         self.reason = " ".join(self.reason.split())
-        self.attribute_ref = self.attribute_ref.strip()
+        self.attribute_refs = list(
+            dict.fromkeys(value.strip() for value in self.attribute_refs if value.strip())
+        )
         if self.disposition not in {
             "context_only",
             "non_scalar",
@@ -761,7 +816,7 @@ class QuantitativeLedgerReview:
     quote: str
     classification: str
     reason: str
-    attribute_ref: str = ""
+    attribute_refs: list[str] = field(default_factory=list)
     target_ids: list[str] = field(default_factory=list)
     review_status: str = "resolved"
 
@@ -771,7 +826,9 @@ class QuantitativeLedgerReview:
         self.quote = " ".join(self.quote.split())
         self.classification = self.classification.strip().lower()
         self.reason = " ".join(self.reason.split())
-        self.attribute_ref = self.attribute_ref.strip()
+        self.attribute_refs = list(
+            dict.fromkeys(value.strip() for value in self.attribute_refs if value.strip())
+        )
         self.target_ids = list(dict.fromkeys(self.target_ids))
         self.review_status = self.review_status.strip().lower()
         if self.review_status not in QUANTITATIVE_STATEMENT_REVIEW_STATUSES:
@@ -901,13 +958,13 @@ class SourcePassageDisposition:
 class ConformityScore:
     """Traceable descriptive calibration of one quantitative target.
 
-    Produced only for variables where sources report comparable numbers
-    against a doc-stated target (e.g. efficacy >= 80%). AI maps exact source
-    spans into the shared semantic contract; deterministic validation owns
-    cohort inclusion, study-level deduplication, and all calculations.
+    Produced once per document-owned target when sources report comparable
+    numbers (e.g. efficacy >= 80%). AI maps exact source spans into the shared
+    semantic contract; deterministic validation owns cohort inclusion,
+    study-level deduplication, and all calculations.
     """
 
-    attribute_ref: str
+    attribute_refs: list[str]
     target_id: str
     target_role: str
     target_value: float

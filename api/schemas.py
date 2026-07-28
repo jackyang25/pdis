@@ -670,3 +670,9 @@ class AskRequest(BaseModel):
 
 class AskResponse(BaseModel):
     answer: str
+
+
+class AssistantContextResponse(BaseModel):
+    filename: str
+    doc_id: str
+    blocks: list[ContentBlockOut]

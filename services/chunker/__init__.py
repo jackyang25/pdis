@@ -20,6 +20,7 @@ from .models import (
 from .pipeline import (
     DEFAULT_MAX_OUTPUT_TOKENS,
     map_blocks_batch,
+    parse_context_file,
     run_pipeline,
     run_pipeline_batch,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "blocks_to_dicts",
     "find_config",
     "map_blocks_batch",
+    "parse_context_file",
     "run_pipeline",
     "run_pipeline_batch",
 ]

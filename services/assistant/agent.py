@@ -409,6 +409,12 @@ def _system_prompt(
     document: list[dict[str, Any]] | None = None,
 ) -> str:
     has_doc = bool(document)
+    is_workspace = result_type == "workspace"
+    subject = (
+        "the client-held workspace catalog and its available final analysis results"
+        if is_workspace
+        else "ONE analysis result the user just produced"
+    )
     grounding = (
         "the full text behind sources it already cites"
         + (", and every parsed text or visual block in the SOURCE DOCUMENT" if has_doc else "")
@@ -423,7 +429,7 @@ def _system_prompt(
         "- Be precise about the boundary: you have the parsed document content, not the original "
         "binary file; parsed text and extracted visuals are preserved, while other formatting may not be.\n\n"
         "TWO SOURCES, TWO ROLES - keep them distinct:\n"
-        "- The RESULT (and the web sources it cites) is EVIDENCE: what the outside world shows.\n"
+        "- ANALYSIS RESULTS (and the web sources they cite) contain derived judgments and evidence.\n"
         "- The SOURCE DOCUMENT is the author's CLAIMS: what the document asserts, NOT verified. "
         "Never treat a document claim as established fact - attribute it ('the document states...').\n"
         "- Cross-comparison is the point: line the document's claims up against the result's "
@@ -438,10 +444,10 @@ def _system_prompt(
         else ""
     )
     return (
-        "You are Ask: a read-only assistant that answers questions about ONE analysis "
-        f"result the user just produced. You are grounded: answer ONLY from this result and "
+        "You are Ask: a read-only assistant that answers questions about "
+        f"{subject}. You are grounded: answer ONLY from this submitted context and "
         f"{grounding}. You never run new web searches and never change anything.\n\n"
-        f"WHAT THIS RESULT IS:\n{legend_for(result_type)}\n\n"
+        f"WHAT THIS CONTEXT IS:\n{legend_for(result_type)}\n\n"
         "HOW TO READ IT - use the tools:\n"
         "- get(path): read a result subtree. find(keyword): locate result paths. "
         "find_document(keyword): locate document blocks. read_document(block_ids): read exact "
@@ -457,6 +463,6 @@ def _system_prompt(
         + ". If something isn't there, say so plainly - do not invent it.\n"
         "- Cite the source URL(s) for evidence-based answers so the user can click through.\n"
         "- Be concise and specific; quote the relevant values/paths.\n\n"
-        f"OVERVIEW OF THIS RESULT:\n{navigator.overview(result)}"
+        f"OVERVIEW OF THIS CONTEXT:\n{navigator.overview(result)}"
         + document_section
     )

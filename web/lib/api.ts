@@ -723,6 +723,21 @@ export async function runAligner(
 // --- Ask: read-only, grounded chat over any result object ---
 export type AskMessage = { role: "user" | "assistant"; content: string };
 
+export type AssistantContext = {
+  filename: string;
+  doc_id: string;
+  blocks: ContentBlock[];
+};
+
+export async function uploadAssistantContext(file: File): Promise<AssistantContext> {
+  const form = new FormData();
+  form.append("file", file);
+  return jsonRequest<AssistantContext>("/api/assistant/context", {
+    method: "POST",
+    body: form,
+  });
+}
+
 export async function askAssistant(
   resultType: string,
   result: unknown,

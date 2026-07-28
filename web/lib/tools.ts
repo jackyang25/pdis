@@ -2,11 +2,19 @@ export type ToolIcon =
   | "inspector"
   | "aligner"
   | "scout"
+  | "bouncer"
   | "chunker"
   | "searcher"
   | "evaluator"
   | "roadmap"
   | "executive-summary";
+
+export type ToolAudience = "pst" | "ghide" | "shared";
+export type ToolWorkflow =
+  | "document_intelligence"
+  | "stage_gate"
+  | "decision_workflow"
+  | "utility";
 
 type ToolBase = {
   id: string;
@@ -14,12 +22,14 @@ type ToolBase = {
   description: string;
   capability: string;
   icon: ToolIcon;
+  audience: ToolAudience;
+  workflow: ToolWorkflow;
+  availability: "available" | "coming_soon";
 };
 
 export type WorkspaceToolDefinition = ToolBase & {
   delivery: "workspace";
-  area: "document_intelligence" | "utility";
-  href: string;
+  href?: string;
   activity: string;
 };
 
@@ -29,7 +39,7 @@ export type ExternalToolDefinition = ToolBase & {
     label: "ChatGPT" | "Claude";
     url: string;
   }[];
-  sequence: number;
+  sequence?: number;
 };
 
 export type ToolDefinition = WorkspaceToolDefinition | ExternalToolDefinition;
@@ -41,60 +51,83 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/inspector",
     title: "Inspector",
     description:
-      "Check whether a document meets its required rubric for completeness, adherence, rigor, and internal consistency.",
-    capability: "Document quality",
+      "Find missing requirements, rubric gaps, weak support, and internal inconsistencies in a development document.",
+    capability: "Document review",
     activity: "3–5 min",
     icon: "inspector",
+    audience: "pst",
+    workflow: "document_intelligence",
     delivery: "workspace",
-    area: "document_intelligence",
+    availability: "available",
   },
   {
     id: "aligner",
     href: "/aligner",
     title: "Aligner",
     description:
-      "Trace commitments, dependencies, and risk responses across two development documents.",
-    capability: "Cross-document traceability",
+      "Compare two development documents to see what stayed aligned, changed, conflicts, or is missing.",
+    capability: "Document comparison",
     activity: "10–15 min",
     icon: "aligner",
+    audience: "pst",
+    workflow: "document_intelligence",
     delivery: "workspace",
-    area: "document_intelligence",
+    availability: "available",
   },
   {
     id: "scout",
     href: "/scout",
     title: "Scout",
     description:
-      "Test document targets against external evidence, quantitative alignment, and development precedent.",
-    capability: "Evidence diligence",
+      "Test a document’s targets against external evidence, comparable measurements, and development precedent.",
+    capability: "Evidence review",
     activity: "25–30 min",
     icon: "scout",
+    audience: "pst",
+    workflow: "document_intelligence",
     delivery: "workspace",
-    area: "document_intelligence",
+    availability: "available",
+  },
+  {
+    id: "bouncer",
+    title: "Bouncer",
+    description:
+      "Prepare a stage-gate review by checking required evidence and routing unresolved criteria to the right reviewers.",
+    capability: "Stage-gate preparation",
+    activity: "Agent workflow",
+    icon: "bouncer",
+    audience: "pst",
+    workflow: "stage_gate",
+    delivery: "workspace",
+    availability: "coming_soon",
   },
   {
     id: "chunker",
     href: "/chunker",
     title: "Chunker",
     description:
-      "Parse DOCX, PDF, and PPTX files into ordered, citable text, table, and image blocks.",
-    capability: "Document processing",
+      "Turn DOCX, PDF, and PPTX files into ordered, citable text, table, and image blocks.",
+    capability: "Document parsing",
     activity: "On demand",
     icon: "chunker",
+    audience: "shared",
+    workflow: "utility",
     delivery: "workspace",
-    area: "utility",
+    availability: "available",
   },
   {
     id: "searcher",
     href: "/searcher",
     title: "Searcher",
     description:
-      "Run a free-text query across selected evidence sources and return normalized findings.",
-    capability: "Evidence retrieval",
+      "Search selected evidence sources directly and review normalized findings in one place.",
+    capability: "Direct search",
     activity: "On demand",
     icon: "searcher",
+    audience: "shared",
+    workflow: "utility",
     delivery: "workspace",
-    area: "utility",
+    availability: "available",
   },
 ] as const;
 
@@ -106,9 +139,12 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     id: "ghide-evaluator",
     title: "GHIDE Evaluator",
     description:
-      "Assess a development plan for funding decision-readiness, surfacing program risks, evidence gaps, and recommended actions.",
-    capability: "Investment evaluation",
+      "Evaluate a development plan for funding readiness and identify program risks, evidence gaps, and next actions.",
+    capability: "Funding readiness",
     icon: "evaluator",
+    audience: "ghide",
+    workflow: "decision_workflow",
+    availability: "available",
     delivery: "external",
     shortcuts: [
       {
@@ -126,9 +162,12 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     id: "ghide-roadmap-body-compiler",
     title: "GHIDE Roadmap Body Compiler",
     description:
-      "Turn evaluator findings and expert feedback into a structured roadmap of organized recommendations and actions.",
-    capability: "Roadmap synthesis",
+      "Turn evaluation findings and expert feedback into an organized roadmap of recommendations and actions.",
+    capability: "Roadmap development",
     icon: "roadmap",
+    audience: "ghide",
+    workflow: "decision_workflow",
+    availability: "available",
     delivery: "external",
     shortcuts: [
       {
@@ -146,9 +185,12 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     id: "ghide-executive-summary-compiler",
     title: "GHIDE Executive Summary Compiler",
     description:
-      "Condense the completed roadmap into a one-page summary of priorities, decisions, and actions for leadership.",
-    capability: "Executive synthesis",
+      "Turn a completed roadmap into a one-page leadership summary of priorities, decisions, and actions.",
+    capability: "Leadership summary",
     icon: "executive-summary",
+    audience: "ghide",
+    workflow: "decision_workflow",
+    availability: "available",
     delivery: "external",
     shortcuts: [
       {
@@ -162,10 +204,24 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     ],
     sequence: 3,
   },
+  {
+    id: "ghide-stage-gate-evaluator",
+    title: "GHIDE Stage Gate Evaluator",
+    description:
+      "Evaluate whether a grantee has met stage-gate criteria and identify what is needed to reach the next gate.",
+    capability: "Stage-gate evaluation",
+    icon: "evaluator",
+    audience: "ghide",
+    workflow: "stage_gate",
+    availability: "coming_soon",
+    delivery: "external",
+    shortcuts: [],
+  },
 ] as const;
 
 export function toolForPath(pathname: string | null) {
   return WORKSPACE_TOOLS.find(
-    (tool) => pathname === tool.href || pathname?.startsWith(`${tool.href}/`),
+    (tool) => tool.href
+      && (pathname === tool.href || pathname?.startsWith(`${tool.href}/`)),
   );
 }

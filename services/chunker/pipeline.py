@@ -9,6 +9,8 @@ lives in exactly one place.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import mimetypes
+from pathlib import Path
 
 from .models import (
     ContentBlock,
@@ -16,11 +18,12 @@ from .models import (
     LLMClientProtocol,
     PipelineResult,
 )
-from .stages.image_assets import attach_image_assets
+from .stages.image_assets import attach_image_assets, image_asset_from_bytes
 from .stages.mapper import label_blocks
 from .stages.parser import parse_document
 
 DEFAULT_MAX_OUTPUT_TOKENS = 16000
+DOCUMENT_SUFFIXES = {".docx", ".pdf", ".pptx"}
 
 
 def run_pipeline(
@@ -64,6 +67,48 @@ def run_pipeline(
         indication=indication,
     )
     return blocks
+
+
+def parse_context_file(
+    file_path: str,
+    doc_id: str,
+    *,
+    source_media_type: str | None = None,
+) -> list[ContentBlock]:
+    """Parse an uploaded Ask attachment into the canonical block contract.
+
+    This is deliberately parse-only: conversational context does not require a
+    document-type configuration or section-labeling model call. Documents reuse
+    the normal parsers; standalone raster images become one portable image
+    block and follow the same block-ID/provenance path as embedded visuals.
+    """
+    path = Path(file_path)
+    suffix = path.suffix.lower()
+    if suffix in DOCUMENT_SUFFIXES:
+        return run_pipeline(file_path, doc_id)
+
+    media_type = (source_media_type or mimetypes.guess_type(path.name)[0] or "").lower()
+    if not media_type.startswith("image/"):
+        raise ValueError(
+            f"Unsupported attachment format '{suffix or media_type}'. "
+            "Supported: DOCX, PDF, PPTX, and raster images"
+        )
+    image = image_asset_from_bytes(path.read_bytes(), media_type)
+    if image is None:
+        raise ValueError("The uploaded image could not be decoded")
+    return [
+        ContentBlock(
+            id=f"{doc_id}/b-0001",
+            doc_id=doc_id,
+            ordinal=1,
+            block_type="image",
+            content="[image]",
+            heading_stack=[],
+            structural_meta={"source": "assistant_attachment"},
+            style_hint={"parser": "standalone_image"},
+            image=image,
+        )
+    ]
 
 
 def _stamp_header(

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check, CircleHelp, Loader2, Upload } from "lucide-react";
-import { Ask } from "@/components/assistant/ask";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
@@ -278,7 +277,6 @@ export default function AlignerPage() {
             onNewAnalysis={() => setShowSetup(true)}
           />
         )}
-        {session.result && <Ask resultType="aligner" result={session.result.alignment} />}
       </div>
     </>
   );

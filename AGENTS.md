@@ -170,9 +170,12 @@ web/ → api/ → services/ → shared/
   Final results are immutable: import, export, and Ask never recalculate them.
 - Imports accept only the current final-result envelope. Runtime services and
   UI consume one contract without migration or legacy branches.
-- Ask is stateless and read-only. It may inspect result JSON, parsed blocks,
-  retained images, and URLs already cited by the result; it never runs a new
-  evidence search.
+- Ask is stateless and read-only. The client submits the tool catalog, current
+  final analyses, and direct utility outputs as one workspace bundle. Ask may
+  inspect those result trees, parsed blocks, retained images, and URLs already
+  cited by an analysis. Transient conversation attachments use the same block
+  contract and remain user-supplied context; Ask never runs a new evidence
+  search.
 - Tool routes stream NDJSON `stage`, `complete`, or `error` events. Fan-out
   stages report `completed`/`total`; single stages use indeterminate progress.
 - Browser multipart uploads go directly to FastAPI. Keep all secrets server-side.

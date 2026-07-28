@@ -43,10 +43,18 @@ ALIGNER_LEGEND = """This is an ALIGNER result: a traceable comparison between a 
 - unit_types[] and relations[]: the exact controlled-vocabulary definitions used for this result.
 Aligner does not assess investment risk, grade document quality, or retrieve external evidence. Do not interpret missing as automatically bad; explain it in the context of the two document roles."""
 
+WORKSPACE_LEGEND = """This is a read-only PDIS WORKSPACE bundle. Shape:
+- catalog[]: every available or planned tool with its audience, workflow, availability, delivery, and provider labels. Catalog entries describe capabilities; they are not analysis findings.
+- results[]: current client-held final analyses or direct utility outputs. Each entry has a stable id, result_type, human-readable label, analysis tree, and the exact document_block_ids available to it.
+- conversation_attachments[]: transient files the user added to this conversation. They are user-supplied context, not PDIS findings or independently verified evidence; their block_ids link to the same exact document-reading tools.
+- An absent result type means that no eligible current result of that type is available. Say so plainly; never imply that a tool was run.
+Use each entry's result_type to interpret its analysis: Inspector grades one document against a rubric; Aligner traces commitments across two documents; Scout tests document targets against external evidence and precedent; Chunker exposes parsed source blocks; Searcher contains direct normalized retrieval findings. Compare entries only when the question calls for it, and identify which result supports each statement."""
+
 _LEGENDS: dict[str, str] = {
     "aligner": ALIGNER_LEGEND,
     "scout": SCOUT_LEGEND,
     "inspector": INSPECTOR_LEGEND,
+    "workspace": WORKSPACE_LEGEND,
 }
 
 

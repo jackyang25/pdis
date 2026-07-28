@@ -86,9 +86,10 @@ npm run dev
 4. Resolve any Scout review checkpoint.
 5. Inspect cited blocks and sources, then download the final result.
 
-Ask can navigate a supplied result, its embedded source blocks, retained
-visuals, and already-cited URLs. It cannot mutate the result or retrieve new
-evidence.
+Ask can navigate the tool catalog, current client-held analyses and utility
+outputs, their embedded source blocks, retained visuals, and already-cited
+URLs. Users may also attach transient documents or images as conversation
+context. Ask cannot mutate results or retrieve new evidence.
 
 ## Tools
 
@@ -100,7 +101,7 @@ evidence.
 | [Scout](services/scout/README.md)         | Test document targets against evidence, comparators, and precedent. |
 | [Chunker](services/chunker/README.md)     | Produce ordered, citable text, table, and image blocks.             |
 | [Searcher](services/searcher/README.md)   | Execute normalized retrieval across registered evidence sources.    |
-| [Ask](services/assistant/README.md)       | Answer read-only questions from saved results and cited material.   |
+| [Ask](services/assistant/README.md)       | Navigate available results and cited material across the workspace. |
 
 
 External GHIDE decision workflows appear as labeled shortcuts in the workspace;

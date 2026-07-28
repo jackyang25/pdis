@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileText } from "lucide-react";
-import { Ask } from "@/components/assistant/ask";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ConfigurationFields } from "@/components/configuration-fields";
 import { FinalResultActions } from "@/components/final-result-actions";
@@ -155,7 +154,6 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
           onNewAnalysis={() => setShowRunPanel(true)}
         />
       )}
-      {result && <Ask resultType="inspector" result={result.inspection} />}
     </div>
   );
 }

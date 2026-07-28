@@ -21,6 +21,7 @@ htmlcov/
 # node / next
 web/node_modules/
 web/.next/
+web/tsconfig.tsbuildinfo
 
 # environment and secrets
 .env

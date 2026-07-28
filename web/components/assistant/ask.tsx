@@ -1,10 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { TextStreamChatTransport, type UIMessage } from "ai";
-import { Check, Copy, Loader2, Send, Square, X } from "lucide-react";
-import { API_BASE } from "@/lib/api";
+import { Check, Copy, FileText, Image as ImageIcon, Loader2, Maximize2, Minimize2, Paperclip, Send, Square, X } from "lucide-react";
+import {
+  API_BASE,
+  uploadAssistantContext,
+  type AssistantContext,
+} from "@/lib/api";
 import { splitResultContext } from "@/lib/result-file";
 import { Button } from "../ui/button";
 import { PdisIcon } from "../ui/pdis-icon";
@@ -20,19 +25,46 @@ const SUGGESTIONS: Record<string, string[]> = {
   aligner: ["What changed between these documents?", "Which reference commitments are missing?"],
   inspector: ["What needs the most attention?", "Summarize the cross-section conflicts."],
   scout: ["Which targets conflict with current evidence?", "Where is the evidence weakest?"],
+  workspace: ["Which tool should I use?", "What results are available?"],
 };
 
-/** Read-only, result-grounded chat. AI SDK owns streaming and request state;
+/** Read-only, submitted-context-grounded chat. AI SDK owns streaming and request state;
  * the existing FastAPI agent still owns navigation, tools, and grounding. */
-export function Ask({ resultType, result }: { resultType: string; result?: unknown }) {
+export function Ask({
+  resultType,
+  result,
+  availableResultCount,
+  display = "floating",
+}: {
+  resultType: string;
+  result?: unknown;
+  availableResultCount?: number;
+  display?: "floating" | "page";
+}) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<AssistantContext[]>([]);
+  const [attaching, setAttaching] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const hasResult = result != null;
   const payload = useMemo(() => splitResultContext(result), [result]);
-  const hasDocument = !!payload.document?.length;
+  const documentContext = useMemo(
+    () => [
+      ...(payload.document ?? []),
+      ...attachments.flatMap((attachment) => attachment.blocks),
+    ],
+    [attachments, payload.document],
+  );
+  const submittedResult = useMemo(
+    () => withAttachmentManifest(payload.analysis, attachments),
+    [attachments, payload.analysis],
+  );
+  const hasDocument = documentContext.length > 0;
+  const resultCount = availableResultCount ?? (hasResult ? 1 : 0);
 
   const transport = useMemo(
     () =>
@@ -41,15 +73,15 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
         prepareSendMessagesRequest: ({ messages }) => ({
           body: {
             result_type: resultType,
-            result: payload.analysis,
+            result: submittedResult,
             messages: messages
               .filter((message) => message.role === "user" || message.role === "assistant")
               .map((message) => ({ role: message.role, content: messageText(message) })),
-            document: payload.document,
+            document: documentContext,
           },
         }),
       }),
-    [payload, resultType],
+    [documentContext, resultType, submittedResult],
   );
 
   const {
@@ -81,10 +113,36 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
 
   async function send(question = input) {
     const text = question.trim();
-    if (!text || busy || !hasResult) return;
+    if (!text || busy || attaching || !hasResult) return;
     clearError();
     setInput("");
     await sendMessage({ text });
+  }
+
+  async function attachFiles(fileList: FileList | null) {
+    if (!fileList?.length || attaching) return;
+    const files = Array.from(fileList).slice(0, Math.max(0, 5 - attachments.length));
+    if (!files.length) {
+      setAttachmentError("Remove an attachment before adding another.");
+      return;
+    }
+    setAttaching(true);
+    setAttachmentError(null);
+    const settled = await Promise.allSettled(files.map(uploadAssistantContext));
+    const accepted = settled.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
+    const rejected = settled.find((item) => item.status === "rejected");
+    setAttachments((current) => {
+      const byId = new Map(current.map((attachment) => [attachment.doc_id, attachment]));
+      for (const attachment of accepted) byId.set(attachment.doc_id, attachment);
+      return Array.from(byId.values()).slice(0, 5);
+    });
+    if (rejected?.status === "rejected") {
+      setAttachmentError(
+        rejected.reason instanceof Error ? rejected.reason.message : "Could not attach that file.",
+      );
+    }
+    setAttaching(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   async function copyMessage(id: string, text: string) {
@@ -93,49 +151,93 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
     window.setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 1600);
   }
 
-  if (!open) {
+  const pageDisplay = display === "page";
+
+  if (!open && !pageDisplay) {
     return (
       <Button
         type="button"
-        variant="outline"
         onClick={() => setOpen(true)}
         aria-expanded="false"
-        aria-controls="result-assistant"
-        className="fixed bottom-5 right-5 z-50 h-10 gap-2 bg-card px-3.5 text-xs shadow-[0_8px_24px_rgba(15,23,42,0.10)] sm:bottom-6 sm:right-6"
+        aria-controls="workspace-assistant"
+        className="group fixed bottom-5 right-5 z-50 h-12 gap-2.5 rounded-full border border-foreground/10 bg-foreground px-2.5 pr-4 text-background shadow-[0_12px_36px_rgba(15,23,42,0.24)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:bg-foreground hover:shadow-[0_16px_42px_rgba(15,23,42,0.30)] sm:bottom-6 sm:right-6"
       >
-        <PdisIcon name="chat" className="h-3.5 w-3.5 text-muted-foreground" />
-        Ask result
+        <AssistantMark compact />
+        <span className="text-xs font-semibold tracking-[-0.01em]">Ask PDIS</span>
+        {resultCount > 0 ? (
+          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-background/15 px-1.5 text-[10px] tabular-nums text-background">
+            {resultCount}
+          </span>
+        ) : null}
       </Button>
     );
   }
 
-  const suggestions = SUGGESTIONS[resultType] ?? ["Summarize these results."];
+  const suggestions = attachments.length > 0 && resultCount > 0
+    ? ["Summarize the attached context.", "Compare the attachment with my results."]
+    : attachments.length > 0
+      ? ["Summarize the attached context.", "What important details does it contain?"]
+      : resultType === "workspace" && resultCount > 1
+        ? ["Summarize my available results.", "Where do the results agree or differ?"]
+        : resultType === "workspace" && resultCount === 1
+          ? ["Summarize the available result.", "What source context can I inspect?"]
+      : SUGGESTIONS[resultType] ?? ["Summarize these results."];
 
   return (
     <div
-      id="result-assistant"
-      className="fixed bottom-4 right-4 z-50 flex h-[min(38rem,calc(100vh-2rem))] w-[26rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-[0_16px_48px_rgba(15,23,42,0.12)] sm:bottom-6 sm:right-6"
+      id="workspace-assistant"
+      className={pageDisplay
+        ? "fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_18%,hsl(var(--muted)/0.22),transparent_42%)]"
+        : "fixed bottom-4 right-4 z-50 flex h-[min(42rem,calc(100vh-2rem))] w-[29rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_24px_70px_rgba(15,23,42,0.18)] sm:bottom-6 sm:right-6"}
     >
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div>
-          <span className="block text-sm font-semibold">Ask this result</span>
-          <span className="mt-0.5 block text-[10px] text-muted-foreground">
-            {hasDocument ? "Result + source context" : "Result only · source context unavailable"}
-          </span>
+      <div className={pageDisplay
+        ? "mx-auto flex w-full max-w-4xl items-center justify-between px-5 py-5 sm:px-8"
+        : "flex items-center justify-between border-b border-border px-4 py-3.5"}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <AssistantMark />
+          <div className="min-w-0">
+            <span className="block text-sm font-semibold tracking-[-0.015em]">Ask PDIS</span>
+            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+              {workspaceStatus(resultCount, attachments.length, hasDocument)}
+            </span>
+          </div>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => setOpen(false)}
-          aria-label="Close"
-          className="h-8 w-8 text-muted-foreground"
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          {pageDisplay ? (
+            <Button asChild type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+              <Link href="/" aria-label="Return to workspace">
+                <Minimize2 className="h-4 w-4" />
+              </Link>
+            </Button>
+          ) : (
+            <>
+              <Button asChild type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                <Link href="/ask" aria-label="Open full-page assistant">
+                  <Maximize2 className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setOpen(false)}
+                aria-label="Close"
+                className="h-8 w-8 text-muted-foreground"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+      <div
+        ref={scrollRef}
+        className={pageDisplay
+          ? "mx-auto w-full max-w-3xl flex-1 space-y-7 overflow-y-auto px-5 pb-36 pt-8 sm:px-8"
+          : "flex-1 space-y-4 overflow-y-auto px-4 py-5"}
+      >
         {!hasResult && (
           <p className="text-xs leading-relaxed text-muted-foreground">
             Run an analysis or import a result first. Ask can then answer from that result and
@@ -144,19 +246,25 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
         )}
 
         {hasResult && messages.length === 0 && (
-          <div>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {hasDocument
-                ? `Ask about the analysis or any of the ${payload.document!.length} parsed document blocks.`
-                : "Ask about this analysis. This result does not contain parsed source-document blocks; re-run the tool with its source documents to restore document-level questions."}
+          <div className="flex min-h-full flex-col items-center justify-center py-8 text-center">
+            <AssistantMark large />
+            <h2 className="mt-5 text-lg font-semibold tracking-[-0.025em]">
+              Ask about your workspace
+            </h2>
+            <p className="mt-2 max-w-[19rem] text-xs leading-5 text-muted-foreground">
+              {resultCount > 0
+                ? "Navigate current results, compare tool outputs, or inspect their cited document context."
+                : attachments.length > 0
+                  ? "Ask about the attached context or explore which PDIS workflow should use it."
+                  : "Explore what each tool does. Final results will appear here automatically when they are available."}
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className={pageDisplay ? "mt-6 grid w-full max-w-xl gap-2.5" : "mt-5 grid w-full gap-2"}>
               {suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
                   onClick={() => send(suggestion)}
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                  className="rounded-2xl border border-border/80 bg-card/70 px-4 py-3 text-center text-xs font-medium text-muted-foreground shadow-sm transition-[border-color,color,background-color,transform] hover:-translate-y-px hover:border-foreground/15 hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                 >
                   {suggestion}
                 </button>
@@ -176,8 +284,8 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
               key={message.id}
               className={
                 message.role === "user"
-                  ? "ml-auto w-fit max-w-[85%] rounded-md bg-muted px-3 py-2 text-sm"
-                  : "group max-w-[94%] text-sm text-foreground"
+                  ? "ml-auto w-fit max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm"
+                  : "group max-w-full text-sm text-foreground"
               }
             >
               <Markdown text={text} />
@@ -211,8 +319,61 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
         {error && <p className="text-xs text-destructive">{error.message}</p>}
       </div>
 
-      <div className="border-t border-border p-3">
-        <div className="flex items-end gap-2 rounded-md border border-input bg-background p-1.5 focus-within:ring-2 focus-within:ring-ring/20">
+      <div className={pageDisplay
+        ? "absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background to-transparent px-5 pb-5 pt-10 sm:px-8"
+        : "border-t border-border p-3"}
+      >
+        <div className={pageDisplay ? "mx-auto max-w-3xl" : undefined}>
+        {(attachments.length > 0 || attaching) && (
+          <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+            {attachments.map((attachment) => {
+              const imageOnly = attachment.blocks.length === 1 && !!attachment.blocks[0]?.image;
+              return (
+                <span
+                  key={attachment.doc_id}
+                  className="inline-flex max-w-[15rem] items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm"
+                >
+                  {imageOnly ? <ImageIcon className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
+                  <span className="truncate">{attachment.filename}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAttachments((current) => current.filter((item) => item.doc_id !== attachment.doc_id))}
+                    aria-label={`Remove ${attachment.filename}`}
+                    className="rounded-full p-0.5 hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </span>
+              );
+            })}
+            {attaching && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Reading attachment…
+              </span>
+            )}
+          </div>
+        )}
+        <div className="flex items-end gap-2 rounded-2xl border border-input bg-card/95 p-2 shadow-[0_12px_36px_rgba(15,23,42,0.10)] backdrop-blur focus-within:ring-2 focus-within:ring-ring/20">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".docx,.pdf,.pptx,image/*"
+            onChange={(event) => void attachFiles(event.target.files)}
+            className="sr-only"
+          />
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={attaching || attachments.length >= 5}
+            aria-label="Attach document or image"
+            className="h-9 w-9 shrink-0 rounded-xl text-muted-foreground"
+          >
+            {attaching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+          </Button>
           <textarea
             ref={textareaRef}
             rows={1}
@@ -224,9 +385,9 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
                 send();
               }
             }}
-            placeholder={hasResult ? "Ask about this result…" : "Run an analysis first"}
+            placeholder={resultType === "workspace" ? "Ask about tools or results…" : "Ask about this result…"}
             disabled={busy || !hasResult}
-            className="max-h-28 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:opacity-60"
+            className="max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:opacity-60"
           />
           {busy ? (
             <Button type="button" size="icon" variant="secondary" onClick={stop} aria-label="Stop response">
@@ -237,19 +398,83 @@ export function Ask({ resultType, result }: { resultType: string; result?: unkno
               type="button"
               size="icon"
               onClick={() => send()}
-              disabled={!input.trim() || !hasResult}
+              disabled={!input.trim() || !hasResult || attaching}
               aria-label="Send message"
+              className="h-9 w-9 rounded-xl"
             >
               <Send className="h-4 w-4" />
             </Button>
           )}
         </div>
+        {attachmentError && <p className="mt-1.5 px-2 text-[10px] text-destructive">{attachmentError}</p>}
         <p className="mt-1.5 text-center text-[9px] text-muted-foreground/70">
-          Enter to send · Shift+Enter for a new line
+          Attach up to 5 DOCX, PDF, PPTX, or image files · Enter to send
         </p>
+        </div>
       </div>
     </div>
   );
+}
+
+function AssistantMark({
+  compact = false,
+  large = false,
+}: {
+  compact?: boolean;
+  large?: boolean;
+}) {
+  const size = large ? "h-16 w-16" : compact ? "h-8 w-8" : "h-9 w-9";
+  const iconSize = large ? "h-6 w-6" : "h-4 w-4";
+  return (
+    <span
+      aria-hidden="true"
+      className={`relative flex shrink-0 items-center justify-center rounded-full bg-[conic-gradient(from_180deg,rgba(103,232,249,0.9),rgba(165,180,252,0.95),rgba(255,255,255,0.9),rgba(103,232,249,0.9))] p-[1px] shadow-[0_0_24px_rgba(129,140,248,0.18)] ${size}`}
+    >
+      <span className="flex h-full w-full items-center justify-center rounded-full bg-foreground text-background">
+        <PdisIcon name="chat" className={iconSize} />
+      </span>
+    </span>
+  );
+}
+
+function withAttachmentManifest(
+  analysis: unknown,
+  attachments: AssistantContext[],
+): unknown {
+  if (attachments.length === 0) return analysis;
+  const conversationAttachments = attachments.map((attachment) => ({
+    doc_id: attachment.doc_id,
+    filename: attachment.filename,
+    block_ids: attachment.blocks.map((block) => block.id),
+    role: "user_supplied_conversation_context",
+  }));
+  if (analysis && typeof analysis === "object" && !Array.isArray(analysis)) {
+    return {
+      ...(analysis as Record<string, unknown>),
+      conversation_attachments: conversationAttachments,
+    };
+  }
+  return {
+    submitted_context: analysis,
+    conversation_attachments: conversationAttachments,
+  };
+}
+
+function workspaceStatus(
+  resultCount: number,
+  attachmentCount: number,
+  hasDocument: boolean,
+): string {
+  const parts: string[] = [];
+  if (resultCount > 0) {
+    parts.push(`${resultCount} ${resultCount === 1 ? "result" : "results"}`);
+  }
+  if (attachmentCount > 0) {
+    parts.push(`${attachmentCount} ${attachmentCount === 1 ? "attachment" : "attachments"}`);
+  }
+  if (parts.length === 0) return "Tool guide · no results available";
+  if (hasDocument && attachmentCount === 0) parts.push("source context included");
+  return parts.join(" · ");
 }
 
 function resizeTextarea(element: HTMLTextAreaElement | null) {

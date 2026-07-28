@@ -28,7 +28,6 @@ import {
   type SafetySignal,
   type PrecedentSignal,
 } from "@/lib/api";
-import { Ask } from "@/components/assistant/ask";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -643,9 +642,6 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
       )}
       {result && result.phase === "final" && reviewStatus === "final" && (
         <FieldGrid result={result} onNewAnalysis={() => setShowRunPanel(true)} />
-      )}
-      {result && result.phase === "final" && reviewStatus === "final" && (
-        <Ask resultType="scout" result={result} />
       )}
     </div>
   );

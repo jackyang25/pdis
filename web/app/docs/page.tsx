@@ -7,6 +7,7 @@ import {
   Github,
   Info,
 } from "lucide-react";
+import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
 
 const NAVIGATION = [
   ["overview", "Overview"],
@@ -17,14 +18,19 @@ const NAVIGATION = [
   ["faq", "FAQ"],
 ] as const;
 
-const TOOLS = [
-  ["Inspector", "Document quality", "Grades completeness, adherence, rigor, and cross-section consistency."],
-  ["Aligner", "Document alignment", "Traces commitments and changes between a reference and comparison document."],
-  ["Scout", "Evidence diligence", "Tests document targets against external evidence, comparators, and precedent."],
-  ["Chunker", "Document processing", "Produces ordered, citable text, table, and image blocks."],
-  ["Searcher", "Direct retrieval", "Runs free-text searches through registered evidence-source adapters."],
-  ["Ask", "Result navigation", "Answers read-only questions from a result and its cited material."],
-] as const;
+const TOOLS: readonly (readonly [string, string, string])[] = [
+  ...WORKSPACE_TOOLS.map((tool) => [
+    tool.title,
+    tool.capability,
+    `${tool.description}${tool.availability === "coming_soon" ? " Coming soon." : ""}`,
+  ] as const),
+  ...EXTERNAL_TOOLS.map((tool) => [
+    tool.title,
+    tool.capability,
+    `${tool.description}${tool.availability === "coming_soon" ? " Coming soon." : ""}`,
+  ] as const),
+  ["Ask", "Workspace navigation", "Answers read-only questions across the tool catalog, available results, utility outputs, cited material, and transient conversation attachments from either the floating panel or full-page workspace."],
+];
 
 const QUERY_TRACKS = [
   ["General", "Current evidence for the document-bound field or claim."],
@@ -99,7 +105,7 @@ export default function DocsPage() {
           <DocSection
             id="tools"
             title="Tools"
-            intro="Native tools share parsed document blocks and provenance, but each owns one product responsibility. GHIDE shortcuts remain external and are labeled separately."
+            intro="Tools are grouped by workflow. Audience, availability, and external provider access belong to the individual tool so those concerns do not distort the page hierarchy."
           >
             <DefinitionRows rows={TOOLS.map(([name, role, description]) => [name, `${role} — ${description}`] as const)} />
           </DocSection>
@@ -131,7 +137,7 @@ export default function DocsPage() {
             <DefinitionRows rows={[
               ["Analysis", "Tool-specific judgments, traces, and derived views."],
               ["Source documents", "Ordered text, table, and retained image blocks with stable IDs."],
-              ["Ask", "Read-only navigation over the supplied result, blocks, visuals, and already-cited URLs."],
+              ["Ask", "Read-only navigation across current client-held results, blocks, visuals, and already-cited URLs."],
             ]} />
             <Note title="Current contract only">
               Imports accept only final artifacts produced by the current application version. Source spans, visuals, query lineage, and retrieval provenance must already be complete.
@@ -165,8 +171,8 @@ export default function DocsPage() {
               <Faq question="Does ToolUniverse choose sources autonomously?">
                 No. Configuration enables registered source lanes; adapters translate neutral intents into source-native requests.
               </Faq>
-              <Faq question="Can an old result be upgraded without rerunning?">
-                It can be normalized for viewing, but evidence or provenance that was never saved cannot be invented.
+              <Faq question="Can I import an older result?">
+                No. Imports accept only final results produced by the current application contract.
               </Faq>
             </div>
           </DocSection>

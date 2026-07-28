@@ -468,9 +468,7 @@ class ConformityOut(BaseModel):
     benchmark_standard_deviation: float | None = None
     target_percentile: float | None = None
     ambition_percentile: float | None = None
-    calibration_status: Literal[
-        "insufficient", "limited", "sufficient", "legacy_unverified"
-    ] = "insufficient"
+    calibration_status: Literal["insufficient", "limited", "sufficient"] = "insufficient"
     doc_block_ids: list[str] = Field(default_factory=list)
     measurements: list[MeasurementOut] = Field(default_factory=list)
     excluded_measurements: list[MeasurementOut] = Field(default_factory=list)

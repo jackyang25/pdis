@@ -133,9 +133,9 @@ export default function DocsPage() {
               ["Source documents", "Ordered text, table, and retained image blocks with stable IDs."],
               ["Ask", "Read-only navigation over the supplied result, blocks, visuals, and already-cited URLs."],
             ]} />
-            <Warning title="Unverified legacy result">
-              An older file may remain viewable, but missing source spans, visuals, query lineage, or retrieval provenance cannot be reconstructed. Rerun the analysis before relying on unavailable evidence.
-            </Warning>
+            <Note title="Current contract only">
+              Imports accept only final artifacts produced by the current application version. Source spans, visuals, query lineage, and retrieval provenance must already be complete.
+            </Note>
           </DocSection>
 
           <DocSection

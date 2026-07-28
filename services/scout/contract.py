@@ -23,9 +23,8 @@ from .models import (
 def validate_result_contract(result: ScoutResult) -> ScoutResult:
     """Return ``result`` after enforcing cross-stage structure and lineage.
 
-    This is intentionally fail-closed. Compatibility repair belongs at the
-    saved-result import boundary; a fresh run must never emit a partially
-    cross-wired result.
+    This is intentionally fail-closed. No stage or import boundary repairs a
+    partially cross-wired result.
     """
     block_ids = [block.id for block in result.blocks]
     _require_unique(block_ids, "document block ID")

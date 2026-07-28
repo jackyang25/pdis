@@ -302,7 +302,7 @@ export type Conformity = {
   benchmark_standard_deviation: number | null;
   target_percentile: number | null;
   ambition_percentile: number | null;
-  calibration_status: "insufficient" | "limited" | "sufficient" | "legacy_unverified";
+  calibration_status: "insufficient" | "limited" | "sufficient";
   doc_block_ids?: string[];
   measurements: Measurement[];
   excluded_measurements: Measurement[];

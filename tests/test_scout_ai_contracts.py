@@ -30,14 +30,6 @@ from services.scout.ai_wire import (
 from shared.openai_client import OpenAIClient
 
 
-class _TextFixtureClient:
-    def __init__(self, payload: object):
-        self.payload = payload
-
-    def call(self, *_args, **_kwargs) -> str:
-        return json.dumps(self.payload)
-
-
 class _StructuredFixtureClient:
     def __init__(self, payload: dict):
         self.payload = payload
@@ -296,17 +288,6 @@ class ScoutAIContractTests(unittest.TestCase):
         )
         self.assertEqual(result, [{"index": 0}])
         self.assertEqual(client.schema_name, contract.name)
-
-    def test_text_fixture_compatibility_is_centralized(self) -> None:
-        contract = drift_batch(1, ["document/b-0001"])
-        result = request_structured(
-            _TextFixtureClient([{"index": 0}]),
-            contract,
-            "system",
-            "user",
-            max_tokens=100,
-        )
-        self.assertEqual(result, [{"index": 0}])
 
     def test_openai_wrapper_sends_strict_json_schema(self) -> None:
         completions = _ChatCompletions(

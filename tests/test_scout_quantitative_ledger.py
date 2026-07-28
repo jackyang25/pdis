@@ -160,7 +160,7 @@ def _target(quote: str, value: float, role: str, population: str) -> dict:
 
 
 def _current_review(review: dict) -> dict:
-    """Migrate compact historical fixtures at the test-provider boundary."""
+    """Expand compact provider fixtures into the current wire contract."""
     attribute_ref = str(review.get("attribute_ref", ""))
     targets = []
     for target in review.get("targets", []):
@@ -258,6 +258,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             Attribute(
                 name="vaccine.dose_volume",
                 description="Volume administered per dose",
+                document_target=_block().content,
                 document_spans=[
                     DocumentSpan(quote=_block().content, block_ids=[BLOCK_ID])
                 ],
@@ -265,7 +266,9 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
                 target_resolution_reason="Resolved from exact document spans.",
             ),
         ]
-        self.batches = prepare_quantitative_ledger_batches([_block()])
+        self.batches = prepare_quantitative_ledger_batches(
+            [_block()], self.attributes
+        )
         self.assertEqual(len(self.batches), 1)
 
     def test_document_wide_reconciliation_merges_one_repeated_atomic_claim(self) -> None:
@@ -488,25 +491,40 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             [approved.id, rejected.id],
         )
 
-    def test_dense_source_block_is_split_into_bounded_unit_batches(self) -> None:
-        source = ContentBlock(
-            id="document/b-dense",
-            doc_id="document",
-            ordinal=2,
-            block_type="table_row",
-            content="\n".join(f"Constraint {index}: {index} units" for index in range(50)),
-            heading_stack=[],
-            structural_meta={},
-            style_hint={},
+    def test_many_canonical_blocks_are_split_into_bounded_batches(self) -> None:
+        sources = [
+            ContentBlock(
+                id=f"document/b-{index:04d}",
+                doc_id="document",
+                ordinal=index,
+                block_type="table_row",
+                content=f"Constraint {index}: {index} units",
+                heading_stack=[],
+                structural_meta={},
+                style_hint={},
+            )
+            for index in range(50)
+        ]
+        attribute = Attribute(
+            name="product.constraints",
+            description="Product constraints",
+            document_target="\n".join(source.content for source in sources),
+            document_spans=[
+                DocumentSpan(quote=source.content, block_ids=[source.id])
+                for source in sources
+            ],
+            target_resolved=True,
         )
 
-        batches = prepare_quantitative_ledger_batches([source], max_units=10)
+        batches = prepare_quantitative_ledger_batches(
+            sources, [attribute], max_units=10
+        )
         unit_ids = [unit.id for batch in batches for unit in batch.units]
 
         self.assertEqual(len(batches), 5)
         self.assertTrue(all(len(batch.units) <= 10 for batch in batches))
         self.assertEqual(len(unit_ids), len(set(unit_ids)))
-        self.assertTrue(all(batch.blocks == [source] for batch in batches))
+        self.assertEqual(sum(len(batch.blocks) for batch in batches), len(sources))
 
     def test_production_batches_interpret_each_shared_source_block_once(self) -> None:
         full_span = "Optimal: Dose volume <0.5 mL/dose; adult use only."
@@ -702,7 +720,9 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             ],
             target_resolved=True,
         )
-        batch = prepare_quantitative_ledger_batches([numeric_block])[0]
+        batch = prepare_quantitative_ledger_batches(
+            [numeric_block], [efficacy, population]
+        )[0]
         unit = batch.units[0]
         profile = {
             field_name: {
@@ -849,33 +869,24 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertEqual(result.reviews[0].classification, "target")
 
     def test_one_document_ledger_captures_atomic_targets_without_field_competition(self) -> None:
-        units = {unit.quote: unit for unit in self.batches[0].units}
-        reviews = []
-        for unit in self.batches[0].units:
-            if unit.quote == "Dose volume: <0.5 mL/dose for pediatric":
-                targets = [_target(unit.quote, 0.5, "optimal", "pediatric")]
-                classification = "target"
-            elif unit.quote == "<1.0 mL/dose for adult.":
-                targets = [_target(unit.quote, 1.0, "optimal", "adult")]
-                classification = "target"
-            elif unit.quote == "Dose volume: <1.0 mL/dose for pediatric and adult.":
-                targets = [
-                    _target(unit.quote, 1.0, "threshold", population)
+        unit = self.batches[0].units[0]
+        optimal_pediatric = "Dose volume: <0.5 mL/dose for pediatric"
+        optimal_adult = "<1.0 mL/dose for adult."
+        threshold = "Dose volume: <1.0 mL/dose for pediatric and adult."
+        reviews = [{
+            "unit_id": unit.id,
+            "classification": "target",
+            "attribute_ref": "",
+            "reason": "The canonical source span defines four atomic targets.",
+            "targets": [
+                _target(optimal_pediatric, 0.5, "optimal", "pediatric"),
+                _target(optimal_adult, 1.0, "optimal", "adult"),
+                *[
+                    _target(threshold, 1.0, "threshold", population)
                     for population in ("pediatric", "adult")
-                ]
-                classification = "target"
-            else:
-                targets = []
-                classification = "non_numeric"
-            reviews.append(
-                {
-                    "unit_id": unit.id,
-                    "classification": classification,
-                    "attribute_ref": "",
-                    "reason": "Complete statement classification.",
-                    "targets": targets,
-                }
-            )
+                ],
+            ],
+        }]
 
         client = _LedgerClient(reviews)
         batch_result = extract_quantitative_ledger_batch(
@@ -891,7 +902,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
 
         self.assertEqual(client.calls, 1)
         self.assertEqual(ledger.status, "complete")
-        self.assertEqual(len(ledger.reviews), len(units))
+        self.assertEqual(len(ledger.reviews), 1)
         self.assertEqual(len(ledger.targets), 4)
         self.assertEqual(attributes[0].quantitative_target_ids, [])
         self.assertEqual(len(attributes[1].quantitative_target_ids), 4)
@@ -958,15 +969,22 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertEqual(client.calls, 2)
 
     def test_missing_statement_review_is_recovered_once(self) -> None:
-        source = ContentBlock(
+        first_source = ContentBlock(
             id="document/b-0005",
             doc_id="document",
             ordinal=5,
             block_type="paragraph",
-            content=(
-                "Development work remains active.\n"
-                "Phase 4 follow-up is planned."
-            ),
+            content="Development work remains active.",
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        second_source = ContentBlock(
+            id="document/b-0006",
+            doc_id="document",
+            ordinal=6,
+            block_type="paragraph",
+            content="Phase 4 follow-up is planned.",
             heading_stack=[],
             structural_meta={},
             style_hint={},
@@ -974,13 +992,25 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         attribute = Attribute(
             name="drug.timeline",
             description="Development timeline",
+            document_target=(
+                f"{first_source.content}\n{second_source.content}"
+            ),
             document_spans=[
-                DocumentSpan(quote=source.content, block_ids=[source.id])
+                DocumentSpan(
+                    quote=first_source.content,
+                    block_ids=[first_source.id],
+                ),
+                DocumentSpan(
+                    quote=second_source.content,
+                    block_ids=[second_source.id],
+                ),
             ],
             target_resolved=True,
             target_resolution_reason="Resolved from exact document spans.",
         )
-        batch = prepare_quantitative_ledger_batches([source])[0]
+        batch = prepare_quantitative_ledger_batches(
+            [first_source, second_source], [attribute]
+        )[0]
         first_unit, unit = batch.units
         retained = {
             "unit_id": first_unit.id,
@@ -1040,7 +1070,17 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             )
             for index in range(1, 7)
         ]
-        batch = prepare_quantitative_ledger_batches(blocks)[0]
+        attributes = [
+            Attribute(
+                name=f"drug.context_{index}",
+                description="Context statement",
+                document_target=block.content,
+                document_spans=[DocumentSpan(quote=block.content, block_ids=[block.id])],
+                target_resolved=True,
+            )
+            for index, block in enumerate(blocks)
+        ]
+        batch = prepare_quantitative_ledger_batches(blocks, attributes)[0]
         client = _SequenceLedgerClient([[], [], []])
 
         with self.assertRaisesRegex(
@@ -1049,7 +1089,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         ):
             extract_quantitative_ledger_batch(
                 batch,
-                [],
+                attributes,
                 client,
                 indication="example condition",
                 intervention_class="drug",
@@ -1083,7 +1123,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             document_spans=[DocumentSpan(quote=source.content, block_ids=[BLOCK_ID])],
             target_resolved=True,
         )
-        batch = prepare_quantitative_ledger_batches([source])[0]
+        batch = prepare_quantitative_ledger_batches([source], [attribute])[0]
         unit = batch.units[0]
         valid = _target("Pediatric dose <0.5 mL", 0.5, "optimal", "pediatric")
         invalid = _target("adult dose under one mL", 1.0, "optimal", "adult")
@@ -1308,7 +1348,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             document_spans=[DocumentSpan(quote=source.content, block_ids=[BLOCK_ID])],
             target_resolved=True,
         )
-        batch = prepare_quantitative_ledger_batches([source])[0]
+        batch = prepare_quantitative_ledger_batches([source], [attribute])[0]
         unit = batch.units[0]
         valid = _target("Pediatric dose <0.5 mL", 0.5, "optimal", "pediatric")
         invalid = _target("adult dose under one mL", 1.0, "optimal", "adult")
@@ -1334,7 +1374,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertEqual(result.reviews[0].target_ids, [result.targets[0].id])
         self.assertIn("Source-verifiable targets were retained", result.reviews[0].reason)
 
-    def test_context_and_numeric_categories_are_retained_without_calibration(self) -> None:
+    def test_context_block_is_retained_without_calibration(self) -> None:
         source = ContentBlock(
             id="document/b-0002",
             doc_id="document",
@@ -1353,12 +1393,14 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             description="Stability conditions and development stage",
             block_ids=[source.id],
             document_target=source.content,
+            document_spans=[
+                DocumentSpan(quote=source.content, block_ids=[source.id])
+            ],
             target_resolved=True,
         )
-        batches = prepare_quantitative_ledger_batches([source])
+        batches = prepare_quantitative_ledger_batches([source], [attribute])
         classifications = {
-            "Tested under Zone IVb at 75% relative humidity.": "context_only",
-            "Phase 4 follow-up is described qualitatively.": "non_scalar",
+            source.content: "context_only",
         }
         reviews = [
             {
@@ -1386,124 +1428,8 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         self.assertEqual(attributes[0].quantitative_target_status, "not_applicable")
         self.assertEqual(
             {item.disposition for item in attributes[0].quantitative_statement_dispositions},
-            {"context_only", "non_scalar"},
+            {"context_only"},
         )
-
-    def test_cross_block_context_projects_only_when_ai_links_the_field(self) -> None:
-        claim_block = ContentBlock(
-            id="document/b-0010",
-            doc_id="document",
-            ordinal=10,
-            block_type="paragraph",
-            content="Indication: prevention of clinical malaria.",
-            heading_stack=[],
-            structural_meta={},
-            style_hint={},
-        )
-        context_block = ContentBlock(
-            id="document/b-0030",
-            doc_id="document",
-            ordinal=30,
-            block_type="paragraph",
-            content="Phase 4 follow-up is planned.",
-            heading_stack=[],
-            structural_meta={},
-            style_hint={},
-        )
-        attribute = Attribute(
-            name="vaccine.indication",
-            description="Disease or condition the vaccine addresses",
-            document_spans=[
-                DocumentSpan(
-                    quote=claim_block.content,
-                    block_ids=[claim_block.id],
-                )
-            ],
-            target_resolved=True,
-        )
-        batches = prepare_quantitative_ledger_batches([context_block])
-        unit = batches[0].units[0]
-        batch_result = extract_quantitative_ledger_batch(
-            batches[0],
-            [attribute],
-            _LedgerClient([
-                {
-                    "unit_id": unit.id,
-                    "classification": "non_scalar",
-                    "attribute_ref": attribute.name,
-                    "reason": "This is development context, not a scalar target.",
-                    "targets": [],
-                }
-            ]),
-            indication="malaria",
-            intervention_class="vaccine",
-        )
-
-        attributes, ledger = assemble_quantitative_document_ledger(
-            [attribute], batches, [batch_result]
-        )
-
-        self.assertEqual(ledger.reviews[0].attribute_refs, [attribute.name])
-        self.assertEqual(
-            [item.disposition for item in attributes[0].quantitative_statement_dispositions],
-            ["non_scalar"],
-        )
-        self.assertEqual(attributes[0].block_ids, [claim_block.id])
-        self.assertEqual(attributes[0].quantitative_target_status, "not_applicable")
-
-    def test_unowned_semantic_uncertainty_does_not_block_other_fields(self) -> None:
-        claim_block = ContentBlock(
-            id="document/b-0010",
-            doc_id="document",
-            ordinal=10,
-            block_type="paragraph",
-            content="Dose must be below 5 mg.",
-            heading_stack=[],
-            structural_meta={},
-            style_hint={},
-        )
-        background = ContentBlock(
-            id="document/b-0030",
-            doc_id="document",
-            ordinal=30,
-            block_type="paragraph",
-            content="The global strategy targets elimination by 2040.",
-            heading_stack=[],
-            structural_meta={},
-            style_hint={},
-        )
-        attribute = Attribute(
-            name="drug.dose",
-            description="Dose",
-            document_spans=[
-                DocumentSpan(quote=claim_block.content, block_ids=[claim_block.id])
-            ],
-            target_resolved=True,
-        )
-        batch = prepare_quantitative_ledger_batches([background])[0]
-        unit = batch.units[0]
-        result = extract_quantitative_ledger_batch(
-            batch,
-            [attribute],
-            _LedgerClient([
-                {
-                    "unit_id": unit.id,
-                    "classification": "uncertain",
-                    "attribute_ref": "",
-                    "reason": "The date is background strategy context.",
-                    "targets": [],
-                }
-            ]),
-            indication="example condition",
-            intervention_class="drug",
-        )
-
-        _, ledger = assemble_quantitative_document_ledger(
-            [attribute], [batch], [result]
-        )
-
-        self.assertEqual(ledger.status, "complete")
-        self.assertEqual(ledger.reviews[0].classification, "uncertain")
 
 
 if __name__ == "__main__":

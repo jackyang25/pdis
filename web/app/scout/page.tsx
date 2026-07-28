@@ -2129,13 +2129,7 @@ function FieldRow({
   const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
   const precedentMeta = precedent ? precedentView(precedent) : null;
   const counts = relationCounts(matches);
-  const verifiedConformities = conformities.filter(
-    (score) => score.calibration_status !== "legacy_unverified",
-  );
-  const hasLegacyConformity = conformities.some(
-    (score) => score.calibration_status === "legacy_unverified",
-  );
-  const comparatorCount = verifiedConformities.reduce(
+  const comparatorCount = conformities.reduce(
     (total, score) => total + score.benchmark_count,
     0,
   );
@@ -2174,18 +2168,14 @@ function FieldRow({
               />
               <SignalSummary
                 label="Evidence · Quantitative calibration"
-                value={hasLegacyConformity
-                  ? "Rerun required"
-                  : verifiedConformities.length > 0
-                    ? countLabel(verifiedConformities.length, "numeric target")
+                value={conformities.length > 0
+                    ? countLabel(conformities.length, "numeric target")
                     : quantitativeTargetStatus === "not_applicable"
                       ? "No numeric target stated"
                       : quantitativeTargetStatus === "uncertain"
                         ? "Needs review"
                         : "Not evaluated"}
-                detail={hasLegacyConformity
-                  ? "unverified legacy result"
-                  : verifiedConformities.length > 0
+                detail={conformities.length > 0
                     ? countLabel(comparatorCount, "admitted comparator")
                     : undefined}
                 dot={quantitativeTargetStatus === "present" ? TARGET_ALIGNMENT_DOT : undefined}
@@ -2299,7 +2289,6 @@ function ConformityBlock({
     insufficient: "Insufficient basis",
     limited: "Limited basis",
     sufficient: "Broader verified basis",
-    legacy_unverified: "Legacy result · unverified",
   }[conformity.calibration_status];
   const targetRoleLabel = {
     threshold: "Threshold",
@@ -2311,18 +2300,6 @@ function ConformityBlock({
   );
   const consideredSources = conformity.source_dispositions.length;
   const otherExcluded = conformity.excluded_measurements;
-
-  if (conformity.calibration_status === "legacy_unverified") {
-    return (
-      <section className="rounded-lg border border-border/80 bg-card p-4">
-        <SectionLabel>Evidence · quantitative calibration</SectionLabel>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          This imported result predates exact-quote and claim-comparability validation.
-          Rerun Scout before using its numeric comparison for a decision.
-        </p>
-      </section>
-    );
-  }
 
   return (
     <section className="rounded-xl border border-border/80 bg-card p-5 sm:p-7">

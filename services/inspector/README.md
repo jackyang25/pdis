@@ -25,6 +25,11 @@ through `F` or `N/A`. The configured rubric owns the variable ledger; model
 omissions cannot shrink its denominator. Deterministic code calculates rollups,
 and a separate consistency pass reports only cross-section conflicts.
 
+Completeness is authoritative for presence. Substantive, partial, or placeholder
+content must cite an exact mapped section block; missing or non-applicable
+content does not invent lineage. Adherence and rigor are merged only after that
+presence decision is established.
+
 Section labels and dimension decisions use schema-bound model outputs. Large
 rubric sections are graded in bounded variable batches that retain the complete
 mapped section context. Deterministic validation checks rubric coverage and

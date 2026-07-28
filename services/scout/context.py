@@ -18,7 +18,6 @@ WHOLE_DOCUMENT_CONTEXT_CHARS = 500_000
 DOCUMENT_CHUNK_CHARS = 350_000
 
 _BLOCK_ID_RE = re.compile(r"\[block:([^\]]+)\]")
-_BLOCK_MARKER_RE = re.compile(r"^\[block:([^\]]+)\]$")
 _RENDERED_BLOCK_CONTENT_RE = re.compile(
     r"(?m)^\[block:([^\]]+)\][^\n]*\n(.*?)(?=\n\n\[block:|\Z)",
     re.DOTALL,
@@ -224,13 +223,7 @@ def quote_in_text(quote: str, text: str) -> bool:
 
 
 def validated_block_ids(raw: object, allowed: set[str]) -> list[str]:
-    """Return exact allowed IDs in model order, accepting one safe legacy form.
-
-    The canonical JSON form is the bare ID. Older prompts ambiguously requested
-    the rendered ``[block:<id>]`` marker, so an exactly wrapped marker is
-    canonicalized before membership validation. No prefix, suffix, substring,
-    case-folded, or fuzzy matching is permitted.
-    """
+    """Return exact allowed bare IDs in model order."""
     if not isinstance(raw, list):
         return []
     validated: list[str] = []
@@ -238,9 +231,6 @@ def validated_block_ids(raw: object, allowed: set[str]) -> list[str]:
         if not isinstance(item, str):
             continue
         value = item.strip()
-        marker = _BLOCK_MARKER_RE.fullmatch(value)
-        if marker:
-            value = marker.group(1).strip()
         if value in allowed and value not in validated:
             validated.append(value)
     return validated

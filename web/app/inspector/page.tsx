@@ -206,7 +206,7 @@ function InspectionResultView({
     >
       {!final && (
         <div className="border-b border-border bg-amber-500/[0.05] px-5 py-3 text-sm text-amber-800 dark:text-amber-300 sm:px-6">
-          This imported legacy result does not carry Inspector&apos;s final grading contract. It remains readable but cannot be re-exported as a current final result.
+          Inspector grading is incomplete. Complete the analysis before downloading a final result.
         </div>
       )}
       <Tabs defaultValue="overview" className="w-full">

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import unittest
 
 from services.scout.models import Attribute
@@ -17,9 +16,9 @@ class _Client:
         self.bindings = bindings
         self.calls = 0
 
-    def call(self, *_args, **_kwargs) -> str:
+    def call_structured(self, *_args, schema, **_kwargs) -> dict:
         self.calls += 1
-        return json.dumps(self.bindings)
+        return {next(iter(schema["properties"])): self.bindings}
 
 
 class _SequenceClient:
@@ -27,10 +26,10 @@ class _SequenceClient:
         self.responses = responses
         self.calls = 0
 
-    def call(self, *_args, **_kwargs) -> str:
+    def call_structured(self, *_args, schema, **_kwargs) -> dict:
         response = self.responses[min(self.calls, len(self.responses) - 1)]
         self.calls += 1
-        return json.dumps(response)
+        return {next(iter(schema["properties"])): response}
 
 
 class _StructuredSequenceClient:

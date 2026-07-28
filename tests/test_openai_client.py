@@ -27,18 +27,14 @@ class OpenAIClientConfigurationTests(unittest.TestCase):
         self.assertEqual(client.model, "reasoning-test")
 
     @patch("openai.OpenAI")
-    def test_default_and_explicit_model_precedence(self, _client: object) -> None:
+    def test_defaults_apply_when_tier_overrides_are_absent(self, _client: object) -> None:
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("OPENAI_MODEL", None)
             os.environ.pop("OPENAI_MODEL_FAST", None)
             os.environ.pop("OPENAI_MODEL_REASONING", None)
             default_client = OpenAIClient(api_key="test-key")
-        with patch.dict(os.environ, {"OPENAI_MODEL": "gpt-5-mini"}):
-            explicit_client = OpenAIClient(api_key="test-key", model="gpt-5.5")
 
         self.assertEqual(default_client.model_for("fast"), DEFAULT_FAST_MODEL)
         self.assertEqual(default_client.model_for("reasoning"), DEFAULT_REASONING_MODEL)
-        self.assertEqual(explicit_client.model, "gpt-5.5")
 
 
 if __name__ == "__main__":

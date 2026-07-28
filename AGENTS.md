@@ -17,6 +17,9 @@ web/ → api/ → services/ → shared/
   and result state; do not introduce hidden server sessions.
 - API composition owns provider clients, credentials, and connector injection.
   Browser requests cannot choose providers or model names.
+- Model stages use schema-bound structured outputs. Do not add plain-text JSON,
+  markdown-fence recovery, or provider-signature compatibility to runtime
+  services; saved-result compatibility belongs only at the import boundary.
 - OpenAI is the default provider through `shared/openai_client.py`. Anthropic is
   limited to Scout's schema-bound document-target and external-measurement
   mapping through `shared/anthropic_client.py`; OpenAI independently reviews
@@ -50,6 +53,10 @@ web/ → api/ → services/ → shared/
 
 - Completeness, adherence, and rigor are independent LLM judgments. Grades are
   `A`–`F` plus `N/A`.
+- Completeness owns whether rubric content is present, missing, or not
+  applicable. Present content must retain exact section-block lineage; absent
+  content must never require an invented citation. Adherence and rigor merge
+  only after that presence decision is known.
 - Variable → section → document rollups are deterministic. The authored rubric
   is the denominator; model omissions cannot improve a grade.
 - The document-wide pass reports only cross-section conflicts with exact block
@@ -161,8 +168,8 @@ web/ → api/ → services/ → shared/
   `web/lib/result-file.ts`, separating `analysis` from `source_documents`.
 - Review drafts are portable client state but are not downloadable final results.
   Final results are immutable: import, export, and Ask never recalculate them.
-- Backward compatibility lives only in the import normalizer. Runtime services
-  and UI consume the current contract without legacy branches.
+- Imports accept only the current final-result envelope. Runtime services and
+  UI consume one contract without migration or legacy branches.
 - Ask is stateless and read-only. It may inspect result JSON, parsed blocks,
   retained images, and URLs already cited by the result; it never runs a new
   evidence search.
@@ -184,8 +191,8 @@ Before finishing a cross-layer change:
    context. Use closed enums with explicit `unknown`/`other` where appropriate.
 4. Keep deterministic checks structural and calculations reproducible; do not
    encode semantic interpretation as string heuristics.
-5. Keep compatibility code at import boundaries and remove superseded runtime
-   paths.
+5. Remove superseded paths; do not add compatibility migrations without an
+   explicit product requirement.
 6. Run Python compilation/tests, all relevant web `test:*` scripts,
    `npm --prefix web run typecheck`, the production web build for UI changes,
    and `git diff --check`.

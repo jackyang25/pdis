@@ -29,7 +29,6 @@ class OpenAIClient:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str | None = None,
         *,
         fast_model: str | None = None,
         reasoning_model: str | None = None,
@@ -40,19 +39,15 @@ class OpenAIClient:
         if not api_key:
             raise ValueError("OPENAI_API_KEY is required")
         self.client = OpenAI(api_key=api_key)
-        legacy_model = model or os.environ.get("OPENAI_MODEL")
         self.models: dict[ModelTask, str] = {
             "fast": fast_model
             or os.environ.get("OPENAI_MODEL_FAST")
-            or legacy_model
             or DEFAULT_FAST_MODEL,
             "reasoning": reasoning_model
             or os.environ.get("OPENAI_MODEL_REASONING")
-            or legacy_model
             or DEFAULT_REASONING_MODEL,
         }
-        # Compatibility/readability for diagnostics that historically exposed
-        # one model.  Load-bearing reasoning is the safe default.
+        # Diagnostics expose the load-bearing tier used by Inspector metadata.
         self.model = self.models["reasoning"]
 
     def model_for(self, task: ModelTask) -> str:

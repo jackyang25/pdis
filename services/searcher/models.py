@@ -384,7 +384,7 @@ def merge_findings(existing: Finding, incoming: Finding) -> Finding:
     if incoming_is_evidence:
         existing.evidence_role = "evidence"
     # `source_lanes` is the authoritative multi-source provenance. Keep the
-    # first lane as the compatibility primary rather than embedding a brittle
+    # first lane as the canonical scalar value rather than embedding a brittle
     # global ranking that every new adapter would need to modify.
     existing.source = existing.source_lanes[0] if existing.source_lanes else existing.source
     if incoming_is_evidence and not existing_was_evidence:

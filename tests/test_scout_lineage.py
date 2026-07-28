@@ -46,7 +46,7 @@ from services.scout.stages.conformity import (
     _source_passage_batches,
     _validated_numeric_expression,
     _validated_source_decisions,
-    _validated_targets,
+    _validated_targets_with_issues,
     _validated_measurement_semantic_assessment,
     score_conformity as _score_conformity_ledgers,
 )
@@ -77,6 +77,17 @@ from services.searcher import (
 from services.searcher.stages.searcher import _parse_response_to_findings
 
 
+def structured_fixture(payload: object, schema: dict) -> dict:
+    required = list(schema.get("required", []))
+    if isinstance(payload, dict) and all(key in payload for key in required):
+        return payload
+    if len(required) == 1:
+        return {required[0]: payload}
+    if isinstance(payload, dict):
+        return payload
+    raise AssertionError("fixture does not match the structured response root")
+
+
 class StaticClient:
     def __init__(self, response: object):
         self.response = response
@@ -98,6 +109,24 @@ class StaticClient:
         return json.dumps(
             normalize_conformity_fixture(self.response, system_prompt, user_message)
         )
+
+    def call_structured(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int,
+        *,
+        schema: dict,
+        images: list[dict[str, str]] | None = None,
+        **_kwargs,
+    ) -> dict:
+        self.calls += 1
+        self.image_calls.append(images or [])
+        self.token_budgets.append(max_tokens)
+        payload = normalize_conformity_fixture(
+            self.response, system_prompt, user_message
+        )
+        return structured_fixture(payload, schema)
 
 
 class SequenceClient(StaticClient):
@@ -123,6 +152,26 @@ class SequenceClient(StaticClient):
                 self.responses.pop(0), system_prompt, user_message
             )
         )
+
+    def call_structured(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int,
+        *,
+        schema: dict,
+        images: list[dict[str, str]] | None = None,
+        **_kwargs,
+    ) -> dict:
+        self.calls += 1
+        self.image_calls.append(images or [])
+        self.token_budgets.append(max_tokens)
+        if not self.responses:
+            raise AssertionError("unexpected extra model call")
+        payload = normalize_conformity_fixture(
+            self.responses.pop(0), system_prompt, user_message
+        )
+        return structured_fixture(payload, schema)
 
 
 def complete_expression(expression: dict) -> dict:
@@ -425,11 +474,11 @@ def extract_quantitative_targets(
             for item in items
             if isinstance(item, dict)
         ]
-    return _validated_targets(
+    return _validated_targets_with_issues(
         items,
         doc_text=document,
         semantic_context=semantic_context or document,
-    )
+    ).targets
 
 
 def extract_quantitative_target_set(*args, **kwargs):
@@ -475,7 +524,7 @@ def score_conformity_ledgers(attribute, document, insights, client, **kwargs):
 
 
 def score_conformity(*args, **kwargs):
-    """Legacy single-ledger convenience for tests not exercising multi-target output."""
+    """Return the first score for a single-target test scenario."""
     ledgers = score_conformity_ledgers(*args, **kwargs)
     return ledgers[0] if ledgers else None
 
@@ -555,7 +604,7 @@ class DocumentContextValidationTests(unittest.TestCase):
                 "status": "match",
                 "document_indication": "malaria",
                 "reason": "The document develops a malaria vaccine.",
-                "block_ids": ["[block:document/b-0001]"],
+                "block_ids": ["document/b-0001"],
             }
         )
 
@@ -584,7 +633,7 @@ class DocumentContextValidationTests(unittest.TestCase):
                 ],
                 allowed,
             ),
-            ["document name/b-0001", "document name/b-0002"],
+            ["document name/b-0001"],
         )
 
     def test_uncited_mismatch_cannot_block_a_run(self) -> None:
@@ -1868,10 +1917,10 @@ class ReasoningLineageTests(unittest.TestCase):
         )
 
         class NoMeasurementClient:
-            def call(self, system_prompt, user_message, max_tokens, *, images=None):
+            def call_structured(self, system_prompt, user_message, max_tokens, **_kwargs):
                 source = re.search(r"\[source:(sp-[a-f0-9]+)\]", user_message)
                 assert source is not None
-                return json.dumps({"sources": [{
+                return {"sources": [{
                     "source_id": source.group(1),
                     "status": "no_relevant_measurement",
                     "reason": "Only enrollment and follow-up duration are reported.",
@@ -1880,7 +1929,7 @@ class ReasoningLineageTests(unittest.TestCase):
                         "reason": "No relevant measurement was identified.",
                     },
                     "measurements": [],
-                }]})
+                }]}
 
         result = _score_conformity_ledgers(
             attribute,
@@ -3338,33 +3387,44 @@ class ReasoningLineageTests(unittest.TestCase):
         class WrongSpanClient(StaticClient):
             def call(self, system_prompt, user_message, max_tokens, *, images=None):
                 self.calls += 1
-                if "complete numeric-statement ledger" in system_prompt.lower():
-                    return json.dumps(normalize_conformity_fixture(
+                return json.dumps(
+                    normalize_conformity_fixture(
                         target_response, system_prompt, user_message
-                    ))
+                    )
+                )
+
+            def call_structured(
+                self, system_prompt, user_message, max_tokens, *, schema, **_kwargs
+            ):
+                self.calls += 1
+                if "complete numeric-statement ledger" in system_prompt.lower():
+                    return structured_fixture(
+                        normalize_conformity_fixture(
+                            target_response, system_prompt, user_message
+                        ),
+                        schema,
+                    )
                 source = re.search(r"\[source:(sp-[a-f0-9]+)\]", user_message)
                 assert source is not None
-                return json.dumps(
-                    {
-                        "sources": [
-                            {
-                                "source_id": source.group(1),
-                                "status": "measurements_found",
-                                "reason": "Claims a measurement.",
-                                "evidence_unit_partition": {
-                                    "status": "single_unit",
-                                    "reason": "The source is one aggregate comparison unit.",
-                                },
-                                "measurements": [{
-                                    "quote": "The reported efficacy was 82 percent in the target population.",
-                                    "expression": {"kind": "point_estimate", "value": 82, "unit": "%"},
-                                    "semantic_status": "comparable",
-                                    "semantic_reason": "Claims a match but omits the typed profile.",
-                                }],
-                            }
-                        ]
-                    }
-                )
+                return {
+                    "sources": [
+                        {
+                            "source_id": source.group(1),
+                            "status": "measurements_found",
+                            "reason": "Claims a measurement.",
+                            "evidence_unit_partition": {
+                                "status": "single_unit",
+                                "reason": "The source is one aggregate comparison unit.",
+                            },
+                            "measurements": [{
+                                "quote": "The reported efficacy was 82 percent in the target population.",
+                                "expression": {"kind": "point_estimate", "value": 82, "unit": "%"},
+                                "semantic_status": "comparable",
+                                "semantic_reason": "Claims a match but omits the typed profile.",
+                            }],
+                        }
+                    ]
+                }
 
         ledgers = score_conformity_ledgers(
             self.attribute,
@@ -3396,26 +3456,24 @@ class ReasoningLineageTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.calls = 0
 
-            def call(self, system_prompt, user_message, max_tokens, *, images=None):
+            def call_structured(self, system_prompt, user_message, max_tokens, **_kwargs):
                 self.calls += 1
                 source = re.search(r"\[source:(sp-[a-f0-9]+)\]", user_message)
                 assert source is not None
-                return json.dumps(
-                    {
-                        "sources": [
-                            {
-                                "source_id": source.group(1),
-                                "status": "measurements_found",
-                                "reason": "Incomplete fixture decision.",
-                                "evidence_unit_partition": {
-                                    "status": "single_unit",
-                                    "reason": "The source is one aggregate comparison unit.",
-                                },
-                                "measurements": [],
-                            }
-                        ]
-                    }
-                )
+                return {
+                    "sources": [
+                        {
+                            "source_id": source.group(1),
+                            "status": "measurements_found",
+                            "reason": "Incomplete fixture decision.",
+                            "evidence_unit_partition": {
+                                "status": "single_unit",
+                                "reason": "The source is one aggregate comparison unit.",
+                            },
+                            "measurements": [],
+                        }
+                    ]
+                }
 
         client = MissingRelevanceClient()
         ledgers = _score_conformity_ledgers(

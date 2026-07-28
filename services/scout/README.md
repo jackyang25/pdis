@@ -88,5 +88,6 @@ success.
 Product framing, source keys, and query budgets live in `configs/`; fixed TPP
 definitions and evidence domains live in `shared/attributes.yaml`. Scout uses
 Chunker and Searcher only through their public packages. Model contracts are
-centralized in `ai_contracts.py`, while source grammar, credentials, rate limits,
-and normalization remain in Searcher adapters.
+centralized in `ai_contracts.py` and all model calls use schema-bound structured
+output. Source grammar, credentials, rate limits, and normalization remain in
+Searcher adapters.

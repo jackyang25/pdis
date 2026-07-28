@@ -664,7 +664,7 @@ def _age_months(published) -> float | None:
 
 def prepare_quantitative_ledger_batches(
     blocks: list[ContentBlock],
-    attributes: list[Attribute] | None = None,
+    attributes: list[Attribute],
     *,
     max_units: int = LEDGER_BATCH_MAX_UNITS,
     max_chars: int = LEDGER_BATCH_MAX_CHARS,
@@ -675,37 +675,31 @@ def prepare_quantitative_ledger_batches(
     reference it. Candidate fields express upstream relevance only; the model
     creates typed field links without assigning ownership to any field.
 
-    ``attributes=None`` remains a narrow compatibility path for focused legacy
-    tests; production always supplies the resolved canonical attributes.
+    Only blocks already cited by resolved canonical fields enter the ledger.
     """
     block_by_id = {block.id: block for block in blocks}
     units: list[QuantitativeStatementUnit] = []
-    if attributes is None:
-        for block in blocks:
-            for unit in _statement_units(block):
-                units.append(unit)
-    else:
-        candidates_by_block: dict[str, list[str]] = {}
-        for attribute in attributes:
-            if not attribute.target_resolved or not attribute.document_target:
-                continue
-            for span in attribute.document_spans:
-                for block_id in span.block_ids:
-                    if block_id in block_by_id:
-                        candidates_by_block.setdefault(block_id, []).append(attribute.name)
-        for block in blocks:
-            candidate_refs = tuple(dict.fromkeys(candidates_by_block.get(block.id, [])))
-            if not candidate_refs:
-                continue
-            quote = block.content or "[visual content]"
-            units.append(
-                QuantitativeStatementUnit(
-                    id="qlu-" + hashlib.sha256(block.id.encode("utf-8")).hexdigest()[:16],
-                    block_id=block.id,
-                    quote=quote,
-                    candidate_attribute_refs=candidate_refs,
-                )
+    candidates_by_block: dict[str, list[str]] = {}
+    for attribute in attributes:
+        if not attribute.target_resolved or not attribute.document_target:
+            continue
+        for span in attribute.document_spans:
+            for block_id in span.block_ids:
+                if block_id in block_by_id:
+                    candidates_by_block.setdefault(block_id, []).append(attribute.name)
+    for block in blocks:
+        candidate_refs = tuple(dict.fromkeys(candidates_by_block.get(block.id, [])))
+        if not candidate_refs:
+            continue
+        quote = block.content or "[visual content]"
+        units.append(
+            QuantitativeStatementUnit(
+                id="qlu-" + hashlib.sha256(block.id.encode("utf-8")).hexdigest()[:16],
+                block_id=block.id,
+                quote=quote,
+                candidate_attribute_refs=candidate_refs,
             )
+        )
 
     batches: list[QuantitativeLedgerBatch] = []
     batch_blocks: list[ContentBlock] = []
@@ -1506,42 +1500,6 @@ def finalize_quantitative_document_review(
     ), ledger
 
 
-def _statement_units(block: ContentBlock) -> list[QuantitativeStatementUnit]:
-    units: list[QuantitativeStatementUnit] = []
-    ordinal = 0
-    for raw_line in (block.content or "").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        # Semicolons commonly separate independently qualified numeric claims
-        # inside one table cell.  Splitting only at this explicit delimiter
-        # avoids language-specific sentence heuristics.
-        pieces = [piece.strip() for piece in re.split(r"\s*;\s*", line) if piece.strip()]
-        for piece in pieces:
-            material = f"{block.id}\n{ordinal}\n{piece}"
-            unit_id = "qlu-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
-            units.append(
-                QuantitativeStatementUnit(
-                    id=unit_id,
-                    block_id=block.id,
-                    quote=piece,
-                    candidate_attribute_refs=(),
-                )
-            )
-            ordinal += 1
-    if not units and block.image:
-        material = f"{block.id}\nvisual"
-        units.append(
-            QuantitativeStatementUnit(
-                id="qlu-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16],
-                block_id=block.id,
-                quote="[visual content]",
-                candidate_attribute_refs=(),
-            )
-        )
-    return units
-
-
 def _uncertain_unit_review(
     unit: QuantitativeStatementUnit,
     reason: str,
@@ -1970,24 +1928,6 @@ def _document_ledger_user_message(batch: QuantitativeLedgerBatch) -> str:
     )
 
 
-def _validated_targets(
-    items: object,
-    *,
-    doc_text: str,
-    semantic_context: str,
-    allowed_target_block_ids: set[str] | None = None,
-    canonical_semantic_provenance: bool = False,
-) -> list[QuantitativeTarget]:
-    """Compatibility wrapper for callers that only need admitted targets."""
-    return _validated_targets_with_issues(
-        items,
-        doc_text=doc_text,
-        semantic_context=semantic_context,
-        allowed_target_block_ids=allowed_target_block_ids,
-        canonical_semantic_provenance=canonical_semantic_provenance,
-    ).targets
-
-
 def _validated_targets_with_issues(
     items: object,
     *,
@@ -2154,7 +2094,7 @@ def _extract_target_measurements(
     intervention_class: str,
     max_tokens: int,
 ) -> tuple[list[Measurement], list[SourcePassageDisposition]]:
-    """Sequential compatibility entry point used by focused callers/tests."""
+    """Map all source passages for one target in deterministic batch order."""
     passages = _source_passages(insights)
     measurements: list[Measurement] = []
     dispositions: list[SourcePassageDisposition] = []

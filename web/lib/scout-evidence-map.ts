@@ -169,7 +169,7 @@ function stableHash(value: string): string {
 function insightKey(match: Match): string {
   return (
     match.insight.id ||
-    `legacy-${stableHash(
+    `derived-${stableHash(
       `${match.insight.attribute_ref ?? ""}|${match.insight.statement}|${(match.insight.supporting_findings ?? [])
         .map((finding) => finding.url)
         .sort()
@@ -374,11 +374,9 @@ export function buildScoutEvidenceMap(
   if (conformity) {
     signals.push({
       label: "Quantitative calibration",
-      value: conformity.calibration_status === "legacy_unverified"
-        ? "Rerun required"
-        : conformity.benchmark_count > 0
-          ? `${conformity.target_meeting_count}/${conformity.benchmark_count} meet target`
-          : "No valid cohort",
+      value: conformity.benchmark_count > 0
+        ? `${conformity.target_meeting_count}/${conformity.benchmark_count} meet target`
+        : "No valid cohort",
       tone: "neutral",
     });
   }

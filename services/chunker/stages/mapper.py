@@ -27,7 +27,7 @@ def label_blocks(
     Args:
         blocks: List of ContentBlock objects from the parser
         config: Document-type config with taxonomy and rules
-        llm_client: Object with a call(system_prompt, user_message, max_tokens) method
+        llm_client: Object implementing the schema-bound ``call_structured`` contract.
         max_tokens: Maximum tokens allowed in each mapper response
 
     Returns:

@@ -126,23 +126,7 @@ def find_config(org: str, source_type: str, intervention_class: str) -> "ScoutTy
 
 
 class LLMClientProtocol(Protocol):
-    """Injected model capability required by Scout.
-
-    Production mappings use ``call_structured``. ``call`` remains in the
-    protocol for lightweight historical test doubles at the centralized test
-    compatibility boundary in :mod:`services.scout.ai`.
-    """
-
-    def call(
-        self,
-        system_prompt: str,
-        user_message: str,
-        max_tokens: int,
-        *,
-        images: list[dict[str, str]] | None = None,
-        task: Literal["fast", "reasoning"] = "reasoning",
-    ) -> str:
-        ...
+    """Schema-bound model capability required by Scout."""
 
     def call_structured(
         self,

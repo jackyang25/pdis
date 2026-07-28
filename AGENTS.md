@@ -97,6 +97,12 @@ web/ → api/ → services/ → shared/
   fields through typed `defines | constrains | context_for` relations. Only
   defining and constraining links drive retrieval and calibration; contextual
   links remain traceable without creating statistics.
+- A target's semantic profile records what the document says. Its separate
+  direct-comparator contract records, for every semantic axis, whether external
+  evidence must be exact, may vary within a compatible scope, is unconstrained,
+  or remains unknown. Query generation, measurement mapping, review, and
+  admission consume that one contract; they must not infer exact product
+  identity from a document candidate name.
 - Before review, document-wide reconciliation may group repeated or paraphrased
   representations of the same atomic claim. It may only partition existing,
   calculation-compatible target IDs; merge their declared links and exact

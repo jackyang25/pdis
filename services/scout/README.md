@@ -51,14 +51,21 @@ many fields reference it. Every atomic target is document-owned and links to
 product fields through typed `defines`, `constrains`, or `context_for`
 relations. Only defining and constraining links drive retrieval and
 calibration; contextual links remain visible without creating statistics.
+Each target separates the document's semantic profile from its direct-comparator
+contract. The latter declares each semantic axis as exact, compatible within an
+explicit scope, unconstrained, or unknown. Retrieval, source mapping, review,
+and admission all consume that same policy, so a named document candidate does
+not silently become an exact-product requirement.
 Before review, a document-wide reconciliation pass may group repeated or
 paraphrased representations of the same atomic claim. It can only partition
 existing, calculation-compatible target IDs; code combines their field links
 and exact provenance without rewriting meaning. Anthropic then maps source
-passages into typed measurement candidates. OpenAI
-independently reviews both proposal types without changing their mapped data.
-Code validates structural provenance, declared-unit compatibility,
-evidence-unit identity, deduplication, and arithmetic.
+passages into typed measurement candidates and classifies each source record as
+one comparison unit, explicitly disjoint arms or cohorts, or overlapping and
+uncertain. OpenAI independently reviews document-target proposals and all
+measurement candidates from the same source record together without changing
+their mapped data. Code validates structural provenance, declared-unit
+compatibility, evidence-unit identity, deduplication, and arithmetic.
 
 Only explicitly admitted, compatible, evidence-unit-deduplicated scalars enter
 descriptive statistics. Unresolved records remain in the portable audit trail;

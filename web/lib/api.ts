@@ -389,8 +389,12 @@ export type QuantitativeTarget = {
     relation: "defines" | "constrains" | "context_for";
     reason: string;
   }>;
-  comparison_dimensions: Array<keyof QuantitativeSemanticProfile>;
   semantic_profile: QuantitativeSemanticProfile;
+  comparison_contract: Record<keyof QuantitativeSemanticProfile, {
+    mode: "exact" | "compatible" | "unconstrained" | "unknown";
+    scope: string;
+    reason: string;
+  }>;
   semantic_provenance: Record<keyof QuantitativeSemanticProfile, Array<{
     quote: string;
     block_ids: string[];

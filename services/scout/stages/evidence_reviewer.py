@@ -39,9 +39,10 @@ def prefill_evidence_review(
 ) -> list[ConformityScore]:
     """Recommend admission decisions without mutating calculation inputs.
 
-    The independent reviewer may select only an existing candidate ID, reject
-    one complete evidence unit, or flag it. Human confirmation remains the
-    boundary that changes ``admission_status`` and rebuilds statistics.
+    The independent reviewer may decide only existing candidates from one
+    source record. It cannot change their mapped facts or provenance. Human
+    confirmation remains the boundary that changes ``admission_status`` and
+    rebuilds statistics.
     """
     groups = _review_groups(scores, targets)
     if not groups:
@@ -50,18 +51,30 @@ def prefill_evidence_review(
         return _apply_recommendations(scores, groups, {})
 
     prompt = (
-        "You independently review existing quantitative evidence mappings. You cannot "
-        "create, rewrite, merge, or reassign targets, measurements, semantic dimensions, "
-        "evidence units, citations, or provenance. For each evidence unit, decide admit "
-        "only when one supplied candidate is a source-owned atomic scalar that is directly "
-        "comparable with every required document-target dimension. Decide reject when no "
-        "candidate in the unit is a valid direct comparator. Decide flag when the retained "
-        "quote or mapping is genuinely ambiguous. Whether the numeric value passes the "
-        "target is never an admission criterion. When alternatives exist, admit at most one "
-        "candidate. Review every group ID exactly once and give one short reason. Return only "
-        "schema JSON."
+        "ROLE\n"
+        "You independently review existing quantitative evidence candidates from one source "
+        "record against one document target. You recommend decisions; you cannot create, "
+        "rewrite, merge, or reassign targets, measurements, semantic mappings, evidence units, "
+        "citations, or provenance.\n\n"
+        "DECISION RULES\n"
+        "For every candidate, return admit, reject, or flag. Admit only a source-owned atomic "
+        "scalar directly comparable with every required target dimension. Reject a candidate "
+        "that is not a direct comparator or is a redundant/overlapping observation already "
+        "represented by another admitted candidate from this record. Flag genuine ambiguity. "
+        "Whether the value meets the target is never an admission criterion. Admit at most one "
+        "alternative estimate from the same mapped evidence unit. Across different proposed "
+        "units, admit multiple candidates only when the exact source text establishes mutually "
+        "exclusive, non-overlapping arms or cohorts. A parent population and its subgroup overlap; "
+        "retain only the most target-representative candidate. Treat mapper-supplied unit labels as "
+        "proposals to verify, not proof of independence. Apply the target's direct-comparator "
+        "contract as written: exact requires the same entity-level meaning, while compatible "
+        "allows different named entities inside the stated scope. Do not silently narrow a "
+        "compatible class to exact product identity.\n\n"
+        "OUTPUT\n"
+        "Review every group ID and every candidate ID exactly once. Give each decision one short, "
+        "source-specific reason. Return only the schema-bound response."
     )
-    by_group: dict[str, tuple[str, str, str]] = {}
+    by_candidate: dict[str, tuple[str, str]] = {}
     batches = [
         groups[offset : offset + MAX_GROUPS_PER_REVIEW]
         for offset in range(0, len(groups), MAX_GROUPS_PER_REVIEW)
@@ -81,7 +94,7 @@ def prefill_evidence_review(
                     candidate_ids,
                 ),
                 prompt,
-                "Review these existing evidence units:\n\n"
+                "SOURCE-RECORD CANDIDATE GROUPS TO REVIEW\n"
                 + "\n\n".join(_render_group(group) for group in batch),
                 max_tokens=MAX_TOKENS,
                 task="reasoning",
@@ -105,26 +118,45 @@ def prefill_evidence_review(
             if not isinstance(item, dict):
                 continue
             group_id = str(item.get("group_id", "")).strip()
-            decision = str(item.get("decision", "")).strip().lower()
-            selected = str(item.get("selected_candidate_id", "")).strip()
-            reason = " ".join(str(item.get("reason", "")).split())
             group = allowed.get(group_id)
             candidate_ids = {
                 measurement.candidate_id for measurement in group.measurements
             } if group else set()
-            structurally_valid = (
-                group is not None
-                and group_id not in by_group
-                and decision in {"admit", "reject", "flag"}
-                and bool(reason)
-                and (
-                    (decision == "admit" and selected in candidate_ids)
-                    or (decision != "admit" and not selected)
-                )
-            )
-            if structurally_valid:
-                by_group[group_id] = (decision, selected, reason)
-    return _apply_recommendations(scores, groups, by_group)
+            decisions = item.get("decisions")
+            if group is None or not isinstance(decisions, list):
+                continue
+            parsed: dict[str, tuple[str, str]] = {}
+            for decision_item in decisions:
+                if not isinstance(decision_item, dict):
+                    continue
+                candidate_id = str(decision_item.get("candidate_id", "")).strip()
+                decision = str(decision_item.get("decision", "")).strip().lower()
+                reason = " ".join(str(decision_item.get("reason", "")).split())
+                if (
+                    candidate_id in candidate_ids
+                    and candidate_id not in parsed
+                    and decision in {"admit", "reject", "flag"}
+                    and reason
+                ):
+                    parsed[candidate_id] = (decision, reason)
+            if set(parsed) != candidate_ids:
+                continue
+            measurements_by_id = {
+                measurement.candidate_id: measurement
+                for measurement in group.measurements
+            }
+            admitted_units = [
+                measurements_by_id[candidate_id].evidence_unit_id
+                for candidate_id, (decision, _reason) in parsed.items()
+                if decision == "admit"
+            ]
+            if len(admitted_units) != len(set(admitted_units)):
+                # One evidence unit may contribute only one alternative estimate.
+                # Do not choose between semantically competing AI recommendations.
+                continue
+            for candidate_id, recommendation in parsed.items():
+                by_candidate.setdefault(candidate_id, recommendation)
+    return _apply_recommendations(scores, groups, by_candidate)
 
 
 def _review_groups(
@@ -137,17 +169,17 @@ def _review_groups(
         target = targets_by_id.get(score.target_id)
         if target is None:
             continue
-        by_unit: dict[str, list[Measurement]] = {}
+        by_source_record: dict[str, list[Measurement]] = {}
         for measurement in [*score.measurements, *score.excluded_measurements]:
             if (
                 measurement.evidence_mode != "prose"
                 or measurement.admission_status != "needs_review"
             ):
                 continue
-            unit_id = measurement.evidence_unit_id or measurement.source_record_id
-            by_unit.setdefault(unit_id, []).append(measurement)
-        for unit_id, measurements in by_unit.items():
-            material = f"{score.target_id}\n{unit_id}"
+            source_record_id = measurement.source_record_id or measurement.url
+            by_source_record.setdefault(source_record_id, []).append(measurement)
+        for source_record_id, measurements in by_source_record.items():
+            material = f"{score.target_id}\n{source_record_id}"
             groups.append(_EvidenceReviewGroup(
                 id="qer-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16],
                 score_index=score_index,
@@ -161,12 +193,19 @@ def _render_group(group: _EvidenceReviewGroup) -> str:
     target = group.target
     target_dimensions = {
         name: {
-            "state": slot.state,
-            "value": slot.value,
-            "other": slot.other,
+            "target": {
+                "state": target.semantic_profile[name].state,
+                "value": target.semantic_profile[name].value,
+                "other": target.semantic_profile[name].other,
+            },
+            "comparison": {
+                "mode": rule.mode,
+                "scope": rule.scope,
+                "reason": rule.reason,
+            },
         }
-        for name, slot in target.semantic_profile.items()
-        if name in target.comparison_dimensions
+        for name, rule in target.comparison_contract.items()
+        if rule.mode != "unconstrained"
     }
     candidates: list[str] = []
     for measurement in group.measurements:
@@ -187,6 +226,22 @@ def _render_group(group: _EvidenceReviewGroup) -> str:
         }
         candidates.append("\n".join((
             f"[candidate:{measurement.candidate_id}]",
+            f"Source record: {measurement.source_record_id}",
+            "Proposed evidence unit: " + json.dumps({
+                "id": measurement.evidence_unit_id,
+                "status": measurement.evidence_unit.status,
+                "group": {
+                    "state": measurement.evidence_unit.group.state,
+                    "value": measurement.evidence_unit.group.value,
+                    "other": measurement.evidence_unit.group.other,
+                },
+                "cohort": {
+                    "state": measurement.evidence_unit.cohort.state,
+                    "value": measurement.evidence_unit.cohort.value,
+                    "other": measurement.evidence_unit.cohort.other,
+                },
+                "reason": measurement.evidence_unit.reason,
+            }, ensure_ascii=False, sort_keys=True),
             f"Exact source quote: {measurement.source_quote}",
             "Expression: " + json.dumps(
                 {
@@ -227,26 +282,18 @@ def _render_group(group: _EvidenceReviewGroup) -> str:
 def _apply_recommendations(
     scores: list[ConformityScore],
     groups: list[_EvidenceReviewGroup],
-    recommendations: dict[str, tuple[str, str, str]],
+    recommendations: dict[str, tuple[str, str]],
 ) -> list[ConformityScore]:
     updates: dict[int, dict[str, Measurement]] = {}
     for group in groups:
-        decision, selected, reason = recommendations.get(
-            group.id,
-            (
-                "flag",
-                "",
-                "Independent AI review did not return one complete decision; review manually.",
-            ),
-        )
         score_updates = updates.setdefault(group.score_index, {})
         for measurement in group.measurements:
-            recommendation = (
-                "admit"
-                if decision == "admit" and measurement.candidate_id == selected
-                else "reject"
-                if decision in {"admit", "reject"}
-                else "flag"
+            recommendation, reason = recommendations.get(
+                measurement.candidate_id,
+                (
+                    "flag",
+                    "Independent AI review did not return one complete source-record decision; review manually.",
+                ),
             )
             score_updates[measurement.candidate_id] = replace(
                 measurement,

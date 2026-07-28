@@ -1,7 +1,8 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 34 as const;
+const RESULT_VERSION = 35 as const;
+// Version 35 separates document semantics from the direct-comparator contract.
 // Version 34 makes the document-wide quantitative ledger authoritative.
 // Targets link to product fields without being owned or duplicated by them.
 // Version 33 assigned each document numeric assertion one primary field and
@@ -17,7 +18,8 @@ const SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION = 24 as const;
 const SCOUT_CLAIM_CONTRACT_SINCE_VERSION = 26 as const;
 const SCOUT_ADMISSION_CONTRACT_SINCE_VERSION = 27 as const;
 const SCOUT_EVIDENCE_UNIT_CONTRACT_SINCE_VERSION = 29 as const;
-type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | typeof RESULT_VERSION;
+const SCOUT_COMPARISON_CONTRACT_SINCE_VERSION = 35 as const;
+type ResultVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | typeof RESULT_VERSION;
 
 type ResultType = "aligner" | "inspector" | "scout";
 type StoredResultType = ResultType | "reviewer";
@@ -84,9 +86,44 @@ function hasCompleteEvidenceUnitContract(result: ScoutResponse): boolean {
   });
 }
 
+function hasCompleteComparisonContract(value: unknown): boolean {
+  const result = value as { quantitative_ledger?: { targets?: unknown } } | null;
+  const targets = result?.quantitative_ledger?.targets;
+  if (!Array.isArray(targets)) return false;
+  const fields = semanticFields();
+  return targets.every((target) => {
+    if (!target || typeof target !== "object") return false;
+    const contract = (target as Record<string, unknown>).comparison_contract;
+    if (!contract || typeof contract !== "object" || Array.isArray(contract)) return false;
+    const rules = contract as Record<string, unknown>;
+    if (
+      Object.keys(rules).length !== fields.length
+      || fields.some((field) => !(field in rules))
+    ) return false;
+    return fields.every((field) => {
+      const rule = rules[field] as Record<string, unknown> | null;
+      if (!rule || typeof rule !== "object" || Array.isArray(rule)) return false;
+      const mode = rule.mode;
+      const scope = typeof rule.scope === "string" ? rule.scope.trim() : "";
+      const reason = typeof rule.reason === "string" ? rule.reason.trim() : "";
+      if (!["exact", "compatible", "unconstrained", "unknown"].includes(String(mode))) {
+        return false;
+      }
+      if (field === "measure" && mode !== "exact") return false;
+      if ((mode === "exact" || mode === "compatible") && !scope) return false;
+      if (mode === "unconstrained" && scope) return false;
+      return mode !== "unknown" || Boolean(reason);
+    });
+  });
+}
+
 /** Build a portable artifact without coupling the analysis tree to document text. */
 export function packScoutResult(result: ScoutResponse): ResultFile<"scout", ScoutAnalysis> {
-  if (!isScoutResultFinal(result) || !hasCompleteEvidenceUnitContract(result)) {
+  if (
+    !isScoutResultFinal(result)
+    || !hasCompleteComparisonContract(result)
+    || !hasCompleteEvidenceUnitContract(result)
+  ) {
     throw new Error("Scout review is incomplete or its quantitative evidence contract is invalid");
   }
   const { blocks, ...analysis } = result;
@@ -156,6 +193,12 @@ export function packAlignerResult(
 export function unpackScoutResult(value: unknown): ScoutResponse {
   if (isResultFile(value)) {
     assertResultType(value, "scout");
+    if (
+      value.version === RESULT_VERSION
+      && !hasCompleteComparisonContract(value.analysis)
+    ) {
+      throw new Error("final Scout result contains an incomplete comparison contract");
+    }
     const result = normalizeScoutResult(
       value.analysis,
       flattenDocuments(value.source_documents),
@@ -163,6 +206,7 @@ export function unpackScoutResult(value: unknown): ScoutResponse {
     );
     if (value.version === RESULT_VERSION && (
       !isScoutResultFinal(result)
+      || !hasCompleteComparisonContract(result)
       || !hasCompleteEvidenceUnitContract(result)
     )) {
       throw new Error("final Scout result contains an incomplete quantitative evidence contract");
@@ -271,7 +315,7 @@ function isResultFile(value: unknown): value is ResultFile<StoredResultType, unk
   const candidate = value as Partial<ResultFile<StoredResultType, unknown>>;
   return (
     candidate.schema === RESULT_SCHEMA &&
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, RESULT_VERSION] as const).includes(
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, RESULT_VERSION] as const).includes(
       candidate.version as ResultVersion,
     ) &&
     (candidate.version !== RESULT_VERSION || candidate.state === "final") &&
@@ -415,6 +459,8 @@ function normalizeScoutResult(
         index,
         sourceVersion == null
           || sourceVersion < SCOUT_QUANTITATIVE_CONTRACT_SINCE_VERSION,
+        sourceVersion == null
+          || sourceVersion < SCOUT_COMPARISON_CONTRACT_SINCE_VERSION,
         sourceVersion == null
           || sourceVersion < SCOUT_ADMISSION_CONTRACT_SINCE_VERSION,
         sourceVersion == null
@@ -624,6 +670,10 @@ function normalizeQuantitativeTarget(
             reason: "Recovered from a legacy related-field reference.",
           })),
       ];
+  const semanticProfile = normalizeSemanticProfile(
+    target.semantic_profile,
+    String(target.label ?? primary ?? "numeric measure"),
+  );
   return {
     ...currentTarget,
     expression: target.expression ?? {
@@ -635,13 +685,12 @@ function normalizeQuantitativeTarget(
       unit: target.unit ?? "",
     },
     field_links: fieldLinks,
-    semantic_profile: normalizeSemanticProfile(
-      target.semantic_profile,
-      String(target.label ?? primary ?? "numeric measure"),
+    semantic_profile: semanticProfile,
+    comparison_contract: normalizeComparisonContract(
+      target.comparison_contract,
+      semanticProfile,
+      target.comparison_dimensions,
     ),
-    comparison_dimensions: Array.isArray(target.comparison_dimensions)
-      ? target.comparison_dimensions
-      : ["measure"],
     semantic_provenance: normalizeSemanticProvenance(target.semantic_provenance),
     provenance_spans: Array.isArray(target.provenance_spans)
       ? target.provenance_spans
@@ -677,7 +726,8 @@ function deduplicateTargets(
 function normalizeConformity(
   score: Record<string, any>,
   index: number,
-  contractPredatesCurrent: boolean,
+  predatesQuantitativeContract: boolean,
+  predatesComparisonContract: boolean,
   predatesAdmissionContract: boolean,
   predatesEvidenceUnitContract: boolean,
 ): Record<string, unknown> {
@@ -697,7 +747,8 @@ function normalizeConformity(
   const normalizedExcluded: Record<string, any>[] = rawExcludedMeasurements.map(
     (measurement: Record<string, any>) => normalizeMeasurement(measurement, score.unit),
   );
-  const requiresAdmissionMigration = predatesAdmissionContract && !contractPredatesCurrent;
+  const requiresAdmissionMigration = predatesAdmissionContract
+    && !predatesQuantitativeContract;
   const measurements = requiresAdmissionMigration ? [] : normalizedIncluded;
   const excludedMeasurements = requiresAdmissionMigration
     ? [...normalizedIncluded, ...normalizedExcluded].map((measurement) => ({
@@ -731,7 +782,8 @@ function normalizeConformity(
     return value === target;
   }).length;
   const targetMeetingRate = count > 0 ? targetMeetingCount / count : 0;
-  const legacyUnverified = contractPredatesCurrent
+  const legacyUnverified = predatesQuantitativeContract
+    || predatesComparisonContract
     || predatesEvidenceUnitContract
     || !score.target_id
     || !score.target_quote || [
@@ -946,6 +998,47 @@ function normalizeSemanticProfile(
   measure: string,
 ): Record<string, unknown> {
   return { ...legacySemanticProfile(measure), ...(profile ?? {}) };
+}
+
+function normalizeComparisonContract(
+  value: unknown,
+  semanticProfile: Record<string, any>,
+  legacyDimensions: unknown,
+): Record<string, { mode: "exact" | "compatible" | "unconstrained" | "unknown"; scope: string; reason: string }> {
+  const raw = value && typeof value === "object" ? value as Record<string, any> : {};
+  const legacy = new Set(Array.isArray(legacyDimensions) ? legacyDimensions.map(String) : ["measure"]);
+  return Object.fromEntries(semanticFields().map((field) => {
+    const rule = raw[field];
+    const mode = rule?.mode;
+    if (["exact", "compatible", "unconstrained", "unknown"].includes(mode)) {
+      return [field, {
+        mode,
+        scope: mode === "unconstrained" ? "" : String(rule.scope ?? ""),
+        reason: String(rule.reason ?? ""),
+      }];
+    }
+    const slot = semanticProfile[field] ?? {};
+    const scope = String(slot.value || slot.other || "");
+    if (!legacy.has(field)) {
+      return [field, {
+        mode: "unconstrained" as const,
+        scope: "",
+        reason: "Imported target did not constrain this dimension.",
+      }];
+    }
+    if (field === "measure") {
+      return [field, {
+        mode: "exact" as const,
+        scope: scope || "numeric measure",
+        reason: "Recovered from the imported target's required measure.",
+      }];
+    }
+    return [field, {
+      mode: "compatible" as const,
+      scope: scope || field.replaceAll("_", " "),
+      reason: "Recovered from a legacy required comparison dimension.",
+    }];
+  }));
 }
 
 function semanticFields(): string[] {

@@ -7,12 +7,25 @@ from unittest.mock import patch
 
 from services.scout.models import (
     Attribute,
+    ComparisonRule,
     NumericExpression,
+    QUANTITATIVE_SEMANTIC_FIELDS,
     QuantitativeFieldLink,
     QuantitativeTarget,
     SemanticSlot,
 )
 from services.scout.stages import conformity
+
+
+def _comparison_contract(measure: str) -> dict[str, ComparisonRule]:
+    return {
+        name: ComparisonRule(
+            mode="exact" if name == "measure" else "unconstrained",
+            scope=measure if name == "measure" else "",
+            reason="Fixture comparison rule.",
+        )
+        for name in QUANTITATIVE_SEMANTIC_FIELDS
+    }
 
 
 def _target(value: float, role: str) -> QuantitativeTarget:
@@ -30,6 +43,7 @@ def _target(value: float, role: str) -> QuantitativeTarget:
         semantic_profile={
             "measure": SemanticSlot(state="specified", value="protective efficacy")
         },
+        comparison_contract=_comparison_contract("protective efficacy"),
     )
 
 
@@ -68,6 +82,9 @@ class ScoutConformityConcurrencyTests(unittest.TestCase):
                     value="vials per administered dose",
                 )
             },
+            comparison_contract=_comparison_contract(
+                "vials per administered dose"
+            ),
         )
         attributes = [
             Attribute(
@@ -131,6 +148,11 @@ class ScoutConformityConcurrencyTests(unittest.TestCase):
 
         with (
             patch.object(conformity, "_source_passages", return_value=passages),
+            patch.object(
+                conformity,
+                "_source_passage_batches",
+                return_value=[passages[:3], passages[3:]],
+            ),
             patch.object(conformity, "_map_source_passage_batch", side_effect=fake_map),
         ):
             scores = conformity.score_conformity_all(

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from services.scout.models import (
     Attribute,
+    ComparisonRule,
     ConformityScore,
     EvidenceUnitIdentity,
     Measurement,
     MeasurementSemanticAssessment,
     NumericExpression,
     QuantitativeFieldLink,
+    QUANTITATIVE_SEMANTIC_FIELDS,
     QuantitativeTarget,
     SemanticDimensionAssessment,
     SemanticSlot,
@@ -62,18 +65,26 @@ class _Client:
     def __init__(self, decision: str = "admit", fail: bool = False) -> None:
         self.decision = decision
         self.fail = fail
+        self.candidate_batches: list[list[str]] = []
 
     def call_structured(self, _system, _message, *_args, **kwargs):
         if self.fail:
             raise RuntimeError("provider unavailable")
         item = kwargs["schema"]["properties"]["reviews"]["items"]["properties"]
         group_id = item["group_id"]["enum"][0]
-        candidate_ids = [value for value in item["selected_candidate_id"]["enum"] if value]
+        candidate_ids = item["decisions"]["items"]["properties"]["candidate_id"]["enum"]
+        self.candidate_batches.append(candidate_ids)
         return {"reviews": [{
             "group_id": group_id,
-            "decision": self.decision,
-            "selected_candidate_id": candidate_ids[-1] if self.decision == "admit" else "",
-            "reason": "Independent review selected the direct comparator.",
+            "decisions": [{
+                "candidate_id": candidate_id,
+                "decision": (
+                    self.decision
+                    if self.decision != "admit" or candidate_id == candidate_ids[-1]
+                    else "reject"
+                ),
+                "reason": "Independent review evaluated this source-record candidate.",
+            } for candidate_id in candidate_ids],
         }]}
 
 
@@ -92,7 +103,14 @@ class EvidenceReviewerTests(unittest.TestCase):
                     state="specified", value="protective efficacy"
                 )
             },
-            comparison_dimensions=["measure"],
+            comparison_contract={
+                name: ComparisonRule(
+                    mode="exact" if name == "measure" else "unconstrained",
+                    scope="protective efficacy" if name == "measure" else "",
+                    reason="Fixture comparison rule.",
+                )
+                for name in QUANTITATIVE_SEMANTIC_FIELDS
+            },
         )
         self.attribute = Attribute(
             name="efficacy",
@@ -139,6 +157,61 @@ class EvidenceReviewerTests(unittest.TestCase):
                     item.ai_recommendation == "flag"
                     for item in reviewed.excluded_measurements
                 ))
+
+    def test_multiple_admit_recommendations_for_one_unit_fail_closed(self) -> None:
+        class _AllAdmitClient(_Client):
+            def call_structured(self, _system, _message, *_args, **kwargs):
+                item = kwargs["schema"]["properties"]["reviews"]["items"]["properties"]
+                group_id = item["group_id"]["enum"][0]
+                candidate_ids = item["decisions"]["items"]["properties"]["candidate_id"]["enum"]
+                return {"reviews": [{
+                    "group_id": group_id,
+                    "decisions": [{
+                        "candidate_id": candidate_id,
+                        "decision": "admit",
+                        "reason": "Fixture attempts to admit every alternative.",
+                    } for candidate_id in candidate_ids],
+                }]}
+
+        [reviewed] = prefill_evidence_review(
+            [self.score], [self.target], _AllAdmitClient(),
+        )
+
+        self.assertTrue(all(
+            item.ai_recommendation == "flag"
+            for item in reviewed.excluded_measurements
+        ))
+
+    def test_distinct_unit_proposals_from_one_source_are_reviewed_together(self) -> None:
+        measurements = [
+            replace(
+                self.measurements[0],
+                evidence_unit_id="doi:study/unit:overall",
+                evidence_unit=EvidenceUnitIdentity(
+                    status="resolved",
+                    group=SemanticSlot(state="specified", value="overall population"),
+                    reason="Overall study population.",
+                ),
+            ),
+            replace(
+                self.measurements[1],
+                evidence_unit_id="doi:study/unit:subgroup",
+                evidence_unit=EvidenceUnitIdentity(
+                    status="resolved",
+                    cohort=SemanticSlot(state="specified", value="booster subgroup"),
+                    reason="Booster subgroup within the study population.",
+                ),
+            ),
+        ]
+        score = replace(self.score, excluded_measurements=measurements)
+        client = _Client()
+
+        [reviewed] = prefill_evidence_review([score], [self.target], client)
+
+        self.assertEqual(client.candidate_batches, [["candidate-a", "candidate-b"]])
+        by_id = {item.candidate_id: item for item in reviewed.excluded_measurements}
+        self.assertEqual(by_id["candidate-a"].ai_recommendation, "reject")
+        self.assertEqual(by_id["candidate-b"].ai_recommendation, "admit")
 
 
 if __name__ == "__main__":

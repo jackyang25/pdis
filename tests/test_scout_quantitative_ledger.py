@@ -4,8 +4,10 @@ import unittest
 
 from services.chunker import ContentBlock
 from services.scout.contract import validate_result_contract
+from services.scout.pipeline import _active_quantitative_targets
 from services.scout.models import (
     Attribute,
+    ComparisonRule,
     DocumentContextValidation,
     DocumentSpan,
     FunnelStats,
@@ -14,7 +16,7 @@ from services.scout.models import (
     QuantitativeFieldLink,
     QuantitativeLedger,
     QuantitativeLedgerReview,
-    QuantitativeTarget,
+    QuantitativeTarget as _QuantitativeTarget,
     ScoutResult,
     SemanticSlot,
 )
@@ -75,6 +77,60 @@ def _profile(population: str) -> dict:
     return profile
 
 
+def _comparison_contract(
+    profile: dict,
+    dimensions: tuple[str, ...] = ("measure",),
+) -> dict:
+    contract = {}
+    for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+        slot = profile[field_name]
+        scope = str(slot.get("value") or slot.get("other") or field_name)
+        if field_name == "measure":
+            contract[field_name] = {
+                "mode": "exact",
+                "scope": scope,
+                "reason": "The measured quantity must match.",
+            }
+        elif field_name in dimensions:
+            contract[field_name] = {
+                "mode": "compatible",
+                "scope": scope,
+                "reason": "The fixture permits compatible values within this scope.",
+            }
+        else:
+            contract[field_name] = {
+                "mode": "unconstrained",
+                "scope": "",
+                "reason": "This dimension does not control fixture admission.",
+            }
+    return contract
+
+
+def QuantitativeTarget(*args, **kwargs):
+    """Keep compact model fixtures aligned with the current target contract."""
+    if "comparison_contract" not in kwargs:
+        profile = kwargs.get("semantic_profile") or {
+            "measure": SemanticSlot(state="specified", value="numeric measure")
+        }
+        raw_profile = {
+            field_name: {
+                "state": getattr(profile.get(field_name), "state", "not_specified"),
+                "value": getattr(profile.get(field_name), "value", ""),
+                "other": getattr(profile.get(field_name), "other", ""),
+            }
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+        }
+        dimensions = tuple(
+            field_name
+            for field_name, slot in raw_profile.items()
+            if slot["state"] in {"specified", "other", "unknown"}
+        )
+        kwargs["comparison_contract"] = _comparison_contract(
+            raw_profile, dimensions
+        )
+    return _QuantitativeTarget(*args, **kwargs)
+
+
 def _target(quote: str, value: float, role: str, population: str) -> dict:
     profile = _profile(population)
     provenance = {field_name: [] for field_name in QUANTITATIVE_SEMANTIC_FIELDS}
@@ -122,11 +178,22 @@ def _current_review(review: dict) -> dict:
                 "reason": "Test fixture retains a related product view.",
             } for value in related_refs if value and value != primary_ref],
         ]
-        targets.append({
+        current_target = {
             key: value
             for key, value in {**target, "field_links": field_links}.items()
-            if key not in {"attribute_ref", "related_attribute_refs", "ownership_reason"}
-        })
+            if key not in {
+                "attribute_ref", "related_attribute_refs", "ownership_reason",
+                "comparison_dimensions",
+            }
+        }
+        profile = current_target.get("semantic_profile") or {}
+        current_target["comparison_contract"] = target.get(
+            "comparison_contract"
+        ) or _comparison_contract(
+            profile,
+            tuple(target.get("comparison_dimensions") or ("measure",)),
+        )
+        targets.append(current_target)
     return {
         **review,
         "attribute_refs": review.get("attribute_refs")
@@ -250,8 +317,15 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
                 quote=quote,
                 doc_block_ids=[block_id],
                 field_links=links,
-                comparison_dimensions=["measure"],
                 semantic_profile=profile,
+                comparison_contract={
+                    field_name: ComparisonRule(
+                        mode="exact" if field_name == "measure" else "unconstrained",
+                        scope="booster frequency" if field_name == "measure" else "",
+                        reason="Fixture comparison rule.",
+                    )
+                    for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+                },
                 semantic_provenance={"measure": [span]},
                 provenance_spans=[span],
                 review_status="needs_review",
@@ -336,6 +410,80 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         )
         self.assertTrue(
             all(attribute.quantitative_target_ids == ["qt-3"] for attribute in projected)
+        )
+
+    def test_rejected_targets_remain_auditable_but_are_not_active_downstream(self) -> None:
+        approved = QuantitativeTarget(
+            id="qt-approved",
+            expression=NumericExpression(
+                kind="bound",
+                unit="%",
+                value=80,
+                comparator=">=",
+            ),
+            role="threshold",
+            quote="Target efficacy is at least 80%.",
+            doc_block_ids=[BLOCK_ID],
+            field_links=[
+                QuantitativeFieldLink(
+                    "vaccine.efficacy",
+                    "defines",
+                    "Direct efficacy requirement.",
+                )
+            ],
+            semantic_profile={
+                "measure": SemanticSlot(
+                    state="specified",
+                    value="protective efficacy",
+                )
+            },
+            review_status="approved",
+        )
+        rejected = QuantitativeTarget(
+            id="qt-rejected",
+            expression=NumericExpression(
+                kind="bound",
+                unit="%",
+                value=50,
+                comparator=">=",
+            ),
+            role="threshold",
+            quote="Background efficacy was at least 50%.",
+            doc_block_ids=[BLOCK_ID],
+            field_links=[
+                QuantitativeFieldLink(
+                    "vaccine.efficacy",
+                    "context_for",
+                    "Background context.",
+                ),
+                QuantitativeFieldLink(
+                    "vaccine.product",
+                    "constrains",
+                    "Test fixture active link.",
+                ),
+            ],
+            semantic_profile={
+                "measure": SemanticSlot(
+                    state="specified",
+                    value="protective efficacy",
+                )
+            },
+            review_status="rejected",
+        )
+        ledger = QuantitativeLedger(
+            status="complete",
+            reason="Reviewed targets.",
+            block_ids=[BLOCK_ID],
+            targets=[approved, rejected],
+        )
+
+        self.assertEqual(
+            [target.id for target in _active_quantitative_targets(ledger)],
+            [approved.id],
+        )
+        self.assertEqual(
+            [target.id for target in ledger.targets],
+            [approved.id, rejected.id],
         )
 
     def test_dense_source_block_is_split_into_bounded_unit_batches(self) -> None:

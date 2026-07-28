@@ -9,6 +9,7 @@ variable, and emits doc-aware Matches.
 
 from .models import (
     Attribute,
+    ComparisonRule,
     ConformityScore,
     QuantitativeTarget,
     QuantitativeFieldLink,
@@ -59,6 +60,7 @@ from .pipeline import continue_pipeline, run_pipeline
 
 __all__ = [
     "Attribute",
+    "ComparisonRule",
     "ConformityScore",
     "QuantitativeTarget",
     "QuantitativeFieldLink",

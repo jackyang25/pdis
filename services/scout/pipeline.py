@@ -266,6 +266,7 @@ def continue_pipeline(
         prepared.variables,
         prepared.quantitative_ledger,
     )
+    active_quantitative_targets = _active_quantitative_targets(quantitative_ledger)
     # Numeric interpretation is load-bearing only for quantitative calibration.
     # An unresolved statement remains excluded from target-specific queries and
     # statistics, but it must not discard the already verified document-claim
@@ -291,7 +292,7 @@ def continue_pipeline(
         progress_callback("queries")
     attribute_queries = _extract_queries_all_variables(
         searchable_attributes,
-        quantitative_ledger.targets,
+        active_quantitative_targets,
         config,
         openai_client,
         query_contexts=attribute_contexts,
@@ -408,7 +409,7 @@ def continue_pipeline(
         progress_callback("conformity")
     conformity = _score_conformity_all_variables(
         searchable_attributes,
-        quantitative_ledger.targets,
+        active_quantitative_targets,
         insights,
         quantitative_mapping_client,
         indication=indication,
@@ -419,7 +420,7 @@ def continue_pipeline(
         progress_callback("evidence_review")
     conformity = prefill_evidence_review(
         conformity,
-        quantitative_ledger.targets,
+        active_quantitative_targets,
         openai_client,
     )
 
@@ -1005,12 +1006,25 @@ def _empty_result(
         variables=variables or [],
         quantitative_ledger=quantitative_ledger or QuantitativeLedger(),
         conformity=empty_conformity_scores(
-            (quantitative_ledger.targets if quantitative_ledger else [])
+            (
+                _active_quantitative_targets(quantitative_ledger)
+                if quantitative_ledger
+                else []
+            )
         ),
         search_plan=search_plan or [],
         context_validation=context_validation,
         blocks=blocks or [],
     ))
+
+
+def _active_quantitative_targets(
+    ledger: QuantitativeLedger,
+) -> list[QuantitativeTarget]:
+    """Project approved claims from the immutable review audit ledger."""
+    return [
+        target for target in ledger.targets if target.review_status == "approved"
+    ]
 
 
 def _stamp(

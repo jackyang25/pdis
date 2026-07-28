@@ -125,11 +125,11 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                     f"quantitative target {target.id!r} {field_name} provenance",
                 )
         if (
-            "measure" not in target.comparison_dimensions
-            or set(target.comparison_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS)
+            set(target.comparison_contract) != set(QUANTITATIVE_SEMANTIC_FIELDS)
+            or target.comparison_contract["measure"].mode != "exact"
         ):
             raise ValueError(
-                f"quantitative target {target.id!r} has invalid comparison dimensions"
+                f"quantitative target {target.id!r} has an invalid comparison contract"
             )
 
     for attribute in result.variables:

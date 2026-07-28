@@ -7,8 +7,10 @@ import unittest
 from services.chunker import ContentBlock
 from services.scout.models import (
     Attribute,
+    ComparisonRule,
     DocumentSpan,
     NumericExpression,
+    QUANTITATIVE_SEMANTIC_FIELDS,
     QuantitativeLedger,
     QuantitativeFieldLink,
     QuantitativeTarget,
@@ -37,9 +39,16 @@ def _target(
         role="threshold",
         quote=quote,
         doc_block_ids=[BLOCK_ID],
-        comparison_dimensions=["measure"],
         semantic_profile={
             "measure": SemanticSlot(state="specified", value="protective efficacy"),
+        },
+        comparison_contract={
+            name: ComparisonRule(
+                mode="exact" if name == "measure" else "unconstrained",
+                scope="protective efficacy" if name == "measure" else "",
+                reason="Fixture comparison rule.",
+            )
+            for name in QUANTITATIVE_SEMANTIC_FIELDS
         },
         provenance_spans=[DocumentSpan(quote=quote, block_ids=[BLOCK_ID])],
         review_status="needs_review",

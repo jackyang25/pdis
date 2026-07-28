@@ -22,7 +22,11 @@ from services.scout.ai_contracts import (
     target_review_batch,
     unit_batch,
 )
-from services.scout.ai_wire import NumericExpressionWire, inline_json_schema
+from services.scout.ai_wire import (
+    EvidenceUnitPartitionWire,
+    NumericExpressionWire,
+    inline_json_schema,
+)
 from shared.openai_client import OpenAIClient
 
 
@@ -67,6 +71,14 @@ class ScoutAIContractTests(unittest.TestCase):
         )
 
         self.assertEqual(expression_schema, inline_json_schema(NumericExpressionWire))
+        partition_schema = (
+            contract.schema["properties"]["sources"]["items"]["properties"]
+            ["evidence_unit_partition"]
+        )
+        self.assertEqual(
+            partition_schema,
+            inline_json_schema(EvidenceUnitPartitionWire),
+        )
         with self.assertRaises(ValidationError):
             NumericExpressionWire.model_validate({
                 "kind": "point_estimate",
@@ -121,8 +133,9 @@ class ScoutAIContractTests(unittest.TestCase):
         item = contract.schema["properties"]["reviews"]["items"]["properties"]
 
         self.assertEqual(item["group_id"]["enum"], ["group-one"])
-        self.assertEqual(item["decision"]["enum"], ["admit", "reject", "flag"])
-        self.assertEqual(item["selected_candidate_id"]["enum"], ["", "candidate-one"])
+        decision = item["decisions"]["items"]["properties"]
+        self.assertEqual(decision["candidate_id"]["enum"], ["candidate-one"])
+        self.assertEqual(decision["decision"]["enum"], ["admit", "reject", "flag"])
 
     def test_dynamic_unit_schema_allows_only_chunk_block_ids(self) -> None:
         allowed = ["IPDP Development Plan/b-0042"]
@@ -166,6 +179,31 @@ class ScoutAIContractTests(unittest.TestCase):
         )
         target_properties = review["targets"]["items"]["properties"]
         self.assertIn("quote", target_properties)
+        self.assertIn("comparison_contract", target_properties)
+        self.assertNotIn("comparison_dimensions", target_properties)
+        comparison_contract = target_properties["comparison_contract"]
+        self.assertEqual(
+            set(comparison_contract["properties"]),
+            {
+                "measure",
+                "endpoint",
+                "intervention",
+                "population",
+                "regimen",
+                "time_horizon",
+                "statistic",
+                "conditions",
+            },
+        )
+        for rule in comparison_contract["properties"].values():
+            self.assertEqual(
+                rule["properties"]["mode"]["enum"],
+                ["compatible", "exact", "unconstrained", "unknown"],
+            )
+            self.assertEqual(
+                set(rule["required"]),
+                {"mode", "scope", "reason"},
+            )
         self.assertNotIn("source_syntax", target_properties)
 
         measurement_properties = (

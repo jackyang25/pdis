@@ -42,6 +42,9 @@ QUANTITATIVE_SEMANTIC_FIELDS = (
     "statistic",
     "conditions",
 )
+COMPARISON_MATCH_MODES = frozenset(
+    {"exact", "compatible", "unconstrained", "unknown"}
+)
 SEMANTIC_SLOT_STATES = frozenset(
     {"specified", "not_specified", "unknown", "other"}
 )
@@ -455,6 +458,34 @@ class SemanticSlot:
 
 
 @dataclass
+class ComparisonRule:
+    """One explicit admission rule for a quantitative semantic dimension.
+
+    The semantic profile records what the document says. This rule separately
+    records how broadly external evidence may vary and still be a direct
+    comparator. Keeping those responsibilities distinct prevents a document's
+    candidate name from silently becoming an exact-identity requirement.
+    """
+
+    mode: str
+    scope: str = ""
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        self.mode = self.mode.strip().lower()
+        self.scope = " ".join(self.scope.split())
+        self.reason = " ".join(self.reason.split())
+        if self.mode not in COMPARISON_MATCH_MODES:
+            raise ValueError(f"invalid comparison match mode: {self.mode}")
+        if self.mode in {"exact", "compatible"} and not self.scope:
+            raise ValueError(f"{self.mode} comparison rule requires a scope")
+        if self.mode == "unconstrained" and self.scope:
+            raise ValueError("unconstrained comparison rule cannot carry a scope")
+        if self.mode == "unknown" and not self.reason:
+            raise ValueError("unknown comparison rule requires a reason")
+
+
+@dataclass
 class TernaryDecision:
     """One auditable yes/no/unknown semantic decision made by the model."""
 
@@ -620,10 +651,10 @@ class QuantitativeTarget:
     quote: str
     doc_block_ids: list[str]
     field_links: list[QuantitativeFieldLink] = field(default_factory=list)
-    comparison_dimensions: list[str] = field(default_factory=list)
     semantic_profile: dict[str, SemanticSlot] = field(
         default_factory=_default_semantic_profile
     )
+    comparison_contract: dict[str, ComparisonRule] = field(default_factory=dict)
     semantic_provenance: dict[str, list[DocumentSpan]] = field(default_factory=dict)
     provenance_spans: list[DocumentSpan] = field(default_factory=list)
     ai_recommendation: str = "flag"
@@ -676,21 +707,21 @@ class QuantitativeTarget:
         }
         if self.semantic_profile["measure"].state != "specified":
             raise ValueError("quantitative target requires a specified measure")
-        if not self.comparison_dimensions:
-            self.comparison_dimensions = [
-                field_name
-                for field_name, slot in self.semantic_profile.items()
-                if slot.state in {"specified", "other"}
-            ]
-        self.comparison_dimensions = list(dict.fromkeys(self.comparison_dimensions))
-        if (
-            not self.comparison_dimensions
-            or "measure" not in self.comparison_dimensions
-            or set(self.comparison_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS)
-        ):
+        if set(self.comparison_contract) != set(QUANTITATIVE_SEMANTIC_FIELDS):
             raise ValueError(
-                "quantitative target requires valid comparison dimensions including measure"
+                "quantitative target requires one comparison rule per semantic dimension"
             )
+        self.comparison_contract = {
+            field_name: (
+                value
+                if isinstance(value, ComparisonRule)
+                else ComparisonRule(**value)
+            )
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+            for value in [self.comparison_contract[field_name]]
+        }
+        if self.comparison_contract["measure"].mode != "exact":
+            raise ValueError("quantitative target measure comparison must be exact")
         self.semantic_provenance = {
             field_name: [
                 span if isinstance(span, DocumentSpan) else DocumentSpan(**span)
@@ -726,7 +757,10 @@ class QuantitativeTarget:
                     self.expression.comparator,
                     str(self.expression.value),
                     self.expression.unit.casefold(),
-                    *self.comparison_dimensions,
+                    *(
+                        f"{field_name}:{rule.mode}:{rule.scope.casefold()}"
+                        for field_name, rule in self.comparison_contract.items()
+                    ),
                     *semantic_material,
                 )
             )
@@ -744,6 +778,15 @@ class QuantitativeTarget:
     @property
     def unit(self) -> str:
         return self.expression.unit
+
+    @property
+    def comparison_dimensions(self) -> list[str]:
+        """Dimensions that constrain direct comparator admission."""
+        return [
+            field_name
+            for field_name, rule in self.comparison_contract.items()
+            if rule.mode != "unconstrained"
+        ]
 
     @property
     def label(self) -> str:

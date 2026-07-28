@@ -23,24 +23,29 @@ from services.scout.projections import (
 from services.scout.models import (
     EVIDENCE_DOMAINS,
     Attribute,
+    ComparisonRule,
     DocumentSpan,
     EvidenceUnitIdentity,
     Insight,
     QueryIntent,
     QuantitativeFieldLink,
-    QuantitativeTarget,
+    QuantitativeTarget as _QuantitativeTarget,
     Measurement,
     NumericExpression,
+    QUANTITATIVE_SEMANTIC_FIELDS,
     SemanticSlot,
     load_attributes,
     load_config,
 )
 from services.scout.stages.conformity import (
+    _SourcePassage,
     _document_ledger_system_prompt,
     _measurement_system_prompt,
     _meets_target,
     _partition_cohort,
+    _source_passage_batches,
     _validated_numeric_expression,
+    _validated_source_decisions,
     _validated_targets,
     _validated_measurement_semantic_assessment,
     score_conformity as _score_conformity_ledgers,
@@ -159,14 +164,14 @@ def normalize_conformity_fixture(
                             "semantic_profile",
                             semantic_profile(str(target.get("label", "numeric measure"))),
                         ),
-                        "comparison_dimensions": target.get("comparison_dimensions") or [
-                            field_name
-                            for field_name, slot in target.get(
+                        "comparison_contract": target.get("comparison_contract")
+                        or comparison_contract(
+                            target.get(
                                 "semantic_profile",
                                 semantic_profile(str(target.get("label", "numeric measure"))),
-                            ).items()
-                            if slot["state"] in {"specified", "other"}
-                        ],
+                            ),
+                            target.get("comparison_dimensions"),
+                        ),
                         "semantic_provenance": target.get("semantic_provenance")
                         or semantic_provenance(
                             target.get(
@@ -205,14 +210,10 @@ def normalize_conformity_fixture(
                         "unit": response.get("unit"),
                     },
                     "role": "threshold",
-                    "comparison_dimensions": [
-                        field_name
-                        for field_name, slot in (
-                            response.get("semantic_profile")
-                            or semantic_profile(str(response.get("target_label", "numeric measure")))
-                        ).items()
-                        if slot["state"] in {"specified", "other"}
-                    ],
+                    "comparison_contract": comparison_contract(
+                        response.get("semantic_profile")
+                        or semantic_profile(str(response.get("target_label", "numeric measure")))
+                    ),
                     "quote": response.get("target_quote"),
                     "doc_block_ids": response.get("doc_block_ids", []),
                     "semantic_profile": response.get("semantic_profile") or semantic_profile(
@@ -236,7 +237,10 @@ def normalize_conformity_fixture(
         return response
     if "sources" in response:
         return response
-    sources = re.findall(r"\[source:(sp-[a-f0-9]+)\] url=([^ |]+)", user_message)
+    sources = re.findall(
+        r"\[source:(sp-[a-f0-9]+)\][^\n]*\burl=([^ |]+)",
+        user_message,
+    )
     decisions = []
     for source_id, url in sources:
         source_measurements = [
@@ -276,10 +280,30 @@ def normalize_conformity_fixture(
                     ownership=item.get("source_ownership"),
                 ),
             })
+        resolved_units = {
+            (
+                item["evidence_unit"].get("group", {}).get("value", ""),
+                item["evidence_unit"].get("cohort", {}).get("value", ""),
+            )
+            for item in normalized
+            if item["evidence_unit"].get("status") == "resolved"
+        }
+        explicitly_disjoint = (
+            len(normalized) > 1
+            and len(resolved_units) == len(normalized)
+        )
         decisions.append({
             "source_id": source_id,
             "status": "measurements_found" if normalized else "no_relevant_measurement",
             "reason": "Fixture source reviewed.",
+            "evidence_unit_partition": {
+                "status": "disjoint_units" if explicitly_disjoint else "single_unit",
+                "reason": (
+                    "Fixture supplies explicitly distinct resolved comparison units."
+                    if explicitly_disjoint
+                    else "Fixture treats the source passage as one comparison unit."
+                ),
+            },
             "measurements": normalized,
         })
     return {"sources": decisions}
@@ -297,6 +321,70 @@ def semantic_profile(measure: str = "numeric measure") -> dict:
             "time_horizon", "statistic", "conditions",
         )
     }
+
+
+def comparison_contract(
+    profile: dict,
+    dimensions: list[str] | None = None,
+) -> dict:
+    constrained = set(dimensions or [
+        field_name
+        for field_name, slot in profile.items()
+        if slot["state"] in {"specified", "other"}
+    ])
+    constrained.add("measure")
+    contract = {}
+    for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+        slot = profile[field_name]
+        scope = str(slot.get("value") or slot.get("other") or field_name)
+        if field_name == "measure":
+            mode = "exact"
+        elif field_name in constrained:
+            mode = "compatible"
+        else:
+            mode = "unconstrained"
+        contract[field_name] = {
+            "mode": mode,
+            "scope": scope if mode != "unconstrained" else "",
+            "reason": "Fixture comparison rule.",
+        }
+    return contract
+
+
+def QuantitativeTarget(*args, **kwargs):
+    """Keep compact historical model fixtures at the current constructor boundary."""
+    if "comparison_contract" not in kwargs:
+        profile = kwargs.get("semantic_profile") or {
+            "measure": SemanticSlot(state="specified", value="numeric measure")
+        }
+        raw_profile = {}
+        dimensions = []
+        for field_name in QUANTITATIVE_SEMANTIC_FIELDS:
+            slot = profile.get(field_name, SemanticSlot())
+            state = getattr(slot, "state", None) or slot.get("state", "not_specified")
+            value = getattr(slot, "value", None)
+            if value is None and isinstance(slot, dict):
+                value = slot.get("value", "")
+            other = getattr(slot, "other", None)
+            if other is None and isinstance(slot, dict):
+                other = slot.get("other", "")
+            raw_profile[field_name] = {
+                "state": state,
+                "value": value or "",
+                "other": other or "",
+            }
+            if state in {"specified", "other", "unknown"}:
+                dimensions.append(field_name)
+        contract = comparison_contract(raw_profile, dimensions)
+        for field_name in dimensions:
+            if raw_profile[field_name]["state"] == "unknown":
+                contract[field_name] = {
+                    "mode": "unknown",
+                    "scope": "",
+                    "reason": "The fixture leaves this comparison scope unresolved.",
+                }
+        kwargs["comparison_contract"] = contract
+    return _QuantitativeTarget(*args, **kwargs)
 
 
 def semantic_provenance(profile: dict, quote: str, block_ids: list[str]) -> dict:
@@ -1072,6 +1160,68 @@ class RetrievalPlanningTests(unittest.TestCase):
             "dose volume below 0.5 mL/dose",
         )
 
+    def test_compatible_product_class_does_not_become_exact_candidate_identity(self) -> None:
+        profile = semantic_profile("protective efficacy")
+        profile["intervention"] = {
+            "state": "specified",
+            "value": "AIV anti-infective malaria vaccine",
+            "other": "",
+        }
+        contract = comparison_contract(profile, ["measure", "intervention"])
+        contract["intervention"] = {
+            "mode": "compatible",
+            "scope": "anti-infective malaria vaccines",
+            "reason": "Different named vaccine candidates are valid class comparators.",
+        }
+        target = QuantitativeTarget(
+            field_links=[QuantitativeFieldLink(
+                attribute_ref="vaccine.efficacy",
+                relation="defines",
+                reason="Test fixture.",
+            )],
+            expression=NumericExpression(
+                kind="bound", value=80, comparator=">", unit="%"
+            ),
+            role="optimal",
+            quote="Target efficacy is more than 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=profile,
+            comparison_contract=contract,
+        )
+
+        descriptor = _target_retrieval_descriptor(target)
+        self.assertEqual(
+            descriptor["dimensions"]["intervention"],
+            "anti-infective malaria vaccines",
+        )
+        self.assertNotIn(
+            "AIV anti-infective malaria vaccine",
+            _target_retrieval_text(target),
+        )
+
+        source_profile = semantic_profile("protective efficacy")
+        source_profile["intervention"] = {
+            "state": "specified",
+            "value": "RTS,S/AS01 malaria vaccine",
+            "other": "",
+        }
+        measurement = Measurement(
+            expression=NumericExpression(
+                kind="point_estimate", value=50.3, unit="%"
+            ),
+            semantic_assessment=semantic_assessment(
+                source_profile=source_profile,
+                comparability=same_comparability(),
+            ),
+            candidate_id="qm-compatible-product",
+            source_record_id="doi:10.1/rts-s",
+            evidence_mode="structured_fact",
+        )
+
+        included, excluded = _partition_cohort([measurement], target)
+        self.assertEqual(included, [measurement])
+        self.assertEqual(excluded, [])
+
     def test_generated_query_is_not_reinterpreted_by_string_heuristics(self) -> None:
         profile = semantic_profile("storage temperature tolerance")
         target = QuantitativeTarget(
@@ -1725,6 +1875,10 @@ class ReasoningLineageTests(unittest.TestCase):
                     "source_id": source.group(1),
                     "status": "no_relevant_measurement",
                     "reason": "Only enrollment and follow-up duration are reported.",
+                    "evidence_unit_partition": {
+                        "status": "single_unit",
+                        "reason": "No relevant measurement was identified.",
+                    },
                     "measurements": [],
                 }]})
 
@@ -2316,7 +2470,8 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertIn("without reinterpreting its numeric meaning", prompt)
         self.assertIn("Conditions includes only settings", prompt)
         self.assertIn("change numeric interpretation", prompt)
-        self.assertIn("unknown and comparison-required", prompt)
+        self.assertIn("mode=unknown preserves genuine ambiguity", prompt)
+        self.assertIn("comparison_contract separately", prompt)
 
     def test_identical_scalar_under_multiple_roles_preserves_both_roles(self) -> None:
         document = (
@@ -2393,7 +2548,7 @@ class ReasoningLineageTests(unittest.TestCase):
             indication="malaria",
             intervention_class="vaccine",
         )
-        self.assertIn('target-constrained fields: ["measure"]', prompt)
+        self.assertIn('target-constrained dimensions: ["measure"]', prompt)
         self.assertIn('"value": "protective efficacy"', prompt)
         self.assertNotIn("sp-123", prompt)
         self.assertIn("Target semantic profile", prompt)
@@ -2402,6 +2557,7 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertIn("self-contained exact quote", prompt)
         self.assertIn("storage temperature", prompt)
         self.assertIn("return uncertain rather than a measurement", prompt)
+        self.assertIn("A parent population and any of its subgroups overlap", prompt)
 
     def test_measurement_contract_accepts_only_target_constrained_dimensions(self) -> None:
         assessment = _validated_measurement_semantic_assessment(
@@ -2442,6 +2598,154 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(
             assessment.dimensions["endpoint"].compatibility.state, "yes"
         )
+
+    def test_source_partition_collapses_overlap_and_preserves_disjoint_arms(self) -> None:
+        target = QuantitativeTarget(
+            field_links=[QuantitativeFieldLink(
+                attribute_ref="efficacy",
+                relation="defines",
+                reason="Test fixture.",
+            )],
+            expression=NumericExpression(
+                kind="bound", value=80, comparator=">=", unit="%"
+            ),
+            role="threshold",
+            quote="Target efficacy is at least 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile={
+                "measure": SemanticSlot(
+                    state="specified", value="protective efficacy"
+                )
+            },
+            comparison_contract={
+                name: ComparisonRule(
+                    mode="exact" if name == "measure" else "unconstrained",
+                    scope="protective efficacy" if name == "measure" else "",
+                    reason="Fixture comparison rule.",
+                )
+                for name in QUANTITATIVE_SEMANTIC_FIELDS
+            },
+        )
+        overall_quote = "Protective efficacy was 55% in the overall population."
+        subgroup_quote = "Protective efficacy was 62% in the booster subgroup."
+        overall_finding = finding(
+            "https://doi.org/10.1000/example",
+            source="pubmed",
+            excerpt=overall_quote,
+        )
+        subgroup_finding = finding(
+            "https://doi.org/10.1000/example",
+            source="pubmed",
+            excerpt=subgroup_quote,
+        )
+        overall_insight = Insight(
+            statement="The study reports overall efficacy.",
+            supporting_findings=[overall_finding],
+            attribute_ref="efficacy",
+        )
+        subgroup_insight = Insight(
+            statement="The study reports subgroup efficacy.",
+            supporting_findings=[subgroup_finding],
+            attribute_ref="efficacy",
+        )
+        passages = [
+            _SourcePassage(
+                id="sp-overall",
+                insight=overall_insight,
+                finding=overall_finding,
+                text=overall_quote,
+            ),
+            _SourcePassage(
+                id="sp-subgroup",
+                insight=subgroup_insight,
+                finding=subgroup_finding,
+                text=subgroup_quote,
+            ),
+        ]
+        unrelated_finding = finding(
+            "https://doi.org/10.1000/other",
+            source="pubmed",
+            excerpt="Protective efficacy was 40%.",
+        )
+        unrelated_passage = _SourcePassage(
+            id="sp-unrelated",
+            insight=Insight(
+                statement="Another study reports efficacy.",
+                supporting_findings=[unrelated_finding],
+                attribute_ref="efficacy",
+            ),
+            finding=unrelated_finding,
+            text=unrelated_finding.excerpt,
+        )
+        self.assertEqual(
+            _source_passage_batches([*passages, unrelated_passage]),
+            [[*passages, unrelated_passage]],
+        )
+
+        def raw_measurement(quote: str, value: float, group: str) -> dict:
+            return {
+                "quote": quote,
+                "expression": complete_expression({
+                    "kind": "point_estimate",
+                    "value": value,
+                    "unit": "%",
+                }),
+                "evidence_unit": {
+                    "status": "resolved",
+                    "group": {
+                        "state": "specified",
+                        "value": group,
+                        "other": "",
+                    },
+                    "cohort": {
+                        "state": "not_specified",
+                        "value": "",
+                        "other": "",
+                    },
+                    "reason": f"The source identifies the {group}.",
+                },
+                "semantic_assessment": semantic_assessment(
+                    source_profile=semantic_profile("protective efficacy")
+                ),
+            }
+
+        measurements = [
+            raw_measurement(overall_quote, 55, "overall population"),
+            raw_measurement(subgroup_quote, 62, "booster subgroup"),
+        ]
+        for partition_status, expected_unit_count, expected_status in (
+            ("overlapping_or_uncertain", 1, "uncertain"),
+            ("disjoint_units", 2, "resolved"),
+        ):
+            with self.subTest(partition_status=partition_status):
+                decisions = [{
+                        "source_id": passage.id,
+                        "status": "measurements_found",
+                        "reason": "The source passage contains a relevant measurement.",
+                        "evidence_unit_partition": {
+                            "status": partition_status,
+                            "reason": "Source-wide evidence-unit decision.",
+                        },
+                        "measurements": [measurement],
+                    }
+                    for passage, measurement in zip(passages, measurements)
+                ]
+                mapped, dispositions, issues = _validated_source_decisions(
+                    decisions,
+                    passages={passage.id: passage for passage in passages},
+                    target=target,
+                )
+
+                self.assertEqual(issues, {})
+                self.assertEqual(len(dispositions), 2)
+                self.assertEqual(len(mapped), 2)
+                self.assertEqual(
+                    len({item.evidence_unit_id for item in mapped}),
+                    expected_unit_count,
+                )
+                self.assertTrue(all(
+                    item.evidence_unit.status == expected_status for item in mapped
+                ))
 
     def test_conformity_never_treats_web_citation_context_as_source_quote(self) -> None:
         web_insight = Insight(
@@ -3047,6 +3351,10 @@ class ReasoningLineageTests(unittest.TestCase):
                                 "source_id": source.group(1),
                                 "status": "measurements_found",
                                 "reason": "Claims a measurement.",
+                                "evidence_unit_partition": {
+                                    "status": "single_unit",
+                                    "reason": "The source is one aggregate comparison unit.",
+                                },
                                 "measurements": [{
                                     "quote": "The reported efficacy was 82 percent in the target population.",
                                     "expression": {"kind": "point_estimate", "value": 82, "unit": "%"},
@@ -3099,6 +3407,10 @@ class ReasoningLineageTests(unittest.TestCase):
                                 "source_id": source.group(1),
                                 "status": "measurements_found",
                                 "reason": "Incomplete fixture decision.",
+                                "evidence_unit_partition": {
+                                    "status": "single_unit",
+                                    "reason": "The source is one aggregate comparison unit.",
+                                },
                                 "measurements": [],
                             }
                         ]

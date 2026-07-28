@@ -278,6 +278,41 @@ class QuantitativeFieldLinkOut(BaseModel):
     reason: str = ""
 
 
+class ComparisonRuleOut(BaseModel):
+    mode: Literal["exact", "compatible", "unconstrained", "unknown"]
+    scope: str = ""
+    reason: str = ""
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> "ComparisonRuleOut":
+        self.scope = " ".join(self.scope.split())
+        self.reason = " ".join(self.reason.split())
+        if self.mode in {"exact", "compatible"} and not self.scope:
+            raise ValueError(f"{self.mode} comparison rule requires a scope")
+        if self.mode == "unconstrained" and self.scope:
+            raise ValueError("unconstrained comparison rule cannot carry a scope")
+        if self.mode == "unknown" and not self.reason:
+            raise ValueError("unknown comparison rule requires a reason")
+        return self
+
+
+class QuantitativeComparisonContractOut(BaseModel):
+    measure: ComparisonRuleOut
+    endpoint: ComparisonRuleOut
+    intervention: ComparisonRuleOut
+    population: ComparisonRuleOut
+    regimen: ComparisonRuleOut
+    time_horizon: ComparisonRuleOut
+    statistic: ComparisonRuleOut
+    conditions: ComparisonRuleOut
+
+    @model_validator(mode="after")
+    def validate_measure(self) -> "QuantitativeComparisonContractOut":
+        if self.measure.mode != "exact":
+            raise ValueError("quantitative measure comparison must be exact")
+        return self
+
+
 class QuantitativeTargetOut(BaseModel):
     id: str
     expression: NumericExpressionOut
@@ -285,11 +320,8 @@ class QuantitativeTargetOut(BaseModel):
     quote: str
     doc_block_ids: list[str] = Field(default_factory=list)
     field_links: list[QuantitativeFieldLinkOut] = Field(min_length=1)
-    comparison_dimensions: list[Literal[
-        "measure", "endpoint", "intervention", "population", "regimen",
-        "time_horizon", "statistic", "conditions",
-    ]] = Field(min_length=1)
     semantic_profile: QuantitativeSemanticProfileOut
+    comparison_contract: QuantitativeComparisonContractOut
     semantic_provenance: dict[str, list[DocumentSpanOut]]
     provenance_spans: list[DocumentSpanOut] = Field(min_length=1)
     ai_recommendation: Literal["confirm", "exclude", "flag"] = "flag"

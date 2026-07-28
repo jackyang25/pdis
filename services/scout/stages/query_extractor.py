@@ -257,14 +257,24 @@ def _target_retrieval_descriptor(target: QuantitativeTarget) -> dict[str, object
         "target_id": target.id,
         "unit": target.unit,
         "dimensions": dimensions,
+        "comparison_contract": {
+            name: {"mode": rule.mode, "scope": rule.scope}
+            for name, rule in target.comparison_contract.items()
+            if rule.mode != "unconstrained"
+        },
     }
 
 
 def _target_retrieval_dimensions(target: QuantitativeTarget) -> dict[str, str]:
     dimensions: dict[str, str] = {}
-    for field_name, slot in target.semantic_profile.items():
+    for field_name, rule in target.comparison_contract.items():
+        if rule.mode == "unconstrained":
+            continue
+        slot = target.semantic_profile[field_name]
         phrase = ""
-        if slot.state == "specified" and slot.value:
+        if rule.scope:
+            phrase = rule.scope
+        elif slot.state == "specified" and slot.value:
             phrase = slot.value
         elif slot.state == "other" and slot.other:
             phrase = slot.other
@@ -364,8 +374,9 @@ def _system_prompt_for_variable(
             "For a target-specific query, copy its ID into target_ids. Do not attach "
             "an ID when the query is only general field coverage. For each target-specific "
             "query, search for reported numeric results matching its measure and endpoint; "
-            "include its other specified dimensions when they materially distinguish the "
-            "comparison. Use result language appropriate to the statistic, such as estimate, "
+            "apply its direct-comparator contract rather than requiring the document candidate's "
+            "exact name. A compatible scope is the retrieval boundary; an exact scope is an "
+            "identity requirement. Use result language appropriate to the statistic, such as estimate, "
             "rate, confidence interval, or study result. NEVER include the document's target "
             "value, comparator, threshold/optimal role, or pass/fail wording in a query: valid "
             "comparators on either side of the target must remain retrievable."

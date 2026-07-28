@@ -46,6 +46,7 @@ from ..ai_contracts import (
 )
 from ..ai_wire import (
     EvidenceUnitIdentityWire,
+    EvidenceUnitPartitionWire,
     NumericExpressionWire,
     SemanticSlotWire,
     TernaryDecisionWire,
@@ -58,6 +59,7 @@ from ..context import (
 )
 from ..models import (
     Attribute,
+    ComparisonRule,
     ConformityScore,
     DocumentSpan,
     Insight,
@@ -169,6 +171,18 @@ class _PassageMeasurementValidation:
     candidate_key: "_MeasurementCandidateKey | None" = None
     code: str = ""
     reason: str = ""
+
+
+@dataclass(frozen=True)
+class _ValidatedSourceDecision:
+    """One structurally valid passage decision pending record-wide validation."""
+
+    source_id: str
+    passage: _SourcePassage
+    status: str
+    reason: str
+    partition: EvidenceUnitPartitionWire
+    measurements: tuple[Measurement, ...]
 
 
 @dataclass(frozen=True)
@@ -315,9 +329,9 @@ def score_conformity_all(
             _CalibrationTask(
                 linked_attributes=tuple(linked_attributes),
                 target=target,
-                passages=passages[start : start + SOURCE_BATCH_SIZE],
+                passages=batch,
             )
-            for start in range(0, len(passages), SOURCE_BATCH_SIZE)
+            for batch in _source_passage_batches(passages)
         )
 
     total = len(tasks)
@@ -1241,14 +1255,23 @@ def reconcile_quantitative_document_ledger(
     allowed_ids = [target.id for target in candidate_targets]
     contract = quantitative_claim_reconciliation(allowed_ids)
     prompt = (
-        "You reconcile an already-normalized document claim ledger. Group targets only "
+        "ROLE\n"
+        "You reconcile an already-normalized document claim ledger. You may partition only "
+        "the supplied target IDs and select an existing representative; you cannot rewrite "
+        "targets, semantic mappings, field links, or provenance.\n\n"
+        "GROUPING RULES\n"
+        "Group targets only "
         "when they express the same atomic document requirement repeated or paraphrased "
         "in different passages. Equal numbers alone are not sufficient: keep different "
         "roles, populations, regimens, endpoints, time horizons, or operating conditions "
-        "separate. Field names are views and must not prevent a merge. For each group, "
+        "separate. Their direct-comparator contracts must also describe the same admissible "
+        "cohort; do not merge targets whose comparison scope materially differs. Field names "
+        "are views and must not prevent a merge. For each group, "
         "choose the member with the clearest and most generally faithful comparison identity "
-        "as representative. Return every supplied target ID exactly once, including singleton "
-        "groups, and give a short reason. Do not rewrite any target. Return only schema JSON."
+        "as representative.\n\n"
+        "OUTPUT\n"
+        "Return every supplied target ID exactly once, including singleton groups, and give "
+        "each group a short reason. Return only the schema-bound response."
     )
     payload = json.dumps(
         [_reconciliation_payload(target) for target in candidate_targets],
@@ -1510,7 +1533,14 @@ def _reconciliation_payload(target: QuantitativeTarget) -> dict[str, object]:
             "unit": target.unit,
         },
         "role": target.role,
-        "comparison_dimensions": target.comparison_dimensions,
+        "comparison_contract": {
+            name: {
+                "mode": rule.mode,
+                "scope": rule.scope,
+                "reason": rule.reason,
+            }
+            for name, rule in target.comparison_contract.items()
+        },
         "semantic_profile": {
             name: {
                 "state": slot.state,
@@ -1738,6 +1768,7 @@ def _document_ledger_system_prompt(
         "{indication}", indication
     )
     return (
+        "ROLE\n"
         "You create quantitative proposals from the authoritative document-claim ledger. "
         "Each supplied unit is one source block and lists every canonical field that already "
         "cites that block. Those fields are candidate product views, never claim owners. "
@@ -1747,12 +1778,14 @@ def _document_ledger_system_prompt(
         "does not define or constrain it. Every target needs at least one defines or constrains "
         "link. Each unit must "
         "appear exactly once in reviews.\n\n"
+        "AUTHORITATIVE CONTEXT\n"
         f"Product class: {intervention_class}. Indication: {indication}.\n"
         f"Document framing: {framing}\n\n"
         "Canonical fields:\n"
         f"{field_catalog}\n\n"
         "Canonical document bindings (authoritative cross-block context):\n"
         f"{binding_catalog}\n\n"
+        "UNIT CLASSIFICATION\n"
         "For every unit choose target, context_only, non_scalar, range_or_set, "
         "non_numeric, or uncertain. Use uncertain instead of guessing. A target is an "
         "explicit exact or directional scalar that can be compared independently. Split "
@@ -1766,6 +1799,7 @@ def _document_ledger_system_prompt(
         "content] unit may be classified non_numeric when "
         "the image has no numeric claim; otherwise classify it uncertain because it has "
         "no exact source text from which a target can be verified.\n\n"
+        "TARGET EXTRACTION\n"
         "A number is a target only when the document asserts it as a desired, required, "
         "threshold, optimal, maximum, minimum, or exact criterion. Values mentioned only in "
         "a rejected alternative, contrast, example, citation, background fact, or phrase such "
@@ -1786,16 +1820,25 @@ def _document_ledger_system_prompt(
         "and semantic meaning. Preserve "
         "the document's row or endpoint label. semantic_profile uses measure, endpoint, "
         "intervention, population, regimen, time_horizon, statistic, and conditions. "
-        "Comparison dimensions are derived by code from asserted semantic slots and from slots "
-        "that are unknown and comparison-required; "
-        "return the same set in comparison_dimensions for schema compatibility. For every "
+        "semantic_profile records only what the document says. comparison_contract separately "
+        "defines what external evidence may vary and still be a direct comparator. Return one "
+        "rule for every semantic slot. mode=exact means the same semantic concept and entity "
+        "scope are required; mode=compatible means named entities or details may differ within "
+        "the stated scope; mode=unconstrained means the slot does not control admission; and "
+        "mode=unknown preserves genuine ambiguity for review. measure must be exact. Do not make "
+        "intervention exact merely because the document names its candidate: external comparator "
+        "cohorts normally contain different products. Use compatible with a clear class/use scope "
+        "when cross-product comparison is scientifically meaningful. Use exact only when a value "
+        "is valid solely for that exact entity. The scope is threshold-neutral and must never "
+        "encode whether evidence passes the target. For every "
         "semantic slot, source_refs must identify where its "
         "meaning came from: statement for the reviewed unit, or one or more exact "
         "[context:<ref>] bindings above. Asserted slots require at least one source_ref; "
         "unasserted slots require none. Conditions includes only settings that change numeric "
         "interpretation. Do not judge whether external evidence passes the target.\n\n"
+        "OUTPUT\n"
         "For non-target reviews targets must be empty. For target reviews include every "
-        "atomic target in the unit. Copy unit IDs exactly. Return only the schema JSON."
+        "atomic target in the unit. Copy unit IDs exactly. Return only the schema-bound response."
     )
 
 
@@ -1806,9 +1849,9 @@ def _document_ledger_user_message(batch: QuantitativeLedgerBatch) -> str:
         for unit in batch.units
     )
     return (
-        "Original source blocks (structural context):\n"
+        "AUTHORITATIVE SOURCE BLOCKS\n"
         f"{render_document_context(batch.blocks)}\n\n"
-        "Review each statement unit exactly once:\n"
+        "STATEMENT UNITS TO REVIEW\n"
         f"{units}"
     )
 
@@ -1861,7 +1904,9 @@ def _validated_targets_with_issues(
         raw_spans = item.get("provenance_spans")
         expression = _validated_numeric_expression(item.get("expression"))
         role = str(item.get("role", "other")).strip().lower()
-        raw_dimensions = item.get("comparison_dimensions")
+        comparison_contract = _validated_comparison_contract(
+            item.get("comparison_contract")
+        )
         semantic_profile = _validated_semantic_profile(item.get("semantic_profile"))
         raw_links = item.get("field_links")
         if not isinstance(raw_links, list):
@@ -1882,40 +1927,8 @@ def _validated_targets_with_issues(
             or expression.kind != "bound"
             or role not in VALID_TARGET_ROLES
             or semantic_profile is None
-            or not isinstance(raw_dimensions, list)
+            or comparison_contract is None
         ):
-            issues.append("invalid_target_semantic_contract")
-            continue
-        proposed_dimensions = list(
-            dict.fromkeys(
-                str(value).strip()
-                for value in raw_dimensions
-                if isinstance(value, str)
-            )
-        )
-        asserted_dimensions = {
-            field_name
-            for field_name, slot in semantic_profile.items()
-            if slot.state in {"specified", "other"}
-        }
-        unknown_dimensions = {
-            field_name
-            for field_name, slot in semantic_profile.items()
-            if slot.state == "unknown"
-        }
-        if set(proposed_dimensions) - set(QUANTITATIVE_SEMANTIC_FIELDS):
-            issues.append("invalid_comparison_dimensions")
-            continue
-        # The semantic profile is authoritative. Deriving this projection here
-        # prevents two AI-owned representations of the same meaning from
-        # disagreeing and rejecting an otherwise valid target. Unknown slots
-        # remain comparison-required, which fails closed downstream.
-        comparison_dimensions = [
-            field_name
-            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
-            if field_name in asserted_dimensions or field_name in unknown_dimensions
-        ]
-        if "measure" not in comparison_dimensions:
             issues.append("invalid_target_semantic_contract")
             continue
         semantic_provenance = _validated_semantic_provenance(
@@ -1963,8 +1976,8 @@ def _validated_targets_with_issues(
             doc_block_ids=list(
                 dict.fromkeys(block_id for span in spans for block_id in span.block_ids)
             ),
-            comparison_dimensions=comparison_dimensions,
             semantic_profile=semantic_profile,
+            comparison_contract=comparison_contract,
             semantic_provenance=semantic_provenance,
             provenance_spans=spans,
             review_status=str(item.get("review_status", "approved")),
@@ -2026,8 +2039,7 @@ def _extract_target_measurements(
     passages = _source_passages(insights)
     measurements: list[Measurement] = []
     dispositions: list[SourcePassageDisposition] = []
-    for start in range(0, len(passages), SOURCE_BATCH_SIZE):
-        batch = passages[start : start + SOURCE_BATCH_SIZE]
+    for batch in _source_passage_batches(passages):
         result = _map_source_passage_batch(
             (attribute,),
             target,
@@ -2141,24 +2153,41 @@ def _validated_source_decisions(
         return [], [], {
             source_id: "invalid_source_decision_list" for source_id in passages
         }
-    output: list[Measurement] = []
-    dispositions: list[SourcePassageDisposition] = []
-    issues: dict[str, str] = {}
-    seen: set[str] = set()
+    raw_by_source: dict[str, dict[str, object]] = {}
+    duplicate_ids: set[str] = set()
     for item in items:
         if not isinstance(item, dict):
             continue
         source_id = str(item.get("source_id", "")).strip()
-        passage = passages.get(source_id)
-        if passage is None or source_id in seen:
+        if source_id not in passages:
+            continue
+        if source_id in raw_by_source:
+            duplicate_ids.add(source_id)
+            continue
+        raw_by_source[source_id] = item
+
+    output: list[Measurement] = []
+    dispositions: list[SourcePassageDisposition] = []
+    issues: dict[str, str] = {}
+    pending: list[_ValidatedSourceDecision] = []
+    for source_id, passage in passages.items():
+        if source_id in duplicate_ids:
+            issues[source_id] = "duplicate_source_decision"
+            continue
+        item = raw_by_source.get(source_id)
+        if item is None:
+            issues[source_id] = "missing_source_decision"
             continue
         status = str(item.get("status", "")).strip().lower()
         reason = " ".join(str(item.get("reason", "")).split())
+        partition = _validated_evidence_unit_partition(
+            item.get("evidence_unit_partition")
+        )
         if status not in {
             "measurements_found",
             "no_relevant_measurement",
             "uncertain",
-        } or not reason:
+        } or not reason or partition is None:
             issues[source_id] = "invalid_source_decision"
             continue
         raw_measurements = item.get("measurements")
@@ -2172,6 +2201,7 @@ def _validated_source_decisions(
                 raw_measurement,
                 passage=passage,
                 target=target,
+                unit_partition=partition,
             )
             if validation.measurement is not None and validation.candidate_key is not None:
                 validated_by_key.setdefault(
@@ -2192,20 +2222,73 @@ def _validated_source_decisions(
         if status != "measurements_found" and validated:
             issues[source_id] = "unexpected_measurement_payload"
             continue
-        output.extend(validated)
-        dispositions.append(
-            SourcePassageDisposition(
+        pending.append(
+            _ValidatedSourceDecision(
                 source_id=source_id,
+                passage=passage,
                 status=status,
-                reason=reason[:500],
-                url=passage.finding.url,
-                insight_id=passage.insight.id,
+                reason=reason,
+                partition=partition,
+                measurements=tuple(validated),
             )
         )
-        seen.add(source_id)
-    for source_id in passages:
-        if source_id not in seen and source_id not in issues:
-            issues[source_id] = "missing_source_decision"
+
+    by_record: dict[str, list[_ValidatedSourceDecision]] = {}
+    for decision in pending:
+        source_record_id, _identity_status = _source_record_identity(
+            decision.passage.finding
+        )
+        by_record.setdefault(source_record_id, []).append(decision)
+
+    record_source_ids: dict[str, list[str]] = {}
+    for source_id, passage in passages.items():
+        source_record_id, _identity_status = _source_record_identity(passage.finding)
+        record_source_ids.setdefault(source_record_id, []).append(source_id)
+
+    for source_record_id, decisions in by_record.items():
+        source_ids = [decision.source_id for decision in decisions]
+        full_source_ids = record_source_ids[source_record_id]
+        if any(source_id in issues for source_id in full_source_ids):
+            for source_id in source_ids:
+                issues.setdefault(source_id, "source_record_decision_incomplete")
+            continue
+        partition_statuses = {
+            decision.partition.status for decision in decisions
+        }
+        if len(partition_statuses) != 1:
+            for source_id in source_ids:
+                issues[source_id] = "inconsistent_source_record_partition"
+            continue
+        partition_status = next(iter(partition_statuses))
+        record_measurements = [
+            measurement
+            for decision in decisions
+            for measurement in decision.measurements
+        ]
+        if partition_status == "disjoint_units" and (
+            len(record_measurements) < 2
+            or any(
+                measurement.evidence_unit.status != "resolved"
+                for measurement in record_measurements
+            )
+            or len({
+                measurement.evidence_unit_id for measurement in record_measurements
+            }) < 2
+        ):
+            for source_id in source_ids:
+                issues[source_id] = "invalid_disjoint_evidence_unit_partition"
+            continue
+        for decision in decisions:
+            output.extend(decision.measurements)
+            dispositions.append(
+                SourcePassageDisposition(
+                    source_id=decision.source_id,
+                    status=decision.status,
+                    reason=decision.reason[:500],
+                    url=decision.passage.finding.url,
+                    insight_id=decision.passage.insight.id,
+                )
+            )
     return output, dispositions, issues
 
 
@@ -2214,6 +2297,7 @@ def _validated_passage_measurement(
     *,
     passage: _SourcePassage,
     target: QuantitativeTarget,
+    unit_partition: EvidenceUnitPartitionWire,
 ) -> _PassageMeasurementValidation:
     if not isinstance(raw, dict):
         return _PassageMeasurementValidation(
@@ -2248,6 +2332,15 @@ def _validated_passage_measurement(
         return _PassageMeasurementValidation(
             code="invalid_evidence_unit",
             reason="Measurement evidence-unit identity did not satisfy the contract.",
+        )
+    if unit_partition.status != "disjoint_units":
+        evidence_unit = EvidenceUnitIdentity(
+            status=(
+                "record_level"
+                if unit_partition.status == "single_unit"
+                else "uncertain"
+            ),
+            reason=unit_partition.reason,
         )
     source_record_id, source_identity_status = _source_record_identity(passage.finding)
     evidence_unit_id = _evidence_unit_key(source_record_id, evidence_unit)
@@ -2290,6 +2383,15 @@ def _validated_evidence_unit_identity(raw: object) -> EvidenceUnitIdentity | Non
             cohort=SemanticSlot(**wire.cohort.model_dump()),
             reason=wire.reason,
         )
+    except (ValidationError, ValueError):
+        return None
+
+
+def _validated_evidence_unit_partition(
+    raw: object,
+) -> EvidenceUnitPartitionWire | None:
+    try:
+        return EvidenceUnitPartitionWire.model_validate(raw)
     except (ValidationError, ValueError):
         return None
 
@@ -2393,7 +2495,11 @@ def _validated_semantic_slot(raw: object) -> SemanticSlot | None:
 
 def _required_comparison_axes(target: QuantitativeTarget) -> set[str]:
     """Return target dimensions whose compatibility is necessary for admission."""
-    return set(target.comparison_dimensions)
+    return {
+        field_name
+        for field_name, rule in target.comparison_contract.items()
+        if rule.mode != "unconstrained"
+    }
 
 
 def _derived_semantic_status(
@@ -2410,13 +2516,13 @@ def _derived_semantic_status(
 
     ambiguous_target_axes = [
         field_name
-        for field_name, slot in target.semantic_profile.items()
-        if slot.state == "unknown"
+        for field_name, rule in target.comparison_contract.items()
+        if rule.mode == "unknown"
     ]
     if ambiguous_target_axes:
         return (
             "unknown",
-            "The document target is ambiguous for: "
+            "The direct-comparator scope is ambiguous for: "
             + ", ".join(field_name.replace("_", " ") for field_name in ambiguous_target_axes),
         )
 
@@ -2464,6 +2570,23 @@ def _semantic_profile_json(profile: dict[str, SemanticSlot]) -> str:
     )
 
 
+def _comparison_contract_json(
+    contract: dict[str, ComparisonRule],
+) -> str:
+    return json.dumps(
+        {
+            name: {
+                "mode": rule.mode,
+                "scope": rule.scope,
+                "reason": rule.reason,
+            }
+            for name, rule in contract.items()
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
 def _validated_semantic_profile(raw: object) -> dict[str, SemanticSlot] | None:
     if not isinstance(raw, dict) or set(raw) != set(QUANTITATIVE_SEMANTIC_FIELDS):
         return None
@@ -2486,6 +2609,28 @@ def _validated_semantic_profile(raw: object) -> dict[str, SemanticSlot] | None:
     if profile["measure"].state != "specified":
         return None
     return profile
+
+
+def _validated_comparison_contract(
+    raw: object,
+) -> dict[str, ComparisonRule] | None:
+    """Validate only the typed comparison policy; prose meaning remains model-owned."""
+    if not isinstance(raw, dict) or set(raw) != set(QUANTITATIVE_SEMANTIC_FIELDS):
+        return None
+    try:
+        contract = {
+            field_name: ComparisonRule(**raw[field_name])
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+            if isinstance(raw.get(field_name), dict)
+        }
+    except (TypeError, ValueError):
+        return None
+    if (
+        len(contract) != len(QUANTITATIVE_SEMANTIC_FIELDS)
+        or contract["measure"].mode != "exact"
+    ):
+        return None
+    return contract
 
 
 def _validated_semantic_provenance(
@@ -2553,81 +2698,90 @@ def _measurement_system_prompt(
         for attribute in linked_attributes
     )
     return (
+        "ROLE\n"
         "You extract complete numeric measurements from bounded, source-owned passages "
-        "against one atomic semantic target.\n\n"
-        f"Product class: {intervention_class}. Indication: {indication}.\n"
-        "Linked product fields (retrieval views, not claim owners):\n"
+        "against one atomic semantic target. You interpret prose; you do not decide admission "
+        "or calculate statistics.\n\n"
+        "AUTHORITATIVE TARGET CONTEXT\n"
+        f"- Product class: {intervention_class}\n"
+        f"- Indication: {indication}\n"
+        f"- Document target ID: {target.id}\n"
+        f"- Target unit: {target.unit}\n"
+        f"- Target role: {target.role}\n"
+        f"- Target semantic profile: {_semantic_profile_json(target.semantic_profile)}\n"
+        f"- Direct-comparator contract: {_comparison_contract_json(target.comparison_contract)}\n"
+        "- Linked product fields are retrieval views, not claim owners:\n"
         f"{linked_field_context}\n"
-        f"Document target ID: {target.id}\n"
-        "The target's numeric threshold is intentionally withheld: whether a source value passes "
-        "the target must NEVER affect semantic comparability.\n"
-        f"Target unit: {target.unit}. Target role: {target.role}.\n"
-        f"Target semantic profile: {_semantic_profile_json(target.semantic_profile)}\n"
-        "Every target dimension above is independently grounded in the uploaded document.\n\n"
-        "Each source has an immutable ID and one retained source passage. Return EXACTLY ONE "
-        "source decision for EVERY ID: measurements_found, no_relevant_measurement, or uncertain. "
-        "Do not enumerate every number. Extract only complete statements that measure the target "
-        "or a meaningfully related quantity. Each extracted measurement must contain the shortest "
-        "self-contained exact quote that explicitly connects the number to the measured outcome "
-        "or property and preserves its qualifiers, plus one normalized expression object. "
-        "Also return evidence_unit for the distinct source group that owns the measurement. "
-        "Use status=resolved only when the passage explicitly distinguishes that arm or cohort from "
-        "another non-overlapping comparison arm or cohort in the same source record. Put that identity "
-        "in group and cohort; these labels describe who contributed the observation, not its endpoint, "
-        "timepoint, statistic, or analysis method. Use record_level when the source reports only one "
-        "aggregate group, even when that population is described. Use uncertain when groups may overlap or the passage suggests multiple groups but "
-        "does not identify which one owns the value. Do not invent arm or cohort names. "
-        "expression is your normalized semantic reading of the exact quote. Convert written "
-        "quantities and directional prose into the typed numeric schema without inventing or "
-        "changing the reported magnitude. Use the document "
-        "target unit exactly when the source has the same unit meaning; otherwise retain a concise "
-        "canonical source unit so code excludes it from direct statistics. A dose, exposure "
-        "condition, storage temperature, visit time, follow-up duration, or sample size alone is "
-        "NOT an outcome measurement. For example, 'stored for 6 weeks at 60 C' is not evidence of "
-        "thermostability unless the same contiguous quote also states what stability, potency, or "
-        "performance was retained. Do not import that missing meaning from a title, an Insight, or "
-        "your background knowledge. If the retained passage cannot supply one self-contained exact "
-        "span, return uncertain rather than a measurement. "
-        "Expression kind is point_estimate|range|bound|confidence_interval|count|rate|other|unknown. "
-        "point_estimate/count/rate use value; range/confidence_interval use lower+upper; bound uses "
-        "value+comparator. Never split a range or confidence interval into point estimates. "
-        "Do NOT return an aggregate comparable/contextual label. Instead return ONE "
-        "semantic_assessment. source_ownership.state is yes only when the numeric claim is a result or record fact "
-        "owned by this exact source record. Use no for another study's result quoted as background, "
-        "general background, a protocol assumption, a planned outcome, or an unsupported assertion; "
-        "use unknown when ownership cannot be established. A registry sentence can appear verbatim "
-        "yet still be background rather than a result of that registered study. "
-        f"Inside dimensions return exactly the target-constrained fields: {json.dumps(required_fields)}. "
-        "Do not assess unconstrained fields: they cannot affect this cohort. Each returned field contains source={state,value,other} "
-        "and compatibility={state,reason}. Compatibility yes means the source value is semantically "
-        "compatible with that target "
-        "dimension for direct numeric comparison; it does not require identical wording. no means a "
-        "material conflict. unknown means the retained passage lacks enough context. In particular, "
-        "clinical disease is not the same endpoint as infection or parasitemia, and a follow-up "
-        "window is not automatically the same as a point estimate at its endpoint. The magnitude of "
-        "the number and whether it would meet the hidden target are NEVER relevance criteria. "
-        "Use a concise reason for every no or unknown decision; "
-        "yes decisions may use an empty reason. Do not infer a qualifier absent from the supplied source "
-        "context. Code, not "
-        "you, derives the final cohort disposition from these decisions.\n\n"
-        "Use no_relevant_measurement when the passage contains no relevant complete numeric "
-        "statement. Use uncertain when one may exist but the supplied passage cannot support a "
-        "faithful mapping. Never infer omitted context. Return only the schema-bound response."
+        "The numeric threshold is intentionally withheld. Whether a source value passes it "
+        "must never affect relevance or comparability.\n\n"
+        "SOURCE DECISION\n"
+        "Return exactly one decision for every immutable source ID: measurements_found, "
+        "no_relevant_measurement, or uncertain. Extract only complete statements measuring "
+        "the target or a meaningfully related quantity; do not enumerate every number. Each "
+        "measurement needs the shortest self-contained exact quote preserving the number, "
+        "measured property or outcome, and material qualifiers. If no such exact span exists, "
+        "return uncertain rather than a measurement. Never import missing meaning from a title, "
+        "an Insight, background knowledge, or another source.\n\n"
+        "EVIDENCE-UNIT PARTITION\n"
+        "Classify all measurements from the same supplied source_record together, including "
+        "measurements appearing in different source passages. Return the same partition status "
+        "for every source decision sharing that source_record. Use single_unit "
+        "when they describe one record-level population or are alternative/repeated estimates "
+        "from the same people. Use disjoint_units only when the passage explicitly establishes "
+        "mutually exclusive, non-overlapping arms or cohorts. A parent population and any of its "
+        "subgroups overlap and are never disjoint. Use overlapping_or_uncertain when independence "
+        "cannot be proved from the passage. For disjoint_units, give every measurement a resolved "
+        "evidence_unit identifying its arm/cohort. Otherwise use record_level or uncertain and do "
+        "not assert group/cohort labels. Group/cohort identity describes who contributed the "
+        "observation—not endpoint, timepoint, statistic, or analysis method. Do not invent labels.\n\n"
+        "NUMERIC NORMALIZATION\n"
+        "expression is your semantic normalization of the exact quote. Convert written quantities "
+        "and directional prose without changing magnitude. Use the target unit only for the same "
+        "unit meaning; otherwise retain a concise source unit. Kinds are point_estimate, range, "
+        "bound, confidence_interval, count, rate, other, or unknown. Point estimates/counts/rates "
+        "use value; ranges/confidence intervals use lower and upper; bounds use value and comparator. "
+        "Never split a range or confidence interval. A dose, exposure condition, storage temperature, "
+        "visit time, follow-up duration, or sample size alone is not an outcome measurement. For "
+        "example, 'stored for 6 weeks at 60 C' is not thermostability evidence unless the same quote "
+        "states the retained stability, potency, or performance.\n\n"
+        "SEMANTIC MAPPING\n"
+        "Return one semantic_assessment per measurement. source_ownership=yes only when the claim "
+        "is a result or record fact owned by this source. Use no for another study's result quoted "
+        "as background, general background, an unsupported assertion, or a merely planned outcome; "
+        "use unknown when ownership is unclear. A registered protocol may own an explicit design "
+        "fact such as its stated regimen even without posted outcomes, but it does not own a planned "
+        "outcome result. "
+        f"Return exactly these target-constrained dimensions: {json.dumps(required_fields)}. "
+        "Do not assess unconstrained dimensions. Each dimension contains source={state,value,other} "
+        "and compatibility={state,reason}. yes means direct comparison is semantically valid; no "
+        "means a material conflict; unknown means supplied context is insufficient. Clinical disease "
+        "is not infection or parasitemia, and a follow-up window is not automatically a point estimate "
+        "at its endpoint. Apply each dimension's comparison mode and scope exactly: exact requires "
+        "the same entity-level meaning; compatible permits differences explicitly allowed by the "
+        "scope; unconstrained dimensions are omitted from this task. A different product name is not "
+        "a conflict when the rule is compatible and both products fall within its scope. Numeric "
+        "magnitude is never a relevance criterion. Explain every no or "
+        "unknown concisely; yes may have an empty reason.\n\n"
+        "OUTPUT\n"
+        "Use no_relevant_measurement when no complete relevant statement exists. Use uncertain when "
+        "a measurement may exist but cannot be mapped faithfully. Return only the schema-bound response."
     )
 
 
 def _measurement_user_message(passages: list[_SourcePassage]) -> str:
-    lines = ["Bounded source passages:"]
+    lines = ["BOUNDED SOURCE PASSAGES"]
     for passage in passages:
         finding = passage.finding
         published = finding.published_at.isoformat() if finding.published_at else "unknown"
+        source_record_id, _identity_status = _source_record_identity(finding)
         lines.append(
             f"[source:{passage.id}] "
+            f"source_record={source_record_id} | "
             f"url={finding.url} | lane={finding.excerpt_source_lane or finding.source} | "
             f"published={published} | title={finding.title}"
         )
         lines.append(f"    passage: {passage.text}")
-    lines.append("\nReturn one complete decision for every source passage now.")
+    lines.append("\nOUTPUT REQUIREMENT\nReturn one complete decision for every source passage now.")
     return "\n".join(lines)
 
 
@@ -2662,6 +2816,30 @@ def _source_passages(insights: list[Insight]) -> list[_SourcePassage]:
                 )
             )
     return passages
+
+
+def _source_passage_batches(
+    passages: list[_SourcePassage],
+) -> list[list[_SourcePassage]]:
+    """Pack source records without splitting their passages across model calls."""
+    by_record: dict[str, list[_SourcePassage]] = {}
+    for passage in passages:
+        source_record_id, _identity_status = _source_record_identity(passage.finding)
+        by_record.setdefault(source_record_id, []).append(passage)
+
+    batches: list[list[_SourcePassage]] = []
+    current: list[_SourcePassage] = []
+    current_record_count = 0
+    for record_passages in by_record.values():
+        if current and current_record_count >= SOURCE_BATCH_SIZE:
+            batches.append(current)
+            current = []
+            current_record_count = 0
+        current.extend(record_passages)
+        current_record_count += 1
+    if current:
+        batches.append(current)
+    return batches
 
 
 def _normalize_quote(value: str) -> str:

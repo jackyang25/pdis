@@ -21,6 +21,7 @@ import {
   type Match,
   type Measurement,
   type NumericExpression,
+  type QuantitativeSemanticProfile,
   type QuantitativeTarget,
   type SemanticSlot,
   type ScoutResponse,
@@ -858,13 +859,16 @@ function DocumentTargetReviewCheckpoint({
                 </span>
               </div>
               <dl className="mt-5 grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                {target.comparison_dimensions.map((dimension) => (
+                {comparisonDimensions(target).map((dimension) => (
                   <div key={dimension} className="min-w-0">
                     <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {dimensionLabel(dimension)}
                     </dt>
                     <dd className="mt-0.5 text-xs leading-relaxed text-foreground">
                       {semanticSlotLabel(target.semantic_profile[dimension])}
+                    </dd>
+                    <dd className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                      {comparisonRuleLabel(target.comparison_contract[dimension])}
                     </dd>
                   </div>
                 ))}
@@ -1205,6 +1209,20 @@ function dimensionLabel(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function comparisonDimensions(target: QuantitativeTarget): Array<keyof QuantitativeSemanticProfile> {
+  return (Object.keys(target.comparison_contract) as Array<keyof QuantitativeSemanticProfile>)
+    .filter((dimension) => target.comparison_contract[dimension].mode !== "unconstrained");
+}
+
+function comparisonRuleLabel(
+  rule: QuantitativeTarget["comparison_contract"][keyof QuantitativeSemanticProfile] | undefined,
+): string {
+  if (!rule) return "Comparison scope unavailable";
+  if (rule.mode === "unconstrained") return "Does not control comparison";
+  if (rule.mode === "unknown") return `Scope needs review${rule.reason ? ` · ${rule.reason}` : ""}`;
+  return `${rule.mode === "exact" ? "Exact" : "Compatible"} scope · ${rule.scope}`;
+}
+
 function evidenceUnitLabel(measurement: Measurement): string {
   const labels = [measurement.evidence_unit.group, measurement.evidence_unit.cohort]
     .map(semanticSlotLabel)
@@ -1290,7 +1308,7 @@ function QuantitativeReviewCheckpoint({
     (item) => item.id === score.target_id,
   );
   const dimensions = measurement
-    ? (target?.comparison_dimensions ?? Object.keys(
+    ? (target ? comparisonDimensions(target) : Object.keys(
         measurement.semantic_assessment.dimensions,
       )) as Array<keyof typeof measurement.semantic_assessment.dimensions>
     : [];
@@ -1530,6 +1548,7 @@ function QuantitativeReviewCheckpoint({
             </div>
             {dimensions.map((dimension) => {
               const targetSlot = target?.semantic_profile[dimension];
+              const comparisonRule = target?.comparison_contract[dimension];
               const mapped = measurement.semantic_assessment.dimensions[dimension];
               const compatibility = mapped?.compatibility.state ?? "unknown";
               return (
@@ -1542,7 +1561,14 @@ function QuantitativeReviewCheckpoint({
                   </span>
                   <span className="flex gap-2 text-xs text-foreground">
                     <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground sm:hidden">Target</span>
-                    {semanticSlotLabel(targetSlot)}
+                    <span>
+                      {semanticSlotLabel(targetSlot)}
+                      {comparisonRule && (
+                        <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">
+                          {comparisonRuleLabel(comparisonRule)}
+                        </span>
+                      )}
+                    </span>
                   </span>
                   <span className="flex gap-2 text-xs text-foreground">
                     <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground sm:hidden">Evidence</span>

@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from services.scout import (
     Attribute,
+    ComparisonRule,
     DocumentContextValidation,
     DocumentSpan,
     EvidenceEntity,
@@ -163,6 +164,10 @@ def _target_from_payload(payload) -> QuantitativeTarget:
     raw["semantic_profile"] = {
         name: SemanticSlot(**slot)
         for name, slot in raw["semantic_profile"].items()
+    }
+    raw["comparison_contract"] = {
+        name: ComparisonRule(**rule)
+        for name, rule in raw["comparison_contract"].items()
     }
     raw["semantic_provenance"] = {
         name: [DocumentSpan(**span) for span in spans]

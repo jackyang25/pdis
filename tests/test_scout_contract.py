@@ -8,6 +8,7 @@ from services.chunker import ContentBlock
 from services.scout.contract import validate_result_contract
 from services.scout.models import (
     Attribute,
+    ComparisonRule,
     DocumentContextValidation,
     DocumentSpan,
     EvidenceAssessment,
@@ -15,6 +16,7 @@ from services.scout.models import (
     Insight,
     Match,
     NumericExpression,
+    QUANTITATIVE_SEMANTIC_FIELDS,
     QuantitativeLedger,
     QuantitativeLedgerReview,
     QuantitativeFieldLink,
@@ -201,12 +203,19 @@ class ScoutResultContractTests(unittest.TestCase):
                 role="threshold",
                 quote=shared_span.quote,
                 doc_block_ids=shared_span.block_ids,
-                comparison_dimensions=["measure"],
                 semantic_profile={
                     "measure": SemanticSlot(
                         state="specified",
                         value="injections per regimen",
                     )
+                },
+                comparison_contract={
+                    name: ComparisonRule(
+                        mode="exact" if name == "measure" else "unconstrained",
+                        scope="injections per regimen" if name == "measure" else "",
+                        reason="Fixture comparison rule.",
+                    )
+                    for name in QUANTITATIVE_SEMANTIC_FIELDS
                 },
                 provenance_spans=[shared_span],
                 semantic_provenance={"measure": [shared_span]},

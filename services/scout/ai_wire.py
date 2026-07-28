@@ -68,6 +68,19 @@ class EvidenceUnitIdentityWire(_WireModel):
         return self
 
 
+class EvidenceUnitPartitionWire(_WireModel):
+    """Whether one source record contains independent comparison units."""
+
+    status: Literal["single_unit", "disjoint_units", "overlapping_or_uncertain"]
+    reason: str
+
+    @model_validator(mode="after")
+    def validate_partition(self) -> "EvidenceUnitPartitionWire":
+        if not self.reason:
+            raise ValueError("evidence unit partition requires a reason")
+        return self
+
+
 class NumericExpressionWire(_WireModel):
     kind: Literal[
         "point_estimate",

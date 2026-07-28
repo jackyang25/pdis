@@ -112,7 +112,7 @@ const scout: ScoutResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 34);
+  assert.equal(packed.version, 35);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
@@ -138,7 +138,7 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 34);
+  assert.equal(packed.version, 35);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
@@ -148,7 +148,7 @@ test("Aligner results separate both source documents from the analysis", () => {
 
 test("current Scout export and import preserve the canonical result exactly", () => {
   const packed = packScoutResult(scout);
-  assert.equal(packed.version, 34);
+  assert.equal(packed.version, 35);
   assert.equal(packed.state, "final");
   assert.deepEqual(unpackScoutResult(packed), scout);
 });
@@ -298,9 +298,33 @@ test("current final artifacts with malformed measurements are rejected", () => {
   );
 });
 
+test("current final artifacts cannot omit the direct-comparator contract", () => {
+  const malformed = structuredClone(packScoutResult(scout)) as any;
+  malformed.analysis.quantitative_ledger.targets = [{
+    id: "qt-malformed",
+    comparison_contract: {
+      measure: { mode: "exact", scope: "protective efficacy", reason: "" },
+    },
+  }];
+
+  assert.throws(
+    () => unpackScoutResult(malformed),
+    /incomplete comparison contract/,
+  );
+});
+
 test("version 28 Scout calibration is viewable but predates evidence-unit identity", () => {
   const previous = structuredClone(packScoutResult(scout)) as any;
   previous.version = 28;
+  previous.analysis.conformity[0].calibration_status = "sufficient";
+
+  const imported = unpackScoutResult(previous);
+  assert.equal(imported.conformity[0].calibration_status, "legacy_unverified");
+});
+
+test("version 34 calibration predates the direct-comparator contract", () => {
+  const previous = structuredClone(packScoutResult(scout)) as any;
+  previous.version = 34;
   previous.analysis.conformity[0].calibration_status = "sufficient";
 
   const imported = unpackScoutResult(previous);
@@ -545,6 +569,10 @@ test("version 14 Scout targets migrate onto the canonical variable contract", ()
   assert.equal(
     imported.quantitative_ledger.targets[0].semantic_profile.measure.state,
     "specified",
+  );
+  assert.equal(
+    imported.quantitative_ledger.targets[0].comparison_contract.measure.mode,
+    "exact",
   );
   assert.deepEqual(imported.quantitative_ledger.targets[0].provenance_spans, [{
     quote: "Target efficacy is at least 80%.",

@@ -14,6 +14,7 @@ from typing import Any
 
 from .ai_wire import (
     EvidenceUnitIdentityWire,
+    EvidenceUnitPartitionWire,
     NumericExpressionWire,
     SemanticSlotWire,
     TargetExpressionWire,
@@ -21,6 +22,7 @@ from .ai_wire import (
     inline_json_schema,
 )
 from .models import (
+    COMPARISON_MATCH_MODES,
     EVIDENCE_DOMAINS,
     ENTITY_TYPES,
     QUANTITATIVE_SEMANTIC_FIELDS,
@@ -88,6 +90,7 @@ _NUMERIC_EXPRESSION = inline_json_schema(NumericExpressionWire)
 _TARGET_EXPRESSION = inline_json_schema(TargetExpressionWire)
 _TERNARY = inline_json_schema(TernaryDecisionWire)
 _EVIDENCE_UNIT = inline_json_schema(EvidenceUnitIdentityWire)
+_EVIDENCE_UNIT_PARTITION = inline_json_schema(EvidenceUnitPartitionWire)
 
 
 def context_validation(allowed_block_ids: list[str]) -> AIContract:
@@ -271,15 +274,25 @@ def document_quantitative_ledger_batch(
             for field_name in QUANTITATIVE_SEMANTIC_FIELDS
         }
     )
+    comparison_contract = _object(
+        {
+            field_name: _object(
+                {
+                    "mode": _string(enum=sorted(COMPARISON_MATCH_MODES)),
+                    "scope": _string(),
+                    "reason": _string(),
+                }
+            )
+            for field_name in QUANTITATIVE_SEMANTIC_FIELDS
+        }
+    )
     document_target = _object(
         {
             "quote": _string(),
             "expression": _TARGET_EXPRESSION,
             "role": _string(enum=["threshold", "optimal", "other"]),
-            "comparison_dimensions": _array(
-                _string(enum=list(QUANTITATIVE_SEMANTIC_FIELDS))
-            ),
             "semantic_profile": document_semantic_profile,
+            "comparison_contract": comparison_contract,
             "field_links": _array(
                 _object(
                     {
@@ -372,11 +385,13 @@ def evidence_review_batch(
         _object(
             {
                 "group_id": _string(enum=list(dict.fromkeys(allowed_group_ids))),
-                "decision": _string(enum=["admit", "reject", "flag"]),
-                "selected_candidate_id": _string(
-                    enum=["", *list(dict.fromkeys(allowed_candidate_ids))]
-                ),
-                "reason": _string(),
+                "decisions": _array(_object({
+                    "candidate_id": _string(
+                        enum=list(dict.fromkeys(allowed_candidate_ids))
+                    ),
+                    "decision": _string(enum=["admit", "reject", "flag"]),
+                    "reason": _string(),
+                })),
             }
         ),
     )
@@ -427,6 +442,7 @@ def source_measurement_batch(
                 ]
             ),
             "reason": _string(),
+            "evidence_unit_partition": _EVIDENCE_UNIT_PARTITION,
             "measurements": _array(measurement),
         }
     )

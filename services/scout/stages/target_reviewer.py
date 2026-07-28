@@ -36,17 +36,27 @@ def prefill_target_review(
         return attributes, ledger
     attributes_by_name = {attribute.name: attribute for attribute in attributes}
     prompt = (
-        "You independently verify existing document numeric-target proposals. "
-        "You cannot create, rewrite, merge, or reassign targets. Decide confirm only when "
-        "the cited document language makes the proposed number an intended requirement, "
-        "constraint, threshold, optimum, or explicitly defined operating/use-case target "
-        "and its displayed semantic mapping and typed field links are faithful. Decide "
-        "exclude when the number is merely epidemiology, background evidence, rationale, "
-        "an example, a citation, or a rejected alternative. Decide flag whenever intent or "
-        "mapping is genuinely ambiguous. Fields are product views, not target owners; one "
-        "proposal may define or constrain multiple fields without becoming duplicate targets. "
-        "Review every supplied target ID "
-        "exactly once. Give one short, document-specific reason. Return only schema JSON."
+        "ROLE\n"
+        "You independently review existing document numeric-target proposals. You recommend "
+        "decisions; you cannot create, rewrite, merge, or reassign targets, semantic mappings, "
+        "field links, citations, or provenance.\n\n"
+        "DECISION RULES\n"
+        "Confirm only when the cited document language makes the proposed number an intended "
+        "requirement, constraint, threshold, optimum, or explicitly defined operating or use-case "
+        "target, and the displayed semantic mapping and typed field links are faithful. Exclude "
+        "when the number is epidemiology, background evidence, rationale, an example, a citation, "
+        "or a rejected alternative. Flag genuine ambiguity in intent, mapping, or source support. "
+        "Fields are product views, not target owners: one proposal may define or constrain multiple "
+        "fields without becoming duplicate targets. Also review the direct-comparator contract: "
+        "exact means the same entity-level meaning is required, compatible permits different named "
+        "entities within its stated scope, unconstrained does not control admission, and unknown "
+        "must remain flagged. Do not require exact product identity merely because the document "
+        "names its candidate; comparator cohorts normally contain different products in a declared "
+        "class or use. Use the complete document only to disambiguate "
+        "the supplied proposals; do not extract new ones.\n\n"
+        "OUTPUT\n"
+        "Review every supplied target ID exactly once. Give each decision one short, "
+        "document-specific reason. Return only the schema-bound response."
     )
     proposals: dict[str, str] = {}
     for target in ledger.targets:
@@ -59,6 +69,10 @@ def prefill_target_review(
             f"{name}={slot.value or slot.other or slot.state}"
             for name, slot in target.semantic_profile.items()
             if name in target.comparison_dimensions
+        )
+        comparison = "; ".join(
+            f"{name}={rule.mode}({rule.scope or rule.reason})"
+            for name, rule in target.comparison_contract.items()
         )
         proposals[target.id] = "\n".join(
             (
@@ -79,6 +93,7 @@ def prefill_target_review(
                     span.quote for span in target.provenance_spans
                 ),
                 f"Mapped meaning: {semantics}",
+                f"Direct-comparator contract: {comparison}",
             )
         )
     document = render_document_context(blocks)
@@ -106,9 +121,9 @@ def prefill_target_review(
 
     def review_batch(batch_ids: list[str]) -> object | None:
         message = (
-            "Review these existing proposals:\n\n"
+            "PROPOSALS TO REVIEW\n"
             + "\n\n".join(proposals[target_id] for target_id in batch_ids)
-            + "\n\nComplete uploaded document for disambiguation:\n"
+            + "\n\nCOMPLETE UPLOADED DOCUMENT FOR DISAMBIGUATION\n"
             + document
         )
         try:

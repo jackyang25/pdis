@@ -581,6 +581,7 @@ class InspectionResultOut(BaseModel):
     consistency_status: Literal[
         "complete", "partial", "failed", "not_applicable", "unknown"
     ] = "unknown"
+    grading_status: Literal["complete", "unknown"] = "unknown"
     org: str | None = None
     source_type: str | None = None
     intervention_class: str | None = None

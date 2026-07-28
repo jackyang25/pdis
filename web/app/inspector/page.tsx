@@ -1,43 +1,54 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, FileText } from "lucide-react";
+import { Ask } from "@/components/assistant/ask";
+import { CollapsibleCard } from "@/components/collapsible-card";
+import { ConfigurationFields } from "@/components/configuration-fields";
+import { FinalResultActions } from "@/components/final-result-actions";
+import { HeaderGuard } from "@/components/header-guard";
+import { LabeledItem } from "@/components/labeled-item";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
-import { ConfigurationFields } from "@/components/configuration-fields";
-import { HeaderGuard } from "@/components/header-guard";
 import { Badge } from "@/components/ui/badge";
-import { DownloadButton } from "@/components/download-button";
-import { LabeledItem } from "@/components/labeled-item";
-import { CollapsibleCard } from "@/components/collapsible-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  runInspector,
   DIMENSION_NAMES,
   GRADE_LABELS,
-  type CrossSectionFinding,
+  runInspector,
   type ContentBlock,
+  type CrossSectionFinding,
   type DimensionName,
   type Dimensions,
+  type Grade,
   type Header,
   type InspectorResponse,
   type SectionGrade,
   type VariableGrade,
 } from "@/lib/api";
-import { Ask } from "@/components/assistant/ask";
+import {
+  inspectorResultFilename,
+  isInspectorResultFinal,
+  packInspectorResult,
+  unpackInspectorResult,
+} from "@/lib/result-file";
 import { useInspectorSession } from "@/lib/session";
-import { packInspectorResult, unpackInspectorResult } from "@/lib/result-file";
+import { cn } from "@/lib/utils";
 
 const INSPECTOR_STEPS = [
   { key: "parse", label: "Parsing document" },
-  { key: "label", label: "Labeling sections" },
-  { key: "grade", label: "Grading sections" },
-  { key: "consistency", label: "Checking consistency" },
+  { key: "label", label: "Mapping rubric sections" },
+  { key: "grade", label: "Assessing rubric variables" },
+  { key: "consistency", label: "Checking cross-section consistency" },
 ];
 
 export default function InspectorPage() {
   return (
     <>
-      <PageHeader title="Inspector" description="Check completeness, adherence, rigor, and cross-section consistency against the selected rubric." />
+      <PageHeader
+        title="Inspector"
+        description="Check completeness, adherence, rigor, and cross-section consistency against the selected rubric."
+      />
       <HeaderGuard>
         {(header, ready) => <InspectorView header={header as Header} ready={ready} />}
       </HeaderGuard>
@@ -59,6 +70,11 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
     setError,
   } = useInspectorSession();
   const importInputRef = useRef<HTMLInputElement>(null);
+  const [showRunPanel, setShowRunPanel] = useState(!result);
+
+  useEffect(() => {
+    if (result) setShowRunPanel(false);
+  }, [result]);
 
   async function handleRun(file: File) {
     setBusy(true);
@@ -66,20 +82,18 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
     setStage(null);
     setProgress(null);
     try {
-      const res = await runInspector(file, header, (s, p) => {
-        setStage(s);
-        setProgress(p ?? null);
+      const response = await runInspector(file, header, (nextStage, nextProgress) => {
+        setStage(nextStage);
+        setProgress(nextProgress ?? null);
       });
-      setResult(res);
-    } catch (err) {
-      setError((err as Error).message);
+      setResult(response);
+    } catch (runError) {
+      setError((runError as Error).message);
     } finally {
       setBusy(false);
     }
   }
 
-  // Re-open a previously downloaded inspection and
-  // render it - no re-run, no backend call.
   async function handleImport(file: File) {
     setError(null);
     try {
@@ -88,204 +102,268 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
         throw new Error("not an Inspector result file");
       }
       setStage(null);
+      setProgress(null);
       setResult(parsed);
-    } catch (err) {
-      setError(`Could not import result: ${(err as Error).message}`);
+    } catch (importError) {
+      setError(`Could not import result: ${(importError as Error).message}`);
     }
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <RunPanel
-        configuration={<ConfigurationFields />}
-        accept=".docx,.pdf,.pptx"
-        busy={busy}
-        onRun={handleRun}
-        steps={INSPECTOR_STEPS}
-        currentStage={stage}
-        progress={progress}
-        runDisabled={!ready}
-        hint={ready ? undefined : "Complete the configuration to run."}
-        extraControls={
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>Or view a previously downloaded result:</span>
-            <button
-              type="button"
-              onClick={() => importInputRef.current?.click()}
-              disabled={busy}
-              className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
-            >
-              Import JSON
-            </button>
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleImport(f);
-                e.target.value = "";
-              }}
-            />
-          </div>
-        }
-      />
+      {(!result || showRunPanel) && (
+        <RunPanel
+          configuration={<ConfigurationFields />}
+          accept=".docx,.pdf,.pptx"
+          busy={busy}
+          onRun={handleRun}
+          steps={INSPECTOR_STEPS}
+          currentStage={stage}
+          progress={progress}
+          runDisabled={!ready}
+          hint={ready ? undefined : "Complete the configuration to run."}
+          extraControls={
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>Or view a previously downloaded result:</span>
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                disabled={busy}
+                className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
+              >
+                Import JSON
+              </button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) handleImport(file);
+                  event.target.value = "";
+                }}
+              />
+            </div>
+          }
+        />
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
       {result && (
-        <>
-          <OverallCard result={result} />
-          <CrossSectionCard
-            findings={result.inspection.cross_section_findings ?? []}
-            blocks={result.inspection.blocks}
-            status={result.inspection.consistency_status}
-          />
-          <SectionsList
-            sections={result.inspection.section_grades}
-            blocks={result.inspection.blocks}
-          />
-        </>
+        <InspectionResultView
+          result={result}
+          onNewAnalysis={() => setShowRunPanel(true)}
+        />
       )}
       {result && <Ask resultType="inspector" result={result.inspection} />}
     </div>
   );
 }
 
-function OverallCard({ result }: { result: InspectorResponse }) {
-  const dims = result.inspection.dimensions;
+function InspectionResultView({
+  result,
+  onNewAnalysis,
+}: {
+  result: InspectorResponse;
+  onNewAnalysis: () => void;
+}) {
+  const inspection = result.inspection;
+  const final = isInspectorResultFinal(result);
+  const variableCount = inspection.section_grades.reduce(
+    (total, section) => total + section.variable_grades.length,
+    0,
+  );
+  const consistencySummary = inspection.cross_section_findings.length > 0
+    ? `${inspection.cross_section_findings.length} cross-section conflicts`
+    : inspection.consistency_status === "complete"
+      ? "consistency checked"
+      : inspection.consistency_status === "not_applicable"
+        ? "consistency not applicable"
+        : inspection.consistency_status === "partial"
+          ? "bounded consistency check"
+          : "consistency incomplete";
+  const subtitle = [
+    `${inspection.section_grades.length} rubric sections`,
+    variableCount > 0 ? `${variableCount} variables` : null,
+    consistencySummary,
+  ].filter(Boolean).join(" · ");
+
   return (
-    <div className="rounded-lg border border-border bg-card px-5 py-5">
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
-        <div>
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">
-            Overall grades
-          </div>
-          <div className="mt-1 font-mono text-sm">{result.inspection.doc_id}</div>
-        </div>
-        <DownloadButton
-          filename={`${result.inspection.doc_id}_inspection.json`}
-          data={packInspectorResult(result)}
-          format="json"
-          label="Download JSON"
+    <CollapsibleCard
+      title={inspection.doc_id || "Inspection result"}
+      subtitle={subtitle}
+      defaultOpen
+      contentClassName="px-0 py-0 sm:px-0"
+      trailing={
+        <FinalResultActions
+          onNewAnalysis={onNewAnalysis}
+          download={final ? {
+              filename: inspectorResultFilename(result),
+              data: packInspectorResult(result),
+            } : undefined}
         />
-      </div>
-      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {DIMENSION_NAMES.map((d) => (
-          <DimensionTile key={d} name={d} grade={dims[d].grade} />
-        ))}
-      </div>
-      {result.inspection.top_issues.length > 0 && (
-        <div className="mt-5 border-t border-border pt-4">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Priority document issues
-          </p>
-          <ul className="mt-2 space-y-1.5 text-sm text-foreground">
-            {result.inspection.top_issues.map((issue) => (
-              <li key={issue} className="flex gap-2 leading-5">
-                <span className="text-muted-foreground">·</span>
+      }
+    >
+      {!final && (
+        <div className="border-b border-border bg-amber-500/[0.05] px-5 py-3 text-sm text-amber-800 dark:text-amber-300 sm:px-6">
+          This imported legacy result does not carry Inspector&apos;s final grading contract. It remains readable but cannot be re-exported as a current final result.
+        </div>
+      )}
+      <Tabs defaultValue="overview" className="w-full">
+        <div className="border-b border-border px-5 pt-2 sm:px-6">
+          <TabsList className="w-full justify-start">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="sections">Sections</TabsTrigger>
+            <TabsTrigger value="consistency">Consistency</TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="overview" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
+          <Overview inspection={inspection} />
+        </TabsContent>
+        <TabsContent value="sections" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
+          <SectionsList sections={inspection.section_grades} blocks={inspection.blocks} />
+        </TabsContent>
+        <TabsContent value="consistency" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
+          <ConsistencyView
+            findings={inspection.cross_section_findings}
+            blocks={inspection.blocks}
+            status={inspection.consistency_status}
+          />
+        </TabsContent>
+      </Tabs>
+    </CollapsibleCard>
+  );
+}
+
+function Overview({ inspection }: { inspection: InspectorResponse["inspection"] }) {
+  return (
+    <div className="space-y-6">
+      <section>
+        <SectionHeading
+          title="Overall assessment"
+          description="Independent document-level rollups across the authored rubric."
+        />
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+          {DIMENSION_NAMES.map((dimension) => (
+            <DimensionTile
+              key={dimension}
+              name={dimension}
+              grade={inspection.dimensions[dimension].grade}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <SectionHeading
+          title="Rubric map"
+          description="Each row is one required section; color is only a reading aid for its letter grade."
+        />
+        <GradeMatrix sections={inspection.section_grades} />
+      </section>
+
+      <section>
+        <SectionHeading
+          title="Priority document issues"
+          description="The most consequential rubric gaps, ordered deterministically from the section assessments."
+        />
+        {inspection.top_issues.length > 0 ? (
+          <ol className="mt-3 divide-y divide-border rounded-lg border border-border">
+            {inspection.top_issues.map((issue, index) => (
+              <li key={`${issue}-${index}`} className="flex gap-3 px-4 py-3 text-sm leading-6">
+                <span className="font-mono text-xs text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
                 <span>{issue}</span>
               </li>
             ))}
-          </ul>
-        </div>
-      )}
+          </ol>
+        ) : (
+          <EmptyState text="No priority issues were identified." />
+        )}
+      </section>
     </div>
   );
 }
 
-function DimensionTile({ name, grade }: { name: DimensionName; grade: string }) {
+function SectionHeading({ title, description }: { title: string; description: string }) {
   return (
-    <div className="rounded-md border border-border bg-muted/30 px-4 py-3">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <div>
+      <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function DimensionTile({ name, grade }: { name: DimensionName; grade: Grade }) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-4">
+      <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
         {name}
       </div>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className="font-mono text-2xl font-semibold tabular-nums">{grade}</span>
-        <span className="text-xs text-muted-foreground">{GRADE_LABELS[grade] ?? ""}</span>
+      <div className="mt-2 flex items-baseline gap-3">
+        <span className={cn("font-mono text-3xl font-semibold tabular-nums", GRADE_TEXT[grade])}>
+          {grade}
+        </span>
+        <span className="text-xs leading-5 text-muted-foreground">{GRADE_LABELS[grade]}</span>
       </div>
     </div>
   );
 }
 
-function CrossSectionCard({
-  findings,
-  blocks,
-  status,
-}: {
-  findings: CrossSectionFinding[];
-  blocks: ContentBlock[];
-  status: "complete" | "partial" | "failed" | "not_applicable" | "unknown";
-}) {
-  if (findings.length === 0) {
-    if (status === "failed" || status === "unknown" || status === "partial") {
-      return (
-        <div className="rounded-lg border border-border bg-muted/20 px-5 py-4 text-sm text-muted-foreground">
-          {status === "failed"
-            ? "Cross-section consistency could not be completed; section grades remain available."
-            : status === "partial"
-              ? "No conflict was identified in the bounded cross-section context; the document exceeded full-pass context."
-              : "Cross-section consistency status is unavailable in this saved result."}
-        </div>
-      );
-    }
-    return null;
-  }
-  const blocksById = new Map(blocks.map((block) => [block.id, block]));
+function GradeMatrix({ sections }: { sections: SectionGrade[] }) {
   return (
-    <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.04] px-5 py-5">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
-          Cross-section consistency
-        </span>
-        <span className="text-xs text-muted-foreground">
-          {findings.length} conflict{findings.length === 1 ? "" : "s"} spanning multiple sections
-          {status === "partial" ? " · bounded document context" : ""}
-        </span>
-      </div>
-      <ul className="mt-3 flex flex-col gap-3">
-        {findings.map((f, idx) => (
-          <li key={idx} className="rounded-md border border-border bg-card px-4 py-3">
-            <p className="text-sm leading-relaxed text-foreground">{f.description}</p>
-            {f.sections.length > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {f.sections.map((s) => (
-                  <Badge key={s} variant="outline">
-                    {s}
-                  </Badge>
-                ))}
-              </div>
-            )}
-            {f.recommendation && (
-              <p className="mt-2 border-l-2 border-amber-500/50 pl-3 text-xs leading-relaxed text-muted-foreground">
-                {f.recommendation}
-              </p>
-            )}
-            {f.block_ids.length > 0 && (
-              <BlockTrace blockIds={f.block_ids} blocksById={blocksById} />
-            )}
-          </li>
+    <div className="mt-3 overflow-x-auto rounded-lg border border-border">
+      <div className="grid min-w-[38rem] grid-cols-[minmax(11rem,1fr)_repeat(3,minmax(6rem,0.32fr))] border-b border-border bg-muted/30 px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span>Section</span>
+        {DIMENSION_NAMES.map((dimension) => (
+          <span key={dimension} className="text-center capitalize">{dimension}</span>
         ))}
-      </ul>
+      </div>
+      <div className="divide-y divide-border">
+        {sections.map((section) => (
+          <div
+            key={section.section_name}
+            className="grid min-w-[38rem] grid-cols-[minmax(11rem,1fr)_repeat(3,minmax(6rem,0.32fr))] items-center px-4 py-2.5"
+          >
+            <div className="min-w-0 pr-4">
+              <p className="truncate text-sm font-medium">{section.section_name}</p>
+              {!section.is_present && <p className="text-xs text-muted-foreground">Not present</p>}
+            </div>
+            {DIMENSION_NAMES.map((dimension) => {
+              const grade = section.dimensions[dimension].grade;
+              return (
+                <div key={dimension} className="flex justify-center">
+                  <span
+                    title={GRADE_LABELS[grade]}
+                    className={cn(
+                      "inline-flex h-7 min-w-10 items-center justify-center rounded-md px-2 font-mono text-xs font-semibold",
+                      GRADE_SURFACE[grade],
+                    )}
+                  >
+                    {grade}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-function SectionsList({
-  sections,
-  blocks,
-}: {
-  sections: SectionGrade[];
-  blocks: ContentBlock[];
-}) {
-  const blocksById = new Map(blocks.map((block) => [block.id, block]));
+function SectionsList({ sections, blocks }: { sections: SectionGrade[]; blocks: ContentBlock[] }) {
+  const blocksById = useMemo(
+    () => new Map(blocks.map((block) => [block.id, block])),
+    [blocks],
+  );
   return (
-    <div className="flex flex-col gap-3">
+    <div className="space-y-3">
+      <SectionHeading
+        title="Section assessments"
+        description="Open a section to inspect variable-level issues, recommendations, and exact document lineage."
+      />
       {sections.map((section) => (
-        <SectionCard
-          key={section.section_name}
-          section={section}
-          blocksById={blocksById}
-        />
+        <SectionCard key={section.section_name} section={section} blocksById={blocksById} />
       ))}
     </div>
   );
@@ -301,33 +379,28 @@ function SectionCard({
   return (
     <CollapsibleCard
       title={section.section_name}
-      subtitle={section.is_present ? undefined : "Missing"}
+      subtitle={section.is_present ? undefined : "Required section not found"}
       trailing={<DimensionStrip dimensions={section.dimensions} />}
       defaultOpen={false}
     >
       {section.missing_variables.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-muted-foreground">Missing variables:</span>
-          {section.missing_variables.map((v) => (
-            <Badge key={v} variant="outline">
-              {v}
-            </Badge>
-          ))}
+        <div className="mb-4 rounded-md border border-border bg-muted/20 px-3 py-2.5">
+          <p className="text-xs text-muted-foreground">Required variables not stated</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {section.missing_variables.map((variable) => (
+              <Badge key={variable} variant="outline">{variable}</Badge>
+            ))}
+          </div>
         </div>
       )}
-
-      {/* Prose sections show their own dimension issues here.
-          Variable-bearing sections delegate detail to variables below. */}
-      {section.variable_grades.length === 0 && (
+      {section.variable_grades.length === 0 ? (
         <DimensionDetails dimensions={section.dimensions} />
-      )}
-
-      {section.variable_grades.length > 0 && (
-        <ul className="flex flex-col gap-3">
-          {section.variable_grades.map((v) => (
-            <VariableRow key={v.variable_name} variable={v} blocksById={blocksById} />
+      ) : (
+        <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+          {section.variable_grades.map((variable) => (
+            <VariableRow key={variable.variable_name} variable={variable} blocksById={blocksById} />
           ))}
-        </ul>
+        </div>
       )}
     </CollapsibleCard>
   );
@@ -341,18 +414,86 @@ function VariableRow({
   blocksById: Map<string, ContentBlock>;
 }) {
   return (
-    <li className="rounded-md bg-secondary/40 px-4 py-3">
-      <div className="flex items-start justify-between gap-4">
-        <div className="text-sm font-medium">{variable.variable_name}</div>
+    <div className="px-4 py-4">
+      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+        <p className="text-sm font-medium">{variable.variable_name}</p>
         <DimensionStrip dimensions={variable.dimensions} compact />
       </div>
-
       <DimensionDetails dimensions={variable.dimensions} />
       {variable.block_ids.length > 0 && (
         <BlockTrace blockIds={variable.block_ids} blocksById={blocksById} />
       )}
-    </li>
+    </div>
   );
+}
+
+function ConsistencyView({
+  findings,
+  blocks,
+  status,
+}: {
+  findings: CrossSectionFinding[];
+  blocks: ContentBlock[];
+  status: InspectorResponse["inspection"]["consistency_status"];
+}) {
+  const blocksById = useMemo(
+    () => new Map(blocks.map((block) => [block.id, block])),
+    [blocks],
+  );
+  if (findings.length === 0) {
+    const complete = status === "complete" || status === "not_applicable";
+    return (
+      <div className="rounded-lg border border-border bg-muted/15 px-5 py-5">
+        <div className="flex items-start gap-3">
+          {complete ? (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
+          ) : (
+            <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
+          )}
+          <div>
+            <p className="text-sm font-medium">
+              {complete ? "No cross-section conflicts identified" : "Consistency coverage is incomplete"}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {consistencyDescription(status)}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <SectionHeading
+        title={`${findings.length} cross-section conflict${findings.length === 1 ? "" : "s"}`}
+        description={consistencyDescription(status)}
+      />
+      {findings.map((finding, index) => (
+        <article key={`${finding.description}-${index}`} className="rounded-lg border border-border p-4">
+          <p className="text-sm leading-6">{finding.description}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {finding.sections.map((section) => (
+              <Badge key={section} variant="outline">{section}</Badge>
+            ))}
+          </div>
+          {finding.recommendation && (
+            <div className="mt-3">
+              <LabeledItem kind="recommendation">{finding.recommendation}</LabeledItem>
+            </div>
+          )}
+          <BlockTrace blockIds={finding.block_ids} blocksById={blocksById} />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function consistencyDescription(status: InspectorResponse["inspection"]["consistency_status"]): string {
+  if (status === "complete") return "The complete retained document context was checked across mapped sections.";
+  if (status === "partial") return "The document exceeded the full-pass context bound; findings reflect the retained section-balanced context.";
+  if (status === "failed") return "The consistency pass did not complete; section and variable grades remain valid.";
+  if (status === "not_applicable") return "Fewer than two mapped sections were available for a cross-section comparison.";
+  return "This saved result does not record consistency-pass completion.";
 }
 
 function BlockTrace({
@@ -363,17 +504,18 @@ function BlockTrace({
   blocksById: Map<string, ContentBlock>;
 }) {
   return (
-    <details className="mt-3 text-[11px] text-muted-foreground">
-      <summary className="w-fit cursor-pointer select-none hover:text-foreground">
-        Trace · {blockIds.length} source block{blockIds.length === 1 ? "" : "s"}
+    <details className="group mt-3 overflow-hidden rounded-md border border-border bg-muted/10 text-xs">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 font-medium text-muted-foreground transition-colors hover:text-foreground">
+        <FileText className="h-3.5 w-3.5" />
+        View {blockIds.length} source block{blockIds.length === 1 ? "" : "s"}
       </summary>
-      <div className="mt-2 space-y-2 border-l border-border pl-3">
+      <div className="divide-y divide-border border-t border-border">
         {blockIds.map((blockId) => {
           const block = blocksById.get(blockId);
           return (
-            <div key={blockId}>
-              <p className="font-mono text-[10px]">{blockId}</p>
-              <p className="mt-0.5 line-clamp-4 leading-5">
+            <div key={blockId} className="px-3 py-3">
+              <p className="font-mono text-[10px] text-muted-foreground">{blockId}</p>
+              <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-foreground/85">
                 {block?.content || "Visual source block"}
               </p>
             </div>
@@ -384,39 +526,19 @@ function BlockTrace({
   );
 }
 
-const GRADE_COLOR: Record<string, string> = {
-  A: "text-emerald-600 dark:text-emerald-400",
-  B: "text-emerald-700 dark:text-emerald-300",
-  C: "text-amber-600 dark:text-amber-400",
-  D: "text-orange-600 dark:text-orange-400",
-  F: "text-red-600 dark:text-red-400",
-  "N/A": "text-muted-foreground",
-};
-
-function DimensionStrip({
-  dimensions,
-  compact = false,
-}: {
-  dimensions: Dimensions;
-  compact?: boolean;
-}) {
+function DimensionStrip({ dimensions, compact = false }: { dimensions: Dimensions; compact?: boolean }) {
   return (
-    <div
-      className={`flex shrink-0 items-center gap-3 whitespace-nowrap ${
-        compact ? "text-xs" : "text-sm"
-      }`}
-    >
-      {DIMENSION_NAMES.map((d, idx) => {
-        const g = dimensions[d].grade;
+    <div className={cn("flex flex-wrap items-center gap-2", compact ? "text-xs" : "text-sm")}>
+      {DIMENSION_NAMES.map((dimension) => {
+        const grade = dimensions[dimension].grade;
         return (
-          <span key={d} className="flex items-center gap-1.5" title={GRADE_LABELS[g] ?? g}>
-            {idx > 0 && <span className="text-muted-foreground">·</span>}
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {d}
-            </span>
-            <span className={`font-mono font-semibold tabular-nums ${GRADE_COLOR[g] ?? ""}`}>
-              {g}
-            </span>
+          <span
+            key={dimension}
+            title={`${dimension}: ${GRADE_LABELS[grade]}`}
+            className="inline-flex items-center gap-1.5 rounded-md bg-muted/40 px-2 py-1"
+          >
+            <span className="text-[10px] capitalize text-muted-foreground">{dimension}</span>
+            <span className={cn("font-mono text-xs font-semibold", GRADE_TEXT[grade])}>{grade}</span>
           </span>
         );
       })}
@@ -425,52 +547,64 @@ function DimensionStrip({
 }
 
 function DimensionDetails({ dimensions }: { dimensions: Dimensions }) {
-  const anyContent =
-    DIMENSION_NAMES.some(
-      (d) => dimensions[d].issues.length > 0 || dimensions[d].recommendation,
-    );
-  if (!anyContent) return null;
-
+  const dimensionsWithContent = DIMENSION_NAMES.filter(
+    (dimension) => dimensions[dimension].issues.length > 0 || dimensions[dimension].recommendation,
+  );
+  if (dimensionsWithContent.length === 0) return null;
   return (
-    <div className="mt-4">
-      <Tabs defaultValue={DIMENSION_NAMES[0]}>
-        <TabsList>
-          {DIMENSION_NAMES.map((d) => {
-            const dg = dimensions[d];
-            const count = dg.issues.length + (dg.recommendation ? 1 : 0);
-            return (
-              <TabsTrigger key={d} value={d}>
-                <span className="capitalize">{d}</span>
-                {count > 0 && (
-                  <span className="ml-1.5 text-[10px] text-muted-foreground">{count}</span>
+    <Tabs defaultValue={dimensionsWithContent[0]} className="mt-4">
+      <TabsList>
+        {DIMENSION_NAMES.map((dimension) => (
+          <TabsTrigger key={dimension} value={dimension} className="capitalize">
+            {dimension}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      {DIMENSION_NAMES.map((dimension) => {
+        const item = dimensions[dimension];
+        return (
+          <TabsContent key={dimension} value={dimension}>
+            {item.issues.length === 0 && !item.recommendation ? (
+              <p className="text-xs text-muted-foreground">No issues on this dimension.</p>
+            ) : (
+              <div className="space-y-2.5">
+                {item.issues.map((issue, index) => (
+                  <LabeledItem key={`${dimension}-${index}`} kind="issue">{issue}</LabeledItem>
+                ))}
+                {item.recommendation && (
+                  <LabeledItem kind="recommendation">{item.recommendation}</LabeledItem>
                 )}
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-        {DIMENSION_NAMES.map((d) => {
-          const dg = dimensions[d];
-          const empty = dg.issues.length === 0 && !dg.recommendation;
-          return (
-            <TabsContent key={d} value={d}>
-              {empty ? (
-                <p className="text-xs text-muted-foreground">No items on this dimension.</p>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {dg.issues.map((issue, idx) => (
-                    <LabeledItem key={`${d}-i-${idx}`} kind="issue">
-                      {issue}
-                    </LabeledItem>
-                  ))}
-                  {dg.recommendation && (
-                    <LabeledItem kind="recommendation">{dg.recommendation}</LabeledItem>
-                  )}
-                </div>
-              )}
-            </TabsContent>
-          );
-        })}
-      </Tabs>
+              </div>
+            )}
+          </TabsContent>
+        );
+      })}
+    </Tabs>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="mt-3 rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+      {text}
     </div>
   );
 }
+
+const GRADE_TEXT: Record<Grade, string> = {
+  A: "text-emerald-700 dark:text-emerald-300",
+  B: "text-emerald-700 dark:text-emerald-300",
+  C: "text-amber-700 dark:text-amber-300",
+  D: "text-orange-700 dark:text-orange-300",
+  F: "text-red-700 dark:text-red-300",
+  "N/A": "text-muted-foreground",
+};
+
+const GRADE_SURFACE: Record<Grade, string> = {
+  A: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  B: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  C: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  D: "bg-orange-500/10 text-orange-700 dark:text-orange-300",
+  F: "bg-red-500/10 text-red-700 dark:text-red-300",
+  "N/A": "bg-muted text-muted-foreground",
+};

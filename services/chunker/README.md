@@ -25,6 +25,10 @@ never enter citations. DOCX preserves body order and embedded images, PDF
 preserves page metadata, and PPTX retains slide text, tables, notes, positions,
 and rendered slide images when available.
 
+Section mapping uses a schema-bound closed taxonomy. Every parsed block must be
+labeled exactly once; unknown, duplicate, or omitted block IDs fail the mapping
+boundary rather than entering downstream tools as partial document context.
+
 ## Development
 
 Configs use `{org}_{source_type}_{intervention}.yaml`. Pillow normalizes raster

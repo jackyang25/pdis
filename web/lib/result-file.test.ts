@@ -3,6 +3,8 @@ import test from "node:test";
 
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api.ts";
 import {
+  alignerResultFilename,
+  inspectorResultFilename,
   packAlignerResult,
   packInspectorResult,
   packScoutResult,
@@ -36,6 +38,7 @@ const inspection: InspectorResponse = {
     section_grades: [],
     cross_section_findings: [],
     consistency_status: "complete",
+    grading_status: "complete",
     org: "bmgf",
     source_type: "itpp",
     intervention_class: "vaccine",
@@ -339,6 +342,26 @@ test("Scout download names are derived from the stable source document ID", () =
   assert.equal(
     scoutResultFilename(named),
     "draft-aiv-itpp-v1-13july2016-scout.json",
+  );
+});
+
+test("portable result filenames consistently use tool names", () => {
+  const namedInspector = structuredClone(inspection);
+  namedInspector.inspection.doc_id = "DRAFT AIV iTPP v1 13July2016";
+  assert.equal(
+    inspectorResultFilename(namedInspector),
+    "draft-aiv-itpp-v1-13july2016-inspector.json",
+  );
+
+  const namedAligner = structuredClone({
+    alignment: {
+      reference_document: { doc_id: "Reference TPP" },
+      comparison_document: { doc_id: "Candidate TPP" },
+    },
+  }) as AlignerResponse;
+  assert.equal(
+    alignerResultFilename(namedAligner),
+    "reference-tpp-to-candidate-tpp-aligner.json",
   );
 });
 

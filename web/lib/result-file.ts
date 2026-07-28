@@ -165,6 +165,9 @@ function safeFilenamePart(value: string): string {
 export function packInspectorResult(
   result: InspectorResponse,
 ): ResultFile<"inspector", InspectorAnalysis> {
+  if (!isInspectorResultFinal(result)) {
+    throw new Error("Inspector grading is incomplete and cannot be exported as a final result");
+  }
   const { blocks, ...inspection } = result.inspection;
   return {
     schema: RESULT_SCHEMA,
@@ -174,6 +177,14 @@ export function packInspectorResult(
     analysis: { inspection },
     source_documents: groupDocuments(blocks),
   };
+}
+
+export function isInspectorResultFinal(result: InspectorResponse): boolean {
+  return result.inspection.grading_status === "complete";
+}
+
+export function inspectorResultFilename(result: InspectorResponse): string {
+  return `${safeFilenamePart(result.inspection.doc_id || "document")}-inspector.json`;
 }
 
 export function packAlignerResult(
@@ -188,6 +199,16 @@ export function packAlignerResult(
     analysis: { alignment },
     source_documents: groupDocuments(blocks),
   };
+}
+
+export function alignerResultFilename(result: AlignerResponse): string {
+  const reference = safeFilenamePart(
+    result.alignment.reference_document.doc_id || "reference",
+  );
+  const comparison = safeFilenamePart(
+    result.alignment.comparison_document.doc_id || "comparison",
+  );
+  return `${reference}-to-${comparison}-aligner.json`;
 }
 
 /** Read the new envelope or normalize a legacy result that stored `blocks`
@@ -342,6 +363,7 @@ function normalizeInspectorResult(result: InspectorResponse): InspectorResponse 
   return {
     inspection: {
       ...result.inspection,
+      grading_status: result.inspection.grading_status ?? "unknown",
       consistency_status: result.inspection.consistency_status ?? "unknown",
       cross_section_findings: (result.inspection.cross_section_findings ?? []).map(
         (finding) => ({

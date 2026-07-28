@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import unittest
 
 from services.chunker import ContentBlock
@@ -15,8 +14,8 @@ from services.inspector.models import (
 )
 from services.inspector.stages.grader import (
     _merge_variable_bearing,
-    _parse_cross_section,
-    _parse_dimension_response,
+    _parse_cross_section_payload,
+    _parse_dimension_payload,
     _cross_section_user_message,
 )
 
@@ -60,22 +59,21 @@ class InspectorContractTests(unittest.TestCase):
     def test_dimension_response_must_account_for_the_entire_rubric(self) -> None:
         section = config().sections[0]
         blocks = [block("document:b1", "Profile")]
-        raw = json.dumps(
-            {
-                "missing_variables": [],
-                "variable_grades": [
-                    {
-                        "variable_name": "Efficacy",
-                        "block_ids": ["document:b1"],
-                        "grade": "A",
-                        "issues": [],
-                        "recommendation": "",
-                    }
-                ],
-            }
-        )
+        payload = {
+            "missing_variables": [],
+            "variable_grades": [
+                {
+                    "variable_name": "Efficacy",
+                    "block_ids": ["document:b1"],
+                    "grade": "A",
+                    "issues": [],
+                    "recommendation": "",
+                    "content_status": "substantive",
+                }
+            ],
+        }
         with self.assertRaisesRegex(ValueError, "accounted for exactly once"):
-            _parse_dimension_response(raw, "completeness", section, blocks)
+            _parse_dimension_payload(payload, "completeness", section, blocks)
 
     def test_missing_variable_remains_in_the_rollup_ledger(self) -> None:
         section = config().sections[0]
@@ -107,6 +105,7 @@ class InspectorContractTests(unittest.TestCase):
         self.assertEqual([item.variable_name for item in merged.variable_grades], ["Efficacy", "Safety"])
         safety = merged.variable_grades[1]
         self.assertEqual(safety.dimensions["completeness"].grade, "F")
+        self.assertEqual(safety.dimensions["adherence"].grade, "F")
         self.assertEqual(safety.dimensions["rigor"].grade, "N/A")
 
     def test_cross_section_findings_require_a_block_from_each_section(self) -> None:
@@ -114,17 +113,17 @@ class InspectorContractTests(unittest.TestCase):
             "Profile": [block("document:b1", "Profile")],
             "Plan": [block("document:b2", "Plan")],
         }
-        invalid = json.dumps(
-            [
+        invalid = {
+            "findings": [
                 {
                     "description": "Values conflict.",
                     "sections": ["Profile", "Plan"],
                     "recommendation": "Reconcile values.",
                     "block_ids": ["document:b1"],
                 }
-            ]
-        )
-        self.assertIsNone(_parse_cross_section(invalid, blocks_by_section))
+            ],
+        }
+        self.assertIsNone(_parse_cross_section_payload(invalid, blocks_by_section))
 
     def test_bounded_consistency_context_is_reported_as_partial(self) -> None:
         first = block("document:b1", "Profile")
@@ -145,6 +144,7 @@ class InspectorContractTests(unittest.TestCase):
             doc_id="document",
             dimensions={name: DimensionGrade("A") for name in DIMENSIONS},
             section_grades=[],
+            grading_status="complete",
         )
         with self.assertRaisesRegex(ValueError, "section ledger"):
             validate_result_contract(result, [block("document:b1", "Profile")], cfg)

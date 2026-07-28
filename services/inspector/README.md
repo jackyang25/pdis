@@ -25,6 +25,12 @@ through `F` or `N/A`. The configured rubric owns the variable ledger; model
 omissions cannot shrink its denominator. Deterministic code calculates rollups,
 and a separate consistency pass reports only cross-section conflicts.
 
+Section labels and dimension decisions use schema-bound model outputs. Large
+rubric sections are graded in bounded variable batches that retain the complete
+mapped section context. Deterministic validation checks rubric coverage and
+block lineage; it does not reinterpret prose. A failed core grading batch stops
+the run, so incomplete model output cannot become a downloadable final report.
+
 ## Development
 
 Rubrics live in `configs/{org}_{source_type}_{intervention}.yaml`. Inspector

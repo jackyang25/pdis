@@ -9,7 +9,7 @@ import { ConfigurationFields } from "@/components/configuration-fields";
 import { HeaderGuard } from "@/components/header-guard";
 import { EmptyState } from "@/components/empty-state";
 import { CollapsibleCard } from "@/components/collapsible-card";
-import { DownloadButton } from "@/components/download-button";
+import { FinalResultActions } from "@/components/final-result-actions";
 import {
   continueScout,
   runScout,
@@ -1825,15 +1825,13 @@ function FieldGrid({
         } insights`}
         contentClassName="p-0"
         trailing={
-          <>
-            <Button variant="ghost" size="sm" onClick={onNewAnalysis}>New analysis</Button>
-            <DownloadButton
-              filename={scoutResultFilename(result)}
-              data={packScoutResult(result)}
-              format="json"
-              label="Download final JSON"
-            />
-          </>
+          <FinalResultActions
+            onNewAnalysis={onNewAnalysis}
+            download={{
+              filename: scoutResultFilename(result),
+              data: packScoutResult(result),
+            }}
+          />
         }
       >
         <Tabs defaultValue="fields">

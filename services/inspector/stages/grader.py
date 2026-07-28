@@ -19,9 +19,6 @@ slowest individual LLM call.
 
 from __future__ import annotations
 
-import json
-import logging
-import re
 import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -44,11 +41,11 @@ from ..models import (
     VariableSpec,
 )
 
-logger = logging.getLogger(__name__)
-
 VALID_GRADES: set[str] = {"A", "B", "C", "D", "F", "N/A"}
 GRADE_TO_SCORE = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
 MAX_PARALLEL_SECTIONS = 4
+MAX_VARIABLES_PER_BATCH = 7
+MAX_PARALLEL_DIMENSION_BATCHES = 6
 
 
 # ---------------------------------------------------------------------------
@@ -126,10 +123,18 @@ def _grade_section(
 
     blocks_text = _format_blocks(section_blocks)
 
-    def call_completeness():
-        return _call_dimension(
-            dimension="completeness",
-            section_spec=section_spec,
+    variable_batches = _variable_batches(section_spec.variables)
+    jobs = [
+        (dimension, variables)
+        for dimension in DIMENSIONS
+        for variables in variable_batches
+    ]
+
+    def call_one(item: tuple[str, list[VariableSpec]]) -> tuple[str, dict[str, Any]]:
+        dimension, variables = item
+        return dimension, _call_dimension(
+            dimension=dimension,
+            section_spec=replace(section_spec, variables=variables),
             blocks_text=blocks_text,
             section_blocks=section_blocks,
             llm_client=llm_client,
@@ -137,37 +142,36 @@ def _grade_section(
             grading_guidance=grading_guidance,
         )
 
-    def call_adherence():
-        return _call_dimension(
-            dimension="adherence",
-            section_spec=section_spec,
-            blocks_text=blocks_text,
-            section_blocks=section_blocks,
-            llm_client=llm_client,
-            max_tokens=max_tokens,
-            grading_guidance=grading_guidance,
-        )
+    with ThreadPoolExecutor(
+        max_workers=min(MAX_PARALLEL_DIMENSION_BATCHES, len(jobs))
+    ) as executor:
+        batch_results = list(executor.map(call_one, jobs))
 
-    def call_rigor():
-        return _call_dimension(
-            dimension="rigor",
-            section_spec=section_spec,
-            blocks_text=blocks_text,
-            section_blocks=section_blocks,
-            llm_client=llm_client,
-            max_tokens=max_tokens,
-            grading_guidance=grading_guidance,
-        )
-
-    with ThreadPoolExecutor(max_workers=len(DIMENSIONS)) as executor:
-        futures = {
-            "completeness": executor.submit(call_completeness),
-            "adherence": executor.submit(call_adherence),
-            "rigor": executor.submit(call_rigor),
+    if not section_spec.variables:
+        results = {dimension: batch for dimension, batch in batch_results}
+    else:
+        results = {
+            dimension: {"missing_variables": [], "variable_grades": []}
+            for dimension in DIMENSIONS
         }
-        results = {name: future.result() for name, future in futures.items()}
+        for dimension, batch in batch_results:
+            results[dimension]["missing_variables"].extend(
+                batch.get("missing_variables", [])
+            )
+            results[dimension]["variable_grades"].extend(
+                batch.get("variable_grades", [])
+            )
 
     return _merge_dimension_results(section_spec, results)
+
+
+def _variable_batches(variables: list[VariableSpec]) -> list[list[VariableSpec]]:
+    if not variables:
+        return [[]]
+    return [
+        variables[index : index + MAX_VARIABLES_PER_BATCH]
+        for index in range(0, len(variables), MAX_VARIABLES_PER_BATCH)
+    ]
 
 
 def _call_dimension(
@@ -180,7 +184,7 @@ def _call_dimension(
     max_tokens: int,
     grading_guidance: str = "",
 ) -> dict[str, Any]:
-    """Build the per-dimension prompt, call the LLM, parse the JSON.
+    """Build one schema-bound dimension decision and validate its lineage.
 
     Returns the parsed dict from the LLM. Shape:
 
@@ -211,32 +215,37 @@ def _call_dimension(
         blocks_text=blocks_text,
     )
     images = _image_inputs(section_blocks)
-    raw = llm_client.call(
-        system_prompt, user_message, max_tokens=max_tokens, images=images or None
-    )
-    try:
-        return _parse_dimension_response(raw, dimension, section_spec, section_blocks)
-    except ValueError as first_error:
-        retry_message = (
-            f"{user_message}\n\nYour previous response was invalid JSON. "
-            "Return only one valid JSON object matching the requested schema."
-        )
-        raw = llm_client.call(
+    schema = _dimension_schema(dimension, section_spec, section_blocks)
+    first_error = "model returned no structured decision"
+    for attempt in range(2):
+        message = user_message
+        if attempt:
+            message += (
+                "\n\nThe prior decision failed the Inspector contract: "
+                f"{first_error}. Return one complete decision for every listed rubric variable, "
+                "using only the supplied variable names and block IDs."
+            )
+        payload = _request_structured(
+            llm_client,
             system_prompt,
-            retry_message,
+            message,
             max_tokens=max_tokens,
+            schema_name=f"inspector_{dimension}_grade",
+            schema=schema,
             images=images or None,
         )
         try:
-            return _parse_dimension_response(raw, dimension, section_spec, section_blocks)
-        except ValueError:
-            logger.exception(
-                "Grader failed for %s on %s after retry: %s",
-                section_spec.name,
-                dimension,
-                first_error,
+            if payload is None:
+                raise ValueError("model returned no structured decision")
+            return _parse_dimension_payload(
+                payload, dimension, section_spec, section_blocks
             )
-            return _failed_dimension_response(section_spec, dimension)
+        except ValueError as exc:
+            first_error = str(exc)
+    raise ValueError(
+        f"Inspector could not complete {dimension} grading for {section_spec.name}: "
+        f"{first_error}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -386,21 +395,116 @@ def _format_variable_dimension_rules(v: VariableSpec, dimension: str) -> str:
 
 def _output_schema(dimension: str, section_spec: SectionSpec) -> str:
     if section_spec.variables:
-        per_variable = (
-            '{"variable_name": "exact name", "block_ids": ["block id"], '
-            '"grade": "A|B|C|D|F|N/A", "issues": ["..."], "recommendation": "..."'
+        status = (
+            " For completeness, also classify content_status as substantive, partial, "
+            "placeholder, missing, or not_applicable."
+            if dimension == "completeness"
+            else ""
         )
-        per_variable += "}"
+        lineage = (
+            " Completeness owns presence and source lineage: cite exact block IDs for "
+            "substantive, partial, or placeholder content, and use no block IDs when content "
+            "is missing. For adherence or rigor, use N/A with no block IDs when there is no "
+            "content to judge."
+        )
+        return (
+            "Output contract: return exactly one decision for every listed variable. "
+            "Use exact supplied variable names and block IDs; an absent variable uses no block IDs."
+            + status
+            + lineage
+        )
+    return "Output contract: return one section grade with issues and one recommendation."
 
-        schema = {
-            "missing_variables": "expected variable names with no substantive content (completeness only; otherwise [])",
-            "variable_grades": f"exactly one {per_variable} for every expected variable not listed as missing",
+
+def _dimension_schema(
+    dimension: str,
+    section_spec: SectionSpec,
+    section_blocks: list[ContentBlock],
+) -> dict[str, Any]:
+    grade = {"type": "string", "enum": sorted(VALID_GRADES)}
+    strings = {"type": "array", "items": {"type": "string"}}
+    if not section_spec.variables:
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["grade", "issues", "recommendation"],
+            "properties": {
+                "grade": grade,
+                "issues": strings,
+                "recommendation": {"type": "string"},
+            },
         }
-        return "Output schema:\n" + json.dumps(schema, indent=2)
-    else:
-        section_obj = '{"grade": "A|B|C|D|F|N/A", "issues": ["..."], "recommendation": "..."'
-        section_obj += "}"
-        return f"Output schema:\n{section_obj}"
+
+    required = ["variable_name", "block_ids", "grade", "issues", "recommendation"]
+    properties: dict[str, Any] = {
+        "variable_name": {
+            "type": "string",
+            "enum": [variable.name for variable in section_spec.variables],
+        },
+        "block_ids": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [block.id for block in section_blocks],
+            },
+        },
+        "grade": grade,
+        "issues": strings,
+        "recommendation": {"type": "string"},
+    }
+    if dimension == "completeness":
+        required.append("content_status")
+        properties["content_status"] = {
+            "type": "string",
+            "enum": [
+                "substantive",
+                "partial",
+                "placeholder",
+                "missing",
+                "not_applicable",
+            ],
+        }
+    count = len(section_spec.variables)
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["variable_grades"],
+        "properties": {
+            "variable_grades": {
+                "type": "array",
+                "minItems": count,
+                "maxItems": count,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": required,
+                    "properties": properties,
+                },
+            }
+        },
+    }
+
+
+def _request_structured(
+    llm_client: LLMClientProtocol,
+    system_prompt: str,
+    user_message: str,
+    *,
+    max_tokens: int,
+    schema_name: str,
+    schema: dict[str, Any],
+    images: list[dict[str, str]] | None,
+) -> dict[str, Any] | None:
+    payload = llm_client.call_structured(
+        system_prompt,
+        user_message,
+        max_tokens,
+        schema_name=schema_name,
+        schema=schema,
+        images=images,
+        task="reasoning",
+    )
+    return payload if isinstance(payload, dict) else None
 
 
 def _build_user_message(
@@ -422,13 +526,12 @@ def _build_user_message(
 # ---------------------------------------------------------------------------
 
 
-def _parse_dimension_response(
-    raw: str,
+def _parse_dimension_payload(
+    parsed: object,
     dimension: str,
     section_spec: SectionSpec,
     section_blocks: list[ContentBlock],
 ) -> dict[str, Any]:
-    parsed = json.loads(_extract_json_object(_strip_markdown_fences(raw).strip()))
     if not isinstance(parsed, dict):
         raise ValueError("Grader response must be an object")
 
@@ -452,22 +555,46 @@ def _parse_dimension_response(
             if any(block_id not in valid_block_ids for block_id in raw_block_ids):
                 raise ValueError(f"Variable {name} cited an unknown block ID")
             grade = _grade_value(item.get("grade"))
-            if grade != "N/A" and not raw_block_ids:
+            content_status = (
+                _closed_value(
+                    item.get("content_status"),
+                    {
+                        "substantive",
+                        "partial",
+                        "placeholder",
+                        "missing",
+                        "not_applicable",
+                    },
+                    "content_status",
+                )
+                if dimension == "completeness"
+                else ""
+            )
+            absent = content_status == "missing"
+            has_source_content = content_status in {
+                "substantive",
+                "partial",
+                "placeholder",
+            }
+            if dimension == "completeness" and has_source_content and not raw_block_ids:
                 raise ValueError(f"Variable {name} must cite a source block")
+            if dimension == "completeness" and raw_block_ids and absent:
+                raise ValueError(f"Absent variable {name} cannot cite a source block")
             cleaned_by_name[name] = {
                 "variable_name": name,
                 "block_ids": list(dict.fromkeys(raw_block_ids)),
                 "grade": grade,
                 "issues": _string_list(item.get("issues")),
                 "recommendation": _string_value(item.get("recommendation")),
+                "content_status": content_status,
             }
-        missing = _string_list(parsed.get("missing_variables"))
-        if len(missing) != len(set(missing)) or any(name not in expected_set for name in missing):
-            raise ValueError("missing_variables must contain unique expected variable names")
-        if dimension != "completeness" and missing:
-            raise ValueError("Only completeness may report missing_variables")
-        accounted = set(cleaned_by_name) | set(missing)
-        if accounted != expected_set or set(cleaned_by_name) & set(missing):
+        missing = [
+            name
+            for name in expected_names
+            if cleaned_by_name.get(name, {}).get("content_status") == "missing"
+        ]
+        accounted = set(cleaned_by_name)
+        if accounted != expected_set:
             raise ValueError("Every expected variable must be accounted for exactly once")
         return {
             "missing_variables": missing,
@@ -480,28 +607,6 @@ def _parse_dimension_response(
         "grade": _grade_value(parsed.get("grade")),
         "issues": _string_list(parsed.get("issues")),
         "recommendation": _string_value(parsed.get("recommendation")),
-    }
-
-
-def _failed_dimension_response(section_spec: SectionSpec, dimension: str) -> dict[str, Any]:
-    if section_spec.variables:
-        return {
-            "missing_variables": [],
-            "variable_grades": [
-                {
-                    "variable_name": variable.name,
-                    "block_ids": [],
-                    "grade": "N/A",
-                    "issues": [f"{dimension.capitalize()} grading failed."],
-                    "recommendation": "Retry grading or review this variable manually.",
-                }
-                for variable in section_spec.variables
-            ],
-        }
-    return {
-        "grade": "N/A",
-        "issues": ["Grading failed."],
-        "recommendation": "Retry grading or review this section manually.",
     }
 
 
@@ -535,6 +640,8 @@ def _merge_variable_bearing(
     variable_grades: list[VariableGrade] = []
     for variable in section_spec.variables:
         name = variable.name
+        completeness_item = per_dim_by_name["completeness"].get(name, {})
+        content_status = completeness_item.get("content_status", "")
         block_ids: list[str] = []
         dimensions: dict[str, DimensionGrade] = {}
         for d in DIMENSIONS:
@@ -556,7 +663,14 @@ def _merge_variable_bearing(
                 issues=["Required variable is missing."],
                 recommendation=f"Add substantive content for {name}.",
             )
+            dimensions["adherence"] = DimensionGrade(
+                grade="F",
+                issues=["Required rubric structure is absent."],
+                recommendation=f"Add the required {name} entry.",
+            )
             dimensions["rigor"] = DimensionGrade(grade="N/A")
+        elif content_status == "not_applicable":
+            dimensions = {d: DimensionGrade(grade="N/A") for d in DIMENSIONS}
         variable_grades.append(
             VariableGrade(
                 variable_name=name,
@@ -698,27 +812,6 @@ def _image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
     ]
 
 
-def _strip_markdown_fences(raw: str) -> str:
-    match = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", raw, re.DOTALL)
-    if match:
-        return match.group(1)
-    return raw
-
-
-def _extract_json_object(text: str) -> str:
-    decoder = json.JSONDecoder()
-    for start in range(len(text)):
-        if text[start] != "{":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return text[start : start + end]
-    return text
-
-
 def _grade_value(value: Any) -> Grade:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("grade must be one of the closed grade labels")
@@ -738,18 +831,10 @@ def _string_list(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
-def _extract_json_array(text: str) -> str:
-    decoder = json.JSONDecoder()
-    for start in range(len(text)):
-        if text[start] != "[":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, list):
-            return text[start : start + end]
-    return text
+def _closed_value(value: Any, allowed: set[str], label: str) -> str:
+    if not isinstance(value, str) or value not in allowed:
+        raise ValueError(f"{label} must use its closed vocabulary")
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -790,18 +875,27 @@ def check_cross_section(
         for block in blocks
     ]
     images = _image_inputs(context_blocks)
-    raw = llm_client.call(
-        system_prompt, user_message, max_tokens=max_tokens, images=images or None
-    )
-    findings = _parse_cross_section(raw, context_blocks_by_section)
-    if findings is None:
-        raw = llm_client.call(
+    schema = _cross_section_schema(context_blocks_by_section)
+    findings = None
+    for attempt in range(2):
+        message = user_message
+        if attempt:
+            message += (
+                "\n\nThe prior response failed the consistency contract. Return only "
+                "cross-section conflicts with exact supplied section names and block IDs."
+            )
+        payload = _request_structured(
+            llm_client,
             system_prompt,
-            user_message + "\n\nYour previous reply was invalid. Return only a JSON array.",
+            message,
             max_tokens=max_tokens,
+            schema_name="inspector_cross_section_consistency",
+            schema=schema,
             images=images or None,
         )
-        findings = _parse_cross_section(raw, context_blocks_by_section)
+        findings = _parse_cross_section_payload(payload, context_blocks_by_section)
+        if findings is not None:
+            break
     if findings is None:
         return [], "failed"
     return findings, "partial" if context_limited else "complete"
@@ -817,7 +911,7 @@ def _cross_section_system_prompt(config: InspectionConfig) -> str:
         "Report ONLY conflicts that span more than one section. Do NOT report problems "
         "inside a single section, missing content, vague wording, or formatting - those are "
         "graded elsewhere. If there are no cross-section conflicts, return an empty array.\n\n"
-        "Return ONLY a JSON array. No markdown, no preamble. Each item:\n"
+        "Return only structured findings. Each item contains:\n"
         '{"description": "the specific conflicting values and what disagrees", '
         '"sections": ["Section A name", "Section B name"], '
         '"recommendation": "one short action to reconcile them", '
@@ -825,6 +919,47 @@ def _cross_section_system_prompt(config: InspectionConfig) -> str:
         "Use only supplied section names and block IDs. Every finding must name at least "
         "two sections and cite at least one block from each named section."
     )
+
+
+def _cross_section_schema(
+    blocks_by_section: dict[str, list[ContentBlock]],
+) -> dict[str, Any]:
+    section_names = list(blocks_by_section)
+    block_ids = [
+        block.id for blocks in blocks_by_section.values() for block in blocks
+    ]
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["findings"],
+        "properties": {
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "description",
+                        "sections",
+                        "recommendation",
+                        "block_ids",
+                    ],
+                    "properties": {
+                        "description": {"type": "string"},
+                        "sections": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": section_names},
+                        },
+                        "recommendation": {"type": "string"},
+                        "block_ids": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": block_ids},
+                        },
+                    },
+                },
+            }
+        },
+    }
 
 
 def _cross_section_user_message(
@@ -906,15 +1041,13 @@ def _bounded_cross_section_blocks(
     return selected, limited
 
 
-def _parse_cross_section(
-    raw: str,
+def _parse_cross_section_payload(
+    payload: object,
     blocks_by_section: dict[str, list[ContentBlock]],
 ) -> list[CrossSectionFinding] | None:
-    text = _strip_markdown_fences(raw).strip()
-    try:
-        parsed = json.loads(_extract_json_array(text))
-    except (json.JSONDecodeError, ValueError):
+    if not isinstance(payload, dict):
         return None
+    parsed = payload.get("findings")
     if not isinstance(parsed, list):
         return None
     allowed_sections = set(blocks_by_section)

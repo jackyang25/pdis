@@ -73,6 +73,7 @@ export type InspectionResult = {
   section_grades: SectionGrade[];
   cross_section_findings: CrossSectionFinding[];
   consistency_status: "complete" | "partial" | "failed" | "not_applicable" | "unknown";
+  grading_status: "complete" | "unknown";
   org: string | null;
   source_type: string | null;
   intervention_class: string | null;

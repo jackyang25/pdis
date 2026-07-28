@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check, CircleHelp, Loader2, Upload } from "lucide-react";
 import { Ask } from "@/components/assistant/ask";
-import { DownloadButton } from "@/components/download-button";
+import { CollapsibleCard } from "@/components/collapsible-card";
+import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
 import { ProgressSteps } from "@/components/progress-steps";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,11 @@ import {
   type ContentBlock,
   type DocumentType,
 } from "@/lib/api";
-import { packAlignerResult, unpackAlignerResult } from "@/lib/result-file";
+import {
+  alignerResultFilename,
+  packAlignerResult,
+  unpackAlignerResult,
+} from "@/lib/result-file";
 import { useAlignerSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { displayLabel } from "@/lib/display-label";
@@ -72,7 +77,12 @@ export default function AlignerPage() {
   const [comparisonType, setComparisonType] = useState("");
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [comparisonFile, setComparisonFile] = useState<File | null>(null);
+  const [showSetup, setShowSetup] = useState(!session.result);
   const importRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (session.result) setShowSetup(false);
+  }, [session.result]);
 
   useEffect(() => {
     fetchDocumentTypes()
@@ -149,125 +159,138 @@ export default function AlignerPage() {
         description="Trace what was preserved, changed, contradicted, omitted, or introduced across two development documents."
       />
       <div className="flex flex-col gap-6">
-        <section className="rounded-lg border border-border bg-card p-5 sm:p-6">
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            <ConfigField label="Organization">
-              <ConfigSelect
-                value={org}
-                options={orgs.map((value) => ({ value, label: displayLabel(value) }))}
-                disabled={!documentTypes}
-                onChange={(value) => {
-                  setOrg(value);
-                  setIntervention("");
-                  setIndication("");
-                  setReferenceType("");
-                  setComparisonType("");
-                }}
-              />
-            </ConfigField>
-            <ConfigField label="Intervention">
-              <ConfigSelect
-                value={intervention}
-                options={interventions.map((value) => ({ value, label: displayLabel(value) }))}
-                disabled={!org}
-                onChange={(value) => {
-                  setIntervention(value);
-                  setIndication("");
-                  setReferenceType("");
-                  setComparisonType("");
-                }}
-              />
-            </ConfigField>
-            <ConfigField label="Reference type">
-              <ConfigSelect
-                value={referenceType}
-                options={sourceTypes.map((item) => ({ value: item.source_type, label: displayLabel(item.source_type) }))}
-                disabled={!intervention}
-                onChange={setReferenceType}
-              />
-            </ConfigField>
-            <ConfigField label="Comparison type">
-              <ConfigSelect
-                value={comparisonType}
-                options={sourceTypes.map((item) => ({ value: item.source_type, label: displayLabel(item.source_type) }))}
-                disabled={!intervention}
-                onChange={setComparisonType}
-              />
-            </ConfigField>
-          </div>
-
-          <div className="mt-5 max-w-[calc(25%-0.75rem)] min-w-[15rem]">
-            <ConfigField label="Indication">
-              <ConfigSelect
-                value={indication}
-                options={indications.map((value) => ({ value, label: displayLabel(value) }))}
-                disabled={!intervention}
-                onChange={setIndication}
-              />
-            </ConfigField>
-          </div>
-
-          <div className="mt-6 grid gap-4 border-t border-border/80 pt-6 md:grid-cols-2">
-            <FileSlot
-              label="Reference document"
-              helper="The baseline whose commitments should be carried forward."
-              file={referenceFile}
-              disabled={session.busy}
-              onChange={setReferenceFile}
-            />
-            <FileSlot
-              label="Comparison document"
-              helper="The later or downstream artifact being checked."
-              file={comparisonFile}
-              disabled={session.busy}
-              onChange={setComparisonFile}
-            />
-          </div>
-
-          <div className="mt-5 flex flex-col-reverse gap-3 border-t border-border/80 pt-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-h-9">
-              {session.busy ? (
-                <ProgressSteps
-                  steps={STEPS}
-                  busy
-                  currentStage={session.stage}
-                  progress={session.progress}
+        {(!session.result || showSetup) && (
+          <section className="rounded-lg border border-border bg-card p-5 sm:p-6">
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              <ConfigField label="Organization">
+                <ConfigSelect
+                  value={org}
+                  options={orgs.map((value) => ({ value, label: displayLabel(value) }))}
+                  disabled={!documentTypes}
+                  onChange={(value) => {
+                    setOrg(value);
+                    setIntervention("");
+                    setIndication("");
+                    setReferenceType("");
+                    setComparisonType("");
+                  }}
                 />
-              ) : (
-                <div className="flex h-9 items-center gap-2 text-xs text-muted-foreground">
-                  <span>Open a saved alignment:</span>
-                  <button className="font-medium text-foreground hover:opacity-65" onClick={() => importRef.current?.click()}>
-                    Import JSON
-                  </button>
-                  <input
-                    ref={importRef}
-                    type="file"
-                    accept=".json,application/json"
-                    className="hidden"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void handleImport(file);
-                      event.target.value = "";
-                    }}
-                  />
-                </div>
-              )}
+              </ConfigField>
+              <ConfigField label="Intervention">
+                <ConfigSelect
+                  value={intervention}
+                  options={interventions.map((value) => ({ value, label: displayLabel(value) }))}
+                  disabled={!org}
+                  onChange={(value) => {
+                    setIntervention(value);
+                    setIndication("");
+                    setReferenceType("");
+                    setComparisonType("");
+                  }}
+                />
+              </ConfigField>
+              <ConfigField label="Reference type">
+                <ConfigSelect
+                  value={referenceType}
+                  options={sourceTypes.map((item) => ({ value: item.source_type, label: displayLabel(item.source_type) }))}
+                  disabled={!intervention}
+                  onChange={setReferenceType}
+                />
+              </ConfigField>
+              <ConfigField label="Comparison type">
+                <ConfigSelect
+                  value={comparisonType}
+                  options={sourceTypes.map((item) => ({ value: item.source_type, label: displayLabel(item.source_type) }))}
+                  disabled={!intervention}
+                  onChange={setComparisonType}
+                />
+              </ConfigField>
             </div>
-            <Button className="min-w-[8rem]" disabled={!ready || session.busy} onClick={handleRun}>
-              {session.busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Aligning</> : "Run alignment"}
-            </Button>
-          </div>
-        </section>
+
+            <div className="mt-5 max-w-[calc(25%-0.75rem)] min-w-[15rem]">
+              <ConfigField label="Indication">
+                <ConfigSelect
+                  value={indication}
+                  options={indications.map((value) => ({ value, label: displayLabel(value) }))}
+                  disabled={!intervention}
+                  onChange={setIndication}
+                />
+              </ConfigField>
+            </div>
+
+            <div className="mt-6 grid gap-4 border-t border-border/80 pt-6 md:grid-cols-2">
+              <FileSlot
+                label="Reference document"
+                helper="The baseline whose commitments should be carried forward."
+                file={referenceFile}
+                disabled={session.busy}
+                onChange={setReferenceFile}
+              />
+              <FileSlot
+                label="Comparison document"
+                helper="The later or downstream artifact being checked."
+                file={comparisonFile}
+                disabled={session.busy}
+                onChange={setComparisonFile}
+              />
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse gap-3 border-t border-border/80 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-h-9">
+                {session.busy ? (
+                  <ProgressSteps
+                    steps={STEPS}
+                    busy
+                    currentStage={session.stage}
+                    progress={session.progress}
+                  />
+                ) : (
+                  <div className="flex h-9 items-center gap-2 text-xs text-muted-foreground">
+                    <span>Open a saved alignment:</span>
+                    <button className="font-medium text-foreground hover:opacity-65" onClick={() => importRef.current?.click()}>
+                      Import JSON
+                    </button>
+                    <input
+                      ref={importRef}
+                      type="file"
+                      accept=".json,application/json"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) void handleImport(file);
+                        event.target.value = "";
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+              <Button className="min-w-[8rem]" disabled={!ready || session.busy} onClick={handleRun}>
+                {session.busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Aligning</> : "Run alignment"}
+              </Button>
+            </div>
+          </section>
+        )}
 
         {session.error && <p className="text-sm text-destructive">{session.error}</p>}
-        {session.result && <AlignmentView result={session.result.alignment} />}
+        {session.result && (
+          <AlignmentView
+            result={session.result.alignment}
+            onNewAnalysis={() => setShowSetup(true)}
+          />
+        )}
         {session.result && <Ask resultType="aligner" result={session.result.alignment} />}
       </div>
     </>
   );
 }
 
-function AlignmentView({ result }: { result: AlignmentResult }) {
+function AlignmentView({
+  result,
+  onNewAnalysis,
+}: {
+  result: AlignmentResult;
+  onNewAnalysis: () => void;
+}) {
   const [relationFilter, setRelationFilter] = useState<AlignmentRelation | "all">("all");
   const [unitTypeFilter, setUnitTypeFilter] = useState<AlignmentUnitType | "all">("all");
   const units = useMemo(() => new Map(result.units.map((unit) => [unit.id, unit])), [result.units]);
@@ -282,25 +305,30 @@ function AlignmentView({ result }: { result: AlignmentResult }) {
   const definitions = new Map(result.relations.map((item) => [item.name, item.description]));
 
   return (
-    <section className="overflow-hidden rounded-lg border border-border bg-card">
-      <div className="flex flex-col gap-4 border-b border-border px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold tracking-[-0.02em]">Traceability result</h2>
-            <RelationHelp definitions={result.relations} />
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {result.reference_document.doc_id} <ArrowRight className="mx-1 inline h-3 w-3" /> {result.comparison_document.doc_id}
-          </p>
-        </div>
-        <DownloadButton
-          filename={`${result.reference_document.doc_id}_to_${result.comparison_document.doc_id}_alignment.json`}
-          data={packAlignerResult({ alignment: result })}
-          format="json"
-          label="Download JSON"
+    <CollapsibleCard
+      title="Traceability result"
+      subtitle={
+        <span>
+          {result.reference_document.doc_id}{" "}
+          <ArrowRight className="mx-1 inline h-3 w-3" />{" "}
+          {result.comparison_document.doc_id}
+        </span>
+      }
+      contentClassName="p-0"
+      trailing={
+        <FinalResultActions
+          onNewAnalysis={onNewAnalysis}
+          download={{
+            filename: alignerResultFilename({ alignment: result }),
+            data: packAlignerResult({ alignment: result }),
+          }}
         />
+      }
+    >
+      <div className="flex items-center gap-2 border-b border-border px-5 py-3 sm:px-6">
+        <p className="text-xs font-medium text-muted-foreground">Relationship matrix</p>
+        <RelationHelp definitions={result.relations} />
       </div>
-
       <AlignmentMatrix
         links={result.links}
         units={units}
@@ -328,7 +356,7 @@ function AlignmentView({ result }: { result: AlignmentResult }) {
         {links.map((link) => <AlignmentRow key={link.id} link={link} units={units} blocks={blocks} definition={definitions.get(link.relation)} />)}
         {links.length === 0 && <p className="px-5 py-10 text-center text-sm text-muted-foreground">No links match this filter.</p>}
       </div>
-    </section>
+    </CollapsibleCard>
   );
 }
 

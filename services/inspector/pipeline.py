@@ -236,6 +236,7 @@ def build_report_card(
         dimensions=_document_dimensions(section_grades, config),
         top_issues=_top_issues(section_grades, config),
         section_grades=section_grades,
+        grading_status="complete",
     )
 
 
@@ -317,21 +318,25 @@ def _top_issues(
                 )
             )
 
-        for dim_name, dg in sg.dimensions.items():
-            for issue in dg.issues:
-                issue_candidates.append(
-                    (
-                        SEVERITY_ORDER.get(dg.grade, 5),
-                        f"{sg.section_name} · {dim_name} ({dg.grade}) — {issue}",
-                    )
-                )
-        for vg in sg.variable_grades:
-            for dim_name, dg in vg.dimensions.items():
+        if sg.variable_grades:
+            for vg in sg.variable_grades:
+                if vg.variable_name in sg.missing_variables:
+                    continue
+                for dim_name, dg in vg.dimensions.items():
+                    for issue in dg.issues:
+                        issue_candidates.append(
+                            (
+                                SEVERITY_ORDER.get(dg.grade, 5),
+                                f"{vg.variable_name} · {dim_name} ({dg.grade}) — {issue}",
+                            )
+                        )
+        else:
+            for dim_name, dg in sg.dimensions.items():
                 for issue in dg.issues:
                     issue_candidates.append(
                         (
                             SEVERITY_ORDER.get(dg.grade, 5),
-                            f"{vg.variable_name} · {dim_name} ({dg.grade}) — {issue}",
+                            f"{sg.section_name} · {dim_name} ({dg.grade}) — {issue}",
                         )
                     )
 
@@ -353,7 +358,7 @@ def _format_missing_variable_issue(
     config: InspectionConfig,
 ) -> str:
     recommendation = _missing_variable_recommendation(variable_name, section_name, config)
-    return f"{variable_name} missing - {recommendation}"
+    return f"{section_name} · {variable_name} missing — {recommendation}"
 
 
 def _missing_variable_recommendation(

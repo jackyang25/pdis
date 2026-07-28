@@ -15,6 +15,8 @@ def validate_result_contract(
     expected_dimensions = set(DIMENSIONS)
     if set(result.dimensions) != expected_dimensions:
         raise ValueError("Inspector document dimensions do not match the closed contract")
+    if result.grading_status != "complete":
+        raise ValueError("Inspector core grading must be complete before a final result is emitted")
     if result.consistency_status not in {
         "complete",
         "partial",

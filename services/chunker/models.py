@@ -25,14 +25,17 @@ class LLMClientProtocol(Protocol):
     Library code depends only on this Protocol — the concrete client
     (OpenAIClient or a test double) is passed in by the caller.
     """
-    def call(
+    def call_structured(
         self,
         system_prompt: str,
         user_message: str,
         max_tokens: int,
         *,
+        schema_name: str,
+        schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
-    ) -> str:
+        task: str = "reasoning",
+    ) -> dict[str, Any] | None:
         ...
 
 

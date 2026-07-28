@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import logging
-import re
 
 from ..models import ContentBlock, DocumentTypeConfig, LLMClientProtocol
 
@@ -45,27 +43,107 @@ def label_blocks(
         for block in blocks
         if block.image
     ]
-    raw_response = llm_client.call(
-        system_prompt, user_message, max_tokens=max_tokens, images=images or None
-    )
-
-    try:
-        labels = _parse_label_response(raw_response)
-    except ValueError:
-        logger.warning("Mapper response was not valid JSON; retrying once")
-        raw_response = llm_client.call(
+    schema = _label_schema(blocks, config)
+    last_error = "model returned no structured labels"
+    for attempt in range(2):
+        message = user_message
+        if attempt:
+            message += (
+                "\n\nThe prior response failed the mapping contract: "
+                f"{last_error}. Return exactly one label for every supplied block ID."
+            )
+        payload = _request_structured(
+            llm_client,
             system_prompt,
-            user_message,
+            message,
             max_tokens=max_tokens,
+            schema=schema,
             images=images or None,
         )
         try:
-            labels = _parse_label_response(raw_response)
-        except ValueError:
-            logger.warning("Mapper response was still invalid after retry")
-            raise MapperResponseError("Mapper response was invalid after retry")
+            if payload is None:
+                raise ValueError("model returned no structured labels")
+            labels = _parse_label_payload(payload)
+            return _merge_labels(blocks, labels, config)
+        except ValueError as exc:
+            last_error = str(exc)
+    raise MapperResponseError(f"Mapper response was invalid after retry: {last_error}")
 
-    return _merge_labels(blocks, labels, config)
+
+def _label_schema(
+    blocks: list[ContentBlock],
+    config: DocumentTypeConfig,
+) -> dict[str, object]:
+    count = len(blocks)
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["labels"],
+        "properties": {
+            "labels": {
+                "type": "array",
+                "minItems": count,
+                "maxItems": count,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["id", "section_label", "confidence"],
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "enum": [block.id for block in blocks],
+                        },
+                        "section_label": {
+                            "type": "string",
+                            "enum": [section["name"] for section in _final_taxonomy(config)],
+                        },
+                        "confidence": {
+                            "type": "string",
+                            "enum": sorted(VALID_CONFIDENCES),
+                        },
+                    },
+                },
+            }
+        },
+    }
+
+
+def _request_structured(
+    llm_client: LLMClientProtocol,
+    system_prompt: str,
+    user_message: str,
+    *,
+    max_tokens: int,
+    schema: dict[str, object],
+    images: list[dict[str, str]] | None,
+) -> dict[str, object] | None:
+    payload = llm_client.call_structured(
+        system_prompt,
+        user_message,
+        max_tokens,
+        schema_name="chunker_section_labels",
+        schema=schema,
+        images=images,
+        task="reasoning",
+    )
+    return payload if isinstance(payload, dict) else None
+
+
+def _parse_label_payload(payload: object) -> list[dict[str, str]]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("labels"), list):
+        raise ValueError("Mapper response must contain a labels list")
+    labels: list[dict[str, str]] = []
+    for item in payload["labels"]:
+        if not isinstance(item, dict):
+            raise ValueError("Mapper response items must be objects")
+        labels.append(
+            {
+                "id": str(item.get("id", "")),
+                "section_label": str(item.get("section_label", "")),
+                "confidence": str(item.get("confidence", "")),
+            }
+        )
+    return labels
 
 
 def build_prompts(
@@ -171,14 +249,8 @@ def _format_disambiguation(disambiguation: list[str]) -> str:
 
 
 def _output_format_prompt() -> str:
-    return """Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
-Format:
-[
-  {"id": "doc-001/b-0000", "section_label": "Introduction", "confidence": "high"},
-  {"id": "doc-001/b-0001", "section_label": "Introduction", "confidence": "high"}
-]
-
-Every block id from the input must appear exactly once in the output.
+    return """Return one structured labels list with id, section_label, and confidence.
+Every block id from the input must appear exactly once.
 Every section_label must be an exact label from the taxonomy above.
 Confidence must be one of: "high", "medium", "low"."""
 
@@ -206,59 +278,6 @@ def _format_heading_stack(heading_stack: list[str]) -> str:
     return " > ".join(f'"{heading}"' for heading in heading_stack)
 
 
-def _parse_label_response(raw_response: str) -> list[dict[str, str]]:
-    response_text = _extract_json_array(_strip_markdown_fences(raw_response).strip())
-    try:
-        parsed = json.loads(response_text)
-    except json.JSONDecodeError as exc:
-        logger.warning("Invalid mapper response preview: %s", _response_preview(raw_response))
-        raise ValueError("Mapper response was not valid JSON") from exc
-
-    if not isinstance(parsed, list):
-        raise ValueError("Mapper response must be a list")
-
-    labels: list[dict[str, str]] = []
-    for item in parsed:
-        if not isinstance(item, dict):
-            raise ValueError("Mapper response items must be objects")
-        labels.append(
-            {
-                "id": str(item.get("id", "")),
-                "section_label": str(item.get("section_label", "")),
-                "confidence": str(item.get("confidence", "")),
-            }
-        )
-    return labels
-
-
-def _strip_markdown_fences(raw_response: str) -> str:
-    match = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", raw_response, re.DOTALL)
-    if match:
-        return match.group(1)
-    return raw_response
-
-
-def _extract_json_array(response_text: str) -> str:
-    decoder = json.JSONDecoder()
-    for start_index, char in enumerate(response_text):
-        if char != "[":
-            continue
-        try:
-            parsed, end_index = decoder.raw_decode(response_text[start_index:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, list):
-            return response_text[start_index : start_index + end_index]
-    return response_text
-
-
-def _response_preview(raw_response: str, max_length: int = 500) -> str:
-    compact_response = " ".join(raw_response.split())
-    if len(compact_response) <= max_length:
-        return compact_response
-    return f"{compact_response[:max_length]}..."
-
-
 def _merge_labels(
     blocks: list[ContentBlock],
     labels: list[dict[str, str]],
@@ -271,38 +290,31 @@ def _merge_labels(
 
     for label in labels:
         block_id = label["id"]
-        if block_id in seen_ids:
-            logger.warning("Duplicate label returned for block id %s", block_id)
         seen_ids.add(block_id)
         labels_by_id[block_id] = label
 
     missing_ids = block_ids - labels_by_id.keys()
     if missing_ids:
-        logger.warning("Mapper response missing %s block ids", len(missing_ids))
+        raise ValueError(f"Mapper response omitted {len(missing_ids)} block IDs")
 
     extra_ids = labels_by_id.keys() - block_ids
     if extra_ids:
-        logger.warning(
-            "Mapper response included %s unexpected block ids",
-            len(extra_ids),
-        )
+        raise ValueError(f"Mapper response included {len(extra_ids)} unknown block IDs")
+
+    if len(seen_ids) != len(labels):
+        raise ValueError("Mapper response contains duplicate block IDs")
 
     for block in blocks:
         label = labels_by_id.get(block.id)
         if label is None:
-            _set_block_mapping_error(block)
-            continue
+            raise ValueError(f"Mapper response omitted block ID {block.id}")
 
         section_label = label["section_label"]
         confidence = label["confidence"]
         if section_label not in valid_section_labels:
-            logger.warning("Invalid section label for %s: %s", block.id, section_label)
-            _set_block_mapping_error(block)
-            continue
+            raise ValueError(f"Invalid section label for {block.id}: {section_label}")
         if confidence not in VALID_CONFIDENCES:
-            logger.warning("Invalid confidence for %s: %s", block.id, confidence)
-            _set_block_mapping_error(block)
-            continue
+            raise ValueError(f"Invalid confidence for {block.id}: {confidence}")
 
         block.section_label = section_label
 
@@ -312,7 +324,3 @@ def _merge_labels(
 def _clear_labels(blocks: list[ContentBlock]) -> None:
     for block in blocks:
         block.section_label = None
-
-
-def _set_block_mapping_error(block: ContentBlock) -> None:
-    block.section_label = "Mapping Error"

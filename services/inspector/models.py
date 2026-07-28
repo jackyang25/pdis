@@ -12,20 +12,24 @@ if TYPE_CHECKING:
 
 class LLMClientProtocol(Protocol):
     """Contract Inspector requires from any injected LLM client."""
-    def call(
+    def call_structured(
         self,
         system_prompt: str,
         user_message: str,
         max_tokens: int,
         *,
+        schema_name: str,
+        schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
-    ) -> str:
+        task: str = "reasoning",
+    ) -> dict[str, Any] | None:
         ...
 
 
 Grade = Literal["A", "B", "C", "D", "F", "N/A"]
 Dimension = Literal["completeness", "adherence", "rigor"]
 ConsistencyStatus = Literal["complete", "partial", "failed", "not_applicable", "unknown"]
+GradingStatus = Literal["complete", "unknown"]
 DIMENSIONS: tuple[Dimension, ...] = ("completeness", "adherence", "rigor")
 
 
@@ -99,6 +103,7 @@ class InspectionResult:
     section_grades: list[SectionGrade] = field(default_factory=list)
     cross_section_findings: list[CrossSectionFinding] = field(default_factory=list)
     consistency_status: ConsistencyStatus = "unknown"
+    grading_status: GradingStatus = "unknown"
 
     # --- Header (document provenance, stamped by pipeline) ---
     org: str | None = None

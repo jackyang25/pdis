@@ -674,7 +674,9 @@ function DocumentTargetReviewCheckpoint({
 }) {
   const targets = result.quantitative_ledger.targets;
   const statements = result.quantitative_ledger.reviews.filter(
-    (review) => review.classification === "uncertain",
+    (review) =>
+      review.classification === "uncertain"
+      || review.classification === "partial_target",
   );
   const pendingTargets = targets.filter((target) => target.review_status === "needs_review");
   const pendingStatements = statements.filter((review) => review.review_status === "needs_review");
@@ -822,7 +824,9 @@ function DocumentTargetReviewCheckpoint({
                     selected={selected}
                     onSelect={() => setSelectedItem(`statement:${item.unit_id}`)}
                     title={formatAttributeRefs(item.attribute_refs, "Document context")}
-                    subtitle="Unresolved extraction"
+                    subtitle={item.classification === "partial_target"
+                      ? "Partially resolved extraction"
+                      : "Unresolved extraction"}
                     status={pending ? "Needs review" : "Excluded"}
                     tone={pending ? "warning" : "neutral"}
                     detail={statementReviewReason(item.reason)}
@@ -901,7 +905,11 @@ function DocumentTargetReviewCheckpoint({
         ) : statement ? (
           <div className="p-5 sm:p-7">
             <div className="flex items-center justify-between gap-3">
-              <SectionLabel>Unresolved extraction</SectionLabel>
+              <SectionLabel>
+                {statement.classification === "partial_target"
+                  ? "Unresolved remainder"
+                  : "Unresolved extraction"}
+              </SectionLabel>
               <DocumentSourceTrace
                 blockIds={[statement.block_id]}
                 spans={[{ quote: statement.quote, block_ids: [statement.block_id] }]}
@@ -947,7 +955,9 @@ function DocumentTargetReviewCheckpoint({
             )}
             {statement && (
               <Button disabled={busy} onClick={() => decideStatement(statement.unit_id)}>
-                Acknowledge exclusion
+                {statement.classification === "partial_target"
+                  ? "Acknowledge unresolved remainder"
+                  : "Acknowledge exclusion"}
               </Button>
             )}
             {!target && !statement && pendingTargets.length + pendingStatements.length === 0 && (
@@ -1147,8 +1157,13 @@ function ReviewRecommendation({
 }
 
 function statementReviewReason(reason: string): string {
+  if (reason.includes("Source-verifiable targets were retained")) {
+    const issue = reason.match(/\[([^\]]+)\]/)?.[1]?.replaceAll("_", " ");
+    return `Validated targets from this passage were kept. A separate proposed mapping could not be verified and remains outside retrieval and statistics.${issue ? ` Structural issue: ${issue}.` : ""}`;
+  }
   if (reason.includes("Target mapping rejected")) {
-    return "Scout could not create a complete, source-verifiable target from this statement. It remains outside retrieval and statistics.";
+    const issue = reason.match(/\[([^\]]+)\]/)?.[1]?.replaceAll("_", " ");
+    return `Scout could not create a complete, source-verifiable target from this statement. It remains outside retrieval and statistics.${issue ? ` Structural issue: ${issue}.` : ""}`;
   }
   if (reason.includes("model did not return one unique review")) {
     return "Scout could not resolve this statement into one reliable review decision. It remains outside retrieval and statistics.";

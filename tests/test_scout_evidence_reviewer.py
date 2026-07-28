@@ -66,10 +66,14 @@ class _Client:
         self.decision = decision
         self.fail = fail
         self.candidate_batches: list[list[str]] = []
+        self.system_prompts: list[str] = []
+        self.user_messages: list[str] = []
 
-    def call_structured(self, _system, _message, *_args, **kwargs):
+    def call_structured(self, system, message, *_args, **kwargs):
         if self.fail:
             raise RuntimeError("provider unavailable")
+        self.system_prompts.append(system)
+        self.user_messages.append(message)
         item = kwargs["schema"]["properties"]["reviews"]["items"]["properties"]
         group_id = item["group_id"]["enum"][0]
         candidate_ids = item["decisions"]["items"]["properties"]["candidate_id"]["enum"]
@@ -212,6 +216,50 @@ class EvidenceReviewerTests(unittest.TestCase):
         by_id = {item.candidate_id: item for item in reviewed.excluded_measurements}
         self.assertEqual(by_id["candidate-a"].ai_recommendation, "reject")
         self.assertEqual(by_id["candidate-b"].ai_recommendation, "admit")
+
+    def test_review_payload_withholds_target_cutoff_and_comparator(self) -> None:
+        client = _Client()
+
+        prefill_evidence_review([self.score], [self.target], client)
+
+        self.assertEqual(len(client.user_messages), 1)
+        payload = client.user_messages[0]
+        self.assertNotIn("Document target:", payload)
+        self.assertNotIn("Exact document quote:", payload)
+        self.assertNotIn(self.target.quote, payload)
+        self.assertNotIn('"value": 80', payload)
+        self.assertNotIn('"comparator": ">="', payload)
+        self.assertIn("Comparator measure unit: %", payload)
+        self.assertIn("Required target dimensions:", payload)
+        self.assertIn("Protective efficacy was 70%.", payload)
+        self.assertIn("Protective efficacy was 90%.", payload)
+
+    def test_review_payload_is_invariant_to_target_cutoff_and_direction(self) -> None:
+        alternate_target = replace(
+            self.target,
+            expression=NumericExpression(
+                kind="bound", value=5, comparator="<", unit="%"
+            ),
+            quote="Target efficacy is below 5%.",
+        )
+        alternate_score = replace(
+            self.score,
+            target_id=alternate_target.id,
+            target_value=5,
+            comparator="<",
+        )
+        original_client = _Client()
+        alternate_client = _Client()
+
+        prefill_evidence_review([self.score], [self.target], original_client)
+        prefill_evidence_review(
+            [alternate_score], [alternate_target], alternate_client,
+        )
+
+        self.assertEqual(
+            original_client.user_messages,
+            alternate_client.user_messages,
+        )
 
 
 if __name__ == "__main__":

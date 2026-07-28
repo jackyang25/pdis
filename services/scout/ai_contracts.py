@@ -56,8 +56,12 @@ def _object(properties: dict[str, JsonSchema]) -> JsonSchema:
     }
 
 
-def _array(items: JsonSchema) -> JsonSchema:
-    return {"type": "array", "items": items}
+def _array(items: JsonSchema, *, exact_items: int | None = None) -> JsonSchema:
+    schema: JsonSchema = {"type": "array", "items": items}
+    if exact_items is not None:
+        schema["minItems"] = exact_items
+        schema["maxItems"] = exact_items
+    return schema
 
 
 def _string(*, enum: list[str] | None = None) -> JsonSchema:
@@ -336,7 +340,12 @@ def document_quantitative_ledger_batch(
                                 )
                             ),
                         }
-                    )
+                    ),
+                    exact_items=(
+                        len(list(dict.fromkeys(allowed_unit_ids)))
+                        if allowed_unit_ids is not None
+                        else None
+                    ),
                 )
             }
         ),

@@ -1,7 +1,9 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 35 as const;
+const RESULT_VERSION = 36 as const;
+// Version 36 preserves valid atomic targets when a sibling mapping from the
+// same source statement remains unresolved.
 // Version 35 separates document semantics from the direct-comparator contract.
 // Version 34 makes the document-wide quantitative ledger authoritative.
 // Targets link to product fields without being owned or duplicated by them.

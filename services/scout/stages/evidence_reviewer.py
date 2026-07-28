@@ -69,7 +69,9 @@ def prefill_evidence_review(
         "proposals to verify, not proof of independence. Apply the target's direct-comparator "
         "contract as written: exact requires the same entity-level meaning, while compatible "
         "allows different named entities inside the stated scope. Do not silently narrow a "
-        "compatible class to exact product identity.\n\n"
+        "compatible class to exact product identity. The target cutoff, comparator, role, and "
+        "cutoff-bearing source quote are intentionally withheld because they are calculation "
+        "inputs, not admission criteria.\n\n"
         "OUTPUT\n"
         "Review every group ID and every candidate ID exactly once. Give each decision one short, "
         "source-specific reason. Return only the schema-bound response."
@@ -268,8 +270,7 @@ def _render_group(group: _EvidenceReviewGroup) -> str:
     return "\n".join((
         f"[group:{group.id}]",
         "Linked fields: " + ", ".join(target.attribute_refs),
-        f"Document target: {target.label}",
-        f"Exact document quote: {target.quote}",
+        f"Comparator measure unit: {target.unit}",
         "Required target dimensions: " + json.dumps(
             target_dimensions,
             ensure_ascii=False,

@@ -342,7 +342,8 @@ class QuantitativeLedgerReviewOut(BaseModel):
     block_id: str
     quote: str
     classification: Literal[
-        "target", "context_only", "non_scalar", "range_or_set", "non_numeric", "uncertain"
+        "target", "partial_target", "context_only", "non_scalar", "range_or_set",
+        "non_numeric", "uncertain"
     ]
     reason: str
     attribute_refs: list[str] = Field(default_factory=list)

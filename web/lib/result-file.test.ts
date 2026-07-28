@@ -112,7 +112,7 @@ const scout: ScoutResponse = {
 
 test("new portable results use the Inspector contract", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 35);
+  assert.equal(packed.version, 36);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("inspection" in packed.analysis, true);
@@ -138,7 +138,7 @@ test("Aligner results separate both source documents from the analysis", () => {
     },
   };
   const packed = packAlignerResult(result);
-  assert.equal(packed.version, 35);
+  assert.equal(packed.version, 36);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "aligner");
   assert.equal("blocks" in packed.analysis.alignment, false);
@@ -148,7 +148,7 @@ test("Aligner results separate both source documents from the analysis", () => {
 
 test("current Scout export and import preserve the canonical result exactly", () => {
   const packed = packScoutResult(scout);
-  assert.equal(packed.version, 35);
+  assert.equal(packed.version, 36);
   assert.equal(packed.state, "final");
   assert.deepEqual(unpackScoutResult(packed), scout);
 });

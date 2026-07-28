@@ -79,6 +79,7 @@ QUANTITATIVE_LEDGER_STATUSES = frozenset(
 QUANTITATIVE_REVIEW_CLASSIFICATIONS = frozenset(
     {
         "target",
+        "partial_target",
         "context_only",
         "non_scalar",
         "range_or_set",
@@ -880,10 +881,15 @@ class QuantitativeLedgerReview:
             raise ValueError("invalid quantitative ledger classification")
         if not self.unit_id or not self.block_id or not self.quote or not self.reason:
             raise ValueError("quantitative ledger review requires traced reasoning")
-        if self.classification == "target" and not self.target_ids:
+        if (
+            self.classification in {"target", "partial_target"}
+            and not self.target_ids
+        ):
             raise ValueError("target ledger review requires at least one target")
-        if self.classification != "target" and self.target_ids:
+        if self.classification not in {"target", "partial_target"} and self.target_ids:
             raise ValueError("non-target ledger review cannot reference targets")
+        if self.classification == "partial_target" and self.review_status == "resolved":
+            raise ValueError("partial target review requires an explicit decision")
 
 
 @dataclass

@@ -90,6 +90,7 @@ MAX_SOURCE_PASSAGE_CHARS = 8_000
 MAX_TARGET_QUOTE_CHARS = 800
 LEDGER_BATCH_MAX_UNITS = 24
 LEDGER_BATCH_MAX_CHARS = 24_000
+LEDGER_RETRY_MAX_UNITS = 4
 # Keep in lockstep with drift_classifier / evidence_assessor so all three
 # doc-reading stages see the SAME baseline and a target near the end of a long
 # doc is never cut off in one stage but not another.
@@ -157,6 +158,7 @@ class _CanonicalNumericBinding:
 class _QuantitativeBatchValidation:
     result: QuantitativeLedgerBatchResult
     retry_unit_ids: set[str]
+    response_failure_unit_ids: set[str]
 
 
 @dataclass(frozen=True)
@@ -865,6 +867,11 @@ def extract_quantitative_ledger_batch(
 ) -> QuantitativeLedgerBatchResult:
     """Review a bounded statement batch, retrying incomplete items once."""
     canonical_bindings = _canonical_numeric_bindings(attributes)
+    resolved_attribute_refs = [
+        attribute.name
+        for attribute in attributes
+        if attribute.target_resolved and attribute.document_target
+    ]
     system_prompt = _document_ledger_system_prompt(
         attributes,
         canonical_bindings=canonical_bindings,
@@ -872,12 +879,6 @@ def extract_quantitative_ledger_batch(
         intervention_class=intervention_class,
         framing=framing,
     )
-    images = [
-        {"block_id": block.id, "data_url": block.image.data_url()}
-        for block in batch.blocks
-        if block.image
-    ] or None
-
     def request(
         current: QuantitativeLedgerBatch,
         feedback: dict[str, str] | None = None,
@@ -885,7 +886,7 @@ def extract_quantitative_ledger_batch(
         contract = document_quantitative_ledger_batch(
             [binding.ref for binding in canonical_bindings],
             [unit.id for unit in current.units],
-            [attribute.name for attribute in attributes],
+            resolved_attribute_refs,
         )
         user_message = _document_ledger_user_message(current)
         if feedback:
@@ -898,6 +899,11 @@ def extract_quantitative_ledger_batch(
                 "Correct only the cited contract violations; do not change valid source meaning:\n"
                 f"{details}"
             )
+        images = [
+            {"block_id": block.id, "data_url": block.image.data_url()}
+            for block in current.blocks
+            if block.image
+        ] or None
         return request_structured(
             llm_client,
             contract,
@@ -915,48 +921,122 @@ def extract_quantitative_ledger_batch(
     )
     if not first.retry_unit_ids:
         return first.result
-    retry_batch = QuantitativeLedgerBatch(
-        units=[unit for unit in batch.units if unit.id in first.retry_unit_ids],
-        blocks=batch.blocks,
-    )
     retry_feedback = {
         review.unit_id: review.reason
         for review in first.result.reviews
         if review.unit_id in first.retry_unit_ids
     }
-    retry = _validated_quantitative_ledger_batch(
-        request(retry_batch, retry_feedback),
-        batch=retry_batch,
-        attributes=attributes,
-        canonical_bindings=canonical_bindings,
+    retry_results: list[QuantitativeLedgerBatchResult] = []
+    retry_response_failures: set[str] = set()
+    for retry_batch in _quantitative_retry_batches(
+        batch,
+        first.retry_unit_ids,
+    ):
+        retry = _validated_quantitative_ledger_batch(
+            request(
+                retry_batch,
+                {
+                    unit.id: retry_feedback[unit.id]
+                    for unit in retry_batch.units
+                },
+            ),
+            batch=retry_batch,
+            attributes=attributes,
+            canonical_bindings=canonical_bindings,
+        )
+        retry_results.append(retry.result)
+        retry_response_failures.update(retry.response_failure_unit_ids)
+    if retry_response_failures:
+        raise ValueError(
+            "Quantitative mapping returned incomplete schema-bound decisions "
+            f"for {len(retry_response_failures)} statement(s) after one targeted retry."
+        )
+    retry_result = QuantitativeLedgerBatchResult(
+        reviews=[
+            review for result in retry_results for review in result.reviews
+        ],
+        targets=[
+            target for result in retry_results for target in result.targets
+        ],
     )
-    retained_reviews = [
-        review
-        for review in first.result.reviews
-        if review.unit_id not in first.retry_unit_ids
-    ]
-    review_by_id = {
-        review.unit_id: review
-        for review in [*retained_reviews, *retry.result.reviews]
-    }
+    first_reviews = {review.unit_id: review for review in first.result.reviews}
+    retry_reviews = {review.unit_id: review for review in retry_result.reviews}
+    review_by_id: dict[str, QuantitativeLedgerReview] = {}
+    for unit in batch.units:
+        first_review = first_reviews[unit.id]
+        if unit.id not in first.retry_unit_ids:
+            review_by_id[unit.id] = first_review
+            continue
+        review_by_id[unit.id] = _merge_quantitative_retry_review(
+            first_review,
+            retry_reviews[unit.id],
+        )
     merged_reviews = [review_by_id[unit.id] for unit in batch.units]
     retained_target_ids = {
-        target_id for review in retained_reviews for target_id in review.target_ids
+        target_id for review in merged_reviews for target_id in review.target_ids
     }
-    target_by_id = {
-        target.id: target
-        for target in [
-            *(
-                target
-                for target in first.result.targets
-                if target.id in retained_target_ids
-            ),
-            *retry.result.targets,
-        ]
-    }
+    merged_targets = _merge_document_targets(
+        [*first.result.targets, *retry_result.targets]
+    )
     return QuantitativeLedgerBatchResult(
         reviews=merged_reviews,
-        targets=list(target_by_id.values()),
+        targets=[
+            target for target in merged_targets if target.id in retained_target_ids
+        ],
+    )
+
+
+def _quantitative_retry_batches(
+    batch: QuantitativeLedgerBatch,
+    retry_unit_ids: set[str],
+) -> list[QuantitativeLedgerBatch]:
+    """Retry failed decisions once with only their source-owned blocks."""
+    block_by_id = {block.id: block for block in batch.blocks}
+    retry_units = [
+        unit for unit in batch.units if unit.id in retry_unit_ids
+    ]
+    retries: list[QuantitativeLedgerBatch] = []
+    for start in range(0, len(retry_units), LEDGER_RETRY_MAX_UNITS):
+        units = retry_units[start:start + LEDGER_RETRY_MAX_UNITS]
+        blocks = [
+            block_by_id[block_id]
+            for block_id in dict.fromkeys(unit.block_id for unit in units)
+            if block_id in block_by_id
+        ]
+        retries.append(QuantitativeLedgerBatch(units=units, blocks=blocks))
+    return retries
+
+
+def _merge_quantitative_retry_review(
+    first: QuantitativeLedgerReview,
+    retry: QuantitativeLedgerReview,
+) -> QuantitativeLedgerReview:
+    """Merge one retried source statement without discarding valid siblings."""
+    target_ids = list(dict.fromkeys([*first.target_ids, *retry.target_ids]))
+    attribute_refs = list(dict.fromkeys([
+        *first.attribute_refs,
+        *retry.attribute_refs,
+    ]))
+    if retry.classification == "target" and retry.review_status == "resolved":
+        return replace(
+            retry,
+            target_ids=target_ids,
+            attribute_refs=attribute_refs,
+        )
+    if not target_ids:
+        return retry
+    return QuantitativeLedgerReview(
+        unit_id=retry.unit_id,
+        block_id=retry.block_id,
+        quote=retry.quote,
+        classification="partial_target",
+        reason=(
+            "Source-verifiable targets were retained, but another proposed mapping "
+            f"from this statement remains unresolved. {retry.reason}"
+        ),
+        attribute_refs=attribute_refs,
+        target_ids=target_ids,
+        review_status="needs_review",
     )
 
 
@@ -994,10 +1074,12 @@ def _validated_quantitative_ledger_batch(
     reviews: list[QuantitativeLedgerReview] = []
     targets: list[QuantitativeTarget] = []
     retry_unit_ids: set[str] = set()
+    response_failure_unit_ids: set[str] = set()
     for unit in batch.units:
         raw = by_id.get(unit.id)
         if raw is None or unit.id in duplicate_ids:
             retry_unit_ids.add(unit.id)
+            response_failure_unit_ids.add(unit.id)
             reviews.append(
                 _uncertain_unit_review(
                     unit,
@@ -1023,6 +1105,7 @@ def _validated_quantitative_ledger_batch(
             or not set(attribute_refs).issubset(attributes_by_name)
         ):
             retry_unit_ids.add(unit.id)
+            response_failure_unit_ids.add(unit.id)
             reviews.append(
                 _uncertain_unit_review(
                     unit,
@@ -1037,6 +1120,7 @@ def _validated_quantitative_ledger_batch(
         if classification != "target":
             if raw_targets:
                 retry_unit_ids.add(unit.id)
+                response_failure_unit_ids.add(unit.id)
                 reviews.append(
                     _uncertain_unit_review(
                         unit,
@@ -1068,28 +1152,11 @@ def _validated_quantitative_ledger_batch(
             if not isinstance(raw_target, dict):
                 validation_issues.append("invalid_target_object")
                 continue
-            raw_links = raw_target.get("field_links")
-            raw_links = raw_links if isinstance(raw_links, list) else []
-            try:
-                field_links = [
-                    QuantitativeFieldLink(**link)
-                    for link in raw_links
-                    if isinstance(link, dict)
-                ]
-            except (TypeError, ValueError):
-                field_links = []
-            linked_refs = {link.attribute_ref for link in field_links}
-            if (
-                not field_links
-                or not linked_refs.issubset(attributes_by_name)
-                or not any(link.relation in {"defines", "constrains"} for link in field_links)
-                or any(
-                    (attribute := attributes_by_name.get(link.attribute_ref)) is None
-                    or not attribute.target_resolved
-                    or not attribute.document_target
-                    for link in field_links
-                )
-            ):
+            field_links = _validated_document_field_links(
+                raw_target.get("field_links"),
+                attributes_by_name,
+            )
+            if field_links is None:
                 validation_issues.append("invalid_field_links")
                 continue
             target_quote = " ".join(str(raw_target.get("quote", "")).split())
@@ -1130,15 +1197,52 @@ def _validated_quantitative_ledger_batch(
         target_ids = [target.id for target in validated]
         if len(target_ids) != len(set(target_ids)):
             validation_issues.append("duplicate_atomic_target")
-        if validation_issues or not validated:
+            validated = list({target.id: target for target in validated}.values())
+        if validation_issues:
             retry_unit_ids.add(unit.id)
-            issue_text = ", ".join(dict.fromkeys(
+            issue_text = _target_mapping_issue_text(
                 validation_issues or ["missing_target_mapping"]
-            ))
+            )
+            if validated:
+                targets.extend(validated)
+                validated_attribute_refs = list(dict.fromkeys(
+                    ref for target in validated for ref in target.attribute_refs
+                ))
+                reviews.append(
+                    QuantitativeLedgerReview(
+                        unit_id=unit.id,
+                        block_id=unit.block_id,
+                        quote=unit.quote,
+                        classification="partial_target",
+                        reason=(
+                            f"Retained {len(validated)} source-verifiable target(s); "
+                            f"another proposed mapping was rejected [{issue_text}]."
+                        ),
+                        attribute_refs=list(dict.fromkeys([
+                            *validated_attribute_refs,
+                            *(ref for ref in attribute_refs if ref in attributes_by_name),
+                        ])),
+                        target_ids=[target.id for target in validated],
+                        review_status="needs_review",
+                    )
+                )
+            else:
+                reviews.append(
+                    _uncertain_unit_review(
+                        unit,
+                        f"Target mapping rejected [{issue_text}].",
+                        attribute_refs=[
+                            ref for ref in attribute_refs if ref in attributes_by_name
+                        ],
+                    )
+                )
+            continue
+        if not validated:
+            retry_unit_ids.add(unit.id)
             reviews.append(
                 _uncertain_unit_review(
                     unit,
-                    f"Target mapping rejected [{issue_text}].",
+                    "Target mapping rejected [missing_target_mapping].",
                     attribute_refs=[
                         ref for ref in attribute_refs if ref in attributes_by_name
                     ],
@@ -1164,6 +1268,7 @@ def _validated_quantitative_ledger_batch(
     return _QuantitativeBatchValidation(
         result=QuantitativeLedgerBatchResult(reviews=reviews, targets=targets),
         retry_unit_ids=retry_unit_ids,
+        response_failure_unit_ids=response_failure_unit_ids,
     )
 
 
@@ -1189,13 +1294,16 @@ def assemble_quantitative_document_ledger(
         )
         for review in reviews
     ]
-    uncertain_count = sum(review.classification == "uncertain" for review in reviews)
+    unresolved_classifications = {"uncertain", "partial_target"}
+    unresolved_count = sum(
+        review.classification in unresolved_classifications for review in reviews
+    )
     attribute_names = {attribute.name for attribute in attributes}
     owned_block_ids = {
         block_id for attribute in attributes for block_id in attribute.block_ids
     }
     target_context_uncertain_count = sum(
-        review.classification == "uncertain"
+        review.classification in unresolved_classifications
         and (
             bool(set(review.attribute_refs) & attribute_names)
             or review.block_id in owned_block_ids
@@ -1216,10 +1324,10 @@ def assemble_quantitative_document_ledger(
     reason = (
         f"Reviewed {len(reviews)} non-overlapping document statements; mapped "
         f"{len(targets)} numeric targets; retained {numeric_non_targets} non-target "
-        f"or unresolved numeric statements; {uncertain_count} statements remain uncertain, "
+        f"numeric statements; {unresolved_count} statements have an unresolved remainder, "
         f"including {target_context_uncertain_count} in target-bearing document "
-        "context. Uncertain statements are excluded from target-specific retrieval "
-        "and calibration without blocking qualitative evidence retrieval."
+        "context. Unresolved remainders are excluded from target-specific retrieval "
+        "and calibration; independently validated sibling targets remain eligible."
     )
     ledger = QuantitativeLedger(
         status=status,
@@ -1689,7 +1797,7 @@ def _project_ledger_to_attributes(
                 )
     uncertain_attribute_refs: set[str] = set()
     for review in ledger.reviews:
-        if review.classification != "uncertain":
+        if review.classification not in {"uncertain", "partial_target"}:
             continue
         if review.attribute_refs:
             uncertain_attribute_refs.update(review.attribute_refs)
@@ -1742,7 +1850,8 @@ def _document_ledger_system_prompt(
     field_catalog = "\n".join(
         f"- {attribute.name}: {attribute.description}"
         for attribute in attributes
-    )
+        if attribute.target_resolved and attribute.document_target
+    ) or "(No resolved canonical fields.)"
     canonical_bindings = canonical_bindings or _canonical_numeric_bindings(attributes)
     binding_catalog = "\n".join(
         (
@@ -1825,7 +1934,12 @@ def _document_ledger_system_prompt(
         "rule for every semantic slot. mode=exact means the same semantic concept and entity "
         "scope are required; mode=compatible means named entities or details may differ within "
         "the stated scope; mode=unconstrained means the slot does not control admission; and "
-        "mode=unknown preserves genuine ambiguity for review. measure must be exact. Do not make "
+        "mode=unknown preserves genuine ambiguity for review. measure must be specified in the "
+        "semantic profile and its comparison mode must be exact. For semantic slots, specified "
+        "requires a non-empty value and empty other; other requires non-empty other and empty "
+        "value; not_specified and unknown require both value and other to be empty. For comparison "
+        "rules, exact and compatible require a non-empty scope; unconstrained requires an empty "
+        "scope; unknown requires a non-empty reason. Do not make "
         "intervention exact merely because the document names its candidate: external comparator "
         "cohorts normally contain different products. Use compatible with a clear class/use scope "
         "when cross-product comparison is scientifically meaningful. Use exact only when a value "
@@ -1922,14 +2036,19 @@ def _validated_targets_with_issues(
         except (TypeError, ValueError):
             issues.append("invalid_field_links")
             continue
-        if (
-            expression is None
-            or expression.kind != "bound"
-            or role not in VALID_TARGET_ROLES
-            or semantic_profile is None
-            or comparison_contract is None
-        ):
-            issues.append("invalid_target_semantic_contract")
+        semantic_issues: list[str] = []
+        if expression is None:
+            semantic_issues.append("invalid_target_expression")
+        elif expression.kind != "bound":
+            semantic_issues.append("target_expression_must_be_bound")
+        if role not in VALID_TARGET_ROLES:
+            semantic_issues.append("invalid_target_role")
+        if semantic_profile is None:
+            semantic_issues.append("invalid_target_semantic_profile")
+        if comparison_contract is None:
+            semantic_issues.append("invalid_target_comparison_contract")
+        if semantic_issues:
+            issues.extend(semantic_issues)
             continue
         semantic_provenance = _validated_semantic_provenance(
             item.get("semantic_provenance"),
@@ -2584,6 +2703,64 @@ def _comparison_contract_json(
         },
         ensure_ascii=False,
         sort_keys=True,
+    )
+
+
+def _validated_document_field_links(
+    raw: object,
+    attributes_by_name: dict[str, Attribute],
+) -> list[QuantitativeFieldLink] | None:
+    """Keep only projections backed by resolved canonical document fields.
+
+    Field links are views of an independently cited target. An invalid optional
+    context projection must not erase that target, while at least one resolved
+    defining or constraining projection is required for downstream use.
+    """
+    if not isinstance(raw, list):
+        return None
+    links: list[QuantitativeFieldLink] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            link = QuantitativeFieldLink(**item)
+        except (TypeError, ValueError):
+            continue
+        attribute = attributes_by_name.get(link.attribute_ref)
+        if (
+            attribute is None
+            or not attribute.target_resolved
+            or not attribute.document_target
+        ):
+            continue
+        links.append(link)
+    links = list({
+        (link.attribute_ref, link.relation): link
+        for link in links
+    }.values())
+    if not any(link.relation in {"defines", "constrains"} for link in links):
+        return None
+    return links
+
+
+_TARGET_MAPPING_ISSUE_LABELS = {
+    "invalid_target_expression": "invalid normalized numeric expression",
+    "target_expression_must_be_bound": "document target is not a directional or exact bound",
+    "invalid_target_role": "invalid target role",
+    "invalid_target_semantic_profile": "incomplete semantic profile",
+    "invalid_target_comparison_contract": "incomplete direct-comparator policy",
+    "invalid_field_links": "no resolved defining or constraining field link",
+    "invalid_target_quote": "target excerpt is not an exact short source excerpt",
+    "invalid_semantic_provenance": "semantic dimensions are not tied to canonical source context",
+    "invalid_target_provenance": "target excerpt is not tied to its source block",
+    "missing_target_mapping": "missing atomic target mapping",
+}
+
+
+def _target_mapping_issue_text(issues: list[str]) -> str:
+    """Render stable contract diagnostics for one precise model retry and audit."""
+    return ", ".join(
+        dict.fromkeys(_TARGET_MAPPING_ISSUE_LABELS.get(issue, issue) for issue in issues)
     )
 
 

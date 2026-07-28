@@ -221,9 +221,11 @@ class _SequenceLedgerClient:
         self.responses = responses
         self.calls = 0
         self.schemas: list[dict] = []
+        self.user_messages: list[str] = []
 
-    def call_structured(self, *_args, schema, **_kwargs):
+    def call_structured(self, _system_prompt, user_message, *_args, schema, **_kwargs):
         self.schemas.append(schema)
+        self.user_messages.append(user_message)
         response = self.responses[min(self.calls, len(self.responses) - 1)]
         self.calls += 1
         return {"reviews": [_current_review(review) for review in response]}
@@ -930,7 +932,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         )
         self.assertIs(validate_result_contract(result), result)
 
-    def test_a_missing_statement_review_is_explicitly_uncertain(self) -> None:
+    def test_a_missing_statement_review_fails_after_one_targeted_retry(self) -> None:
         reviews = [
             {
                 "unit_id": unit.id,
@@ -942,24 +944,18 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             for unit in self.batches[0].units[:-1]
         ]
         client = _LedgerClient(reviews)
-        batch_result = extract_quantitative_ledger_batch(
-            self.batches[0],
-            self.attributes,
-            client,
-            indication="malaria",
-            intervention_class="vaccine",
-        )
-        attributes, ledger = assemble_quantitative_document_ledger(
-            self.attributes, self.batches, [batch_result]
-        )
-
-        self.assertEqual(ledger.status, "uncertain")
+        with self.assertRaisesRegex(
+            ValueError,
+            "incomplete schema-bound decisions for 1 statement",
+        ):
+            extract_quantitative_ledger_batch(
+                self.batches[0],
+                self.attributes,
+                client,
+                indication="malaria",
+                intervention_class="vaccine",
+            )
         self.assertEqual(client.calls, 2)
-        self.assertEqual(ledger.reviews[-1].classification, "uncertain")
-        self.assertTrue(all(
-            attribute.quantitative_target_status == "uncertain"
-            for attribute in attributes
-        ))
 
     def test_missing_statement_review_is_recovered_once(self) -> None:
         source = ContentBlock(
@@ -1025,6 +1021,318 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         )
         self.assertEqual(first_ids, [first_unit.id, unit.id])
         self.assertEqual(retry_ids, [unit.id])
+        self.assertEqual(
+            client.schemas[1]["properties"]["reviews"]["minItems"],
+            1,
+        )
+
+    def test_missing_response_retries_in_small_source_scoped_batches(self) -> None:
+        blocks = [
+            ContentBlock(
+                id=f"document/b-{index:04d}",
+                doc_id="document",
+                ordinal=index,
+                block_type="paragraph",
+                content=f"Statement {index} contains context only.",
+                heading_stack=[],
+                structural_meta={},
+                style_hint={},
+            )
+            for index in range(1, 7)
+        ]
+        batch = prepare_quantitative_ledger_batches(blocks)[0]
+        client = _SequenceLedgerClient([[], [], []])
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "incomplete schema-bound decisions for 6 statement",
+        ):
+            extract_quantitative_ledger_batch(
+                batch,
+                [],
+                client,
+                indication="example condition",
+                intervention_class="drug",
+            )
+
+        requested_ids = [
+            schema["properties"]["reviews"]["items"]["properties"]
+            ["unit_id"]["enum"]
+            for schema in client.schemas
+        ]
+        self.assertEqual([len(ids) for ids in requested_ids], [6, 4, 2])
+        self.assertEqual(
+            requested_ids[1] + requested_ids[2],
+            requested_ids[0],
+        )
+
+    def test_retry_preserves_valid_sibling_when_it_repairs_only_failed_target(self) -> None:
+        source = ContentBlock(
+            id=BLOCK_ID,
+            doc_id="document",
+            ordinal=1,
+            block_type="paragraph",
+            content="Pediatric dose <0.5 mL and adult dose <1.0 mL.",
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        attribute = Attribute(
+            name="vaccine.dose_volume",
+            description="Volume administered per dose",
+            document_spans=[DocumentSpan(quote=source.content, block_ids=[BLOCK_ID])],
+            target_resolved=True,
+        )
+        batch = prepare_quantitative_ledger_batches([source])[0]
+        unit = batch.units[0]
+        valid = _target("Pediatric dose <0.5 mL", 0.5, "optimal", "pediatric")
+        invalid = _target("adult dose under one mL", 1.0, "optimal", "adult")
+        repaired = _target("adult dose <1.0 mL", 1.0, "optimal", "adult")
+        client = _SequenceLedgerClient([
+            [{
+                "unit_id": unit.id,
+                "classification": "target",
+                "attribute_ref": attribute.name,
+                "reason": "The statement defines pediatric and adult dose limits.",
+                "targets": [valid, invalid],
+            }],
+            [{
+                "unit_id": unit.id,
+                "classification": "target",
+                "attribute_ref": attribute.name,
+                "reason": "The adult dose limit is stated directly.",
+                "targets": [repaired],
+            }],
+        ])
+
+        result = extract_quantitative_ledger_batch(
+            batch,
+            [attribute],
+            client,
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(result.reviews[0].classification, "target")
+        self.assertEqual(result.reviews[0].review_status, "resolved")
+        self.assertEqual(len(result.targets), 2)
+        self.assertEqual(set(result.reviews[0].target_ids), {
+            target.id for target in result.targets
+        })
+
+    def test_optional_unresolved_context_link_does_not_erase_valid_target(self) -> None:
+        source = ContentBlock(
+            id=BLOCK_ID,
+            doc_id="document",
+            ordinal=1,
+            block_type="paragraph",
+            content="Booster no more frequent than annually.",
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        resolved = Attribute(
+            name="vaccine.dosing_schedule",
+            description="Dosing schedule",
+            document_spans=[DocumentSpan(quote=source.content, block_ids=[BLOCK_ID])],
+            target_resolved=True,
+        )
+        unresolved = Attribute(
+            name="vaccine.duration_of_protection",
+            description="Duration of protection",
+            target_resolved=False,
+        )
+        batch = prepare_quantitative_ledger_batches(
+            [source], [resolved, unresolved]
+        )[0]
+        unit = batch.units[0]
+        profile = _profile("general population")
+        profile["measure"] = {
+            "state": "specified",
+            "value": "booster frequency",
+            "other": "",
+            "source_refs": ["statement"],
+        }
+        target = {
+            **_target(source.content, 1, "threshold", "general population"),
+            "expression": {
+                "kind": "bound",
+                "unit": "boosters/year",
+                "value": 1,
+                "lower": None,
+                "upper": None,
+                "comparator": "<=",
+            },
+            "semantic_profile": profile,
+            "comparison_contract": _comparison_contract(profile, ("measure",)),
+            "field_links": [
+                {
+                    "attribute_ref": resolved.name,
+                    "relation": "defines",
+                    "reason": "The statement defines booster frequency.",
+                },
+                {
+                    "attribute_ref": unresolved.name,
+                    "relation": "context_for",
+                    "reason": "Optional related field view.",
+                },
+            ],
+        }
+        client = _SequenceLedgerClient([[
+            {
+                "unit_id": unit.id,
+                "classification": "target",
+                "attribute_refs": [resolved.name],
+                "reason": "The statement sets a booster-frequency limit.",
+                "targets": [target],
+            }
+        ]])
+
+        result = extract_quantitative_ledger_batch(
+            batch,
+            [resolved, unresolved],
+            client,
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(client.calls, 1)
+        self.assertEqual(len(result.targets), 1)
+        self.assertEqual(
+            [link.attribute_ref for link in result.targets[0].field_links],
+            [resolved.name],
+        )
+        allowed_refs = (
+            client.schemas[0]["properties"]["reviews"]["items"]["properties"]
+            ["targets"]["items"]["properties"]["field_links"]["items"]
+            ["properties"]["attribute_ref"]["enum"]
+        )
+        self.assertEqual(allowed_refs, [resolved.name])
+
+    def test_retry_receives_precise_target_contract_failure(self) -> None:
+        source = ContentBlock(
+            id=BLOCK_ID,
+            doc_id="document",
+            ordinal=1,
+            block_type="paragraph",
+            content="Booster no more frequent than annually.",
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        attribute = Attribute(
+            name="vaccine.dosing_schedule",
+            description="Dosing schedule",
+            document_spans=[DocumentSpan(quote=source.content, block_ids=[BLOCK_ID])],
+            target_resolved=True,
+        )
+        batch = prepare_quantitative_ledger_batches([source], [attribute])[0]
+        unit = batch.units[0]
+        profile = _profile("general population")
+        profile["measure"] = {
+            "state": "specified",
+            "value": "booster frequency",
+            "other": "",
+            "source_refs": ["statement"],
+        }
+        valid_target = {
+            **_target(source.content, 1, "threshold", "general population"),
+            "expression": {
+                "kind": "bound",
+                "unit": "boosters/year",
+                "value": 1,
+                "lower": None,
+                "upper": None,
+                "comparator": "<=",
+            },
+            "semantic_profile": profile,
+            "comparison_contract": _comparison_contract(profile, ("measure",)),
+            "field_links": [{
+                "attribute_ref": attribute.name,
+                "relation": "defines",
+                "reason": "The statement defines booster frequency.",
+            }],
+        }
+        invalid_target = {
+            **valid_target,
+            "comparison_contract": {
+                **valid_target["comparison_contract"],
+                "measure": {
+                    "mode": "compatible",
+                    "scope": "booster frequency",
+                    "reason": "Invalid fixture policy.",
+                },
+            },
+        }
+        review = {
+            "unit_id": unit.id,
+            "classification": "target",
+            "attribute_refs": [attribute.name],
+            "reason": "The statement sets a booster-frequency limit.",
+        }
+        client = _SequenceLedgerClient([
+            [{**review, "targets": [invalid_target]}],
+            [{**review, "targets": [valid_target]}],
+        ])
+
+        result = extract_quantitative_ledger_batch(
+            batch,
+            [attribute],
+            client,
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(len(result.targets), 1)
+        self.assertIn(
+            "incomplete direct-comparator policy",
+            client.user_messages[1],
+        )
+
+    def test_retry_retains_valid_sibling_when_other_target_stays_unresolved(self) -> None:
+        source = ContentBlock(
+            id=BLOCK_ID,
+            doc_id="document",
+            ordinal=1,
+            block_type="paragraph",
+            content="Pediatric dose <0.5 mL and adult dose <1.0 mL.",
+            heading_stack=[],
+            structural_meta={},
+            style_hint={},
+        )
+        attribute = Attribute(
+            name="vaccine.dose_volume",
+            description="Volume administered per dose",
+            document_spans=[DocumentSpan(quote=source.content, block_ids=[BLOCK_ID])],
+            target_resolved=True,
+        )
+        batch = prepare_quantitative_ledger_batches([source])[0]
+        unit = batch.units[0]
+        valid = _target("Pediatric dose <0.5 mL", 0.5, "optimal", "pediatric")
+        invalid = _target("adult dose under one mL", 1.0, "optimal", "adult")
+        response = [{
+            "unit_id": unit.id,
+            "classification": "target",
+            "attribute_ref": attribute.name,
+            "reason": "The statement defines pediatric and adult dose limits.",
+            "targets": [valid, invalid],
+        }]
+
+        result = extract_quantitative_ledger_batch(
+            batch,
+            [attribute],
+            _SequenceLedgerClient([response, response]),
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(result.reviews[0].classification, "partial_target")
+        self.assertEqual(result.reviews[0].review_status, "needs_review")
+        self.assertEqual(len(result.targets), 1)
+        self.assertEqual(result.reviews[0].target_ids, [result.targets[0].id])
+        self.assertIn("Source-verifiable targets were retained", result.reviews[0].reason)
 
     def test_context_and_numeric_categories_are_retained_without_calibration(self) -> None:
         source = ContentBlock(

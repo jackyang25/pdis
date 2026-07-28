@@ -417,7 +417,7 @@ export type QuantitativeLedgerReview = {
   unit_id: string;
   block_id: string;
   quote: string;
-  classification: "target" | "context_only" | "non_scalar" | "range_or_set" | "non_numeric" | "uncertain";
+  classification: "target" | "partial_target" | "context_only" | "non_scalar" | "range_or_set" | "non_numeric" | "uncertain";
   reason: string;
   attribute_refs: string[];
   target_ids: string[];

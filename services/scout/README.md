@@ -23,6 +23,17 @@ identity, canonical document target, exact source spans, evidence domain,
 entities, and an ordered view of applicable quantitative claim IDs. The
 document-level quantitative ledger is the only canonical store for atomic
 targets. Downstream stages cannot rewrite either contract.
+
+When one source statement contains several atomic targets, each structurally
+valid target is retained independently. A failed sibling is retried once and,
+if still unresolved, remains a separately acknowledged audit remainder rather
+than deleting the valid targets from that statement.
+
+A mapping response must contain exactly one decision for every requested
+statement. Missing or duplicate decisions receive one small, source-scoped
+retry; a second mechanical failure stops the run instead of becoming a false
+human-review item.
+
 Fixed TPP coverage is maintained in `shared/attributes.yaml`; adding an authored
 domain field extends this vocabulary without adding a pipeline branch.
 

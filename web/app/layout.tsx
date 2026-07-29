@@ -1,16 +1,23 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import "@xyflow/react/dist/style.css";
 import "./globals.css";
 
-// Inter Tight — slightly tighter than Inter, warmer feel for an agent surface.
-// Falls back to system if Google fonts can't load.
+// Inter remains highly readable across dense tables, controls, and long results.
 const sans = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
   display: "swap",
   weight: ["400", "500", "600", "700"],
+});
+
+// Inter Tight gives headings and tool identities a compact display voice.
+const display = Inter_Tight({
+  subsets: ["latin"],
+  variable: "--font-display",
+  display: "swap",
+  weight: ["500", "600", "700"],
 });
 
 const mono = JetBrains_Mono({
@@ -35,7 +42,7 @@ const themeScript = `
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${sans.variable} ${mono.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${sans.variable} ${display.variable} ${mono.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>

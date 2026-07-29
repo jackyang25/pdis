@@ -1,8 +1,8 @@
 # Product Development Intelligence Suite (PDIS) for New Health Interventions
 
-![PDIS product-development workflow](./docs/banner.png)
-
 Traceable document intelligence for product-development plans, evidence, and decisions.
+
+![PDIS tools dashboard](./docs/pdis-tools-dashboard.png)
 
 PDIS turns DOCX, PDF, and PPTX product-development documents into citable
 analysis. It supports target product profiles and development plans for
@@ -32,7 +32,7 @@ instead of collapsing them into one score.
 
 The system is stateless. Inspector, Aligner, and Scout produce portable,
 versioned result files containing their parsed source blocks and retained
-visuals. Imported final results are read-only and Ask never performs a new
+visuals. Imported final results are read-only and Assistant never performs a new
 search.
 
 ## Install
@@ -86,10 +86,12 @@ npm run dev
 4. Resolve any Scout review checkpoint.
 5. Inspect cited blocks and sources, then download the final result.
 
-Ask can navigate the tool catalog, current client-held analyses and utility
+Assistant can navigate the tool catalog, current client-held analyses and utility
 outputs, their embedded source blocks, retained visuals, and already-cited
 URLs. Users may also attach transient documents or images as conversation
-context. Ask cannot mutate results or retrieve new evidence.
+context. Assistant cannot mutate results or retrieve new evidence.
+
+![PDIS Assistant workspace](./docs/pdis-assistant.png)
 
 ## Tools
 
@@ -101,7 +103,7 @@ context. Ask cannot mutate results or retrieve new evidence.
 | [Scout](services/scout/README.md)         | Test document targets against evidence, comparators, and precedent. |
 | [Chunker](services/chunker/README.md)     | Produce ordered, citable text, table, and image blocks.             |
 | [Searcher](services/searcher/README.md)   | Execute normalized retrieval across registered evidence sources.    |
-| [Ask](services/assistant/README.md)       | Navigate available results and cited material across the workspace. |
+| [Assistant](services/assistant/README.md) | Navigate available results and cited material across the workspace. |
 
 
 External GHIDE decision workflows appear as labeled shortcuts in the workspace;

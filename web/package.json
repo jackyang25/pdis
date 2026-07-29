@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",

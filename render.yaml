@@ -53,12 +53,11 @@ projects:
           # idle spin-down without interrupting an API analysis already running.
           - type: web
             name: pdis-web
-            runtime: node
+            runtime: docker
             plan: free
             region: ohio
-            rootDir: web
-            buildCommand: npm ci && npm run build
-            startCommand: node .next/standalone/server.js
+            dockerfilePath: ./web/Dockerfile
+            dockerContext: .
             healthCheckPath: /
             envVars:
               - key: HOSTNAME

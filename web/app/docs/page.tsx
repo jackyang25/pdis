@@ -12,8 +12,14 @@ import {
   type KnowledgeBlock,
 } from "@/lib/product-knowledge";
 import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
+import { ArchitectureGraphs } from "@/components/docs/architecture-graph";
 
-const NAVIGATION = PRODUCT_KNOWLEDGE.sections.map(
+const SECTION_ORDER = ["overview", "tools", "architecture", "workflows", "scout", "assistant", "results", "development", "faq"];
+const DOCUMENT_SECTIONS = [...PRODUCT_KNOWLEDGE.sections].sort(
+  (left, right) => SECTION_ORDER.indexOf(left.id) - SECTION_ORDER.indexOf(right.id),
+);
+
+const NAVIGATION = DOCUMENT_SECTIONS.map(
   (section) => [section.id, section.title] as const,
 );
 
@@ -34,7 +40,7 @@ const TOOLS: readonly (readonly [string, string, string])[] = [
 export default function DocsPage() {
   return (
     <div className="pb-16">
-      <div className="grid gap-10 lg:grid-cols-[160px_minmax(0,760px)] lg:justify-center lg:gap-14">
+      <div className="grid gap-10 lg:grid-cols-[160px_minmax(0,860px)] lg:justify-center lg:gap-12">
         <DocsNavigation />
 
         <article className="min-w-0">
@@ -71,7 +77,7 @@ export default function DocsPage() {
           </header>
 
           <MobileContents />
-          {PRODUCT_KNOWLEDGE.sections.map((section) => (
+          {DOCUMENT_SECTIONS.map((section) => (
             <DocSection
               key={section.id}
               id={section.id}
@@ -117,6 +123,16 @@ function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
     return (
       <ContentGroup title={block.title}>
         <DefinitionRows rows={block.items.map((item) => [item.term, item.description] as const)} />
+      </ContentGroup>
+    );
+  }
+  if (block.type === "architecture") {
+    return (
+      <ContentGroup title={block.title}>
+        <p className="mt-2 max-w-3xl text-xs leading-5 text-muted-foreground">
+          {block.description}
+        </p>
+        <ArchitectureGraphs graphs={block.graphs} description={block.description} />
       </ContentGroup>
     );
   }

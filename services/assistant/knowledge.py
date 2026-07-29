@@ -112,4 +112,18 @@ def _section_text(section: dict[str, Any]) -> str:
             lines.append(
                 "- Current tool entries are supplied separately by the workspace catalog."
             )
+        elif block_type == "architecture":
+            lines.append(str(block.get("description", "")))
+            for graph in block.get("graphs", []):
+                lines.append(f"- {graph['title']}: {graph['summary']}")
+                for node in graph.get("nodes", []):
+                    lines.append(
+                        f"  - {node['title']} [{node['layer']}; {node['kind']}]: "
+                        f"{node['summary']}"
+                    )
+                    for child in node.get("children", []):
+                        lines.append(
+                            f"    - {child['title']} [{child['layer']}; {child['kind']}]: "
+                            f"{child['summary']}"
+                        )
     return "\n".join(lines)

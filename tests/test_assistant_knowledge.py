@@ -10,6 +10,10 @@ def test_product_knowledge_has_stable_sections_and_search() -> None:
     assert "assistant" in overview
     assert "[architecture] Architecture" in knowledge.read(["architecture"])
     assert "Services" in knowledge.read(["architecture"])
+    architecture_docs = knowledge.read(["workflows"])
+    assert "Inspector: Turns one parsed development document" in architecture_docs
+    assert "Source-neutral intents" in architecture_docs
+    assert "Bounded navigation loop" in architecture_docs
     assert "architecture" in matches
     scout_docs = knowledge.read(["scout"])
     assert "Linked product fields" in scout_docs

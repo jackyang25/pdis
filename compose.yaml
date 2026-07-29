@@ -45,7 +45,8 @@ services:
   web:
     container_name: pdis-web
     build:
-      context: ./web
+      context: .
+      dockerfile: web/Dockerfile
       args:
         NEXT_PUBLIC_PDIS_API_URL: http://localhost:8000
     environment:

@@ -5,6 +5,35 @@ export type KnowledgeDefinition = {
   description: string;
 };
 
+export type ArchitectureNodeKind =
+  | "input"
+  | "model"
+  | "deterministic"
+  | "review"
+  | "integration"
+  | "output";
+
+export type ArchitectureNode = {
+  id: string;
+  title: string;
+  summary: string;
+  kind: ArchitectureNodeKind;
+  layer: string;
+  details?: string;
+  inputs?: string[];
+  outputs?: string[];
+  guarantee?: string;
+  children?: ArchitectureNode[];
+};
+
+export type ArchitectureGraph = {
+  id: "inspector" | "aligner" | "scout" | "chunker" | "searcher" | "chat";
+  title: string;
+  summary: string;
+  nodes: ArchitectureNode[];
+  edges: { source: string; target: string; label?: string }[];
+};
+
 export type KnowledgeBlock =
   | {
       type: "steps";
@@ -19,6 +48,12 @@ export type KnowledgeBlock =
       type: "definitions";
       title?: string;
       items: KnowledgeDefinition[];
+    }
+  | {
+      type: "architecture";
+      title: string;
+      description: string;
+      graphs: ArchitectureGraph[];
     }
   | {
       type: "note";

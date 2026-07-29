@@ -1,0 +1,11 @@
+*
+!web/
+!web/**
+!shared/
+!shared/product_knowledge.json
+
+web/node_modules/
+web/.next/
+web/.env*.local
+web/npm-debug.log*
+web/.DS_Store

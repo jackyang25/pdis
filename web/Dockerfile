@@ -1,17 +1,20 @@
 FROM node:20-alpine AS dependencies
 
-WORKDIR /app
-COPY package.json package-lock.json ./
+WORKDIR /app/web
+COPY web/package.json web/package-lock.json ./
 RUN npm ci
 
 FROM node:20-alpine AS builder
 
-WORKDIR /app
-COPY --from=dependencies /app/node_modules ./node_modules
-COPY . .
+WORKDIR /app/web
+COPY --from=dependencies /app/web/node_modules ./node_modules
+COPY web/ ./
+COPY shared/product_knowledge.json /app/shared/product_knowledge.json
 
-ARG NEXT_PUBLIC_PDIS_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_PDIS_API_URL
+ARG NEXT_PUBLIC_PDIS_API_HOST
 ENV NEXT_PUBLIC_PDIS_API_URL=${NEXT_PUBLIC_PDIS_API_URL}
+ENV NEXT_PUBLIC_PDIS_API_HOST=${NEXT_PUBLIC_PDIS_API_HOST}
 
 RUN mkdir -p public && npm run build
 
@@ -22,9 +25,9 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/web/public ./public
+COPY --from=builder /app/web/.next/standalone ./
+COPY --from=builder /app/web/.next/static ./.next/static
 
 EXPOSE 3000
 

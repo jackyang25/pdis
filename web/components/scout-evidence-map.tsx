@@ -1,17 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import dagre from "@dagrejs/dagre";
 import {
   Background,
   BackgroundVariant,
-  Controls,
   Handle,
   MarkerType,
   Position,
   ReactFlow,
-  useNodesInitialized,
-  useReactFlow,
   type Edge,
   type Node,
   type NodeProps,
@@ -42,6 +38,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  FitGraphToView,
+  GraphControls,
+  GraphInspectorShell,
+  GraphNodeFrame,
+  layoutDirectedGraph,
+} from "@/components/graph/graph-primitives";
 
 type EvidenceFlowNode = Node<EvidenceMapNode, EvidenceMapNodeKind>;
 
@@ -90,12 +93,7 @@ function EvidenceNode({ data, selected }: NodeProps<EvidenceFlowNode>) {
   const Icon = KIND_ICON[data.kind];
   const relationStyle = data.relation ? RELATION_STYLE[data.relation] : null;
   return (
-    <div
-      className={cn(
-        "flex h-full w-full cursor-pointer flex-col rounded-lg border border-border/90 bg-card px-3.5 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow] hover:border-foreground/25 hover:shadow-[0_5px_18px_rgba(15,23,42,0.08)]",
-        selected && "border-foreground/40 ring-2 ring-foreground/10",
-      )}
-    >
+    <GraphNodeFrame selected={selected} className="px-3.5 py-3">
       <Handle
         type="target"
         position={Position.Left}
@@ -124,7 +122,7 @@ function EvidenceNode({ data, selected }: NodeProps<EvidenceFlowNode>) {
           {data.meta}
         </p>
       )}
-    </div>
+    </GraphNodeFrame>
   );
 }
 
@@ -148,37 +146,20 @@ function edgeColor(edge: EvidenceMapEdge): string {
 }
 
 function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
-  const graph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-  graph.setGraph({
-    rankdir: "LR",
-    ranksep: 76,
-    nodesep: 18,
-    edgesep: 10,
-    marginx: 24,
-    marginy: 24,
-  });
-
-  for (const node of nodes) {
-    const size = NODE_SIZE[node.kind];
-    // Dagre writes x/y coordinates onto the node label object. Each node must
-    // receive its own dimensions object or same-kind nodes share coordinates
-    // and render directly on top of one another.
-    graph.setNode(node.id, { width: size.width, height: size.height });
-  }
-  for (const edge of edges) graph.setEdge(edge.source, edge.target);
-  dagre.layout(graph);
+  const positions = layoutDirectedGraph(
+    nodes.map((node) => ({ id: node.id, ...NODE_SIZE[node.kind] })),
+    edges,
+    { ranksep: 76, nodesep: 18, edgesep: 10, margin: 24 },
+  );
 
   const flowNodes: EvidenceFlowNode[] = nodes.map((node) => {
-    const position = graph.node(node.id);
+    const position = positions.get(node.id) ?? { x: 0, y: 0 };
     const size = NODE_SIZE[node.kind];
     return {
       id: node.id,
       type: node.kind,
       data: node,
-      position: {
-        x: position.x - size.width / 2,
-        y: position.y - size.height / 2,
-      },
+      position,
       style: { width: size.width, height: size.height },
       draggable: false,
       connectable: false,
@@ -214,32 +195,11 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
   return { nodes: flowNodes, edges: flowEdges };
 }
 
-function FitGraphToView({ layoutKey }: { layoutKey: string }) {
-  const nodesInitialized = useNodesInitialized();
-  const { fitView } = useReactFlow();
-
-  useEffect(() => {
-    if (!nodesInitialized) return;
-    let secondFrame = 0;
-    const firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => {
-        void fitView({ padding: 0.22, maxZoom: 1, duration: 180 });
-      });
-    });
-    return () => {
-      cancelAnimationFrame(firstFrame);
-      cancelAnimationFrame(secondFrame);
-    };
-  }, [fitView, layoutKey, nodesInitialized]);
-
-  return null;
-}
-
 function Inspector({ node }: { node: EvidenceMapNode }) {
   const Icon = KIND_ICON[node.kind];
   const relationStyle = node.relation ? RELATION_STYLE[node.relation] : null;
   return (
-    <aside className="min-h-[230px] border-t border-border/80 bg-card px-5 py-5 xl:h-[560px] xl:min-h-0 xl:overflow-y-auto xl:border-l xl:border-t-0">
+    <GraphInspectorShell className="xl:h-[560px]">
       <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         <Icon className="h-3.5 w-3.5" />
         {node.eyebrow}
@@ -350,7 +310,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
           <ExternalLink className="h-3 w-3" />
         </a>
       )}
-    </aside>
+    </GraphInspectorShell>
   );
 }
 
@@ -461,14 +421,14 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
             maxZoom={1.4}
             proOptions={{ hideAttribution: true }}
           >
-            <FitGraphToView layoutKey={`${attributeRef}:${viewMode}`} />
+            <FitGraphToView layoutKey={`${attributeRef}:${viewMode}`} padding={0.22} />
             <Background
               variant={BackgroundVariant.Dots}
               gap={20}
               size={1}
               color="hsl(var(--border))"
             />
-            <Controls showInteractive={false} />
+            <GraphControls />
           </ReactFlow>
           {hasHiddenNodes && (
             <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-card/95 px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm backdrop-blur">

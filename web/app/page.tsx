@@ -10,7 +10,6 @@ import {
   type ExternalToolDefinition,
   type ToolAudience,
   type ToolDefinition,
-  type ToolWorkflow,
   type WorkspaceToolDefinition,
 } from "@/lib/tools";
 
@@ -22,35 +21,37 @@ const ALL_TOOLS: readonly ToolDefinition[] = [
 ];
 
 const SECTIONS: readonly {
-  workflow: ToolWorkflow;
+  id: string;
+  toolIds: readonly ToolDefinition["id"][];
   title: string;
   description: string;
   columns: 2 | 3;
   compact?: boolean;
 }[] = [
   {
-    workflow: "document_intelligence",
-    title: "Document intelligence",
+    id: "pst-tools",
+    toolIds: ["inspector", "aligner", "scout", "bouncer"],
+    title: "PST tools",
     description:
-      "Review document quality, compare plans, or test targets against external evidence.",
-    columns: 3,
-  },
-  {
-    workflow: "stage_gate",
-    title: "Stage-gate readiness",
-    description:
-      "Prepare a review package or evaluate whether stage-gate criteria have been met.",
+      "Review development documents, test their evidence, and prepare stage-gate decisions.",
     columns: 2,
   },
   {
-    workflow: "decision_workflow",
-    title: "GHIDE decision workflow",
+    id: "ghide-workflows",
+    toolIds: [
+      "ghide-evaluator",
+      "ghide-roadmap-body-compiler",
+      "ghide-executive-summary-compiler",
+      "ghide-stage-gate-evaluator",
+    ],
+    title: "GHIDE team workflows",
     description:
-      "Move from funding evaluation to an organized roadmap and leadership summary.",
-    columns: 3,
+      "Evaluate investments, prepare stage-gate decisions, and turn findings into leadership-ready outputs.",
+    columns: 2,
   },
   {
-    workflow: "utility",
+    id: "shared-utilities",
+    toolIds: ["chunker", "searcher"],
     title: "Shared utilities",
     description:
       "Work directly with parsed document content or registered evidence sources.",
@@ -64,7 +65,7 @@ export default function Home() {
   const visibleSections = SECTIONS.map((section) => ({
     ...section,
     tools: ALL_TOOLS.filter(
-      (tool) => tool.workflow === section.workflow
+      (tool) => section.toolIds.includes(tool.id)
         && isVisibleToAudience(tool, audience),
     ),
   })).filter((section) => section.tools.length > 0);
@@ -85,13 +86,13 @@ export default function Home() {
       <div className="mt-10 space-y-12">
         {visibleSections.map((section, sectionIndex) => (
           <section
-            key={section.workflow}
-            aria-labelledby={`${section.workflow}-title`}
+            key={section.id}
+            aria-labelledby={`${section.id}-title`}
             className={sectionIndex === 0 ? undefined : "border-t border-border pt-9"}
           >
             <SectionHeader
               title={section.title}
-              id={`${section.workflow}-title`}
+              id={`${section.id}-title`}
               description={section.description}
             />
             <div className={`grid gap-4 ${section.columns === 2 ? "sm:grid-cols-2" : "md:grid-cols-3"}`}>

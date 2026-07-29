@@ -2,21 +2,21 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Curated semantic names for the bespoke PDIS icon pack. The source SVGs stay
- * untouched in public/icons/pdis; CSS masking lets them inherit currentColor.
+ * Curated semantic names for the PDIS Freehand icon pack. The source PNGs stay
+ * untouched in public/icons/pdis/freehand; CSS masking lets them inherit currentColor.
  * Add a mapping here before using another pack icon in product UI.
  */
 export const PDIS_ICON_PATHS = {
-  inspector: "Outline/Files/Book-check.svg",
-  aligner: "Outline/Interface/Exchange.svg",
-  scout: "Outline/Devices/Binocular.svg",
-  bouncer: "Outline/Status/Shield.svg",
-  chunker: "Outline/Interface/Stack.svg",
-  searcher: "Outline/Interface/Search.svg",
-  evaluator: "Outline/Status/Checked-box.svg",
-  roadmap: "Outline/Navigation/Map-location.svg",
-  "executive-summary": "Outline/Files/Document.svg",
-  chat: "Outline/Communication/Chat.svg",
+  inspector: "freehand/performance-increase-clipboard--Streamline-Freehand.png",
+  aligner: "freehand/business-workflow-compare--Streamline-Freehand.png",
+  scout: "freehand/focus-frame-target-1--Streamline-Freehand.png",
+  bouncer: "freehand/business-coaching-whistle--Streamline-Freehand.png",
+  chunker: "freehand/data-transfer-document-module--Streamline-Freehand.png",
+  searcher: "freehand/seo-search-graph--Streamline-Freehand.png",
+  evaluator: "freehand/business-coaching-idea-jigsaw--Streamline-Freehand.png",
+  roadmap: "freehand/business-workflow-project-management--Streamline-Freehand.png",
+  "executive-summary": "freehand/performance-presentation-graph--Streamline-Freehand.png",
+  chat: "freehand/conversation-chat--Streamline-Freehand.png",
 } as const;
 
 export type PdisIconName = keyof typeof PDIS_ICON_PATHS;

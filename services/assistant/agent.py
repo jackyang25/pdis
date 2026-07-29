@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from typing import Any, Iterator, Protocol
 
 from . import document as document_reader
+from . import knowledge
 from . import navigator
 from .legends import legend_for
 
@@ -53,6 +54,37 @@ class StreamingChatLLMProtocol(ChatLLMProtocol, Protocol):
 
 
 TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "find_product_docs",
+            "description": "Find canonical PDIS documentation about tools, workflows, architecture, results, or terminology. Use this for questions about how PDIS itself works.",
+            "parameters": {
+                "type": "object",
+                "properties": {"keyword": {"type": "string"}},
+                "required": ["keyword"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_product_docs",
+            "description": "Read complete canonical PDIS documentation sections by stable section ID. Section IDs are listed in the product-documentation map.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "section_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 4,
+                    }
+                },
+                "required": ["section_ids"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -299,6 +331,12 @@ def _run_tool(
         args = json.loads(call.function.arguments or "{}")
     except json.JSONDecodeError:
         return "Invalid tool arguments."
+    if name == "find_product_docs":
+        return knowledge.find(str(args.get("keyword", "")))
+    if name == "read_product_docs":
+        raw_ids = args.get("section_ids", [])
+        section_ids = [str(value) for value in raw_ids] if isinstance(raw_ids, list) else []
+        return knowledge.read(section_ids)
     if name == "get":
         return navigator.get(result, str(args.get("path", "")))
     if name == "find":
@@ -416,7 +454,7 @@ def _system_prompt(
         else "ONE analysis result the user just produced"
     )
     grounding = (
-        "the full text behind sources it already cites"
+        "the canonical public PDIS product documentation, the full text behind sources it already cites"
         + (", and every parsed text or visual block in the SOURCE DOCUMENT" if has_doc else "")
     )
     two_sources = (
@@ -443,12 +481,18 @@ def _system_prompt(
         if has_doc
         else ""
     )
+    product_docs_section = (
+        "\n\nPRODUCT DOCUMENTATION MAP (public PDIS behavior and architecture; not analysis evidence):\n"
+        f"{knowledge.overview()}"
+    )
     return (
         "You are Ask: a read-only assistant that answers questions about "
         f"{subject}. You are grounded: answer ONLY from this submitted context and "
         f"{grounding}. You never run new web searches and never change anything.\n\n"
         f"WHAT THIS CONTEXT IS:\n{legend_for(result_type)}\n\n"
         "HOW TO READ IT - use the tools:\n"
+        "- find_product_docs(keyword): locate canonical PDIS documentation. "
+        "read_product_docs(section_ids): read the relevant complete sections.\n"
         "- get(path): read a result subtree. find(keyword): locate result paths. "
         "find_document(keyword): locate document blocks. read_document(block_ids): read exact "
         "document text. read_document_range(doc_id): scan an ordered document. "
@@ -458,11 +502,14 @@ def _system_prompt(
         + (" Use the document map and document tools whenever the answer depends on the upload." if has_doc else "")
         + two_sources
         + "\n\nRULES:\n"
-        "- Ground every claim in the result, a fetched cited source"
+        "- Use product documentation for questions about PDIS tools, process, architecture, results, and terminology. "
+        "Never present product documentation as evidence about an analyzed health product.\n"
+        "- Ground every claim in product documentation, the result, or a fetched cited source"
         + (", or the source document" if has_doc else "")
         + ". If something isn't there, say so plainly - do not invent it.\n"
         "- Cite the source URL(s) for evidence-based answers so the user can click through.\n"
         "- Be concise and specific; quote the relevant values/paths.\n\n"
         f"OVERVIEW OF THIS CONTEXT:\n{navigator.overview(result)}"
+        + product_docs_section
         + document_section
     )

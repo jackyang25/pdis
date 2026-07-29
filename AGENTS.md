@@ -176,6 +176,10 @@ web/ → api/ → services/ → shared/
   cited by an analysis. Transient conversation attachments use the same block
   contract and remain user-supplied context; Ask never runs a new evidence
   search.
+- Stable public process and architecture documentation lives in
+  `shared/product_knowledge.json`. The web documentation page and Ask consume
+  that source; do not duplicate its prose in either layer. Tool metadata,
+  controlled vocabularies, and run results remain separate authorities.
 - Tool routes stream NDJSON `stage`, `complete`, or `error` events. Fan-out
   stages report `completed`/`total`; single stages use indeterminate progress.
 - Browser multipart uploads go directly to FastAPI. Keep all secrets server-side.

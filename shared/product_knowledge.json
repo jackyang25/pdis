@@ -1,0 +1,349 @@
+{
+  "version": 1,
+  "title": "Product Development Intelligence Suite",
+  "description": "A concise guide to choosing a tool, understanding the architecture, interpreting Scout evidence, and working with portable results.",
+  "sections": [
+    {
+      "id": "overview",
+      "title": "Overview",
+      "intro": "PDIS turns product-development documents into traceable analysis while keeping document quality, document alignment, and external evidence as separate responsibilities.",
+      "content": [
+        {
+          "type": "steps",
+          "items": [
+            {
+              "title": "Choose a tool",
+              "text": "Start with the question you need answered rather than a generic analysis."
+            },
+            {
+              "title": "Provide context",
+              "text": "Upload the source material and select the requested product context."
+            },
+            {
+              "title": "Inspect the trace",
+              "text": "Review cited blocks, sources, exclusions, and limitations before downloading the result."
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "title": "Why this matters",
+          "text": "Inspector, Aligner, and Scout intentionally produce different outputs. None is a funding recommendation or a universal product score."
+        }
+      ]
+    },
+    {
+      "id": "tools",
+      "title": "Tools",
+      "intro": "Tools are grouped by audience and role. Availability belongs to the individual tool, while external provider links appear only where they are required.",
+      "content": [
+        {
+          "type": "tool_catalog"
+        }
+      ]
+    },
+    {
+      "id": "architecture",
+      "title": "Architecture",
+      "intro": "PDIS keeps document parsing, analysis, API composition, and presentation behind explicit contracts so each layer can change without silently changing system meaning.",
+      "content": [
+        {
+          "type": "definitions",
+          "items": [
+            {
+              "term": "Web",
+              "description": "Collects configuration and files, carries review state, and renders current results. It does not hold provider credentials."
+            },
+            {
+              "term": "API",
+              "description": "Validates requests, injects provider and connector clients, and streams service progress or final responses."
+            },
+            {
+              "term": "Services",
+              "description": "Run stateless Inspector, Aligner, Scout, Chunker, Searcher, and Assistant workflows through typed contracts."
+            },
+            {
+              "term": "Shared",
+              "description": "Owns provider clients, controlled vocabularies, and public product documentation used across services and the web application."
+            }
+          ]
+        },
+        {
+          "type": "definitions",
+          "title": "Core design",
+          "items": [
+            {
+              "term": "Document blocks",
+              "description": "Ordered text, table, and retained image blocks carry stable IDs so every claim can point back to source material."
+            },
+            {
+              "term": "Stateless runs",
+              "description": "The client carries drafts and results; services do not create hidden workspace sessions."
+            },
+            {
+              "term": "Portable results",
+              "description": "Final Inspector, Aligner, and Scout artifacts package analysis separately from their parsed source documents."
+            },
+            {
+              "term": "Model boundaries",
+              "description": "Models perform bounded semantic judgments; schemas and deterministic calculations enforce structural contracts and reproducible arithmetic."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scout",
+      "title": "Scout evidence",
+      "intro": "Scout binds document meaning before retrieval, generates source-neutral query intents, and keeps its evidence judgments independent.",
+      "content": [
+        {
+          "type": "definitions",
+          "title": "Query tracks",
+          "items": [
+            {
+              "term": "General",
+              "description": "Current evidence for the document-bound field or claim."
+            },
+            {
+              "term": "Geographic",
+              "description": "LMIC, implementation, access, regulatory, and local-language evidence."
+            },
+            {
+              "term": "Counterfactual",
+              "description": "Evidence that may weaken or constrain the stated target."
+            },
+            {
+              "term": "Precedent",
+              "description": "Comparable products or programs that show whether an approach has been tried."
+            }
+          ]
+        },
+        {
+          "type": "definitions",
+          "title": "Result axes",
+          "items": [
+            {
+              "term": "Relationship",
+              "description": "Contradicts, extends, confirms, or unrelated."
+            },
+            {
+              "term": "Grounding",
+              "description": "Well grounded, partial, thin, unsupported, or unknown."
+            },
+            {
+              "term": "Quantitative calibration",
+              "description": "Reviewed comparators and deterministic descriptive statistics."
+            },
+            {
+              "term": "Precedent",
+              "description": "Direct, adjacent, none, or unknown, with outcome reported separately."
+            }
+          ]
+        },
+        {
+          "type": "definitions",
+          "title": "Review terminology",
+          "items": [
+            {
+              "term": "Target review",
+              "description": "The pre-retrieval checkpoint for deciding whether a document-owned quantitative proposal is a real measurable commitment rather than background, an example, or a rejected alternative."
+            },
+            {
+              "term": "Source passage",
+              "description": "The exact cited document text from which a proposal was mapped."
+            },
+            {
+              "term": "Proposed measurable target",
+              "description": "One atomic, normalized expression of a document-stated scalar, with its semantic dimensions and direct-comparator policy."
+            },
+            {
+              "term": "Linked product fields",
+              "description": "Canonical Scout analysis fields to which one document-owned target applies; these are analysis views, not synchronized database fields. Defines means the statement directly specifies the field, constrains means it imposes a requirement, and context for means it remains traceable without creating retrieval or statistics."
+            },
+            {
+              "term": "Semantic dimensions",
+              "description": "Measure, endpoint, intervention, population, regimen, time horizon, statistic, and conditions describe what the target or measurement means."
+            },
+            {
+              "term": "Comparator policy",
+              "description": "Exact requires an axis to match; compatible permits variation within its stated scope; unconstrained does not restrict that axis; unknown requires review rather than an inferred rule."
+            },
+            {
+              "term": "AI prefilled",
+              "description": "A review recommendation only. It is not a completed human decision and does not admit a target or measurement."
+            },
+            {
+              "term": "Needs review",
+              "description": "The proposal or comparison could not be recommended confidently and remains explicit rather than being silently admitted."
+            },
+            {
+              "term": "Unresolved extraction",
+              "description": "Scout retained the source statement for audit but could not form a complete, source-verifiable atomic target, so it stays outside retrieval and statistics."
+            },
+            {
+              "term": "Evidence review",
+              "description": "The post-retrieval checkpoint for deciding whether a cited numeric result is comparable enough to enter descriptive statistics for one document target."
+            },
+            {
+              "term": "Comparison check",
+              "description": "Target and evidence dimensions shown side by side. Their alignment is model interpretation; the review decision controls admission."
+            },
+            {
+              "term": "Choose one estimate",
+              "description": "Alternative estimates from one evidence unit remain auditable, but at most one may contribute so one source population is not counted repeatedly."
+            },
+            {
+              "term": "Included comparator cohort",
+              "description": "Only admitted, source-owned, evidence-unit-deduplicated scalars used for deterministic descriptive statistics."
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "title": "Quantitative review",
+          "text": "Anthropic maps document-owned claims and retrieved measurements into typed proposals. A claim may define or constrain several product fields without being copied; contextual links never create statistics. OpenAI independently recommends whether each proposal should be confirmed, excluded, admitted, rejected, or reviewed manually. Human decisions control admission; code checks structure, provenance, declared-unit compatibility, deduplication, and arithmetic."
+        },
+        {
+          "type": "warning",
+          "title": "Calibration is descriptive",
+          "text": "Quantitative distributions describe only the admitted comparator cohort. They are not confidence intervals, population estimates, causal claims, or probabilities of success."
+        }
+      ]
+    },
+    {
+      "id": "assistant",
+      "title": "Assistant context",
+      "intro": "Assistant is a stateless, read-only navigator over the context available in the current browser workspace.",
+      "content": [
+        {
+          "type": "definitions",
+          "items": [
+            {
+              "term": "Product documentation",
+              "description": "Assistant can find and read these curated process, architecture, and interpretation sections on demand."
+            },
+            {
+              "term": "Tool catalog",
+              "description": "Assistant receives current tool names, responsibilities, audiences, availability, and external-provider labels."
+            },
+            {
+              "term": "Final results",
+              "description": "Assistant can navigate eligible current analyses and direct utility outputs submitted by the client."
+            },
+            {
+              "term": "Source documents",
+              "description": "Assistant can find and read the exact parsed text and retained image blocks packaged with available results."
+            },
+            {
+              "term": "Conversation attachments",
+              "description": "Files added in chat become temporary parsed context for that conversation; they do not become analysis evidence."
+            },
+            {
+              "term": "Cited sources",
+              "description": "Assistant may open a URL only when it already appears in a submitted result. It never starts a new evidence search."
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "title": "Context is selected on demand",
+          "text": "Assistant starts from compact maps and uses bounded tools to read only the relevant documentation section, result subtree, document blocks, or cited source. It does not place every available artifact into every model prompt."
+        },
+        {
+          "type": "warning",
+          "title": "Workspace boundary",
+          "text": "Assistant cannot inspect an active review draft, mutate a result, run a tool workflow, or retrieve uncited evidence. An absent result means that no eligible current final result was submitted."
+        }
+      ]
+    },
+    {
+      "id": "results",
+      "title": "Saved results",
+      "intro": "Inspector, Aligner, and Scout downloads are portable, versioned artifacts. Their analysis and source documents travel together.",
+      "content": [
+        {
+          "type": "definitions",
+          "items": [
+            {
+              "term": "Analysis",
+              "description": "Tool-specific judgments, traces, and derived views."
+            },
+            {
+              "term": "Source documents",
+              "description": "Ordered text, table, and retained image blocks with stable IDs."
+            },
+            {
+              "term": "Assistant",
+              "description": "Read-only navigation across current client-held results, blocks, visuals, and already-cited URLs."
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "title": "Current contract only",
+          "text": "Imports accept only final artifacts produced by the current application version. Source spans, visuals, query lineage, and retrieval provenance must already be complete."
+        }
+      ]
+    },
+    {
+      "id": "development",
+      "title": "Development",
+      "intro": "Repository setup, environment variables, deployment, contribution guidance, and service contracts live with the code so they remain versioned with the implementation.",
+      "content": [
+        {
+          "type": "links",
+          "items": [
+            {
+              "title": "Install and run",
+              "description": "Docker and native development instructions.",
+              "href": "https://github.com/jackyang25/pdis#install"
+            },
+            {
+              "title": "Configuration",
+              "description": "Product context, credentials, and configuration ownership.",
+              "href": "https://github.com/jackyang25/pdis#configuration"
+            },
+            {
+              "title": "Service contracts",
+              "description": "Compact references for each internal service boundary.",
+              "href": "https://github.com/jackyang25/pdis/tree/main/services"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "faq",
+      "title": "FAQ",
+      "intro": "Answers to questions that affect how a result should be interpreted.",
+      "content": [
+        {
+          "type": "faq",
+          "items": [
+            {
+              "question": "Does Scout read the uploaded document?",
+              "answer": "Yes. It binds claims to parsed document blocks before generating queries or judging evidence."
+            },
+            {
+              "question": "Why is a chart or tab absent?",
+              "answer": "Derived views appear only when their required data exists. An absent chart does not imply a favorable or unfavorable result."
+            },
+            {
+              "question": "Does ToolUniverse choose sources autonomously?",
+              "answer": "No. Configuration enables registered source lanes; adapters translate neutral intents into source-native requests."
+            },
+            {
+              "question": "Can I import an older result?",
+              "answer": "No. Imports accept only final results produced by the current application contract."
+            },
+            {
+              "question": "Can Assistant read an active review checkpoint?",
+              "answer": "No. Assistant receives eligible final results, direct utility outputs, their source blocks, and conversation attachments. Active review drafts remain isolated."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

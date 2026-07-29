@@ -7,16 +7,15 @@ import {
   Github,
   Info,
 } from "lucide-react";
+import {
+  PRODUCT_KNOWLEDGE,
+  type KnowledgeBlock,
+} from "@/lib/product-knowledge";
 import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
 
-const NAVIGATION = [
-  ["overview", "Overview"],
-  ["tools", "Tools"],
-  ["scout", "Scout evidence"],
-  ["results", "Saved results"],
-  ["development", "Development"],
-  ["faq", "FAQ"],
-] as const;
+const NAVIGATION = PRODUCT_KNOWLEDGE.sections.map(
+  (section) => [section.id, section.title] as const,
+);
 
 const TOOLS: readonly (readonly [string, string, string])[] = [
   ...WORKSPACE_TOOLS.map((tool) => [
@@ -32,20 +31,6 @@ const TOOLS: readonly (readonly [string, string, string])[] = [
   ["Assistant", "Workspace navigation", "Answers read-only questions across the tool catalog, available results, utility outputs, cited material, and transient conversation attachments from either the floating panel or full-page workspace."],
 ];
 
-const QUERY_TRACKS = [
-  ["General", "Current evidence for the document-bound field or claim."],
-  ["Geographic", "LMIC, implementation, access, regulatory, and local-language evidence."],
-  ["Counterfactual", "Evidence that may weaken or constrain the stated target."],
-  ["Precedent", "Comparable products or programs that show whether an approach has been tried."],
-] as const;
-
-const EVIDENCE_AXES = [
-  ["Relationship", "Contradicts · Extends · Confirms · Unrelated"],
-  ["Grounding", "Well grounded · Partial · Thin · Unsupported · Unknown"],
-  ["Quantitative calibration", "Reviewed comparators and deterministic descriptive statistics"],
-  ["Precedent", "Direct · Adjacent · None · Unknown, with outcome reported separately"],
-] as const;
-
 export default function DocsPage() {
   return (
     <div className="pb-16">
@@ -59,10 +44,10 @@ export default function DocsPage() {
               Documentation
             </div>
             <h1 className="mt-3 text-[32px] font-semibold leading-[1.12] tracking-[-0.04em] sm:text-[38px]">
-              Product Development Intelligence Suite
+              {PRODUCT_KNOWLEDGE.title}
             </h1>
             <p className="mt-3 max-w-2xl text-[15px] leading-6 text-muted-foreground">
-              A concise guide to choosing a tool, interpreting Scout evidence, and working with portable results.
+              {PRODUCT_KNOWLEDGE.description}
             </p>
             <div className="mt-5 flex flex-wrap items-center gap-2">
               <Link
@@ -86,98 +71,88 @@ export default function DocsPage() {
           </header>
 
           <MobileContents />
-
-          <DocSection
-            id="overview"
-            title="Overview"
-            intro="PDIS turns product-development documents into traceable analysis while keeping document quality, document alignment, and external evidence as separate responsibilities."
-          >
-            <ol className="mt-6 space-y-4 border-l border-border pl-5">
-              <Step number="1" title="Choose a tool">Start with the question you need answered rather than a generic analysis.</Step>
-              <Step number="2" title="Provide context">Upload the source material and select the requested product context.</Step>
-              <Step number="3" title="Inspect the trace">Review cited blocks, sources, exclusions, and limitations before downloading the result.</Step>
-            </ol>
-            <Note>
-              Inspector, Aligner, and Scout intentionally produce different outputs. None is a funding recommendation or a universal product score.
-            </Note>
-          </DocSection>
-
-          <DocSection
-            id="tools"
-            title="Tools"
-            intro="Tools are grouped by audience and role. Availability belongs to the individual tool, while external provider links appear only where they are required."
-          >
-            <DefinitionRows rows={TOOLS.map(([name, role, description]) => [name, `${role} — ${description}`] as const)} />
-          </DocSection>
-
-          <DocSection
-            id="scout"
-            title="Scout evidence"
-            intro="Scout binds document meaning before retrieval, generates source-neutral query intents, and keeps its evidence judgments independent."
-          >
-            <h3 className="mt-6 text-xs font-semibold">Query tracks</h3>
-            <DefinitionRows rows={QUERY_TRACKS} />
-
-            <h3 className="mt-8 text-xs font-semibold">Result axes</h3>
-            <DefinitionRows rows={EVIDENCE_AXES} />
-
-            <Note title="Quantitative review">
-              Anthropic maps document-owned claims and retrieved measurements into typed proposals. A claim may define or constrain several product fields without being copied; contextual links never create statistics. OpenAI independently recommends whether each proposal should be confirmed, excluded, admitted, rejected, or reviewed manually. Human decisions control admission; code checks structure, provenance, declared-unit compatibility, deduplication, and arithmetic.
-            </Note>
-            <Warning title="Calibration is descriptive">
-              Quantitative distributions describe only the admitted comparator cohort. They are not confidence intervals, population estimates, causal claims, or probabilities of success.
-            </Warning>
-          </DocSection>
-
-          <DocSection
-            id="results"
-            title="Saved results"
-            intro="Inspector, Aligner, and Scout downloads are portable, versioned artifacts. Their analysis and source documents travel together."
-          >
-            <DefinitionRows rows={[
-              ["Analysis", "Tool-specific judgments, traces, and derived views."],
-              ["Source documents", "Ordered text, table, and retained image blocks with stable IDs."],
-              ["Assistant", "Read-only navigation across current client-held results, blocks, visuals, and already-cited URLs."],
-            ]} />
-            <Note title="Current contract only">
-              Imports accept only final artifacts produced by the current application version. Source spans, visuals, query lineage, and retrieval provenance must already be complete.
-            </Note>
-          </DocSection>
-
-          <DocSection
-            id="development"
-            title="Development"
-            intro="Repository setup, environment variables, deployment, contribution guidance, and service contracts live with the code so they remain versioned with the implementation."
-          >
-            <div className="mt-6 divide-y divide-border border-y border-border">
-              <ReferenceLink href="https://github.com/jackyang25/pdis#install" title="Install and run" description="Docker and native development instructions." />
-              <ReferenceLink href="https://github.com/jackyang25/pdis#configuration" title="Configuration" description="Product context, credentials, and configuration ownership." />
-              <ReferenceLink href="https://github.com/jackyang25/pdis/tree/main/services" title="Service contracts" description="Compact references for each internal service boundary." />
-            </div>
-          </DocSection>
-
-          <DocSection
-            id="faq"
-            title="FAQ"
-            intro="Answers to questions that affect how a result should be interpreted."
-          >
-            <div className="mt-6 border-y border-border">
-              <Faq question="Does Scout read the uploaded document?">
-                Yes. It binds claims to parsed document blocks before generating queries or judging evidence.
-              </Faq>
-              <Faq question="Why is a chart or tab absent?">
-                Derived views appear only when their required data exists. An absent chart does not imply a favorable or unfavorable result.
-              </Faq>
-              <Faq question="Does ToolUniverse choose sources autonomously?">
-                No. Configuration enables registered source lanes; adapters translate neutral intents into source-native requests.
-              </Faq>
-              <Faq question="Can I import an older result?">
-                No. Imports accept only final results produced by the current application contract.
-              </Faq>
-            </div>
-          </DocSection>
+          {PRODUCT_KNOWLEDGE.sections.map((section) => (
+            <DocSection
+              key={section.id}
+              id={section.id}
+              title={section.title}
+              intro={section.intro}
+            >
+              {section.content.map((block, index) => (
+                <KnowledgeContent
+                  key={`${section.id}-${block.type}-${index}`}
+                  block={block}
+                />
+              ))}
+            </DocSection>
+          ))}
         </article>
       </div>
+    </div>
+  );
+}
+
+function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
+  if (block.type === "steps") {
+    return (
+      <ContentGroup title={block.title}>
+        <ol className="mt-6 space-y-4 border-l border-border pl-5">
+          {block.items.map((item, index) => (
+            <Step key={`${item.title}-${index}`} number={String(index + 1)} title={item.title}>
+              {item.text}
+            </Step>
+          ))}
+        </ol>
+      </ContentGroup>
+    );
+  }
+  if (block.type === "tool_catalog") {
+    return (
+      <ContentGroup title={block.title}>
+        <DefinitionRows rows={TOOLS.map(([name, role, description]) => [name, `${role} — ${description}`] as const)} />
+      </ContentGroup>
+    );
+  }
+  if (block.type === "definitions") {
+    return (
+      <ContentGroup title={block.title}>
+        <DefinitionRows rows={block.items.map((item) => [item.term, item.description] as const)} />
+      </ContentGroup>
+    );
+  }
+  if (block.type === "note") {
+    return <Note title={block.title}>{block.text}</Note>;
+  }
+  if (block.type === "warning") {
+    return <Warning title={block.title}>{block.text}</Warning>;
+  }
+  if (block.type === "links") {
+    return (
+      <ContentGroup title={block.title}>
+        <div className="mt-6 divide-y divide-border border-y border-border">
+          {block.items.map((item) => (
+            <ReferenceLink key={item.href} {...item} />
+          ))}
+        </div>
+      </ContentGroup>
+    );
+  }
+  return (
+    <ContentGroup title={block.title}>
+      <div className="mt-6 border-y border-border">
+        {block.items.map((item) => (
+          <Faq key={item.question} question={item.question}>{item.answer}</Faq>
+        ))}
+      </div>
+    </ContentGroup>
+  );
+}
+
+function ContentGroup({ title, children }: { title?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      {title ? <h3 className="mt-8 text-xs font-semibold first:mt-6">{title}</h3> : null}
+      {children}
     </div>
   );
 }

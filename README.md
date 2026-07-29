@@ -86,10 +86,11 @@ npm run dev
 4. Resolve any Scout review checkpoint.
 5. Inspect cited blocks and sources, then download the final result.
 
-Assistant can navigate the tool catalog, current client-held analyses and utility
-outputs, their embedded source blocks, retained visuals, and already-cited
-URLs. Users may also attach transient documents or images as conversation
-context. Assistant cannot mutate results or retrieve new evidence.
+Assistant can navigate canonical PDIS process and architecture documentation,
+the tool catalog, current client-held analyses and utility outputs, their
+embedded source blocks, retained visuals, and already-cited URLs. Users may
+also attach transient documents or images as conversation context. Assistant
+cannot mutate results or retrieve new evidence.
 
 ![PDIS Assistant workspace](./docs/pdis-assistant.png)
 
@@ -119,6 +120,8 @@ Server credentials belong in `.env`; the browser environment contains only the
 API origin. See [.env.example](.env.example) and
 [web/.env.local.example](web/.env.local.example) for the supported variables.
 Human-owned product rules live under `services/*/configs/` and `shared/`.
+Public product documentation lives in `shared/product_knowledge.json`; the web
+documentation page and Assistant read that same versioned source.
 
 ## Development
 

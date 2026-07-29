@@ -7,7 +7,8 @@ export type ToolIcon =
   | "searcher"
   | "evaluator"
   | "roadmap"
-  | "executive-summary";
+  | "executive-summary"
+  | "stage-gate";
 
 export type ToolAudience = "pst" | "ghide" | "shared";
 export type ToolWorkflow =
@@ -30,7 +31,7 @@ type ToolBase = {
 export type WorkspaceToolDefinition = ToolBase & {
   delivery: "workspace";
   href?: string;
-  activity: string;
+  activity?: string;
 };
 
 export type ExternalToolDefinition = ToolBase & {
@@ -39,7 +40,6 @@ export type ExternalToolDefinition = ToolBase & {
     label: "ChatGPT" | "Claude";
     url: string;
   }[];
-  sequence?: number;
 };
 
 export type ToolDefinition = WorkspaceToolDefinition | ExternalToolDefinition;
@@ -94,7 +94,6 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     description:
       "Prepare a stage-gate review by checking required evidence and routing unresolved criteria to the right reviewers.",
     capability: "Stage-gate preparation",
-    activity: "Agent workflow",
     icon: "bouncer",
     audience: "pst",
     workflow: "stage_gate",
@@ -132,7 +131,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
 ] as const;
 
 /**
- * Existing GHIDE tools, paired by workflow position across ChatGPT and Claude.
+ * Existing GHIDE tools, exposed through their ChatGPT and Claude entry points.
  */
 export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
   {
@@ -156,7 +155,6 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
         url: "https://claude.ai/project/019cb543-8867-73f2-b9f6-3f08435bdfa7",
       },
     ],
-    sequence: 1,
   },
   {
     id: "ghide-roadmap-body-compiler",
@@ -179,7 +177,6 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
         url: "https://claude.ai/project/019cdef8-cdd4-75f9-ae2d-ec416afcb1d1",
       },
     ],
-    sequence: 2,
   },
   {
     id: "ghide-executive-summary-compiler",
@@ -202,7 +199,6 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
         url: "https://claude.ai/project/019dd549-2ab4-77ef-b1b5-318d98b93431",
       },
     ],
-    sequence: 3,
   },
   {
     id: "ghide-stage-gate-evaluator",
@@ -210,7 +206,7 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     description:
       "Evaluate whether a grantee has met stage-gate criteria and identify what is needed to reach the next gate.",
     capability: "Stage-gate evaluation",
-    icon: "evaluator",
+    icon: "stage-gate",
     audience: "ghide",
     workflow: "stage_gate",
     availability: "coming_soon",

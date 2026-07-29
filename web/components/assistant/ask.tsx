@@ -163,7 +163,7 @@ export function Ask({
         className="group fixed bottom-5 right-5 z-50 h-12 gap-2.5 rounded-full border border-foreground/10 bg-foreground px-2.5 pr-4 text-background shadow-[0_12px_36px_rgba(15,23,42,0.24)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:bg-foreground hover:shadow-[0_16px_42px_rgba(15,23,42,0.30)] sm:bottom-6 sm:right-6"
       >
         <AssistantMark compact />
-        <span className="text-xs font-semibold tracking-[-0.01em]">Ask PDIS</span>
+        <span className="text-xs font-semibold tracking-[-0.01em]">PDIS Assistant</span>
         {resultCount > 0 ? (
           <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-background/15 px-1.5 text-[10px] tabular-nums text-background">
             {resultCount}
@@ -197,7 +197,7 @@ export function Ask({
         <div className="flex min-w-0 items-center gap-3">
           <AssistantMark />
           <div className="min-w-0">
-            <span className="block text-sm font-semibold tracking-[-0.015em]">Ask PDIS</span>
+            <span className="block text-sm font-semibold tracking-[-0.015em]">PDIS Assistant</span>
             <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
               {workspaceStatus(resultCount, attachments.length, hasDocument)}
             </span>
@@ -240,7 +240,7 @@ export function Ask({
       >
         {!hasResult && (
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Run an analysis or import a result first. Ask can then answer from that result and
+            Run an analysis or import a result first. The assistant can then answer from that result and
             its cited sources.
           </p>
         )}

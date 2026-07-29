@@ -29,7 +29,7 @@ const TOOLS: readonly (readonly [string, string, string])[] = [
     tool.capability,
     `${tool.description}${tool.availability === "coming_soon" ? " Coming soon." : ""}`,
   ] as const),
-  ["Ask", "Workspace navigation", "Answers read-only questions across the tool catalog, available results, utility outputs, cited material, and transient conversation attachments from either the floating panel or full-page workspace."],
+  ["Assistant", "Workspace navigation", "Answers read-only questions across the tool catalog, available results, utility outputs, cited material, and transient conversation attachments from either the floating panel or full-page workspace."],
 ];
 
 const QUERY_TRACKS = [
@@ -105,7 +105,7 @@ export default function DocsPage() {
           <DocSection
             id="tools"
             title="Tools"
-            intro="Tools are grouped by workflow. Audience, availability, and external provider access belong to the individual tool so those concerns do not distort the page hierarchy."
+            intro="Tools are grouped by audience and role. Availability belongs to the individual tool, while external provider links appear only where they are required."
           >
             <DefinitionRows rows={TOOLS.map(([name, role, description]) => [name, `${role} — ${description}`] as const)} />
           </DocSection>
@@ -137,7 +137,7 @@ export default function DocsPage() {
             <DefinitionRows rows={[
               ["Analysis", "Tool-specific judgments, traces, and derived views."],
               ["Source documents", "Ordered text, table, and retained image blocks with stable IDs."],
-              ["Ask", "Read-only navigation across current client-held results, blocks, visuals, and already-cited URLs."],
+              ["Assistant", "Read-only navigation across current client-held results, blocks, visuals, and already-cited URLs."],
             ]} />
             <Note title="Current contract only">
               Imports accept only final artifacts produced by the current application version. Source spans, visuals, query lineage, and retrieval provenance must already be complete.
@@ -246,26 +246,45 @@ function DefinitionRows({ rows }: { rows: readonly (readonly [string, string])[]
 }
 
 function Note({ title = "Why this matters", children }: { title?: string; children: React.ReactNode }) {
-  return (
-    <div className="mt-6 flex gap-3 border-l-2 border-border pl-4">
-      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <div>
-        <p className="text-[11px] font-semibold">{title}</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{children}</p>
-      </div>
-    </div>
-  );
+  return <Callout title={title} icon={Info}>{children}</Callout>;
 }
 
 function Warning({ title, children }: { title: string; children: React.ReactNode }) {
+  return <Callout title={title} icon={AlertCircle} warning>{children}</Callout>;
+}
+
+function Callout({
+  title,
+  children,
+  icon: Icon,
+  warning = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  icon: typeof Info;
+  warning?: boolean;
+}) {
   return (
-    <div className="mt-6 flex gap-3 border-l-2 border-amber-400/60 pl-4">
-      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
-      <div>
-        <p className="text-[11px] font-semibold">{title}</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{children}</p>
+    <aside
+      className={`mt-6 rounded-lg border p-4 ${warning
+        ? "border-amber-400/30 bg-amber-400/[0.04]"
+        : "border-border bg-muted/20"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <Icon
+          className={`mt-0.5 h-4 w-4 shrink-0 ${warning
+            ? "text-amber-600 dark:text-amber-300"
+            : "text-muted-foreground"
+          }`}
+          aria-hidden="true"
+        />
+        <div className="min-w-0">
+          <p className="text-xs font-semibold">{title}</p>
+          <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{children}</p>
+        </div>
       </div>
-    </div>
+    </aside>
   );
 }
 

@@ -2,21 +2,30 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Curated semantic names for the PDIS Freehand icon pack. The source PNGs stay
- * untouched in public/icons/pdis/freehand; CSS masking lets them inherit currentColor.
- * Add a mapping here before using another pack icon in product UI.
+ * Product identity icons from the PDIS Freehand pack.
+ *
+ * Keep this map limited to tools and named agents. Navigation, actions, status,
+ * file types, and other interface grammar use Lucide so the two visual systems
+ * never compete at the same semantic layer. Source SVGs remain untouched in
+ * public/icons/pdis/freehand; masking lets them inherit currentColor.
  */
 export const PDIS_ICON_PATHS = {
-  inspector: "freehand/network-monitor-hierarchy--Streamline-Freehand.png",
-  aligner: "freehand/business-workflow-compare--Streamline-Freehand.png",
-  scout: "freehand/network-monitor-hierarchy--Streamline-Freehand.png",
-  bouncer: "freehand/business-coaching-whistle--Streamline-Freehand.png",
-  chunker: "freehand/data-transfer-document-module--Streamline-Freehand.png",
-  searcher: "freehand/seo-search-graph--Streamline-Freehand.png",
-  evaluator: "freehand/business-coaching-idea-jigsaw--Streamline-Freehand.png",
-  roadmap: "freehand/business-workflow-project-management--Streamline-Freehand.png",
-  "executive-summary": "freehand/performance-presentation-graph--Streamline-Freehand.png",
-  chat: "freehand/conversation-chat--Streamline-Freehand.png",
+  // Native workspace tools
+  inspector: "freehand/form-edition-clipboard-check--Streamline-Freehand.svg",
+  aligner: "freehand/business-workflow-compare--Streamline-Freehand.svg",
+  scout: "freehand/hierarchy-web--Streamline-Freehand.svg",
+  bouncer: "freehand/business-coaching-whistle--Streamline-Freehand.svg",
+  chunker: "freehand/data-transfer-document-module--Streamline-Freehand.svg",
+  searcher: "freehand/search-magnifier--Streamline-Freehand.svg",
+
+  // External workflow identities
+  evaluator: "freehand/business-cash-scale-balance--Streamline-Freehand.svg",
+  roadmap: "freehand/business-workflow-project-management--Streamline-Freehand.svg",
+  "executive-summary": "freehand/office-file-text--Streamline-Freehand.svg",
+  "stage-gate": "freehand/task-list-clipboard-clock--Streamline-Freehand.svg",
+
+  // Named workspace agent
+  chat: "freehand/help-headphones-customer-support-human--Streamline-Freehand.svg",
 } as const;
 
 export type PdisIconName = keyof typeof PDIS_ICON_PATHS;

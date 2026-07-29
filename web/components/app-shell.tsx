@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpen, ChevronRight } from "lucide-react";
+import { BookOpen, ChevronRight, MessageCircle } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { toolForPath } from "@/lib/tools";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { WorkspaceAsk } from "@/components/assistant/workspace-ask";
-import { PdisIcon } from "@/components/ui/pdis-icon";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -48,8 +47,8 @@ function ProductHeader({ pathname }: { pathname: string }) {
             aria-current={pathname === "/ask" ? "page" : undefined}
             className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/5 aria-[current=page]:text-foreground"
           >
-            <PdisIcon name="chat" className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Ask</span>
+            <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">Assistant</span>
           </Link>
           <Link
             href="/docs"

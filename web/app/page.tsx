@@ -25,16 +25,14 @@ const SECTIONS: readonly {
   toolIds: readonly ToolDefinition["id"][];
   title: string;
   description: string;
-  columns: 2 | 3;
   compact?: boolean;
 }[] = [
   {
-    id: "pst-tools",
+    id: "pst-workflows",
     toolIds: ["inspector", "aligner", "scout", "bouncer"],
-    title: "PST tools",
+    title: "PST team workflows",
     description:
       "Review development documents, test their evidence, and prepare stage-gate decisions.",
-    columns: 2,
   },
   {
     id: "ghide-workflows",
@@ -47,7 +45,6 @@ const SECTIONS: readonly {
     title: "GHIDE team workflows",
     description:
       "Evaluate investments, prepare stage-gate decisions, and turn findings into leadership-ready outputs.",
-    columns: 2,
   },
   {
     id: "shared-utilities",
@@ -55,7 +52,6 @@ const SECTIONS: readonly {
     title: "Shared utilities",
     description:
       "Work directly with parsed document content or registered evidence sources.",
-    columns: 2,
     compact: true,
   },
 ];
@@ -77,25 +73,25 @@ export default function Home() {
           Tools
         </h1>
         <p className="mt-3 text-[15px] leading-6 text-muted-foreground">
-          Choose a workflow for your team and the task at hand.
+          Choose a tool for your team and the task at hand.
         </p>
       </header>
 
       <AudienceFilter value={audience} onChange={setAudience} />
 
-      <div className="mt-10 space-y-12">
+      <div className="mt-9 space-y-10">
         {visibleSections.map((section, sectionIndex) => (
           <section
             key={section.id}
             aria-labelledby={`${section.id}-title`}
-            className={sectionIndex === 0 ? undefined : "border-t border-border pt-9"}
+            className={sectionIndex === 0 ? undefined : "border-t border-border pt-8"}
           >
             <SectionHeader
               title={section.title}
               id={`${section.id}-title`}
               description={section.description}
             />
-            <div className={`grid gap-4 ${section.columns === 2 ? "sm:grid-cols-2" : "md:grid-cols-3"}`}>
+            <div className="grid gap-4 sm:grid-cols-2">
               {section.tools.map((tool) => (
                 <ToolCard key={tool.id} tool={tool} compact={section.compact} />
               ))}
@@ -121,8 +117,8 @@ function AudienceFilter({
   onChange: (value: AudienceFilter) => void;
 }) {
   const options: readonly { value: AudienceFilter; label: string }[] = [
-    { value: "all", label: "All tools" },
-    { value: "pst", label: "PST" },
+    { value: "all", label: "All" },
+    { value: "pst", label: "PST team" },
     { value: "ghide", label: "GHIDE team" },
   ];
 
@@ -164,7 +160,7 @@ function SectionHeader({
   id: string;
 }) {
   return (
-    <div className="mb-5 max-w-2xl">
+    <div className="mb-4 max-w-2xl">
       <h2 id={id} className="text-xl font-semibold tracking-[-0.03em]">
         {title}
       </h2>
@@ -192,13 +188,9 @@ function WorkspaceToolCard({
     <>
       <CardHeader
         icon={tool.icon}
-        trailing={
-          <CardHeaderMeta
-            audience={tool.audience}
-            comingSoon={comingSoon}
-            action={!comingSoon ? <ArrowUpRight className="h-4 w-4" /> : undefined}
-          />
-        }
+        trailing={comingSoon
+          ? <AvailabilityBadge />
+          : <ArrowUpRight className="h-4 w-4" aria-hidden="true" />}
       />
       <CardBody title={tool.title} description={tool.description} />
       <div className="mt-auto pt-5">
@@ -235,75 +227,34 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
     >
       <CardHeader
         icon={tool.icon}
-        trailing={
-          <CardHeaderMeta
-            audience={tool.audience}
-            comingSoon={comingSoon}
-            action={tool.sequence != null
-              ? (
-                <span className="font-mono text-[10px] tabular-nums">
-                  Step {String(tool.sequence).padStart(2, "0")}
-                </span>
-              )
-              : undefined}
-          />
-        }
+        trailing={comingSoon ? <AvailabilityBadge /> : undefined}
       />
       <CardBody title={tool.title} description={tool.description} />
       <div className="mt-auto pt-5">
         <CardMeta capability={tool.capability} />
-        {tool.shortcuts.length > 0 ? (
-          <div className="mt-3 flex gap-2">
-            {tool.shortcuts.map((shortcut) => (
-              <a
-                key={shortcut.label}
-                href={shortcut.url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
-              >
-                {shortcut.label}
-                <ExternalLink className="h-3 w-3" aria-hidden="true" />
-              </a>
-            ))}
-          </div>
-        ) : null}
+        <div className="mt-3 flex min-h-8 gap-2">
+          {tool.shortcuts.map((shortcut) => (
+            <a
+              key={shortcut.label}
+              href={shortcut.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+            >
+              {shortcut.label}
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </a>
+          ))}
+        </div>
       </div>
     </article>
   );
 }
 
-function CardHeaderMeta({
-  audience,
-  comingSoon,
-  action,
-}: {
-  audience: ToolAudience;
-  comingSoon: boolean;
-  action?: React.ReactNode;
-}) {
+function AvailabilityBadge() {
   return (
-    <span className="flex items-center gap-2">
-      <AudienceBadge audience={audience} />
-      {comingSoon ? (
-        <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground">
-          Coming soon
-        </span>
-      ) : action}
-    </span>
-  );
-}
-
-function AudienceBadge({ audience }: { audience: ToolAudience }) {
-  const label = audience === "pst"
-    ? "PST"
-    : audience === "ghide"
-      ? "GHIDE team"
-      : "Shared";
-
-  return (
-    <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
-      {label}
+    <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
+      Coming soon
     </span>
   );
 }
@@ -313,21 +264,23 @@ function CardHeader({
   trailing,
 }: {
   icon: ToolDefinition["icon"];
-  trailing: React.ReactNode;
+  trailing?: React.ReactNode;
 }) {
   return (
     <div className="flex items-start justify-between text-muted-foreground">
       <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground">
         <PdisIcon name={icon} className="h-[17px] w-[17px]" />
       </span>
-      <span className="transition-colors group-hover:text-foreground">{trailing}</span>
+      {trailing ? (
+        <span className="transition-colors group-hover:text-foreground">{trailing}</span>
+      ) : null}
     </div>
   );
 }
 
 function CardBody({ title, description }: { title: string; description: string }) {
   return (
-    <div className="mt-7">
+    <div className="mt-6">
       <h3 className="text-[17px] font-semibold tracking-[-0.025em]">{title}</h3>
       <p className="mt-2 text-[13px] leading-5 text-muted-foreground">{description}</p>
     </div>
@@ -336,13 +289,10 @@ function CardBody({ title, description }: { title: string; description: string }
 
 function CardMeta({ capability, status }: { capability: string; status?: string }) {
   return (
-    <div className="flex items-center gap-2 text-[11px] text-muted-foreground/80">
+    <div className="flex items-end justify-between gap-4 text-[11px] text-muted-foreground/80">
       <span className="font-medium text-muted-foreground">{capability}</span>
       {status ? (
-        <>
-          <span aria-hidden="true" className="text-muted-foreground/40">·</span>
-          <span>{status}</span>
-        </>
+        <span className="shrink-0 text-right">{status}</span>
       ) : null}
     </div>
   );

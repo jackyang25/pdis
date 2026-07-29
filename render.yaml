@@ -1,80 +1,87 @@
-# Render Blueprint: Next.js frontend + FastAPI API + private ToolUniverse.
-# Deploy: Render Dashboard -> New -> Blueprint -> pick this repo.
-# Render derives cross-service addresses and the shared ToolUniverse token.
-# The dashboard prompts only for provider credentials marked `sync: false`.
-services:
-  # ---- Backend: FastAPI gateway over all services ----
-  # Docker (not the native python runtime) so the image can include LibreOffice,
-  # which the chunker uses to rasterize EMF/WMF figures. See ./Dockerfile.
-  - type: web
-    name: pdis-api
-    runtime: docker
-    plan: starter          # starter avoids free-tier spin-down (cold starts)
-    dockerfilePath: ./Dockerfile
-    healthCheckPath: /api/health
-    envVars:
-      - key: OPENAI_API_KEY
-        sync: false        # set in dashboard (secret)
-      - key: ANTHROPIC_API_KEY
-        sync: false        # Scout quantitative target and evidence mapping
-      - key: ANTHROPIC_QUANTITATIVE_MODEL
-        value: claude-opus-5
-      - key: NCBI_API_KEY
-        sync: false        # optional: raises PubMed rate limit; safe to leave unset
-      - key: CORS_ALLOW_HOSTS
-        fromService:
-          name: pdis-web
-          type: web
-          envVarKey: RENDER_EXTERNAL_HOSTNAME
-      - key: TOOLUNIVERSE_HOST
-        fromService:
-          name: pdis-tooluniverse
-          type: pserv
-          property: host
-      - key: TOOLUNIVERSE_PORT
-        fromService:
-          name: pdis-tooluniverse
-          type: pserv
-          property: port
-      - key: TOOLUNIVERSE_API_TOKEN
-        fromService:
-          name: pdis-tooluniverse
-          type: pserv
-          envVarKey: TOOLUNIVERSE_API_TOKEN
-      - key: TOOLUNIVERSE_TIMEOUT_SECONDS
-        value: 30
+# PDIS production stack.
+# Create once with Render Dashboard -> New -> Blueprint, then manage by sync.
+previews:
+  generation: "off"
 
-  # ---- Frontend: Next.js ----
-  - type: web
-    name: pdis-web
-    runtime: node
-    plan: starter
-    rootDir: web
-    buildCommand: npm ci && npm run build
-    startCommand: node .next/standalone/server.js
-    healthCheckPath: /
-    envVars:
-      - key: HOSTNAME
-        value: 0.0.0.0
-      - key: NEXT_PUBLIC_PDIS_API_HOST
-        fromService:
-          name: pdis-api
-          type: web
-          envVarKey: RENDER_EXTERNAL_HOSTNAME
+projects:
+  - name: PDIS
+    environments:
+      - name: Production
+        services:
+          # Public FastAPI gateway. Docker supplies LibreOffice for document
+          # visual conversion; Starter avoids cold starts during long analyses.
+          - type: web
+            name: pdis-api
+            runtime: docker
+            plan: starter
+            region: ohio
+            dockerfilePath: ./Dockerfile
+            healthCheckPath: /api/health
+            envVars:
+              - key: OPENAI_API_KEY
+                sync: false
+              - key: ANTHROPIC_API_KEY
+                sync: false
+              - key: ANTHROPIC_QUANTITATIVE_MODEL
+                value: claude-opus-5
+              - key: NCBI_API_KEY
+                sync: false
+              - key: CORS_ALLOW_HOSTS
+                fromService:
+                  name: pdis-web
+                  type: web
+                  envVarKey: RENDER_EXTERNAL_HOSTNAME
+              - key: TOOLUNIVERSE_HOST
+                fromService:
+                  name: pdis-tooluniverse
+                  type: pserv
+                  property: host
+              - key: TOOLUNIVERSE_PORT
+                fromService:
+                  name: pdis-tooluniverse
+                  type: pserv
+                  property: port
+              - key: TOOLUNIVERSE_API_TOKEN
+                fromService:
+                  name: pdis-tooluniverse
+                  type: pserv
+                  envVarKey: TOOLUNIVERSE_API_TOKEN
+              - key: TOOLUNIVERSE_TIMEOUT_SECONDS
+                value: 30
 
-  # ---- ToolUniverse: private source-execution service ----
-  # No public onrender.com endpoint. The API receives its stable private
-  # host/port and generated bearer token through Blueprint references above.
-  - type: pserv
-    name: pdis-tooluniverse
-    runtime: docker
-    plan: starter
-    dockerfilePath: ./deploy/tooluniverse/Dockerfile
-    dockerContext: ./deploy/tooluniverse
-    envVars:
-      - key: PORT
-        value: 8080
-      - key: TOOLUNIVERSE_API_TOKEN
-        generateValue: true
-      - key: SEMANTIC_SCHOLAR_API_KEY
-        sync: false        # set once in Render; never expose it to PDIS or the browser
+          # Public Next.js client. It is stateless and can tolerate free-tier
+          # idle spin-down without interrupting an API analysis already running.
+          - type: web
+            name: pdis-web
+            runtime: node
+            plan: free
+            region: ohio
+            rootDir: web
+            buildCommand: npm ci && npm run build
+            startCommand: node .next/standalone/server.js
+            healthCheckPath: /
+            envVars:
+              - key: HOSTNAME
+                value: 0.0.0.0
+              - key: NEXT_PUBLIC_PDIS_API_HOST
+                fromService:
+                  name: pdis-api
+                  type: web
+                  envVarKey: RENDER_EXTERNAL_HOSTNAME
+
+          # Private ToolUniverse connector. Its generated bearer token and
+          # private address are injected into the API above.
+          - type: pserv
+            name: pdis-tooluniverse
+            runtime: docker
+            plan: starter
+            region: ohio
+            dockerfilePath: ./deploy/tooluniverse/Dockerfile
+            dockerContext: ./deploy/tooluniverse
+            envVars:
+              - key: PORT
+                value: 8080
+              - key: TOOLUNIVERSE_API_TOKEN
+                generateValue: true
+              - key: SEMANTIC_SCHOLAR_API_KEY
+                sync: false

@@ -1,8 +1,9 @@
-# Keep secrets, local environments, and the frontend out of the backend image.
+# Keep secrets, development assets, and unrelated services out of the API image.
 .env
 .env.*
 .git
 .gitignore
+.claude/
 .venv
 venv/
 __pycache__/
@@ -11,6 +12,13 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 web/
+deploy/
+docs/
+tests/
 node_modules/
 .next/
+AGENTS.md
+README.md
+compose.yaml
+render.yaml
 .DS_Store

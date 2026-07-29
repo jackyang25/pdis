@@ -139,9 +139,11 @@ review state, evidence maps, and quantitative displays.
 
 ## Deployment
 
-[render.yaml](render.yaml) defines the public Next.js application, public
-FastAPI service, and private ToolUniverse service. Create a Render Blueprint
-from the repository and provide the prompted secrets in the Render dashboard.
+[render.yaml](render.yaml) creates one `PDIS` project with a `Production`
+environment: a free public Next.js client, a Starter Docker API, and a Starter
+private ToolUniverse connector. Create it with **New → Blueprint**, provide the
+prompted provider credentials, and let Render derive all cross-service hosts and
+the shared ToolUniverse token.
 
 ## Contributing
 

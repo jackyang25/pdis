@@ -1,4 +1,4 @@
-# Product Development Intelligence Suite (PDIS) for New Health Interventions
+# Product Development Intelligence Suite (PDIS) for Health Interventions
 
 Traceable document intelligence for product-development plans, evidence, and decisions.
 

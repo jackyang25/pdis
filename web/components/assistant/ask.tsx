@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { TextStreamChatTransport, type UIMessage } from "ai";
-import { Check, Copy, FileText, Image as ImageIcon, Loader2, Maximize2, Minimize2, Paperclip, Send, Square, X } from "lucide-react";
+import { Check, Copy, FileText, Image as ImageIcon, Loader2, Maximize2, Minimize2, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import {
   API_BASE,
   uploadAssistantContext,
@@ -98,8 +98,10 @@ export function Ask({
   useEffect(() => {
     void stop();
     setMessages([]);
+    setAttachments([]);
     setInput("");
     setCopiedId(null);
+    setAttachmentError(null);
   }, [result, resultType, setMessages, stop]);
 
   useEffect(() => {
@@ -149,6 +151,16 @@ export function Ask({
     await navigator.clipboard.writeText(text);
     setCopiedId(id);
     window.setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 1600);
+  }
+
+  function startNewChat() {
+    void stop();
+    setMessages([]);
+    setAttachments([]);
+    setInput("");
+    setCopiedId(null);
+    setAttachmentError(null);
+    clearError();
   }
 
   const pageDisplay = display === "page";
@@ -204,6 +216,17 @@ export function Ask({
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={startNewChat}
+            disabled={messages.length === 0 && attachments.length === 0}
+            className="h-8 gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span className={pageDisplay ? "inline" : "hidden sm:inline"}>New chat</span>
+          </Button>
           {pageDisplay ? (
             <Button asChild type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
               <Link href="/" aria-label="Return to workspace">

@@ -176,6 +176,9 @@ web/ → api/ → services/ → shared/
   cited by an analysis. Transient conversation attachments use the same block
   contract and remain user-supplied context; Ask never runs a new evidence
   search.
+- Assistant conversation state shares the in-memory lifecycle of its submitted
+  workspace bundle. Do not persist chat separately from results, parsed blocks,
+  review state, or attachments. Final-result export/import is the durable seam.
 - Stable public process and architecture documentation lives in
   `shared/product_knowledge.json`. The web documentation page and Ask consume
   that source; do not duplicate its prose in either layer. Tool metadata,

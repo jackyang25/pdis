@@ -251,6 +251,11 @@
           "text": "Assistant starts from compact maps and uses bounded tools to read only the relevant documentation section, result subtree, document blocks, or cited source. It does not place every available artifact into every model prompt."
         },
         {
+          "type": "note",
+          "title": "One workspace lifecycle",
+          "text": "Conversation text, loaded results, source blocks, and attachments remain together in the current in-memory browser workspace and reset together on reload. Final results become durable only through explicit export and import."
+        },
+        {
           "type": "warning",
           "title": "Workspace boundary",
           "text": "Assistant cannot inspect an active review draft, mutate a result, run a tool workflow, or retrieve uncited evidence. An absent result means that no eligible current final result was submitted."

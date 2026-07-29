@@ -11,7 +11,8 @@ comes from `shared/product_knowledge.json`, the same source rendered by the web
 documentation page. Users may add transient DOCX, PDF, PPTX, or image
 attachments; these are parsed into ordinary source blocks and remain
 conversation context rather than analysis evidence. Ask cannot mutate analysis
-or start a new evidence search.
+or start a new evidence search. Conversation text, loaded results, source blocks,
+and attachments share the web client's in-memory workspace lifecycle.
 
 ## Usage
 

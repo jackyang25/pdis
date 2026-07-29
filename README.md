@@ -90,7 +90,9 @@ Assistant can navigate canonical PDIS process and architecture documentation,
 the tool catalog, current client-held analyses and utility outputs, their
 embedded source blocks, retained visuals, and already-cited URLs. Users may
 also attach transient documents or images as conversation context. Assistant
-cannot mutate results or retrieve new evidence.
+cannot mutate results or retrieve new evidence. Conversation text, loaded
+results, and attachments share one in-memory workspace lifecycle; final-result
+export/import is the durable boundary.
 
 ![PDIS Assistant workspace](./docs/pdis-assistant.png)
 

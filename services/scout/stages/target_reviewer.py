@@ -12,6 +12,11 @@ from ..ai import request_structured
 from ..ai_contracts import target_review_batch
 from ..context import render_document_context
 from ..models import Attribute, LLMClientProtocol, QuantitativeLedger, QuantitativeTarget
+from ..prompt_primitives import (
+    ATOMIC_TARGET_PRIMITIVE,
+    COMPARATOR_POLICY_PRIMITIVE,
+    SEMANTIC_DIMENSIONS_PRIMITIVE,
+)
 
 
 MAX_TOKENS = 5000
@@ -40,7 +45,14 @@ def prefill_target_review(
         "You independently review existing document numeric-target proposals. You recommend "
         "decisions; you cannot create, rewrite, merge, or reassign targets, semantic mappings, "
         "field links, citations, or provenance.\n\n"
-        "DECISION RULES\n"
+        "INPUT AUTHORITY\n"
+        "Review only the supplied immutable proposals and their exact cited document passages. "
+        "The complete document may disambiguate a proposal but may not create a new one.\n\n"
+        "SHARED PRIMITIVES\n"
+        f"{ATOMIC_TARGET_PRIMITIVE}\n\n"
+        f"{SEMANTIC_DIMENSIONS_PRIMITIVE}\n\n"
+        f"{COMPARATOR_POLICY_PRIMITIVE}\n\n"
+        "DECISION PROCEDURE\n"
         "Confirm only when the cited document language makes the proposed number an intended "
         "requirement, constraint, threshold, optimum, or explicitly defined operating or use-case "
         "target, and the displayed semantic mapping and typed field links are faithful. Exclude "
@@ -54,7 +66,7 @@ def prefill_target_review(
         "names its candidate; comparator cohorts normally contain different products in a declared "
         "class or use. Use the complete document only to disambiguate "
         "the supplied proposals; do not extract new ones.\n\n"
-        "OUTPUT\n"
+        "OUTPUT CONTRACT\n"
         "Review every supplied target ID exactly once. Give each decision one short, "
         "document-specific reason. Return only the schema-bound response."
     )

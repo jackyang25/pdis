@@ -28,6 +28,7 @@ from ..context import (
     validated_block_ids,
 )
 from ..models import Insight, LLMClientProtocol, Match, VALID_RELATIONS
+from ..prompt_primitives import RELATIONSHIP_PRIMITIVE
 
 logger = logging.getLogger(__name__)
 
@@ -172,28 +173,26 @@ def _system_prompt(
         .replace("{indication}", indication)
     )
     return (
-        framing + "\n\n"
+        "ROLE\n"
+        "Classify the logical relationship between each external-evidence Insight and the "
+        "canonical document claim.\n\n"
+        "DOCUMENT FRAMING\n"
+        + framing + "\n\n"
+        "SHARED PRIMITIVE\n"
+        + RELATIONSHIP_PRIMITIVE + "\n\n"
+        "DECISION PROCEDURE\n"
         "For each Insight, choose ONE relation describing how the Insight relates to "
         "the document content:\n"
-        "  - contradicts : the Insight directly tests the same document candidate, "
-        "configuration, or factual claim and fails/disproves it; OR it disputes a factual "
-        "statement in the document. A genuine conflict.\n"
-        "  - extends     : the Insight adds on-topic factual info the doc lacks - INCLUDING "
-        "evidence that an existing/standard product DIFFERS FROM or FALLS SHORT OF a "
-        "stated target. A target being ahead of the current standard is a GAP, not a "
-        "contradiction.\n"
-        "  - confirms    : the Insight directly supports a factual claim, observes the same "
-        "target being met, or provides positive evidence of its achievability.\n"
-        "  - unrelated   : the Insight doesn't meaningfully connect to anything in the doc.\n\n"
+        "  - contradicts: directly incompatible with the same claim, candidate, or configuration.\n"
+        "  - extends: adds relevant facts, benchmarks, limitations, or gaps not stated in the claim.\n"
+        "  - confirms: directly supports the claim or its achievability.\n"
+        "  - unrelated: does not meaningfully bear on the claim.\n\n"
         "Rules:\n"
         "- Each Insight gets exactly one relation. Pick the strongest applicable one in "
         "the order contradicts > extends > confirms > unrelated.\n"
-        "- Do NOT use 'contradicts' merely because a different comparator reports a value "
-        "than a target (e.g. an existing four-dose vaccine when the target is <=3 doses, or "
-        "a current product costing more than a cost target). That difference is the GAP the "
-        "target aims to close -> use 'extends'. Reserve 'contradicts' for evidence that the "
-        "target itself cannot be achieved / the same candidate or configuration has failed, "
-        "or that a stated FACT is wrong.\n"
+        "- Reserve contradicts for evidence that the target itself cannot be achieved, the same "
+        "candidate or configuration failed, or a stated fact is wrong. A different comparator "
+        "value is normally a benchmark or gap and therefore extends the claim.\n"
         "- Never use 'confirms' merely because a comparator failed, fell below a target, or "
         "demonstrates why the target would be useful. That is contextual evidence and is "
         "normally 'extends'. Keep relation to the document separate from precedent outcome.\n"
@@ -208,6 +207,7 @@ def _system_prompt(
         "a different disease, a different product class, or administrative noise.\n"
         "- Do not invent doc content not present in the excerpts.\n\n"
         "- Discovery-track labels are retrieval provenance only; they never determine the relation.\n\n"
+        "OUTPUT CONTRACT\n"
         "Return every decision in the schema-bound `matches` array. "
         "Every Insight index from the input MUST appear exactly once in the output."
     )

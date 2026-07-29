@@ -16,6 +16,11 @@ from ..models import (
     Measurement,
     QuantitativeTarget,
 )
+from ..prompt_primitives import (
+    COMPARATOR_POLICY_PRIMITIVE,
+    EVIDENCE_UNIT_PRIMITIVE,
+    SEMANTIC_DIMENSIONS_PRIMITIVE,
+)
 
 
 MAX_GROUPS_PER_REVIEW = 12
@@ -56,7 +61,14 @@ def prefill_evidence_review(
         "record against one document target. You recommend decisions; you cannot create, "
         "rewrite, merge, or reassign targets, measurements, semantic mappings, evidence units, "
         "citations, or provenance.\n\n"
-        "DECISION RULES\n"
+        "INPUT AUTHORITY\n"
+        "Review only the immutable target contract, mapped source facts, exact quotations, and "
+        "proposed evidence-unit identities supplied for each group.\n\n"
+        "SHARED PRIMITIVES\n"
+        f"{SEMANTIC_DIMENSIONS_PRIMITIVE}\n\n"
+        f"{COMPARATOR_POLICY_PRIMITIVE}\n\n"
+        f"{EVIDENCE_UNIT_PRIMITIVE}\n\n"
+        "DECISION PROCEDURE\n"
         "For every candidate, return admit, reject, or flag. Admit only a source-owned atomic "
         "scalar directly comparable with every required target dimension. Reject a candidate "
         "that is not a direct comparator or is a redundant/overlapping observation already "
@@ -72,7 +84,7 @@ def prefill_evidence_review(
         "compatible class to exact product identity. The target cutoff, comparator, role, and "
         "cutoff-bearing source quote are intentionally withheld because they are calculation "
         "inputs, not admission criteria.\n\n"
-        "OUTPUT\n"
+        "OUTPUT CONTRACT\n"
         "Review every group ID and every candidate ID exactly once. Give each decision one short, "
         "source-specific reason. Return only the schema-bound response."
     )

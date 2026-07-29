@@ -29,6 +29,7 @@ from ..models import (
     LLMClientProtocol,
     parse_evidence_entities,
 )
+from ..prompt_primitives import CANONICAL_CLAIM_PRIMITIVE
 
 DEFAULT_MAX_TOKENS = 32000
 FIELD_BATCH_SIZE = 6
@@ -408,12 +409,19 @@ def _ledger_system_prompt(
         else ""
     )
     return (
-        "You create the one canonical document-claim ledger for a fixed evaluation "
-        "vocabulary. Review the uploaded document against the COMPLETE field catalog "
-        "as one shared ledger, so neighboring fields cannot independently claim the same "
-        "statement.\n\n"
-        f"Field catalog:\n{catalog}\n\n"
-        f"Required output fields:\n{requested_refs}\n\n"
+        "ROLE\n"
+        "Create the canonical document-claim ledger for a fixed evaluation vocabulary. "
+        "Review the complete field catalog as one ledger so neighboring fields cannot "
+        "independently claim the same statement.\n\n"
+        "INPUT AUTHORITY\n"
+        "The uploaded document is the only factual authority.\n\n"
+        "SHARED PRIMITIVE\n"
+        f"{CANONICAL_CLAIM_PRIMITIVE}\n\n"
+        "FIELD CATALOG\n"
+        f"{catalog}\n\n"
+        "REQUIRED OUTPUT FIELDS\n"
+        f"{requested_refs}\n\n"
+        "DECISION PROCEDURE\n"
         f"{retry_instruction}Return exactly one binding for every required output "
         "field and no others. status=present only when the "
         "document directly states a target, constraint, assumption, or commitment for "
@@ -433,6 +441,7 @@ def _ledger_system_prompt(
         "heading, template prompt, or question is not a claim. In question-and-answer "
         "documents, select the answer block; include the question block only when its "
         "wording is necessary to preserve the answer's meaning.\n\n"
+        "\nPROVENANCE\n"
         "For present bindings, spans must select the smallest complete source line range "
         "needed to preserve labels, numbers, dates, comparators, populations, regimens, "
         f"and qualifiers. {LINE_SPAN_JSON_INSTRUCTION} For absent or uncertain "
@@ -440,7 +449,8 @@ def _ledger_system_prompt(
         "named in the cited spans, and copy each name exactly as written there. If a "
         "target is visible only in an image and has no "
         "exact supplied source text, use uncertain rather than inventing a quotation. "
-        "Return only the schema JSON."
+        "\nOUTPUT CONTRACT\n"
+        "Return only the schema-bound response."
     )
 
 

@@ -20,6 +20,7 @@ from ..models import (
     QueryIntent,
     ScoutTypeConfig,
 )
+from ..prompt_primitives import COMPARATOR_POLICY_PRIMITIVE, SEMANTIC_DIMENSIONS_PRIMITIVE
 
 logger = logging.getLogger(__name__)
 
@@ -309,11 +310,15 @@ def _system_prompt_for_variable(
     queries_per_variable: int,
 ) -> str:
     parts = [
-        "You generate source-neutral retrieval query intents to surface up-to-date information "
-        f"relevant to ONE variable: {attribute.name}.",
-        f"Product class: {config.intervention_class}. Indication: {indication}.",
-        f"What this variable covers: {attribute.description.strip()}",
-        "SCOPE: Every query must be about the specific variable named above and "
+        "ROLE\n"
+        "Generate source-neutral retrieval intents for one canonical field and its linked "
+        "reviewed quantitative targets.",
+        "INPUT AUTHORITY\n"
+        f"Field: {attribute.name}\n"
+        f"Product class: {config.intervention_class}\n"
+        f"Indication: {indication}\n"
+        f"Field definition: {attribute.description.strip()}",
+        "SCOPE\nEvery query must be about the specific field named above and "
         "nothing else. This document has separate variables for efficacy, safety, "
         "dosing, duration, cost, etc. - do NOT pull those topics into this variable's "
         "queries unless THIS variable IS that topic. The domain guidance below tells you "
@@ -361,7 +366,10 @@ def _system_prompt_for_variable(
     ]
     if linked_targets:
         parts.append(
-            "Threshold-neutral quantitative retrieval descriptors (immutable IDs):\n"
+            "SHARED PRIMITIVES\n"
+            + SEMANTIC_DIMENSIONS_PRIMITIVE + "\n\n"
+            + COMPARATOR_POLICY_PRIMITIVE + "\n\n"
+            "THRESHOLD-NEUTRAL TARGET DESCRIPTORS\n"
             + json.dumps(
                 [
                     _target_retrieval_descriptor(target)
@@ -382,6 +390,7 @@ def _system_prompt_for_variable(
             "comparators on either side of the target must remain retrievable."
         )
     parts.append(
+        "OUTPUT CONTRACT\n"
         f"Return EXACTLY {queries_per_variable} quer"
         f"{'y' if queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
         "No markdown, no commentary. Each query 5-15 words. The set must be diverse "

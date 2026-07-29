@@ -7,9 +7,9 @@ import { cn } from "@/lib/utils";
  * Add a mapping here before using another pack icon in product UI.
  */
 export const PDIS_ICON_PATHS = {
-  inspector: "freehand/performance-increase-clipboard--Streamline-Freehand.png",
+  inspector: "freehand/network-monitor-hierarchy--Streamline-Freehand.png",
   aligner: "freehand/business-workflow-compare--Streamline-Freehand.png",
-  scout: "freehand/focus-frame-target-1--Streamline-Freehand.png",
+  scout: "freehand/network-monitor-hierarchy--Streamline-Freehand.png",
   bouncer: "freehand/business-coaching-whistle--Streamline-Freehand.png",
   chunker: "freehand/data-transfer-document-module--Streamline-Freehand.png",
   searcher: "freehand/seo-search-graph--Streamline-Freehand.png",

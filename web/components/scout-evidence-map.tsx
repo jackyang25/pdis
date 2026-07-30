@@ -55,31 +55,33 @@ const NODE_SIZE: Record<EvidenceMapNodeKind, { width: number; height: number }> 
   source: { width: 220, height: 106 },
 };
 
+// Relation marks and edges read from the shared tone tokens, so they follow the
+// active appearance instead of holding one fixed value for both.
 const RELATION_STYLE = {
   contradicts: {
-    dot: "bg-red-500",
-    edge: "#ef4444",
+    dot: "bg-[hsl(var(--tone-danger))]",
+    edge: "hsl(var(--tone-danger))",
   },
   extends: {
-    dot: "bg-amber-400",
-    edge: "#f59e0b",
+    dot: "bg-[hsl(var(--tone-warning))]",
+    edge: "hsl(var(--tone-warning))",
   },
   confirms: {
-    dot: "bg-emerald-500",
-    edge: "#10b981",
+    dot: "bg-[hsl(var(--tone-success))]",
+    edge: "hsl(var(--tone-success))",
   },
   unrelated: {
     dot: "bg-muted-foreground/40",
-    edge: "#a1a1aa",
+    edge: "hsl(var(--muted-foreground))",
   },
 } as const;
 
 const SIGNAL_DOT: Record<EvidenceMapSignalTone, string> = {
-  neutral: "bg-slate-400",
-  blue: "bg-blue-500",
-  amber: "bg-amber-400",
-  red: "bg-red-500",
-  green: "bg-emerald-500",
+  neutral: "bg-[hsl(var(--tone-neutral))]",
+  blue: "bg-[hsl(var(--tone-info))]",
+  amber: "bg-[hsl(var(--tone-warning))]",
+  red: "bg-[hsl(var(--tone-danger))]",
+  green: "bg-[hsl(var(--tone-success))]",
 };
 
 const KIND_ICON = {
@@ -142,7 +144,8 @@ function edgeColor(edge: EvidenceMapEdge): string {
   ) {
     return RELATION_STYLE[edge.kind].edge;
   }
-  return "#cbd5e1";
+  // Structural edges carry no relation meaning, so they use the border token.
+  return "hsl(var(--border))";
 }
 
 function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
@@ -199,7 +202,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
   const Icon = KIND_ICON[node.kind];
   const relationStyle = node.relation ? RELATION_STYLE[node.relation] : null;
   return (
-    <GraphInspectorShell className="xl:h-[560px]">
+    <GraphInspectorShell className="xl:h-[560px] xl:min-h-0 xl:overflow-y-auto xl:border-l xl:border-t-0">
       <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         <Icon className="h-3.5 w-3.5" />
         {node.eyebrow}
@@ -403,7 +406,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
       </div>
 
       <div className="grid xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="evidence-map relative h-[560px] min-w-0 bg-background/40">
+        <div className="relative h-[560px] min-w-0 bg-background/40">
           <ReactFlow<EvidenceFlowNode, Edge>
             key={`${attributeRef}:${viewMode}`}
             nodes={displayedNodes}

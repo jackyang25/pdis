@@ -167,7 +167,7 @@ function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
 function ContentGroup({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
     <div>
-      {title ? <h3 className="mt-8 text-xs font-semibold first:mt-6">{title}</h3> : null}
+      {title ? <h3 className="mt-8 text-sm font-semibold">{title}</h3> : null}
       {children}
     </div>
   );

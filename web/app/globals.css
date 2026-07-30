@@ -31,6 +31,17 @@
 
     /* 10px surfaces → 8px controls → 6px menu items. */
     --radius: 0.625rem;
+
+    /* Categorical marks for graph nodes, edges, and signal dots. The only
+       place these values live; every value clears 3:1 against --card in both
+       appearances, so a mark stays legible wherever it is used. */
+    --tone-neutral: 215 16% 47%;
+    --tone-neutral-strong: 215 19% 35%;
+    --tone-info: 221 83% 53%;
+    --tone-success: 161 94% 30%;
+    --tone-warning: 32 95% 44%;
+    --tone-danger: 0 72% 51%;
+    --tone-external: 262 83% 58%;
   }
 
   .dark {
@@ -58,32 +69,14 @@
     --border: 225 12% 21%;
     --input: 225 12% 25%;
     --ring: 220 20% 88%;
-  }
-}
 
-@layer components {
-  .evidence-map .react-flow__controls {
-    overflow: hidden;
-    border: 1px solid hsl(var(--border));
-    border-radius: calc(var(--radius) - 2px);
-    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
-  }
-
-  .evidence-map .react-flow__controls-button {
-    width: 28px;
-    height: 28px;
-    border: 0;
-    border-bottom: 1px solid hsl(var(--border));
-    background: hsl(var(--card));
-    fill: hsl(var(--muted-foreground));
-  }
-
-  .evidence-map .react-flow__controls-button:last-child {
-    border-bottom: 0;
-  }
-
-  .evidence-map .react-flow__controls-button:hover {
-    background: hsl(var(--accent));
+    --tone-neutral: 215 20% 65%;
+    --tone-neutral-strong: 213 27% 84%;
+    --tone-info: 213 94% 68%;
+    --tone-success: 158 64% 52%;
+    --tone-warning: 43 96% 56%;
+    --tone-danger: 0 91% 71%;
+    --tone-external: 255 92% 76%;
   }
 }
 

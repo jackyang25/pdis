@@ -32,6 +32,7 @@ import type {
 import { cn } from "@/lib/utils";
 import { PdisIcon, type PdisIconName } from "@/components/ui/pdis-icon";
 import {
+  FitGraphToView,
   GraphControls,
   GraphInspectorShell,
   GraphNodeFrame,
@@ -46,18 +47,20 @@ type VisibleArchitectureNode = ArchitectureNodeContract & {
 type ArchitectureFlowNode = Node<VisibleArchitectureNode, "architecture">;
 
 const NODE_WIDTH = 218;
-const NODE_HEIGHT = 116;
+const NODE_HEIGHT = 124;
 
+// Kind dots read from the shared tone tokens, so light/dark values and their
+// contrast floor live in `globals.css` rather than in this component.
 const KIND_META: Record<
   ArchitectureNodeKind,
   { label: string; icon: typeof BrainCircuit; dot: string }
 > = {
-  input: { label: "Input", icon: FileInput, dot: "bg-slate-400" },
-  model: { label: "Semantic", icon: BrainCircuit, dot: "bg-blue-500" },
-  deterministic: { label: "Deterministic", icon: Braces, dot: "bg-emerald-500" },
-  review: { label: "Review", icon: UserCheck, dot: "bg-amber-400" },
-  integration: { label: "Integration", icon: Database, dot: "bg-violet-400" },
-  output: { label: "Output", icon: FileOutput, dot: "bg-slate-600 dark:bg-slate-300" },
+  input: { label: "Input", icon: FileInput, dot: "bg-[hsl(var(--tone-neutral))]" },
+  model: { label: "Semantic", icon: BrainCircuit, dot: "bg-[hsl(var(--tone-info))]" },
+  deterministic: { label: "Deterministic", icon: Braces, dot: "bg-[hsl(var(--tone-success))]" },
+  review: { label: "Review", icon: UserCheck, dot: "bg-[hsl(var(--tone-warning))]" },
+  integration: { label: "Integration", icon: Database, dot: "bg-[hsl(var(--tone-external))]" },
+  output: { label: "Output", icon: FileOutput, dot: "bg-[hsl(var(--tone-neutral-strong))]" },
 };
 
 const TOOL_ICONS: Record<ArchitectureGraphContract["id"], PdisIconName> = {
@@ -77,7 +80,7 @@ function ArchitectureNode({ data, selected }: NodeProps<ArchitectureFlowNode>) {
       <Handle type="target" position={Position.Left} className="!h-1 !w-1 !border-0 !bg-border !opacity-0" />
       <Handle type="source" position={Position.Right} className="!h-1 !w-1 !border-0 !bg-border !opacity-0" />
       <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
+        <span className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
           <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span className="truncate">{data.layer}</span>
         </span>
@@ -86,11 +89,11 @@ function ArchitectureNode({ data, selected }: NodeProps<ArchitectureFlowNode>) {
       <p className="mt-2 line-clamp-2 text-xs font-semibold leading-[1.35] text-foreground">
         {data.title}
       </p>
-      <p className="mt-1 line-clamp-2 text-[10px] leading-[1.45] text-muted-foreground">
+      <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
         {data.summary}
       </p>
-      <p className="mt-auto pt-1.5 text-[9px] font-medium text-muted-foreground/70">
-        {data.parentTitle ? `Inside ${data.parentTitle}` : meta.label}
+      <p className="mt-auto truncate pt-1.5 text-[10px] font-medium text-muted-foreground">
+        {data.parentTitle ? `${meta.label} · inside ${data.parentTitle}` : meta.label}
       </p>
     </GraphNodeFrame>
   );
@@ -139,8 +142,14 @@ function layoutGraph(graph: ArchitectureGraphContract, expandedNodeId: string | 
   const visible = visibleGraph(graph, expandedNodeId);
   const positions = layoutDirectedGraph(
     visible.nodes.map((node) => ({ id: node.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
-    visible.edges,
-    { ranksep: 64, nodesep: 24, edgesep: 10, margin: 24 },
+    // Labelled edges (Scout's two result lanes) reserve room for their 9px
+    // label so the layout keeps it clear of the adjacent node.
+    visible.edges.map((edge) => ({
+      source: edge.source,
+      target: edge.target,
+      ...(edge.label ? { labelWidth: edge.label.length * 5 + 12, labelHeight: 14 } : {}),
+    })),
+    { ranksep: 48, nodesep: 32, edgesep: 10, margin: 24 },
   );
   const nodes: ArchitectureFlowNode[] = visible.nodes.map((node) => ({
     id: node.id,
@@ -193,20 +202,20 @@ function NodeInspector({
   const parent = node.parentId ? graph.nodes.find((item) => item.id === node.parentId) : undefined;
   const expandable = Boolean(node.children?.length);
   return (
-    <GraphInspectorShell className="xl:h-auto xl:border-l-0 xl:border-t">
+    <GraphInspectorShell>
       {parent ? (
         <button
           type="button"
           onClick={() => onExpand(null)}
-          className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          className="inline-flex items-center gap-1 rounded-sm text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
         >
           <RotateCcw className="h-3 w-3" aria-hidden="true" />
           Back to overview
         </button>
       ) : null}
-      <div className={cn("flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground", parent && "mt-4")}>
+      <div className={cn("flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground", parent && "mt-4")}>
         <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-        {node.layer} · {meta.label}
+        {node.layer === meta.label ? node.layer : `${node.layer} · ${meta.label}`}
       </div>
       <h4 className="mt-2 text-sm font-semibold leading-snug">{node.title}</h4>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -217,7 +226,7 @@ function NodeInspector({
         <button
           type="button"
           onClick={() => onExpand(expandedNodeId === node.id ? null : node.id)}
-          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-[11px] font-medium transition-colors hover:bg-muted"
+          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-[11px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
         >
           View technical flow
           <ChevronRight className="h-3 w-3" aria-hidden="true" />
@@ -228,11 +237,11 @@ function NodeInspector({
       <InspectorList title="Produces" items={node.outputs} />
       {node.guarantee ? (
         <div className="mt-4 border-t border-border/70 pt-4">
-          <div className="flex items-center gap-1.5 text-[10px] font-medium text-foreground">
-            <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
             Contract boundary
           </div>
-          <p className="mt-1.5 text-[11px] leading-4.5 text-muted-foreground">{node.guarantee}</p>
+          <p className="mt-2 text-[11px] leading-[1.6] text-muted-foreground">{node.guarantee}</p>
         </div>
       ) : null}
     </GraphInspectorShell>
@@ -243,10 +252,10 @@ function InspectorList({ title, items }: { title: string; items?: string[] }) {
   if (!items?.length) return null;
   return (
     <div className="mt-4 border-t border-border/70 pt-4">
-      <p className="text-[9px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">{title}</p>
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
       <ul className="mt-2 space-y-1.5">
         {items.map((item) => (
-          <li key={item} className="flex gap-2 text-[11px] leading-4 text-muted-foreground">
+          <li key={item} className="flex gap-2 text-[11px] leading-[1.45] text-muted-foreground">
             <span className="mt-[6px] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" />
             {item}
           </li>
@@ -295,21 +304,27 @@ export function ArchitectureGraphs({
           <PdisIcon name={TOOL_ICONS[graph.id]} className="mt-0.5 h-5 w-5 text-foreground" />
           <div className="min-w-0">
             <h4 className="text-sm font-semibold">{graph.title}</h4>
-            <p className="mt-1 max-w-2xl text-[11px] leading-4.5 text-muted-foreground">
+            <p className="mt-1 max-w-2xl text-[11px] leading-[1.6] text-muted-foreground">
               {graph.summary || description}
             </p>
           </div>
         </div>
-        <div className="mt-4 flex gap-1 overflow-x-auto pb-1" role="tablist" aria-label="Tool architecture">
+        {/* A toggle-button group, not an ARIA tab set: these buttons swap one
+            canvas rather than reveal sibling panels, so `aria-pressed` states
+            what a screen reader can act on without promising a tabpanel. */}
+        <div
+          className="mt-4 flex flex-wrap gap-1 pb-1 sm:flex-nowrap sm:overflow-x-auto"
+          role="group"
+          aria-label="Tool architecture"
+        >
           {graphs.map((item) => (
             <button
               key={item.id}
               type="button"
-              role="tab"
-              aria-selected={item.id === graph.id}
+              aria-pressed={item.id === graph.id}
               onClick={() => chooseGraph(item.id)}
               className={cn(
-                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20",
                 item.id === graph.id && "bg-foreground text-background hover:bg-foreground hover:text-background",
               )}
             >
@@ -321,7 +336,19 @@ export function ArchitectureGraphs({
       </div>
 
       <div className="hidden xl:block">
-        <div className="relative h-[390px] min-w-0 bg-background/40">
+        {/* React Flow's node keydown reaches its own selection store, which a
+            controlled `selected` prop immediately overwrites, so the inspector
+            reads the activation key off the focused node instead. */}
+        <div
+          className="relative h-[300px] min-w-0 bg-background/40"
+          onKeyDownCapture={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            const id = (event.target as HTMLElement)
+              .closest?.(".react-flow__node")
+              ?.getAttribute("data-id");
+            if (id) setSelectedId(id);
+          }}
+        >
           <ReactFlow<ArchitectureFlowNode, Edge>
             key={`${graph.id}:${expandedNodeId ?? "overview"}`}
             nodes={displayedNodes}
@@ -332,12 +359,21 @@ export function ArchitectureGraphs({
             nodesConnectable={false}
             edgesFocusable={false}
             elementsSelectable
-            defaultViewport={{ x: 18, y: 110, zoom: 0.82 }}
-            minZoom={0.35}
+            fitView
+            fitViewOptions={{ padding: 0.08, maxZoom: 1 }}
+            minZoom={0.2}
             maxZoom={1.35}
+            // A docs page scrolls; wheeling over the canvas must not zoom it or
+            // dam the article. Zoom stays available through the controls.
+            zoomOnScroll={false}
+            preventScrolling={false}
             proOptions={{ hideAttribution: true }}
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="hsl(var(--border))" />
+            <FitGraphToView
+              layoutKey={`${graph.id}:${expandedNodeId ?? "overview"}`}
+              padding={0.08}
+            />
             <GraphControls />
           </ReactFlow>
         </div>
@@ -368,13 +404,18 @@ export function ArchitectureGraphs({
                   <Icon className="h-3.5 w-3.5" aria-hidden="true" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-semibold">{node.title}</span>
+                  <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meta.dot)} />
+                    <span className="truncate">{node.layer === meta.label ? node.layer : `${node.layer} · ${meta.label}`}</span>
+                  </span>
+                  <span className="mt-1 block text-xs font-semibold">{node.title}</span>
                   <span className="mt-0.5 block text-[10px] text-muted-foreground">{node.summary}</span>
                 </span>
                 <ChevronRight className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
               </summary>
-              <div className="ml-10 mt-3 text-[11px] leading-4.5 text-muted-foreground">
-                <p>{node.details ?? node.summary}</p>
+              <div className="ml-10 mt-3 text-[11px] leading-[1.6] text-muted-foreground">
+                {/* The summary already shows in the collapsed row above. */}
+                {node.details && node.details !== node.summary ? <p>{node.details}</p> : null}
                 {node.children?.length ? (
                   <ol className="mt-3 space-y-2 border-l border-border pl-3">
                     {node.children.map((child, index) => (
@@ -384,6 +425,19 @@ export function ArchitectureGraphs({
                       </li>
                     ))}
                   </ol>
+                ) : null}
+                {/* The same contract detail the desktop inspector shows, so a
+                    narrow viewport is not a smaller version of the document. */}
+                <InspectorList title="Consumes" items={node.inputs} />
+                <InspectorList title="Produces" items={node.outputs} />
+                {node.guarantee ? (
+                  <div className="mt-4 border-t border-border/70 pt-4">
+                    <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                      Contract boundary
+                    </div>
+                    <p className="mt-2">{node.guarantee}</p>
+                  </div>
                 ) : null}
               </div>
             </details>

@@ -19,6 +19,10 @@ export type GraphLayoutItem = {
 export type GraphLayoutLink = {
   source: string;
   target: string;
+  // Rendered edge labels need reserved space, or the layout places them on top
+  // of a node box.
+  labelWidth?: number;
+  labelHeight?: number;
 };
 
 export function layoutDirectedGraph(
@@ -44,7 +48,15 @@ export function layoutDirectedGraph(
   for (const item of items) {
     graph.setNode(item.id, { width: item.width, height: item.height });
   }
-  for (const link of links) graph.setEdge(link.source, link.target);
+  for (const link of links) {
+    graph.setEdge(
+      link.source,
+      link.target,
+      link.labelWidth
+        ? { width: link.labelWidth, height: link.labelHeight ?? 14, labelpos: "c" }
+        : {},
+    );
+  }
   dagre.layout(graph);
 
   return new Map(
@@ -129,7 +141,10 @@ export function GraphNodeFrame({
   return (
     <div
       className={cn(
+        // Dark mode needs a black shadow: a slate shadow at 4% is invisible on
+        // a dark surface, leaving nodes with no elevation or hover feedback.
         "flex h-full w-full cursor-pointer flex-col rounded-lg border border-border/90 bg-card text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow] hover:border-foreground/25 hover:shadow-[0_5px_18px_rgba(15,23,42,0.08)]",
+        "dark:shadow-[0_1px_3px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_6px_20px_rgba(0,0,0,0.6)]",
         selected && "border-foreground/40 ring-2 ring-foreground/10",
         className,
       )}
@@ -148,8 +163,10 @@ export function GraphInspectorShell({
 }) {
   return (
     <aside
+      // Only what both layouts share. A side-by-side caller adds its own
+      // height and leading border rather than having to cancel them here.
       className={cn(
-        "min-h-[220px] border-t border-border/80 bg-card px-5 py-5 xl:min-h-0 xl:overflow-y-auto xl:border-l xl:border-t-0",
+        "min-h-[220px] border-t border-border/80 bg-card px-5 py-5",
         className,
       )}
     >

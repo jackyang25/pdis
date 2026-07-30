@@ -13,8 +13,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen">
+      <a
+        href="#main"
+        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-4 focus-visible:z-[60] focus-visible:inline-flex focus-visible:h-8 focus-visible:items-center focus-visible:rounded-md focus-visible:bg-foreground focus-visible:px-3 focus-visible:text-[11px] focus-visible:font-medium focus-visible:text-background"
+      >
+        Skip to content
+      </a>
       <ProductHeader pathname={pathname} />
-      <main className="min-w-0">
+      <main id="main" className="min-w-0">
         <div className="mx-auto w-full max-w-[1120px] px-5 py-8 sm:px-8 sm:py-10 lg:py-11">
           {tool && <ToolBreadcrumb title={tool.title} />}
           {children}

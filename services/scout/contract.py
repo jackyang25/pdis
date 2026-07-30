@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import math
 
+from services.searcher import SOURCE_ROLES
+
 from .models import (
     QUANTITATIVE_SEMANTIC_FIELDS,
     VALID_EVIDENCE_STRENGTHS,
@@ -16,6 +18,7 @@ from .models import (
     VALID_PRECEDENT_OUTCOMES,
     VALID_QUERY_TRACKS,
     VALID_RELATIONS,
+    TARGET_RELATIONSHIPS,
     ScoutResult,
 )
 
@@ -40,7 +43,7 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         result.conformity,
         result.precedents,
         result.development_landscape,
-        result.safety_signals,
+        result.safety_observations,
     )):
         raise ValueError("target-review result cannot contain downstream analysis")
 
@@ -450,14 +453,34 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
 
     for projection_name, projections in (
         ("development program", result.development_landscape),
-        ("safety signal", result.safety_signals),
+        ("safety observation", result.safety_observations),
     ):
+        _require_unique(
+            [projection.projection_id for projection in projections],
+            f"{projection_name} projection ID",
+        )
         for projection in projections:
+            if not projection.projection_id:
+                raise ValueError(f"{projection_name} is missing its projection ID")
+            if projection.source_role not in SOURCE_ROLES:
+                raise ValueError(
+                    f"{projection_name} has invalid source role {projection.source_role!r}"
+                )
+            if projection.target_relationship not in TARGET_RELATIONSHIPS:
+                raise ValueError(
+                    f"{projection_name} has invalid target relationship "
+                    f"{projection.target_relationship!r}"
+                )
             _require_subset(
                 projection.attribute_refs,
                 set(variables),
                 f"{projection_name} field references",
             )
+            for supporting_finding in projection.supporting_findings:
+                if not supporting_finding.url or not supporting_finding.source:
+                    raise ValueError(
+                        f"{projection_name} contains an untraceable supporting finding"
+                    )
 
     _require_subset(
         result.context_validation.doc_block_ids,

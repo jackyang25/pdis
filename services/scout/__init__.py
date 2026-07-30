@@ -35,7 +35,7 @@ from .models import (
     SourcePassageDisposition,
     ScoutResult,
     ScoutTypeConfig,
-    SafetySignal,
+    SafetyObservation,
     PrecedentSignal,
     QueryIntent,
     QUANTITATIVE_SEMANTIC_FIELDS,
@@ -54,7 +54,7 @@ from .models import (
     load_config,
     matches_to_dicts,
     precedents_to_dicts,
-    safety_signals_to_dicts,
+    safety_observations_to_dicts,
 )
 from .pipeline import continue_pipeline, run_pipeline
 
@@ -86,7 +86,7 @@ __all__ = [
     "SourcePassageDisposition",
     "ScoutResult",
     "ScoutTypeConfig",
-    "SafetySignal",
+    "SafetyObservation",
     "PrecedentSignal",
     "QueryIntent",
     "QUANTITATIVE_SEMANTIC_FIELDS",
@@ -105,7 +105,7 @@ __all__ = [
     "load_config",
     "matches_to_dicts",
     "precedents_to_dicts",
-    "safety_signals_to_dicts",
+    "safety_observations_to_dicts",
     "continue_pipeline",
     "run_pipeline",
 ]

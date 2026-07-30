@@ -89,7 +89,7 @@ const result = {
   conformity: [],
   precedents: [],
   development_landscape: [],
-  safety_signals: [],
+  safety_observations: [],
   stats: {
     queries: 1,
     findings: 1,

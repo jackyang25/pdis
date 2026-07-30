@@ -168,6 +168,8 @@ def clinicaltrial_to_finding(study: dict, query: str) -> Finding | None:
     conditions = (protocol.get("conditionsModule") or {}).get("conditions") or []
     arms = protocol.get("armsInterventionsModule") or {}
     interventions = arms.get("interventions") or []
+    arm_groups = arms.get("armGroups") or []
+    intervention_roles = _intervention_source_roles(interventions, arm_groups)
     sponsor_module = protocol.get("sponsorCollaboratorsModule") or {}
     lead_sponsor = sponsor_module.get("leadSponsor") or {}
 
@@ -223,6 +225,7 @@ def clinicaltrial_to_finding(study: dict, query: str) -> Finding | None:
                 sponsor=str(lead_sponsor.get("name") or "").strip(),
                 phase=phases,
                 status=status_label,
+                source_role=intervention_roles.get(name.casefold(), "unknown"),
             )
             for name in _intervention_names(interventions)
         ],
@@ -241,6 +244,71 @@ def _intervention_names(interventions: object) -> list[str]:
         if name and name.casefold() not in {"drug", "device", "vaccine", "biological"}:
             names.append(name)
     return list(dict.fromkeys(names))
+
+
+def _intervention_source_roles(
+    interventions: object,
+    arm_groups: object,
+) -> dict[str, str]:
+    """Map interventions to roles stated by ClinicalTrials.gov arm metadata.
+
+    Names and arm labels are provider-owned identifiers. This function never
+    infers a role from intervention prose.
+    """
+    if not isinstance(interventions, list) or not isinstance(arm_groups, list):
+        return {}
+
+    roles_by_label: dict[str, str] = {}
+    names_by_label: dict[str, list[str]] = {}
+    for group in arm_groups:
+        if not isinstance(group, dict):
+            continue
+        label = str(group.get("label") or "").strip().casefold()
+        source_role = _arm_type_source_role(group.get("type"))
+        if label and source_role:
+            roles_by_label[label] = source_role
+        for raw_name in group.get("interventionNames") or []:
+            name = str(raw_name or "").strip()
+            if label and name:
+                names_by_label.setdefault(label, []).append(name)
+
+    roles_by_name: dict[str, set[str]] = {}
+    for intervention in interventions:
+        if not isinstance(intervention, dict):
+            continue
+        name = str(intervention.get("name") or "").strip()
+        if not name:
+            continue
+        labels = {
+            str(label or "").strip().casefold()
+            for label in intervention.get("armGroupLabels") or []
+            if str(label or "").strip()
+        }
+        labels.update(
+            label
+            for label, names in names_by_label.items()
+            if name in names
+        )
+        roles_by_name.setdefault(name.casefold(), set()).update(
+            roles_by_label[label]
+            for label in labels
+            if label in roles_by_label
+        )
+
+    return {
+        name: next(iter(roles)) if len(roles) == 1 else "unknown"
+        for name, roles in roles_by_name.items()
+    }
+
+
+def _arm_type_source_role(value: object) -> str:
+    return {
+        "EXPERIMENTAL": "experimental",
+        "ACTIVE_COMPARATOR": "comparator",
+        "PLACEBO_COMPARATOR": "control",
+        "SHAM_COMPARATOR": "control",
+        "NO_INTERVENTION": "control",
+    }.get(str(value or "").strip().upper(), "")
 
 
 def _phase_label(value: object) -> str:

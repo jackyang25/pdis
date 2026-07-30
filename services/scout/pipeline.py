@@ -48,7 +48,7 @@ from .models import (
     SearchTrace,
     load_attributes,
 )
-from .projections import build_development_landscape, build_safety_signals
+from .projections import build_development_landscape, build_safety_observations
 from .stages.conformity import (
     assemble_quantitative_document_ledger,
     empty_conformity_scores,
@@ -64,6 +64,7 @@ from .stages.evidence_assessor import assess_evidence
 from .stages.evidence_reviewer import prefill_evidence_review
 from .stages.insight_extractor import extract_insights, merge_duplicate_insights
 from .stages.precedent_classifier import classify_precedent
+from .stages.projection_classifier import classify_projection_relationships
 from .stages.query_extractor import extract_queries_for_variable
 from .stages.intent_builder import build_retrieval_intents
 from .stages.target_resolver import resolve_document_targets
@@ -339,7 +340,15 @@ def continue_pipeline(
     # Adapters own source-specific parsing. These views consume only normalized
     # records and therefore add no new model judgment or provider branch here.
     development_landscape = build_development_landscape(findings_by_attribute)
-    safety_signals = build_safety_signals(findings_by_attribute)
+    safety_observations = build_safety_observations(findings_by_attribute)
+    development_landscape, safety_observations = classify_projection_relationships(
+        searchable_attributes,
+        development_landscape,
+        safety_observations,
+        openai_client,
+        indication=indication,
+        intervention_class=intervention_class,
+    )
 
     query_tracks_by_attribute: dict[str, dict[str, list[str]]] = {}
     query_targets_by_attribute: dict[str, dict[str, list[str]]] = {}
@@ -463,7 +472,7 @@ def continue_pipeline(
         precedents=precedents,
         search_plan=search_plan,
         development_landscape=development_landscape,
-        safety_signals=safety_signals,
+        safety_observations=safety_observations,
         context_validation=context_validation,
         quantitative_ledger=quantitative_ledger,
         variables=attributes,

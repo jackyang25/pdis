@@ -32,6 +32,9 @@ VALID_EVIDENCE_STRENGTHS = {
 VALID_PRECEDENT = {"direct", "adjacent", "none", "unknown"}
 VALID_PRECEDENT_OUTCOMES = {"favorable", "mixed", "unfavorable", "unknown"}
 VALID_CONTEXT_STATUSES = {"match", "mismatch", "uncertain"}
+TARGET_RELATIONSHIPS = frozenset(
+    {"direct", "analogous", "adjacent", "unrelated", "unknown"}
+)
 QUANTITATIVE_SEMANTIC_FIELDS = (
     "measure",
     "endpoint",
@@ -1043,6 +1046,10 @@ class DevelopmentProgram:
     """Deterministic grouping of source-normalized development records."""
 
     name: str
+    projection_id: str = ""
+    source_role: str = "unknown"
+    target_relationship: str = "unknown"
+    target_relationship_reason: str = ""
     sponsors: list[str] = field(default_factory=list)
     phases: list[str] = field(default_factory=list)
     statuses: list[str] = field(default_factory=list)
@@ -1053,14 +1060,19 @@ class DevelopmentProgram:
 
 
 @dataclass
-class SafetySignal:
-    """Deterministic grouping of one product safety observation."""
+class SafetyObservation:
+    """Deterministic grouping of one source-owned safety observation."""
 
     product_name: str
-    signal_type: str
-    signal: str
+    record_type: str
+    source_system: str
+    label: str
+    projection_id: str = ""
+    source_role: str = "unknown"
+    target_relationship: str = "unknown"
+    target_relationship_reason: str = ""
     detail: str = ""
-    count: int | None = None
+    report_count: int | None = None
     qualification: str = ""
     attribute_refs: list[str] = field(default_factory=list)
     supporting_findings: list[Finding] = field(default_factory=list)
@@ -1096,7 +1108,7 @@ class ScoutResult:
     precedents: list[PrecedentSignal] = field(default_factory=list)
     search_plan: list[SearchTrace] = field(default_factory=list)
     development_landscape: list[DevelopmentProgram] = field(default_factory=list)
-    safety_signals: list[SafetySignal] = field(default_factory=list)
+    safety_observations: list[SafetyObservation] = field(default_factory=list)
     # Canonical, document-bound units actually investigated this run. Consumers
     # read this rather than re-deriving provider-specific definitions.
     variables: list[Attribute] = field(default_factory=list)
@@ -1214,9 +1226,14 @@ def development_programs_to_dicts(
     return [_serialize_finding_datetimes(asdict(program)) for program in programs]
 
 
-def safety_signals_to_dicts(signals: list[SafetySignal]) -> list[dict]:
+def safety_observations_to_dicts(
+    observations: list[SafetyObservation],
+) -> list[dict]:
     """Convert safety projections to plain dictionaries."""
-    return [_serialize_finding_datetimes(asdict(signal)) for signal in signals]
+    return [
+        _serialize_finding_datetimes(asdict(observation))
+        for observation in observations
+    ]
 
 
 def _serialize_finding_datetimes(value: dict) -> dict:

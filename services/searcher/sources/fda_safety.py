@@ -13,7 +13,7 @@ from urllib.parse import quote, urlencode
 from ..models import (
     Finding,
     RetrievalIntent,
-    SafetyRecord,
+    SafetyObservationRecord,
     SearchRequest,
     SearchRuntime,
     SourceAttribution,
@@ -162,11 +162,12 @@ def _drug_warnings(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
                 retrieved_at=retrieved_at,
                 excerpt=detail[:16_000],
                 source="fda_safety",
-                safety_records=[
-                    SafetyRecord(
+                safety_observations=[
+                    SafetyObservationRecord(
                         product_name=product_name,
-                        signal_type="label_warning",
-                        signal=signal,
+                        record_type="label_warning",
+                        source_system="fda_label",
+                        label=signal,
                         detail=detail[:2_000],
                         qualification="Official FDA labeling language.",
                     )
@@ -189,7 +190,7 @@ def _faers_reactions(request: SearchRequest, runtime: SearchRuntime) -> list[Fin
     retrieved_at = datetime.now(timezone.utc)
     base_url = "https://api.fda.gov/drug/event.json?" + urlencode(
         {
-            "search": f'patient.drug.medicinalproduct:"{product}"',
+            "search": f"patient.drug.medicinalproduct:{product}",
             "count": "patient.reaction.reactionmeddrapt.exact",
         }
     )
@@ -213,12 +214,13 @@ def _faers_reactions(request: SearchRequest, runtime: SearchRuntime) -> list[Fin
                 ),
                 source="fda_safety",
                 evidence_role="reference",
-                safety_records=[
-                    SafetyRecord(
+                safety_observations=[
+                    SafetyObservationRecord(
                         product_name=product,
-                        signal_type="reported_event",
-                        signal=signal.title(),
-                        count=count,
+                        record_type="reported_event",
+                        source_system="faers",
+                        label=signal.title(),
+                        report_count=count,
                         qualification=FAERS_QUALIFICATION,
                     )
                 ],
@@ -261,11 +263,12 @@ def _device_events(request: SearchRequest, runtime: SearchRuntime) -> list[Findi
                 excerpt=(detail + "\n" + MAUDE_QUALIFICATION).strip(),
                 source="fda_safety",
                 evidence_role="reference",
-                safety_records=[
-                    SafetyRecord(
+                safety_observations=[
+                    SafetyObservationRecord(
                         product_name=product_name,
-                        signal_type="device_event",
-                        signal=event_type,
+                        record_type="device_event",
+                        source_system="maude",
+                        label=event_type,
                         detail=detail[:2_000],
                         qualification=MAUDE_QUALIFICATION,
                     )
@@ -316,11 +319,12 @@ def _device_recalls(request: SearchRequest, runtime: SearchRuntime) -> list[Find
                 ),
                 excerpt=detail,
                 source="fda_safety",
-                safety_records=[
-                    SafetyRecord(
+                safety_observations=[
+                    SafetyObservationRecord(
                         product_name=description,
-                        signal_type="recall",
-                        signal=signal,
+                        record_type="recall",
+                        source_system="fda_recall",
+                        label=signal,
                         detail=detail[:2_000],
                         qualification="FDA recall record; status and scope may change.",
                     )

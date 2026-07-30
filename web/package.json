@@ -14,7 +14,9 @@
     "test:comparator-plot": "node --test --experimental-strip-types lib/comparator-distribution.test.ts",
     "test:quantitative-review": "node --test --experimental-strip-types lib/quantitative-review.test.ts",
     "test:scout-review": "node --test --experimental-strip-types lib/scout-review-session.test.ts",
-    "test:result-file": "node --test --experimental-strip-types lib/result-file.test.ts"
+    "test:result-file": "node --test --experimental-strip-types lib/result-file.test.ts",
+    "test:projection-roles": "node --test --experimental-strip-types lib/scout-projection-roles.test.ts",
+    "test:safety-observations": "node --test --experimental-strip-types lib/scout-safety-observations.test.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.232",

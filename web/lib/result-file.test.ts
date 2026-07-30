@@ -100,8 +100,35 @@ const scout: ScoutResponse = {
     source_dispositions: [],
   }],
   precedents: [],
-  development_landscape: [],
-  safety_signals: [],
+  development_landscape: [{
+    projection_id: "dp-trial-1",
+    name: "Comparator vaccine trial",
+    sponsors: ["Example sponsor"],
+    phases: ["Phase 2"],
+    statuses: ["Completed"],
+    record_types: ["clinical_trial"],
+    record_ids: ["NCT00000001"],
+    attribute_refs: ["efficacy"],
+    source_role: "comparator",
+    target_relationship: "analogous",
+    target_relationship_reason: "The trial evaluates another product in the same intervention class.",
+    supporting_findings: [],
+  }],
+  safety_observations: [{
+    projection_id: "so-faers-1",
+    product_name: "Comparator vaccine",
+    record_type: "reported_event",
+    source_system: "faers",
+    label: "Headache",
+    detail: "A source-supplied FAERS event category.",
+    report_count: 12,
+    qualification: "Spontaneous report counts do not measure incidence or causality.",
+    attribute_refs: ["safety"],
+    source_role: "comparator",
+    target_relationship: "adjacent",
+    target_relationship_reason: "The report concerns a related product class.",
+    supporting_findings: [],
+  }],
   stats: {
     queries: 0,
     findings: 0,
@@ -115,7 +142,7 @@ const scout: ScoutResponse = {
 
 test("current Inspector results round-trip exactly", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 36);
+  assert.equal(packed.version, 38);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("blocks" in packed.analysis.inspection, false);
@@ -146,7 +173,17 @@ test("current Aligner results separate both source documents", () => {
 
 test("current Scout results round-trip exactly", () => {
   const packed = packScoutResult(scout);
-  assert.deepEqual(unpackScoutResult(packed), scout);
+  const unpacked = unpackScoutResult(packed);
+  assert.deepEqual(unpacked, scout);
+  assert.equal(unpacked.development_landscape[0]?.source_role, "comparator");
+  assert.equal(unpacked.development_landscape[0]?.target_relationship, "analogous");
+  assert.equal(unpacked.safety_observations[0]?.record_type, "reported_event");
+  assert.equal(unpacked.safety_observations[0]?.source_system, "faers");
+  assert.equal(unpacked.safety_observations[0]?.label, "Headache");
+  assert.equal(unpacked.safety_observations[0]?.report_count, 12);
+  assert.equal(unpacked.safety_observations[0]?.source_role, "comparator");
+  assert.equal(unpacked.safety_observations[0]?.target_relationship, "adjacent");
+  assert.equal(unpacked.safety_observations[0]?.supporting_findings.length, 0);
 });
 
 test("Scout export rejects an unfinished review draft", () => {
@@ -161,10 +198,28 @@ test("imports require the current final envelope", () => {
   assert.throws(() => unpackScoutResult(missingState), /current, final scout result/);
 
   const oldVersion = structuredClone(packScoutResult(scout)) as any;
-  oldVersion.version = 35;
+  oldVersion.version = 37;
   assert.throws(() => unpackScoutResult(oldVersion), /current, final scout result/);
 
   assert.throws(() => unpackScoutResult(scout), /current, final scout result/);
+});
+
+test("current Scout artifacts require complete projection roles", () => {
+  const malformed = structuredClone(packScoutResult(scout)) as any;
+  delete malformed.analysis.development_landscape[0].target_relationship;
+  assert.throws(
+    () => unpackScoutResult(malformed),
+    /incomplete projection role contract/,
+  );
+});
+
+test("current Scout artifacts require complete safety observations", () => {
+  const malformed = structuredClone(packScoutResult(scout)) as any;
+  delete malformed.analysis.safety_observations[0].source_system;
+  assert.throws(
+    () => unpackScoutResult(malformed),
+    /incomplete safety observation contract/,
+  );
 });
 
 test("imports reject the wrong result type", () => {

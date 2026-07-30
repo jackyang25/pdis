@@ -107,7 +107,7 @@ export type Finding = {
   source: string;
   evidence_role?: "evidence" | "reference";
   development_records?: DevelopmentRecord[];
-  safety_records?: SafetyRecord[];
+  safety_observations?: SafetyObservationRecord[];
   queries?: string[];
   source_lanes?: string[];
   source_labels?: Record<string, string>;
@@ -130,16 +130,33 @@ export type DevelopmentRecord = {
   sponsor: string;
   phase: string;
   status: string;
+  source_role: SourceRole;
 };
 
-export type SafetyRecord = {
+export type SafetyObservationRecord = {
   product_name: string;
-  signal_type: "label_warning" | "reported_event" | "device_event" | "recall";
-  signal: string;
+  record_type: "label_warning" | "reported_event" | "device_event" | "recall";
+  source_system: "fda_label" | "faers" | "maude" | "fda_recall";
+  label: string;
   detail: string;
-  count: number | null;
+  report_count: number | null;
   qualification: string;
+  source_role: SourceRole;
 };
+
+export type SourceRole =
+  | "experimental"
+  | "comparator"
+  | "control"
+  | "co_intervention"
+  | "unknown";
+
+export type TargetRelationship =
+  | "direct"
+  | "analogous"
+  | "adjacent"
+  | "unrelated"
+  | "unknown";
 
 export type SourceAttribution = {
   label: string;
@@ -328,7 +345,11 @@ export type PrecedentSignal = {
 };
 
 export type DevelopmentProgram = {
+  projection_id: string;
   name: string;
+  source_role: SourceRole;
+  target_relationship: TargetRelationship;
+  target_relationship_reason: string;
   sponsors: string[];
   phases: string[];
   statuses: string[];
@@ -338,13 +359,18 @@ export type DevelopmentProgram = {
   supporting_findings: Finding[];
 };
 
-export type SafetySignal = {
+export type SafetyObservation = {
+  projection_id: string;
   product_name: string;
-  signal_type: "label_warning" | "reported_event" | "device_event" | "recall";
-  signal: string;
+  record_type: "label_warning" | "reported_event" | "device_event" | "recall";
+  source_system: "fda_label" | "faers" | "maude" | "fda_recall";
+  label: string;
   detail: string;
-  count: number | null;
+  report_count: number | null;
   qualification: string;
+  source_role: SourceRole;
+  target_relationship: TargetRelationship;
+  target_relationship_reason: string;
   attribute_refs: string[];
   supporting_findings: Finding[];
 };
@@ -480,7 +506,7 @@ export type ScoutResponse = {
   conformity: Conformity[];
   precedents: PrecedentSignal[];
   development_landscape: DevelopmentProgram[];
-  safety_signals: SafetySignal[];
+  safety_observations: SafetyObservation[];
   stats: FunnelStats;
   // The parsed source document behind the analysis (for the Ask assistant).
   blocks: ContentBlock[];

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 from services.searcher import Finding
 
-from .models import DevelopmentProgram, SafetySignal
+from .models import DevelopmentProgram, SafetyObservation
 
 
 def build_development_landscape(
@@ -14,6 +15,7 @@ def build_development_landscape(
 ) -> list[DevelopmentProgram]:
     """Group explicit provider facts by named program without inference."""
     grouped: dict[str, DevelopmentProgram] = {}
+    roles: dict[str, set[str]] = {}
     for attribute_ref, findings in findings_by_attribute.items():
         for finding in findings:
             for record in finding.development_records:
@@ -31,44 +33,60 @@ def build_development_landscape(
                 _append(program.record_ids, record.record_id)
                 _append(program.attribute_refs, attribute_ref)
                 _append_finding(program.supporting_findings, finding)
+                if record.source_role != "unknown":
+                    roles.setdefault(key, set()).add(record.source_role)
+    for key, program in grouped.items():
+        program.projection_id = _projection_id("dp", key)
+        program.source_role = _grouped_role(roles.get(key, set()))
     return sorted(
         grouped.values(),
         key=lambda item: (-_highest_phase(item.phases), item.name.casefold()),
     )
 
 
-def build_safety_signals(
+def build_safety_observations(
     findings_by_attribute: dict[str, list[Finding]],
-) -> list[SafetySignal]:
+) -> list[SafetyObservation]:
     """Group repeated retrievals of the same explicit safety observation."""
-    grouped: dict[tuple[str, str, str], SafetySignal] = {}
+    grouped: dict[tuple[str, str, str, str], SafetyObservation] = {}
+    roles: dict[tuple[str, str, str, str], set[str]] = {}
     for attribute_ref, findings in findings_by_attribute.items():
         for finding in findings:
-            for record in finding.safety_records:
+            for record in finding.safety_observations:
                 key = (
                     _key(record.product_name),
-                    record.signal_type.casefold(),
-                    _key(record.signal),
+                    record.record_type.casefold(),
+                    record.source_system.casefold(),
+                    _key(record.label),
                 )
-                signal = grouped.setdefault(
+                observation = grouped.setdefault(
                     key,
-                    SafetySignal(
+                    SafetyObservation(
                         product_name=record.product_name.strip(),
-                        signal_type=record.signal_type,
-                        signal=record.signal.strip(),
+                        record_type=record.record_type,
+                        source_system=record.source_system,
+                        label=record.label.strip(),
                         detail=record.detail.strip(),
-                        count=record.count,
+                        report_count=record.report_count,
                         qualification=record.qualification.strip(),
                     ),
                 )
-                if record.detail and len(record.detail) > len(signal.detail):
-                    signal.detail = record.detail.strip()
-                if record.count is not None:
-                    signal.count = max(signal.count or 0, record.count)
-                if not signal.qualification and record.qualification:
-                    signal.qualification = record.qualification.strip()
-                _append(signal.attribute_refs, attribute_ref)
-                _append_finding(signal.supporting_findings, finding)
+                if record.detail and len(record.detail) > len(observation.detail):
+                    observation.detail = record.detail.strip()
+                if record.report_count is not None:
+                    observation.report_count = max(
+                        observation.report_count or 0,
+                        record.report_count,
+                    )
+                if not observation.qualification and record.qualification:
+                    observation.qualification = record.qualification.strip()
+                _append(observation.attribute_refs, attribute_ref)
+                _append_finding(observation.supporting_findings, finding)
+                if record.source_role != "unknown":
+                    roles.setdefault(key, set()).add(record.source_role)
+    for key, observation in grouped.items():
+        observation.projection_id = _projection_id("so", "\n".join(key))
+        observation.source_role = _grouped_role(roles.get(key, set()))
     order = {
         "label_warning": 0,
         "recall": 1,
@@ -79,9 +97,10 @@ def build_safety_signals(
         grouped.values(),
         key=lambda item: (
             item.product_name.casefold(),
-            order.get(item.signal_type, 9),
-            -(item.count or 0),
-            item.signal.casefold(),
+            order.get(item.record_type, 9),
+            item.source_system.casefold(),
+            -(item.report_count or 0),
+            item.label.casefold(),
         ),
     )
 
@@ -102,6 +121,17 @@ def _append_finding(findings: list[Finding], finding: Finding) -> None:
 
 def _key(value: str) -> str:
     return " ".join(value.casefold().split())
+
+
+def _projection_id(prefix: str, grouping_key: str) -> str:
+    digest = hashlib.sha256(
+        f"{prefix}\n{grouping_key}".encode("utf-8")
+    ).hexdigest()[:16]
+    return f"{prefix}-{digest}"
+
+
+def _grouped_role(roles: set[str]) -> str:
+    return next(iter(roles)) if len(roles) == 1 else "unknown"
 
 
 def _highest_phase(phases: list[str]) -> int:

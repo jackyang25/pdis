@@ -82,15 +82,22 @@ class DevelopmentRecordOut(BaseModel):
     sponsor: str = ""
     phase: str = ""
     status: str = ""
+    source_role: Literal[
+        "experimental", "comparator", "control", "co_intervention", "unknown"
+    ] = "unknown"
 
 
-class SafetyRecordOut(BaseModel):
+class SafetyObservationRecordOut(BaseModel):
     product_name: str
-    signal_type: Literal["label_warning", "reported_event", "device_event", "recall"]
-    signal: str
+    record_type: Literal["label_warning", "reported_event", "device_event", "recall"]
+    source_system: Literal["fda_label", "faers", "maude", "fda_recall"]
+    label: str
     detail: str = ""
-    count: int | None = None
+    report_count: int | None = None
     qualification: str = ""
+    source_role: Literal[
+        "experimental", "comparator", "control", "co_intervention", "unknown"
+    ] = "unknown"
 
 
 class FindingOut(BaseModel):
@@ -103,7 +110,7 @@ class FindingOut(BaseModel):
     source: str = "unknown"
     evidence_role: Literal["evidence", "reference"] = "evidence"
     development_records: list[DevelopmentRecordOut] = Field(default_factory=list)
-    safety_records: list[SafetyRecordOut] = Field(default_factory=list)
+    safety_observations: list[SafetyObservationRecordOut] = Field(default_factory=list)
     queries: list[str] = Field(default_factory=list)
     source_lanes: list[str] = Field(default_factory=list)
     source_labels: dict[str, str] = Field(default_factory=dict)
@@ -488,7 +495,15 @@ class PrecedentOut(BaseModel):
 
 
 class DevelopmentProgramOut(BaseModel):
+    projection_id: str
     name: str
+    source_role: Literal[
+        "experimental", "comparator", "control", "co_intervention", "unknown"
+    ]
+    target_relationship: Literal[
+        "direct", "analogous", "adjacent", "unrelated", "unknown"
+    ]
+    target_relationship_reason: str = ""
     sponsors: list[str] = Field(default_factory=list)
     phases: list[str] = Field(default_factory=list)
     statuses: list[str] = Field(default_factory=list)
@@ -498,13 +513,22 @@ class DevelopmentProgramOut(BaseModel):
     supporting_findings: list[FindingOut] = Field(default_factory=list)
 
 
-class SafetySignalOut(BaseModel):
+class SafetyObservationOut(BaseModel):
+    projection_id: str
     product_name: str
-    signal_type: Literal["label_warning", "reported_event", "device_event", "recall"]
-    signal: str
+    record_type: Literal["label_warning", "reported_event", "device_event", "recall"]
+    source_system: Literal["fda_label", "faers", "maude", "fda_recall"]
+    label: str
     detail: str = ""
-    count: int | None = None
+    report_count: int | None = None
     qualification: str = ""
+    source_role: Literal[
+        "experimental", "comparator", "control", "co_intervention", "unknown"
+    ]
+    target_relationship: Literal[
+        "direct", "analogous", "adjacent", "unrelated", "unknown"
+    ]
+    target_relationship_reason: str = ""
     attribute_refs: list[str] = Field(default_factory=list)
     supporting_findings: list[FindingOut] = Field(default_factory=list)
 
@@ -531,7 +555,7 @@ class ScoutRunResponse(BaseModel):
     conformity: list[ConformityOut] = Field(default_factory=list)
     precedents: list[PrecedentOut] = Field(default_factory=list)
     development_landscape: list[DevelopmentProgramOut] = Field(default_factory=list)
-    safety_signals: list[SafetySignalOut] = Field(default_factory=list)
+    safety_observations: list[SafetyObservationOut] = Field(default_factory=list)
     assessments: list[EvidenceAssessmentOut]
     stats: FunnelStatsOut
     # The parsed source document, carried so the Ask assistant can read the full

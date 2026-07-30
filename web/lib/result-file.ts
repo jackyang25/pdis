@@ -1,7 +1,7 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 36 as const;
+const RESULT_VERSION = 38 as const;
 
 type ResultType = "aligner" | "inspector" | "scout";
 
@@ -100,13 +100,78 @@ function hasCompleteComparisonContract(value: unknown): boolean {
   });
 }
 
+function hasCompleteProjectionRoleContract(value: unknown): boolean {
+  const result = value as {
+    development_landscape?: unknown;
+    safety_observations?: unknown;
+  } | null;
+  const sourceRoles = new Set([
+    "experimental", "comparator", "control", "co_intervention", "unknown",
+  ]);
+  const relationships = new Set([
+    "direct", "analogous", "adjacent", "unrelated", "unknown",
+  ]);
+  const projections = [result?.development_landscape, result?.safety_observations];
+  return projections.every((items) => Array.isArray(items) && items.every((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+    const projection = item as Record<string, unknown>;
+    return typeof projection.projection_id === "string"
+      && Boolean(projection.projection_id.trim())
+      && sourceRoles.has(String(projection.source_role))
+      && relationships.has(String(projection.target_relationship))
+      && typeof projection.target_relationship_reason === "string";
+  }));
+}
+
+function hasCompleteSafetyObservationContract(value: unknown): boolean {
+  const recordTypes = new Set([
+    "label_warning", "reported_event", "device_event", "recall",
+  ]);
+  const sourceSystems = new Set([
+    "fda_label", "faers", "maude", "fda_recall",
+  ]);
+  const visit = (node: unknown): boolean => {
+    if (Array.isArray(node)) return node.every(visit);
+    if (!node || typeof node !== "object") return true;
+    const record = node as Record<string, unknown>;
+    const observations = record.safety_observations;
+    if (observations !== undefined) {
+      if (!Array.isArray(observations) || !observations.every((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+        const observation = item as Record<string, unknown>;
+        const count = observation.report_count;
+        const sourceSystem = String(observation.source_system);
+        const validCount = sourceSystem === "faers"
+          ? Number.isInteger(count) && Number(count) >= 0
+          : count === null;
+        return typeof observation.product_name === "string"
+          && Boolean(observation.product_name.trim())
+          && recordTypes.has(String(observation.record_type))
+          && sourceSystems.has(sourceSystem)
+          && typeof observation.label === "string"
+          && Boolean(observation.label.trim())
+          && typeof observation.detail === "string"
+          && validCount
+          && typeof observation.qualification === "string";
+      })) return false;
+    }
+    return Object.values(record).every(visit);
+  };
+  return visit(value);
+}
+
 /** Build a portable artifact without coupling the analysis tree to document text. */
 export function packScoutResult(result: ScoutResponse): ResultFile<"scout", ScoutAnalysis> {
   if (
     !isScoutResultFinal(result)
     || !hasCompleteComparisonContract(result)
     || !hasCompleteEvidenceUnitContract(result)
+    || !hasCompleteProjectionRoleContract(result)
+    || !hasCompleteSafetyObservationContract(result)
   ) {
+    if (!hasCompleteSafetyObservationContract(result)) {
+      throw new Error("Scout result has an incomplete safety observation contract");
+    }
     throw new Error("Scout review is incomplete or its quantitative evidence contract is invalid");
   }
   const { blocks, ...analysis } = result;
@@ -201,6 +266,12 @@ export function unpackScoutResult(value: unknown): ScoutResponse {
     || !hasCompleteEvidenceUnitContract(result)
   ) {
     throw new Error("final Scout result contains an incomplete quantitative evidence contract");
+  }
+  if (!hasCompleteProjectionRoleContract(result)) {
+    throw new Error("final Scout result contains an incomplete projection role contract");
+  }
+  if (!hasCompleteSafetyObservationContract(result)) {
+    throw new Error("final Scout result contains an incomplete safety observation contract");
   }
   return result;
 }

@@ -18,7 +18,7 @@ from services.scout.context import (
 )
 from services.scout.projections import (
     build_development_landscape,
-    build_safety_signals,
+    build_safety_observations,
 )
 from services.scout.models import (
     EVIDENCE_DOMAINS,
@@ -69,7 +69,7 @@ from services.scout.stages.unit_extractor import _document_chunks, extract_units
 from services.searcher import (
     DevelopmentRecord,
     Finding,
-    SafetyRecord,
+    SafetyObservationRecord,
     merge_findings,
     plan_requests,
     source_keys,
@@ -826,35 +826,87 @@ class SearchProvenanceTests(unittest.TestCase):
                 sponsor="Sponsor One",
                 phase="Phase 2",
                 status="Recruiting",
+                source_role="experimental",
             )
         ]
-        first.safety_records = [
-            SafetyRecord(
+        first.safety_observations = [
+            SafetyObservationRecord(
                 product_name="Candidate A",
-                signal_type="reported_event",
-                signal="Headache",
-                count=12,
+                record_type="reported_event",
+                source_system="faers",
+                label="Headache",
+                report_count=12,
                 qualification="Reports do not establish causation.",
+                source_role="experimental",
             )
         ]
         duplicate = finding("https://example.test/trial", source="clinicaltrials")
-        duplicate.development_records = list(first.development_records)
-        duplicate.safety_records = list(first.safety_records)
+        duplicate.development_records = [
+            replace(first.development_records[0], source_role="comparator")
+        ]
+        duplicate.safety_observations = [
+            replace(first.safety_observations[0], report_count=9)
+        ]
+        label_record = finding("https://example.test/label", source="fda_label")
+        label_record.safety_observations = [
+            SafetyObservationRecord(
+                product_name="Candidate A",
+                record_type="label_warning",
+                source_system="fda_label",
+                label="Headache",
+                detail="Headache is described in official product information.",
+                source_role="experimental",
+            )
+        ]
 
         landscape = build_development_landscape(
             {"clinical_efficacy": [first], "safety": [duplicate]}
         )
-        signals = build_safety_signals(
-            {"clinical_efficacy": [first], "safety": [duplicate]}
+        observations = build_safety_observations(
+            {
+                "clinical_efficacy": [first],
+                "safety": [duplicate, label_record],
+            }
         )
 
         self.assertEqual(len(landscape), 1)
         self.assertEqual(landscape[0].name, "Candidate A")
         self.assertEqual(landscape[0].attribute_refs, ["clinical_efficacy", "safety"])
         self.assertEqual(len(landscape[0].supporting_findings), 1)
-        self.assertEqual(len(signals), 1)
-        self.assertEqual(signals[0].count, 12)
-        self.assertEqual(signals[0].attribute_refs, ["clinical_efficacy", "safety"])
+        self.assertRegex(landscape[0].projection_id, r"^dp-[0-9a-f]{16}$")
+        self.assertEqual(landscape[0].source_role, "unknown")
+        self.assertEqual(landscape[0].target_relationship, "unknown")
+        self.assertEqual(len(observations), 2)
+        faers = next(item for item in observations if item.source_system == "faers")
+        label = next(
+            item for item in observations if item.source_system == "fda_label"
+        )
+        self.assertEqual(faers.report_count, 12)
+        self.assertEqual(
+            faers.attribute_refs,
+            ["clinical_efficacy", "safety"],
+        )
+        self.assertEqual(len(faers.supporting_findings), 1)
+        self.assertRegex(faers.projection_id, r"^so-[0-9a-f]{16}$")
+        self.assertNotEqual(faers.projection_id, label.projection_id)
+        self.assertEqual(faers.label, label.label)
+        self.assertEqual(faers.source_role, "experimental")
+        self.assertEqual(faers.target_relationship, "unknown")
+
+        rebuilt = build_development_landscape(
+            {"clinical_efficacy": [first], "safety": [duplicate]}
+        )
+        self.assertEqual(rebuilt[0].projection_id, landscape[0].projection_id)
+        rebuilt_observations = build_safety_observations(
+            {
+                "clinical_efficacy": [first],
+                "safety": [duplicate, label_record],
+            }
+        )
+        self.assertEqual(
+            [item.projection_id for item in rebuilt_observations],
+            [item.projection_id for item in observations],
+        )
 
 
 class RetrievalPlanningTests(unittest.TestCase):

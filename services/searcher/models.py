@@ -44,8 +44,12 @@ FINDING_ROLES = frozenset({"evidence", "reference"})
 DEVELOPMENT_RECORD_TYPES = frozenset(
     {"clinical_trial", "compound_catalog", "regulatory_label", "regulatory_clearance"}
 )
-SAFETY_SIGNAL_TYPES = frozenset(
+SAFETY_RECORD_TYPES = frozenset(
     {"label_warning", "reported_event", "device_event", "recall"}
+)
+SAFETY_SOURCE_SYSTEMS = frozenset({"fda_label", "faers", "maude", "fda_recall"})
+SOURCE_ROLES = frozenset(
+    {"experimental", "comparator", "control", "co_intervention", "unknown"}
 )
 
 
@@ -220,34 +224,47 @@ class DevelopmentRecord:
     sponsor: str = ""
     phase: str = ""
     status: str = ""
+    source_role: str = "unknown"
 
     def __post_init__(self) -> None:
         if not self.program_name.strip():
             raise ValueError("development program name cannot be empty")
         if self.record_type not in DEVELOPMENT_RECORD_TYPES:
             raise ValueError(f"unknown development record type: {self.record_type}")
+        if self.source_role not in SOURCE_ROLES:
+            raise ValueError(f"unknown source role: {self.source_role}")
 
 
 @dataclass(frozen=True)
-class SafetyRecord:
+class SafetyObservationRecord:
     """One structured, non-causal safety observation from a source record."""
 
     product_name: str
-    signal_type: str
-    signal: str
+    record_type: str
+    source_system: str
+    label: str
     detail: str = ""
-    count: int | None = None
+    report_count: int | None = None
     qualification: str = ""
+    source_role: str = "unknown"
 
     def __post_init__(self) -> None:
         if not self.product_name.strip():
             raise ValueError("safety product name cannot be empty")
-        if self.signal_type not in SAFETY_SIGNAL_TYPES:
-            raise ValueError(f"unknown safety signal type: {self.signal_type}")
-        if not self.signal.strip():
-            raise ValueError("safety signal label cannot be empty")
-        if self.count is not None and self.count < 0:
+        if self.record_type not in SAFETY_RECORD_TYPES:
+            raise ValueError(f"unknown safety record type: {self.record_type}")
+        if self.source_system not in SAFETY_SOURCE_SYSTEMS:
+            raise ValueError(f"unknown safety source system: {self.source_system}")
+        if not self.label.strip():
+            raise ValueError("safety observation label cannot be empty")
+        if self.report_count is not None and self.report_count < 0:
             raise ValueError("safety report count cannot be negative")
+        if self.source_system == "faers" and self.report_count is None:
+            raise ValueError("FAERS report count is required")
+        if self.source_system != "faers" and self.report_count is not None:
+            raise ValueError("only FAERS observations may carry a report count")
+        if self.source_role not in SOURCE_ROLES:
+            raise ValueError(f"unknown source role: {self.source_role}")
 
 
 @dataclass
@@ -271,7 +288,7 @@ class Finding:
     # their normalized development facts.
     evidence_role: str = "evidence"  # evidence | reference
     development_records: list[DevelopmentRecord] = field(default_factory=list)
-    safety_records: list[SafetyRecord] = field(default_factory=list)
+    safety_observations: list[SafetyObservationRecord] = field(default_factory=list)
     # URL deduplication must not erase how a source was discovered. ``query``
     # and ``source`` remain the primary values for compatibility; these lists
     # retain every retrieval path merged into the Finding.
@@ -289,7 +306,7 @@ class Finding:
         if self.evidence_role not in FINDING_ROLES:
             raise ValueError(f"unknown finding evidence role: {self.evidence_role}")
         self.development_records = list(dict.fromkeys(self.development_records))
-        self.safety_records = list(dict.fromkeys(self.safety_records))
+        self.safety_observations = list(dict.fromkeys(self.safety_observations))
         if self.query and self.query not in self.queries:
             self.queries.insert(0, self.query)
         if self.source and self.source not in self.source_lanes:
@@ -374,8 +391,10 @@ def merge_findings(existing: Finding, incoming: Finding) -> Finding:
             [*existing.development_records, *incoming.development_records]
         )
     )
-    existing.safety_records = list(
-        dict.fromkeys([*existing.safety_records, *incoming.safety_records])
+    existing.safety_observations = list(
+        dict.fromkeys(
+            [*existing.safety_observations, *incoming.safety_observations]
+        )
     )
     # A duplicate retrieved as evidence in any lane remains eligible for
     # reasoning, but its reasoning excerpt must also come from an evidence

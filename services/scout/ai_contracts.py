@@ -32,6 +32,7 @@ from .models import (
     VALID_PRECEDENT,
     VALID_PRECEDENT_OUTCOMES,
     VALID_RELATIONS,
+    TARGET_RELATIONSHIPS,
 )
 
 
@@ -248,6 +249,25 @@ def precedent_assessment(insight_count: int) -> AIContract:
                 "outcome_insight_indices": _indices(insight_count),
             }
         ),
+    )
+
+
+def projection_relationship_batch(allowed_projection_ids: list[str]) -> AIContract:
+    """Constrain display-only relationship judgments to grouped projections."""
+    projection_ids = list(dict.fromkeys(allowed_projection_ids))
+    decision = _object(
+        {
+            "projection_id": _string(enum=projection_ids),
+            "target_relationship": _string(enum=sorted(TARGET_RELATIONSHIPS)),
+            "reason": _string(),
+        }
+    )
+    return AIContract(
+        name="scout_projection_relationship_batch",
+        schema=_object(
+            {"relationships": _array(decision, exact_items=len(projection_ids))}
+        ),
+        payload_key="relationships",
     )
 
 def document_quantitative_ledger_batch(

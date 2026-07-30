@@ -25,10 +25,13 @@ import {
   type QuantitativeTarget,
   type SemanticSlot,
   type ScoutResponse,
-  type SafetySignal,
+  type SafetyObservation,
+  type SourceRole,
+  type TargetRelationship,
   type PrecedentSignal,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
@@ -65,6 +68,19 @@ import {
   DocumentSourceTrace,
   type DocumentSpan,
 } from "@/components/document-source-trace";
+import {
+  filterProjectionsByRelationship,
+  isContextualRelationship,
+  relationshipLabel,
+  sourceRoleLabel,
+  type ProjectionRelationshipFilter,
+} from "@/lib/scout-projection-roles";
+import {
+  groupSafetyObservations,
+  safetyObservationCountLabel,
+  safetyRecordTypeLabel,
+  safetySourceSystemLabel,
+} from "@/lib/scout-safety-observations";
 
 const ScoutEvidenceMap = dynamic(
   () =>
@@ -1708,8 +1724,8 @@ function distinctSourceCount(result: ScoutResponse): number {
     for (const meas of c.measurements ?? []) if (meas.url) urls.add(meas.url);
   for (const program of result.development_landscape ?? [])
     for (const finding of program.supporting_findings ?? []) if (finding.url) urls.add(finding.url);
-  for (const signal of result.safety_signals ?? [])
-    for (const finding of signal.supporting_findings ?? []) if (finding.url) urls.add(finding.url);
+  for (const observation of result.safety_observations ?? [])
+    for (const finding of observation.supporting_findings ?? []) if (finding.url) urls.add(finding.url);
   return urls.size;
 }
 
@@ -1727,8 +1743,8 @@ function resultFindings(result: ScoutResponse): Finding[] {
     ...(result.development_landscape ?? []).flatMap(
       (program) => program.supporting_findings ?? [],
     ),
-    ...(result.safety_signals ?? []).flatMap(
-      (signal) => signal.supporting_findings ?? [],
+    ...(result.safety_observations ?? []).flatMap(
+      (observation) => observation.supporting_findings ?? [],
     ),
   ];
 }
@@ -1743,7 +1759,7 @@ function FieldGrid({
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
   const developmentLandscape = result.development_landscape ?? [];
-  const safetySignals = result.safety_signals ?? [];
+  const safetyObservations = result.safety_observations ?? [];
   const [query, setQuery] = useState("");
   const [relationFilter, setRelationFilter] = useState<"all" | Match["relation"]>("all");
   if (variables.length === 0) {
@@ -1837,7 +1853,7 @@ function FieldGrid({
               {developmentLandscape.length > 0 && (
                 <TabsTrigger value="landscape">Landscape</TabsTrigger>
               )}
-              {safetySignals.length > 0 && (
+              {safetyObservations.length > 0 && (
                 <TabsTrigger value="safety">Safety</TabsTrigger>
               )}
               <TabsTrigger value="map">Evidence map</TabsTrigger>
@@ -1940,9 +1956,9 @@ function FieldGrid({
               <DevelopmentLandscape programs={developmentLandscape} />
             </TabsContent>
           )}
-          {safetySignals.length > 0 && (
+          {safetyObservations.length > 0 && (
             <TabsContent value="safety" className="mt-0">
-              <SafetySignals signals={safetySignals} />
+              <SafetyObservations observations={safetyObservations} />
             </TabsContent>
           )}
           <TabsContent value="map" className="mt-0">
@@ -1959,39 +1975,153 @@ function FieldGrid({
   );
 }
 
+const PROJECTION_RELATIONSHIP_FILTERS: Array<{
+  value: ProjectionRelationshipFilter;
+  label: string;
+}> = [
+  { value: "all", label: "All relationships" },
+  { value: "direct", label: "Direct" },
+  { value: "analogous", label: "Analogous" },
+  { value: "adjacent", label: "Adjacent" },
+  { value: "unrelated", label: "Unrelated" },
+  { value: "unknown", label: "Unknown" },
+];
+
+function ProjectionToolbar({
+  query,
+  onQueryChange,
+  relationship,
+  onRelationshipChange,
+  searchLabel,
+  placeholder,
+  visibleCount,
+  totalCount,
+  recordLabel,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  relationship: ProjectionRelationshipFilter;
+  onRelationshipChange: (value: ProjectionRelationshipFilter) => void;
+  searchLabel: string;
+  placeholder: string;
+  visibleCount: number;
+  totalCount: number;
+  recordLabel: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+      <label className="relative min-w-0 flex-1 sm:max-w-xs">
+        <span className="sr-only">{searchLabel}</span>
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder={placeholder}
+          className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10"
+        />
+      </label>
+      <Select
+        value={relationship}
+        onValueChange={(value) =>
+          onRelationshipChange(value as ProjectionRelationshipFilter)
+        }
+      >
+        <SelectTrigger
+          aria-label="Filter by relationship to the uploaded product"
+          className="h-8 w-full bg-card sm:w-40"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {PROJECTION_RELATIONSHIP_FILTERS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p
+        role="status"
+        aria-live="polite"
+        className="text-[11px] text-muted-foreground sm:ml-auto"
+      >
+        {visibleCount} of {totalCount} {recordLabel}
+      </p>
+    </div>
+  );
+}
+
+function ProjectionRoleLabels({
+  relationship,
+  sourceRole,
+}: {
+  relationship: TargetRelationship;
+  sourceRole: SourceRole;
+}) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <Badge variant="outline">{relationshipLabel(relationship)}</Badge>
+      {sourceRole !== "unknown" && (
+        <span className="text-[11px] text-muted-foreground">
+          {sourceRoleLabel(sourceRole)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ContextualProjectionNote({
+  relationship,
+  kind,
+}: {
+  relationship: TargetRelationship;
+  kind: "development record" | "safety observation";
+}) {
+  if (!isContextualRelationship(relationship)) return null;
+  return (
+    <p className="mb-3 max-w-4xl rounded-md border border-border/80 bg-card px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+      Context only. This {kind} concerns {relationship === "analogous" ? "an analogous product" : "adjacent evidence"} and does not describe the uploaded product.
+    </p>
+  );
+}
+
 function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) {
   const [query, setQuery] = useState("");
+  const [relationship, setRelationship] =
+    useState<ProjectionRelationshipFilter>("all");
   const normalizedQuery = query.trim().toLowerCase();
-  const visible = programs.filter((program) =>
-    !normalizedQuery ||
-    [program.name, ...program.sponsors, ...program.phases, ...program.statuses]
-      .join(" ")
-      .toLowerCase()
-      .includes(normalizedQuery),
+  const relationshipMatches = filterProjectionsByRelationship(programs, relationship);
+  const visible = relationshipMatches.filter(
+    (program) =>
+      !normalizedQuery ||
+      [program.name, ...program.sponsors, ...program.phases, ...program.statuses]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery),
   );
   return (
     <section>
-      <div className="flex flex-col gap-2 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
-        <label className="relative min-w-0 flex-1 sm:max-w-xs">
-          <span className="sr-only">Search development programs</span>
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Find a program…"
-            className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10"
-          />
-        </label>
-        <p className="text-[11px] text-muted-foreground sm:ml-auto">
-          Structured records only · {visible.length} of {programs.length}
-        </p>
-      </div>
+      <ProjectionToolbar
+        query={query}
+        onQueryChange={setQuery}
+        relationship={relationship}
+        onRelationshipChange={setRelationship}
+        searchLabel="Search development records"
+        placeholder="Find a development record…"
+        visibleCount={visible.length}
+        totalCount={programs.length}
+        recordLabel="structured records"
+      />
       {visible.map((program) => (
-        <details key={program.name} className="group/program border-b border-border/80 last:border-b-0">
+        <details key={program.projection_id} className="group/program border-b border-border/80 last:border-b-0">
           <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/program:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden">
             <div className="min-w-0 flex-1">
               <h3 className="truncate text-sm font-semibold text-foreground">{program.name}</h3>
+              <ProjectionRoleLabels
+                relationship={program.target_relationship}
+                sourceRole={program.source_role}
+              />
               <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-3">
                 <SignalSummary label="Sponsor" value={program.sponsors.join(" · ") || "—"} />
                 <SignalSummary label="Phase" value={program.phases.join(" · ") || "—"} />
@@ -2006,6 +2136,15 @@ function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) 
             </div>
           </summary>
           <div className="animate-in border-t border-border/70 bg-muted/15 px-5 py-4 fade-in duration-150 motion-reduce:animate-none sm:px-6">
+            <ContextualProjectionNote
+              relationship={program.target_relationship}
+              kind="development record"
+            />
+            {program.target_relationship_reason && (
+              <p className="mb-3 max-w-4xl text-[11px] leading-relaxed text-muted-foreground">
+                {program.target_relationship_reason}
+              </p>
+            )}
             {program.attribute_refs.length > 0 && (
               <p className="text-[11px] text-muted-foreground">
                 Retrieved for {program.attribute_refs.map(displayAttributeLabel).join(" · ")}
@@ -2017,80 +2156,128 @@ function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) 
       ))}
       {visible.length === 0 && (
         <p className="px-6 py-10 text-center text-sm text-muted-foreground">
-          No programs match this view.
+          No development records match this view.
         </p>
       )}
     </section>
   );
 }
 
-const SAFETY_TYPE_LABELS: Record<string, string> = {
-  label_warning: "Official label",
-  reported_event: "Reported event",
-  device_event: "Device report",
-  recall: "Recall",
-};
-
-function SafetySignals({ signals }: { signals: SafetySignal[] }) {
+function SafetyObservations({
+  observations,
+}: {
+  observations: SafetyObservation[];
+}) {
   const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  const visible = signals.filter((signal) =>
-    !normalizedQuery ||
-    `${signal.product_name} ${signal.signal} ${signal.detail}`
-      .toLowerCase()
-      .includes(normalizedQuery),
+  const [relationship, setRelationship] =
+    useState<ProjectionRelationshipFilter>("all");
+  const sections = groupSafetyObservations(observations, { query, relationship });
+  const visibleCount = sections.reduce(
+    (count, section) => count + section.observations.length,
+    0,
   );
   return (
     <section>
-      <div className="border-b border-border/80 bg-muted/20 px-5 py-3 text-[11px] leading-relaxed text-muted-foreground sm:px-6">
-        Safety records are surveillance and labeling signals. Report counts are not incidence estimates and do not establish causation.
-      </div>
-      <div className="flex items-center gap-3 border-b border-border/80 bg-muted/10 px-5 py-3 sm:px-6">
-        <label className="relative min-w-0 flex-1 sm:max-w-xs">
-          <span className="sr-only">Search safety signals</span>
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Find a product or signal…"
-            className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10"
-          />
-        </label>
-        <span className="ml-auto text-[11px] text-muted-foreground">
-          {visible.length} of {signals.length}
-        </span>
-      </div>
-      {visible.map((signal, index) => (
-        <details key={`${signal.product_name}-${signal.signal_type}-${signal.signal}-${index}`} className="group/safety border-b border-border/80 last:border-b-0">
-          <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/safety:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden">
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {SAFETY_TYPE_LABELS[signal.signal_type] ?? signal.signal_type}
+      <ProjectionToolbar
+        query={query}
+        onQueryChange={setQuery}
+        relationship={relationship}
+        onRelationshipChange={setRelationship}
+        searchLabel="Search safety observations"
+        placeholder="Find a product or safety record…"
+        visibleCount={visibleCount}
+        totalCount={observations.length}
+        recordLabel="observations"
+      />
+      {sections.map((section) => {
+        const headingId = `safety-${section.key}-heading`;
+        return (
+          <section
+            key={section.key}
+            aria-labelledby={headingId}
+            className="border-b border-border/80 last:border-b-0"
+          >
+            <header className="bg-muted/15 px-5 py-4 sm:px-6">
+              <h3 id={headingId} className="text-sm font-semibold text-foreground">
+                {section.title}
+              </h3>
+              <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+                {section.description}
               </p>
-              <h3 className="mt-1 text-sm font-semibold text-foreground">{signal.product_name}</h3>
-              <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{signal.signal}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-3">
-              {signal.count != null && (
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {signal.count.toLocaleString()} reports
-                </span>
-              )}
-              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/safety:rotate-180" />
-            </div>
-          </summary>
-          <div className="animate-in border-t border-border/70 bg-muted/15 px-5 py-4 fade-in duration-150 motion-reduce:animate-none sm:px-6">
-            {signal.detail && (
-              <p className="max-w-4xl text-xs leading-relaxed text-foreground/90">{signal.detail}</p>
-            )}
-            {signal.qualification && (
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{signal.qualification}</p>
-            )}
-            <SourceList findings={signal.supporting_findings} />
-          </div>
-        </details>
-      ))}
+            </header>
+            {section.observations.map((observation) => {
+              const count = safetyObservationCountLabel(observation);
+              return (
+                <details
+                  key={observation.projection_id}
+                  className="group/safety border-t border-border/70"
+                >
+                  <summary className="flex min-h-16 cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30 group-open/safety:bg-muted/10 sm:px-6 [&::-webkit-details-marker]:hidden">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {safetyRecordTypeLabel(observation.record_type)} · {safetySourceSystemLabel(observation.source_system)}
+                      </p>
+                      <h4 className="mt-1 text-sm font-semibold text-foreground">
+                        {observation.product_name}
+                      </h4>
+                      <p className="mt-1 max-w-4xl text-xs leading-relaxed text-muted-foreground">
+                        {observation.label}
+                      </p>
+                      <ProjectionRoleLabels
+                        relationship={observation.target_relationship}
+                        sourceRole={observation.source_role}
+                      />
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3 pt-0.5">
+                      {count && (
+                        <span className="text-xs tabular-nums text-muted-foreground">
+                          {count}
+                        </span>
+                      )}
+                      <ChevronDown
+                        aria-hidden="true"
+                        className="h-4 w-4 text-muted-foreground transition-transform group-open/safety:rotate-180 motion-reduce:transition-none"
+                      />
+                    </div>
+                  </summary>
+                  <div className="border-t border-border/70 bg-muted/10 px-5 py-4 sm:px-6">
+                    <ContextualProjectionNote
+                      relationship={observation.target_relationship}
+                      kind="safety observation"
+                    />
+                    {observation.detail && (
+                      <p className="max-w-4xl text-xs leading-relaxed text-foreground/90">
+                        {observation.detail}
+                      </p>
+                    )}
+                    {observation.qualification && (
+                      <p className="mt-2 max-w-4xl text-[11px] leading-relaxed text-muted-foreground">
+                        {observation.qualification}
+                      </p>
+                    )}
+                    {observation.target_relationship_reason && (
+                      <p className="mt-3 max-w-4xl text-[11px] leading-relaxed text-muted-foreground">
+                        Relationship: {observation.target_relationship_reason}
+                      </p>
+                    )}
+                    {observation.attribute_refs.length > 0 && (
+                      <p className="mt-2 text-[11px] text-muted-foreground">
+                        Retrieved for {observation.attribute_refs.map(displayAttributeLabel).join(" · ")}
+                      </p>
+                    )}
+                    <SourceList findings={observation.supporting_findings} />
+                  </div>
+                </details>
+              );
+            })}
+          </section>
+        );
+      })}
+      {sections.length === 0 && (
+        <p className="px-6 py-10 text-center text-sm text-muted-foreground">
+          No safety observations match this view.
+        </p>
+      )}
     </section>
   );
 }

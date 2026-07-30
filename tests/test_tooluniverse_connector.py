@@ -12,6 +12,7 @@ import services.searcher.sources.semantic_scholar as semantic_scholar_source
 from services.searcher import (
     RetrievalEntity,
     RetrievalIntent,
+    SafetyObservationRecord,
     SearchRequest,
     SearchRuntime,
     SourceQueryIntent,
@@ -728,27 +729,155 @@ class ToolUniverseConnectorTests(unittest.TestCase):
             ],
         )
         self.assertTrue(all(outcome.status == "complete" for outcome in outcomes))
-        records = [
+        observations = [
             record
             for outcome in outcomes
             for finding in outcome.findings
-            for record in finding.safety_records
+            for record in finding.safety_observations
         ]
         self.assertEqual(
-            {record.signal_type for record in records},
-            {"label_warning", "reported_event"},
+            {
+                (record.record_type, record.source_system)
+                for record in observations
+            },
+            {("label_warning", "fda_label"), ("reported_event", "faers")},
         )
-        reported = next(record for record in records if record.signal_type == "reported_event")
-        self.assertEqual(reported.count, 12)
+        reported = next(
+            record
+            for record in observations
+            if record.record_type == "reported_event"
+        )
+        label_warning = next(
+            record
+            for record in observations
+            if record.record_type == "label_warning"
+        )
+        self.assertEqual(reported.report_count, 12)
+        self.assertIsNone(label_warning.report_count)
         self.assertIn("do not establish", reported.qualification)
         roles_by_type = {
-            finding.safety_records[0].signal_type: finding.evidence_role
+            finding.safety_observations[0].record_type: finding.evidence_role
             for outcome in outcomes
             for finding in outcome.findings
-            if finding.safety_records
+            if finding.safety_observations
         }
         self.assertEqual(roles_by_type["label_warning"], "evidence")
         self.assertEqual(roles_by_type["reported_event"], "reference")
+
+    def test_safety_observation_contract_rejects_invalid_source_counts(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown safety source system"):
+            SafetyObservationRecord(
+                product_name="Example drug",
+                record_type="reported_event",
+                source_system="unknown_source",
+                label="Nausea",
+                report_count=12,
+            )
+        with self.assertRaisesRegex(ValueError, "FAERS report count is required"):
+            SafetyObservationRecord(
+                product_name="Example drug",
+                record_type="reported_event",
+                source_system="faers",
+                label="Nausea",
+            )
+        with self.assertRaisesRegex(ValueError, "only FAERS observations"):
+            SafetyObservationRecord(
+                product_name="Example device",
+                record_type="recall",
+                source_system="fda_recall",
+                label="Class II",
+                report_count=1,
+            )
+        with self.assertRaisesRegex(ValueError, "cannot be negative"):
+            SafetyObservationRecord(
+                product_name="Example drug",
+                record_type="reported_event",
+                source_system="faers",
+                label="Nausea",
+                report_count=-1,
+            )
+
+    def test_fda_safety_normalizes_device_events_and_recalls_separately(self) -> None:
+        runtime = SearchRuntime(
+            llm_client=_NoopLLM(),
+            integrations={"tooluniverse": _MultiSourceToolUniverse()},
+        )
+        intent = RetrievalIntent(
+            scope_ref="safety",
+            topic="device safety profile",
+            description="Known device reports and recalls",
+            indication="malaria",
+            intervention_class="diagnostic",
+            queries=(SourceQueryIntent(text="malaria assay safety"),),
+            evidence_domain="safety",
+            entities=(RetrievalEntity("Example assay", "device"),),
+        )
+
+        requests = plan_requests([intent], sources=("fda_safety",))
+        with patch("services.searcher.controller._wait_for_source_start"):
+            outcomes = run_requests(
+                requests,
+                runtime=runtime,
+                max_tokens=100,
+                max_uses=1,
+            )
+
+        observations = [
+            observation
+            for outcome in outcomes
+            for finding in outcome.findings
+            for observation in finding.safety_observations
+        ]
+        self.assertEqual(
+            {
+                (observation.record_type, observation.source_system)
+                for observation in observations
+            },
+            {("device_event", "maude"), ("recall", "fda_recall")},
+        )
+        self.assertTrue(
+            all(observation.report_count is None for observation in observations)
+        )
+
+    def test_faers_source_url_preserves_the_native_unquoted_product_query(self) -> None:
+        connector = _MultiSourceToolUniverse()
+        runtime = SearchRuntime(
+            llm_client=_NoopLLM(),
+            integrations={"tooluniverse": connector},
+        )
+        intent = RetrievalIntent(
+            scope_ref="safety",
+            topic="safety profile",
+            description="Known and reported product safety signals",
+            indication="tuberculosis",
+            intervention_class="drug",
+            queries=(SourceQueryIntent(text="CAB-LA safety reports"),),
+            evidence_domain="safety",
+            entities=(RetrievalEntity("CAB-LA", "drug"),),
+        )
+
+        requests = plan_requests([intent], sources=("fda_safety",))
+        with patch("services.searcher.controller._wait_for_source_start"):
+            outcomes = run_requests(
+                requests,
+                runtime=runtime,
+                max_tokens=100,
+                max_uses=1,
+            )
+
+        reported_finding = next(
+            finding
+            for outcome in outcomes
+            for finding in outcome.findings
+            if finding.safety_observations
+            and finding.safety_observations[0].record_type == "reported_event"
+        )
+        self.assertEqual(
+            reported_finding.url,
+            "https://api.fda.gov/drug/event.json?"
+            "search=patient.drug.medicinalproduct%3ACAB-LA&"
+            "count=patient.reaction.reactionmeddrapt.exact",
+        )
 
     def test_global_worker_limit_bounds_future_source_fanout(self) -> None:
         connector = _CountingToolUniverse()

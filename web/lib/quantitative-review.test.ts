@@ -179,3 +179,39 @@ test("flagged AI recommendations remain pending for focused review", () => {
   assert.equal(reviewed, recommended);
   assert.equal(evidenceReviewRecommendationSummary([recommended]).flag, 2);
 });
+
+test("a non-canonical source identity keeps calibration coverage limited", () => {
+  const wide = score();
+  wide.excluded_measurements = [70, 75, 80, 85, 90].map((value, index) => ({
+    ...candidate(`c-${index}`, value),
+    source_record_id: `doi:study-${index}`,
+    evidence_unit_id: `doi:study-${index}/unit:record`,
+    source_identity_status: index === 0 ? "url_fallback" : "canonical",
+  }));
+
+  const reviewed = reviewQuantitativeCandidateGroup(
+    wide,
+    wide.excluded_measurements.map((item) => item.candidate_id),
+    null,
+  );
+  const admitted = wide.excluded_measurements.reduce(
+    (current, item) => reviewQuantitativeCandidate(current, item.candidate_id, "approve"),
+    wide,
+  );
+
+  assert.equal(reviewed.benchmark_count, 0);
+  assert.equal(admitted.benchmark_count, 5);
+  assert.equal(admitted.calibration_status, "limited");
+});
+
+test("an equality target tolerates floating point representation", () => {
+  const exact = score();
+  exact.comparator = "=";
+  exact.target_value = 0.3;
+  exact.excluded_measurements = [candidate("drifted", 0.1 + 0.2)];
+
+  const reviewed = reviewQuantitativeCandidate(exact, "drifted", "approve");
+
+  assert.equal(reviewed.benchmark_count, 1);
+  assert.equal(reviewed.target_meeting_count, 1);
+});

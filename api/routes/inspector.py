@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from services.inspector import find_config, run_pipeline
 
-from api.deps import get_openai_client
+from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import InspectionResultOut, InspectorRunResponse
 from api.streaming import run_with_progress
 
@@ -30,16 +30,21 @@ async def run_inspector(
     intervention_class: str = Form(...),
     indication: str = Form(...),
 ) -> StreamingResponse:
-    config = find_config(org, source_type, intervention_class)
-    if config is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No Inspector config for ({org}, {source_type}, {intervention_class}).",
-        )
+    try:
+        config = find_config(org, source_type, intervention_class)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     suffix = Path(file.filename or "upload").suffix or ".docx"
     contents = await file.read()
     doc_id = Path(file.filename or "doc").stem
+
+    # Construct provider clients before the stream opens: a missing credential
+    # must fail the request, not arrive as an event on a 200 response.
+    try:
+        llm_client = get_openai_client()
+    except MissingCredentialError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     def work(progress):
         temp_path = ""
@@ -48,7 +53,6 @@ async def run_inspector(
                 temp_file.write(contents)
                 temp_path = temp_file.name
 
-            llm_client = get_openai_client()
             result = run_pipeline(
                 temp_path,
                 config=config,

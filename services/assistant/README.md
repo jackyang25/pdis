@@ -32,7 +32,7 @@ blocks, inspect retained visuals, and fetch only URLs cited by the submitted
 analyses. Product documentation explains PDIS and is never treated as product
 evidence. Semantic legends define compact runtime labels even when no eligible
 final result is present; they do not expose an active review draft. The API
-exposes `POST /api/assistant/ask` and `POST /api/assistant/ask/stream`. The
+exposes `POST /api/assistant/ask/stream`. The
 floating panel and `/ask` page are two views of the same client-held workspace
 context and conversation component.
 

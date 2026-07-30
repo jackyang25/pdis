@@ -12,7 +12,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
-from services.searcher import EVIDENCE_DOMAINS, ENTITY_TYPES, Finding, source_keys
+from shared.openai_client import ModelTask
+
+from services.searcher import Finding, source_keys
+from shared.vocabulary import ENTITY_TYPES, EVIDENCE_DOMAINS
 
 if TYPE_CHECKING:
     from services.chunker import ContentBlock
@@ -140,7 +143,7 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
-        task: Literal["fast", "reasoning"] = "reasoning",
+        task: ModelTask = "reasoning",
     ) -> dict[str, Any] | None:
         ...
 

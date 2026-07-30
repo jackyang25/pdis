@@ -151,6 +151,26 @@ class EvidenceReviewerTests(unittest.TestCase):
             self.measurements[1].source_quote,
         )
 
+    def test_each_source_record_is_reviewed_in_its_own_request(self) -> None:
+        """An admission recommendation must not see an unrelated source record."""
+        other = replace(
+            _measurement("candidate-c", 85),
+            source_record_id="doi:other",
+            evidence_unit_id="doi:other/unit:record",
+        )
+        score = replace(
+            self.score,
+            excluded_measurements=[*self.measurements, other],
+        )
+        client = _Client()
+
+        prefill_evidence_review([score], [self.target], client)
+
+        self.assertEqual(
+            sorted(sorted(batch) for batch in client.candidate_batches),
+            [["candidate-a", "candidate-b"], ["candidate-c"]],
+        )
+
     def test_failed_or_missing_review_degrades_to_flag(self) -> None:
         for client in (None, _Client(fail=True)):
             with self.subTest(client=client):

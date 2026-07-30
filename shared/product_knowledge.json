@@ -669,6 +669,13 @@
                   "layer": "Synthesis"
                 },
                 {
+                  "id": "insight-identity",
+                  "title": "Insight identity reconciliation",
+                  "summary": "Groups statements of the same external fact without rewriting any statement.",
+                  "kind": "model",
+                  "layer": "Synthesis"
+                },
+                {
                   "id": "qualitative",
                   "title": "Relationship and grounding",
                   "summary": "Reports how evidence relates to a target and how well the target is supported.",

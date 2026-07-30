@@ -43,7 +43,7 @@ export function CollapsibleCard({
           aria-expanded={open}
           aria-controls={contentId}
           onClick={() => setOpen((current) => !current)}
-          className="min-w-0 flex-1 rounded-md py-1 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
+          className="min-w-0 flex-1 rounded-md py-1 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
         >
           <h2 className="text-[15px] font-semibold tracking-tight">{title}</h2>
           {subtitle && <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>}
@@ -56,9 +56,9 @@ export function CollapsibleCard({
             aria-controls={contentId}
             aria-label={open ? `Collapse ${title}` : `Expand ${title}`}
             onClick={() => setOpen((current) => !current)}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
           >
-            <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", open && "rotate-180")} />
+            <ChevronDown className={cn("h-4 w-4 transition-transform duration-base motion-reduce:transition-none", open && "rotate-180")} />
           </button>
         </div>
       </header>

@@ -328,7 +328,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("input_dir", help="Folder containing .docx / .pdf / .pptx files")
     parser.add_argument("output_dir", help="Folder where package files are written")
     parser.add_argument("--org", required=True, help="e.g., bmgf, who")
-    parser.add_argument("--source-type", required=True, help="e.g., tpp, ppc")
+    parser.add_argument("--source-type", required=True, help="e.g., itpp, ctpp, ipdp")
     parser.add_argument("--intervention", required=True, help="e.g., vaccine, drug")
     parser.add_argument("--indication", default=None, help="Optional; stamped on outputs")
     parser.add_argument("--map", action="store_true", dest="map_blocks", help="Run mapper")

@@ -11,8 +11,9 @@ efficacy >= 80%), this:
   3. (math) reports observed cohort statistics and the literal share meeting
      the target. No weighting or inferential confidence interval is implied.
 
-Self-gating: returns None for non-quantitative variables. A verified numeric
-target remains an explicit ledger even when no comparator qualifies. Pure
+Self-gating: a variable with no linked numeric target simply yields no score.
+A verified numeric target remains an explicit ledger even when no comparator
+qualifies. Pure
 stdlib; no R or numpy.
 """
 
@@ -25,7 +26,6 @@ import logging
 import math
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 from statistics import fmean, stdev
@@ -39,6 +39,7 @@ from services.chunker import ContentBlock
 from services.searcher import Finding
 
 from ..ai import request_structured
+from shared.batching import grouped_batches, map_ordered
 from ..ai_contracts import (
     document_quantitative_ledger_batch,
     quantitative_claim_reconciliation,
@@ -52,7 +53,6 @@ from ..ai_wire import (
     TernaryDecisionWire,
 )
 from ..context import (
-    BLOCK_ID_JSON_INSTRUCTION,
     document_block_ids,
     render_document_context,
     validated_block_ids,
@@ -90,12 +90,22 @@ from ..prompt_primitives import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 16000
-SOURCE_BATCH_SIZE = 3
+# One source record per mapping call. Unrelated records must never share a
+# semantic context; parallelism, not packing, is what keeps this stage fast.
+SOURCE_RECORDS_PER_REQUEST = 1
 SOURCE_MAPPING_MAX_WORKERS = 6
 MAX_SOURCE_PASSAGE_CHARS = 8_000
 MAX_TARGET_QUOTE_CHARS = 800
-LEDGER_BATCH_MAX_UNITS = 24
-LEDGER_BATCH_MAX_CHARS = 24_000
+# These two carry a dual role that has not been separated yet: they bound how
+# many per-unit decisions come back AND how much document the model can read,
+# because `_document_ledger_user_message` renders only this batch's blocks. A
+# statement whose meaning depends on an uncited neighbouring block therefore
+# resolves only when that block lands in the same batch. Provenance is unaffected
+# — `allowed_target_block_ids` is always the unit's own block — so this is a
+# recall limit, not a correctness hole. Splitting the two roles changes either
+# token cost or the prompt, so it is a deliberate change, not a tuning knob.
+LEDGER_UNITS_PER_REQUEST = 24
+LEDGER_CHARS_PER_REQUEST = 24_000
 LEDGER_RETRY_MAX_UNITS = 4
 # Keep in lockstep with drift_classifier / evidence_assessor so all three
 # doc-reading stages see the SAME baseline and a target near the end of a long
@@ -267,36 +277,6 @@ class _CalibrationBatchResult:
     dispositions: list[SourcePassageDisposition]
 
 
-def score_conformity(
-    attribute: Attribute,
-    targets: list[QuantitativeTarget],
-    insights: list[Insight],
-    llm_client: LLMClientProtocol,
-    *,
-    indication: str,
-    intervention_class: str,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> list[ConformityScore]:
-    """Calibrate canonical targets linked to this field view."""
-    scores: list[ConformityScore] = []
-    for target in targets:
-        if attribute.name not in target.analysis_attribute_refs:
-            continue
-        candidates, dispositions = _extract_target_measurements(
-            attribute,
-            target,
-            insights,
-            llm_client,
-            indication=indication,
-            intervention_class=intervention_class,
-            max_tokens=max_tokens,
-        )
-        scores.append(
-            _finalize_target_score(target, candidates, dispositions, insights)
-        )
-    return scores
-
-
 def score_conformity_all(
     attributes: list[Attribute],
     targets: list[QuantitativeTarget],
@@ -365,12 +345,7 @@ def score_conformity_all(
                 progress_callback(completed, total)
         return result
 
-    if tasks:
-        worker_count = max(1, min(max_workers, total))
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            batch_results = list(executor.map(run, tasks))
-    else:
-        batch_results = []
+    batch_results = map_ordered(tasks, run, workers=max_workers)
 
     mapped: dict[str, tuple[list[Measurement], list[SourcePassageDisposition]]] = {}
     for task, result in zip(tasks, batch_results):
@@ -467,13 +442,19 @@ def _partition_cohort(
                 f"semantic status: {candidate.semantic_status}"
                 + (f" — {candidate.semantic_reason}" if candidate.semantic_reason else "")
             )
+        # Structural defects cannot be repaired by any review decision, so they
+        # must not be offered for review at all.
+        structural_reasons: list[str] = []
         if candidate.expression_kind not in {"point_estimate", "count", "rate"}:
-            reasons.append(
+            structural_reasons.append(
                 f"numeric expression is {candidate.expression_kind}, not an atomic scalar"
             )
         if _unit_key(candidate.unit) != _unit_key(target.unit):
-            reasons.append("numeric unit is incompatible with the document target")
-        if candidate.semantic_status == "comparable":
+            structural_reasons.append(
+                "numeric unit is incompatible with the document target"
+            )
+        reasons.extend(structural_reasons)
+        if candidate.semantic_status == "comparable" and not structural_reasons:
             if candidate.evidence_mode == "structured_fact":
                 candidate.admission_status = "auto_admitted"
                 candidate.admission_reason = (
@@ -487,7 +468,11 @@ def _partition_cohort(
                 )
         else:
             candidate.admission_status = "not_eligible"
-            candidate.admission_reason = candidate.semantic_reason
+            candidate.admission_reason = (
+                "; ".join(structural_reasons)
+                if structural_reasons
+                else candidate.semantic_reason
+            )
         if candidate.admission_status not in {"approved", "auto_admitted"}:
             reasons.append(candidate.admission_reason or "candidate is not admitted")
         if reasons:
@@ -672,8 +657,8 @@ def prepare_quantitative_ledger_batches(
     blocks: list[ContentBlock],
     attributes: list[Attribute],
     *,
-    max_units: int = LEDGER_BATCH_MAX_UNITS,
-    max_chars: int = LEDGER_BATCH_MAX_CHARS,
+    max_units: int = LEDGER_UNITS_PER_REQUEST,
+    max_chars: int = LEDGER_CHARS_PER_REQUEST,
 ) -> list[QuantitativeLedgerBatch]:
     """Batch document-centric source units from the canonical claim ledger.
 
@@ -872,7 +857,7 @@ def extract_quantitative_ledger_batch(
         for attribute in attributes
         if attribute.target_resolved and attribute.document_target
     ]
-    system_prompt = _document_ledger_system_prompt(
+    system_prompt = build_document_ledger_system_prompt(
         attributes,
         canonical_bindings=canonical_bindings,
         indication=indication,
@@ -1343,26 +1328,9 @@ def assemble_quantitative_document_ledger(
     return _project_ledger_to_attributes(attributes, ledger), ledger
 
 
-def reconcile_quantitative_document_ledger(
-    attributes: list[Attribute],
-    ledger: QuantitativeLedger,
-    llm_client: LLMClientProtocol,
-    *,
-    max_tokens: int = 6000,
-) -> tuple[list[Attribute], QuantitativeLedger]:
-    """Merge document-wide semantic duplicates before independent review.
-
-    The model may only partition existing IDs and select a representative.
-    Code restricts comparison to claims with identical calculation inputs,
-    then combines declared field links and exact provenance without parsing
-    prose or changing numeric meaning.
-    """
-    candidate_targets = _reconciliation_candidates(ledger.targets)
-    if len(candidate_targets) < 2:
-        return attributes, ledger
-    allowed_ids = [target.id for target in candidate_targets]
-    contract = quantitative_claim_reconciliation(allowed_ids)
-    prompt = (
+def build_reconciliation_system_prompt() -> str:
+    """Instructions sent when grouping repeated representations of one claim."""
+    return (
         "ROLE\n"
         "You reconcile an already-normalized document claim ledger. You may partition only "
         "the supplied target IDs and select an existing representative; you cannot rewrite "
@@ -1387,6 +1355,30 @@ def reconcile_quantitative_document_ledger(
         "OUTPUT CONTRACT\n"
         "Return every supplied target ID exactly once, including singleton groups, and give "
         "each group a short reason. Return only the schema-bound response."
+    )
+
+
+def reconcile_quantitative_document_ledger(
+    attributes: list[Attribute],
+    ledger: QuantitativeLedger,
+    llm_client: LLMClientProtocol,
+    *,
+    max_tokens: int = 6000,
+) -> tuple[list[Attribute], QuantitativeLedger]:
+    """Merge document-wide semantic duplicates before independent review.
+
+    The model may only partition existing IDs and select a representative.
+    Code restricts comparison to claims with identical calculation inputs,
+    then combines declared field links and exact provenance without parsing
+    prose or changing numeric meaning.
+    """
+    candidate_targets = _reconciliation_candidates(ledger.targets)
+    if len(candidate_targets) < 2:
+        return attributes, ledger
+    allowed_ids = [target.id for target in candidate_targets]
+    contract = quantitative_claim_reconciliation(allowed_ids)
+    prompt = (
+        build_reconciliation_system_prompt()
     )
     payload = json.dumps(
         [_reconciliation_payload(target) for target in candidate_targets],
@@ -1810,7 +1802,7 @@ def _project_ledger_to_attributes(
     return projected
 
 
-def _document_ledger_system_prompt(
+def build_document_ledger_system_prompt(
     attributes: list[Attribute],
     *,
     canonical_bindings: list[_CanonicalNumericBinding] | None = None,
@@ -2070,35 +2062,6 @@ def _validated_targets_with_issues(
     )
 
 
-def _extract_target_measurements(
-    attribute: Attribute,
-    target: QuantitativeTarget,
-    insights: list[Insight],
-    llm_client: LLMClientProtocol,
-    *,
-    indication: str,
-    intervention_class: str,
-    max_tokens: int,
-) -> tuple[list[Measurement], list[SourcePassageDisposition]]:
-    """Map all source passages for one target in deterministic batch order."""
-    passages = _source_passages(insights)
-    measurements: list[Measurement] = []
-    dispositions: list[SourcePassageDisposition] = []
-    for batch in _source_passage_batches(passages):
-        result = _map_source_passage_batch(
-            (attribute,),
-            target,
-            batch,
-            llm_client,
-            indication=indication,
-            intervention_class=intervention_class,
-            max_tokens=max_tokens,
-        )
-        measurements.extend(result.measurements)
-        dispositions.extend(result.dispositions)
-    return measurements, dispositions
-
-
 def _map_source_passage_batch(
     linked_attributes: tuple[Attribute, ...],
     target: QuantitativeTarget,
@@ -2110,7 +2073,7 @@ def _map_source_passage_batch(
     max_tokens: int,
 ) -> _CalibrationBatchResult:
     """Map one independent batch, including its one local corrective retry."""
-    system_prompt = _measurement_system_prompt(
+    system_prompt = build_measurement_system_prompt(
         linked_attributes,
         target=target,
         indication=indication,
@@ -2788,7 +2751,7 @@ def _validated_numeric_expression(raw: object) -> NumericExpression | None:
         return None
 
 
-def _measurement_system_prompt(
+def build_measurement_system_prompt(
     linked_attributes: tuple[Attribute, ...],
     *,
     target: QuantitativeTarget,
@@ -2933,24 +2896,11 @@ def _source_passage_batches(
     passages: list[_SourcePassage],
 ) -> list[list[_SourcePassage]]:
     """Pack source records without splitting their passages across model calls."""
-    by_record: dict[str, list[_SourcePassage]] = {}
-    for passage in passages:
-        source_record_id, _identity_status = _source_record_identity(passage.finding)
-        by_record.setdefault(source_record_id, []).append(passage)
-
-    batches: list[list[_SourcePassage]] = []
-    current: list[_SourcePassage] = []
-    current_record_count = 0
-    for record_passages in by_record.values():
-        if current and current_record_count >= SOURCE_BATCH_SIZE:
-            batches.append(current)
-            current = []
-            current_record_count = 0
-        current.extend(record_passages)
-        current_record_count += 1
-    if current:
-        batches.append(current)
-    return batches
+    return grouped_batches(
+        passages,
+        key=lambda passage: _source_record_identity(passage.finding)[0],
+        groups_per_batch=SOURCE_RECORDS_PER_REQUEST,
+    )
 
 
 def _normalize_quote(value: str) -> str:

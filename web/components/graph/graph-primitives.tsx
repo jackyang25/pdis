@@ -119,7 +119,7 @@ export function GraphControls() {
             aria-label={label}
             title={label}
             onClick={action}
-            className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+            className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 motion-reduce:transition-none"
           >
             <Icon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
@@ -143,7 +143,7 @@ export function GraphNodeFrame({
       className={cn(
         // Dark mode needs a black shadow: a slate shadow at 4% is invisible on
         // a dark surface, leaving nodes with no elevation or hover feedback.
-        "flex h-full w-full cursor-pointer flex-col rounded-lg border border-border/90 bg-card text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow] hover:border-foreground/25 hover:shadow-[0_5px_18px_rgba(15,23,42,0.08)]",
+        "flex h-full w-full cursor-pointer flex-col rounded-lg border border-border/90 bg-card text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow] hover:border-foreground/25 hover:shadow-[0_5px_18px_rgba(15,23,42,0.08)] motion-reduce:transition-none",
         "dark:shadow-[0_1px_3px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_6px_20px_rgba(0,0,0,0.6)]",
         selected && "border-foreground/40 ring-2 ring-foreground/10",
         className,

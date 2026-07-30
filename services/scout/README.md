@@ -41,6 +41,18 @@ domain field extends this vocabulary without adding a pipeline branch.
 insights, independent evidence judgments, quantitative review and calibration,
 and deterministic landscape and safety views.
 
+## Request scope
+
+`batching.py` owns one rule for every model stage: a request may contain several
+items only when the stage's answer is a statement about the set — deduplication,
+partitioning, or one aggregate judgement. A stage returning one decision per item
+sends one item per request, because unrelated items in a shared prompt influence
+each other and batch composition shifts between runs.
+
+Each stage declares its choice as a `<ITEMS>_PER_REQUEST` constant carrying the
+justification. Throughput comes from `map_ordered` fan-out, never from packing
+unrelated items into one prompt.
+
 ## Evidence semantics
 
 | Axis | Values |

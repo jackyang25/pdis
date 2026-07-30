@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
-import re
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+
+from shared.batching import fixed_batches, map_ordered
 
 from ..models import (
     AlignmentConfig,
@@ -34,14 +33,10 @@ def align_units(
         links = [_missing_link(unit) for unit in reference_units]
         return links, _stats(reference_units, comparison_units, links)
 
-    reference_batches = [
-        reference_units[index : index + config.alignment_batch_units]
-        for index in range(0, len(reference_units), config.alignment_batch_units)
-    ]
-    comparison_batches = [
-        comparison_units[index : index + config.alignment_comparison_batch_units]
-        for index in range(0, len(comparison_units), config.alignment_comparison_batch_units)
-    ]
+    reference_batches = fixed_batches(reference_units, config.alignment_batch_units)
+    comparison_batches = fixed_batches(
+        comparison_units, config.alignment_comparison_batch_units
+    )
 
     def run(pair: tuple[int, list[AlignmentUnit], list[AlignmentUnit]]):
         batch_index, reference_batch, comparison_batch = pair
@@ -61,9 +56,7 @@ def align_units(
         for batch_index, reference_batch in enumerate(reference_batches)
         for comparison_batch in comparison_batches
     ]
-    workers = max(1, min(config.max_parallel_calls, len(pairs)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        scans = list(executor.map(run, pairs))
+    scans = map_ordered(pairs, run, workers=config.max_parallel_calls)
 
     candidates_by_batch: dict[int, set[str]] = {
         index: set() for index in range(len(reference_batches))
@@ -137,8 +130,7 @@ Rules:
 - Do not create introduced links; the system derives them deterministically from unused comparison units.
 - Return every supplied reference ID exactly once.
 
-Return ONLY valid JSON:
-{{"links":[{{"reference_unit_id":"unit_...","comparison_unit_ids":["unit_..."],"relation":"aligned|modified|conflict|missing","reason":"one concise document-grounded explanation"}}]}}
+Return only the schema-bound response.
 """
     user_message = (
         "REFERENCE units:\n"
@@ -149,19 +141,27 @@ Return ONLY valid JSON:
     ref_by_id = {unit.id: unit for unit in reference_units}
     comp_by_id = {unit.id: unit for unit in comparison_units}
     selected: dict[str, AlignmentLink] | None = None
+    schema = _link_schema(
+        [unit.id for unit in reference_units],
+        [unit.id for unit in comparison_units],
+    )
     for attempt in range(2):
-        raw = llm_client.call(
+        parsed = llm_client.call_structured(
             system_prompt,
             user_message
             + (
-                "\n\nThe previous response was invalid. Return only the requested JSON object."
+                "\n\nThe previous response failed the alignment contract. Return one "
+                "complete, schema-bound response."
                 if attempt
                 else ""
             ),
-            max_tokens=max_tokens,
+            max_tokens,
+            schema_name="aligner_unit_links",
+            schema=schema,
         )
         try:
-            parsed = json.loads(_extract_json_object(raw))
+            if not isinstance(parsed, dict):
+                raise ValueError("model returned no structured links")
             values = parsed.get("links")
             if not isinstance(values, list):
                 raise ValueError("links must be a list")
@@ -170,12 +170,56 @@ Return ONLY valid JSON:
                 raise ValueError("Alignment response omitted one or more reference units")
             selected = candidate
             break
-        except (ValueError, json.JSONDecodeError, AttributeError) as exc:
+        except (ValueError, AttributeError) as exc:
             if attempt:
-                logger.error("Aligner linking returned invalid JSON after retry: %s", exc)
+                logger.error("Aligner linking failed its contract after retry: %s", exc)
     if selected is None:
         raise RuntimeError("Aligner linking failed after retry")
     return [selected.get(unit.id, _missing_link(unit)) for unit in reference_units]
+
+
+def _link_schema(
+    reference_ids: list[str],
+    comparison_ids: list[str],
+) -> dict[str, Any]:
+    """Close the link contract in the schema; relation arity stays in code.
+
+    The schema constrains identity and vocabulary. Whether a `missing` relation
+    may cite comparison units is an arity rule, which `_validate_batch_links`
+    owns because JSON Schema cannot express it.
+    """
+    comparison_item: dict[str, Any] = {"type": "string"}
+    if comparison_ids:
+        comparison_item["enum"] = comparison_ids
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["links"],
+        "properties": {
+            "links": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "reference_unit_id",
+                        "comparison_unit_ids",
+                        "relation",
+                        "reason",
+                    ],
+                    "properties": {
+                        "reference_unit_id": {"type": "string", "enum": reference_ids},
+                        "comparison_unit_ids": {
+                            "type": "array",
+                            "items": comparison_item,
+                        },
+                        "relation": {"type": "string", "enum": sorted(LLM_RELATIONS)},
+                        "reason": {"type": "string"},
+                    },
+                },
+            }
+        },
+    }
 
 
 def _validate_batch_links(
@@ -289,21 +333,3 @@ def _unit_block_ids(units: list[AlignmentUnit]) -> list[str]:
 
 def _clean_reason(value: Any) -> str:
     return " ".join(value.split()).strip() if isinstance(value, str) else ""
-
-
-def _extract_json_object(value: str) -> str:
-    text = (value or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\s*```$", "", text)
-    decoder = json.JSONDecoder()
-    for start, character in enumerate(text):
-        if character != "{":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return text[start : start + end]
-    raise ValueError("response did not contain a JSON object")

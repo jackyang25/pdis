@@ -196,6 +196,22 @@ def insight_batch(allowed_urls: list[str]) -> AIContract:
     )
 
 
+def insight_reconciliation(allowed_insight_ids: list[str]) -> AIContract:
+    """Partition duplicate insight IDs without rewriting any statement."""
+    insight_ids = list(dict.fromkeys(allowed_insight_ids))
+    return _wrapped(
+        "scout_insight_reconciliation",
+        "groups",
+        _object(
+            {
+                "representative_insight_id": _string(enum=insight_ids),
+                "member_insight_ids": _array(_string(enum=insight_ids)),
+                "reason": _string(),
+            }
+        ),
+    )
+
+
 def _indices(count: int) -> JsonSchema:
     if count <= 0:
         return _array({"type": "integer"})

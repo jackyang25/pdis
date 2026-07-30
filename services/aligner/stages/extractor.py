@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Literal
+
+from shared.batching import budgeted_batches, map_ordered
 
 from services.chunker import ContentBlock
 
@@ -26,13 +26,13 @@ def extract_units(
 ) -> list[AlignmentUnit]:
     if not blocks:
         return []
-    batches = _batch_blocks(
+    batches = budgeted_batches(
         blocks,
-        max_characters=config.extraction_batch_characters,
-        max_blocks=config.extraction_batch_blocks,
+        max_items=config.extraction_batch_blocks,
+        max_chars=config.extraction_batch_characters,
+        size_of=_rendered_size,
     )
     worker_budget = max_workers or config.max_parallel_calls
-    workers = max(1, min(worker_budget, len(batches)))
 
     def run(batch: list[ContentBlock]) -> list[dict[str, Any]]:
         return _extract_batch(
@@ -44,11 +44,11 @@ def extract_units(
             max_tokens=max_tokens,
         )
 
-    if len(batches) == 1:
-        raw_units = run(batches[0])
-    else:
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            raw_units = [item for group in executor.map(run, batches) for item in group]
+    raw_units = [
+        item
+        for group in map_ordered(batches, run, workers=worker_budget)
+        for item in group
+    ]
 
     doc_id = blocks[0].doc_id
     allowed_ids = {block.id for block in blocks}
@@ -104,27 +104,31 @@ Choose exactly one unit_type from this closed vocabulary:
 
 Every unit must cite one or more exact block IDs supplied below. Never invent an ID. Keep statements faithful and independently understandable. Split compound statements only when their parts could change independently.
 
-Return ONLY valid JSON in this shape:
-{{"units":[{{"statement":"...","unit_type":"target|activity|milestone|requirement|dependency|risk_response","block_ids":["exact-id"]}}]}}
+Return only the schema-bound response.
 """
     user_message = "Document blocks:\n\n" + _format_blocks(blocks)
     images = _image_inputs(blocks)
     allowed_ids = {block.id for block in blocks}
     allowed_types = {item.name for item in config.unit_types}
+    schema = _unit_schema(sorted(allowed_ids), sorted(allowed_types))
     for attempt in range(2):
-        raw = llm_client.call(
+        parsed = llm_client.call_structured(
             system_prompt,
             user_message
             + (
-                "\n\nThe previous response was invalid. Return only the requested JSON object."
+                "\n\nThe previous response failed the unit contract. Return one "
+                "complete, schema-bound response."
                 if attempt
                 else ""
             ),
-            max_tokens=max_tokens,
+            max_tokens,
+            schema_name="aligner_document_units",
+            schema=schema,
             images=images or None,
         )
         try:
-            parsed = json.loads(_extract_json_object(raw))
+            if not isinstance(parsed, dict):
+                raise ValueError("model returned no structured units")
             units = parsed.get("units")
             if not isinstance(units, list):
                 raise ValueError("units must be a list")
@@ -151,33 +155,47 @@ Return ONLY valid JSON in this shape:
                     }
                 )
             return cleaned
-        except (ValueError, json.JSONDecodeError, AttributeError) as exc:
+        except (ValueError, AttributeError) as exc:
             if attempt:
-                logger.error("Aligner unit extraction returned invalid JSON after retry: %s", exc)
+                logger.error("Aligner unit extraction failed its contract after retry: %s", exc)
     raise RuntimeError(
         f"Aligner unit extraction failed for the {document_role} document"
     )
 
 
-def _batch_blocks(
-    blocks: list[ContentBlock], *, max_characters: int, max_blocks: int
-) -> list[list[ContentBlock]]:
-    batches: list[list[ContentBlock]] = []
-    current: list[ContentBlock] = []
-    current_characters = 0
-    for block in blocks:
-        size = len(block.content or "") + len(block.id) + 80
-        if current and (
-            len(current) >= max_blocks or current_characters + size > max_characters
-        ):
-            batches.append(current)
-            current = []
-            current_characters = 0
-        current.append(block)
-        current_characters += size
-    if current:
-        batches.append(current)
-    return batches
+def _unit_schema(
+    allowed_block_ids: list[str],
+    allowed_unit_types: list[str],
+) -> dict[str, Any]:
+    """Close the extraction contract in the schema instead of in prose checks."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["units"],
+        "properties": {
+            "units": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["statement", "unit_type", "block_ids"],
+                    "properties": {
+                        "statement": {"type": "string"},
+                        "unit_type": {"type": "string", "enum": allowed_unit_types},
+                        "block_ids": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": allowed_block_ids},
+                        },
+                    },
+                },
+            }
+        },
+    }
+
+
+def _rendered_size(block: ContentBlock) -> int:
+    """Approximate the characters one block contributes to a request."""
+    return len(block.content or "") + len(block.id) + 80
 
 
 def _format_blocks(blocks: list[ContentBlock]) -> str:
@@ -197,24 +215,6 @@ def _image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
         for block in blocks
         if block.image is not None
     ]
-
-
-def _extract_json_object(value: str) -> str:
-    text = (value or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\s*```$", "", text)
-    decoder = json.JSONDecoder()
-    for start, character in enumerate(text):
-        if character != "{":
-            continue
-        try:
-            parsed, end = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return text[start : start + end]
-    raise ValueError("response did not contain a JSON object")
 
 
 def _clean_text(value: Any) -> str:

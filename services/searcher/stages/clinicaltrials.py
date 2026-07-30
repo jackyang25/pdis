@@ -54,46 +54,6 @@ def _throttle() -> None:
         _NEXT_ALLOWED = now + RATE_INTERVAL
 
 
-def search_clinicaltrials(
-    query: str,
-    *,
-    condition: str | None = None,
-    intervention: str | None = None,
-    max_results: int = MAX_RESULTS,
-) -> list[Finding]:
-    """Search ClinicalTrials.gov and return normalized Findings.
-
-    Failures propagate to the source controller for structured isolation.
-
-    CT.gov is a STRUCTURED registry that rejects web-style queries. Callers such
-    as Scout therefore pass a compact unit topic, which is combined with the
-    structured condition and intervention fields. Standalone callers may use
-    the term without those structured filters.
-    """
-    condition = (condition or "").strip()
-    intervention = (intervention or "").strip()
-    # The free-text term is the caller's lane-native topic. It complements the
-    # structured condition/intervention filters instead of being discarded.
-    term = query.strip()
-    try:
-        studies = fetch_clinicaltrials_studies(
-            condition=condition,
-            intervention=intervention,
-            term=term,
-            max_results=max_results,
-        )
-    except Exception as exc:  # noqa: BLE001 - one quiet line; the lane degrades gracefully
-        logger.warning("ClinicalTrials.gov retrieval skipped (%s)", exc)
-        raise
-
-    # Provenance label contains every term actually submitted.
-    label = " ".join(t for t in (condition, intervention, term) if t)
-    findings: list[Finding] = []
-    for study in studies:
-        finding = clinicaltrial_to_finding(study, label)
-        if finding is not None:
-            findings.append(finding)
-    return findings
 
 
 def fetch_clinicaltrials_studies(

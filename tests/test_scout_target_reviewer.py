@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 import unittest
+from dataclasses import replace
 
 from services.chunker import ContentBlock
 from services.scout.models import (
@@ -158,6 +159,44 @@ class TargetReviewerTests(unittest.TestCase):
                 )
                 self.assertEqual(ledger.targets[0].ai_recommendation, "flag")
                 self.assertEqual(ledger.targets[0].review_status, "needs_review")
+
+    def test_each_target_is_reviewed_in_its_own_request(self) -> None:
+        """A target decision must not see an unrelated proposal in its prompt."""
+        class _RecordingClient:
+            def __init__(self) -> None:
+                self.batches: list[list[str]] = []
+
+            def call_structured(self, _system, _user_message, *_args, **kwargs):
+                self.batches.append(list(kwargs["schema"]["properties"]["reviews"][
+                    "items"
+                ]["properties"]["target_id"]["enum"]))
+                return {"reviews": []}
+
+        targets = [
+            _target(index + 1, f"Target {index + 1} must exceed {index + 1}%.")
+            for index in range(3)
+        ]
+        document_target = " ".join(target.quote for target in targets)
+        attribute = replace(
+            self.attribute,
+            document_target=document_target,
+            document_spans=[
+                DocumentSpan(quote=document_target, block_ids=[BLOCK_ID])
+            ],
+            quantitative_target_ids=[target.id for target in targets],
+        )
+        ledger = QuantitativeLedger(
+            status="complete",
+            block_ids=[BLOCK_ID],
+            targets=targets,
+        )
+        client = _RecordingClient()
+
+        prefill_target_review(
+            [attribute], ledger, [replace(self.block, content=document_target)], client,
+        )
+
+        self.assertEqual([len(batch) for batch in client.batches], [1, 1, 1])
 
     def test_review_batches_run_concurrently_without_cross_batch_ids(self) -> None:
         targets = [

@@ -1,0 +1,474 @@
+import type { ContentBlock } from "./api.ts";
+
+export type DocumentAnnotation<
+  TKind extends string = string,
+  TRef = unknown,
+> = {
+  id: string;
+  kind: TKind;
+  layerLabel: string;
+  title: string;
+  summary: string;
+  statusLabel?: string;
+  blockIds: string[];
+  spans: Array<{
+    quote: string;
+    blockIds: string[];
+  }>;
+  sourceRef: TRef;
+};
+
+export type DocumentTraceSegment = {
+  text: string;
+  annotationIds: string[];
+  start: number;
+  end: number;
+};
+
+export type DocumentTraceBlock<
+  TKind extends string = string,
+  TRef = unknown,
+> = {
+  block: ContentBlock;
+  segments: DocumentTraceSegment[];
+  markers: Array<{
+    annotation: DocumentAnnotation<TKind, TRef>;
+    reason: "block_only" | "quote_unmatched";
+    unmatchedQuotes: string[];
+  }>;
+};
+
+export type DocumentTraceDocument<
+  TKind extends string = string,
+  TRef = unknown,
+> = {
+  docId: string;
+  blocks: Array<DocumentTraceBlock<TKind, TRef>>;
+};
+
+export type DocumentTrace<
+  TKind extends string = string,
+  TRef = unknown,
+> = {
+  documents: Array<DocumentTraceDocument<TKind, TRef>>;
+  annotations: Array<DocumentAnnotation<TKind, TRef>>;
+  unresolvedAnnotationIds: string[];
+  unresolvedBlockIdsByAnnotation: Record<string, string[]>;
+};
+
+export type DocumentTraceConnection = {
+  type: "exact" | "block" | "unavailable";
+  blockId?: string;
+  markerReason?: "block_only" | "quote_unmatched";
+  unmatchedQuotes?: string[];
+  unavailableBlockIds?: string[];
+};
+
+export type DocumentTraceFocusTarget = {
+  documentId: string;
+  blockId: string;
+  annotationIds: string[];
+  selectedAnnotationId: string | null;
+  connection: DocumentTraceConnection | null;
+};
+
+/**
+ * Resolve a saved block reference into a navigation target without guessing
+ * which connected result the user intended. A result is selected only when the
+ * block has exactly one connected annotation in the current trace.
+ */
+export function documentTraceFocusTarget<
+  TKind extends string,
+  TRef,
+>(
+  trace: DocumentTrace<TKind, TRef>,
+  blockId: string,
+): DocumentTraceFocusTarget | null {
+  const document = trace.documents.find((item) =>
+    item.blocks.some((traceBlock) => traceBlock.block.id === blockId)
+  );
+  const traceBlock = document?.blocks.find((item) => item.block.id === blockId);
+  if (!document || !traceBlock) return null;
+
+  const exactAnnotationIds = traceBlock.segments.flatMap((segment) => segment.annotationIds);
+  const markerAnnotationIds = traceBlock.markers.map((marker) => marker.annotation.id);
+  const annotationIds = [...new Set([...exactAnnotationIds, ...markerAnnotationIds])];
+  if (annotationIds.length !== 1) {
+    return {
+      documentId: document.docId,
+      blockId,
+      annotationIds,
+      selectedAnnotationId: null,
+      connection: null,
+    };
+  }
+
+  const selectedAnnotationId = annotationIds[0];
+  if (exactAnnotationIds.includes(selectedAnnotationId)) {
+    return {
+      documentId: document.docId,
+      blockId,
+      annotationIds,
+      selectedAnnotationId,
+      connection: { type: "exact", blockId },
+    };
+  }
+
+  const marker = traceBlock.markers.find(
+    (item) => item.annotation.id === selectedAnnotationId,
+  );
+  return {
+    documentId: document.docId,
+    blockId,
+    annotationIds,
+    selectedAnnotationId,
+    connection: marker
+      ? {
+          type: "block",
+          blockId,
+          markerReason: marker.reason,
+          unmatchedQuotes: [...marker.unmatchedQuotes],
+        }
+      : null,
+  };
+}
+
+export type DocumentTraceMarkerGroup = {
+  reason: "block_only" | "quote_unmatched";
+  annotationIds: string[];
+  unmatchedQuotes: string[];
+};
+
+export function groupDocumentTraceMarkers<
+  TKind extends string,
+  TRef,
+>(
+  markers: DocumentTraceBlock<TKind, TRef>["markers"],
+): DocumentTraceMarkerGroup[] {
+  const groups = new Map<DocumentTraceMarkerGroup["reason"], DocumentTraceMarkerGroup>();
+  for (const marker of markers) {
+    const group = groups.get(marker.reason) ?? {
+      reason: marker.reason,
+      annotationIds: [],
+      unmatchedQuotes: [],
+    };
+    if (!group.annotationIds.includes(marker.annotation.id)) {
+      group.annotationIds.push(marker.annotation.id);
+    }
+    for (const quote of marker.unmatchedQuotes) {
+      if (!group.unmatchedQuotes.includes(quote)) group.unmatchedQuotes.push(quote);
+    }
+    groups.set(marker.reason, group);
+  }
+  return [...groups.values()];
+}
+
+type NormalizedText = {
+  value: string;
+  starts: number[];
+  ends: number[];
+};
+
+type AnnotationRange = {
+  start: number;
+  end: number;
+  annotationId: string;
+};
+
+/**
+ * Named entities this matcher decodes, so a span the server accepted still
+ * highlights here.
+ *
+ * The server normalizes with Python's `html.unescape`, which covers the whole
+ * HTML5 table (~2,000 names). Shipping that table to the browser is not worth
+ * its weight, so this is the deliberate subset: the structural entities plus the
+ * typographic, mathematical, and Greek characters that appear in clinical source
+ * text. A name outside this set stays literal and can still fail to match — add
+ * it here rather than reimplementing the table.
+ */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  lt: "<",
+  nbsp: " ",
+  quot: '"',
+  // Typographic
+  ndash: "–",
+  mdash: "—",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+  hellip: "…",
+  bull: "•",
+  middot: "·",
+  prime: "′",
+  Prime: "″",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  shy: "­",
+  reg: "®",
+  trade: "™",
+  copy: "©",
+  // Mathematical and unit-bearing
+  deg: "°",
+  plusmn: "±",
+  times: "×",
+  divide: "÷",
+  minus: "−",
+  micro: "µ",
+  le: "≤",
+  ge: "≥",
+  ne: "≠",
+  asymp: "≈",
+  permil: "‰",
+  frac12: "½",
+  frac14: "¼",
+  frac34: "¾",
+  sup2: "²",
+  sup3: "³",
+  // Greek used in clinical measures
+  alpha: "α",
+  beta: "β",
+  gamma: "γ",
+  mu: "μ",
+};
+
+function decodeEntity(raw: string): string | null {
+  const body = raw.slice(1, -1);
+  let point: number | null = null;
+  if (body.startsWith("#x") || body.startsWith("#X")) {
+    point = Number.parseInt(body.slice(2), 16);
+  } else if (body.startsWith("#")) {
+    point = Number.parseInt(body.slice(1), 10);
+  }
+  if (point !== null) {
+    const isScalar = Number.isInteger(point)
+      && point >= 0
+      && point <= 0x10ffff
+      && !(point >= 0xd800 && point <= 0xdfff);
+    return isScalar ? String.fromCodePoint(point) : null;
+  }
+  return NAMED_ENTITIES[body] ?? null;
+}
+
+function normalizeWithOffsets(text: string): NormalizedText {
+  const characters: string[] = [];
+  const starts: number[] = [];
+  const ends: number[] = [];
+  let index = 0;
+
+  while (index < text.length) {
+    const sourceStart = index;
+    let source: string;
+    let sourceEnd: number;
+    if (text[index] === "&") {
+      const entity = text.slice(index).match(/^&(?:#\d+|#x[\da-f]+|[a-z]+);/i)?.[0];
+      const decoded = entity ? decodeEntity(entity) : null;
+      if (entity && decoded !== null) {
+        source = decoded;
+        sourceEnd = index + entity.length;
+      } else {
+        source = "&";
+        sourceEnd = index + 1;
+      }
+    } else {
+      const point = text.codePointAt(index);
+      source = point === undefined ? text[index] : String.fromCodePoint(point);
+      sourceEnd = index + source.length;
+    }
+
+    const normalized = /\s/u.test(source) ? " " : source.toLowerCase();
+    for (let unitIndex = 0; unitIndex < normalized.length; unitIndex += 1) {
+      const unit = normalized[unitIndex];
+      if (unit === " " && characters.at(-1) === " ") {
+        ends[ends.length - 1] = sourceEnd;
+        continue;
+      }
+      characters.push(unit);
+      starts.push(sourceStart);
+      ends.push(sourceEnd);
+    }
+    index = sourceEnd;
+  }
+
+  while (characters[0] === " ") {
+    characters.shift();
+    starts.shift();
+    ends.shift();
+  }
+  while (characters.at(-1) === " ") {
+    characters.pop();
+    starts.pop();
+    ends.pop();
+  }
+
+  return { value: characters.join(""), starts, ends };
+}
+
+function findQuoteRanges(text: string, quote: string): Array<{ start: number; end: number }> {
+  const source = normalizeWithOffsets(text);
+  const needle = normalizeWithOffsets(quote).value;
+  if (!source.value || !needle) return [];
+
+  const ranges: Array<{ start: number; end: number }> = [];
+  let fromIndex = 0;
+  while (fromIndex <= source.value.length - needle.length) {
+    const matchIndex = source.value.indexOf(needle, fromIndex);
+    if (matchIndex < 0) break;
+    ranges.push({
+      start: source.starts[matchIndex],
+      end: source.ends[matchIndex + needle.length - 1],
+    });
+    fromIndex = matchIndex + needle.length;
+  }
+  return ranges;
+}
+
+function traceSegments(text: string, ranges: AnnotationRange[]): DocumentTraceSegment[] {
+  if (!ranges.length) return [{ text, annotationIds: [], start: 0, end: text.length }];
+  const boundaries = new Set<number>([0, text.length]);
+  for (const range of ranges) {
+    boundaries.add(range.start);
+    boundaries.add(range.end);
+  }
+  const points = [...boundaries].sort((left, right) => left - right);
+  const segments: DocumentTraceSegment[] = [];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    if (start === end) continue;
+    const annotationIds = ranges
+      .filter((range) => range.start < end && range.end > start)
+      .map((range) => range.annotationId)
+      .filter((id, idIndex, ids) => ids.indexOf(id) === idIndex);
+    segments.push({ text: text.slice(start, end), annotationIds, start, end });
+  }
+  return segments;
+}
+
+export function documentTraceSegmentsInRange(
+  segments: DocumentTraceSegment[],
+  start: number,
+  end: number,
+): DocumentTraceSegment[] {
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start) {
+    return [];
+  }
+  return segments.flatMap((segment) => {
+    const clippedStart = Math.max(start, segment.start);
+    const clippedEnd = Math.min(end, segment.end);
+    if (clippedStart >= clippedEnd) return [];
+    return [{
+      text: segment.text.slice(clippedStart - segment.start, clippedEnd - segment.start),
+      annotationIds: [...segment.annotationIds],
+      start: clippedStart,
+      end: clippedEnd,
+    }];
+  });
+}
+
+export function filterDocumentAnnotations<
+  TKind extends string,
+  TRef,
+>(
+  annotations: Array<DocumentAnnotation<TKind, TRef>>,
+  kind: TKind | "all",
+): Array<DocumentAnnotation<TKind, TRef>> {
+  return kind === "all"
+    ? [...annotations]
+    : annotations.filter((annotation) => annotation.kind === kind);
+}
+
+export function buildDocumentTrace<
+  TKind extends string,
+  TRef,
+>(
+  blocks: ContentBlock[],
+  annotations: Array<DocumentAnnotation<TKind, TRef>>,
+): DocumentTrace<TKind, TRef> {
+  const sortedBlocks = [...blocks].sort(
+    (left, right) =>
+      left.doc_id.localeCompare(right.doc_id) ||
+      left.ordinal - right.ordinal ||
+      left.id.localeCompare(right.id),
+  );
+  const blocksById = new Map(sortedBlocks.map((block) => [block.id, block]));
+  const rangesByBlock = new Map<string, AnnotationRange[]>();
+  const matchedSpanBlocks = new Set<string>();
+
+  for (const annotation of annotations) {
+    for (const [spanIndex, span] of annotation.spans.entries()) {
+      const quote = span.quote.trim();
+      if (!quote) continue;
+      for (const blockId of span.blockIds) {
+        const block = blocksById.get(blockId);
+        if (!block) continue;
+        const ranges = findQuoteRanges(block.content, quote);
+        if (ranges.length) {
+          matchedSpanBlocks.add(`${annotation.id}\u241f${spanIndex}\u241f${blockId}`);
+        }
+        for (const range of ranges) {
+          const blockRanges = rangesByBlock.get(blockId) ?? [];
+          blockRanges.push({ ...range, annotationId: annotation.id });
+          rangesByBlock.set(blockId, blockRanges);
+        }
+      }
+    }
+  }
+
+  const markersByBlock = new Map<string, DocumentTraceBlock<TKind, TRef>["markers"]>();
+  const unresolvedAnnotationIds: string[] = [];
+  const unresolvedBlockIdsByAnnotation: Record<string, string[]> = {};
+  for (const annotation of annotations) {
+    const referencedBlockIds = [...new Set([
+      ...annotation.blockIds,
+      ...annotation.spans.flatMap((span) => span.blockIds),
+    ])];
+    const unknownBlockIds = referencedBlockIds.filter((blockId) => !blocksById.has(blockId));
+    if (unknownBlockIds.length) {
+      unresolvedAnnotationIds.push(annotation.id);
+      unresolvedBlockIdsByAnnotation[annotation.id] = unknownBlockIds;
+    }
+    for (const blockId of referencedBlockIds.filter((id) => blocksById.has(id))) {
+      const declaredSpans = annotation.spans
+        .map((span, spanIndex) => ({ span, spanIndex }))
+        .filter(({ span }) => span.blockIds.includes(blockId));
+      const unmatchedQuotes = declaredSpans
+        .filter(({ spanIndex }) => !matchedSpanBlocks.has(`${annotation.id}\u241f${spanIndex}\u241f${blockId}`))
+        .map(({ span }) => span.quote.trim())
+        .filter(Boolean);
+      if (declaredSpans.length > 0 && unmatchedQuotes.length === 0) continue;
+      const markers = markersByBlock.get(blockId) ?? [];
+      markers.push({
+        annotation,
+        reason: declaredSpans.length > 0 ? "quote_unmatched" : "block_only",
+        unmatchedQuotes,
+      });
+      markersByBlock.set(blockId, markers);
+    }
+  }
+
+  const documentsById = new Map<string, Array<DocumentTraceBlock<TKind, TRef>>>();
+  for (const block of sortedBlocks) {
+    const documentBlocks = documentsById.get(block.doc_id) ?? [];
+    documentBlocks.push({
+      block,
+      segments: traceSegments(block.content, rangesByBlock.get(block.id) ?? []),
+      markers: markersByBlock.get(block.id) ?? [],
+    });
+    documentsById.set(block.doc_id, documentBlocks);
+  }
+
+  return {
+    documents: [...documentsById].map(([docId, documentBlocks]) => ({
+      docId,
+      blocks: documentBlocks,
+    })),
+    annotations: [...annotations],
+    unresolvedAnnotationIds,
+    unresolvedBlockIdsByAnnotation,
+  };
+}

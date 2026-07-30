@@ -207,7 +207,7 @@ function NodeInspector({
         <button
           type="button"
           onClick={() => onExpand(null)}
-          className="inline-flex items-center gap-1 rounded-sm text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+          className="inline-flex items-center gap-1 rounded-sm text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
         >
           <RotateCcw className="h-3 w-3" aria-hidden="true" />
           Back to overview
@@ -226,7 +226,7 @@ function NodeInspector({
         <button
           type="button"
           onClick={() => onExpand(expandedNodeId === node.id ? null : node.id)}
-          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-[11px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-[11px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
         >
           View technical flow
           <ChevronRight className="h-3 w-3" aria-hidden="true" />
@@ -324,7 +324,7 @@ export function ArchitectureGraphs({
               aria-pressed={item.id === graph.id}
               onClick={() => chooseGraph(item.id)}
               className={cn(
-                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20",
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none",
                 item.id === graph.id && "bg-foreground text-background hover:bg-foreground hover:text-background",
               )}
             >
@@ -411,7 +411,7 @@ export function ArchitectureGraphs({
                   <span className="mt-1 block text-xs font-semibold">{node.title}</span>
                   <span className="mt-0.5 block text-[10px] text-muted-foreground">{node.summary}</span>
                 </span>
-                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
               </summary>
               <div className="ml-10 mt-3 text-[11px] leading-[1.6] text-muted-foreground">
                 {/* The summary already shows in the collapsed row above. */}

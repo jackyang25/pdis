@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 
+from shared.ai import request_structured
+
 from ..models import ContentBlock, DocumentTypeConfig, LLMClientProtocol
 
 
@@ -52,12 +54,13 @@ def label_blocks(
                 "\n\nThe prior response failed the mapping contract: "
                 f"{last_error}. Return exactly one label for every supplied block ID."
             )
-        payload = _request_structured(
+        payload = request_structured(
             llm_client,
             system_prompt,
             message,
-            max_tokens=max_tokens,
+            schema_name="chunker_section_labels",
             schema=schema,
+            max_tokens=max_tokens,
             images=images or None,
         )
         try:
@@ -106,27 +109,6 @@ def _label_schema(
             }
         },
     }
-
-
-def _request_structured(
-    llm_client: LLMClientProtocol,
-    system_prompt: str,
-    user_message: str,
-    *,
-    max_tokens: int,
-    schema: dict[str, object],
-    images: list[dict[str, str]] | None,
-) -> dict[str, object] | None:
-    payload = llm_client.call_structured(
-        system_prompt,
-        user_message,
-        max_tokens,
-        schema_name="chunker_section_labels",
-        schema=schema,
-        images=images,
-        task="reasoning",
-    )
-    return payload if isinstance(payload, dict) else None
 
 
 def _parse_label_payload(payload: object) -> list[dict[str, str]]:

@@ -54,7 +54,7 @@ def validate_document_context(
     parsed = request_structured(
         llm_client,
         contract,
-        _system_prompt(configured),
+        build_system_prompt(configured),
         _user_message(bounded_context),
         max_tokens=max_tokens,
         images=bounded_images,
@@ -64,7 +64,7 @@ def validate_document_context(
         parsed = request_structured(
             llm_client,
             contract,
-            _system_prompt(configured),
+            build_system_prompt(configured),
             _user_message(bounded_context),
             max_tokens=max_tokens,
             images=bounded_images,
@@ -109,7 +109,7 @@ def mismatch_message(validation: DocumentContextValidation) -> str:
     )
 
 
-def _system_prompt(indication: str) -> str:
+def build_system_prompt(indication: str) -> str:
     return (
         "You validate ONE configuration value before evidence retrieval.\n\n"
         f'Configured indication: "{indication}".\n\n'

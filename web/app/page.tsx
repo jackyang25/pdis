@@ -210,7 +210,7 @@ function WorkspaceToolCard({
   return (
     <Link
       href={tool.href}
-      className={`${className} transition-[border-color,box-shadow] duration-200 hover:border-foreground/20 hover:shadow-[0_10px_28px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25`}
+      className={`${className} transition-[border-color,box-shadow] duration-base hover:border-foreground/20 hover:shadow-[0_10px_28px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25`}
     >
       {content}
     </Link>
@@ -239,7 +239,7 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
               href={shortcut.url}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
             >
               {shortcut.label}
               <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -272,7 +272,7 @@ function CardHeader({
         <PdisIcon name={icon} className="h-[17px] w-[17px]" />
       </span>
       {trailing ? (
-        <span className="transition-colors group-hover:text-foreground">{trailing}</span>
+        <span className="transition-colors group-hover:text-foreground motion-reduce:transition-none">{trailing}</span>
       ) : null}
     </div>
   );

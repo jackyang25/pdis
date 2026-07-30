@@ -11,6 +11,8 @@ import {
   type AssistantContext,
 } from "@/lib/api";
 import { splitResultContext } from "@/lib/result-file";
+import { STREAM_CARET_MOTION } from "@/lib/motion";
+import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import { PdisIcon } from "../ui/pdis-icon";
 
@@ -172,7 +174,7 @@ export function Ask({
         onClick={() => setOpen(true)}
         aria-expanded="false"
         aria-controls="workspace-assistant"
-        className="group fixed bottom-5 right-5 z-50 h-12 gap-2.5 rounded-full border border-foreground/10 bg-foreground px-2.5 pr-4 text-background shadow-[0_12px_36px_rgba(15,23,42,0.24)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:bg-foreground hover:shadow-[0_16px_42px_rgba(15,23,42,0.30)] sm:bottom-6 sm:right-6"
+        className="group fixed bottom-5 right-5 z-50 h-12 gap-2.5 rounded-full border border-foreground/10 bg-foreground px-2.5 pr-4 text-background shadow-[0_12px_36px_rgba(15,23,42,0.24)] transition-[transform,box-shadow] duration-base hover:-translate-y-0.5 hover:bg-foreground hover:shadow-[0_16px_42px_rgba(15,23,42,0.30)] sm:bottom-6 sm:right-6 motion-reduce:transition-none"
       >
         <AssistantMark compact />
         <span className="text-xs font-semibold tracking-[-0.01em]">PDIS Assistant</span>
@@ -287,7 +289,7 @@ export function Ask({
                   key={suggestion}
                   type="button"
                   onClick={() => send(suggestion)}
-                  className="rounded-2xl border border-border/80 bg-card/70 px-4 py-3 text-center text-xs font-medium text-muted-foreground shadow-sm transition-[border-color,color,background-color,transform] hover:-translate-y-px hover:border-foreground/15 hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                  className="rounded-2xl border border-border/80 bg-card/70 px-4 py-3 text-center text-xs font-medium text-muted-foreground shadow-sm transition-[border-color,color,background-color,transform] hover:-translate-y-px hover:border-foreground/15 hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
                 >
                   {suggestion}
                 </button>
@@ -313,13 +315,13 @@ export function Ask({
             >
               <Markdown text={text} />
               {isStreaming && (
-                <span className="mt-1 inline-block h-3.5 w-0.5 animate-pulse bg-foreground/50" />
+                <span className={cn("mt-1 inline-block h-3.5 w-0.5 bg-foreground/50", STREAM_CARET_MOTION)} />
               )}
               {message.role === "assistant" && text && !isStreaming && (
                 <button
                   type="button"
                   onClick={() => copyMessage(message.id, text)}
-                  className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
+                  className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100 motion-reduce:transition-none"
                 >
                   {copiedId === message.id ? (
                     <Check className="h-3 w-3" />
@@ -554,7 +556,7 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
       nodes.push(<span key={`${keyPrefix}-${i++}`}>{text.slice(last, match.index)}</span>);
     }
     const linkClass =
-      "break-all font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground";
+      "break-all font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground motion-reduce:transition-none";
     if (match[2] != null) {
       nodes.push(<strong key={`${keyPrefix}-${i++}`}>{match[2]}</strong>);
     } else if (match[4] != null) {

@@ -10,6 +10,7 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 from ..models import ContentBlock
+from .table_structure import serialize_table_row
 
 # Text stages use this stable marker; the visual payload lives in `block.image`.
 IMAGE_PLACEHOLDER = "[image]"
@@ -261,7 +262,7 @@ def _parse_multi_column_table(
         if not any(value.strip() for value in values):
             continue
 
-        content = _format_table_row(headers, values)
+        content, table_cells = serialize_table_row(headers, values)
         if not content.strip():
             continue
 
@@ -275,21 +276,12 @@ def _parse_multi_column_table(
                     "table_index": table_index,
                     "row_index": row_index,
                     "column_headers": headers,
+                    "table_cells": table_cells,
                 },
                 style_hint={"source": "table_row"},
             )
         )
     return blocks
-
-
-def _format_table_row(headers: list[str], values: list[str]) -> str:
-    pairs = []
-    for index, value in enumerate(values):
-        if not value.strip():
-            continue
-        header = headers[index].strip() if index < len(headers) else ""
-        pairs.append(f"{header}: {value}" if header else value)
-    return ", ".join(pairs)
 
 
 def _normalize_row(row: list[str], width: int) -> list[str]:

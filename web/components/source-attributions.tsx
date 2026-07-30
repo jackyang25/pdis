@@ -26,7 +26,7 @@ export function SourceAttributions({
             href={attribution.url}
             target="_blank"
             rel="noreferrer"
-            className="underline transition-colors hover:text-foreground"
+            className="underline transition-colors hover:text-foreground motion-reduce:transition-none"
           >
             {attribution.label}
           </a>

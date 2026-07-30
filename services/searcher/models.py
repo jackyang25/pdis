@@ -12,34 +12,8 @@ from datetime import datetime
 from typing import Any, Mapping, Protocol
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
-EVIDENCE_DOMAINS = frozenset(
-    {
-        "general",
-        "biological",
-        "clinical",
-        "safety",
-        "regulatory",
-        "product",
-        "manufacturing",
-        "delivery",
-        "commercial_access",
-    }
-)
-ENTITY_TYPES = frozenset(
-    {
-        "disease",
-        "pathogen",
-        "protein",
-        "gene",
-        "antigen",
-        "vaccine",
-        "drug",
-        "compound",
-        "biomarker",
-        "device",
-        "other",
-    }
-)
+from shared.vocabulary import ENTITY_TYPES, EVIDENCE_DOMAINS
+
 FINDING_ROLES = frozenset({"evidence", "reference"})
 DEVELOPMENT_RECORD_TYPES = frozenset(
     {"clinical_trial", "compound_catalog", "regulatory_label", "regulatory_clearance"}
@@ -144,8 +118,6 @@ class RetrievalIntent:
     indication: str
     intervention_class: str
     queries: tuple[SourceQueryIntent, ...]
-    document_target: str = ""
-    definition_mode: str = "fixed"
     evidence_domain: str = ""
     entities: tuple[RetrievalEntity, ...] = ()
 
@@ -341,6 +313,11 @@ class SearcherLLMClientProtocol(Protocol):
 
     Library code depends only on this Protocol - the concrete client
     (OpenAIClient, a mock, anything) is passed in by the caller.
+
+    Deliberately named apart from the other services' ``LLMClientProtocol``: this
+    one requires a web-search capability, not schema-bound completion, so a client
+    that satisfies one does not satisfy the other. The names differ because the
+    contracts differ.
     """
 
     def search_web(self, query: str, *, max_tokens: int, max_uses: int) -> Any:

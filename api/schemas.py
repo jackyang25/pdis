@@ -50,6 +50,13 @@ class ContentBlockOut(BaseModel):
     structural_meta: dict[str, Any] = Field(default_factory=dict)
     style_hint: dict[str, Any] = Field(default_factory=dict)
     image: ImageAssetOut | None = None
+    # Document provenance stamped by each pipeline. Present on the service block, so
+    # the wire shape carries it too: a round trip through this model must not
+    # silently discard fields a caller supplied or a service produced.
+    org: str | None = None
+    source_type: str | None = None
+    intervention_class: str | None = None
+    indication: str | None = None
 
 
 class ChunkerRunResponse(BaseModel):
@@ -558,8 +565,8 @@ class ScoutRunResponse(BaseModel):
     safety_observations: list[SafetyObservationOut] = Field(default_factory=list)
     assessments: list[EvidenceAssessmentOut]
     stats: FunnelStatsOut
-    # The parsed source document, carried so the Ask assistant can read the full
-    # document behind the distilled analysis. Not used by the Scout UI itself.
+    # The parsed source document. Read by the Ask assistant and by the Scout UI's
+    # document-trace view, which renders results against their source blocks.
     blocks: list[ContentBlockOut] = Field(default_factory=list)
 
 
@@ -608,8 +615,8 @@ class InspectionResultOut(BaseModel):
     source_type: str | None = None
     intervention_class: str | None = None
     indication: str | None = None
-    # The parsed source document, carried so the Ask assistant can read the full
-    # document behind the grades. Not used by the Inspector UI itself.
+    # The parsed source document. Read by the Ask assistant and by the Inspector
+    # UI's document-trace view, which renders grades against their source blocks.
     blocks: list[ContentBlockOut] = []
 
 
@@ -690,10 +697,6 @@ class AskRequest(BaseModel):
     # The source document behind the result (parsed blocks), if available. Lets
     # the assistant cross-compare the distilled result against the full document.
     document: list[ContentBlockOut] | None = None
-
-
-class AskResponse(BaseModel):
-    answer: str
 
 
 class AssistantContextResponse(BaseModel):

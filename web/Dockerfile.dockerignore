@@ -1,8 +1,11 @@
 *
 !web/
 !web/**
+# `*` excludes top-level entries only, so these rules cannot gate inside shared/.
+# The Dockerfile copies shared artifacts individually for that reason.
 !shared/
 !shared/product_knowledge.json
+!shared/prompt_reference.json
 
 web/node_modules/
 web/.next/

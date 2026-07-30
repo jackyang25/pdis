@@ -128,3 +128,26 @@ test("does not render an empty comparator cohort", () => {
     excluded: [],
   }), null);
 });
+
+test("unit comparison matches the server's normalization", () => {
+  // conformity._unit_key strips ALL whitespace and folds the fraction slash, so
+  // a contextual value the server treats as same-unit must still be plotted.
+  const model = buildComparatorDistribution({
+    targetValue: 50,
+    unit: "mg/dose",
+    minimum: null,
+    maximum: null,
+    median: null,
+    lowerQuartile: null,
+    upperQuartile: null,
+    included: [],
+    excluded: [
+      { ...measurement(40, "mg / dose"), semantic_status: "contextual" },
+      { ...measurement(60, "MG⁄DOSE"), semantic_status: "contextual" },
+    ],
+  });
+
+  assert.ok(model);
+  assert.equal(model.excluded.length, 2);
+  assert.equal(model.unplottableExcludedCount, 0);
+});

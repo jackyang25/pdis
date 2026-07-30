@@ -13,6 +13,7 @@ from dataclasses import replace
 
 from ..ai import request_structured
 from ..ai_contracts import projection_relationship_batch
+from shared.batching import fixed_batches, map_ordered
 from ..models import (
     TARGET_RELATIONSHIPS,
     Attribute,
@@ -23,7 +24,10 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 
-BATCH_SIZE = 20
+# Per-item scope: one relationship per projection, so an unrelated program or
+# safety observation can never sit in this decision's prompt.
+PROJECTIONS_PER_REQUEST = 1
+PROJECTION_WORKERS = 8
 MAX_TOKENS = 5000
 MAX_EXCERPT_CHARS = 1200
 
@@ -43,17 +47,13 @@ def classify_projection_relationships(
     ] + [
         _safety_input(item) for item in safety_observations
     ]
-    decisions: dict[str, tuple[str, str]] = {}
-    for offset in range(0, len(items), BATCH_SIZE):
-        batch = items[offset : offset + BATCH_SIZE]
-        if not batch:
-            continue
+    def classify_batch(batch: list[dict[str, object]]) -> dict[str, tuple[str, str]]:
         projection_ids = [str(item["projection_id"]) for item in batch]
         try:
             parsed = request_structured(
                 llm_client,
                 projection_relationship_batch(projection_ids),
-                _system_prompt(
+                build_system_prompt(
                     indication=indication,
                     intervention_class=intervention_class,
                 ),
@@ -63,8 +63,16 @@ def classify_projection_relationships(
             )
         except Exception as exc:  # noqa: BLE001 - optional projection enrichment
             logger.warning("Scout projection relationship mapping skipped: %s", exc)
-            continue
-        decisions.update(_validated_decisions(parsed, set(projection_ids)))
+            return {}
+        return _validated_decisions(parsed, set(projection_ids))
+
+    decisions: dict[str, tuple[str, str]] = {}
+    for batch_decisions in map_ordered(
+        fixed_batches(items, PROJECTIONS_PER_REQUEST),
+        classify_batch,
+        workers=PROJECTION_WORKERS,
+    ):
+        decisions.update(batch_decisions)
 
     return (
         [_apply_decision(item, decisions) for item in development_programs],
@@ -143,7 +151,7 @@ def _finding_context(findings) -> list[dict[str, str]]:
     ]
 
 
-def _system_prompt(*, indication: str, intervention_class: str) -> str:
+def build_system_prompt(*, indication: str, intervention_class: str) -> str:
     return (
         "Classify how each structured source projection relates to the product "
         "described by the canonical document claims. This is a display-only "

@@ -6,6 +6,7 @@ from typing import Any
 import pdfplumber
 
 from ..models import ContentBlock
+from .table_structure import serialize_table_row
 
 
 # Heuristic: words within this y-pixel tolerance are treated as the same line.
@@ -277,7 +278,7 @@ def _build_table_blocks(
         values = _normalize_row(row, len(headers))
         if not any(value for value in values):
             continue
-        content = _format_table_row(headers, values)
+        content, table_cells = serialize_table_row(headers, values)
         if not content:
             continue
         blocks.append(
@@ -289,22 +290,13 @@ def _build_table_blocks(
                     "table_index": table_index,
                     "row_index": row_index,
                     "column_headers": headers,
+                    "table_cells": table_cells,
                     "page": page_number,
                 },
                 style_hint={"source": "table_row"},
             )
         )
     return blocks
-
-
-def _format_table_row(headers: list[str], values: list[str]) -> str:
-    pairs = []
-    for index, value in enumerate(values):
-        if not value:
-            continue
-        header = headers[index] if index < len(headers) else ""
-        pairs.append(f"{header}: {value}" if header else value)
-    return ", ".join(pairs)
 
 
 def _normalize_row(row: list[str], width: int) -> list[str]:

@@ -13,6 +13,7 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 from ..models import ContentBlock, ImageAsset
 from .image_assets import image_asset_from_bytes
 from .rasterizer import render_presentation_slides
+from .table_structure import serialize_table_row
 
 logger = logging.getLogger(__name__)
 
@@ -281,11 +282,7 @@ def _table_blocks(
 
     blocks: list[ContentBlock] = []
     for row_index, row in enumerate(data_rows, start=1):
-        content = ", ".join(
-            f"{headers[index]}: {value}" if headers[index] else value
-            for index, value in enumerate(row)
-            if value
-        )
+        content, table_cells = serialize_table_row(headers, row)
         if not content:
             continue
         blocks.append(
@@ -298,6 +295,7 @@ def _table_blocks(
                     **structural_meta,
                     "row_index": row_index,
                     "column_headers": headers,
+                    "table_cells": table_cells,
                 },
                 style_hint={"source": "pptx_table_row"},
             )

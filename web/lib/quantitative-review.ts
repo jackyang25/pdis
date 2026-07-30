@@ -2,6 +2,12 @@ import type { Conformity, Measurement } from "./api";
 
 export type QuantitativeReviewDecision = "approve" | "reject";
 
+// Kept in lockstep with the server's calibration and equality contracts.
+const CALIBRATION_LIMITED_MIN_COUNT = 2;
+const CALIBRATION_SUFFICIENT_MIN_COUNT = 5;
+const EQUALITY_RELATIVE_TOLERANCE = 1e-9;
+const EQUALITY_ABSOLUTE_TOLERANCE = 1e-9;
+
 export type EvidenceReviewRecommendationSummary = {
   admit: number;
   reject: number;
@@ -185,7 +191,7 @@ function calculateCohort(
     benchmark_standard_deviation: sampleStandardDeviation(values),
     target_percentile: rawPercentile == null ? null : round(rawPercentile),
     ambition_percentile: ambitionPercentile == null ? null : round(ambitionPercentile),
-    calibration_status: count >= 5 ? "sufficient" : count >= 2 ? "limited" : "insufficient",
+    calibration_status: calibrationStatus(deduplicated),
   };
 }
 
@@ -231,7 +237,32 @@ function meetsTarget(value: number, target: number, comparator: Conformity["comp
   if (comparator === "<=") return value <= target;
   if (comparator === ">") return value > target;
   if (comparator === ">=") return value >= target;
-  return value === target;
+  return closeEnough(value, target);
+}
+
+/** Mirror the server's equality tolerance so both sides count the same values. */
+function closeEnough(value: number, target: number): boolean {
+  const tolerance = Math.max(
+    EQUALITY_RELATIVE_TOLERANCE * Math.max(Math.abs(value), Math.abs(target)),
+    EQUALITY_ABSOLUTE_TOLERANCE,
+  );
+  return Math.abs(value - target) <= tolerance;
+}
+
+/**
+ * Mirror the server's coverage label, including its source-identity condition.
+ * Thresholds are owned by `services/scout/configs/evidence_methodology.yaml`.
+ */
+function calibrationStatus(
+  measurements: Measurement[],
+): Conformity["calibration_status"] {
+  const count = measurements.length;
+  if (
+    count >= CALIBRATION_SUFFICIENT_MIN_COUNT
+    && measurements.every((item) => item.source_identity_status === "canonical")
+  ) return "sufficient";
+  if (count >= CALIBRATION_LIMITED_MIN_COUNT) return "limited";
+  return "insufficient";
 }
 
 function quantile(values: number[], probability: number): number | null {

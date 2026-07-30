@@ -11,6 +11,8 @@ import math
 
 from services.searcher import SOURCE_ROLES
 
+from services.chunker import ContentBlock, ImageAsset
+
 from .models import (
     QUANTITATIVE_SEMANTIC_FIELDS,
     VALID_EVIDENCE_STRENGTHS,
@@ -19,7 +21,20 @@ from .models import (
     VALID_QUERY_TRACKS,
     VALID_RELATIONS,
     TARGET_RELATIONSHIPS,
+    Attribute,
+    ComparisonRule,
+    DocumentContextValidation,
+    DocumentSpan,
+    EvidenceEntity,
+    FunnelStats,
+    NumericExpression,
+    QuantitativeFieldLink,
+    QuantitativeLedger,
+    QuantitativeLedgerReview,
+    QuantitativeStatementDisposition,
+    QuantitativeTarget,
     ScoutResult,
+    SemanticSlot,
 )
 
 
@@ -565,3 +580,115 @@ def _require_source_url(
     }
     if not url or url not in allowed_urls:
         raise ValueError(f"{context} references a source outside its insight lineage")
+
+
+# ---------------------------------------------------------------------------
+# Draft rehydration
+#
+# A continuation request carries back the review draft `/run` produced. Turning
+# that portable payload into a `ScoutResult` is part of Scout's contract, not a
+# transport concern: the rules below decide what a draft is allowed to contain.
+# The payload is plain data so this stays independent of any wire model.
+# ---------------------------------------------------------------------------
+
+_DOWNSTREAM_KEYS = (
+    "search_plan",
+    "matches",
+    "assessments",
+    "conformity",
+    "precedents",
+    "development_landscape",
+    "safety_observations",
+)
+
+
+def result_from_target_review(payload: dict) -> ScoutResult:
+    """Rehydrate only the portable, pre-retrieval Scout contract.
+
+    Deliberately does not deserialize downstream judgments: a continuation may
+    contain only the target-review draft produced by ``run_pipeline``.
+    """
+    if payload.get("phase") != "target_review":
+        raise ValueError("Scout continuation requires a target-review draft")
+    if any(payload.get(key) for key in _DOWNSTREAM_KEYS):
+        raise ValueError("target-review draft cannot contain downstream results")
+
+    ledger_payload = payload["quantitative_ledger"]
+    targets = [_target_from_dict(item) for item in ledger_payload["targets"]]
+    known_target_ids = {target.id for target in targets}
+
+    return ScoutResult(
+        matches=[],
+        assessments=[],
+        stats=FunnelStats(**payload["stats"]),
+        context_validation=DocumentContextValidation(**payload["context_validation"]),
+        quantitative_ledger=QuantitativeLedger(
+            status=ledger_payload["status"],
+            reason=ledger_payload["reason"],
+            block_ids=list(ledger_payload["block_ids"]),
+            reviews=[
+                QuantitativeLedgerReview(**review)
+                for review in ledger_payload["reviews"]
+            ],
+            targets=targets,
+        ),
+        variables=[
+            _attribute_from_dict(item, known_target_ids)
+            for item in payload["variables"]
+        ],
+        blocks=[_block_from_dict(item) for item in payload["blocks"]],
+        phase="target_review",
+    )
+
+
+def _target_from_dict(raw: dict) -> QuantitativeTarget:
+    raw = dict(raw)
+    raw["expression"] = NumericExpression(**raw["expression"])
+    raw["semantic_profile"] = {
+        name: SemanticSlot(**slot) for name, slot in raw["semantic_profile"].items()
+    }
+    raw["comparison_contract"] = {
+        name: ComparisonRule(**rule) for name, rule in raw["comparison_contract"].items()
+    }
+    raw["semantic_provenance"] = {
+        name: [DocumentSpan(**span) for span in spans]
+        for name, spans in raw["semantic_provenance"].items()
+    }
+    raw["provenance_spans"] = [DocumentSpan(**span) for span in raw["provenance_spans"]]
+    raw["field_links"] = [QuantitativeFieldLink(**link) for link in raw["field_links"]]
+    return QuantitativeTarget(**raw)
+
+
+def _attribute_from_dict(raw: dict, known_target_ids: set[str]) -> Attribute:
+    return Attribute(
+        name=raw["name"],
+        description=raw["description"],
+        block_ids=raw["block_ids"],
+        document_target=raw["document_target"],
+        document_spans=[DocumentSpan(**span) for span in raw["document_spans"]],
+        definition_mode=raw["definition_mode"],
+        target_resolved=raw["target_resolved"],
+        target_resolution_reason=raw["target_resolution_reason"],
+        evidence_domain=raw["evidence_domain"],
+        entities=[EvidenceEntity(**entity) for entity in raw["entities"]],
+        # A field may not carry a reference to a target this draft does not
+        # contain. Dropping the dangling reference keeps the draft internally
+        # consistent; the target itself was already excluded upstream.
+        quantitative_target_ids=[
+            target_id
+            for target_id in raw["quantitative_target_ids"]
+            if target_id in known_target_ids
+        ],
+        quantitative_statement_dispositions=[
+            QuantitativeStatementDisposition(**disposition)
+            for disposition in raw["quantitative_statement_dispositions"]
+        ],
+        quantitative_target_status=raw["quantitative_target_status"],
+        quantitative_target_status_reason=raw["quantitative_target_status_reason"],
+    )
+
+
+def _block_from_dict(raw: dict) -> ContentBlock:
+    raw = dict(raw)
+    image = raw.pop("image", None)
+    return ContentBlock(**raw, image=ImageAsset(**image) if image else None)

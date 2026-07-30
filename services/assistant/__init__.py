@@ -6,6 +6,6 @@ meaning from a per-type legend (legends), so new doc types plug in with only a
 legend entry. It never mutates state or runs fresh web searches.
 """
 
-from .agent import ChatLLMProtocol, StreamingChatLLMProtocol, answer, answer_stream
+from .agent import ChatLLMProtocol, StreamingChatLLMProtocol, answer_stream
 
-__all__ = ["ChatLLMProtocol", "StreamingChatLLMProtocol", "answer", "answer_stream"]
+__all__ = ["ChatLLMProtocol", "StreamingChatLLMProtocol", "answer_stream"]

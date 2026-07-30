@@ -33,3 +33,6 @@ web/tsconfig.tsbuildinfo
 .DS_Store
 .vscode/
 .idea/
+
+# Generated from shared/prompt_reference.json by web/scripts/copy-shared.mjs
+web/public/prompt-reference.json

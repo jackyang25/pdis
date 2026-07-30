@@ -4,8 +4,16 @@ import Link from "next/link";
 import { BookOpen, ChevronRight, MessageCircle } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { toolForPath } from "@/lib/tools";
+import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { WorkspaceAsk } from "@/components/assistant/workspace-ask";
+
+// Docs runs wider than the tool pages: it carries a section nav and a full
+// architecture diagram beside its prose. One rule, so the header and the page
+// content can never disagree about where the layout edges sit.
+function pageWidthClass(pathname: string): string {
+  return pathname === "/docs" ? "max-w-[1320px]" : "max-w-[1120px]";
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -21,7 +29,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </a>
       <ProductHeader pathname={pathname} />
       <main id="main" className="min-w-0">
-        <div className="mx-auto w-full max-w-[1120px] px-5 py-8 sm:px-8 sm:py-10 lg:py-11">
+        <div
+          className={cn(
+            "mx-auto w-full px-5 py-8 sm:px-8 sm:py-10 lg:py-11",
+            pageWidthClass(pathname),
+          )}
+        >
           {tool && <ToolBreadcrumb title={tool.title} />}
           {children}
         </div>
@@ -38,11 +51,16 @@ function ProductHeader({ pathname }: { pathname: string }) {
         <div className="absolute -left-16 -top-24 h-40 w-96 rounded-full bg-indigo-300/20 blur-3xl dark:bg-indigo-500/10" />
         <div className="absolute -bottom-28 right-[8%] h-40 w-80 rounded-full bg-cyan-200/20 blur-3xl dark:bg-cyan-500/10" />
       </div>
-      <div className="mx-auto flex h-14 w-full max-w-[1120px] items-center justify-between gap-4 px-5 sm:px-8">
+      <div
+        className={cn(
+          "mx-auto flex h-14 w-full items-center justify-between gap-4 px-5 sm:px-8",
+          pageWidthClass(pathname),
+        )}
+      >
         <Link
           href="/"
           aria-label="Product Development Intelligence Suite home"
-          className="inline-flex min-w-0 items-center gap-2.5 text-[13px] font-semibold tracking-[-0.02em] transition-opacity hover:opacity-65 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+          className="inline-flex min-w-0 items-center gap-2.5 text-[13px] font-semibold tracking-[-0.02em] transition-opacity hover:opacity-65 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
         >
           <span className="shrink-0 text-[17px] leading-none" aria-hidden="true">🧬</span>
           <span className="truncate">Product Development Intelligence Suite</span>
@@ -51,7 +69,7 @@ function ProductHeader({ pathname }: { pathname: string }) {
           <Link
             href="/ask"
             aria-current={pathname === "/ask" ? "page" : undefined}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/5 aria-[current=page]:text-foreground"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/5 aria-[current=page]:text-foreground motion-reduce:transition-none"
           >
             <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">Assistant</span>
@@ -59,7 +77,7 @@ function ProductHeader({ pathname }: { pathname: string }) {
           <Link
             href="/docs"
             aria-current={pathname === "/docs" ? "page" : undefined}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/5 aria-[current=page]:text-foreground"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/5 aria-[current=page]:text-foreground motion-reduce:transition-none"
           >
             <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">Docs</span>
@@ -76,7 +94,7 @@ function ToolBreadcrumb({ title }: { title: string }) {
     <nav aria-label="Breadcrumb" className="mb-5 flex items-center gap-1.5 text-xs">
       <Link
         href="/"
-        className="text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+        className="text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
       >
         All tools
       </Link>

@@ -3,8 +3,8 @@
 import { useHeaderStore, isHeaderComplete } from "@/lib/store";
 
 /**
- * Provides the current header + a `ready` flag (all of org/source/intervention
- * selected). It no longer blocks the page — the header is only required to RUN,
+ * Provides the current header + a `ready` flag (all of org, source type,
+ * intervention class, and indication selected). It no longer blocks the page — the header is only required to RUN,
  * not to view the page or import a saved result. Callers gate the Run action on
  * `ready`.
  */

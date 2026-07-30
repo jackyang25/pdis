@@ -93,7 +93,7 @@ export function RunPanel({
             }}
             disabled={disabled}
             className={cn(
-              "flex h-[60px] w-full items-center gap-3 rounded-md border border-dashed border-input bg-muted/20 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20",
+              "flex h-[60px] w-full items-center gap-3 rounded-md border border-dashed border-input bg-muted/20 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none",
               !disabled && "hover:border-foreground/25 hover:bg-muted/45",
               disabled && "cursor-not-allowed opacity-60",
             )}

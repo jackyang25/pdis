@@ -13,7 +13,11 @@ from services.searcher import (
     validate_source_keys,
 )
 
-from api.deps import get_search_integrations, get_search_runtime
+from api.deps import (
+    MissingCredentialError,
+    get_search_integrations,
+    get_search_runtime,
+)
 from api.schemas import (
     FindingOut,
     SearcherRunResponse,
@@ -63,7 +67,10 @@ async def run_searcher(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    runtime = get_search_runtime()
+    try:
+        runtime = get_search_runtime()
+    except MissingCredentialError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     missing = unconfigured_source_keys(selected, runtime)
     if missing:
         raise HTTPException(

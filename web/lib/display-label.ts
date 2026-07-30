@@ -1,14 +1,28 @@
-const ACRONYMS = new Set([
+/**
+ * The one acronym set for user-facing labels. `scout-labels.ts` imports this so
+ * a field ref and a config key never disagree about the same word.
+ */
+export const ACRONYMS = new Set([
+  // Organizations and document types
   "who",
   "bmgf",
+  "fda",
   "tpp",
   "ipdp",
   "ppc",
+  // Indications and pathogens
   "hiv",
   "tb",
   "rsv",
   "hpv",
+  "cmv",
   "covid19",
+  // Study and quality vocabulary
+  "gcp",
+  "glp",
+  "gmp",
+  "poc",
+  "rct",
 ]);
 
 const SPECIAL_LABELS: Record<string, string> = {

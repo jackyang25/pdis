@@ -8,6 +8,7 @@ from services.inspector.stages.grader import (
     _cross_section_schema,
     _dimension_schema,
     _grade_section,
+    _variable_batches,
 )
 
 
@@ -85,6 +86,25 @@ class _AbsentVariableClient:
                 value["content_status"] = "missing" if missing else "substantive"
             grades.append(value)
         return {"variable_grades": grades}
+
+
+class VariableRequestScopeTests(unittest.TestCase):
+    def test_each_rubric_variable_is_graded_in_its_own_request(self) -> None:
+        """One grade per variable, so an unrelated variable cannot sway it."""
+        variables = [
+            VariableSpec(name=f"V{index}", description=f"Variable {index}")
+            for index in range(3)
+        ]
+
+        batches = _variable_batches(variables)
+
+        self.assertEqual(
+            [[variable.name for variable in batch] for batch in batches],
+            [["V0"], ["V1"], ["V2"]],
+        )
+
+    def test_a_section_without_variables_still_yields_one_request(self) -> None:
+        self.assertEqual(_variable_batches([]), [[]])
 
 
 class InspectorStructuredGradingTests(unittest.TestCase):

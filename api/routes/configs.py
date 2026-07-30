@@ -11,7 +11,8 @@ from services.scout import (
     find_config as find_scout_config,
     load_attributes as load_scout_attributes,
 )
-from services.inspector import find_config as find_inspector_config
+from services.chunker import available_configs as available_chunker_configs
+from services.inspector import has_config as has_inspector_config
 
 from api.schemas import (
     DocumentType,
@@ -22,31 +23,23 @@ from api.schemas import (
 router = APIRouter()
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-CHUNKER_CONFIGS_DIR = ROOT_DIR / "services" / "chunker" / "configs"
 INDICATIONS_VOCAB = ROOT_DIR / "shared" / "indications.yaml"
 
 
 @router.get("/document-types", response_model=DocumentTypesResponse)
 def list_document_types() -> DocumentTypesResponse:
     items: list[DocumentType] = []
-    for path in sorted(CHUNKER_CONFIGS_DIR.glob("*.yaml")):
-        if "TEMPLATE" in path.stem.upper():
-            continue
-        with path.open("r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        try:
-            org = data["org"]
-            source_type = data["source_type"]
-            intervention = data["intervention_class"]
-        except KeyError:
-            continue
+    for config in available_chunker_configs():
+        org = config.org
+        source_type = config.source_type
+        intervention = config.intervention_class
         items.append(
             DocumentType(
-                key=path.stem,
+                key=config.type_key,
                 org=org,
                 source_type=source_type,
                 intervention_class=intervention,
-                display_name=data.get("display_name", path.stem),
+                display_name=config.display_name or config.type_key,
                 supports={
                     "chunker": True,
                     # Aligner uses the Chunker contract for both documents and
@@ -71,7 +64,7 @@ def list_indications(intervention: str) -> IndicationsResponse:
 
 
 def _has_inspector_config(org: str, source_type: str, intervention: str) -> bool:
-    return find_inspector_config(org, source_type, intervention) is not None
+    return has_inspector_config(org, source_type, intervention)
 
 
 def _has_scout_config(org: str, source_type: str, intervention: str) -> bool:

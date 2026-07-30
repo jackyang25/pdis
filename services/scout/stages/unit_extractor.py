@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
 
 from ..ai import request_structured
+from shared.batching import map_ordered
 from ..ai_contracts import unit_batch
 from ..context import (
     LINE_SPAN_JSON_INSTRUCTION,
@@ -55,7 +55,7 @@ def extract_units(
     within the run, used as the downstream `attribute_ref`)."""
     if not doc_text.strip():
         return []
-    system_prompt = _system_prompt(intervention_class, source_type, indication)
+    system_prompt = build_system_prompt(intervention_class, source_type, indication)
     chunks = _document_chunks(doc_text)
 
     def extract_chunk(indexed: tuple[int, str]) -> list[Attribute]:
@@ -93,14 +93,14 @@ def extract_units(
             chunk_units = _validated_units(parsed, chunk)
         return chunk_units
 
-    workers = max(1, min(UNIT_EXTRACTION_WORKERS, len(chunks)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(extract_chunk, enumerate(chunks)))
+    results = map_ordered(
+        list(enumerate(chunks)), extract_chunk, workers=UNIT_EXTRACTION_WORKERS
+    )
     units = [unit for chunk_units in results for unit in chunk_units]
     return _dedupe(units)
 
 
-def _system_prompt(intervention_class: str, source_type: str, indication: str) -> str:
+def build_system_prompt(intervention_class: str, source_type: str, indication: str) -> str:
     return (
         "You extract the CHECKABLE UNITS from a product-development document so a "
         "downstream tool can test each against real-world evidence.\n\n"

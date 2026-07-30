@@ -20,6 +20,16 @@ web/ → api/ → services/ → shared/
 - Model stages use schema-bound structured outputs. Do not add plain-text JSON,
   markdown-fence recovery, or provider-signature compatibility to runtime
   services; saved-result compatibility belongs only at the import boundary.
+- One request carries several items only when the stage's answer is about the set —
+  deduplication, partitioning, or one aggregate judgement. A stage returning one
+  decision per item sends one item per request, because unrelated items in a shared
+  prompt influence each other and batch composition shifts between runs. Each stage
+  states its choice in an `<ITEMS>_PER_REQUEST` constant carrying the justification;
+  throughput comes from fan-out, never from packing unrelated items.
+- Schema-bound extraction requests deterministic sampling. Identity and duplicate
+  decisions are their own model layer, never folded into the prompt that creates
+  the objects, and never approximated by string normalization in deterministic
+  code.
 - OpenAI is the default provider through `shared/openai_client.py`. Anthropic is
   limited to Scout's schema-bound document-target and external-measurement
   mapping through `shared/anthropic_client.py`; OpenAI independently reviews
@@ -28,6 +38,15 @@ web/ → api/ → services/ → shared/
   `services/*/configs/*.yaml`; shared controlled vocabularies belong in
   `shared/*.yaml`. Adding a normal `(org, source_type, intervention_class)`
   configuration is a YAML change, not an engine branch.
+- A mechanic needed by two services lives in `shared/`, not once per service:
+  request batching and fan-out in `shared/batching.py`, the schema-bound call in
+  `shared/ai.py`, cross-service vocabularies in `shared/vocabulary.py`. Move a
+  mechanic there on the second consumer, not the third.
+- Services present one shape to their caller: `find_config` raises `LookupError`
+  when a configuration is absent, optional configuration is asked about with a
+  predicate, `validate_result_contract` returns the result it validated, and every
+  service that needs a model client exports its `LLMClientProtocol`. A capability
+  that genuinely differs keeps a different name.
 - Document tools use `org`, `source_type`, `intervention_class`, and
   `indication`. The first three select configuration; all four are output
   provenance. Never reintroduce `therapeutic_area`.
@@ -183,11 +202,26 @@ web/ → api/ → services/ → shared/
   `shared/product_knowledge.json`. The web documentation page and Ask consume
   that source; do not duplicate its prose in either layer. Tool metadata,
   controlled vocabularies, and run results remain separate authorities.
+- Scout's model stages own their prompt text. `shared/prompt_reference.json` is
+  generated from `services/scout/prompt_catalog.py`, never authored; a test
+  regenerates it and fails on drift. Published prompts carry placeholder slots,
+  not run content, and are process documentation rather than run provenance.
+- A route constructs provider clients before opening its stream, and services raise
+  domain errors that the route maps to a status code. A missing credential or an
+  invalid request must fail the request, never arrive as an error event on a
+  successful response.
 - Tool routes stream NDJSON `stage`, `complete`, or `error` events. Fan-out
   stages report `completed`/`total`; single stages use indeterminate progress.
 - Browser multipart uploads go directly to FastAPI. Keep all secrets server-side.
 - Bespoke identity icons live in `web/public/icons/pdis/` and are mapped through
   `web/components/ui/pdis-icon.tsx`; use Lucide for generic actions.
+- A negative *result* — a failing grade, a contradiction, an unfavorable
+  precedent — uses `--tone-danger`. `--destructive` is reserved for a system
+  error. They are different claims and must not be interchanged.
+- Motion durations, easings, and reduced-motion opt-outs come from the tokens in
+  `web/tailwind.config.ts` and the recipes in `web/lib/motion.ts`;
+  `npm run test:motion` enforces both. A spinner and a streaming caret keep
+  moving under reduced motion because their movement is the status.
 
 ## Change checklist
 

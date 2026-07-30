@@ -59,7 +59,7 @@ def extract_queries_for_variable(
     general_budget = max(queries_per_variable, len(target_blocks))
 
     queries = _run_track(
-        _system_prompt_for_variable(
+        build_system_prompt_for_variable(
             config,
             indication=indication,
             attribute=attribute,
@@ -82,7 +82,7 @@ def extract_queries_for_variable(
 
     if config.geographic_emphasis and config.geographic_queries_per_variable > 0:
         queries += _run_track(
-            _system_prompt_for_geographic_variable(
+            build_system_prompt_for_geographic_variable(
                 config,
                 indication=indication,
                 attribute=attribute,
@@ -102,7 +102,7 @@ def extract_queries_for_variable(
 
     if config.counterfactual_queries_per_variable > 0:
         queries += _run_track(
-            _system_prompt_for_counterfactual_variable(
+            build_system_prompt_for_counterfactual_variable(
                 config,
                 indication=indication,
                 attribute=attribute,
@@ -122,7 +122,7 @@ def extract_queries_for_variable(
 
     if config.precedent_queries_per_variable > 0:
         queries += _run_track(
-            _system_prompt_for_precedent_variable(
+            build_system_prompt_for_precedent_variable(
                 config,
                 indication=indication,
                 attribute=attribute,
@@ -301,7 +301,7 @@ def _target_retrieval_text(target: QuantitativeTarget) -> str:
     return " ".join(unique)
 
 
-def _system_prompt_for_variable(
+def build_system_prompt_for_variable(
     config: ScoutTypeConfig,
     *,
     indication: str,
@@ -413,7 +413,7 @@ def _user_message_for_variable(attribute: Attribute, document_context: str) -> s
     )
 
 
-def _system_prompt_for_geographic_variable(
+def build_system_prompt_for_geographic_variable(
     config: ScoutTypeConfig,
     *,
     indication: str,
@@ -466,7 +466,7 @@ def _system_prompt_for_geographic_variable(
     return "\n\n".join(parts)
 
 
-def _system_prompt_for_counterfactual_variable(
+def build_system_prompt_for_counterfactual_variable(
     config: ScoutTypeConfig,
     *,
     indication: str,
@@ -518,7 +518,7 @@ def _system_prompt_for_counterfactual_variable(
     return "\n\n".join(parts)
 
 
-def _system_prompt_for_precedent_variable(
+def build_system_prompt_for_precedent_variable(
     config: ScoutTypeConfig,
     *,
     indication: str,

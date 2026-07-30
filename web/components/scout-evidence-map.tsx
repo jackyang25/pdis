@@ -21,6 +21,7 @@ import {
   Target,
 } from "lucide-react";
 import type { ScoutResponse } from "@/lib/api";
+import { DocumentSourceTrace } from "@/components/document-source-trace";
 import {
   buildScoutEvidenceMap,
   displayAttributeLabel,
@@ -233,11 +234,14 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
       {node.signals && node.signals.length > 0 && (
         <dl className="mt-4 space-y-2.5 border-t border-border/70 pt-4">
           {node.signals.map((signal) => (
-            <div key={signal.label} className="flex items-center justify-between gap-3 text-xs">
+            <div key={signal.label} className="flex items-start justify-between gap-3 text-xs">
               <dt className="text-muted-foreground">{signal.label}</dt>
-              <dd className="flex min-w-0 items-center gap-1.5 font-medium text-foreground">
-                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", SIGNAL_DOT[signal.tone])} />
-                <span className="truncate">{signal.value}</span>
+              {/* Values wrap rather than truncate: a count the reader cannot
+                  infer from a stub is worse than a second line. The dot sits on
+                  the first line's optical centre: (16px leading - 6px) / 2. */}
+              <dd className="flex min-w-0 items-start gap-1.5 font-medium text-foreground">
+                <span className={cn("mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full", SIGNAL_DOT[signal.tone])} />
+                <span className="text-end">{signal.value}</span>
               </dd>
             </div>
           ))}
@@ -246,12 +250,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
 
       {node.blockIds && node.blockIds.length > 0 && (
         <div className="mt-4 border-t border-border/70 pt-4">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Document blocks
-          </p>
-          <p className="mt-1 break-all font-mono text-[10px] leading-relaxed text-muted-foreground">
-            {node.blockIds.join(" · ")}
-          </p>
+          <DocumentSourceTrace blockIds={node.blockIds} />
         </div>
       )}
 
@@ -273,7 +272,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
                   target="_blank"
                   rel="noreferrer"
                   title={source.title}
-                  className="block min-w-0 text-[11px] leading-snug text-muted-foreground transition-colors hover:text-foreground"
+                  className="block min-w-0 text-[11px] leading-snug text-muted-foreground transition-colors hover:text-foreground motion-reduce:transition-none"
                 >
                   <span className="block truncate">{source.title}</span>
                   <span className="mt-0.5 block text-[10px] text-muted-foreground/60">
@@ -307,7 +306,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
           href={node.href}
           target="_blank"
           rel="noreferrer"
-          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent motion-reduce:transition-none"
         >
           Open source
           <ExternalLink className="h-3 w-3" />

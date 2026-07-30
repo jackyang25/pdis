@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from services.aligner import load_config, run_pipeline
 from services.chunker import find_config as find_chunker_config
 
-from api.deps import get_openai_client
+from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import AlignerRunResponse, AlignmentResultOut
 from api.streaming import run_with_progress
 
@@ -56,6 +56,13 @@ async def run_aligner(
     comparison_contents = await comparison_file.read()
     config = load_config()
 
+    # Construct provider clients before the stream opens: a missing credential
+    # must fail the request, not arrive as an event on a 200 response.
+    try:
+        llm_client = get_openai_client()
+    except MissingCredentialError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     def work(progress):
         temp_paths: list[str] = []
         try:
@@ -75,7 +82,7 @@ async def run_aligner(
                 intervention_class=intervention_class,
                 indication=indication,
                 config=config,
-                llm_client=get_openai_client(),
+                llm_client=llm_client,
                 reference_doc_id=reference_doc_id,
                 comparison_doc_id=comparison_doc_id,
                 max_tokens=DEFAULT_MAX_TOKENS,

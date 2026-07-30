@@ -6,19 +6,30 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import yaml
 
+from shared.openai_client import ModelTask
+
 if TYPE_CHECKING:
     from services.chunker import ContentBlock
 
 
 class LLMClientProtocol(Protocol):
-    def call(
+    """Contract aligner requires from any injected LLM client.
+
+    Identical to the chunker, inspector, and scout contract so one client
+    satisfies every service in the suite.
+    """
+
+    def call_structured(
         self,
         system_prompt: str,
         user_message: str,
         max_tokens: int,
         *,
+        schema_name: str,
+        schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
-    ) -> str:
+        task: ModelTask = "reasoning",
+    ) -> dict[str, Any] | None:
         ...
 
 
@@ -52,7 +63,9 @@ class AlignmentConfig:
     document_roles: dict[str, str]
     extraction_batch_characters: int = 50000
     extraction_batch_blocks: int = 40
-    alignment_batch_units: int = 16
+    # Per-item scope: one relation per reference unit. The comparison pool below
+    # is genuinely set-level — a relation needs candidates to match against.
+    alignment_batch_units: int = 1
     alignment_comparison_batch_units: int = 48
     max_parallel_calls: int = 6
 
@@ -158,7 +171,7 @@ def load_config(path: str | None = None) -> AlignmentConfig:
             "extraction_batch_blocks",
         ),
         alignment_batch_units=_positive_int(
-            execution.get("alignment_batch_units", 16),
+            execution.get("alignment_batch_units", 1),
             "alignment_batch_units",
         ),
         alignment_comparison_batch_units=_positive_int(

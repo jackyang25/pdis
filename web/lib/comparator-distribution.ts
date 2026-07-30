@@ -47,8 +47,13 @@ function finite(value: number | null): value is number {
   return value != null && Number.isFinite(value);
 }
 
+/**
+ * Mirror `conformity._unit_key`: fold the fraction slash, lower-case, and drop
+ * every space. A unit the server treats as compatible must not be dropped from
+ * the plot for cosmetic spacing.
+ */
 function normalizedUnit(value: string): string {
-  return value.trim().toLocaleLowerCase();
+  return value.replace(/⁄/gu, "/").toLowerCase().replace(/\s+/gu, "");
 }
 
 function clamp(value: number): number {

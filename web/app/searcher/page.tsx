@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { ExternalLink, Loader2, Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { ErrorMessage } from "@/components/ui/error-message";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -120,7 +121,7 @@ export default function SearcherPage() {
                   title={source.configured ? undefined : "Backend connector not configured"}
                   aria-pressed={on}
                   className={cn(
-                    "h-8 rounded-md border px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50",
+                    "h-8 rounded-md border px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50 motion-reduce:transition-none",
                     on
                       ? "border-foreground bg-foreground text-background"
                       : "border-border bg-background text-muted-foreground hover:text-foreground",
@@ -136,7 +137,7 @@ export default function SearcherPage() {
           </div>
         </form>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <ErrorMessage>{error}</ErrorMessage>}
 
         {result && <Findings result={result} sources={sources} />}
       </div>

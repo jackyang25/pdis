@@ -11,20 +11,8 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from services.scout import (
-    Attribute,
-    ComparisonRule,
-    DocumentContextValidation,
-    DocumentSpan,
-    EvidenceEntity,
-    FunnelStats,
-    NumericExpression,
-    QuantitativeLedger,
-    QuantitativeLedgerReview,
-    QuantitativeFieldLink,
-    QuantitativeStatementDisposition,
-    QuantitativeTarget,
+    result_from_target_review,
     ScoutResult,
-    SemanticSlot,
     assessments_to_dicts,
     blocks_to_dicts,
     conformity_to_dicts,
@@ -36,9 +24,9 @@ from services.scout import (
     continue_pipeline,
     run_pipeline,
 )
-from services.chunker import ContentBlock, ImageAsset
 
 from api.deps import (
+    MissingCredentialError,
     get_openai_client,
     get_quantitative_anthropic_client,
     get_search_runtime,
@@ -159,103 +147,6 @@ def _response_from_result(
     )
 
 
-def _target_from_payload(payload) -> QuantitativeTarget:
-    raw = payload.model_dump()
-    raw["expression"] = NumericExpression(**raw["expression"])
-    raw["semantic_profile"] = {
-        name: SemanticSlot(**slot)
-        for name, slot in raw["semantic_profile"].items()
-    }
-    raw["comparison_contract"] = {
-        name: ComparisonRule(**rule)
-        for name, rule in raw["comparison_contract"].items()
-    }
-    raw["semantic_provenance"] = {
-        name: [DocumentSpan(**span) for span in spans]
-        for name, spans in raw["semantic_provenance"].items()
-    }
-    raw["provenance_spans"] = [
-        DocumentSpan(**span) for span in raw["provenance_spans"]
-    ]
-    raw["field_links"] = [
-        QuantitativeFieldLink(**link) for link in raw["field_links"]
-    ]
-    return QuantitativeTarget(**raw)
-
-
-def _result_from_target_review(draft: ScoutRunResponse) -> ScoutResult:
-    """Rehydrate only the portable, pre-retrieval Scout contract.
-
-    This deliberately does not deserialize downstream judgments. A continuation
-    request can contain only the target-review draft produced by ``/run``.
-    """
-    if draft.phase != "target_review":
-        raise ValueError("Scout continuation requires a target-review draft")
-    if any((draft.search_plan, draft.matches, draft.assessments, draft.conformity,
-            draft.precedents, draft.development_landscape, draft.safety_observations)):
-        raise ValueError("target-review draft cannot contain downstream results")
-
-    targets = [_target_from_payload(item) for item in draft.quantitative_ledger.targets]
-    targets_by_id = {item.id: item for item in targets}
-    variables: list[Attribute] = []
-    for item in draft.variables:
-        raw = item.model_dump()
-        variables.append(Attribute(
-            name=raw["name"],
-            description=raw["description"],
-            block_ids=raw["block_ids"],
-            document_target=raw["document_target"],
-            document_spans=[DocumentSpan(**span) for span in raw["document_spans"]],
-            definition_mode=raw["definition_mode"],
-            target_resolved=raw["target_resolved"],
-            target_resolution_reason=raw["target_resolution_reason"],
-            evidence_domain=raw["evidence_domain"],
-            entities=[EvidenceEntity(**entity) for entity in raw["entities"]],
-            quantitative_target_ids=[
-                target_id
-                for target_id in raw["quantitative_target_ids"]
-                if target_id in targets_by_id
-            ],
-            quantitative_statement_dispositions=[
-                QuantitativeStatementDisposition(**disposition)
-                for disposition in raw["quantitative_statement_dispositions"]
-            ],
-            quantitative_target_status=raw["quantitative_target_status"],
-            quantitative_target_status_reason=raw["quantitative_target_status_reason"],
-        ))
-
-    blocks: list[ContentBlock] = []
-    for item in draft.blocks:
-        raw = item.model_dump()
-        image = raw.pop("image", None)
-        blocks.append(ContentBlock(
-            **raw,
-            image=ImageAsset(**image) if image else None,
-        ))
-
-    return ScoutResult(
-        matches=[],
-        assessments=[],
-        stats=FunnelStats(**draft.stats.model_dump()),
-        context_validation=DocumentContextValidation(
-            **draft.context_validation.model_dump()
-        ),
-        quantitative_ledger=QuantitativeLedger(
-            status=draft.quantitative_ledger.status,
-            reason=draft.quantitative_ledger.reason,
-            block_ids=list(draft.quantitative_ledger.block_ids),
-            reviews=[
-                QuantitativeLedgerReview(**review.model_dump())
-                for review in draft.quantitative_ledger.reviews
-            ],
-            targets=targets,
-        ),
-        variables=variables,
-        blocks=blocks,
-        phase="target_review",
-    )
-
-
 @router.post("/run")
 async def run_scout(
     files: list[UploadFile] = File(...),
@@ -287,20 +178,28 @@ async def run_scout(
         used_doc_ids.add(doc_id)
         doc_ids.append(doc_id)
 
+    # Construct provider clients before the stream opens: a missing credential
+    # must fail the request, not arrive as an event on a 200 response.
+    try:
+        openai_client = get_openai_client()
+        quantitative_client = get_quantitative_anthropic_client()
+        retrieval_runtime = get_search_runtime(openai_client)
+    except MissingCredentialError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     def work(progress):
         try:
-            openai_client = get_openai_client()
             result = run_pipeline(
                 temp_paths,
                 doc_ids=doc_ids,
                 config=config,
                 openai_client=openai_client,
-                retrieval_runtime=get_search_runtime(openai_client),
+                retrieval_runtime=retrieval_runtime,
                 org=org,
                 source_type=source_type,
                 intervention_class=intervention_class,
                 indication=indication,
-                quantitative_mapping_client=get_quantitative_anthropic_client(),
+                quantitative_mapping_client=quantitative_client,
                 progress_callback=progress,
             )
             return _response_from_result(
@@ -323,18 +222,26 @@ async def continue_scout(payload: ScoutContinueRequest) -> StreamingResponse:
     draft = payload.draft
     try:
         config = find_config(draft.org, draft.source_type, draft.intervention_class)
-        prepared = _result_from_target_review(draft)
+        prepared = result_from_target_review(draft.model_dump())
     except (LookupError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    def work(progress):
+    # Construct provider clients before the stream opens: a missing credential
+    # must fail the request, not arrive as an event on a 200 response.
+    try:
         openai_client = get_openai_client()
+        quantitative_client = get_quantitative_anthropic_client()
+        retrieval_runtime = get_search_runtime(openai_client)
+    except MissingCredentialError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    def work(progress):
         result = continue_pipeline(
             prepared,
             config=config,
             openai_client=openai_client,
-            quantitative_mapping_client=get_quantitative_anthropic_client(),
-            retrieval_runtime=get_search_runtime(openai_client),
+            quantitative_mapping_client=quantitative_client,
+            retrieval_runtime=retrieval_runtime,
             org=draft.org,
             source_type=draft.source_type,
             intervention_class=draft.intervention_class,

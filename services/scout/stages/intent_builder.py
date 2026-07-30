@@ -29,8 +29,6 @@ def build_retrieval_intents(
             description=attribute.description,
             indication=indication,
             intervention_class=intervention_class,
-            document_target=attribute.document_target,
-            definition_mode=attribute.definition_mode,
             evidence_domain=attribute.evidence_domain,
             entities=tuple(
                 RetrievalEntity(

@@ -47,7 +47,7 @@ carry every input intent ID and text.
 |---|---|
 | Direct | OpenAI web search, PubMed/PMC, ClinicalTrials.gov |
 | ToolUniverse literature and trials | CTIS, ISRCTN, Semantic Scholar |
-| ToolUniverse biological and regulatory | Open Targets, ChEMBL, UniProt, FDA |
+| ToolUniverse biological and regulatory | Open Targets, ChEMBL, UniProt, FDA, FDA Safety |
 
 Specialized sources declare supported evidence domains and entity requirements.
 Reference-only catalog records remain available for deterministic views but do

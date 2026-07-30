@@ -1,8 +1,9 @@
 """Three-dimension grader.
 
-Each section is graded by three independent LLM calls - one per dimension
-(completeness, adherence, rigor). Each call's prompt contains only the
-rules and inputs that dimension needs:
+Each section is graded once per dimension (completeness, adherence, rigor)
+and once per rubric variable within it, so a variable's grade never shares a
+prompt with an unrelated variable. Each call's prompt contains only the rules
+and inputs that dimension needs:
 
 - completeness call: rubric + draft.
 - adherence call:    rubric + draft.
@@ -21,9 +22,11 @@ from __future__ import annotations
 
 import threading
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import Any
+
+from shared.ai import request_structured
+from shared.batching import fixed_batches, map_ordered
 
 from services.chunker import ContentBlock
 
@@ -44,7 +47,9 @@ from ..models import (
 VALID_GRADES: set[str] = {"A", "B", "C", "D", "F", "N/A"}
 GRADE_TO_SCORE = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
 MAX_PARALLEL_SECTIONS = 4
-MAX_VARIABLES_PER_BATCH = 7
+# Per-item scope: one grade per rubric variable, so an unrelated variable can
+# never sit in this decision's prompt. Speed comes from dimension fan-out.
+VARIABLES_PER_REQUEST = 1
 MAX_PARALLEL_DIMENSION_BATCHES = 6
 
 
@@ -96,13 +101,8 @@ def grade_sections(
                 progress("grade", completed=done["n"], total=total)
         return out
 
-    if len(indexed) <= 1:
-        graded = [grade_one(item) for item in indexed]
-    else:
-        with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_SECTIONS, len(indexed))) as executor:
-            graded = list(executor.map(grade_one, indexed))
-
-    graded.sort(key=lambda pair: pair[0])
+    # map_ordered guarantees input order, so no re-sort is needed.
+    graded = map_ordered(indexed, grade_one, workers=MAX_PARALLEL_SECTIONS)
     return [g for _, g in graded]
 
 
@@ -142,10 +142,7 @@ def _grade_section(
             grading_guidance=grading_guidance,
         )
 
-    with ThreadPoolExecutor(
-        max_workers=min(MAX_PARALLEL_DIMENSION_BATCHES, len(jobs))
-    ) as executor:
-        batch_results = list(executor.map(call_one, jobs))
+    batch_results = map_ordered(jobs, call_one, workers=MAX_PARALLEL_DIMENSION_BATCHES)
 
     if not section_spec.variables:
         results = {dimension: batch for dimension, batch in batch_results}
@@ -168,10 +165,7 @@ def _grade_section(
 def _variable_batches(variables: list[VariableSpec]) -> list[list[VariableSpec]]:
     if not variables:
         return [[]]
-    return [
-        variables[index : index + MAX_VARIABLES_PER_BATCH]
-        for index in range(0, len(variables), MAX_VARIABLES_PER_BATCH)
-    ]
+    return fixed_batches(variables, VARIABLES_PER_REQUEST)
 
 
 def _call_dimension(
@@ -225,7 +219,7 @@ def _call_dimension(
                 f"{first_error}. Return one complete decision for every listed rubric variable, "
                 "using only the supplied variable names and block IDs."
             )
-        payload = _request_structured(
+        payload = request_structured(
             llm_client,
             system_prompt,
             message,
@@ -483,28 +477,6 @@ def _dimension_schema(
             }
         },
     }
-
-
-def _request_structured(
-    llm_client: LLMClientProtocol,
-    system_prompt: str,
-    user_message: str,
-    *,
-    max_tokens: int,
-    schema_name: str,
-    schema: dict[str, Any],
-    images: list[dict[str, str]] | None,
-) -> dict[str, Any] | None:
-    payload = llm_client.call_structured(
-        system_prompt,
-        user_message,
-        max_tokens,
-        schema_name=schema_name,
-        schema=schema,
-        images=images,
-        task="reasoning",
-    )
-    return payload if isinstance(payload, dict) else None
 
 
 def _build_user_message(
@@ -884,7 +856,7 @@ def check_cross_section(
                 "\n\nThe prior response failed the consistency contract. Return only "
                 "cross-section conflicts with exact supplied section names and block IDs."
             )
-        payload = _request_structured(
+        payload = request_structured(
             llm_client,
             system_prompt,
             message,

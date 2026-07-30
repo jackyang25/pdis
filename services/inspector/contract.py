@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from services.chunker import ContentBlock
-
 from .models import DIMENSIONS, InspectionConfig, InspectionResult
 
 
 def validate_result_contract(
     result: InspectionResult,
-    blocks: list[ContentBlock],
     config: InspectionConfig,
-) -> None:
+) -> InspectionResult:
+    """Return ``result`` after enforcing its closed rubric and block lineage.
+
+    Blocks are read from the result rather than passed alongside it: the pipeline
+    stamps them on immediately before validating, so a second parameter could only
+    drift from the value being checked.
+    """
     expected_dimensions = set(DIMENSIONS)
     if set(result.dimensions) != expected_dimensions:
         raise ValueError("Inspector document dimensions do not match the closed contract")
@@ -27,11 +30,11 @@ def validate_result_contract(
         raise ValueError("Inspector consistency status is invalid")
     if result.consistency_status not in {"complete", "partial"} and result.cross_section_findings:
         raise ValueError("Inspector consistency findings require a completed check")
-    if len({block.id for block in blocks}) != len(blocks):
+    if len({block.id for block in result.blocks}) != len(result.blocks):
         raise ValueError("Inspector source block IDs must be unique")
-    if any(block.doc_id != result.doc_id for block in blocks):
+    if any(block.doc_id != result.doc_id for block in result.blocks):
         raise ValueError("Inspector result contains blocks from another document")
-    block_by_id = {block.id: block for block in blocks}
+    block_by_id = {block.id: block for block in result.blocks}
     expected_sections = [section.name for section in config.sections]
     if [section.section_name for section in result.section_grades] != expected_sections:
         raise ValueError("Inspector section ledger does not match rubric order")
@@ -53,7 +56,7 @@ def validate_result_contract(
         if any(name not in expected_variables for name in section.missing_variables):
             raise ValueError("Inspector missing_variables contains an unknown rubric variable")
         allowed_section_blocks = {
-            block.id for block in blocks if block.section_label == section.section_name
+            block.id for block in result.blocks if block.section_label == section.section_name
         }
         for variable in section.variable_grades:
             if set(variable.dimensions) != expected_dimensions:
@@ -81,3 +84,4 @@ def validate_result_contract(
                 raise ValueError(
                     "Inspector cross-section finding must cite every named section"
                 )
+    return result

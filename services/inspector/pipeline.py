@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+from shared.batching import map_ordered
 
 from services.chunker import (
     ContentBlock,
@@ -105,8 +106,7 @@ def inspect_blocks(
     result.intervention_class = config.intervention_class
     result.indication = indication
     result.blocks = blocks
-    validate_result_contract(result, blocks, config)
-    return result
+    return validate_result_contract(result, config)
 
 
 def run_pipeline_batch(
@@ -119,13 +119,9 @@ def run_pipeline_batch(
     max_workers: int = 4,
 ) -> list[BatchInspectionResult]:
     """Run `run_pipeline` (parse → label → grade) over many documents in parallel."""
-    if not jobs:
-        return []
-    workers = max(1, min(max_workers, len(jobs)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        return list(
-            executor.map(
-                lambda job: _run_pipeline_one_batch(
+    return map_ordered(
+        jobs,
+        lambda job: _run_pipeline_one_batch(
                     job[0],
                     job[1],
                     config=config,
@@ -133,9 +129,8 @@ def run_pipeline_batch(
                     indication=indication,
                     max_tokens=max_tokens,
                 ),
-                jobs,
-            )
-        )
+        workers=max_workers,
+    )
 
 
 def _run_pipeline_one_batch(
@@ -180,13 +175,9 @@ def inspect_blocks_batch(
     Returns:
         list[BatchInspectionResult] in the same order as `jobs`.
     """
-    if not jobs:
-        return []
-    workers = max(1, min(max_workers, len(jobs)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        return list(
-            executor.map(
-                lambda job: _inspect_one_batch(
+    return map_ordered(
+        jobs,
+        lambda job: _inspect_one_batch(
                     job[0],
                     job[1],
                     config=config,
@@ -194,9 +185,8 @@ def inspect_blocks_batch(
                     indication=indication,
                     max_tokens=max_tokens,
                 ),
-                jobs,
-            )
-        )
+        workers=max_workers,
+    )
 
 
 def _inspect_one_batch(

@@ -48,6 +48,31 @@ const config: Config = {
           foreground: "hsl(var(--card-foreground))",
         },
       },
+      // One motion vocabulary for the whole app. Components reference these
+      // tokens instead of inventing durations, and lib/motion.ts maps each
+      // kind of state change to exactly one recipe.
+      transitionDuration: {
+        fast: "120ms",
+        base: "180ms",
+        slow: "320ms",
+      },
+      transitionTimingFunction: {
+        enter: "cubic-bezier(0.2, 0, 0, 1)",
+        exit: "cubic-bezier(0.4, 0, 1, 1)",
+      },
+      keyframes: {
+        "fade-rise": {
+          from: { opacity: "0", transform: "translateY(2px)" },
+          to: { opacity: "1", transform: "none" },
+        },
+        shimmer: {
+          "100%": { transform: "translateX(100%)" },
+        },
+      },
+      animation: {
+        "fade-rise": "fade-rise 180ms cubic-bezier(0.2, 0, 0, 1)",
+        shimmer: "shimmer 1.6s infinite",
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",

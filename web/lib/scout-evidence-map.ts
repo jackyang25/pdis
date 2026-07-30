@@ -1,10 +1,21 @@
+import { stableHash } from "./utils.ts";
+import {
+  displayAttributeLabel,
+  sourceDisplayLabel,
+  GROUNDING_LABEL,
+  PRECEDENT_LABEL,
+  OUTCOME_LABEL,
+} from "./scout-labels.ts";
 import type {
+  Conformity,
   EvidenceAssessment,
   Finding,
   Match,
   PrecedentSignal,
   ScoutResponse,
 } from "./api";
+
+export { displayAttributeLabel };
 
 export type EvidenceMapNodeKind = "document" | "field" | "insight" | "source";
 
@@ -77,13 +88,6 @@ const RELATION_LABEL: Record<Match["relation"], string> = {
   unrelated: "Unrelated",
 };
 
-const GROUNDING_LABEL: Record<EvidenceAssessment["strength"], string> = {
-  well_grounded: "Well grounded",
-  partial: "Partial",
-  thin: "Thin",
-  unsupported: "Unsupported",
-  unknown: "Unknown",
-};
 
 const GROUNDING_TONE: Record<
   EvidenceAssessment["strength"],
@@ -96,19 +100,7 @@ const GROUNDING_TONE: Record<
   unknown: "neutral",
 };
 
-const PRECEDENT_LABEL: Record<PrecedentSignal["precedent"], string> = {
-  direct: "Direct",
-  adjacent: "Adjacent",
-  none: "None found",
-  unknown: "Unknown",
-};
 
-const OUTCOME_LABEL: Record<PrecedentSignal["outcome"], string> = {
-  favorable: "Favorable",
-  mixed: "Mixed",
-  unfavorable: "Unfavorable",
-  unknown: "Unknown",
-};
 
 const OUTCOME_TONE: Record<
   PrecedentSignal["outcome"],
@@ -120,51 +112,7 @@ const OUTCOME_TONE: Record<
   unknown: "neutral",
 };
 
-const ACRONYMS = new Set([
-  "cmv",
-  "fda",
-  "gcp",
-  "glp",
-  "gmp",
-  "hiv",
-  "hpv",
-  "poc",
-  "rct",
-  "rsv",
-  "tb",
-  "who",
-]);
 
-export function displayAttributeLabel(ref: string): string {
-  const local = ref.includes(".") ? ref.split(".").slice(1).join(".") : ref;
-  return local
-    .replace(/_/g, " ")
-    .split(" ")
-    .map((word) =>
-      ACRONYMS.has(word.toLowerCase())
-        ? word.toUpperCase()
-        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
-    )
-    .join(" ");
-}
-
-function sourceDisplayLabel(source: string, labels?: Record<string, string>): string {
-  return (
-    labels?.[source] ??
-    source
-      .replace(/[_-]+/g, " ")
-      .replace(/\b\w/g, (character) => character.toUpperCase())
-  );
-}
-
-function stableHash(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
 
 function insightKey(match: Match): string {
   return (
@@ -200,13 +148,20 @@ function analysisInsightIds(result: ScoutResponse, attributeRef: string): Set<st
   for (const id of precedent?.outcome_insight_ids ?? []) ids.add(id);
   for (const id of precedent?.supporting_insight_ids ?? []) ids.add(id);
 
-  const conformity = result.conformity?.find(
-    (item) => item.attribute_refs.includes(attributeRef),
-  );
-  for (const measurement of conformity?.measurements ?? []) {
-    if (measurement.insight_id) ids.add(measurement.insight_id);
+  // Calibration produces one record per numeric target, so a field with a
+  // threshold and an optimal target owns several.
+  for (const score of conformitiesFor(result, attributeRef)) {
+    for (const measurement of score.measurements) {
+      if (measurement.insight_id) ids.add(measurement.insight_id);
+    }
   }
   return ids;
+}
+
+function conformitiesFor(result: ScoutResponse, attributeRef: string): Conformity[] {
+  return (result.conformity ?? []).filter((item) =>
+    item.attribute_refs.includes(attributeRef),
+  );
 }
 
 function selectVisibleMatches(
@@ -355,9 +310,7 @@ export function buildScoutEvidenceMap(
   const assessment = result.assessments?.find(
     (item) => item.attribute_ref === attributeRef,
   );
-  const conformity = result.conformity?.find(
-    (item) => item.attribute_refs.includes(attributeRef),
-  );
+  const conformities = conformitiesFor(result, attributeRef);
   const precedent = result.precedents?.find(
     (item) => item.attribute_ref === attributeRef,
   );
@@ -371,14 +324,25 @@ export function buildScoutEvidenceMap(
       tone: GROUNDING_TONE[assessment.strength],
     });
   }
-  if (conformity) {
-    signals.push({
-      label: "Quantitative calibration",
-      value: conformity.benchmark_count > 0
-        ? `${conformity.target_meeting_count}/${conformity.benchmark_count} meet target`
-        : "No valid cohort",
-      tone: "neutral",
-    });
+  if (conformities.length > 0) {
+    // Comparator counts add up across a field's numeric targets; meeting rates
+    // do not, because separate targets are not calculation-compatible.
+    const admitted = conformities.reduce(
+      (total, score) => total + score.benchmark_count,
+      0,
+    );
+    const only = conformities.length === 1 ? conformities[0] : null;
+    let value: string;
+    if (admitted === 0) {
+      value = "None admitted";
+    } else if (only) {
+      value = `${only.target_meeting_count}/${only.benchmark_count} meet target`;
+    } else {
+      // A rate would have to blend incompatible targets, so report the cohort
+      // size only; the per-target split sits in this node's meta line.
+      value = `${admitted} comparator${admitted === 1 ? "" : "s"}`;
+    }
+    signals.push({ label: "Quantitative calibration", value, tone: "neutral" });
   }
   if (precedent) {
     signals.push({
@@ -395,7 +359,12 @@ export function buildScoutEvidenceMap(
       eyebrow: "Evaluated field",
       title: displayAttributeLabel(attributeRef),
       summary: variable.description,
-      meta: `${uniqueMatches.length} insight${uniqueMatches.length === 1 ? "" : "s"}`,
+      meta: [
+        conformities.length > 1 ? `${conformities.length} numeric targets` : null,
+        `${uniqueMatches.length} insight${uniqueMatches.length === 1 ? "" : "s"}`,
+      ]
+        .filter(Boolean)
+        .join(" · "),
       blockIds: variable.block_ids,
       signals,
     },

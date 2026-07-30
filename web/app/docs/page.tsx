@@ -13,14 +13,23 @@ import {
 } from "@/lib/product-knowledge";
 import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
 import { ArchitectureGraphs } from "@/components/docs/architecture-graph";
+import { PromptReference } from "@/components/docs/prompt-reference";
 
 const SECTION_ORDER = ["overview", "tools", "architecture", "workflows", "scout", "assistant", "results", "development", "faq"];
 const DOCUMENT_SECTIONS = [...PRODUCT_KNOWLEDGE.sections].sort(
   (left, right) => SECTION_ORDER.indexOf(left.id) - SECTION_ORDER.indexOf(right.id),
 );
 
-const NAVIGATION = DOCUMENT_SECTIONS.map(
-  (section) => [section.id, section.title] as const,
+// The prompt reference sits inside the workflows section but is worth its own
+// nav entry: a reader looking for "what did the model get told" will not guess
+// that it lives under tool workflows.
+const NAVIGATION = DOCUMENT_SECTIONS.flatMap((section) =>
+  section.id === "workflows"
+    ? ([
+        [section.id, section.title],
+        ["prompts", "Model instructions"],
+      ] as const)
+    : ([[section.id, section.title]] as const),
 );
 
 const TOOLS: readonly (readonly [string, string, string])[] = [
@@ -40,7 +49,9 @@ const TOOLS: readonly (readonly [string, string, string])[] = [
 export default function DocsPage() {
   return (
     <div className="pb-16">
-      <div className="grid gap-10 lg:grid-cols-[160px_minmax(0,860px)] lg:justify-center lg:gap-12">
+      {/* The content column is wider than the reading measure so the
+          architecture diagram has room; each prose block caps its own width. */}
+      <div className="grid gap-10 lg:grid-cols-[160px_minmax(0,1060px)] lg:justify-center lg:gap-12">
         <DocsNavigation />
 
         <article className="min-w-0">
@@ -58,7 +69,7 @@ export default function DocsPage() {
             <div className="mt-5 flex flex-wrap items-center gap-2">
               <Link
                 href="/"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-[11px] font-medium text-background transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-[11px] font-medium text-background transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 motion-reduce:transition-none"
               >
                 Open workspace
                 <ArrowRight className="h-3 w-3" aria-hidden="true" />
@@ -67,7 +78,7 @@ export default function DocsPage() {
                 href="https://github.com/jackyang25/pdis"
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
               >
                 <Github className="h-3.5 w-3.5" aria-hidden="true" />
                 GitHub
@@ -133,6 +144,8 @@ function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
           {block.description}
         </p>
         <ArchitectureGraphs graphs={block.graphs} description={block.description} />
+        <h3 className="mt-8 text-sm font-semibold">Instructions given to the model</h3>
+        <PromptReference />
       </ContentGroup>
     );
   }
@@ -180,7 +193,7 @@ function DocsNavigation() {
         <p className="px-2 text-[9px] font-semibold uppercase tracking-[0.11em] text-muted-foreground/70">On this page</p>
         <div className="mt-1 space-y-0.5">
           {NAVIGATION.map(([href, label]) => (
-            <a key={href} href={`#${href}`} className="block rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+            <a key={href} href={`#${href}`} className="block rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground motion-reduce:transition-none">
               {label}
             </a>
           ))}
@@ -218,7 +231,7 @@ function Step({ number, title, children }: { number: string; title: string; chil
     <li className="relative">
       <span className="absolute -left-[29px] top-0 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-background font-mono text-[8px] text-muted-foreground">{number}</span>
       <h3 className="text-xs font-semibold">{title}</h3>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">{children}</p>
+      <p className="mt-1 max-w-[75ch] text-xs leading-5 text-muted-foreground">{children}</p>
     </li>
   );
 }
@@ -229,7 +242,7 @@ function DefinitionRows({ rows }: { rows: readonly (readonly [string, string])[]
       {rows.map(([term, description]) => (
         <div key={term} className="grid gap-1 border-b border-border py-3 sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-5">
           <dt className="text-xs font-medium text-foreground">{term}</dt>
-          <dd className="text-xs leading-5 text-muted-foreground">{description}</dd>
+          <dd className="max-w-[75ch] text-xs leading-5 text-muted-foreground">{description}</dd>
         </div>
       ))}
     </dl>
@@ -272,7 +285,7 @@ function Callout({
         />
         <div className="min-w-0">
           <p className="text-xs font-semibold">{title}</p>
-          <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{children}</p>
+          <p className="mt-1.5 max-w-[75ch] text-xs leading-5 text-muted-foreground">{children}</p>
         </div>
       </div>
     </aside>
@@ -281,7 +294,7 @@ function Callout({
 
 function ReferenceLink({ href, title, description }: { href: string; title: string; description: string }) {
   return (
-    <a href={href} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 py-3.5 text-xs transition-colors hover:text-foreground">
+    <a href={href} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 py-3.5 text-xs transition-colors hover:text-foreground motion-reduce:transition-none">
       <span>
         <span className="font-medium text-foreground">{title}</span>
         <span className="ml-2 text-muted-foreground">{description}</span>
@@ -296,7 +309,7 @@ function Faq({ question, children }: { question: string; children: React.ReactNo
     <details className="group/faq border-b border-border py-3.5 last:border-b-0">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-xs font-medium [&::-webkit-details-marker]:hidden">
         {question}
-        <span className="font-mono text-sm font-normal text-muted-foreground transition-transform group-open/faq:rotate-45">+</span>
+        <span className="font-mono text-sm font-normal text-muted-foreground transition-transform group-open/faq:rotate-45 motion-reduce:transition-none">+</span>
       </summary>
       <p className="mt-2 max-w-2xl pr-8 text-xs leading-5 text-muted-foreground">{children}</p>
     </details>

@@ -5,10 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 
 from ..ai import request_structured
+from shared.batching import fixed_batches, map_ordered
 from ..ai_contracts import evidence_review_batch
 from ..models import (
     ConformityScore,
@@ -23,7 +23,9 @@ from ..prompt_primitives import (
 )
 
 
-MAX_GROUPS_PER_REVIEW = 12
+# Per-item scope: one admission recommendation per source record, so an
+# unrelated record can never sit in this decision's prompt.
+GROUPS_PER_REQUEST = 1
 MAX_REVIEW_WORKERS = 4
 MAX_TOKENS = 6000
 logger = logging.getLogger(__name__)
@@ -37,25 +39,9 @@ class _EvidenceReviewGroup:
     measurements: tuple[Measurement, ...]
 
 
-def prefill_evidence_review(
-    scores: list[ConformityScore],
-    targets: list[QuantitativeTarget],
-    llm_client: LLMClientProtocol | None,
-) -> list[ConformityScore]:
-    """Recommend admission decisions without mutating calculation inputs.
-
-    The independent reviewer may decide only existing candidates from one
-    source record. It cannot change their mapped facts or provenance. Human
-    confirmation remains the boundary that changes ``admission_status`` and
-    rebuilds statistics.
-    """
-    groups = _review_groups(scores, targets)
-    if not groups:
-        return scores
-    if llm_client is None:
-        return _apply_recommendations(scores, groups, {})
-
-    prompt = (
+def build_review_system_prompt() -> str:
+    """Instructions sent when triaging external measurement proposals."""
+    return (
         "ROLE\n"
         "You independently review existing quantitative evidence candidates from one source "
         "record against one document target. You recommend decisions; you cannot create, "
@@ -88,11 +74,31 @@ def prefill_evidence_review(
         "Review every group ID and every candidate ID exactly once. Give each decision one short, "
         "source-specific reason. Return only the schema-bound response."
     )
+
+
+def prefill_evidence_review(
+    scores: list[ConformityScore],
+    targets: list[QuantitativeTarget],
+    llm_client: LLMClientProtocol | None,
+) -> list[ConformityScore]:
+    """Recommend admission decisions without mutating calculation inputs.
+
+    The independent reviewer may decide only existing candidates from one
+    source record. It cannot change their mapped facts or provenance. Human
+    confirmation remains the boundary that changes ``admission_status`` and
+    rebuilds statistics.
+    """
+    groups = _review_groups(scores, targets)
+    if not groups:
+        return scores
+    if llm_client is None:
+        return _apply_recommendations(scores, groups, {})
+
+    prompt = (
+        build_review_system_prompt()
+    )
     by_candidate: dict[str, tuple[str, str]] = {}
-    batches = [
-        groups[offset : offset + MAX_GROUPS_PER_REVIEW]
-        for offset in range(0, len(groups), MAX_GROUPS_PER_REVIEW)
-    ]
+    batches = fixed_batches(groups, GROUPS_PER_REQUEST)
 
     def review_batch(batch: list[_EvidenceReviewGroup]) -> object | None:
         candidate_ids = [
@@ -121,8 +127,7 @@ def prefill_evidence_review(
             )
             return None
 
-    with ThreadPoolExecutor(max_workers=min(MAX_REVIEW_WORKERS, len(batches))) as executor:
-        responses = list(executor.map(review_batch, batches))
+    responses = map_ordered(batches, review_batch, workers=MAX_REVIEW_WORKERS)
 
     for batch, raw in zip(batches, responses):
         allowed = {group.id: group for group in batch}

@@ -3,6 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check, CircleHelp, Loader2, Upload } from "lucide-react";
 import { CollapsibleCard } from "@/components/collapsible-card";
+import { ErrorMessage } from "@/components/ui/error-message";
+import {
+  DocumentSourceProvider,
+  DocumentSourceTrace,
+} from "@/components/document-source-trace";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
 import { ProgressSteps } from "@/components/progress-steps";
@@ -25,7 +30,6 @@ import {
   type AlignmentResult,
   type AlignmentUnit,
   type AlignmentUnitType,
-  type ContentBlock,
   type DocumentType,
 } from "@/lib/api";
 import {
@@ -60,7 +64,7 @@ const UNIT_TYPES: AlignmentUnitType[] = [
 const RELATION_STYLES: Record<AlignmentRelation, string> = {
   aligned: "border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-700",
   modified: "border-amber-500/30 bg-amber-500/[0.07] text-amber-700",
-  conflict: "border-red-500/25 bg-red-500/[0.06] text-red-700",
+  conflict: "border-[hsl(var(--tone-danger))]/25 bg-[hsl(var(--tone-danger))]/[0.06] text-[hsl(var(--tone-danger))]",
   missing: "border-slate-400/30 bg-slate-500/[0.06] text-slate-700",
   introduced: "border-blue-500/25 bg-blue-500/[0.06] text-blue-700",
 };
@@ -270,7 +274,7 @@ export default function AlignerPage() {
           </section>
         )}
 
-        {session.error && <p className="text-sm text-destructive">{session.error}</p>}
+        {session.error && <ErrorMessage>{session.error}</ErrorMessage>}
         {session.result && (
           <AlignmentView
             result={session.result.alignment}
@@ -292,7 +296,6 @@ function AlignmentView({
   const [relationFilter, setRelationFilter] = useState<AlignmentRelation | "all">("all");
   const [unitTypeFilter, setUnitTypeFilter] = useState<AlignmentUnitType | "all">("all");
   const units = useMemo(() => new Map(result.units.map((unit) => [unit.id, unit])), [result.units]);
-  const blocks = useMemo(() => new Map(result.blocks.map((block) => [block.id, block])), [result.blocks]);
   const links = result.links.filter((link) => {
     const unitType = primaryUnitType(link, units);
     return (
@@ -303,58 +306,60 @@ function AlignmentView({
   const definitions = new Map(result.relations.map((item) => [item.name, item.description]));
 
   return (
-    <CollapsibleCard
-      title="Traceability result"
-      subtitle={
-        <span>
-          {result.reference_document.doc_id}{" "}
-          <ArrowRight className="mx-1 inline h-3 w-3" />{" "}
-          {result.comparison_document.doc_id}
-        </span>
-      }
-      contentClassName="p-0"
-      trailing={
-        <FinalResultActions
-          onNewAnalysis={onNewAnalysis}
-          download={{
-            filename: alignerResultFilename({ alignment: result }),
-            data: packAlignerResult({ alignment: result }),
-          }}
+    <DocumentSourceProvider blocks={result.blocks}>
+      <CollapsibleCard
+        title="Traceability result"
+        subtitle={
+          <span>
+            {result.reference_document.doc_id}{" "}
+            <ArrowRight className="mx-1 inline h-3 w-3" />{" "}
+            {result.comparison_document.doc_id}
+          </span>
+        }
+        contentClassName="p-0"
+        trailing={
+          <FinalResultActions
+            onNewAnalysis={onNewAnalysis}
+            download={{
+              filename: alignerResultFilename({ alignment: result }),
+              data: packAlignerResult({ alignment: result }),
+            }}
+          />
+        }
+      >
+        <div className="flex items-center gap-2 border-b border-border px-5 py-3 sm:px-6">
+          <p className="text-xs font-medium text-muted-foreground">Relationship matrix</p>
+          <RelationHelp definitions={result.relations} />
+        </div>
+        <AlignmentMatrix
+          links={result.links}
+          units={units}
+          relationFilter={relationFilter}
+          unitTypeFilter={unitTypeFilter}
+          definitions={definitions}
+          onRelationChange={setRelationFilter}
+          onUnitTypeChange={setUnitTypeFilter}
         />
-      }
-    >
-      <div className="flex items-center gap-2 border-b border-border px-5 py-3 sm:px-6">
-        <p className="text-xs font-medium text-muted-foreground">Relationship matrix</p>
-        <RelationHelp definitions={result.relations} />
-      </div>
-      <AlignmentMatrix
-        links={result.links}
-        units={units}
-        relationFilter={relationFilter}
-        unitTypeFilter={unitTypeFilter}
-        definitions={definitions}
-        onRelationChange={setRelationFilter}
-        onUnitTypeChange={setUnitTypeFilter}
-      />
 
-      <div className="flex min-h-11 items-center justify-between gap-4 border-b border-border px-5 py-2.5 text-xs text-muted-foreground">
-        <span>Showing {links.length} of {result.links.length} links</span>
-        {(relationFilter !== "all" || unitTypeFilter !== "all") && (
-          <button
-            type="button"
-            className="font-medium text-foreground transition-opacity hover:opacity-65"
-            onClick={() => { setRelationFilter("all"); setUnitTypeFilter("all"); }}
-          >
-            Clear filter
-          </button>
-        )}
-      </div>
+        <div className="flex min-h-11 items-center justify-between gap-4 border-b border-border px-5 py-2.5 text-xs text-muted-foreground">
+          <span>Showing {links.length} of {result.links.length} links</span>
+          {(relationFilter !== "all" || unitTypeFilter !== "all") && (
+            <button
+              type="button"
+              className="font-medium text-foreground transition-opacity hover:opacity-65 motion-reduce:transition-none"
+              onClick={() => { setRelationFilter("all"); setUnitTypeFilter("all"); }}
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
 
-      <div className="divide-y divide-border">
-        {links.map((link) => <AlignmentRow key={link.id} link={link} units={units} blocks={blocks} definition={definitions.get(link.relation)} />)}
-        {links.length === 0 && <p className="px-5 py-10 text-center text-sm text-muted-foreground">No links match this filter.</p>}
-      </div>
-    </CollapsibleCard>
+        <div className="divide-y divide-border">
+          {links.map((link) => <AlignmentRow key={link.id} link={link} units={units} definition={definitions.get(link.relation)} />)}
+          {links.length === 0 && <p className="px-5 py-10 text-center text-sm text-muted-foreground">No links match this filter.</p>}
+        </div>
+      </CollapsibleCard>
+    </DocumentSourceProvider>
   );
 }
 
@@ -408,7 +413,7 @@ function AlignmentMatrix({
                       title={definitions.get(relation)}
                       onClick={() => onRelationChange(relationFilter === relation ? "all" : relation)}
                       className={cn(
-                        "flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left font-medium transition-colors hover:bg-muted/50",
+                        "flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left font-medium transition-colors hover:bg-muted/50 motion-reduce:transition-none",
                         relationFilter === relation && "bg-muted/70 text-foreground",
                       )}
                     >
@@ -428,7 +433,7 @@ function AlignmentMatrix({
                     type="button"
                     onClick={() => onUnitTypeChange(unitTypeFilter === unitType ? "all" : unitType)}
                     className={cn(
-                      "w-full px-3 py-3 text-left font-medium transition-colors hover:bg-muted/50",
+                      "w-full px-3 py-3 text-left font-medium transition-colors hover:bg-muted/50 motion-reduce:transition-none",
                       unitTypeFilter === unitType && "bg-muted/70",
                     )}
                   >
@@ -455,7 +460,7 @@ function AlignmentMatrix({
                         }}
                         style={{ backgroundColor: matrixColor(relation, count, maxCount) }}
                         className={cn(
-                          "flex h-9 w-full items-center justify-center rounded text-sm font-semibold tabular-nums transition-[box-shadow,transform] enabled:hover:-translate-y-px enabled:hover:shadow-sm disabled:text-muted-foreground/30",
+                          "flex h-9 w-full items-center justify-center rounded text-sm font-semibold tabular-nums transition-[box-shadow,transform] enabled:hover:-translate-y-px enabled:hover:shadow-sm disabled:text-muted-foreground/30 motion-reduce:transition-none",
                           selected && "ring-1 ring-inset ring-foreground/60",
                         )}
                       >
@@ -502,7 +507,7 @@ function RelationHelp({ definitions }: { definitions: { name: string; descriptio
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" aria-label="Explain alignment relations" className="text-muted-foreground transition-colors hover:text-foreground">
+        <button type="button" aria-label="Explain alignment relations" className="text-muted-foreground transition-colors hover:text-foreground motion-reduce:transition-none">
           <CircleHelp className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
@@ -516,7 +521,7 @@ function RelationHelp({ definitions }: { definitions: { name: string; descriptio
   );
 }
 
-function AlignmentRow({ link, units, blocks, definition }: { link: AlignmentLink; units: Map<string, AlignmentUnit>; blocks: Map<string, ContentBlock>; definition?: string }) {
+function AlignmentRow({ link, units, definition }: { link: AlignmentLink; units: Map<string, AlignmentUnit>; definition?: string }) {
   const references = link.reference_unit_ids.map((id) => units.get(id)).filter(Boolean) as AlignmentUnit[];
   const comparisons = link.comparison_unit_ids.map((id) => units.get(id)).filter(Boolean) as AlignmentUnit[];
   return (
@@ -528,33 +533,25 @@ function AlignmentRow({ link, units, blocks, definition }: { link: AlignmentLink
         <span className="text-[10px] text-muted-foreground">{references[0]?.unit_type ? displayLabel(references[0].unit_type) : comparisons[0]?.unit_type ? displayLabel(comparisons[0].unit_type) : "Unit"}</span>
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-start">
-        <UnitSide label="Reference" units={references} blocks={blocks} empty="No reference unit" />
+        <UnitSide label="Reference" units={references} empty="No reference unit" />
         <ArrowRight className="mt-7 hidden h-4 w-4 text-muted-foreground/60 md:block" />
-        <UnitSide label="Comparison" units={comparisons} blocks={blocks} empty="No comparison unit" />
+        <UnitSide label="Comparison" units={comparisons} empty="No comparison unit" />
       </div>
       <p className="mt-4 text-xs leading-5 text-muted-foreground">{link.reason}</p>
     </article>
   );
 }
 
-function UnitSide({ label, units, blocks, empty }: { label: string; units: AlignmentUnit[]; blocks: Map<string, ContentBlock>; empty: string }) {
+function UnitSide({ label, units, empty }: { label: string; units: AlignmentUnit[]; empty: string }) {
   return (
     <div className="min-w-0">
       <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
       {units.length ? units.map((unit) => (
         <div key={unit.id} className="mb-2 last:mb-0">
           <p className="text-sm leading-6">{unit.statement}</p>
-          <details className="mt-1 text-[11px] text-muted-foreground">
-            <summary className="w-fit cursor-pointer select-none hover:text-foreground">
-              {unit.block_ids.length} source block{unit.block_ids.length === 1 ? "" : "s"}
-            </summary>
-            <div className="mt-2 space-y-2 border-l border-border pl-3">
-              {unit.block_ids.map((blockId) => {
-                const block = blocks.get(blockId);
-                return <div key={blockId}><p className="font-mono text-[10px]">{blockId}</p><p className="mt-0.5 line-clamp-4 leading-5">{block?.content || "Visual source block"}</p></div>;
-              })}
-            </div>
-          </details>
+          <div className="mt-1">
+            <DocumentSourceTrace blockIds={unit.block_ids} />
+          </div>
         </div>
       )) : <p className="text-sm italic text-muted-foreground/70">{empty}</p>}
     </div>
@@ -574,7 +571,7 @@ function FileSlot({ label, helper, file, disabled, onChange }: { label: string; 
         onClick={() => input.current?.click()}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => { event.preventDefault(); if (!disabled) onChange(event.dataTransfer.files?.[0] ?? null); }}
-        className="flex min-h-[76px] w-full items-center gap-3 rounded-md border border-dashed border-input bg-muted/20 px-4 text-left transition-colors hover:border-foreground/25 hover:bg-muted/40 disabled:opacity-50"
+        className="flex min-h-[76px] w-full items-center gap-3 rounded-md border border-dashed border-input bg-muted/20 px-4 text-left transition-colors hover:border-foreground/25 hover:bg-muted/40 disabled:opacity-50 motion-reduce:transition-none"
       >
         {file ? <Check className="h-4 w-4 shrink-0" /> : <Upload className="h-4 w-4 shrink-0 text-muted-foreground" />}
         <span className="min-w-0"><span className="block truncate text-sm">{file?.name ?? "Choose a document"}</span><span className="mt-1 block text-[11px] text-muted-foreground">{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : helper}</span></span>

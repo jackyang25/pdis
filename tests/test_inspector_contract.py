@@ -145,9 +145,10 @@ class InspectorContractTests(unittest.TestCase):
             dimensions={name: DimensionGrade("A") for name in DIMENSIONS},
             section_grades=[],
             grading_status="complete",
+            blocks=[block("document:b1", "Profile")],
         )
         with self.assertRaisesRegex(ValueError, "section ledger"):
-            validate_result_contract(result, [block("document:b1", "Profile")], cfg)
+            validate_result_contract(result, cfg)
 
 
 if __name__ == "__main__":

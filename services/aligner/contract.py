@@ -7,7 +7,11 @@ from collections import Counter
 from .models import AlignmentConfig, AlignmentResult, AlignmentUnit
 
 
-def validate_result_contract(result: AlignmentResult, config: AlignmentConfig) -> None:
+def validate_result_contract(
+    result: AlignmentResult,
+    config: AlignmentConfig,
+) -> AlignmentResult:
+    """Return ``result`` after enforcing its closed vocabularies and lineage."""
     block_by_id = {block.id: block for block in result.blocks}
     if len(block_by_id) != len(result.blocks):
         raise ValueError("Aligner source block IDs must be unique")
@@ -103,3 +107,4 @@ def _resolve_units(
 
 def _block_ids(units: list[AlignmentUnit]) -> list[str]:
     return list(dict.fromkeys(block_id for unit in units for block_id in unit.block_ids))
+    return result

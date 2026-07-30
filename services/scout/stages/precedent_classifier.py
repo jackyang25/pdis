@@ -37,9 +37,9 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 
+# Matches evidence_assessor. drift_classifier runs a larger budget because its
+# per-insight contract returns lineage for every supplied block.
 DEFAULT_MAX_TOKENS = 16000
-# Lockstep with the other doc-reading stages so a target near the end of a long
-# doc is never cut off in one stage but not another.
 
 
 def classify_precedent(
@@ -66,7 +66,7 @@ def classify_precedent(
     ):
         return None
 
-    system_prompt = _system_prompt(
+    system_prompt = build_system_prompt(
         attribute=attribute,
         indication=indication,
         intervention_class=intervention_class,
@@ -153,7 +153,7 @@ _GENERIC_PRECEDENT_FRAMING = (
 )
 
 
-def _system_prompt(
+def build_system_prompt(
     *,
     attribute: Attribute,
     indication: str,

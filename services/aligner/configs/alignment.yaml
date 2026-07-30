@@ -33,6 +33,6 @@ document_roles:
 execution:
   extraction_batch_characters: 50000
   extraction_batch_blocks: 40
-  alignment_batch_units: 16
+  alignment_batch_units: 1
   alignment_comparison_batch_units: 48
   max_parallel_calls: 6

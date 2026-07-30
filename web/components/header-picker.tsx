@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Label } from "./ui/label";
+import { ErrorMessage } from "@/components/ui/error-message";
 import {
   Select,
   SelectContent,
@@ -80,7 +81,7 @@ export function HeaderPicker() {
   if (error) {
     return (
       <div className="flex min-h-[264px] items-center sm:min-h-[124px] lg:min-h-[264px]">
-        <p className="text-xs leading-5 text-destructive">Could not load configuration: {error}</p>
+        <ErrorMessage size="xs">Could not load configuration: {error}</ErrorMessage>
       </div>
     );
   }

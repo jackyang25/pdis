@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import yaml
 
+from shared.openai_client import ModelTask
+
 if TYPE_CHECKING:
     from services.chunker import ContentBlock
 
@@ -21,7 +23,7 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
-        task: str = "reasoning",
+        task: ModelTask = "reasoning",
     ) -> dict[str, Any] | None:
         ...
 
@@ -182,12 +184,33 @@ class InspectionConfig:
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
 
 
-def find_config(org: str, source_type: str, intervention_class: str) -> "InspectionConfig | None":
-    """Load the Inspector config for the given triple. Returns None if not found
-    (Inspector rubrics are optional per triple)."""
-    path = CONFIGS_DIR / f"{org}_{source_type}_{intervention_class}.yaml"
+def has_config(org: str, source_type: str, intervention_class: str) -> bool:
+    """Report whether this triple has a rubric.
+
+    Inspector rubrics are optional per triple, unlike chunker and scout configs.
+    That optionality is asked about here rather than expressed as a different
+    return contract from :func:`find_config`, so one caller can treat every
+    service's lookup identically.
+    """
+    return _config_path(org, source_type, intervention_class).exists()
+
+
+def _config_path(org: str, source_type: str, intervention_class: str) -> Path:
+    return CONFIGS_DIR / f"{org}_{source_type}_{intervention_class}.yaml"
+
+
+def find_config(org: str, source_type: str, intervention_class: str) -> "InspectionConfig":
+    """Load the Inspector config for the given triple.
+
+    Raises ``LookupError`` when absent, matching chunker and scout. Use
+    :func:`has_config` when absence is an expected, non-exceptional answer.
+    """
+    path = _config_path(org, source_type, intervention_class)
     if not path.exists():
-        return None
+        raise LookupError(
+            f"No Inspector config for ({org}, {source_type}, {intervention_class}). "
+            f"Expected: {path}"
+        )
     config = load_inspection_config(str(path))
     requested = (org, source_type, intervention_class)
     configured = (config.org, config.source_type, config.intervention_class)

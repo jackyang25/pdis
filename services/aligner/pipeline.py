@@ -158,5 +158,5 @@ def run_pipeline(
         relations=config.relations,
         blocks=all_blocks,
     )
-    validate_result_contract(result, config)
+    result = validate_result_contract(result, config)
     return result

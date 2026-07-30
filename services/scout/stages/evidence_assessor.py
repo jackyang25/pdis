@@ -45,7 +45,7 @@ def assess_evidence(
             attribute,
             reason="No external-evidence insights were available for assessment.",
         )
-    system_prompt = _system_prompt(
+    system_prompt = build_system_prompt(
         attribute=attribute,
         indication=indication,
         intervention_class=intervention_class,
@@ -97,7 +97,7 @@ def assess_evidence(
     )
 
 
-def _system_prompt(
+def build_system_prompt(
     *,
     attribute: Attribute,
     indication: str,

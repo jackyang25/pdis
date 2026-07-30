@@ -167,48 +167,6 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
-def answer(
-    client: ChatLLMProtocol,
-    result: dict[str, Any],
-    result_type: str,
-    messages: list[dict[str, Any]],
-    *,
-    document: list[dict[str, Any]] | None = None,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> str:
-    """Answer the latest user turn. `messages` is the prior conversation
-    (roles user/assistant); the system prompt + tool loop are added here.
-
-    `document` is the source document behind the result (parsed blocks). A map
-    is placed in the system prompt; exact text stays available through bounded
-    document navigation tools."""
-    allowed_urls = navigator.collect_urls(result)
-    work = _initial_messages(result, result_type, messages, document)
-
-    for _ in range(MAX_STEPS):
-        message = client.chat(work, tools=TOOLS, max_tokens=max_tokens)
-        if message is None:
-            return "Sorry - I couldn't generate a response."
-        tool_calls = getattr(message, "tool_calls", None)
-        if not tool_calls:
-            return getattr(message, "content", "") or ""
-
-        work.append(_assistant_msg(message, tool_calls))
-        for call in tool_calls:
-            work.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "content": _run_tool(call, result, allowed_urls, document),
-                }
-            )
-
-    # Out of tool budget: force a final grounded answer with no further tools.
-    work.append({"role": "user", "content": "Answer now using what you've gathered."})
-    message = client.chat(work, max_tokens=max_tokens)
-    return (getattr(message, "content", "") or "") if message else ""
-
-
 def answer_stream(
     client: StreamingChatLLMProtocol,
     result: dict[str, Any],

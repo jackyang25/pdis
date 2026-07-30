@@ -13,27 +13,31 @@ export type ScoutSignalTopic =
 
 const TOPICS: Record<
   ScoutSignalTopic,
-  { title: string; summary: string; detail: string }
+  { title: string; summary: string; detail: string; promptStage: string }
 > = {
   relationships: {
     title: "Evidence relationships",
     summary: "How each external insight relates to the document target. The numbers count insights, not sources.",
     detail: "Conflicts means an insight contradicts the target. Adds context is relevant but neither proves nor disputes it. Supports means it reinforces the target. Unrelated does not meaningfully bear on it.",
+    promptStage: "drift_classifier",
   },
   grounding: {
     title: "Evidence · Grounding",
     summary: "The overall assessment of how well external evidence justifies the document target.",
     detail: "The source count is the evidence selected for this assessment; it does not need to equal the relationship counts.",
+    promptStage: "evidence_assessor",
   },
   alignment: {
     title: "Evidence · Quantitative calibration",
     summary: "A numeric document claim compared only with source-quoted, claim-compatible, deduplicated measurements.",
     detail: "The count shows how many admitted comparators meet the target. Prose-derived numbers require review before entering the distribution. Statistics describe the admitted cohort only; they are not confidence intervals or forecasts.",
+    promptStage: "conformity",
   },
   precedent: {
     title: "Precedent",
     summary: "Two separate signals: how directly prior work matches the target, and what outcome that work reported.",
     detail: "Coverage is Direct, Adjacent, None found, or Unknown. Outcome is Favorable, Mixed, Unfavorable, or Unknown.",
+    promptStage: "precedent_classifier",
   },
 };
 
@@ -61,7 +65,7 @@ export function ScoutSignalLabel({
             }}
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
-            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
           >
             <CircleHelp className="h-3 w-3" />
           </button>
@@ -79,6 +83,12 @@ export function ScoutSignalLabel({
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground/80">
             {help.detail}
           </p>
+          <a
+            href={`/docs#prompt-${help.promptStage}`}
+            className="mt-2 inline-block text-[11px] font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+          >
+            Read the instructions behind this
+          </a>
         </PopoverContent>
       </Popover>
     </span>
@@ -91,7 +101,7 @@ export function ScoutSignalHelp() {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
         >
           <CircleHelp className="h-3.5 w-3.5" />
           How to read

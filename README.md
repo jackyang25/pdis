@@ -133,14 +133,20 @@ Run the contract and build checks before merging cross-layer changes.
 PYTHONPYCACHEPREFIX=/tmp/pdis-pycache \
   .venv/bin/python -m compileall -q shared services api tests
 .venv/bin/python -m unittest discover -s tests
+npm --prefix web test
 npm --prefix web run typecheck
 npm --prefix web run build
 git diff --check
 ```
 
-Implementation invariants are documented in [AGENTS.md](AGENTS.md). The web
-application also includes focused test scripts for portable results, Scout
-review state, evidence maps, and quantitative displays.
+Build the images when a Dockerfile or a published `shared/` artifact changes, since
+the image build has its own copy rules.
+
+```sh
+docker compose build
+```
+
+Implementation invariants are documented in [AGENTS.md](AGENTS.md).
 
 ## Deployment
 

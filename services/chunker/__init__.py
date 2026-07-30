@@ -10,11 +10,13 @@ wire protocol — keep it small and stable.
 """
 
 from .models import (
+    LLMClientProtocol,
     ContentBlock,
     DocumentTypeConfig,
     ImageAsset,
     PipelineResult,
     blocks_to_dicts,
+    available_configs,
     find_config,
 )
 from .pipeline import (
@@ -26,12 +28,14 @@ from .pipeline import (
 )
 
 __all__ = [
+    "LLMClientProtocol",
     "ContentBlock",
     "DEFAULT_MAX_OUTPUT_TOKENS",
     "DocumentTypeConfig",
     "ImageAsset",
     "PipelineResult",
     "blocks_to_dicts",
+    "available_configs",
     "find_config",
     "map_blocks_batch",
     "parse_context_file",

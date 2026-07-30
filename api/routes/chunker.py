@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from services.chunker import find_config, run_pipeline
 
-from api.deps import get_openai_client
+from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import ChunkerRunResponse, ContentBlockOut
 from api.streaming import run_with_progress
 
@@ -39,6 +39,13 @@ async def run_chunker(
     contents = await file.read()
     doc_id = Path(file.filename or "doc").stem
 
+    # Construct provider clients before the stream opens: a missing credential
+    # must fail the request, not arrive as an event on a 200 response.
+    try:
+        llm_client = get_openai_client()
+    except MissingCredentialError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     def work(progress):
         temp_path = ""
         try:
@@ -46,7 +53,6 @@ async def run_chunker(
                 temp_file.write(contents)
                 temp_path = temp_file.name
 
-            llm_client = get_openai_client()
             blocks = run_pipeline(
                 temp_path,
                 doc_id,

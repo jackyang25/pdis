@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { ErrorMessage } from "@/components/ui/error-message";
 import { RunPanel } from "@/components/run-panel";
 import { ConfigurationFields } from "@/components/configuration-fields";
 import { HeaderGuard } from "@/components/header-guard";
@@ -99,7 +100,7 @@ function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
           </div>
         }
       />
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <ErrorMessage>{error}</ErrorMessage>}
       {result && <BlocksList result={result} />}
     </div>
   );
@@ -153,7 +154,7 @@ function BlocksList({ result }: { result: ChunkerResult }) {
                 <Badge variant="outline">{block.block_type}</Badge>
                 {block.section_label && <Badge variant="muted">{block.section_label}</Badge>}
                 <span className="font-mono">{block.id}</span>
-                <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/block:rotate-180" />
+                <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/block:rotate-180 motion-reduce:transition-none" />
               </summary>
               <div className="mt-2 space-y-0.5 rounded-md bg-muted/40 px-3 py-2 font-mono text-[11px] text-muted-foreground/70">
                 <div>

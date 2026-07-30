@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 from services.chunker import ContentBlock
 
 from ..ai import request_structured
+from shared.batching import fixed_batches, map_ordered
 from ..ai_contracts import target_review_batch
 from ..context import render_document_context
 from ..models import Attribute, LLMClientProtocol, QuantitativeLedger, QuantitativeTarget
@@ -20,27 +20,16 @@ from ..prompt_primitives import (
 
 
 MAX_TOKENS = 5000
-MAX_TARGETS_PER_REVIEW = 16
+# Per-item scope: one verification decision per proposed target, so an
+# unrelated proposal can never sit in this decision's prompt.
+TARGETS_PER_REQUEST = 1
 MAX_REVIEW_WORKERS = 4
 logger = logging.getLogger(__name__)
 
 
-def prefill_target_review(
-    attributes: list[Attribute],
-    ledger: QuantitativeLedger,
-    blocks: list[ContentBlock],
-    llm_client: LLMClientProtocol | None,
-) -> tuple[list[Attribute], QuantitativeLedger]:
-    """Recommend decisions without creating a second target interpretation.
-
-    The verifier can select only existing target IDs and a closed decision. It
-    cannot rewrite expressions, semantics, field links, or provenance. Clear
-    recommendations prefill the client-held review; ambiguity remains pending.
-    """
-    if not ledger.targets:
-        return attributes, ledger
-    attributes_by_name = {attribute.name: attribute for attribute in attributes}
-    prompt = (
+def build_review_system_prompt() -> str:
+    """Instructions sent when triaging document numeric proposals."""
+    return (
         "ROLE\n"
         "You independently review existing document numeric-target proposals. You recommend "
         "decisions; you cannot create, rewrite, merge, or reassign targets, semantic mappings, "
@@ -69,6 +58,26 @@ def prefill_target_review(
         "OUTPUT CONTRACT\n"
         "Review every supplied target ID exactly once. Give each decision one short, "
         "document-specific reason. Return only the schema-bound response."
+    )
+
+
+def prefill_target_review(
+    attributes: list[Attribute],
+    ledger: QuantitativeLedger,
+    blocks: list[ContentBlock],
+    llm_client: LLMClientProtocol | None,
+) -> tuple[list[Attribute], QuantitativeLedger]:
+    """Recommend decisions without creating a second target interpretation.
+
+    The verifier can select only existing target IDs and a closed decision. It
+    cannot rewrite expressions, semantics, field links, or provenance. Clear
+    recommendations prefill the client-held review; ambiguity remains pending.
+    """
+    if not ledger.targets:
+        return attributes, ledger
+    attributes_by_name = {attribute.name: attribute for attribute in attributes}
+    prompt = (
+        build_review_system_prompt()
     )
     proposals: dict[str, str] = {}
     for target in ledger.targets:
@@ -126,10 +135,7 @@ def prefill_target_review(
             ),
         )
 
-    batches = [
-        target_ids[index:index + MAX_TARGETS_PER_REVIEW]
-        for index in range(0, len(target_ids), MAX_TARGETS_PER_REVIEW)
-    ]
+    batches = fixed_batches(target_ids, TARGETS_PER_REQUEST)
 
     def review_batch(batch_ids: list[str]) -> object | None:
         message = (
@@ -157,8 +163,7 @@ def prefill_target_review(
             return None
         return raw
 
-    with ThreadPoolExecutor(max_workers=min(MAX_REVIEW_WORKERS, len(batches))) as executor:
-        responses = list(executor.map(review_batch, batches))
+    responses = map_ordered(batches, review_batch, workers=MAX_REVIEW_WORKERS)
 
     for batch_ids, raw in zip(batches, responses):
         if isinstance(raw, list):

@@ -25,6 +25,11 @@ never enter citations. DOCX preserves body order and embedded images, PDF
 preserves page metadata, and PPTX retains slide text, tables, notes, positions,
 and rendered slide images when available.
 
+Multi-column table rows retain both their canonical searchable `content` and
+ordered `table_cells` with exact content offsets. Consumers render columns from
+those cells and fall back to canonical text when structured cells are not
+available; they never reconstruct cells by splitting prose.
+
 Section mapping uses a schema-bound closed taxonomy. Every parsed block must be
 labeled exactly once; unknown, duplicate, or omitted block IDs fail the mapping
 boundary rather than entering downstream tools as partial document context.

@@ -9,8 +9,6 @@ searcher through their public contracts only.
 from __future__ import annotations
 
 import threading
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 from pathlib import Path
 from typing import Callable, TypeVar
 
@@ -30,6 +28,7 @@ from .context import (
     render_document_context,
 )
 from .contract import validate_result_contract
+from shared.batching import budgeted_batches, fixed_batches, map_ordered
 from .models import (
     Attribute,
     ConformityScore,
@@ -59,10 +58,11 @@ from .stages.conformity import (
     score_conformity_all,
 )
 from .stages.context_validator import mismatch_message, validate_document_context
-from .stages.drift_classifier import INSIGHTS_BATCH_SIZE, classify_drift
+from .stages.drift_classifier import INSIGHTS_PER_REQUEST, classify_drift
 from .stages.evidence_assessor import assess_evidence
 from .stages.evidence_reviewer import prefill_evidence_review
 from .stages.insight_extractor import extract_insights, merge_duplicate_insights
+from .stages.insight_reconciler import reconcile_duplicate_insights
 from .stages.precedent_classifier import classify_precedent
 from .stages.projection_classifier import classify_projection_relationships
 from .stages.query_extractor import extract_queries_for_variable
@@ -71,8 +71,8 @@ from .stages.target_resolver import resolve_document_targets
 from .stages.target_reviewer import prefill_target_review
 from .stages.unit_extractor import extract_units
 
-FINDINGS_BATCH_SIZE = 40
-FINDINGS_BATCH_CHARS = 240_000
+FINDINGS_PER_REQUEST = 40
+FINDINGS_CHARS_PER_REQUEST = 240_000
 SEARCH_MAX_TOKENS = 8000
 SEARCH_MAX_USES = 10
 
@@ -564,27 +564,21 @@ def _parallel_map(
     total = len(items)
     if total == 0:
         return []
-    workers = max(1, min(workers, total))
     if progress:
         progress(stage, completed=0, total=total)
 
     lock = threading.Lock()
     state = {"done": 0}
-    results: list[_R] = [None] * total  # type: ignore[list-item]
 
-    def run_one(indexed: tuple[int, _T]) -> tuple[int, _R]:
-        idx, item = indexed
+    def run_one(item: _T) -> _R:
         result = fn(item)
         if progress:
             with lock:
                 state["done"] += 1
                 progress(stage, completed=state["done"], total=total)
-        return idx, result
+        return result
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        for idx, result in executor.map(run_one, enumerate(items)):
-            results[idx] = result
-    return results
+    return map_ordered(items, run_one, workers=workers)
 
 
 def _extract_queries_all_variables(
@@ -677,8 +671,10 @@ def _extract_insights_all_variables(
     """Run insight extraction concurrently across all (variable, finding-batch)
     units.
 
-    Every finding is retained. Batches are bounded by both item count and rendered
-    character size so one unusually large source cannot crowd the model context.
+    Every evidence-role finding is retained; reference-role records are excluded
+    because they carry catalog metadata rather than evidence. Batches are bounded
+    by both item count and rendered character size so one unusually large source
+    cannot crowd the model context.
     Each task remains single-variable and results are deterministically merged,
     preventing duplicate insights created at batch boundaries."""
     items = list(findings_by_attribute.items())
@@ -716,33 +712,31 @@ def _extract_insights_all_variables(
     insights: list[Insight] = []
     for batch_insights in results:
         insights.extend(batch_insights)
-    return merge_duplicate_insights(insights)
+    # Extraction creates objects; identity is decided after it. Code merges only
+    # statements that are literally the same, then one bounded model layer groups
+    # the paraphrases no single extraction request could see.
+    return reconcile_duplicate_insights(
+        merge_duplicate_insights(insights),
+        openai_client,
+    )
 
 
 def _finding_batches(findings: list[Finding]) -> list[list[Finding]]:
     """Partition findings without dropping any source or overfilling one prompt."""
-    batches: list[list[Finding]] = []
-    current: list[Finding] = []
-    current_chars = 0
-    for finding in findings:
-        size = (
+    def rendered_size(finding: Finding) -> int:
+        return (
             len(finding.title or "")
             + len(finding.excerpt or "")
             + len(finding.url or "")
             + sum(len(query) for query in finding.queries)
         )
-        if current and (
-            len(current) >= FINDINGS_BATCH_SIZE
-            or current_chars + size > FINDINGS_BATCH_CHARS
-        ):
-            batches.append(current)
-            current = []
-            current_chars = 0
-        current.append(finding)
-        current_chars += size
-    if current:
-        batches.append(current)
-    return batches
+
+    return budgeted_batches(
+        findings,
+        max_items=FINDINGS_PER_REQUEST,
+        max_chars=FINDINGS_CHARS_PER_REQUEST,
+        size_of=rendered_size,
+    )
 
 
 def _search_all(
@@ -831,9 +825,9 @@ def _classify_drift_all(
 
     grouped = _group_insights_by_attribute(insights, set(attribute_contexts))
     tasks = [
-        (attribute_ref, attribute_contexts.get(attribute_ref, ""), variable_insights[start : start + INSIGHTS_BATCH_SIZE])
+        (attribute_ref, attribute_contexts.get(attribute_ref, ""), batch)
         for attribute_ref, variable_insights in grouped.items()
-        for start in range(0, len(variable_insights), INSIGHTS_BATCH_SIZE)
+        for batch in fixed_batches(variable_insights, INSIGHTS_PER_REQUEST)
     ]
 
     def one(task: tuple[str, str, list[Insight]]) -> list[Match]:

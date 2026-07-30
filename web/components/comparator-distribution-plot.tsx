@@ -34,7 +34,7 @@ function Point({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="absolute z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/30"
+          className="absolute z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
           style={{ left: `${point.x}%`, top: `calc(50% + ${laneOffsets[point.lane]}px)` }}
           aria-label={`${contextual ? "Non-admitted measurement" : "Admitted comparator"}: ${formatValue(point.value, unit)}. ${point.source_quote}`}
         >

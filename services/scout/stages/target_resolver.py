@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 
 from ..ai import request_structured
+from shared.batching import fixed_batches, map_ordered
 from ..ai_contracts import target_binding_batch
 from ..context import (
     LINE_SPAN_JSON_INSTRUCTION,
@@ -32,8 +32,10 @@ from ..models import (
 from ..prompt_primitives import CANONICAL_CLAIM_PRIMITIVE
 
 DEFAULT_MAX_TOKENS = 32000
-FIELD_BATCH_SIZE = 6
-FIELD_BATCH_WORKERS = 6
+# Set scope: one request sees several fields plus the complete field catalog
+# so one document statement cannot acquire competing owners.
+FIELDS_PER_REQUEST = 6
+FIELD_RESOLUTION_WORKERS = 6
 logger = logging.getLogger(__name__)
 
 
@@ -70,10 +72,7 @@ def resolve_document_targets(
     if not fixed:
         return attributes
     chunks = chunk_document_context(document_context)
-    field_batches = [
-        fixed[index:index + FIELD_BATCH_SIZE]
-        for index in range(0, len(fixed), FIELD_BATCH_SIZE)
-    ]
+    field_batches = fixed_batches(fixed, FIELDS_PER_REQUEST)
     tasks = [
         (chunk, batch)
         for chunk in chunks
@@ -94,7 +93,7 @@ def resolve_document_targets(
         parsed = request_structured(
             llm_client,
             contract,
-            _ledger_system_prompt(fixed, requested),
+            build_ledger_system_prompt(fixed, requested),
             _ledger_user_message(chunk, requested),
             max_tokens=max_tokens,
             images=[
@@ -116,7 +115,7 @@ def resolve_document_targets(
             retry_parsed = request_structured(
                 llm_client,
                 retry_contract,
-                _ledger_system_prompt(fixed, missing, retry=True),
+                build_ledger_system_prompt(fixed, missing, retry=True),
                 _ledger_user_message(chunk, missing),
                 max_tokens=max_tokens,
                 images=[
@@ -142,9 +141,7 @@ def resolve_document_targets(
                 )
         return decisions
 
-    workers = max(1, min(FIELD_BATCH_WORKERS, len(tasks))) if tasks else 1
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        ledgers = list(executor.map(resolve_and_report, tasks))
+    ledgers = map_ordered(tasks, resolve_and_report, workers=FIELD_RESOLUTION_WORKERS)
     bindings = _merge_ledgers(fixed, ledgers)
     return [bindings.get(attribute.name, attribute) for attribute in attributes]
 
@@ -393,7 +390,7 @@ def _validated_claim_span(
         reason="The selected source lines were copied from the cited document block.",
     )
 
-def _ledger_system_prompt(
+def build_ledger_system_prompt(
     attributes: list[Attribute],
     requested: list[Attribute],
     *,

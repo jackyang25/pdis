@@ -214,14 +214,6 @@ def selected_source_lines(
     return quote, block_id
 
 
-def quote_in_text(quote: str, text: str) -> bool:
-    """Compare quotations after whitespace/case normalization only."""
-    normalized_quote = " ".join(quote.casefold().split())
-    return bool(normalized_quote) and normalized_quote in " ".join(
-        text.casefold().split()
-    )
-
-
 def validated_block_ids(raw: object, allowed: set[str]) -> list[str]:
     """Return exact allowed bare IDs in model order."""
     if not isinstance(raw, list):

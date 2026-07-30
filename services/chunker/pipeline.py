@@ -8,9 +8,10 @@ lives in exactly one place.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import mimetypes
 from pathlib import Path
+
+from shared.batching import map_ordered
 
 from .models import (
     ContentBlock,
@@ -148,13 +149,9 @@ def run_pipeline_batch(
     Returns:
         list[PipelineResult] in the same order as `jobs`.
     """
-    if not jobs:
-        return []
-    workers = max(1, min(max_workers, len(jobs)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        return list(
-            executor.map(
-                lambda job: _run_one(
+    return map_ordered(
+        jobs,
+        lambda job: _run_one(
                     job[0],
                     job[1],
                     config=config,
@@ -162,9 +159,8 @@ def run_pipeline_batch(
                     max_tokens=max_tokens,
                     indication=indication,
                 ),
-                jobs,
-            )
-        )
+        workers=max_workers,
+    )
 
 
 def _run_one(
@@ -225,22 +221,17 @@ def map_blocks_batch(
         list[PipelineResult] in the same order as `jobs`. Per-doc mapper
         failures are captured in `mapping_error` (blocks remain the input).
     """
-    if not jobs:
-        return []
-    workers = max(1, min(max_workers, len(jobs)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        return list(
-            executor.map(
-                lambda job: _map_one(
+    return map_ordered(
+        jobs,
+        lambda job: _map_one(
                     job[0],
                     job[1],
                     config=config,
                     llm_client_factory=llm_client_factory,
                     max_tokens=max_tokens,
                 ),
-                jobs,
-            )
-        )
+        workers=max_workers,
+    )
 
 
 def _map_one(

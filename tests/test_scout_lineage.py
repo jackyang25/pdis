@@ -39,8 +39,8 @@ from services.scout.models import (
 )
 from services.scout.stages.conformity import (
     _SourcePassage,
-    _document_ledger_system_prompt,
-    _measurement_system_prompt,
+    build_document_ledger_system_prompt,
+    build_measurement_system_prompt,
     _meets_target,
     _partition_cohort,
     _source_passage_batches,
@@ -48,7 +48,7 @@ from services.scout.stages.conformity import (
     _validated_source_decisions,
     _validated_targets_with_issues,
     _validated_measurement_semantic_assessment,
-    score_conformity as _score_conformity_ledgers,
+    score_conformity_all,
 )
 from services.scout.stages.context_validator import (
     mismatch_message,
@@ -56,7 +56,7 @@ from services.scout.stages.context_validator import (
 )
 from services.scout.stages.drift_classifier import classify_drift
 from services.scout.stages.evidence_assessor import assess_evidence
-from services.scout.stages.insight_extractor import _system_prompt as insight_system_prompt
+from services.scout.stages.insight_extractor import build_system_prompt as insight_system_prompt
 from services.scout.stages.precedent_classifier import classify_precedent
 from services.scout.stages.query_extractor import (
     _parse_queries,
@@ -513,13 +513,16 @@ def score_conformity_ledgers(attribute, document, insights, client, **kwargs):
         indication=kwargs["indication"],
         intervention_class=kwargs["intervention_class"],
     )
-    return _score_conformity_ledgers(
-        attribute,
+    # Exercise the entry point the pipeline actually calls. One worker keeps the
+    # stub client's response order deterministic without changing the code path.
+    return score_conformity_all(
+        [attribute],
         targets,
-        insights,
+        {attribute.name: insights},
         client,
         indication=kwargs["indication"],
         intervention_class=kwargs["intervention_class"],
+        max_workers=1,
     )
 
 
@@ -1780,6 +1783,40 @@ class ReasoningLineageTests(unittest.TestCase):
 
         self.assertEqual(result[0].doc_block_ids, ["document/b-0003"])
 
+    def test_each_insight_is_classified_in_its_own_request(self) -> None:
+        """A per-insight relation must not be judged alongside unrelated insights."""
+        class _RecordingClient(StaticClient):
+            def __init__(self) -> None:
+                super().__init__([{
+                    "index": 0,
+                    "relation": "confirms",
+                    "reason": "The endpoint supports the stated target.",
+                    "doc_block_ids": ["document/b-0003"],
+                }])
+                self.request_sizes: list[int] = []
+
+            def call_structured(self, system_prompt, user_message, max_tokens, **kwargs):
+                self.request_sizes.append(
+                    kwargs["schema"]["properties"]["matches"]["items"]
+                    ["properties"]["index"]["maximum"] + 1
+                )
+                return super().call_structured(
+                    system_prompt, user_message, max_tokens, **kwargs
+                )
+
+        client = _RecordingClient()
+
+        result = classify_drift(
+            [self.document],
+            [self.first, self.second],
+            client,
+            indication="test",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(client.request_sizes, [1, 1])
+
     def test_drift_fails_closed_without_valid_document_lineage(self) -> None:
         client = StaticClient(
             [
@@ -1983,13 +2020,14 @@ class ReasoningLineageTests(unittest.TestCase):
                     "measurements": [],
                 }]}
 
-        result = _score_conformity_ledgers(
-            attribute,
+        result = score_conformity_all(
+            [attribute],
             [target],
-            [insight],
+            {attribute.name: [insight]},
             NoMeasurementClient(),
             indication="malaria",
             intervention_class="vaccine",
+            max_workers=1,
         )[0]
         self.assertEqual(result.measurements, [])
         self.assertEqual(result.excluded_measurements, [])
@@ -2082,6 +2120,37 @@ class ReasoningLineageTests(unittest.TestCase):
         included, excluded = _partition_cohort([measurement], target)
         self.assertEqual(included, [measurement])
         self.assertEqual(excluded, [])
+
+    def test_unit_incompatible_prose_candidate_is_never_reviewable(self) -> None:
+        """Unit incompatibility is structural: no review decision can admit it."""
+        measurement = Measurement(
+            expression=NumericExpression(
+                kind="point_estimate", value=820, unit="per 100,000"
+            ),
+            semantic_assessment=semantic_assessment(
+                source_profile=semantic_profile("protective efficacy")
+            ),
+            candidate_id="qm-unit-mismatch",
+            source_record_id="doi:10.1/unit",
+        )
+        target = QuantitativeTarget(
+            field_links=[QuantitativeFieldLink(
+                attribute_ref="efficacy", relation="defines", reason="Test fixture."
+            )],
+            expression=NumericExpression(
+                kind="bound", value=80, comparator=">=", unit="%"
+            ),
+            role="threshold",
+            quote="Target efficacy is at least 80%.",
+            doc_block_ids=["document/b-0003"],
+            semantic_profile=semantic_profile("protective efficacy"),
+        )
+
+        included, excluded = _partition_cohort([measurement], target)
+
+        self.assertEqual(included, [])
+        self.assertEqual(excluded, [measurement])
+        self.assertEqual(measurement.admission_status, "not_eligible")
 
     def test_endpoint_mismatch_is_context_not_a_comparator(self) -> None:
         target_profile = semantic_profile("protective efficacy")
@@ -2559,7 +2628,7 @@ class ReasoningLineageTests(unittest.TestCase):
             document_target="Stable for at least 6 hours at 37°C.",
             block_ids=["document/b-0003"],
         )
-        prompt = _document_ledger_system_prompt(
+        prompt = build_document_ledger_system_prompt(
             [attribute],
             indication="example condition",
             intervention_class="diagnostic",
@@ -2643,7 +2712,7 @@ class ReasoningLineageTests(unittest.TestCase):
             doc_block_ids=["document/b-0003"],
             semantic_profile=semantic_profile("protective efficacy"),
         )
-        prompt = _measurement_system_prompt(
+        prompt = build_measurement_system_prompt(
             (self.attribute,),
             target=target,
             indication="malaria",
@@ -2699,6 +2768,35 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(
             assessment.dimensions["endpoint"].compatibility.state, "yes"
         )
+
+    def test_distinct_source_records_never_share_one_mapping_call(self) -> None:
+        """Unrelated sources must not sit in one another's mapping context."""
+        def passage_for(url: str, excerpt: str, passage_id: str) -> _SourcePassage:
+            record_finding = finding(url, source="pubmed", excerpt=excerpt)
+            return _SourcePassage(
+                id=passage_id,
+                insight=Insight(
+                    statement=excerpt,
+                    supporting_findings=[record_finding],
+                    attribute_ref="efficacy",
+                ),
+                finding=record_finding,
+                text=excerpt,
+            )
+
+        first = passage_for(
+            "https://doi.org/10.1000/first", "Protective efficacy was 82%.", "sp-first"
+        )
+        second = passage_for(
+            "https://doi.org/10.1000/second", "Protective efficacy was 74%.", "sp-second"
+        )
+        third = passage_for(
+            "https://doi.org/10.1000/third", "Protective efficacy was 65%.", "sp-third"
+        )
+
+        batches = _source_passage_batches([first, second, third])
+
+        self.assertEqual(batches, [[first], [second], [third]])
 
     def test_source_partition_collapses_overlap_and_preserves_disjoint_arms(self) -> None:
         target = QuantitativeTarget(
@@ -2778,9 +2876,11 @@ class ReasoningLineageTests(unittest.TestCase):
             finding=unrelated_finding,
             text=unrelated_finding.excerpt,
         )
+        # One record's passages travel together; an unrelated record does not
+        # join their mapping context.
         self.assertEqual(
             _source_passage_batches([*passages, unrelated_passage]),
-            [[*passages, unrelated_passage]],
+            [passages, [unrelated_passage]],
         )
 
         def raw_measurement(quote: str, value: float, group: str) -> dict:
@@ -3528,13 +3628,14 @@ class ReasoningLineageTests(unittest.TestCase):
                 }
 
         client = MissingRelevanceClient()
-        ledgers = _score_conformity_ledgers(
-            attribute,
+        ledgers = score_conformity_all(
+            [attribute],
             [target],
-            [self.first],
+            {attribute.name: [self.first]},
             client,
             indication="test",
             intervention_class="vaccine",
+            max_workers=1,
         )
 
         self.assertEqual(client.calls, 2)

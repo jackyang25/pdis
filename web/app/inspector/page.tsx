@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileText } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { CollapsibleCard } from "@/components/collapsible-card";
+import { ErrorMessage } from "@/components/ui/error-message";
 import { ConfigurationFields } from "@/components/configuration-fields";
+import {
+  DocumentSourceProvider,
+  DocumentSourceTrace,
+} from "@/components/document-source-trace";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { HeaderGuard } from "@/components/header-guard";
 import { LabeledItem } from "@/components/labeled-item";
@@ -15,7 +20,6 @@ import {
   DIMENSION_NAMES,
   GRADE_LABELS,
   runInspector,
-  type ContentBlock,
   type CrossSectionFinding,
   type DimensionName,
   type Dimensions,
@@ -147,7 +151,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
           }
         />
       )}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <ErrorMessage>{error}</ErrorMessage>}
       {result && (
         <InspectionResultView
           result={result}
@@ -207,28 +211,29 @@ function InspectionResultView({
           Inspector grading is incomplete. Complete the analysis before downloading a final result.
         </div>
       )}
-      <Tabs defaultValue="overview" className="w-full">
-        <div className="border-b border-border px-5 pt-2 sm:px-6">
-          <TabsList className="w-full justify-start">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="sections">Sections</TabsTrigger>
-            <TabsTrigger value="consistency">Consistency</TabsTrigger>
-          </TabsList>
-        </div>
-        <TabsContent value="overview" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
-          <Overview inspection={inspection} />
-        </TabsContent>
-        <TabsContent value="sections" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
-          <SectionsList sections={inspection.section_grades} blocks={inspection.blocks} />
-        </TabsContent>
-        <TabsContent value="consistency" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
-          <ConsistencyView
-            findings={inspection.cross_section_findings}
-            blocks={inspection.blocks}
-            status={inspection.consistency_status}
-          />
-        </TabsContent>
-      </Tabs>
+      <DocumentSourceProvider blocks={inspection.blocks}>
+        <Tabs defaultValue="overview" className="w-full">
+          <div className="border-b border-border px-5 pt-2 sm:px-6">
+            <TabsList className="w-full justify-start">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="sections">Sections</TabsTrigger>
+              <TabsTrigger value="consistency">Consistency</TabsTrigger>
+            </TabsList>
+          </div>
+          <TabsContent value="overview" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
+            <Overview inspection={inspection} />
+          </TabsContent>
+          <TabsContent value="sections" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
+            <SectionsList sections={inspection.section_grades} />
+          </TabsContent>
+          <TabsContent value="consistency" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
+            <ConsistencyView
+              findings={inspection.cross_section_findings}
+              status={inspection.consistency_status}
+            />
+          </TabsContent>
+        </Tabs>
+      </DocumentSourceProvider>
     </CollapsibleCard>
   );
 }
@@ -349,11 +354,7 @@ function GradeMatrix({ sections }: { sections: SectionGrade[] }) {
   );
 }
 
-function SectionsList({ sections, blocks }: { sections: SectionGrade[]; blocks: ContentBlock[] }) {
-  const blocksById = useMemo(
-    () => new Map(blocks.map((block) => [block.id, block])),
-    [blocks],
-  );
+function SectionsList({ sections }: { sections: SectionGrade[] }) {
   return (
     <div className="space-y-3">
       <SectionHeading
@@ -361,7 +362,7 @@ function SectionsList({ sections, blocks }: { sections: SectionGrade[]; blocks: 
         description="Open a section to inspect variable-level issues, recommendations, and exact document lineage."
       />
       {sections.map((section) => (
-        <SectionCard key={section.section_name} section={section} blocksById={blocksById} />
+        <SectionCard key={section.section_name} section={section} />
       ))}
     </div>
   );
@@ -369,10 +370,8 @@ function SectionsList({ sections, blocks }: { sections: SectionGrade[]; blocks: 
 
 function SectionCard({
   section,
-  blocksById,
 }: {
   section: SectionGrade;
-  blocksById: Map<string, ContentBlock>;
 }) {
   return (
     <CollapsibleCard
@@ -396,7 +395,7 @@ function SectionCard({
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
           {section.variable_grades.map((variable) => (
-            <VariableRow key={variable.variable_name} variable={variable} blocksById={blocksById} />
+            <VariableRow key={variable.variable_name} variable={variable} />
           ))}
         </div>
       )}
@@ -406,10 +405,8 @@ function SectionCard({
 
 function VariableRow({
   variable,
-  blocksById,
 }: {
   variable: VariableGrade;
-  blocksById: Map<string, ContentBlock>;
 }) {
   return (
     <div className="px-4 py-4">
@@ -419,7 +416,9 @@ function VariableRow({
       </div>
       <DimensionDetails dimensions={variable.dimensions} />
       {variable.block_ids.length > 0 && (
-        <BlockTrace blockIds={variable.block_ids} blocksById={blocksById} />
+        <div className="mt-3">
+          <DocumentSourceTrace blockIds={variable.block_ids} />
+        </div>
       )}
     </div>
   );
@@ -427,17 +426,11 @@ function VariableRow({
 
 function ConsistencyView({
   findings,
-  blocks,
   status,
 }: {
   findings: CrossSectionFinding[];
-  blocks: ContentBlock[];
   status: InspectorResponse["inspection"]["consistency_status"];
 }) {
-  const blocksById = useMemo(
-    () => new Map(blocks.map((block) => [block.id, block])),
-    [blocks],
-  );
   if (findings.length === 0) {
     const complete = status === "complete" || status === "not_applicable";
     return (
@@ -479,7 +472,9 @@ function ConsistencyView({
               <LabeledItem kind="recommendation">{finding.recommendation}</LabeledItem>
             </div>
           )}
-          <BlockTrace blockIds={finding.block_ids} blocksById={blocksById} />
+          <div className="mt-3">
+            <DocumentSourceTrace blockIds={finding.block_ids} />
+          </div>
         </article>
       ))}
     </div>
@@ -492,36 +487,6 @@ function consistencyDescription(status: InspectorResponse["inspection"]["consist
   if (status === "failed") return "The consistency pass did not complete; section and variable grades remain valid.";
   if (status === "not_applicable") return "Fewer than two mapped sections were available for a cross-section comparison.";
   return "This saved result does not record consistency-pass completion.";
-}
-
-function BlockTrace({
-  blockIds,
-  blocksById,
-}: {
-  blockIds: string[];
-  blocksById: Map<string, ContentBlock>;
-}) {
-  return (
-    <details className="group mt-3 overflow-hidden rounded-md border border-border bg-muted/10 text-xs">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 font-medium text-muted-foreground transition-colors hover:text-foreground">
-        <FileText className="h-3.5 w-3.5" />
-        View {blockIds.length} source block{blockIds.length === 1 ? "" : "s"}
-      </summary>
-      <div className="divide-y divide-border border-t border-border">
-        {blockIds.map((blockId) => {
-          const block = blocksById.get(blockId);
-          return (
-            <div key={blockId} className="px-3 py-3">
-              <p className="font-mono text-[10px] text-muted-foreground">{blockId}</p>
-              <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-foreground/85">
-                {block?.content || "Visual source block"}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-    </details>
-  );
 }
 
 function DimensionStrip({ dimensions, compact = false }: { dimensions: Dimensions; compact?: boolean }) {
@@ -594,7 +559,7 @@ const GRADE_TEXT: Record<Grade, string> = {
   B: "text-emerald-700 dark:text-emerald-300",
   C: "text-amber-700 dark:text-amber-300",
   D: "text-orange-700 dark:text-orange-300",
-  F: "text-red-700 dark:text-red-300",
+  F: "text-[hsl(var(--tone-danger))]",
   "N/A": "text-muted-foreground",
 };
 
@@ -603,6 +568,6 @@ const GRADE_SURFACE: Record<Grade, string> = {
   B: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   C: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
   D: "bg-orange-500/10 text-orange-700 dark:text-orange-300",
-  F: "bg-red-500/10 text-red-700 dark:text-red-300",
+  F: "bg-[hsl(var(--tone-danger))]/10 text-[hsl(var(--tone-danger))]",
   "N/A": "bg-muted text-muted-foreground",
 };

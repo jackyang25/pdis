@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import unittest
 
 from services.aligner import AlignmentUnit, load_config
@@ -16,9 +15,9 @@ from services.chunker import ContentBlock
 
 class StaticClient:
     def __init__(self, response: dict) -> None:
-        self.response = json.dumps(response)
+        self.response = response
 
-    def call(self, *_args, **_kwargs) -> str:
+    def call_structured(self, *_args, **_kwargs) -> dict:
         return self.response
 
 
@@ -118,18 +117,23 @@ class AlignerTests(unittest.TestCase):
             AlignmentUnit("c1", "comparison", "comparison", "target", "Reach 70% efficacy", ["comparison:b1"]),
             AlignmentUnit("c2", "comparison", "comparison", "activity", "Add a stability study", ["comparison:b2"]),
         ]
-        client = StaticClient(
-            {
-                "links": [
-                    {
-                        "reference_unit_id": "r1",
-                        "comparison_unit_ids": ["c1"],
-                        "relation": "modified",
-                        "reason": "The efficacy threshold changed from 80% to 70%.",
-                    },
-                ]
-            }
-        )
+        # Answer per request: a link may only cite a unit the request carried.
+        class _PerRequestClient(StaticClient):
+            def call_structured(self, _system_prompt, message, *_args, **_kwargs) -> dict:
+                if "r1" not in message:
+                    return {"links": []}
+                return {
+                    "links": [
+                        {
+                            "reference_unit_id": "r1",
+                            "comparison_unit_ids": ["c1"],
+                            "relation": "modified",
+                            "reason": "The efficacy threshold changed from 80% to 70%.",
+                        },
+                    ]
+                }
+
+        client = _PerRequestClient({"links": []})
         links, stats = align_units(
             reference,
             comparison,
@@ -145,6 +149,55 @@ class AlignerTests(unittest.TestCase):
         self.assertEqual(stats.modified, 1)
         self.assertEqual(stats.missing, 1)
         self.assertEqual(stats.introduced, 1)
+
+    def test_each_reference_unit_is_linked_in_its_own_request(self) -> None:
+        """One relation per reference unit, judged against the candidate pool."""
+        class _RecordingClient(StaticClient):
+            def __init__(self, payload) -> None:
+                super().__init__(payload)
+                self.messages: list[str] = []
+
+            def call_structured(self, system_prompt, message, *args, **kwargs) -> dict:
+                self.messages.append(message)
+                return super().call_structured(system_prompt, message, *args, **kwargs)
+
+        config = load_config()
+        reference = [
+            AlignmentUnit(
+                f"ref-unit-{index}", "reference", "reference", "target",
+                f"Reference statement {index}", [f"reference:b{index}"],
+            )
+            for index in range(3)
+        ]
+        comparison = [
+            AlignmentUnit(
+                "cmp-unit-0", "comparison", "comparison", "target",
+                "Comparison statement", ["comparison:b0"],
+            )
+        ]
+        client = _RecordingClient({"links": []})
+
+        align_units(
+            reference,
+            comparison,
+            config=config,
+            llm_client=client,
+            max_tokens=1000,
+        )
+
+        # Retries repeat a request, so assert on scope rather than call count.
+        mentioned = [
+            [unit.id for unit in reference if unit.id in message]
+            for message in client.messages
+        ]
+        self.assertTrue(
+            all(len(ids) == 1 for ids in mentioned),
+            f"a request carried more than one reference unit: {mentioned}",
+        )
+        self.assertEqual(
+            {ids[0] for ids in mentioned},
+            {"ref-unit-0", "ref-unit-1", "ref-unit-2"},
+        )
 
     def test_final_contract_accepts_an_exhaustive_trace(self) -> None:
         config = load_config()
@@ -201,3 +254,46 @@ class AlignerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SchemaBoundContractTests(unittest.TestCase):
+    """Aligner must use the suite's schema-bound client contract."""
+
+    class _StructuredOnlyClient:
+        """Implements only `call_structured`, like every other service's client."""
+
+        def __init__(self, payload: dict) -> None:
+            self.payload = payload
+            self.schemas: list[dict] = []
+
+        def call_structured(self, _system, _message, _max_tokens, *, schema, **_kwargs):
+            self.schemas.append(schema)
+            return self.payload
+
+    def test_extraction_drives_a_schema_bound_client(self) -> None:
+        config = load_config()
+        source = block("reference:b1", 1, "Reach 80% efficacy by 2027.")
+        client = self._StructuredOnlyClient({
+            "units": [{
+                "statement": "Reach 80% efficacy by 2027.",
+                "unit_type": "target",
+                "block_ids": ["reference:b1"],
+            }]
+        })
+
+        units = extract_units(
+            [source],
+            source_type="itpp",
+            document_role="reference",
+            config=config,
+            llm_client=client,
+            max_tokens=1000,
+        )
+
+        self.assertEqual(len(units), 1)
+        self.assertEqual(units[0].statement, "Reach 80% efficacy by 2027.")
+        # The block lineage is constrained by the schema, not by prose validation.
+        block_ids = client.schemas[0]["properties"]["units"]["items"]["properties"][
+            "block_ids"
+        ]["items"]["enum"]
+        self.assertEqual(block_ids, ["reference:b1"])

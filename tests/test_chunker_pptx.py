@@ -77,12 +77,30 @@ class ChunkerPptxTests(unittest.TestCase):
         self.assertTrue(
             any(block.content == "Target population: children" for block in blocks)
         )
-        self.assertTrue(
-            any(
-                block.block_type == "table_row"
-                and block.content == "Measure: Efficacy, Target: >= 75%"
-                for block in blocks
-            )
+        table_row = next(block for block in blocks if block.block_type == "table_row")
+        self.assertEqual(table_row.content, "Measure: Efficacy, Target: >= 75%")
+        self.assertEqual(
+            table_row.structural_meta["table_cells"],
+            [
+                {
+                    "column_index": 0,
+                    "header": "Measure",
+                    "value": "Efficacy",
+                    "content_start": 0,
+                    "content_end": 17,
+                    "value_start": 9,
+                    "value_end": 17,
+                },
+                {
+                    "column_index": 1,
+                    "header": "Target",
+                    "value": ">= 75%",
+                    "content_start": 19,
+                    "content_end": 33,
+                    "value_start": 27,
+                    "value_end": 33,
+                },
+            ],
         )
         image_blocks = [block for block in blocks if block.block_type == "image"]
         self.assertEqual(len(image_blocks), 1)

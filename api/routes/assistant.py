@@ -18,12 +18,11 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from services.assistant import answer as assistant_answer
 from services.assistant import answer_stream as assistant_answer_stream
 from services.chunker import parse_context_file
 
-from api.deps import get_openai_client
-from api.schemas import AssistantContextResponse, AskRequest, AskResponse, ContentBlockOut
+from api.deps import MissingCredentialError, get_openai_client
+from api.schemas import AssistantContextResponse, AskRequest, ContentBlockOut
 
 router = APIRouter()
 MAX_CONTEXT_FILE_BYTES = 25 * 1024 * 1024
@@ -67,23 +66,6 @@ async def add_context(file: UploadFile = File(...)) -> AssistantContextResponse:
     )
 
 
-@router.post("/ask", response_model=AskResponse)
-def ask(request: AskRequest) -> AskResponse:
-    client = get_openai_client()
-    messages = [{"role": m.role, "content": m.content} for m in request.messages]
-    document = (
-        [block.model_dump() for block in request.document] if request.document else None
-    )
-    text = assistant_answer(
-        client,
-        request.result,
-        request.result_type,
-        messages,
-        document=document,
-    )
-    return AskResponse(answer=text)
-
-
 @router.post("/ask/stream")
 def ask_stream(request: AskRequest) -> StreamingResponse:
     """Stream a grounded answer as plain text for AI SDK UI consumers.
@@ -91,7 +73,10 @@ def ask_stream(request: AskRequest) -> StreamingResponse:
     The request contract intentionally matches /ask so saved results, source
     documents, and stateless conversation history keep the same semantics.
     """
-    client = get_openai_client()
+    try:
+        client = get_openai_client()
+    except MissingCredentialError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
     document = (
         [block.model_dump() for block in request.document] if request.document else None

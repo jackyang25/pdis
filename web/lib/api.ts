@@ -763,17 +763,3 @@ export async function uploadAssistantContext(file: File): Promise<AssistantConte
     body: form,
   });
 }
-
-export async function askAssistant(
-  resultType: string,
-  result: unknown,
-  messages: AskMessage[],
-  document?: ContentBlock[],
-): Promise<string> {
-  const res = await jsonRequest<{ answer: string }>("/api/assistant/ask", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ result_type: resultType, result, messages, document }),
-  });
-  return res.answer;
-}

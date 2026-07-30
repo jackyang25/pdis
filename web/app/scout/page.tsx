@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { AlertTriangle, ChevronDown, CircleHelp, Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { ErrorMessage } from "@/components/ui/error-message";
 import { RunPanel } from "@/components/run-panel";
 import { ConfigurationFields } from "@/components/configuration-fields";
 import { HeaderGuard } from "@/components/header-guard";
@@ -49,8 +50,9 @@ import {
   scoutResultFilename,
   unpackScoutResult,
 } from "@/lib/result-file";
-import { displayAttributeLabel } from "@/lib/scout-evidence-map";
+import { displayAttributeLabel, sourceDisplayLabel } from "@/lib/scout-labels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScoutDocumentTrace } from "@/components/scout-document-trace";
 import {
   ScoutSignalHelp,
   ScoutSignalLabel,
@@ -58,6 +60,9 @@ import {
 } from "@/components/scout-signal-help";
 import { SourceAttributions } from "@/components/source-attributions";
 import { ComparatorDistributionPlot } from "@/components/comparator-distribution-plot";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { DISCLOSURE_MOTION, SURFACE_ENTRY_MOTION } from "@/lib/motion";
 import {
   applyEvidenceReviewRecommendations,
   evidenceReviewRecommendationSummary,
@@ -90,8 +95,10 @@ const ScoutEvidenceMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-[560px] items-center justify-center text-xs text-muted-foreground">
-        Preparing evidence map…
+      <div className="h-[560px] space-y-3 p-5" role="status" aria-label="Preparing evidence map">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-[440px]" />
+        <Skeleton className="h-3 w-64" />
       </div>
     ),
   },
@@ -129,12 +136,12 @@ const EVIDENCE_META: Record<EvidenceAssessment["strength"], { label: string; dot
   well_grounded: { label: "Well grounded", dot: "bg-emerald-500" },
   partial: { label: "Partial", dot: "bg-blue-500" },
   thin: { label: "Thin", dot: "bg-amber-400" },
-  unsupported: { label: "Unsupported", dot: "bg-red-500" },
+  unsupported: { label: "Unsupported", dot: "bg-[hsl(var(--tone-danger))]" },
   unknown: { label: "Unknown", dot: NEUTRAL_DOT },
 };
 
 const RELATION_DOT: Record<Match["relation"], string> = {
-  contradicts: "bg-red-500",
+  contradicts: "bg-[hsl(var(--tone-danger))]",
   extends: "bg-amber-400",
   confirms: "bg-emerald-500",
   unrelated: NEUTRAL_DOT,
@@ -189,7 +196,7 @@ const PRECEDENT_META: Record<PrecedentSignal["precedent"], { label: string; dot:
 const OUTCOME_META = {
   favorable: { label: "Favorable", dot: "bg-emerald-500" },
   mixed: { label: "Mixed", dot: "bg-amber-400" },
-  unfavorable: { label: "Unfavorable", dot: "bg-red-500" },
+  unfavorable: { label: "Unfavorable", dot: "bg-[hsl(var(--tone-danger))]" },
   unknown: { label: "Outcome unknown", dot: NEUTRAL_DOT },
 } as const;
 
@@ -213,15 +220,6 @@ function formatOrdinal(value: number): string {
   if (value % 10 === 2) return `${value}nd`;
   if (value % 10 === 3) return `${value}rd`;
   return `${value}th`;
-}
-
-function sourceDisplayLabel(source: string, labels?: Record<string, string>): string {
-  return (
-    labels?.[source] ??
-    source
-      .replace(/[_-]+/g, " ")
-      .replace(/\b\w/g, (character) => character.toUpperCase())
-  );
 }
 
 function leadingRelation(matches: Match[]): Match["relation"] {
@@ -346,7 +344,7 @@ function SourceList({ findings }: { findings: Finding[] }) {
               target="_blank"
               rel="noreferrer"
               title={f.title || f.url}
-              className="min-w-0 flex-1 truncate text-muted-foreground transition-colors hover:text-foreground hover:underline"
+              className="min-w-0 flex-1 truncate text-muted-foreground transition-colors hover:text-foreground hover:underline motion-reduce:transition-none"
             >
               {f.title || f.url}
             </a>
@@ -629,7 +627,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
           }
         />
       )}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <ErrorMessage>{error}</ErrorMessage>}
       {result && <ContextValidationNotice result={result} />}
       {result && result.phase === "target_review" && (
         <DocumentTargetReviewCheckpoint
@@ -764,12 +762,17 @@ function DocumentTargetReviewCheckpoint({
 
   return (
     <DocumentSourceProvider blocks={result.blocks ?? []}>
-      <section className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
+      <section
+        className={cn(
+          "overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm",
+          SURFACE_ENTRY_MOTION,
+        )}
+      >
         <ReviewCheckpointHeader
           eyebrow="Target review"
           title="Review document targets"
           description="Confirm that each proposed number is a real document commitment—not background context, an example, or a rejected alternative."
-          help={<>Scout has tied each item to a canonical document field and exact source block. Confirm measurable targets before they shape retrieval and statistics. Excluded items remain in the audit ledger.</>}
+          help={<>Scout has tied each item to a canonical document field and exact source passage. Confirm measurable targets before they shape retrieval and statistics. Excluded items remain in the audit ledger.</>}
           completed={completed}
           total={total}
           progressLabel="Document target review progress"
@@ -1039,7 +1042,7 @@ function ReviewCheckpointHeader({
           aria-valuenow={completed}
         >
           <div
-            className="h-full rounded-full bg-foreground transition-[width] duration-200"
+            className="h-full rounded-full bg-foreground transition-[width] duration-base motion-reduce:transition-none"
             style={{ width: `${total ? (completed / total) * 100 : 100}%` }}
           />
         </div>
@@ -1371,7 +1374,12 @@ function QuantitativeReviewCheckpoint({
 
   return (
     <DocumentSourceProvider blocks={result.blocks ?? []}>
-      <section className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
+      <section
+        className={cn(
+          "overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm",
+          SURFACE_ENTRY_MOTION,
+        )}
+      >
         <ReviewCheckpointHeader
           eyebrow="Evidence review"
           title="Review quantitative evidence"
@@ -1672,7 +1680,7 @@ function ReviewHelp({ children }: { children: ReactNode }) {
         <button
           type="button"
           aria-label="Explain this review step"
-          className="rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
         >
           <CircleHelp className="h-3.5 w-3.5" />
         </button>
@@ -1762,6 +1770,15 @@ function FieldGrid({
   const safetyObservations = result.safety_observations ?? [];
   const [query, setQuery] = useState("");
   const [relationFilter, setRelationFilter] = useState<"all" | Match["relation"]>("all");
+  const [resultTab, setResultTab] = useState("fields");
+  const [traceFocusBlockId, setTraceFocusBlockId] = useState<string | null>(null);
+  const openBlockInTrace = useCallback((blockId: string) => {
+    setTraceFocusBlockId(blockId);
+    setResultTab("trace");
+  }, []);
+  const consumeTraceFocus = useCallback((blockId: string) => {
+    setTraceFocusBlockId((current) => current === blockId ? null : current);
+  }, []);
   if (variables.length === 0) {
     return <EmptyState message="No variables were returned for this intervention." />;
   }
@@ -1828,7 +1845,10 @@ function FieldGrid({
   const unresolvedFieldCount = unresolvedFields.length;
 
   return (
-    <DocumentSourceProvider blocks={result.blocks ?? []}>
+    <DocumentSourceProvider
+      blocks={result.blocks ?? []}
+      onOpenInTrace={openBlockInTrace}
+    >
       <div className="flex flex-col gap-4">
       <CollapsibleCard
         title={`${variables.length} fields`}
@@ -1846,9 +1866,9 @@ function FieldGrid({
           />
         }
       >
-        <Tabs defaultValue="fields">
-          <div className="border-b border-border/80 px-5 pt-3 sm:px-6">
-            <TabsList className="border-b-0">
+        <Tabs value={resultTab} onValueChange={setResultTab}>
+          <div className="overflow-x-auto border-b border-border/80 px-5 pt-3 sm:px-6">
+            <TabsList className="min-w-max border-b-0">
               <TabsTrigger value="fields">Fields</TabsTrigger>
               {developmentLandscape.length > 0 && (
                 <TabsTrigger value="landscape">Landscape</TabsTrigger>
@@ -1857,6 +1877,7 @@ function FieldGrid({
                 <TabsTrigger value="safety">Safety</TabsTrigger>
               )}
               <TabsTrigger value="map">Evidence map</TabsTrigger>
+              <TabsTrigger value="trace">Document trace</TabsTrigger>
             </TabsList>
           </div>
           <TabsContent value="fields" className="mt-0">
@@ -1903,7 +1924,7 @@ function FieldGrid({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Find a field…"
-                  className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10"
+                  className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10 motion-reduce:transition-none"
                 />
               </label>
               <Select
@@ -1964,6 +1985,13 @@ function FieldGrid({
           <TabsContent value="map" className="mt-0">
             <ScoutEvidenceMap result={result} />
           </TabsContent>
+          <TabsContent value="trace" className="mt-0">
+            <ScoutDocumentTrace
+              result={result}
+              focusBlockId={traceFocusBlockId}
+              onFocusBlockConsumed={consumeTraceFocus}
+            />
+          </TabsContent>
         </Tabs>
         <SourceAttributions
           findings={resultFindings(result)}
@@ -2018,7 +2046,7 @@ function ProjectionToolbar({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder={placeholder}
-          className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10"
+          className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10 motion-reduce:transition-none"
         />
       </label>
       <Select
@@ -2115,7 +2143,7 @@ function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) 
       />
       {visible.map((program) => (
         <details key={program.projection_id} className="group/program border-b border-border/80 last:border-b-0">
-          <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/program:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/program:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
             <div className="min-w-0 flex-1">
               <h3 className="truncate text-sm font-semibold text-foreground">{program.name}</h3>
               <ProjectionRoleLabels
@@ -2132,10 +2160,10 @@ function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) 
               <span className="text-[11px] text-muted-foreground">
                 {countLabel(program.supporting_findings.length, "record")}
               </span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/program:rotate-180" />
+              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/program:rotate-180 motion-reduce:transition-none" />
             </div>
           </summary>
-          <div className="animate-in border-t border-border/70 bg-muted/15 px-5 py-4 fade-in duration-150 motion-reduce:animate-none sm:px-6">
+          <div className={cn("border-t border-border/70 bg-muted/15 px-5 py-4 sm:px-6", DISCLOSURE_MOTION)}>
             <ContextualProjectionNote
               relationship={program.target_relationship}
               kind="development record"
@@ -2212,7 +2240,7 @@ function SafetyObservations({
                   key={observation.projection_id}
                   className="group/safety border-t border-border/70"
                 >
-                  <summary className="flex min-h-16 cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30 group-open/safety:bg-muted/10 sm:px-6 [&::-webkit-details-marker]:hidden">
+                  <summary className="flex min-h-16 cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30 group-open/safety:bg-muted/10 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
                     <div className="min-w-0 flex-1">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                         {safetyRecordTypeLabel(observation.record_type)} · {safetySourceSystemLabel(observation.source_system)}
@@ -2320,7 +2348,7 @@ function FieldRow({
   const targetNotStated = targetResolved && !hasDocumentTarget;
   return (
     <details className="group/field border-b border-border/80 last:border-b-0">
-      <summary className="flex cursor-pointer select-none items-start justify-between gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/field:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer select-none items-start justify-between gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/field:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2">
             <h3 className="text-sm font-semibold text-foreground">{displayAttributeLabel(name)}</h3>
@@ -2374,10 +2402,10 @@ function FieldRow({
             </div>
           )}
         </div>
-        <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/field:rotate-180" />
+        <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/field:rotate-180 motion-reduce:transition-none" />
       </summary>
 
-      <div className="animate-in space-y-3 border-t border-border/70 bg-muted/15 px-5 py-5 fade-in duration-150 motion-reduce:animate-none sm:px-6">
+      <div className={cn("space-y-3 border-t border-border/70 bg-muted/15 px-5 py-5 sm:px-6", DISCLOSURE_MOTION)}>
         {targetNotStated && (
           <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
             <SectionLabel>Document target</SectionLabel>
@@ -2561,9 +2589,9 @@ function ConformityBlock({
           </p>
           {uncertainSources.length > 0 && (
             <details className="group/unresolved mt-1.5">
-              <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 font-medium outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+              <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 font-medium outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
                 Review unresolved source passages
-                <ChevronDown className="h-3 w-3 transition-transform group-open/unresolved:rotate-180" />
+                <ChevronDown className="h-3 w-3 transition-transform group-open/unresolved:rotate-180 motion-reduce:transition-none" />
               </summary>
               <ul className="mt-1.5 space-y-1.5">
                 {uncertainSources.map((item) => {
@@ -2624,9 +2652,9 @@ function ConformityBlock({
                     {measurement.inclusion_reason} Identity: {measurement.source_identity_status.replace("_", " ")}.
                   </p>
                   <details className="group/semantic mt-1 text-[10px] text-muted-foreground/70">
-                    <summary className="inline-flex cursor-pointer select-none items-center gap-1 rounded px-1 py-0.5 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+                    <summary className="inline-flex cursor-pointer select-none items-center gap-1 rounded px-1 py-0.5 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
                       Semantic mapping
-                      <ChevronDown className="h-2.5 w-2.5 transition-transform group-open/semantic:rotate-180" />
+                      <ChevronDown className="h-2.5 w-2.5 transition-transform group-open/semantic:rotate-180 motion-reduce:transition-none" />
                     </summary>
                     <ul className="mt-1 space-y-0.5 pl-3">
                       <li>Status: {measurement.semantic_status.replace("_", " ")} — {measurement.semantic_reason}</li>
@@ -2650,9 +2678,9 @@ function ConformityBlock({
 
       {otherExcluded.length > 0 && (
         <details className="group/excluded mt-3 border-t border-border/70 pt-3">
-          <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+          <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
             {otherExcluded.length} measurement{otherExcluded.length === 1 ? "" : "s"} not admitted
-            <ChevronDown className="h-3 w-3 transition-transform group-open/excluded:rotate-180" />
+            <ChevronDown className="h-3 w-3 transition-transform group-open/excluded:rotate-180 motion-reduce:transition-none" />
           </summary>
           <ul className="mt-2 space-y-2">
             {otherExcluded.map((measurement, index) => (

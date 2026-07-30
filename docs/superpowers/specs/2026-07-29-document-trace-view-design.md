@@ -83,8 +83,11 @@ lineage. It never merges semantically distinct result records.
 ## Reading view
 
 Blocks render in ordinal order within each source document. Headings,
-paragraphs, lists, tables, and images use quiet document typography. There are
-no cards, borders, block IDs, or gaps that reveal every chunk boundary.
+paragraphs, lists, tables, and images use quiet document typography. The
+reading canvas is one centered composition containing a narrow provenance
+gutter and one continuous paper surface. The paper is not a collection of
+block cards or UI rows: block boundaries have no dividers, outlines, repeated
+paper edges, or artificial gaps.
 
 Highlight behavior is provenance-sensitive:
 
@@ -116,6 +119,46 @@ Keyboard users can move between annotated passages, open details, return to the
 document, and close the mobile sheet. Reduced-motion preferences disable scroll
 and selection animation.
 
+### Block navigation
+
+Existing source controls may open the exact retained block in this view. The
+navigation request contains only a canonical block ID; it does not create an
+annotation, infer a source span, or change result data. Scout switches to the
+Document trace tab, selects the source document that owns the block, scrolls the
+retained block into view, and temporarily emphasizes the corresponding source
+content.
+
+Each retained block has a quiet, non-interactive gutter label showing its
+compact block suffix (for example, `b-0089`). The full canonical ID remains
+available through the label's accessible description and tooltip; the gutter
+label has no implicit clipboard action. The selected destination temporarily receives a uniform solid
+surface emphasis without an inset stripe, gradient, border, or artificial block
+card. On containers narrower than `640px`, the gutter metadata moves above its
+source block because a separate rail can no longer fit without compressing the
+document.
+
+The gutter and paper share one centered outer canvas, so the narrower gutter and
+larger paper move and resize as a single visual unit. The gutter is navigation,
+not an annotation index. Block-level connections are collapsed by connection
+reason into at most two compact count controls per block. Activating a count
+opens the existing inspector, where individual saved result records appear as
+an ordered, scrollable list with layer and title. Exact-span annotations remain
+attached to their source text. This progressive disclosure prevents repeated
+layer labels from displacing the document while preserving every annotation ID
+and its connection reason.
+
+Each gutter label aligns with the first visible line of its corresponding
+source block. Inter-block spacing is owned by the shared grid row rather than
+independent top padding or margins in the gutter and paper columns, preventing
+the two sides from drifting vertically across headings, paragraphs, and table
+rows.
+
+The shared viewer accepts a navigation request and reports when it has consumed
+it. Scout owns tab selection and supplies that request; the generic viewer does
+not know about Scout tabs or result types. `DocumentSourceTrace` exposes an
+optional `Open in document trace` action only when a caller supplies the
+navigation callback.
+
 ## Stability and failure handling
 
 - Annotation construction is deterministic and order-preserving.
@@ -143,6 +186,8 @@ Pure adapter tests cover:
 Viewer tests cover:
 
 - continuous block rendering without chunk outlines;
+- one centered gutter-and-paper canvas with no per-block separators;
+- non-interactive gutter IDs and interactive linked-result counts;
 - exact highlight and block-marker fallbacks;
 - selection synchronization between document and inspector;
 - layer filtering;
@@ -161,3 +206,5 @@ script, TypeScript checking, the production web build, and `git diff --check`.
 - The Evidence map remains unchanged and complementary.
 - The shared viewer contains no Scout-specific logic.
 - Imported current Scout results work without recalculation or rerunning Scout.
+- Existing source controls can jump to their canonical retained block in the
+  Document trace without creating new lineage.

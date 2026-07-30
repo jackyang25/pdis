@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 from typing import Any, Mapping
 
-from fastapi import HTTPException
-
 from shared.anthropic_client import AnthropicQuantitativeClient
 from shared.openai_client import OpenAIClient
 from services.searcher import (
@@ -18,23 +16,27 @@ from services.searcher import (
 TOOLUNIVERSE_INTEGRATION = "tooluniverse"
 
 
+class MissingCredentialError(RuntimeError):
+    """A required provider credential is absent from the server environment.
+
+    A domain error rather than an ``HTTPException``: these constructors run inside
+    streaming workers, where raising a transport error would be caught by the
+    streaming machinery and reported as an event on an already-successful
+    response. Routes map this to a status code where they still can.
+    """
+
+
 def get_openai_client() -> OpenAIClient:
     """Construct the shared client and its server-owned two-tier model policy."""
     if not os.environ.get("OPENAI_API_KEY"):
-        raise HTTPException(
-            status_code=500,
-            detail="Missing OPENAI_API_KEY in server environment.",
-        )
+        raise MissingCredentialError("Missing OPENAI_API_KEY in server environment.")
     return OpenAIClient()
 
 
 def get_quantitative_anthropic_client() -> AnthropicQuantitativeClient:
     """Build Scout's server-owned Opus quantitative mapping client."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise HTTPException(
-            status_code=500,
-            detail="Missing ANTHROPIC_API_KEY in server environment.",
-        )
+        raise MissingCredentialError("Missing ANTHROPIC_API_KEY in server environment.")
     return AnthropicQuantitativeClient()
 
 

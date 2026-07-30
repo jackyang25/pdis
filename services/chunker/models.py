@@ -4,8 +4,30 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from shared.openai_client import ModelTask
+
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
+
+
+def available_configs() -> list["DocumentTypeConfig"]:
+    """Return every document type this service can parse, in stable order.
+
+    Which types exist, and which files are scaffolds rather than types, are
+    chunker's facts. Callers that need to present or enumerate document types read
+    them here instead of reading the config directory.
+    """
+    configs: list[DocumentTypeConfig] = []
+    for path in sorted(CONFIGS_DIR.glob("*.yaml")):
+        if "TEMPLATE" in path.stem.upper():
+            continue
+        try:
+            configs.append(load_config(str(path)))
+        except (ValueError, KeyError):
+            # A malformed config is not an available type; loading it by identity
+            # will surface the error to whoever asks for it directly.
+            continue
+    return configs
 
 
 def find_config(org: str, source_type: str, intervention_class: str) -> "DocumentTypeConfig":
@@ -34,7 +56,7 @@ class LLMClientProtocol(Protocol):
         schema_name: str,
         schema: dict[str, Any],
         images: list[dict[str, str]] | None = None,
-        task: str = "reasoning",
+        task: ModelTask = "reasoning",
     ) -> dict[str, Any] | None:
         ...
 

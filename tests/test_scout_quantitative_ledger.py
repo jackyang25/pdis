@@ -223,7 +223,7 @@ class _SequenceLedgerClient:
         self.schemas: list[dict] = []
         self.user_messages: list[str] = []
 
-    def call_structured(self, _system_prompt, user_message, *_args, schema, **_kwargs):
+    def call_structured(self, build_system_prompt, user_message, *_args, schema, **_kwargs):
         self.schemas.append(schema)
         self.user_messages.append(user_message)
         response = self.responses[min(self.calls, len(self.responses) - 1)]

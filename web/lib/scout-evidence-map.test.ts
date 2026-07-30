@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ScoutResponse } from "./api.ts";
+import type { Conformity, ScoutResponse } from "./api.ts";
 import { buildScoutEvidenceMap } from "./scout-evidence-map.ts";
 
 const result = {
@@ -161,4 +161,115 @@ test("all mode maps every cited insight and source for the selected field", () =
   assert.equal(focused.shownSources, 1);
   assert.equal(all.shownInsights, 2);
   assert.equal(all.shownSources, 2);
+});
+
+// A field can own several numeric targets (a threshold plus an optimal, say),
+// and calibration produces one record per target. The field signal must
+// describe the whole field, not whichever record happens to come first.
+const conformityFor = (
+  targetId: string,
+  over: Partial<Conformity>,
+): Conformity => ({
+  attribute_refs: ["clinical_efficacy"],
+  target_id: targetId,
+  target_role: "threshold",
+  target_value: 75,
+  comparator: ">=",
+  unit: "%",
+  target_label: "at least 75%",
+  target_quote: "at least 75% efficacy",
+  target_meeting_count: 0,
+  target_meeting_rate: 0,
+  verdict: "",
+  benchmark_count: 0,
+  benchmark_minimum: null,
+  benchmark_maximum: null,
+  benchmark_mean: null,
+  benchmark_median: null,
+  benchmark_lower_quartile: null,
+  benchmark_upper_quartile: null,
+  benchmark_standard_deviation: null,
+  target_percentile: null,
+  ambition_percentile: null,
+  calibration_status: "insufficient",
+  measurements: [],
+  excluded_measurements: [],
+  source_dispositions: [],
+  ...over,
+});
+
+const calibrationSignal = (response: ScoutResponse) =>
+  buildScoutEvidenceMap(response, "clinical_efficacy")
+    .nodes.find((node) => node.id === "field:clinical_efficacy")
+    ?.signals?.find((signal) => signal.label === "Quantitative calibration");
+
+test("field calibration reflects every numeric target the field owns", () => {
+  const multi = structuredClone(result) as ScoutResponse;
+  multi.conformity = [
+    conformityFor("t-threshold", { benchmark_count: 0, target_meeting_count: 0 }),
+    conformityFor("t-optimal", {
+      target_role: "optimal",
+      target_value: 90,
+      target_label: "ideally 90%",
+      benchmark_count: 12,
+      target_meeting_count: 5,
+    }),
+  ];
+
+  // Counts aggregate; the meeting rate does not, because separate targets are
+  // not calculation-compatible.
+  assert.equal(calibrationSignal(multi)?.value, "12 comparators");
+  // The per-target split belongs on the node's meta line, where it has room.
+  const fieldNode = buildScoutEvidenceMap(multi, "clinical_efficacy").nodes.find(
+    (node) => node.id === "field:clinical_efficacy",
+  );
+  assert.equal(fieldNode?.meta, "2 numeric targets · 1 insight");
+});
+
+test("field calibration keeps the meeting rate for a single numeric target", () => {
+  const single = structuredClone(result) as ScoutResponse;
+  single.conformity = [
+    conformityFor("t-threshold", { benchmark_count: 12, target_meeting_count: 5 }),
+  ];
+
+  assert.equal(calibrationSignal(single)?.value, "5/12 meet target");
+});
+
+test("field calibration reports an empty cohort without hiding the targets", () => {
+  const empty = structuredClone(result) as ScoutResponse;
+  empty.conformity = [
+    conformityFor("t-threshold", {}),
+    conformityFor("t-optimal", { target_role: "optimal", target_value: 90 }),
+  ];
+
+  assert.equal(calibrationSignal(empty)?.value, "None admitted");
+});
+
+test("a measurement on any numeric target marks its insight as analysis-backed", () => {
+  const multi = structuredClone(result) as ScoutResponse;
+  // Two equally ranked matches. The later one is cited by the second target's
+  // measurement, so the focused view must prefer it over pipeline order.
+  multi.matches = [
+    { ...multi.matches[0], relation: "extends", insight: { ...multi.matches[0].insight, id: "i-plain" } },
+    { ...multi.matches[0], relation: "extends", insight: { ...multi.matches[0].insight, id: "i-calibrated" } },
+  ];
+  multi.conformity = [
+    conformityFor("t-threshold", {}),
+    conformityFor("t-optimal", {
+      target_role: "optimal",
+      benchmark_count: 1,
+      measurements: [
+        { insight_id: "i-calibrated" } as Conformity["measurements"][number],
+      ],
+    }),
+  ];
+
+  const focused = buildScoutEvidenceMap(multi, "clinical_efficacy", {
+    insights: 1,
+    sources: 1,
+  });
+  const insightIds = focused.nodes
+    .filter((node) => node.kind === "insight")
+    .map((node) => node.id);
+  assert.deepEqual(insightIds, ["insight:i-calibrated"]);
 });

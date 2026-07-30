@@ -1,8 +1,9 @@
 """Stage: classify each Insight against the uploaded document(s).
 
-One LLM call. Input: doc excerpts + list of Insights. Output: a list of
-Matches in the same order as the input Insights - each Insight gets
-exactly one Match (relation + reason).
+One request per Insight, because the answer is a per-item relation and an
+unrelated Insight in the same prompt can sway it. Input: doc excerpts + one
+Insight. Output: one Match (relation + reason) per input Insight, in input
+order. Throughput comes from pipeline-level fan-out.
 
 Relations (closed enum):
   - contradicts : external finding disagrees with what the doc says
@@ -20,6 +21,7 @@ from __future__ import annotations
 import logging
 
 from ..ai import request_structured
+from shared.batching import fixed_batches
 from ..ai_contracts import drift_batch
 from ..context import (
     BLOCK_ID_JSON_INSTRUCTION,
@@ -33,7 +35,9 @@ from ..prompt_primitives import RELATIONSHIP_PRIMITIVE
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 24000
-INSIGHTS_BATCH_SIZE = 30
+# Per-item scope: one relation per insight, so an unrelated insight can never
+# sit in this decision's prompt. Speed comes from pipeline-level fan-out.
+INSIGHTS_PER_REQUEST = 1
 
 
 def classify_drift(
@@ -49,10 +53,9 @@ def classify_drift(
 ) -> list[Match]:
     if not insights:
         return []
-    if len(insights) > INSIGHTS_BATCH_SIZE:
+    if len(insights) > INSIGHTS_PER_REQUEST:
         matches: list[Match] = []
-        for start in range(0, len(insights), INSIGHTS_BATCH_SIZE):
-            batch = insights[start : start + INSIGHTS_BATCH_SIZE]
+        for batch in fixed_batches(insights, INSIGHTS_PER_REQUEST):
             matches.extend(
                 classify_drift(
                     doc_excerpts,
@@ -67,7 +70,7 @@ def classify_drift(
             )
         return matches
 
-    system_prompt = _system_prompt(
+    system_prompt = build_system_prompt(
         indication=indication,
         intervention_class=intervention_class,
         framing=framing,
@@ -164,7 +167,7 @@ _GENERIC_DRIFT_FRAMING = (
 )
 
 
-def _system_prompt(
+def build_system_prompt(
     *, indication: str, intervention_class: str, framing: str = ""
 ) -> str:
     framing = (

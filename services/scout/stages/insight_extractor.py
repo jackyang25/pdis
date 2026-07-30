@@ -8,7 +8,6 @@ Findings by URL. We then re-attach the full Finding objects.
 from __future__ import annotations
 
 import logging
-import re
 
 from services.searcher import Finding
 
@@ -38,7 +37,7 @@ def extract_insights(
     if not findings:
         return []
 
-    system_prompt = _system_prompt(
+    system_prompt = build_system_prompt(
         indication=indication,
         intervention_class=intervention_class,
         attribute_ref=attribute_ref,
@@ -105,7 +104,7 @@ def extract_insights(
     return insights
 
 
-def _system_prompt(
+def build_system_prompt(
     *,
     indication: str,
     intervention_class: str,
@@ -191,16 +190,18 @@ def _user_message(
 
 
 def merge_duplicate_insights(insights: list[Insight]) -> list[Insight]:
-    """Merge exact/near-exact statements emitted by separate finding batches.
+    """Merge statements that are identical apart from spacing and case.
 
-    The LLM deduplicates within each batch. This deterministic second pass keeps
-    batch parallelism from duplicating the same atomic fact across batches while
-    preserving the union of every cited Finding.
+    This is an identity check, not a similarity judgement: two statements that
+    differ in any character other than whitespace may be different facts, and
+    deciding that belongs to `insight_reconciler`. Merging here only keeps batch
+    parallelism from emitting the same statement twice, and it preserves the
+    union of every cited Finding.
     """
     by_statement: dict[tuple[str, str], Insight] = {}
     out: list[Insight] = []
     for insight in insights:
-        normalized = re.sub(r"[^a-z0-9]+", " ", insight.statement.lower()).strip()
+        normalized = " ".join(insight.statement.casefold().split())
         key = (insight.attribute_ref or "", normalized)
         existing = by_statement.get(key)
         if existing is None:

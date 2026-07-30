@@ -4,19 +4,25 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-shared.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-shared.mjs",
     "build": "next build",
     "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types lib/*.test.ts",
+    "test:block-reference": "node --test --experimental-strip-types lib/block-reference.test.ts",
     "test:evidence-map": "node --test --experimental-strip-types lib/scout-evidence-map.test.ts",
     "test:comparator-plot": "node --test --experimental-strip-types lib/comparator-distribution.test.ts",
     "test:quantitative-review": "node --test --experimental-strip-types lib/quantitative-review.test.ts",
     "test:scout-review": "node --test --experimental-strip-types lib/scout-review-session.test.ts",
     "test:result-file": "node --test --experimental-strip-types lib/result-file.test.ts",
     "test:projection-roles": "node --test --experimental-strip-types lib/scout-projection-roles.test.ts",
-    "test:safety-observations": "node --test --experimental-strip-types lib/scout-safety-observations.test.ts"
+    "test:safety-observations": "node --test --experimental-strip-types lib/scout-safety-observations.test.ts",
+    "test:document-trace": "node --test --experimental-strip-types lib/document-block-presentation.test.ts lib/document-trace.test.ts lib/scout-document-trace.test.ts",
+    "test:motion": "node --test --experimental-strip-types lib/motion-standard.test.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.232",

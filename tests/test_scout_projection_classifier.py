@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import threading
 import unittest
 from datetime import datetime, timezone
 
@@ -24,6 +25,46 @@ class StructuredClient:
         if isinstance(response, Exception):
             raise response
         return response
+
+
+class _PerRequestClient:
+    """Answer each contained request from its own schema, like a real endpoint.
+
+    Contained requests are dispatched concurrently, so a stub that popped a
+    shared response queue would pair answers with requests by arrival order.
+    """
+
+    def __init__(self, decisions: dict[str, tuple[str, str]]) -> None:
+        self.decisions = decisions
+        self._lock = threading.Lock()
+        self.requested_ids: list[list[str]] = []
+
+    def call_structured(self, *_args, **kwargs):
+        requested = list(
+            kwargs["schema"]["properties"]["relationships"]["items"]
+            ["properties"]["projection_id"]["enum"]
+        )
+        with self._lock:
+            self.requested_ids.append(requested)
+        return {"relationships": [
+            {
+                "projection_id": projection_id,
+                "target_relationship": self.decisions[projection_id][0],
+                "reason": self.decisions[projection_id][1],
+            }
+            for projection_id in requested
+            if projection_id in self.decisions
+        ]}
+
+
+class _MalformedClient:
+    """Return one invalid payload for every request, whatever was asked."""
+
+    def __init__(self, relationships: list[dict]) -> None:
+        self.relationships = relationships
+
+    def call_structured(self, *_args, **_kwargs):
+        return {"relationships": self.relationships}
 
 
 def _finding(url: str, title: str) -> Finding:
@@ -81,29 +122,11 @@ class ProjectionClassifierTests(unittest.TestCase):
         ]
         attributes_before = copy.deepcopy(attributes)
         findings_before = copy.deepcopy(findings)
-        client = StructuredClient(
-            [
-                {
-                    "relationships": [
-                        {
-                            "projection_id": "dp-a",
-                            "target_relationship": "direct",
-                            "reason": "Same product candidate.",
-                        },
-                        {
-                            "projection_id": "dp-b",
-                            "target_relationship": "analogous",
-                            "reason": "Different candidate in the same product class.",
-                        },
-                        {
-                            "projection_id": "so-c",
-                            "target_relationship": "adjacent",
-                            "reason": "Relevant safety context for another product class.",
-                        },
-                    ]
-                }
-            ]
-        )
+        client = _PerRequestClient({
+            "dp-a": ("direct", "Same product candidate."),
+            "dp-b": ("analogous", "Different candidate in the same product class."),
+            "so-c": ("adjacent", "Relevant safety context for another product class."),
+        })
 
         classified_programs, classified_observations = classify_projection_relationships(
             attributes,
@@ -130,40 +153,60 @@ class ProjectionClassifierTests(unittest.TestCase):
         self.assertEqual(findings, findings_before)
         self.assertEqual(programs[0].target_relationship, "unknown")
 
+    def test_each_projection_is_classified_in_its_own_request(self) -> None:
+        """A per-item relationship must not be judged alongside unrelated items."""
+        programs = [
+            DevelopmentProgram(name="A", projection_id="dp-a"),
+            DevelopmentProgram(name="B", projection_id="dp-b"),
+        ]
+        client = _PerRequestClient({
+            "dp-a": ("direct", "Same product candidate."),
+            "dp-b": ("adjacent", "Relevant context for another product class."),
+        })
+
+        classified, _ = classify_projection_relationships(
+            [_attribute()],
+            programs,
+            [],
+            client,
+            indication="malaria",
+            intervention_class="vaccine",
+        )
+
+        self.assertEqual(sorted(client.requested_ids), [["dp-a"], ["dp-b"]])
+        self.assertEqual(
+            [item.target_relationship for item in classified],
+            ["direct", "adjacent"],
+        )
+
     def test_omitted_invalid_duplicate_and_unknown_ids_degrade_to_unknown(self) -> None:
         programs = [
             DevelopmentProgram(name="A", projection_id="dp-a"),
             DevelopmentProgram(name="B", projection_id="dp-b"),
             DevelopmentProgram(name="C", projection_id="dp-c"),
         ]
-        client = StructuredClient(
-            [
-                {
-                    "relationships": [
-                        {
-                            "projection_id": "dp-a",
-                            "target_relationship": "direct",
-                            "reason": "First decision.",
-                        },
-                        {
-                            "projection_id": "dp-a",
-                            "target_relationship": "analogous",
-                            "reason": "Conflicting duplicate.",
-                        },
-                        {
-                            "projection_id": "dp-b",
-                            "target_relationship": "invented",
-                            "reason": "Invalid enum.",
-                        },
-                        {
-                            "projection_id": "dp-unknown",
-                            "target_relationship": "direct",
-                            "reason": "Unknown ID.",
-                        },
-                    ]
-                }
-            ]
-        )
+        client = _MalformedClient([
+            {
+                "projection_id": "dp-a",
+                "target_relationship": "direct",
+                "reason": "First decision.",
+            },
+            {
+                "projection_id": "dp-a",
+                "target_relationship": "analogous",
+                "reason": "Conflicting duplicate.",
+            },
+            {
+                "projection_id": "dp-b",
+                "target_relationship": "invented",
+                "reason": "Invalid enum.",
+            },
+            {
+                "projection_id": "dp-unknown",
+                "target_relationship": "direct",
+                "reason": "Unknown ID.",
+            },
+        ])
 
         classified, _ = classify_projection_relationships(
             [_attribute()],

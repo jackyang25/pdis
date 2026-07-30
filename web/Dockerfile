@@ -9,7 +9,12 @@ FROM node:20-alpine AS builder
 WORKDIR /app/web
 COPY --from=dependencies /app/web/node_modules ./node_modules
 COPY web/ ./
+# Copy shared artifacts file by file. A directory copy would also pull in this
+# package's server-side provider clients, because Docker's `*` ignore rule
+# matches only top-level entries and cannot gate inside shared/.
+# Publishing a new artifact means adding it here and in copy-shared.mjs.
 COPY shared/product_knowledge.json /app/shared/product_knowledge.json
+COPY shared/prompt_reference.json /app/shared/prompt_reference.json
 
 ARG NEXT_PUBLIC_PDIS_API_URL
 ARG NEXT_PUBLIC_PDIS_API_HOST

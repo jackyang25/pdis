@@ -48,6 +48,10 @@ class SourceSpec:
     # Scholar). Sources that fan one adapter request into several provider
     # calls retain endpoint-level throttling inside their adapter stage.
     request_interval_seconds: float = 0.0
+    # Most requests one intent may become. Request count became variable when
+    # adapters started narrowing by stated facets, so a source declares its own
+    # budget beside its other limits. 0 means the source sets no bound.
+    max_requests_per_intent: int = 0
     default_enabled: bool = True
     integration_key: str = ""
     operations: tuple[str, ...] = ()

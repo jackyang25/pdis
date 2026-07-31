@@ -6,6 +6,18 @@ population, and outcome states them on the intent, so no term extraction,
 stopword list, or track-to-keyword table is needed or permitted here. Recovering
 meaning from finished text is how an authored query loses its institution names
 and phrase structure.
+
+Facets carry roles, and a role decides how a value is used:
+
+* The **anchor** (`condition`) scopes every request for one intent. It is
+  required, once.
+* One **subject** phrase is what a single query asks. Subjects from different
+  queries are alternatives, so they are joined with OR.
+* Remaining facets **qualify** meaning for downstream assessment. They are not
+  added to the expression, because a Boolean AND makes each one a further
+  coincidence a record must satisfy, and two exact phrases required together
+  already describe almost nothing. Their meaning is not lost: they stay in
+  request lineage, and the semantic stages read the retrieved passage itself.
 """
 
 from __future__ import annotations
@@ -21,6 +33,13 @@ _WEB_OPERATOR = re.compile(
 _BARE_URL = re.compile(r"https?://\S+", re.IGNORECASE)
 # PubMed treats these as grammar rather than content.
 _PUBMED_RESERVED = re.compile(r'[()\[\]"]')
+# A value spanning these separators is a list of concepts, not one phrase.
+_CONCEPT_SEPARATOR = re.compile(r"[,;/]|\band\b", re.IGNORECASE)
+# Ordered by how specifically each names what a query asks about.
+_SUBJECT_FACETS = ("outcome", "intervention", "population")
+_ANCHOR_ENTITY_TYPES = frozenset(
+    {"disease", "pathogen", "vaccine", "drug", "compound", "device"}
+)
 
 
 def active_tracks(intent: RetrievalIntent) -> list[str]:
@@ -45,20 +64,17 @@ def clean_query_text(text: str) -> str:
     return " ".join(_BARE_URL.sub(" ", _WEB_OPERATOR.sub(" ", text)).split())
 
 
-def query_phrases(
-    intent: RetrievalIntent,
-    query: SourceQueryIntent,
-) -> list[str]:
-    """Return one query's stated phrases, falling back to its intent scope.
+def subject_phrase(intent: RetrievalIntent, query: SourceQueryIntent) -> str:
+    """Return the one phrase this query is asking about.
 
-    A consumer that stated no facets still carries meaning in its text, so the
-    text is used whole rather than dismantled.
+    The most specific stated facet wins. A query that stated none still carries
+    its meaning in its own text, which is used whole rather than dismantled.
     """
-    phrases = [clean_query_text(phrase) for phrase in query.facets.phrases()]
-    if not phrases:
-        fallback = clean_query_text(query.text) or clean_query_text(intent.topic)
-        phrases = [fallback] if fallback else []
-    return list(dict.fromkeys(phrase for phrase in phrases if phrase))
+    for name in _SUBJECT_FACETS:
+        value = clean_query_text(getattr(query.facets, name, ""))
+        if value:
+            return value
+    return clean_query_text(query.text) or clean_query_text(intent.topic)
 
 
 def scope_phrases(intent: RetrievalIntent) -> list[str]:
@@ -67,10 +83,25 @@ def scope_phrases(intent: RetrievalIntent) -> list[str]:
     anchors.extend(
         clean_query_text(entity.name)
         for entity in intent.entities
-        if entity.entity_type
-        in {"disease", "pathogen", "vaccine", "drug", "compound", "device"}
+        if entity.entity_type in _ANCHOR_ENTITY_TYPES
     )
     return list(dict.fromkeys(anchor for anchor in anchors if anchor))
+
+
+def subject_phrases(
+    intent: RetrievalIntent,
+    queries: list[SourceQueryIntent],
+) -> list[str]:
+    """Return each query's subject once, excluding anchors already applied."""
+    anchors = {phrase.casefold() for phrase in scope_phrases(intent)}
+    subjects: list[str] = []
+    for query in queries:
+        phrase = subject_phrase(intent, query)
+        if not phrase or phrase.casefold() in anchors:
+            continue
+        if phrase not in subjects:
+            subjects.append(phrase)
+    return subjects
 
 
 def build_pubmed_query(
@@ -78,29 +109,21 @@ def build_pubmed_query(
     track: str,
     queries: list[SourceQueryIntent],
 ) -> str:
-    """Compile the track's intents into one bounded PubMed Boolean expression.
+    """Compile the track's intents into one reachable PubMed expression.
 
-    Shared anchors are ANDed once. Each query contributes its own parenthesized
-    clause, so several questions travel in one request without their phrases
-    mixing into each other.
+    The shape is ``anchor AND (subject OR subject ...)``. Anchors keep the
+    request on topic; subjects are alternatives, so adding a query widens
+    coverage instead of further constraining every record.
     """
     del track
-    anchors = [_pubmed_phrase(phrase) for phrase in scope_phrases(intent)]
-    clauses: list[str] = []
-    for query in queries:
-        phrases = [
-            _pubmed_phrase(phrase)
-            for phrase in query_phrases(intent, query)
-            if phrase not in scope_phrases(intent)
-        ]
-        if not phrases:
-            continue
-        clause = " AND ".join(dict.fromkeys(phrases))
-        clauses.append(clause if len(phrases) == 1 else f"({clause})")
-    clauses = list(dict.fromkeys(clauses))
-    parts = [*anchors]
-    if clauses:
-        parts.append("(" + " OR ".join(clauses) + ")" if len(clauses) > 1 else clauses[0])
+    anchors = [_pubmed_term(phrase) for phrase in scope_phrases(intent)]
+    subjects = [_pubmed_term(phrase) for phrase in subject_phrases(intent, queries)]
+    subjects = [subject for subject in dict.fromkeys(subjects) if subject]
+    parts = [anchor for anchor in anchors if anchor]
+    if subjects:
+        parts.append(
+            "(" + " OR ".join(subjects) + ")" if len(subjects) > 1 else subjects[0]
+        )
     return " AND ".join(parts)
 
 
@@ -109,33 +132,40 @@ def build_semantic_scholar_query(
     track: str,
     queries: list[SourceQueryIntent],
     *,
-    max_queries: int = 3,
+    max_queries: int = 2,
     max_phrases: int = 8,
 ) -> str:
     """Compile a focused plain-text query that keeps stated phrases intact.
 
-    Semantic Scholar has no Boolean grammar, so one request cannot separate many
-    questions. Phrases are carried whole rather than split into interleaved terms,
-    and the request is bounded to the leading queries because a plain-text engine
+    Semantic Scholar has no Boolean grammar, so an added phrase is a relevance
+    hint rather than a requirement. Qualifier facets are therefore included here
+    and excluded from PubMed: the same phrase that would gate a Boolean request
+    only sharpens a plain-text one. Phrases are carried whole rather than split
+    into interleaved terms, and the request is bounded because a plain-text engine
     degrades as concepts accumulate. Every contributing intent stays inspectable
     in request lineage regardless of what this text includes.
     """
     del track
-    phrases: list[str] = []
+    phrases = [*scope_phrases(intent)]
     for query in queries[:max_queries]:
-        for phrase in query_phrases(intent, query):
-            if phrase not in phrases:
+        stated = [clean_query_text(phrase) for phrase in query.facets.phrases()]
+        for phrase in stated or [subject_phrase(intent, query)]:
+            if phrase and phrase not in phrases:
                 phrases.append(phrase)
-    # Anchors only earn a slot when no retained phrase already carries them.
-    for anchor in scope_phrases(intent):
-        if not any(anchor.casefold() in phrase.casefold() for phrase in phrases):
-            phrases.insert(0, anchor)
     return " ".join(phrases[:max_phrases])
 
 
-def _pubmed_phrase(phrase: str) -> str:
-    """Quote a multi-word phrase so PubMed matches it as one concept."""
+def _pubmed_term(phrase: str) -> str:
+    """Render one phrase in PubMed grammar.
+
+    A single phrase is quoted so its words stay together. A value spanning
+    several concepts is left unquoted: quoting it would search for the separators
+    themselves and match nothing, and splitting it would mean this module
+    deciding what the parts mean.
+    """
     cleaned = " ".join(_PUBMED_RESERVED.sub(" ", phrase).split())
     if not cleaned:
         return ""
-    return f'"{cleaned}"' if " " in cleaned else cleaned
+    if " " not in cleaned or _CONCEPT_SEPARATOR.search(cleaned):
+        return cleaned
+    return f'"{cleaned}"'

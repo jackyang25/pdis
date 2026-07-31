@@ -42,6 +42,13 @@ A query intent carries its natural-language text and the facets its author state
 whichever its API accepts and reads a blank facet as the intent's own scope. No
 adapter recovers a facet by re-parsing the text.
 
+Facets carry roles. `condition` anchors every request for one intent, one subject
+phrase is what a single query asks, and the rest qualify meaning. Whether a
+qualifier enters a request depends on that grammar: a Boolean conjunct is another
+coincidence a record must satisfy, while a plain-text term only sharpens ranking.
+Narrowed requests are added to the intent-scope request rather than replacing it,
+and a source bounds its own fan-out with `max_requests_per_intent`.
+
 Adapters may compact several neutral intents into one native request, but the
 native query must retain their document-specific concepts and the request must
 carry every input intent ID and text. A field-addressed source varies its request

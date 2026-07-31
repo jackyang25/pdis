@@ -36,10 +36,12 @@ QUERY_FACET_INSTRUCTION = (
     "problem searched; intervention is the product, platform, or approach; population "
     "is who the result must describe; outcome is the property or endpoint being "
     "measured. Use the exact wording a database would index, not a paraphrase of the "
-    "whole query. Leave a facet as an empty string when the query genuinely does not "
-    "constrain it - an empty facet widens the search to this field's scope, while a "
-    "guessed one silently narrows it. Facets never replace the query text; both are "
-    "returned together."
+    "whole query. Give ONE concept per facet: a single indexable phrase, never a list, "
+    "and never two ideas joined by a comma, a slash, or \"and\". If a query genuinely "
+    "covers two outcomes, it is two queries. Leave a facet as an empty string when the "
+    "query does not constrain it - an empty facet widens the search to this field's "
+    "scope, while a guessed one silently narrows it. Facets never replace the query "
+    "text; both are returned together."
 )
 
 

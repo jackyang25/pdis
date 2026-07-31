@@ -51,7 +51,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/inspector",
     title: "Inspector",
     description:
-      "Find missing requirements, rubric gaps, weak support, and internal inconsistencies in a development document.",
+      "Grade one document against its authored rubric: what is missing, off-template, vague, or internally inconsistent.",
     capability: "Document review",
     activity: "3–5 min",
     icon: "inspector",
@@ -65,7 +65,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/aligner",
     title: "Aligner",
     description:
-      "Compare two development documents to see what stayed aligned, changed, conflicts, or is missing.",
+      "Compare one document against another: what stayed aligned, was modified, conflicts, is missing, or was introduced.",
     capability: "Document comparison",
     activity: "10–15 min",
     icon: "aligner",

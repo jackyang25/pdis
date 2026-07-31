@@ -2138,7 +2138,8 @@ def _map_source_passage_batch(
         issue = issues.get(passage.id, "missing_source_decision")
         # The source is retained so the audit trail keeps every passage that was
         # considered. Its status is this pipeline's, not one of the model's three
-        # verdicts, because no verdict was obtained.
+        # verdicts, because no verdict was obtained. The prose keeps every cause;
+        # the typed field names one so it stays machine-readable.
         dispositions.append(
             SourcePassageDisposition(
                 source_id=passage.id,
@@ -2146,10 +2147,20 @@ def _map_source_passage_batch(
                 reason=f"Source mapping rejected [{issue}] after one retry.",
                 url=passage.finding.url,
                 insight_id=passage.insight.id,
-                failure_code=issue,
+                failure_code=primary_failure_code(issue),
             )
         )
     return _CalibrationBatchResult(measurements, dispositions)
+
+
+def primary_failure_code(issue: str) -> str:
+    """Return one machine-readable code from a possibly multi-cause issue.
+
+    Several measurements in one source can fail for different reasons, and the
+    prose reason keeps all of them. A typed field holds one value, so the first
+    cause names the record and remains stable across runs.
+    """
+    return issue.split(",", 1)[0].strip()
 
 
 def _validated_source_decisions(

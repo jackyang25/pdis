@@ -8,6 +8,10 @@ Aligner reports what was preserved, modified, contradicted, omitted, or newly
 introduced. It does not grade either document, search external evidence, assign
 feasibility, or estimate investment risk.
 
+Aligner judges one document against another document. Judging a document against
+an authored rubric is Inspector's responsibility; the two tools have different
+comparison targets and neither substitutes for the other.
+
 ## Usage
 
 Import `run_pipeline`, `load_config`, public result models, and serializers from

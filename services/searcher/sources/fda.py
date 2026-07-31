@@ -31,6 +31,9 @@ DEVICE_510K_TOOL = "OpenFDA_search_device_510k"
 MAX_CANDIDATES = 20
 MAX_RESULTS = 10
 MIN_REQUEST_INTERVAL_SECONDS = 0.3
+# openFDA is the tightest connector lane in the suite, so one intent stays
+# close to the single request it made before facet narrowing existed.
+MAX_REQUESTS_PER_INTENT = 2
 
 
 class FDASource:
@@ -39,6 +42,7 @@ class FDASource:
         label="FDA Regulatory",
         worker_limit=4,
         request_interval_seconds=MIN_REQUEST_INTERVAL_SECONDS,
+        max_requests_per_intent=MAX_REQUESTS_PER_INTENT,
         default_enabled=False,
         integration_key=TOOLUNIVERSE_INTEGRATION,
         operations=(DRUG_LABEL_TOOL, DEVICE_510K_TOOL),
@@ -59,6 +63,7 @@ class FDASource:
             intent,
             fields=("condition",),
             fallbacks={"condition": intent.indication or intent.topic},
+            limit=self.spec.max_requests_per_intent,
         ):
             intent_ids, input_queries, document_refs = request_lineage(queries)
             condition = scope["condition"]

@@ -309,10 +309,13 @@ def run_requests(
                 request.query,
                 exc,
             )
+            # The message names which limit or endpoint refused the request. A bare
+            # exception type cannot be diagnosed from a saved result.
+            detail = " ".join(str(exc).split())[:200]
             return SearchOutcome(
                 request=request,
                 status="failed",
-                error=type(exc).__name__,
+                error=f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__,
             )
         finally:
             report()

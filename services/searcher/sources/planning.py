@@ -17,28 +17,43 @@ def facet_groups(
     *,
     fields: Sequence[str],
     fallbacks: Mapping[str, str],
+    limit: int = 0,
 ) -> list[tuple[dict[str, str], list[SourceQueryIntent]]]:
     """Group an intent's queries by the native scope each one resolves to.
 
-    A field-addressed source can only vary its request by the facets its API
-    accepts. Queries resolving to the same scope share one request and keep every
-    contributing intent in its lineage, so specificity is gained without
-    multiplying provider calls. Queries that state no facets all resolve to the
-    intent's own scope, which is the single request such a source made before any
-    facet existed.
+    The first group is always the intent's own scope, carrying every query. It is
+    the request this source made before any facet existed, and it is the only one
+    guaranteed to match the source's own vocabulary. Facet-resolved scopes are
+    *added* to it rather than substituted for it, because a precise request that
+    names a product the source files differently returns nothing, and losing
+    coverage is worse than lacking precision.
+
+    Queries resolving to the same scope share one request and keep every
+    contributing intent in its lineage, so specificity never multiplies provider
+    calls. ``limit`` is the source's own request budget: when narrowed scopes
+    exceed it, precision is dropped in arrival order and the scope request is
+    always kept.
     """
-    grouped: dict[tuple[str, ...], list[SourceQueryIntent]] = {}
-    scopes: dict[tuple[str, ...], dict[str, str]] = {}
+    baseline = {field: fallbacks.get(field, "").strip() for field in fields}
+    baseline_key = tuple(baseline[field] for field in fields)
+
+    grouped: dict[tuple[str, ...], list[SourceQueryIntent]] = {
+        baseline_key: list(intent.queries)
+    }
+    scopes: dict[tuple[str, ...], dict[str, str]] = {baseline_key: baseline}
     for query in intent.queries:
         scope = {
-            field: getattr(query.facets, field, "").strip()
-            or fallbacks.get(field, "").strip()
+            field: getattr(query.facets, field, "").strip() or baseline[field]
             for field in fields
         }
         key = tuple(scope[field] for field in fields)
+        if key == baseline_key:
+            continue
         scopes.setdefault(key, scope)
         grouped.setdefault(key, []).append(query)
-    return [(scopes[key], queries) for key, queries in grouped.items()]
+
+    groups = [(scopes[key], queries) for key, queries in grouped.items()]
+    return groups[:limit] if limit > 0 else groups
 
 
 def request_lineage(

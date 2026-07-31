@@ -1470,9 +1470,9 @@ class RetrievalPlanningTests(unittest.TestCase):
         self.assertEqual(requests[0].input_queries, tuple(item.text for item in variants))
         self.assertEqual(
             requests[0].query,
+            "malaria "
             "malaria vaccine durability concept0 "
-            "malaria vaccine durability concept1 "
-            "malaria vaccine durability concept2",
+            "malaria vaccine durability concept1",
         )
         self.assertEqual(
             requests[0].document_refs,

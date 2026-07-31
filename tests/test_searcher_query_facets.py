@@ -112,12 +112,9 @@ class LiteratureQueryTests(unittest.TestCase):
 
         query = build_pubmed_query(intent, "general", list(intent.queries))
 
-        # Each intent's phrases stay together inside their own clause; the two
-        # questions are joined with OR rather than flattened into shared terms.
-        self.assertIn('"open-vial stability"', query)
-        self.assertIn('"efficacy waning"', query)
-        self.assertIn('"children under five"', query)
-        self.assertIn(" OR ", query)
+        # Each query contributes one whole subject phrase, and the two questions
+        # are alternatives rather than terms flattened into a shared bag.
+        self.assertIn('"open-vial stability" OR "efficacy waning"', query)
 
     def test_semantic_scholar_keeps_facet_phrases_intact(self) -> None:
         intent = _intent(
@@ -156,10 +153,13 @@ class StructuredSourceRequestTests(unittest.TestCase):
         )
 
         requests = ClinicalTrialsSource().plan(intent)
+        interventions = {request.option("intervention") for request in requests}
 
-        self.assertEqual(len(requests), 1)
-        self.assertEqual(requests[0].option("condition"), "malaria")
-        self.assertEqual(requests[0].option("intervention"), "RTS,S")
+        # The intent-scope request is always planned; the stated facet adds one.
+        self.assertEqual(interventions, {"vaccine", "RTS,S"})
+        self.assertTrue(
+            all(request.option("condition") == "malaria" for request in requests)
+        )
 
     def test_distinct_facets_produce_distinct_registry_requests(self) -> None:
         intent = _intent(
@@ -183,10 +183,9 @@ class StructuredSourceRequestTests(unittest.TestCase):
 
         requests = ClinicalTrialsSource().plan(intent)
 
-        self.assertEqual(len(requests), 2)
         self.assertEqual(
             {request.option("intervention") for request in requests},
-            {"malaria vaccine", "RTS,S"},
+            {"vaccine", "malaria vaccine", "RTS,S"},
         )
 
     def test_identical_native_requests_collapse_and_keep_both_intents(self) -> None:
@@ -197,10 +196,11 @@ class StructuredSourceRequestTests(unittest.TestCase):
         )
 
         requests = ClinicalTrialsSource().plan(intent)
+        narrowed = [r for r in requests if r.option("intervention") == "malaria vaccine"]
 
-        self.assertEqual(len(requests), 1)
-        self.assertEqual(len(requests[0].intent_ids), 2)
-        self.assertEqual(len(requests[0].input_queries), 2)
+        self.assertEqual(len(narrowed), 1)
+        self.assertEqual(len(narrowed[0].intent_ids), 2)
+        self.assertEqual(len(narrowed[0].input_queries), 2)
 
     def test_blank_facets_fall_back_to_the_intent_scope(self) -> None:
         intent = _intent(SourceQueryIntent(text="general malaria vaccine coverage"))

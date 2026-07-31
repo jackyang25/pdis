@@ -8,6 +8,10 @@ Inspector measures document quality, not investment merit. It does not assign
 program risk, validate real-world feasibility, recommend funding, or search
 external evidence.
 
+Inspector judges one document against an authored rubric. Comparing two
+documents against each other is Aligner's responsibility; the two tools have
+different comparison targets and neither substitutes for the other.
+
 ## Usage
 
 Import pipeline entry points, result and config models, config lookup, and

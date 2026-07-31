@@ -26,6 +26,7 @@ from services.scout.models import (
 from services.scout.stages.conformity import (
     _SourcePassage,
     _validated_source_decisions,
+    primary_failure_code,
 )
 
 
@@ -159,6 +160,23 @@ class MappingFailureChannelTests(unittest.TestCase):
                 status="not_assessed",
                 reason="Source mapping rejected after one retry.",
             )
+
+    def test_a_failure_code_names_one_cause_even_when_several_apply(self) -> None:
+        """A machine-readable field holds one value; prose carries the rest."""
+        disposition = SourcePassageDisposition(
+            source_id="sp-one",
+            status="not_assessed",
+            reason=(
+                "Source mapping rejected [invalid_measurement_semantics, "
+                "source_quote_not_found] after one retry."
+            ),
+            failure_code=primary_failure_code(
+                "invalid_measurement_semantics, source_quote_not_found"
+            ),
+        )
+
+        self.assertEqual(disposition.failure_code, "invalid_measurement_semantics")
+        self.assertIn("source_quote_not_found", disposition.reason)
 
     def test_a_model_verdict_cannot_carry_a_failure_code(self) -> None:
         with self.assertRaises(ValueError):

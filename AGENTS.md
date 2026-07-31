@@ -92,6 +92,10 @@ web/ → api/ → services/ → shared/
 
 ## Tool contracts
 
+Each tool judges a document against a different authority: Inspector against an
+authored rubric, Aligner against a second document, Scout against external
+evidence. Those comparison targets are not interchangeable.
+
 ### Inspector
 
 - Completeness, adherence, and rigor are independent LLM judgments. Grades are
@@ -186,6 +190,20 @@ web/ → api/ → services/ → shared/
   facets and collapses identical native requests while keeping every contributing
   intent in lineage. Request cardinality follows what a source's grammar can
   express losslessly, not how many queries arrived.
+- A request must be reachable, not merely precise. Facets carry roles: the
+  condition anchors an intent's requests, one subject phrase is what a query asks,
+  and remaining facets qualify meaning. Whether a qualifier joins the request
+  depends on what that grammar does with it — an extra Boolean conjunct is a
+  further coincidence a record must satisfy, while an extra plain-text term only
+  sharpens ranking. Precision that returns nothing is not precision; retrieval owes
+  coverage and the semantic stages supply the judgement.
+- Narrowed requests are added to a source's intent-scope request, never
+  substituted for it. The scope request is the only one guaranteed to match the
+  source's own vocabulary, so it survives any request budget while precision is
+  what gets dropped. A source declares that budget in its `SourceSpec` beside its
+  concurrency and interval, because those limits belong to the source.
+- A failed retrieval records the provider's message, not just the exception type.
+  A saved result that says only `RuntimeError` cannot be diagnosed later.
 - The static source registry is code; enabled keys are configuration. Adding a
   source means implementing and registering an adapter, injecting any connector,
   and opting configuration into its key—never adding source branches to Scout,

@@ -72,6 +72,16 @@ web/ → api/ → services/ → shared/
 - Chunker emits ordered, citable `ContentBlock`s with stable IDs. API routes
   pass the original filename stem as `doc_id`; temporary filenames must never
   appear in block IDs.
+- A supported document format declares its own structure, so tables, rows,
+  headings, and reading order are read from the file rather than inferred from
+  where glyphs landed on a page. `DOCUMENT_SUFFIXES` is the one authority for that
+  set, and every layer gates on it rather than restating it. Do not add a
+  rendering format: a table reconstructed from geometry can merge unrelated
+  columns into one block whose text still satisfies exact-quote validation, and no
+  structural check downstream can detect that. A format carrying declared
+  structure — a tagged PDF, for example — would qualify; a rendered one never
+  does. PDF remains an internal rasterizing step for slide rendering, never a
+  document source.
 - Images are canonical blocks, not generated descriptions. Retain supported
   raster bytes, normalize other rasters with Pillow, and use LibreOffice only
   for vector fallback and PPTX slide rendering.

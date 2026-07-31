@@ -4,7 +4,7 @@ Traceable document intelligence for product-development plans, evidence, and dec
 
 ![PDIS tools dashboard](./docs/pdis-tools-dashboard.png)
 
-PDIS turns DOCX, PDF, and PPTX product-development documents into citable
+PDIS turns DOCX and PPTX product-development documents into citable
 analysis. It supports target product profiles and development plans for
 vaccines, drugs, diagnostics, and devices while preserving the source blocks
 behind every result.

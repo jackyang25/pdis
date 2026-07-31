@@ -1,4 +1,4 @@
-"""PPTX parser producing the same ordered, citable block contract as DOCX/PDF."""
+"""PPTX parser producing the same ordered, citable block contract as DOCX."""
 
 from __future__ import annotations
 

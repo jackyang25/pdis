@@ -105,7 +105,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/chunker",
     title: "Chunker",
     description:
-      "Turn DOCX, PDF, and PPTX files into ordered, citable text, table, and image blocks.",
+      "Turn DOCX and PPTX files into ordered, citable text, table, and image blocks.",
     capability: "Document parsing",
     activity: "On demand",
     icon: "chunker",

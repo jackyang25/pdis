@@ -21,6 +21,7 @@ from .models import (
 )
 from .pipeline import (
     DEFAULT_MAX_OUTPUT_TOKENS,
+    DOCUMENT_SUFFIXES,
     map_blocks_batch,
     parse_context_file,
     run_pipeline,
@@ -31,6 +32,7 @@ __all__ = [
     "LLMClientProtocol",
     "ContentBlock",
     "DEFAULT_MAX_OUTPUT_TOKENS",
+    "DOCUMENT_SUFFIXES",
     "DocumentTypeConfig",
     "ImageAsset",
     "PipelineResult",

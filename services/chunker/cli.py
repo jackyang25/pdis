@@ -28,7 +28,11 @@ if str(ROOT_DIR) not in sys.path:
 from shared.openai_client import OpenAIClient  # noqa: E402
 
 from .models import blocks_to_dicts, find_config  # noqa: E402
-from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, run_pipeline_batch  # noqa: E402
+from .pipeline import (  # noqa: E402
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    DOCUMENT_SUFFIXES,
+    run_pipeline_batch,
+)
 
 
 HEADER_COLUMNS = ["org", "source_type", "intervention_class", "indication"]
@@ -208,7 +212,7 @@ def _input_files(input_path: Path) -> list[Path]:
         file_path
         for file_path in input_path.rglob("*")
         if file_path.is_file()
-        and file_path.suffix.lower() in {".docx", ".pdf", ".pptx"}
+        and file_path.suffix.lower() in DOCUMENT_SUFFIXES
         and not file_path.name.startswith("~$")
     )
 
@@ -325,7 +329,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export a folder of documents into chunker package tables."
     )
-    parser.add_argument("input_dir", help="Folder containing .docx / .pdf / .pptx files")
+    parser.add_argument("input_dir", help="Folder containing .docx / .pptx files")
     parser.add_argument("output_dir", help="Folder where package files are written")
     parser.add_argument("--org", required=True, help="e.g., bmgf, who")
     parser.add_argument("--source-type", required=True, help="e.g., itpp, ctpp, ipdp")

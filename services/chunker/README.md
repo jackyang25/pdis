@@ -1,6 +1,6 @@
 # Chunker
 
-Convert DOCX, PDF, and PPTX files into ordered, citable content blocks.
+Convert DOCX and PPTX files into ordered, citable content blocks.
 
 ## Background
 
@@ -21,9 +21,15 @@ serializers from `services.chunker`.
 | Output | Ordered `ContentBlock` records with stable IDs and retained visuals |
 
 The API supplies the original filename stem as `doc_id`; temporary upload names
-never enter citations. DOCX preserves body order and embedded images, PDF
-preserves page metadata, and PPTX retains slide text, tables, notes, positions,
-and rendered slide images when available.
+never enter citations. DOCX preserves body order and embedded images; PPTX
+retains slide text, tables, notes, positions, and rendered slide images when
+available.
+
+Supported formats declare their own structure, so tables, rows, headings, and
+reading order are read from the file rather than inferred from glyph positions.
+Rendering formats such as PDF are refused at the parser boundary: a table
+reconstructed from geometry can merge unrelated columns into one block whose
+text still satisfies exact-quote validation, which no downstream check detects.
 
 Multi-column table rows retain both their canonical searchable `content` and
 ordered `table_cells` with exact content offsets. Consumers render columns from

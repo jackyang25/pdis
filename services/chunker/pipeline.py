@@ -24,7 +24,9 @@ from .stages.mapper import label_blocks
 from .stages.parser import parse_document
 
 DEFAULT_MAX_OUTPUT_TOKENS = 16000
-DOCUMENT_SUFFIXES = {".docx", ".pdf", ".pptx"}
+# Formats that declare their own structure. See stages/parser.py for why a
+# rendering format is not accepted as a document source.
+DOCUMENT_SUFFIXES = {".docx", ".pptx"}
 
 
 def run_pipeline(
@@ -92,7 +94,7 @@ def parse_context_file(
     if not media_type.startswith("image/"):
         raise ValueError(
             f"Unsupported attachment format '{suffix or media_type}'. "
-            "Supported: DOCX, PDF, PPTX, and raster images"
+            "Supported: DOCX, PPTX, and raster images"
         )
     image = image_asset_from_bytes(path.read_bytes(), media_type)
     if image is None:

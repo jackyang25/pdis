@@ -11,7 +11,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from services.aligner import load_config, run_pipeline
-from services.chunker import find_config as find_chunker_config
+from services.chunker import DOCUMENT_SUFFIXES, find_config as find_chunker_config
 
 from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import AlignerRunResponse, AlignmentResultOut
@@ -20,7 +20,6 @@ from api.streaming import run_with_progress
 router = APIRouter()
 
 DEFAULT_MAX_TOKENS = 16000
-SUPPORTED_SUFFIXES = {".docx", ".pdf", ".pptx"}
 
 
 @router.post("/run")
@@ -37,8 +36,10 @@ async def run_aligner(
     comparison_name = comparison_file.filename or "comparison.docx"
     reference_suffix = Path(reference_name).suffix.lower()
     comparison_suffix = Path(comparison_name).suffix.lower()
-    if reference_suffix not in SUPPORTED_SUFFIXES or comparison_suffix not in SUPPORTED_SUFFIXES:
-        raise HTTPException(status_code=400, detail="Aligner supports DOCX, PDF, and PPTX files.")
+    if reference_suffix not in DOCUMENT_SUFFIXES or comparison_suffix not in DOCUMENT_SUFFIXES:
+        raise HTTPException(
+            status_code=400, detail="Aligner supports DOCX and PPTX files."
+        )
     reference_doc_id = Path(reference_name).stem
     comparison_doc_id = Path(comparison_name).stem
     if reference_doc_id == comparison_doc_id:

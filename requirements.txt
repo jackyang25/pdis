@@ -13,9 +13,9 @@ anthropic>=0.49.0
 pyyaml>=6.0
 
 # Document parsing (chunker)
-pdfplumber>=0.11.0
 python-docx>=0.8.11
 python-pptx>=1.0.0
+# Renders PPTX slides after LibreOffice converts them; not a PDF input parser.
 pypdfium2>=4.30.0
 pillow>=10.0.0
 

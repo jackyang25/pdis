@@ -27,7 +27,7 @@ Scout-specific fields.
 
 ## Non-goals
 
-- Reproducing the original DOCX, PDF, or PPTX layout pixel-for-pixel.
+- Reproducing the original DOCX or PPTX layout pixel-for-pixel.
 - Creating new claims, summaries, labels, relationships, or provenance.
 - Recalculating imported final results.
 - Adding an API endpoint, result-envelope field, database, or server session.

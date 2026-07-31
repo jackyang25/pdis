@@ -8,7 +8,7 @@ analyses and utility outputs, and their cited source material.
 Ask is stateless. Every turn receives a workspace bundle, source blocks, and
 conversation history. Canonical public process and architecture documentation
 comes from `shared/product_knowledge.json`, the same source rendered by the web
-documentation page. Users may add transient DOCX, PDF, PPTX, or image
+documentation page. Users may add transient DOCX, PPTX, or image
 attachments; these are parsed into ordinary source blocks and remain
 conversation context rather than analysis evidence. Ask cannot mutate analysis
 or start a new evidence search. Conversation text, loaded results, source blocks,

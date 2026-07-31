@@ -384,7 +384,7 @@ export function Ask({
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".docx,.pdf,.pptx,image/*"
+            accept=".docx,.pptx,image/*"
             onChange={(event) => void attachFiles(event.target.files)}
             className="sr-only"
           />
@@ -433,7 +433,7 @@ export function Ask({
         </div>
         {attachmentError && <p className="mt-1.5 px-2 text-[10px] text-destructive">{attachmentError}</p>}
         <p className="mt-1.5 text-center text-[9px] text-muted-foreground/70">
-          Attach up to 5 DOCX, PDF, PPTX, or image files · Enter to send
+          Attach up to 5 DOCX, PPTX, or image files · Enter to send
         </p>
         </div>
       </div>

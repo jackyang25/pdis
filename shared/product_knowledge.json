@@ -731,7 +731,7 @@
         {
           "id": "chunker",
           "title": "Chunker",
-          "summary": "Normalizes DOCX, PDF, and PPTX into one ordered block contract with stable citations and retained visuals.",
+          "summary": "Normalizes DOCX and PPTX into one ordered block contract with stable citations and retained visuals.",
           "nodes": [
             {
               "id": "file",
@@ -739,7 +739,7 @@
               "summary": "A supported document enters with its original filename stem as stable identity.",
               "kind": "input",
               "layer": "Input",
-              "inputs": ["DOCX, PDF, or PPTX", "Stable doc_id and provenance"],
+              "inputs": ["DOCX or PPTX", "Stable doc_id and provenance"],
               "guarantee": "Temporary upload names never enter citations."
             },
             {
@@ -754,13 +754,6 @@
                   "id": "docx",
                   "title": "DOCX parser",
                   "summary": "Preserves body order, tables, and embedded images.",
-                  "kind": "deterministic",
-                  "layer": "Format adapter"
-                },
-                {
-                  "id": "pdf",
-                  "title": "PDF parser",
-                  "summary": "Preserves page metadata and ordered extractable content.",
                   "kind": "deterministic",
                   "layer": "Format adapter"
                 },

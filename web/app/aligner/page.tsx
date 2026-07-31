@@ -563,7 +563,7 @@ function FileSlot({ label, helper, file, disabled, onChange }: { label: string; 
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <Label>{label}</Label><span className="text-[10px] text-muted-foreground">DOCX, PDF, PPTX</span>
+        <Label>{label}</Label><span className="text-[10px] text-muted-foreground">DOCX, PPTX</span>
       </div>
       <button
         type="button"
@@ -576,7 +576,7 @@ function FileSlot({ label, helper, file, disabled, onChange }: { label: string; 
         {file ? <Check className="h-4 w-4 shrink-0" /> : <Upload className="h-4 w-4 shrink-0 text-muted-foreground" />}
         <span className="min-w-0"><span className="block truncate text-sm">{file?.name ?? "Choose a document"}</span><span className="mt-1 block text-[11px] text-muted-foreground">{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : helper}</span></span>
       </button>
-      <input ref={input} type="file" accept=".docx,.pdf,.pptx" className="hidden" onChange={(event) => onChange(event.target.files?.[0] ?? null)} />
+      <input ref={input} type="file" accept=".docx,.pptx" className="hidden" onChange={(event) => onChange(event.target.files?.[0] ?? null)} />
     </div>
   );
 }

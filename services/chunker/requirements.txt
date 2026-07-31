@@ -1,5 +1,7 @@
 openai>=1.0.0
-pdfplumber>=0.11.0
 python-docx>=0.8.11
+python-pptx>=1.0.0
 pillow>=10.0.0
 pyyaml>=6.0
+# Optional: slide rendering degrades to embedded pictures without it.
+pypdfium2>=4.30.0

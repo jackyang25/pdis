@@ -4,7 +4,6 @@ from pathlib import Path
 
 from ..models import ContentBlock
 from .parser_docx import parse_docx
-from .parser_pdf import parse_pdf
 from .parser_pptx import parse_pptx
 
 
@@ -17,9 +16,15 @@ def parse_document(file_path: str, doc_id: str) -> list[ContentBlock]:
     evidence, Inspector) read ContentBlocks without caring about source
     format.
 
+    A supported format declares its own structure, so tables, rows, headings,
+    and reading order are read from the file rather than inferred from where
+    glyphs landed on a page. Rendering formats are refused here: reconstructing
+    a table from geometry can merge unrelated columns into one block whose text
+    still satisfies exact-quote validation, which is a provenance error no
+    downstream check can detect.
+
     Supported formats:
         .docx  -> parser_docx.parse_docx (semantic-tag-driven)
-        .pdf   -> parser_pdf.parse_pdf   (text + table extraction via pdfplumber)
         .pptx  -> parser_pptx.parse_pptx (slide text, tables, and visuals)
 
     Args:
@@ -35,10 +40,8 @@ def parse_document(file_path: str, doc_id: str) -> list[ContentBlock]:
     suffix = Path(file_path).suffix.lower()
     if suffix == ".docx":
         return parse_docx(file_path, doc_id)
-    if suffix == ".pdf":
-        return parse_pdf(file_path, doc_id)
     if suffix == ".pptx":
         return parse_pptx(file_path, doc_id)
     raise ValueError(
-        f"Unsupported file format '{suffix}'. Supported: .docx, .pdf, .pptx"
+        f"Unsupported file format '{suffix}'. Supported: .docx, .pptx"
     )

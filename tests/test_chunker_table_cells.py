@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 
+from types import SimpleNamespace
+
 from services.chunker.stages.parser_docx import _parse_multi_column_table
-from services.chunker.stages.parser_pdf import _build_table_blocks
+from services.chunker.stages.parser_pptx import _table_blocks
 
 
 EXPECTED_CELLS = [
@@ -42,12 +44,20 @@ class ChunkerTableCellTests(unittest.TestCase):
         self.assertEqual(blocks[0].content, "Measure: Efficacy, Target: >= 75%")
         self.assertEqual(blocks[0].structural_meta["table_cells"], EXPECTED_CELLS)
 
-    def test_pdf_retains_the_same_table_cell_contract(self) -> None:
-        blocks = _build_table_blocks(
-            rows=[["Measure", "Target"], ["Efficacy", ">= 75%"]],
+    def test_pptx_retains_the_same_table_cell_contract(self) -> None:
+        """Every supported format resolves table rows to one cell contract."""
+        table = SimpleNamespace(rows=[
+            SimpleNamespace(cells=[
+                SimpleNamespace(text=value) for value in row
+            ])
+            for row in (["Measure", "Target"], ["Efficacy", ">= 75%"])
+        ])
+
+        blocks = _table_blocks(
+            table,
             doc_id="profile",
-            table_index=0,
-            page_number=1,
+            heading_stack=["Efficacy targets"],
+            structural_meta={"slide": 1},
         )
 
         self.assertEqual(len(blocks), 1)

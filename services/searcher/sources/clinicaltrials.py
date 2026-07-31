@@ -9,7 +9,7 @@ from ..stages.clinicaltrials import (
     fetch_clinicaltrials_studies,
 )
 from .literature import active_tracks
-from .planning import request_lineage
+from .planning import facet_groups, request_lineage
 
 MAX_CANDIDATES = 100
 MAX_RESULTS = 20
@@ -26,30 +26,39 @@ class ClinicalTrialsSource:
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
         if not intent.queries:
             return []
-        queries = list(intent.queries)
-        intent_ids, input_queries, document_refs = request_lineage(queries)
-        condition = intent.indication.strip() or intent.topic.strip()
-        intervention = intent.intervention_class.strip()
-        native_query = f"condition:{condition}"
-        if intervention:
-            native_query += f" AND intervention:{intervention}"
-        return [
-            SearchRequest(
-                scope_ref=intent.scope_ref,
-                source=self.spec.key,
-                query=native_query,
-                tracks=tuple(active_tracks(intent)),
-                document_refs=document_refs,
-                intent_ids=intent_ids,
-                input_queries=input_queries,
-                options=(
-                    ("condition", condition),
-                    ("intervention", intervention),
-                    ("candidate_limit", str(MAX_CANDIDATES)),
-                    ("ranking", "all_input_queries"),
-                ),
+        requests: list[SearchRequest] = []
+        for scope, queries in facet_groups(
+            intent,
+            fields=("condition", "intervention"),
+            fallbacks={
+                "condition": intent.indication or intent.topic,
+                "intervention": intent.intervention_class,
+            },
+        ):
+            intent_ids, input_queries, document_refs = request_lineage(queries)
+            condition = scope["condition"]
+            intervention = scope["intervention"]
+            native_query = f"condition:{condition}"
+            if intervention:
+                native_query += f" AND intervention:{intervention}"
+            requests.append(
+                SearchRequest(
+                    scope_ref=intent.scope_ref,
+                    source=self.spec.key,
+                    query=native_query,
+                    tracks=tuple(active_tracks(intent)),
+                    document_refs=document_refs,
+                    intent_ids=intent_ids,
+                    input_queries=input_queries,
+                    options=(
+                        ("condition", condition),
+                        ("intervention", intervention),
+                        ("candidate_limit", str(MAX_CANDIDATES)),
+                        ("ranking", "all_input_queries"),
+                    ),
+                )
             )
-        ]
+        return requests
 
     def search(self, request, runtime: SearchRuntime, *, max_tokens: int, max_uses: int):
         studies = fetch_clinicaltrials_studies(

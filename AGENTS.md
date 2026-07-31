@@ -26,6 +26,19 @@ web/ → api/ → services/ → shared/
   prompt influence each other and batch composition shifts between runs. Each stage
   states its choice in an `<ITEMS>_PER_REQUEST` constant carrying the justification;
   throughput comes from fan-out, never from packing unrelated items.
+- A schema states every constraint its receiving code enforces. A required field
+  is declared required, and non-empty text declares it; a validator that rejects
+  what its own schema permits creates answers the model cannot get right.
+- A model's verdict and a pipeline failure are different claims and never share a
+  status value. Closed enums offered to a model exclude the failure members, so
+  only code can record one, and a failure carries a machine-readable code beside
+  its prose. Retain the subject either way — dropping it silently is worse than
+  reporting that nothing was concluded about it.
+- One layer decides meaning and downstream layers translate it. The stage that
+  authors a value states the structured parts consumers need, in the same
+  schema-bound response; no consumer recovers them by re-parsing finished text.
+  Lexical term extraction, stopword lists, and synonym tables may reorder results
+  already returned, never construct the request that returns them.
 - Run-to-run consistency comes from request scope and schema, not from provider
   sampling parameters; current model tiers reject them. Identity and duplicate
   decisions are their own model layer, never folded into the prompt that creates
@@ -157,6 +170,12 @@ web/ → api/ → services/ → shared/
 - Searcher adapters own source grammar, applicability metadata, credentials,
   rate limits, concurrency, execution, and normalization. Scout supplies neutral
   intents and config-selected adapter keys.
+- A query intent carries both its natural-language text and the facets its author
+  stated. An adapter selects whichever its API accepts and treats a blank facet as
+  the intent's own scope; a field-addressed source varies its request by those
+  facets and collapses identical native requests while keeping every contributing
+  intent in lineage. Request cardinality follows what a source's grammar can
+  express losslessly, not how many queries arrived.
 - The static source registry is code; enabled keys are configuration. Adding a
   source means implementing and registering an adapter, injecting any connector,
   and opting configuration into its key—never adding source branches to Scout,

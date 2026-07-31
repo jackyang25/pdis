@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from shared.openai_client import ModelTask
 
-from services.searcher import Finding, source_keys
+from services.searcher import Finding, QueryFacets, source_keys
 from shared.vocabulary import ENTITY_TYPES, EVIDENCE_DOMAINS
 
 if TYPE_CHECKING:
@@ -279,12 +279,19 @@ class Attribute:
 
 @dataclass
 class QueryIntent:
-    """One search intent and the orthogonal coverage tracks that produced it."""
+    """One search intent and the orthogonal coverage tracks that produced it.
+
+    ``facets`` records the parts of this query the authoring stage already knew.
+    They travel beside the text so a field-addressed source selects them instead
+    of recovering them from prose. Searcher owns the shape; Scout does not define
+    a parallel one.
+    """
 
     text: str
     tracks: list[str] = field(default_factory=list)
     doc_block_ids: list[str] = field(default_factory=list)
     target_ids: list[str] = field(default_factory=list)
+    facets: QueryFacets = field(default_factory=QueryFacets)
 
 
 @dataclass
@@ -971,26 +978,42 @@ class Measurement:
         return self.expression.kind
 
 
+SOURCE_VERDICTS = frozenset({
+    "measurements_found",
+    "no_relevant_measurement",
+    "uncertain",
+})
+
+
 @dataclass
 class SourcePassageDisposition:
-    """Auditable outcome for one source-owned passage considered for a target."""
+    """Auditable outcome for one source-owned passage considered for a target.
+
+    ``status`` carries one of two different kinds of claim. The three members of
+    ``SOURCE_VERDICTS`` are what the model concluded about the source and are the
+    only values its schema permits. ``not_assessed`` is owned by this pipeline and
+    states that no usable conclusion was obtained, so a processing gap can never
+    be read as evidentiary ambiguity. ``failure_code`` names that gap for
+    machines and is present on exactly the ``not_assessed`` records.
+    """
 
     source_id: str
     status: str
     reason: str
     url: str = ""
     insight_id: str = ""
+    failure_code: str = ""
 
     def __post_init__(self) -> None:
-        if self.status not in {
-            "measurements_found",
-            "no_relevant_measurement",
-            "uncertain",
-        }:
+        if self.status not in SOURCE_VERDICTS | {"not_assessed"}:
             raise ValueError("invalid source passage disposition")
         self.reason = " ".join(self.reason.split())
         if not self.source_id or not self.reason:
             raise ValueError("source disposition requires an ID and reason")
+        if (self.status == "not_assessed") != bool(self.failure_code):
+            raise ValueError(
+                "a failure code belongs to exactly the not_assessed dispositions"
+            )
 
 
 @dataclass

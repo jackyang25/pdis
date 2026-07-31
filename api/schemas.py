@@ -454,10 +454,19 @@ class MeasurementOut(BaseModel):
 
 class SourcePassageDispositionOut(BaseModel):
     source_id: str
-    status: Literal["measurements_found", "no_relevant_measurement", "uncertain"]
+    # The first three are the model's verdict on the source. `not_assessed` is
+    # this pipeline reporting that no verdict was obtained, and carries the
+    # machine-readable `failure_code`.
+    status: Literal[
+        "measurements_found",
+        "no_relevant_measurement",
+        "uncertain",
+        "not_assessed",
+    ]
     reason: str
     url: str = ""
     insight_id: str = ""
+    failure_code: str = ""
 
 
 class ConformityOut(BaseModel):

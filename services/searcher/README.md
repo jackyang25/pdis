@@ -37,9 +37,16 @@ adapter failures remain isolated. URL deduplication preserves every query,
 source lane, and retrieval path. Web citation context is not treated as a
 verbatim source passage.
 
+A query intent carries its natural-language text and the facets its author stated
+(`condition`, `intervention`, `population`, `outcome`). An adapter selects
+whichever its API accepts and reads a blank facet as the intent's own scope. No
+adapter recovers a facet by re-parsing the text.
+
 Adapters may compact several neutral intents into one native request, but the
 native query must retain their document-specific concepts and the request must
-carry every input intent ID and text.
+carry every input intent ID and text. A field-addressed source varies its request
+by the facets it uses and collapses identical native requests, so request count
+follows what its grammar expresses losslessly rather than how many queries arrived.
 
 ## Sources
 

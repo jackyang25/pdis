@@ -45,6 +45,7 @@ def build_retrieval_intents(
                     document_refs=tuple(query.doc_block_ids),
                     target_refs=tuple(query.target_ids),
                     intent_id=_intent_id(attribute_ref, query),
+                    facets=query.facets,
                 )
                 for query in queries
             ),
@@ -63,6 +64,7 @@ def _intent_id(attribute_ref: str, query: QueryIntent) -> str:
             *query.tracks,
             *query.doc_block_ids,
             *query.target_ids,
+            *query.facets.phrases(),
         )
     )
     return "q-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]

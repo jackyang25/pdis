@@ -291,10 +291,19 @@ export type MeasurementSemanticAssessment = {
 
 export type SourcePassageDisposition = {
   source_id: string;
-  status: "measurements_found" | "no_relevant_measurement" | "uncertain";
+  /**
+   * The first three are the model's verdict on the source. `not_assessed` is the
+   * pipeline reporting that no verdict was obtained, and carries `failure_code`.
+   */
+  status:
+    | "measurements_found"
+    | "no_relevant_measurement"
+    | "uncertain"
+    | "not_assessed";
   reason: string;
   url: string;
   insight_id: string;
+  failure_code: string;
 };
 
 export type Conformity = {

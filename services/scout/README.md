@@ -95,6 +95,11 @@ descriptive statistics. Unresolved records remain in the portable audit trail;
 cohort spread is never presented as inferential uncertainty or probability of
 success.
 
+Every source passage keeps a disposition. Three of its statuses are the model's
+verdict on that source; `not_assessed` means this run obtained no verdict and
+names the reason in `failure_code`. A processing gap is never reported as
+evidentiary uncertainty.
+
 ## Development
 
 Product framing, source keys, and query budgets live in `configs/`; fixed TPP

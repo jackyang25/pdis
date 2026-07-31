@@ -15,7 +15,7 @@ from ..models import (
     SourceSpec,
 )
 from .literature import active_tracks
-from .planning import request_lineage
+from .planning import facet_groups, request_lineage
 from .tooluniverse_records import (
     TOOLUNIVERSE_INTEGRATION,
     parse_datetime,
@@ -51,40 +51,48 @@ class FDASource:
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
-        queries = list(intent.queries)
-        intent_ids, input_queries, document_refs = request_lineage(queries)
-        condition = intent.indication.strip() or intent.topic.strip()
+        # The product class selects the openFDA endpoint, so it stays the intent's
+        # rather than a per-query facet. Only the searched condition varies.
         intervention = intent.intervention_class.strip().casefold()
-        if intervention in {"device", "diagnostic"}:
-            operation = DEVICE_510K_TOOL
-            native_query = f'device_name:"{_lucene_phrase(condition)}"'
-            options = (
-                ("search", native_query),
-                ("limit", str(MAX_CANDIDATES)),
-                ("ranking", "all_input_queries"),
+        requests: list[SearchRequest] = []
+        for scope, queries in facet_groups(
+            intent,
+            fields=("condition",),
+            fallbacks={"condition": intent.indication or intent.topic},
+        ):
+            intent_ids, input_queries, document_refs = request_lineage(queries)
+            condition = scope["condition"]
+            if intervention in {"device", "diagnostic"}:
+                operation = DEVICE_510K_TOOL
+                native_query = f'device_name:"{_lucene_phrase(condition)}"'
+                options = (
+                    ("search", native_query),
+                    ("limit", str(MAX_CANDIDATES)),
+                    ("ranking", "all_input_queries"),
+                )
+            else:
+                operation = DRUG_LABEL_TOOL
+                native_query = f"indication:{condition}"
+                options = (
+                    ("indication", condition),
+                    ("limit", str(MAX_CANDIDATES)),
+                    ("ranking", "all_input_queries"),
+                )
+            requests.append(
+                SearchRequest(
+                    scope_ref=intent.scope_ref,
+                    source=self.spec.key,
+                    query=native_query,
+                    tracks=tuple(active_tracks(intent)),
+                    document_refs=document_refs,
+                    intent_ids=intent_ids,
+                    input_queries=input_queries,
+                    connector=TOOLUNIVERSE_INTEGRATION,
+                    operation=operation,
+                    options=options,
+                )
             )
-        else:
-            operation = DRUG_LABEL_TOOL
-            native_query = f"indication:{condition}"
-            options = (
-                ("indication", condition),
-                ("limit", str(MAX_CANDIDATES)),
-                ("ranking", "all_input_queries"),
-            )
-        return [
-            SearchRequest(
-                scope_ref=intent.scope_ref,
-                source=self.spec.key,
-                query=native_query,
-                tracks=tuple(active_tracks(intent)),
-                document_refs=document_refs,
-                intent_ids=intent_ids,
-                input_queries=input_queries,
-                connector=TOOLUNIVERSE_INTEGRATION,
-                operation=operation,
-                options=options,
-            )
-        ]
+        return requests
 
     def search(
         self,

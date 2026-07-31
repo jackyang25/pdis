@@ -2506,8 +2506,13 @@ function ConformityBlock({
     optimal: "Optimal",
     other: "Other target",
   }[conformity.target_role];
+  // An ambiguous source and a source we failed to map are different claims and
+  // are counted separately.
   const uncertainSources = conformity.source_dispositions.filter(
     (item) => item.status === "uncertain",
+  );
+  const unassessedSources = conformity.source_dispositions.filter(
+    (item) => item.status === "not_assessed",
   );
   const consideredSources = conformity.source_dispositions.length;
   const otherExcluded = conformity.excluded_measurements;
@@ -2585,32 +2590,49 @@ function ConformityBlock({
         <div className="mt-3 text-[10px] text-muted-foreground/70">
           <p>
             {consideredSources} source passage{consideredSources === 1 ? "" : "s"} reviewed
-            {uncertainSources.length > 0 ? ` · ${uncertainSources.length} unresolved` : " · all resolved"}
+            {uncertainSources.length > 0 ? ` · ${uncertainSources.length} unresolved` : ""}
+            {unassessedSources.length > 0 ? ` · ${unassessedSources.length} not assessed` : ""}
+            {uncertainSources.length === 0 && unassessedSources.length === 0
+              ? " · all resolved"
+              : ""}
           </p>
-          {uncertainSources.length > 0 && (
-            <details className="group/unresolved mt-1.5">
-              <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 font-medium outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
-                Review unresolved source passages
-                <ChevronDown className="h-3 w-3 transition-transform group-open/unresolved:rotate-180 motion-reduce:transition-none" />
-              </summary>
-              <ul className="mt-1.5 space-y-1.5">
-                {uncertainSources.map((item) => {
-                  const sourceTitle = matches
-                    .find((match) => match.insight.id === item.insight_id)
-                    ?.insight.supporting_findings.find((finding) => finding.url === item.url)
-                    ?.title;
-                  return (
-                    <li key={item.source_id} className="rounded-md bg-muted/35 px-3 py-2">
-                      <a href={item.url} target="_blank" rel="noreferrer" className="font-medium text-foreground/80 hover:underline">
-                        {sourceTitle || "Cited source"}
-                      </a>
-                      <p className="mt-0.5 leading-relaxed">{item.reason}</p>
-                    </li>
-                  );
-                })}
-              </ul>
-            </details>
-          )}
+          {[
+            {
+              key: "unresolved",
+              label: "Review source passages the model could not resolve",
+              items: uncertainSources,
+            },
+            {
+              key: "not-assessed",
+              label: "Review source passages this run could not assess",
+              items: unassessedSources,
+            },
+          ]
+            .filter((group) => group.items.length > 0)
+            .map((group) => (
+              <details key={group.key} className="group/unresolved mt-1.5">
+                <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 font-medium outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
+                  {group.label}
+                  <ChevronDown className="h-3 w-3 transition-transform group-open/unresolved:rotate-180 motion-reduce:transition-none" />
+                </summary>
+                <ul className="mt-1.5 space-y-1.5">
+                  {group.items.map((item) => {
+                    const sourceTitle = matches
+                      .find((match) => match.insight.id === item.insight_id)
+                      ?.insight.supporting_findings.find((finding) => finding.url === item.url)
+                      ?.title;
+                    return (
+                      <li key={item.source_id} className="rounded-md bg-muted/35 px-3 py-2">
+                        <a href={item.url} target="_blank" rel="noreferrer" className="font-medium text-foreground/80 hover:underline">
+                          {sourceTitle || "Cited source"}
+                        </a>
+                        <p className="mt-0.5 leading-relaxed">{item.reason}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
+            ))}
         </div>
       )}
 

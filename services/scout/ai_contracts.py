@@ -65,10 +65,18 @@ def _array(items: JsonSchema, *, exact_items: int | None = None) -> JsonSchema:
     return schema
 
 
-def _string(*, enum: list[str] | None = None) -> JsonSchema:
+def _string(*, enum: list[str] | None = None, required_text: bool = False) -> JsonSchema:
+    """Describe one string slot.
+
+    ``required_text`` states in the schema that blank is not an acceptable answer.
+    A constraint the receiving code enforces but the schema omits is a contract
+    the model can satisfy and still fail, so both layers must state it.
+    """
     schema: JsonSchema = {"type": "string"}
     if enum is not None:
         schema["enum"] = enum
+    if required_text:
+        schema["minLength"] = 1
     return schema
 
 
@@ -168,13 +176,26 @@ def query_batch(
     allowed_block_ids: list[str],
     allowed_target_ids: list[str],
 ) -> AIContract:
-    """Constrain query lineage to canonical document and target identities."""
+    """Constrain query lineage to canonical document and target identities.
+
+    ``facets`` asks for the parts of the query that field-addressed sources can
+    use natively. Stating them here keeps one authority for query meaning: no
+    downstream adapter has to recover them from the finished text.
+    """
     return _wrapped(
         "scout_query_batch",
         "queries",
         _object(
             {
                 "query": _string(),
+                "facets": _object(
+                    {
+                        "condition": _string(),
+                        "intervention": _string(),
+                        "population": _string(),
+                        "outcome": _string(),
+                    }
+                ),
                 "doc_block_ids": _array(_string(enum=allowed_block_ids)),
                 "target_ids": _array(_string(enum=allowed_target_ids or None)),
             }
@@ -486,7 +507,7 @@ def source_measurement_batch(
                     "uncertain",
                 ]
             ),
-            "reason": _string(),
+            "reason": _string(required_text=True),
             "evidence_unit_partition": _EVIDENCE_UNIT_PARTITION,
             "measurements": _array(measurement),
         }

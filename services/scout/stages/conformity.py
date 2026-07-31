@@ -77,6 +77,7 @@ from ..models import (
     QuantitativeStatementDisposition,
     SemanticDimensionAssessment,
     SemanticSlot,
+    SOURCE_VERDICTS,
     SourcePassageDisposition,
     TernaryDecision,
 )
@@ -2135,13 +2136,17 @@ def _map_source_passage_batch(
         if passage.id in decided:
             continue
         issue = issues.get(passage.id, "missing_source_decision")
+        # The source is retained so the audit trail keeps every passage that was
+        # considered. Its status is this pipeline's, not one of the model's three
+        # verdicts, because no verdict was obtained.
         dispositions.append(
             SourcePassageDisposition(
                 source_id=passage.id,
-                status="uncertain",
+                status="not_assessed",
                 reason=f"Source mapping rejected [{issue}] after one retry.",
                 url=passage.finding.url,
                 insight_id=passage.insight.id,
+                failure_code=issue,
             )
         )
     return _CalibrationBatchResult(measurements, dispositions)
@@ -2188,16 +2193,21 @@ def _validated_source_decisions(
             continue
         status = str(item.get("status", "")).strip().lower()
         reason = " ".join(str(item.get("reason", "")).split())
+        if status not in SOURCE_VERDICTS or not reason:
+            issues[source_id] = "invalid_source_decision"
+            continue
         partition = _validated_evidence_unit_partition(
             item.get("evidence_unit_partition")
         )
-        if status not in {
-            "measurements_found",
-            "no_relevant_measurement",
-            "uncertain",
-        } or not reason or partition is None:
-            issues[source_id] = "invalid_source_decision"
-            continue
+        # Partitioning answers which measurements may count independently, so it
+        # is required exactly when measurements exist. Demanding it of the two
+        # verdicts that carry none would discard a sound verdict over a field
+        # that has nothing to describe.
+        if partition is None:
+            if status == "measurements_found":
+                issues[source_id] = "invalid_evidence_unit_partition"
+                continue
+            partition = _RECORD_LEVEL_PARTITION
         raw_measurements = item.get("measurements")
         if status == "measurements_found" and not isinstance(raw_measurements, list):
             issues[source_id] = "invalid_measurement_list"
@@ -2393,6 +2403,15 @@ def _validated_evidence_unit_identity(raw: object) -> EvidenceUnitIdentity | Non
         )
     except (ValidationError, ValueError):
         return None
+
+
+_RECORD_LEVEL_PARTITION = EvidenceUnitPartitionWire(
+    status="overlapping_or_uncertain",
+    reason=(
+        "No measurements were returned for this source, so no independent "
+        "comparison unit is asserted."
+    ),
+)
 
 
 def _validated_evidence_unit_partition(

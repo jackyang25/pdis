@@ -11,7 +11,7 @@ import math
 from copy import deepcopy
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class _WireModel(BaseModel):
@@ -69,16 +69,14 @@ class EvidenceUnitIdentityWire(_WireModel):
 
 
 class EvidenceUnitPartitionWire(_WireModel):
-    """Whether one source record contains independent comparison units."""
+    """Whether one source record contains independent comparison units.
+
+    ``min_length`` is declared rather than checked after the fact so the
+    published schema states the same requirement the parser enforces.
+    """
 
     status: Literal["single_unit", "disjoint_units", "overlapping_or_uncertain"]
-    reason: str
-
-    @model_validator(mode="after")
-    def validate_partition(self) -> "EvidenceUnitPartitionWire":
-        if not self.reason:
-            raise ValueError("evidence unit partition requires a reason")
-        return self
+    reason: str = Field(min_length=1)
 
 
 class NumericExpressionWire(_WireModel):

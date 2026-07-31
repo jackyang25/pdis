@@ -73,6 +73,39 @@ class SourceSpec:
 
 
 @dataclass(frozen=True)
+class QueryFacets:
+    """The stated parts of one query, for adapters whose grammar needs fields.
+
+    A consumer authors the query text and these facets together, so they cannot
+    drift apart. An adapter selects the facets its own API accepts; it must never
+    recover them by re-parsing the text. A blank facet means the consumer did not
+    state that dimension, and the adapter falls back to its intent's scope.
+    """
+
+    condition: str = ""
+    intervention: str = ""
+    population: str = ""
+    outcome: str = ""
+
+    def __post_init__(self) -> None:
+        for name in ("condition", "intervention", "population", "outcome"):
+            object.__setattr__(self, name, " ".join(getattr(self, name).split()))
+
+    def phrases(self) -> tuple[str, ...]:
+        """Return the stated facets in a stable order, without blanks."""
+        return tuple(
+            value
+            for value in (
+                self.condition,
+                self.intervention,
+                self.population,
+                self.outcome,
+            )
+            if value
+        )
+
+
+@dataclass(frozen=True)
 class SourceQueryIntent:
     """One provider-agnostic query intent supplied by an upstream consumer."""
 
@@ -81,12 +114,19 @@ class SourceQueryIntent:
     document_refs: tuple[str, ...] = ()
     target_refs: tuple[str, ...] = ()
     intent_id: str = ""
+    facets: QueryFacets = field(default_factory=QueryFacets)
 
     def __post_init__(self) -> None:
         if self.intent_id:
             return
         material = "\n".join(
-            (self.text, *self.tracks, *self.document_refs, *self.target_refs)
+            (
+                self.text,
+                *self.tracks,
+                *self.document_refs,
+                *self.target_refs,
+                *self.facets.phrases(),
+            )
         )
         object.__setattr__(
             self,

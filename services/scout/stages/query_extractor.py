@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 
+from services.searcher import QueryFacets
+
 from ..ai import request_structured
 from ..ai_contracts import query_batch
 from ..context import BLOCK_ID_JSON_INSTRUCTION, document_block_ids, validated_block_ids
@@ -25,6 +27,20 @@ from ..prompt_primitives import COMPARATOR_POLICY_PRIMITIVE, SEMANTIC_DIMENSIONS
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 5000
+
+QUERY_FACET_INSTRUCTION = (
+    "STATED QUERY PARTS\n"
+    "Alongside each query, populate `facets` with the parts of that same query. "
+    "Registries and regulatory databases accept fields, not sentences, and they use "
+    "these instead of re-reading your text. condition is the disease or health "
+    "problem searched; intervention is the product, platform, or approach; population "
+    "is who the result must describe; outcome is the property or endpoint being "
+    "measured. Use the exact wording a database would index, not a paraphrase of the "
+    "whole query. Leave a facet as an empty string when the query genuinely does not "
+    "constrain it - an empty facet widens the search to this field's scope, while a "
+    "guessed one silently narrows it. Facets never replace the query text; both are "
+    "returned together."
+)
 
 
 def extract_queries_for_variable(
@@ -389,6 +405,7 @@ def build_system_prompt_for_variable(
             "value, comparator, threshold/optimal role, or pass/fail wording in a query: valid "
             "comparators on either side of the target must remain retrievable."
         )
+    parts.append(QUERY_FACET_INSTRUCTION)
     parts.append(
         "OUTPUT CONTRACT\n"
         f"Return EXACTLY {queries_per_variable} quer"
@@ -456,6 +473,7 @@ def build_system_prompt_for_geographic_variable(
             + ", ".join(config.languages)
             + ". Include language diversity across this additive query group when possible."
         )
+    parts.append(QUERY_FACET_INSTRUCTION)
     parts.append(
         f"Return EXACTLY {geographic_queries_per_variable} quer"
         f"{'y' if geographic_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
@@ -508,6 +526,7 @@ def build_system_prompt_for_counterfactual_variable(
             + ", ".join(config.languages)
             + ". Use native-language phrasing where it helps surface non-English evidence."
         )
+    parts.append(QUERY_FACET_INSTRUCTION)
     parts.append(
         f"Return EXACTLY {counterfactual_queries_per_variable} quer"
         f"{'y' if counterfactual_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
@@ -562,6 +581,7 @@ def build_system_prompt_for_precedent_variable(
             + ", ".join(config.languages)
             + ". Use native-language phrasing where it helps surface non-English evidence."
         )
+    parts.append(QUERY_FACET_INSTRUCTION)
     parts.append(
         f"Return EXACTLY {precedent_queries_per_variable} quer"
         f"{'y' if precedent_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
@@ -595,6 +615,7 @@ def _dedupe_queries(queries: list[QueryIntent]) -> list[QueryIntent]:
             tracks=list(dict.fromkeys(query.tracks)),
             doc_block_ids=list(dict.fromkeys(query.doc_block_ids)),
             target_ids=list(dict.fromkeys(query.target_ids)),
+            facets=query.facets,
         )
         by_text[key] = intent
         out.append(intent)
@@ -615,10 +636,12 @@ def _parse_queries(
     for item in parsed:
         if isinstance(item, str):
             query = item.strip()
+            facets = QueryFacets()
             block_ids: list[str] = []
             target_ids: list[str] = []
         elif isinstance(item, dict):
             query = str(item.get("query", "")).strip()
+            facets = _parsed_facets(item.get("facets"))
             block_ids = validated_block_ids(item.get("doc_block_ids"), allowed_block_ids)
             target_ids = [
                 target_id
@@ -647,6 +670,19 @@ def _parse_queries(
                     text=query,
                     doc_block_ids=block_ids,
                     target_ids=list(dict.fromkeys(target_ids)),
+                    facets=facets,
                 )
             )
     return out
+
+
+def _parsed_facets(raw: object) -> QueryFacets:
+    """Read the stated query parts, treating an absent slot as unstated."""
+    if not isinstance(raw, dict):
+        return QueryFacets()
+    return QueryFacets(
+        condition=str(raw.get("condition", "")),
+        intervention=str(raw.get("intervention", "")),
+        population=str(raw.get("population", "")),
+        outcome=str(raw.get("outcome", "")),
+    )

@@ -4,6 +4,12 @@ Provider adapters use these helpers only after a source-native request has
 returned a bounded candidate set.  They do not decide source applicability or
 replace provider ranking; they preserve field specificity when one structured
 request represents several source-neutral query intents.
+
+Lexical term matching is acceptable here and nowhere else in this service. These
+functions reorder records that a source already returned, so dropping a
+low-signal term can only change a position. The same technique applied while
+building a request would change what the source returns at all, which is why
+query compilers read stated facets instead (see ``sources/literature.py``).
 """
 
 from __future__ import annotations

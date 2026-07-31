@@ -1011,9 +1011,11 @@ class RetrievalPlanningTests(unittest.TestCase):
             for task in tasks
             if task.source == "pubmed" and task.tracks == ("general",)
         )
+        # The authored query survives whole. Previously it was split into content
+        # terms, which silently deleted "latest" and the institution name "WHO".
         self.assertEqual(
             literature.query,
-            "(malaria) AND ((vaccine AND doses))",
+            'malaria AND "latest WHO malaria vaccine doses"',
         )
         self.assertNotIn("site:", literature.query)
         registry = next(task for task in tasks if task.source == "clinicaltrials")
@@ -1038,7 +1040,10 @@ class RetrievalPlanningTests(unittest.TestCase):
                 "malaria vaccine schedule adherence limitations",
             ),
         )
-        self.assertIn("(failure OR limitation OR adverse)", counterfactual_literature.query)
+        # A track's meaning lives in the queries authored for that track, not in a
+        # code-side synonym table appended to every counterfactual request.
+        self.assertIn("dosing failure", counterfactual_literature.query)
+        self.assertIn("adherence limitations", counterfactual_literature.query)
         self.assertEqual(
             counterfactual_literature.document_refs,
             ("doc/b-0002", "doc/b-0003"),
@@ -1459,11 +1464,15 @@ class RetrievalPlanningTests(unittest.TestCase):
         )
 
         self.assertEqual(len(requests), 1)
+        # Every variant stays in request lineage even though a plain-text engine
+        # cannot separate five questions inside one query string.
         self.assertEqual(len(requests[0].intent_ids), 5)
         self.assertEqual(requests[0].input_queries, tuple(item.text for item in variants))
         self.assertEqual(
             requests[0].query,
-            "malaria vaccine durability concept0 concept1 concept2 concept3 concept4 Duration protection",
+            "malaria vaccine durability concept0 "
+            "malaria vaccine durability concept1 "
+            "malaria vaccine durability concept2",
         )
         self.assertEqual(
             requests[0].document_refs,
@@ -3589,7 +3598,12 @@ class ReasoningLineageTests(unittest.TestCase):
 
         self.assertEqual(ledgers[0].benchmark_count, 0)
         self.assertEqual(ledgers[0].excluded_measurements, [])
-        self.assertEqual(ledgers[0].source_dispositions[0].status, "uncertain")
+        # A rejected mapping is this pipeline's failure, not the model judging
+        # the evidence ambiguous.
+        self.assertEqual(ledgers[0].source_dispositions[0].status, "not_assessed")
+        self.assertEqual(
+            ledgers[0].source_dispositions[0].failure_code, "source_quote_not_found"
+        )
 
     def test_missing_candidate_relevance_fails_closed_after_retry(self) -> None:
         target = QuantitativeTarget(
@@ -3641,7 +3655,8 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(client.calls, 2)
         self.assertEqual(ledgers[0].benchmark_count, 0)
         self.assertEqual(ledgers[0].excluded_measurements, [])
-        self.assertEqual(ledgers[0].source_dispositions[0].status, "uncertain")
+        self.assertEqual(ledgers[0].source_dispositions[0].status, "not_assessed")
+        self.assertTrue(ledgers[0].source_dispositions[0].failure_code)
 
     def test_precedent_keeps_coverage_and_outcome_separate(self) -> None:
         client = StaticClient(

@@ -48,8 +48,8 @@ class AnthropicQuantitativeClientTests(unittest.TestCase):
 
         self.assertEqual(client.model, DEFAULT_QUANTITATIVE_MODEL)
 
-    def test_structured_mapping_requests_deterministic_sampling(self) -> None:
-        """Schema-bound extraction gains nothing from sampling diversity."""
+    def test_structured_mapping_sends_no_sampling_parameters(self) -> None:
+        """Current model tiers reject sampling knobs; the request must omit them."""
         response = SimpleNamespace(content=[SimpleNamespace(
             type="tool_use",
             name="scout_source_measurement_batch",
@@ -65,7 +65,8 @@ class AnthropicQuantitativeClientTests(unittest.TestCase):
             schema={"type": "object"},
         )
 
-        self.assertEqual(messages.kwargs["temperature"], 0)
+        self.assertNotIn("temperature", messages.kwargs)
+        self.assertNotIn("top_p", messages.kwargs)
 
     def test_structured_extraction_forces_the_existing_stage_schema(self) -> None:
         payload = {"reviews": [{"unit_id": "unit-one", "classification": "target"}]}

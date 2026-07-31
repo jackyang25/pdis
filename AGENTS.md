@@ -26,7 +26,8 @@ web/ → api/ → services/ → shared/
   prompt influence each other and batch composition shifts between runs. Each stage
   states its choice in an `<ITEMS>_PER_REQUEST` constant carrying the justification;
   throughput comes from fan-out, never from packing unrelated items.
-- Schema-bound extraction requests deterministic sampling. Identity and duplicate
+- Run-to-run consistency comes from request scope and schema, not from provider
+  sampling parameters; current model tiers reject them. Identity and duplicate
   decisions are their own model layer, never folded into the prompt that creates
   the objects, and never approximated by string normalization in deterministic
   code.

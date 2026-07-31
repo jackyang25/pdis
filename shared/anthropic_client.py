@@ -84,9 +84,8 @@ class AnthropicQuantitativeClient:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
-            # Schema-bound extraction has one correct answer per input; sampling
-            # diversity only makes the same document read differently per run.
-            temperature=0,
+            # No sampling parameters. Current model tiers reject `temperature`,
+            # so run-to-run consistency comes from request scope and schema.
             system=system_prompt,
             messages=[{"role": "user", "content": _user_content(user_message, images)}],
             tools=[{

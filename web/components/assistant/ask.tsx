@@ -11,6 +11,7 @@ import {
   type AssistantContext,
 } from "@/lib/api";
 import { splitResultContext } from "@/lib/result-file";
+import { DOCUMENT_ACCEPT, DOCUMENT_FORMAT_HINT } from "@/lib/document-formats";
 import { STREAM_CARET_MOTION } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
@@ -384,7 +385,7 @@ export function Ask({
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".docx,.pptx,image/*"
+            accept={`${DOCUMENT_ACCEPT},image/*`}
             onChange={(event) => void attachFiles(event.target.files)}
             className="sr-only"
           />
@@ -433,7 +434,7 @@ export function Ask({
         </div>
         {attachmentError && <p className="mt-1.5 px-2 text-[10px] text-destructive">{attachmentError}</p>}
         <p className="mt-1.5 text-center text-[9px] text-muted-foreground/70">
-          Attach up to 5 DOCX, PPTX, or image files · Enter to send
+          Attach up to 5 {DOCUMENT_FORMAT_HINT}, or image files · Enter to send
         </p>
         </div>
       </div>

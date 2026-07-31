@@ -2,15 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Label } from "./ui/label";
 import { ErrorMessage } from "@/components/ui/error-message";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
+import { ConfigField, ConfigFieldGrid, ConfigSelect } from "./ui/config-field";
 import {
   fetchDocumentTypes,
   fetchIndications,
@@ -88,11 +81,12 @@ export function HeaderPicker() {
   if (!docTypes) return <ConfigurationPlaceholder />;
 
   return (
-    <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex">
-      <Field label="Organization">
-        <Select
+    <ConfigFieldGrid>
+      <ConfigField label="Organization">
+        <ConfigSelect
           value={header.org}
-          onValueChange={(value) =>
+          options={orgs.map((value) => ({ value, label: displayLabel(value) }))}
+          onChange={(value) =>
             setHeader({
               org: value,
               source_type: undefined,
@@ -100,123 +94,53 @@ export function HeaderPicker() {
               indication: undefined,
             })
           }
-          disabled={orgs.length === 0}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select" />
-          </SelectTrigger>
-          <SelectContent>
-            {orgs.map((o) => (
-              <SelectItem key={o} value={o}>
-                {displayLabel(o)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
+        />
+      </ConfigField>
 
-      <Field label="Source type" disabled={!header.org}>
-        <Select
+      <ConfigField label="Source type" disabled={!header.org}>
+        <ConfigSelect
           value={header.source_type}
-          onValueChange={(value) =>
+          options={sourceTypes.map((value) => ({ value, label: displayLabel(value) }))}
+          disabled={!header.org}
+          onChange={(value) =>
             setHeader({
               source_type: value,
               intervention_class: undefined,
               indication: undefined,
             })
           }
-          disabled={!header.org || sourceTypes.length === 0}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select" />
-          </SelectTrigger>
-          <SelectContent>
-            {sourceTypes.map((st) => (
-              <SelectItem key={st} value={st}>
-                {displayLabel(st)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
+        />
+      </ConfigField>
 
-      <Field label="Intervention" disabled={!header.source_type}>
-        <Select
+      <ConfigField label="Intervention" disabled={!header.source_type}>
+        <ConfigSelect
           value={header.intervention_class}
-          onValueChange={(value) =>
-            setHeader({ intervention_class: value, indication: undefined })
-          }
-          disabled={!header.source_type || interventions.length === 0}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select" />
-          </SelectTrigger>
-          <SelectContent>
-            {interventions.map((iv) => (
-              <SelectItem key={iv} value={iv}>
-                {displayLabel(iv)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
+          options={interventions.map((value) => ({ value, label: displayLabel(value) }))}
+          disabled={!header.source_type}
+          onChange={(value) => setHeader({ intervention_class: value, indication: undefined })}
+        />
+      </ConfigField>
 
-      <Field
-        label="Indication"
-        disabled={!header.intervention_class}
-      >
-        <Select
+      <ConfigField label="Indication" disabled={!header.intervention_class}>
+        <ConfigSelect
           value={header.indication}
-          onValueChange={(value) => setHeader({ indication: value })}
-          disabled={!header.intervention_class || indications.length === 0}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select" />
-          </SelectTrigger>
-          <SelectContent>
-            {indications.map((ta) => (
-              <SelectItem key={ta} value={ta}>
-                {displayLabel(ta)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
-    </div>
+          options={indications.map((value) => ({ value, label: displayLabel(value) }))}
+          disabled={!header.intervention_class}
+          onChange={(value) => setHeader({ indication: value })}
+        />
+      </ConfigField>
+    </ConfigFieldGrid>
   );
 }
 
 function ConfigurationPlaceholder() {
   return (
-    <div
-      className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex"
-      aria-busy="true"
-      aria-label="Loading configuration"
-    >
+    <ConfigFieldGrid aria-busy="true" aria-label="Loading configuration">
       {["Organization", "Source type", "Intervention", "Indication"].map((label) => (
-        <Field key={label} label={label} disabled>
+        <ConfigField key={label} label={label} disabled>
           <div className="h-9 rounded-md border border-input bg-muted/40" aria-hidden="true" />
-        </Field>
+        </ConfigField>
       ))}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  disabled,
-  children,
-}: {
-  label: string;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={disabled ? "min-w-0 opacity-50" : "min-w-0"}>
-      <div className="mb-1.5">
-        <Label>{label}</Label>
-      </div>
-      {children}
-    </div>
+    </ConfigFieldGrid>
   );
 }

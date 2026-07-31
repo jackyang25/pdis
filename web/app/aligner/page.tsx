@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Check, CircleHelp, Loader2, Upload } from "lucide-react";
+import { ArrowRight, CircleHelp } from "lucide-react";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ErrorMessage } from "@/components/ui/error-message";
 import {
@@ -10,17 +10,14 @@ import {
 } from "@/components/document-source-trace";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
-import { ProgressSteps } from "@/components/progress-steps";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { RunPanel, type DocumentSlot } from "@/components/run-panel";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  ConfigField,
+  ConfigFieldGrid,
+  ConfigSelect,
+  ConfigurationShell,
+} from "@/components/ui/config-field";
 import {
   fetchDocumentTypes,
   fetchIndications,
@@ -45,6 +42,20 @@ const STEPS = [
   { key: "parse", label: "Parsing documents" },
   { key: "extract", label: "Extracting traceable units" },
   { key: "align", label: "Aligning documents" },
+];
+// The relations are directional — `missing` and `introduced` are mirror images —
+// so which document is the baseline is a stated choice, not an upload order.
+const DOCUMENT_SLOTS: readonly DocumentSlot[] = [
+  {
+    id: "reference",
+    label: "Reference document",
+    helper: "The baseline whose commitments should be carried forward.",
+  },
+  {
+    id: "comparison",
+    label: "Comparison document",
+    helper: "The later or downstream artifact being checked.",
+  },
 ];
 const RELATIONS: AlignmentRelation[] = [
   "aligned",
@@ -78,8 +89,6 @@ export default function AlignerPage() {
   const [indication, setIndication] = useState("");
   const [referenceType, setReferenceType] = useState("");
   const [comparisonType, setComparisonType] = useState("");
-  const [referenceFile, setReferenceFile] = useState<File | null>(null);
-  const [comparisonFile, setComparisonFile] = useState<File | null>(null);
   const [showSetup, setShowSetup] = useState(!session.result);
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -112,12 +121,12 @@ export default function AlignerPage() {
   const sourceTypes = supported.filter(
     (item) => item.org === org && item.intervention_class === intervention,
   );
-  const ready = Boolean(
-    org && intervention && indication && referenceType && comparisonType && referenceFile && comparisonFile,
+  const configured = Boolean(
+    org && intervention && indication && referenceType && comparisonType,
   );
 
-  async function handleRun() {
-    if (!ready || !referenceFile || !comparisonFile) return;
+  async function handleRun(referenceFile: File, comparisonFile: File) {
+    if (!configured) return;
     session.setBusy(true);
     session.setError(null);
     session.setStage(null);
@@ -163,115 +172,99 @@ export default function AlignerPage() {
       />
       <div className="flex flex-col gap-6">
         {(!session.result || showSetup) && (
-          <section className="rounded-lg border border-border bg-card p-5 sm:p-6">
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              <ConfigField label="Organization">
-                <ConfigSelect
-                  value={org}
-                  options={orgs.map((value) => ({ value, label: displayLabel(value) }))}
-                  disabled={!documentTypes}
-                  onChange={(value) => {
-                    setOrg(value);
-                    setIntervention("");
-                    setIndication("");
-                    setReferenceType("");
-                    setComparisonType("");
-                  }}
-                />
-              </ConfigField>
-              <ConfigField label="Intervention">
-                <ConfigSelect
-                  value={intervention}
-                  options={interventions.map((value) => ({ value, label: displayLabel(value) }))}
-                  disabled={!org}
-                  onChange={(value) => {
-                    setIntervention(value);
-                    setIndication("");
-                    setReferenceType("");
-                    setComparisonType("");
-                  }}
-                />
-              </ConfigField>
-              <ConfigField label="Reference type">
-                <ConfigSelect
-                  value={referenceType}
-                  options={sourceTypes.map((item) => ({ value: item.source_type, label: displayLabel(item.source_type) }))}
-                  disabled={!intervention}
-                  onChange={setReferenceType}
-                />
-              </ConfigField>
-              <ConfigField label="Comparison type">
-                <ConfigSelect
-                  value={comparisonType}
-                  options={sourceTypes.map((item) => ({ value: item.source_type, label: displayLabel(item.source_type) }))}
-                  disabled={!intervention}
-                  onChange={setComparisonType}
-                />
-              </ConfigField>
-            </div>
-
-            <div className="mt-5 max-w-[calc(25%-0.75rem)] min-w-[15rem]">
-              <ConfigField label="Indication">
-                <ConfigSelect
-                  value={indication}
-                  options={indications.map((value) => ({ value, label: displayLabel(value) }))}
-                  disabled={!intervention}
-                  onChange={setIndication}
-                />
-              </ConfigField>
-            </div>
-
-            <div className="mt-6 grid gap-4 border-t border-border/80 pt-6 md:grid-cols-2">
-              <FileSlot
-                label="Reference document"
-                helper="The baseline whose commitments should be carried forward."
-                file={referenceFile}
-                disabled={session.busy}
-                onChange={setReferenceFile}
-              />
-              <FileSlot
-                label="Comparison document"
-                helper="The later or downstream artifact being checked."
-                file={comparisonFile}
-                disabled={session.busy}
-                onChange={setComparisonFile}
-              />
-            </div>
-
-            <div className="mt-5 flex flex-col-reverse gap-3 border-t border-border/80 pt-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-h-9">
-                {session.busy ? (
-                  <ProgressSteps
-                    steps={STEPS}
-                    busy
-                    currentStage={session.stage}
-                    progress={session.progress}
-                  />
-                ) : (
-                  <div className="flex h-9 items-center gap-2 text-xs text-muted-foreground">
-                    <span>Open a saved alignment:</span>
-                    <button className="font-medium text-foreground hover:opacity-65" onClick={() => importRef.current?.click()}>
-                      Import JSON
-                    </button>
-                    <input
-                      ref={importRef}
-                      type="file"
-                      accept=".json,application/json"
-                      className="hidden"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        if (file) void handleImport(file);
-                        event.target.value = "";
+          <RunPanel
+            busy={session.busy}
+            documents={DOCUMENT_SLOTS}
+            onRun={(files) => void handleRun(files.reference, files.comparison)}
+            steps={STEPS}
+            currentStage={session.stage}
+            progress={session.progress}
+            runDisabled={!configured}
+            hint={configured ? undefined : "Complete the configuration to run."}
+            runLabel="Run alignment"
+            busyLabel="Aligning"
+            configuration={
+              <ConfigurationShell>
+                <ConfigFieldGrid>
+                  <ConfigField label="Organization">
+                    <ConfigSelect
+                      value={org}
+                      options={orgs.map((value) => ({ value, label: displayLabel(value) }))}
+                      disabled={!documentTypes}
+                      onChange={(value) => {
+                        setOrg(value);
+                        setIntervention("");
+                        setIndication("");
+                        setReferenceType("");
+                        setComparisonType("");
                       }}
                     />
-                  </div>
-                )}
+                  </ConfigField>
+                  <ConfigField label="Intervention" disabled={!org}>
+                    <ConfigSelect
+                      value={intervention}
+                      options={interventions.map((value) => ({ value, label: displayLabel(value) }))}
+                      disabled={!org}
+                      onChange={(value) => {
+                        setIntervention(value);
+                        setIndication("");
+                        setReferenceType("");
+                        setComparisonType("");
+                      }}
+                    />
+                  </ConfigField>
+                  <ConfigField label="Reference type" disabled={!intervention}>
+                    <ConfigSelect
+                      value={referenceType}
+                      options={sourceTypes.map((item) => ({ value: item.source_type, label: displayLabel(item.source_type) }))}
+                      disabled={!intervention}
+                      onChange={setReferenceType}
+                    />
+                  </ConfigField>
+                  <ConfigField label="Comparison type" disabled={!intervention}>
+                    <ConfigSelect
+                      value={comparisonType}
+                      options={sourceTypes.map((item) => ({ value: item.source_type, label: displayLabel(item.source_type) }))}
+                      disabled={!intervention}
+                      onChange={setComparisonType}
+                    />
+                  </ConfigField>
+                  <ConfigField label="Indication" disabled={!intervention}>
+                    <ConfigSelect
+                      value={indication}
+                      options={indications.map((value) => ({ value, label: displayLabel(value) }))}
+                      disabled={!intervention}
+                      onChange={setIndication}
+                    />
+                  </ConfigField>
+                </ConfigFieldGrid>
+              </ConfigurationShell>
+            }
+            extraControls={
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>Or view a previously downloaded result:</span>
+                <button
+                  type="button"
+                  onClick={() => importRef.current?.click()}
+                  disabled={session.busy}
+                  className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
+                >
+                  Import JSON
+                </button>
+                <input
+                  ref={importRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void handleImport(file);
+                    event.target.value = "";
+                  }}
+                />
               </div>
-              <Button className="min-w-[8rem]" disabled={!ready || session.busy} onClick={handleRun}>
-                {session.busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Aligning</> : "Run alignment"}
-              </Button>
-            </div>
-          </section>
+            }
+          />
         )}
 
         {session.error && <ErrorMessage>{session.error}</ErrorMessage>}
@@ -556,37 +549,6 @@ function UnitSide({ label, units, empty }: { label: string; units: AlignmentUnit
       )) : <p className="text-sm italic text-muted-foreground/70">{empty}</p>}
     </div>
   );
-}
-
-function FileSlot({ label, helper, file, disabled, onChange }: { label: string; helper: string; file: File | null; disabled: boolean; onChange: (file: File | null) => void }) {
-  const input = useRef<HTMLInputElement>(null);
-  return (
-    <div>
-      <div className="mb-2 flex items-baseline justify-between gap-3">
-        <Label>{label}</Label><span className="text-[10px] text-muted-foreground">DOCX, PPTX</span>
-      </div>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => input.current?.click()}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => { event.preventDefault(); if (!disabled) onChange(event.dataTransfer.files?.[0] ?? null); }}
-        className="flex min-h-[76px] w-full items-center gap-3 rounded-md border border-dashed border-input bg-muted/20 px-4 text-left transition-colors hover:border-foreground/25 hover:bg-muted/40 disabled:opacity-50 motion-reduce:transition-none"
-      >
-        {file ? <Check className="h-4 w-4 shrink-0" /> : <Upload className="h-4 w-4 shrink-0 text-muted-foreground" />}
-        <span className="min-w-0"><span className="block truncate text-sm">{file?.name ?? "Choose a document"}</span><span className="mt-1 block text-[11px] text-muted-foreground">{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : helper}</span></span>
-      </button>
-      <input ref={input} type="file" accept=".docx,.pptx" className="hidden" onChange={(event) => onChange(event.target.files?.[0] ?? null)} />
-    </div>
-  );
-}
-
-function ConfigField({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="min-w-0"><Label className="mb-2 block">{label}</Label>{children}</div>;
-}
-
-function ConfigSelect({ value, options, disabled, onChange }: { value: string; options: { value: string; label: string }[]; disabled?: boolean; onChange: (value: string) => void }) {
-  return <Select value={value} onValueChange={onChange} disabled={disabled}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>;
 }
 
 function unique(values: string[]) { return Array.from(new Set(values)).sort(); }

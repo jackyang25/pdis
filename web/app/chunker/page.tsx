@@ -68,9 +68,8 @@ function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
     <div className="flex flex-col gap-6">
       <RunPanel
         configuration={<ConfigurationFields />}
-        accept=".docx,.pptx"
         busy={busy}
-        onRun={handleRun}
+        onRun={(files) => handleRun(files.document)}
         steps={CHUNKER_STEPS}
         currentStage={stage}
         runDisabled={!ready}

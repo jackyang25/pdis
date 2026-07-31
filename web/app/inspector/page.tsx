@@ -117,9 +117,8 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
       {(!result || showRunPanel) && (
         <RunPanel
           configuration={<ConfigurationFields />}
-          accept=".docx,.pptx"
           busy={busy}
-          onRun={handleRun}
+          onRun={(files) => handleRun(files.document)}
           steps={INSPECTOR_STEPS}
           currentStage={stage}
           progress={progress}

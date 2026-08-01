@@ -10,6 +10,7 @@ records rarely satisfy.
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from services.searcher import (
     QueryFacets,
@@ -18,6 +19,7 @@ from services.searcher import (
     SourceQueryIntent,
 )
 from services.searcher.sources.clinicaltrials import ClinicalTrialsSource
+from services.searcher.sources.fda import FDASource
 from services.searcher.sources.literature import (
     build_pubmed_query,
     build_semantic_scholar_query,
@@ -36,6 +38,18 @@ def _intent(*queries: SourceQueryIntent) -> RetrievalIntent:
             RetrievalEntity(name="Plasmodium falciparum", entity_type="pathogen"),
         ),
         queries=queries,
+    )
+
+
+def _named_entity_intent(*queries: SourceQueryIntent) -> RetrievalIntent:
+    """An intent whose document named several pathogens and a product class."""
+    return replace(
+        _intent(*queries),
+        entities=(
+            RetrievalEntity(name="Plasmodium falciparum", entity_type="pathogen"),
+            RetrievalEntity(name="Plasmodium vivax", entity_type="pathogen"),
+            RetrievalEntity(name="DNA vaccines", entity_type="vaccine"),
+        ),
     )
 
 
@@ -216,6 +230,122 @@ class AdditiveRequestTests(unittest.TestCase):
         )
 
         self.assertEqual(len(groups), 5)
+
+
+class SingleAnchorTests(unittest.TestCase):
+    """An anchor scopes a request once.
+
+    A document names its pathogens, comparators and institutions. Requiring all
+    of them at once describes no real record, so only one anchor may enter a
+    Boolean expression. The rest keep their meaning in lineage and in grammars
+    where an extra phrase only sharpens ranking.
+    """
+
+    def test_every_declared_entity_does_not_become_a_required_conjunct(self) -> None:
+        intent = _named_entity_intent(
+            SourceQueryIntent(
+                text="storage temperature tolerance",
+                facets=QueryFacets(condition="malaria", outcome="storage temperature"),
+            )
+        )
+
+        query = build_pubmed_query(intent, "general", list(intent.queries))
+
+        self.assertEqual(query, 'malaria AND "storage temperature"')
+
+    def test_the_anchor_falls_back_to_a_declared_entity(self) -> None:
+        """A document that states no indication still scopes its requests."""
+        intent = replace(
+            _named_entity_intent(
+                SourceQueryIntent(
+                    text="storage temperature tolerance",
+                    facets=QueryFacets(outcome="storage temperature"),
+                )
+            ),
+            indication="",
+        )
+
+        query = build_pubmed_query(intent, "general", list(intent.queries))
+
+        self.assertTrue(query.startswith('"Plasmodium falciparum" AND '))
+
+    def test_a_plain_text_grammar_still_names_every_declared_entity(self) -> None:
+        """Excluded from an AND is not excluded from the request."""
+        intent = _named_entity_intent(
+            SourceQueryIntent(
+                text="storage temperature tolerance",
+                facets=QueryFacets(condition="malaria", outcome="storage temperature"),
+            )
+        )
+
+        query = build_semantic_scholar_query(intent, "general", list(intent.queries))
+
+        for name in ("malaria", "Plasmodium falciparum", "Plasmodium vivax"):
+            self.assertIn(name, query)
+
+
+class FieldAddressedAnchorTests(unittest.TestCase):
+    """A field-addressed source anchors on the intent, not on a restatement.
+
+    An intent's scope is stated once and validated against the document. A query
+    that restates that scope in its own words has narrowed nothing, and the
+    source's index is not guaranteed to hold the restatement, so it must not
+    consume one of the source's requests.
+    """
+
+    def test_an_anchor_field_ignores_a_per_query_restatement_of_scope(self) -> None:
+        intent = _intent(
+            SourceQueryIntent(
+                text="paludisme vaccin",
+                facets=QueryFacets(condition="paludisme"),
+            )
+        )
+
+        groups = facet_groups(
+            intent,
+            fields=("condition",),
+            fallbacks={"condition": "malaria"},
+            anchors=("condition",),
+        )
+
+        self.assertEqual([scope["condition"] for scope, _ in groups], ["malaria"])
+
+    def test_a_narrowing_field_still_earns_its_own_request(self) -> None:
+        intent = _intent(
+            SourceQueryIntent(
+                text="RTS,S trials",
+                facets=QueryFacets(condition="paludisme", intervention="RTS,S"),
+            )
+        )
+
+        groups = facet_groups(
+            intent,
+            fields=("condition", "intervention"),
+            fallbacks={"condition": "malaria", "intervention": "vaccine"},
+            anchors=("condition",),
+        )
+
+        self.assertEqual(
+            [(scope["condition"], scope["intervention"]) for scope, _ in groups],
+            [("malaria", "vaccine"), ("malaria", "RTS,S")],
+        )
+
+    def test_a_restatement_does_not_spend_a_capped_source_request(self) -> None:
+        intent = _intent(
+            SourceQueryIntent(
+                text="malaria vaccine labelling",
+                facets=QueryFacets(condition="malaria"),
+            ),
+            SourceQueryIntent(
+                text="paludisme vaccin etiquetage",
+                facets=QueryFacets(condition="paludisme"),
+            ),
+        )
+
+        requests = FDASource().plan(intent)
+
+        self.assertEqual([request.query for request in requests], ["indication:malaria"])
+        self.assertEqual(len(requests[0].intent_ids), 2)
 
 
 if __name__ == "__main__":

@@ -197,6 +197,12 @@ evidence. Those comparison targets are not interchangeable.
   further coincidence a record must satisfy, while an extra plain-text term only
   sharpens ranking. Precision that returns nothing is not precision; retrieval owes
   coverage and the semantic stages supply the judgement.
+- An anchor is one value, applied once. The other names a document shares are not
+  further anchors, because requiring every pathogen, product, and institution it
+  mentions at the same time describes no real record. A field-addressed source
+  takes its anchor field from the intent, so a query restating that scope in its
+  own words — a translation, a synonym — cannot spend one of the source's
+  requests; only the narrowing fields vary.
 - Narrowed requests are added to a source's intent-scope request, never
   substituted for it. The scope request is the only one guaranteed to match the
   source's own vocabulary, so it survives any request budget while precision is

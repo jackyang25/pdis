@@ -9,8 +9,10 @@ and phrase structure.
 
 Facets carry roles, and a role decides how a value is used:
 
-* The **anchor** (`condition`) scopes every request for one intent. It is
-  required, once.
+* The **anchor** (`condition`) scopes every request for one intent. It is one
+  value, required once. The other names a document shares are not further
+  anchors: requiring every pathogen, product, and institution it mentions at the
+  same time describes no real record.
 * One **subject** phrase is what a single query asks. Subjects from different
   queries are alternatives, so they are joined with OR.
 * Remaining facets **qualify** meaning for downstream assessment. They are not
@@ -78,7 +80,7 @@ def subject_phrase(intent: RetrievalIntent, query: SourceQueryIntent) -> str:
 
 
 def scope_phrases(intent: RetrievalIntent) -> list[str]:
-    """Return the disease and product anchors every query in this intent shares."""
+    """Return the disease and product names every query in this intent shares."""
     anchors = [clean_query_text(intent.indication)]
     anchors.extend(
         clean_query_text(entity.name)
@@ -86,6 +88,24 @@ def scope_phrases(intent: RetrievalIntent) -> list[str]:
         if entity.entity_type in _ANCHOR_ENTITY_TYPES
     )
     return list(dict.fromkeys(anchor for anchor in anchors if anchor))
+
+
+def anchor_phrase(intent: RetrievalIntent) -> str:
+    """Return the one phrase that scopes every request for this intent.
+
+    A document names its pathogens, comparators, and institutions, so the shared
+    names are a list of what it mentions rather than a set of things one record
+    must be about at once. The stated indication is preferred because it is the
+    scope the document was validated against; the remaining names stay available
+    to grammars that can use an extra phrase without requiring it.
+    """
+    return next(iter(scope_phrases(intent)), clean_query_text(intent.topic))
+
+
+def context_phrases(intent: RetrievalIntent) -> list[str]:
+    """Return the shared names that are not the anchor."""
+    anchor = anchor_phrase(intent)
+    return [phrase for phrase in scope_phrases(intent) if phrase != anchor]
 
 
 def subject_phrases(
@@ -111,15 +131,15 @@ def build_pubmed_query(
 ) -> str:
     """Compile the track's intents into one reachable PubMed expression.
 
-    The shape is ``anchor AND (subject OR subject ...)``. Anchors keep the
-    request on topic; subjects are alternatives, so adding a query widens
-    coverage instead of further constraining every record.
+    The shape is ``anchor AND (subject OR subject ...)``. The anchor keeps the
+    request on topic exactly once; subjects are alternatives, so adding a query
+    widens coverage instead of further constraining every record.
     """
     del track
-    anchors = [_pubmed_term(phrase) for phrase in scope_phrases(intent)]
+    anchor = _pubmed_term(anchor_phrase(intent))
     subjects = [_pubmed_term(phrase) for phrase in subject_phrases(intent, queries)]
     subjects = [subject for subject in dict.fromkeys(subjects) if subject]
-    parts = [anchor for anchor in anchors if anchor]
+    parts = [anchor] if anchor else []
     if subjects:
         parts.append(
             "(" + " OR ".join(subjects) + ")" if len(subjects) > 1 else subjects[0]
@@ -146,7 +166,7 @@ def build_semantic_scholar_query(
     in request lineage regardless of what this text includes.
     """
     del track
-    phrases = [*scope_phrases(intent)]
+    phrases = [anchor_phrase(intent), *context_phrases(intent)]
     for query in queries[:max_queries]:
         stated = [clean_query_text(phrase) for phrase in query.facets.phrases()]
         for phrase in stated or [subject_phrase(intent, query)]:

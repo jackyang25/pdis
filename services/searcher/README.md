@@ -49,6 +49,12 @@ coincidence a record must satisfy, while a plain-text term only sharpens ranking
 Narrowed requests are added to the intent-scope request rather than replacing it,
 and a source bounds its own fan-out with `max_requests_per_intent`.
 
+An anchor is one value, applied once. The other names a document shares are not
+further anchors: a Boolean grammar takes the anchor alone, while a plain-text
+grammar keeps them all as hints. A field-addressed source declares its anchor
+field to `facet_groups`, so a query restating the intent's scope in its own words
+narrows nothing and cannot consume one of that source's requests.
+
 Adapters may compact several neutral intents into one native request, but the
 native query must retain their document-specific concepts and the request must
 carry every input intent ID and text. A field-addressed source varies its request

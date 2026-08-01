@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ErrorMessage } from "@/components/ui/error-message";
@@ -11,6 +11,7 @@ import {
 } from "@/components/document-source-trace";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { HeaderGuard } from "@/components/header-guard";
+import { InspectorDocumentTrace } from "@/components/inspector-document-trace";
 import { LabeledItem } from "@/components/labeled-item";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
@@ -170,6 +171,15 @@ function InspectionResultView({
 }) {
   const inspection = result.inspection;
   const final = isInspectorResultFinal(result);
+  const [resultTab, setResultTab] = useState("overview");
+  const [traceFocusBlockId, setTraceFocusBlockId] = useState<string | null>(null);
+  const openBlockInTrace = useCallback((blockId: string) => {
+    setTraceFocusBlockId(blockId);
+    setResultTab("trace");
+  }, []);
+  const consumeTraceFocus = useCallback((blockId: string) => {
+    setTraceFocusBlockId((current) => (current === blockId ? null : current));
+  }, []);
   const variableCount = inspection.section_grades.reduce(
     (total, section) => total + section.variable_grades.length,
     0,
@@ -210,13 +220,17 @@ function InspectionResultView({
           Inspector grading is incomplete. Complete the analysis before downloading a final result.
         </div>
       )}
-      <DocumentSourceProvider blocks={inspection.blocks}>
-        <Tabs defaultValue="overview" className="w-full">
+      <DocumentSourceProvider
+        blocks={inspection.blocks}
+        onOpenInTrace={openBlockInTrace}
+      >
+        <Tabs value={resultTab} onValueChange={setResultTab} className="w-full">
           <div className="border-b border-border px-5 pt-2 sm:px-6">
             <TabsList className="w-full justify-start">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="sections">Sections</TabsTrigger>
               <TabsTrigger value="consistency">Consistency</TabsTrigger>
+              <TabsTrigger value="trace">Document trace</TabsTrigger>
             </TabsList>
           </div>
           <TabsContent value="overview" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
@@ -229,6 +243,13 @@ function InspectionResultView({
             <ConsistencyView
               findings={inspection.cross_section_findings}
               status={inspection.consistency_status}
+            />
+          </TabsContent>
+          <TabsContent value="trace" className="m-0">
+            <InspectorDocumentTrace
+              result={inspection}
+              focusBlockId={traceFocusBlockId}
+              onFocusBlockConsumed={consumeTraceFocus}
             />
           </TabsContent>
         </Tabs>

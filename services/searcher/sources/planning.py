@@ -17,6 +17,7 @@ def facet_groups(
     *,
     fields: Sequence[str],
     fallbacks: Mapping[str, str],
+    anchors: Sequence[str] = (),
     limit: int = 0,
 ) -> list[tuple[dict[str, str], list[SourceQueryIntent]]]:
     """Group an intent's queries by the native scope each one resolves to.
@@ -28,6 +29,12 @@ def facet_groups(
     names a product the source files differently returns nothing, and losing
     coverage is worse than lacking precision.
 
+    ``anchors`` names the fields that carry the intent's scope rather than a
+    query's narrowing. An anchor always takes the intent's value: a query that
+    restates the scope in its own words has narrowed nothing, so honouring the
+    restatement would spend a request on a term the source's index is not
+    guaranteed to hold. Narrowing fields still vary freely.
+
     Queries resolving to the same scope share one request and keep every
     contributing intent in its lineage, so specificity never multiplies provider
     calls. ``limit`` is the source's own request budget: when narrowed scopes
@@ -36,6 +43,7 @@ def facet_groups(
     """
     baseline = {field: fallbacks.get(field, "").strip() for field in fields}
     baseline_key = tuple(baseline[field] for field in fields)
+    anchored = frozenset(anchors)
 
     grouped: dict[tuple[str, ...], list[SourceQueryIntent]] = {
         baseline_key: list(intent.queries)
@@ -43,7 +51,9 @@ def facet_groups(
     scopes: dict[tuple[str, ...], dict[str, str]] = {baseline_key: baseline}
     for query in intent.queries:
         scope = {
-            field: getattr(query.facets, field, "").strip() or baseline[field]
+            field: baseline[field]
+            if field in anchored
+            else getattr(query.facets, field, "").strip() or baseline[field]
             for field in fields
         }
         key = tuple(scope[field] for field in fields)

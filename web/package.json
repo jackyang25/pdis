@@ -21,7 +21,7 @@
     "test:result-file": "node --test --experimental-strip-types lib/result-file.test.ts",
     "test:projection-roles": "node --test --experimental-strip-types lib/scout-projection-roles.test.ts",
     "test:safety-observations": "node --test --experimental-strip-types lib/scout-safety-observations.test.ts",
-    "test:document-trace": "node --test --experimental-strip-types lib/document-block-presentation.test.ts lib/document-trace.test.ts lib/scout-document-trace.test.ts",
+    "test:document-trace": "node --test --experimental-strip-types lib/document-block-presentation.test.ts lib/document-trace.test.ts lib/scout-document-trace.test.ts lib/inspector-document-trace.test.ts",
     "test:motion": "node --test --experimental-strip-types lib/motion-standard.test.ts"
   },
   "dependencies": {

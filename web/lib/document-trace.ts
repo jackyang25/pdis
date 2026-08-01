@@ -1,5 +1,19 @@
 import type { ContentBlock } from "./api.ts";
 
+/**
+ * Whole-block emphasis for an annotation whose granularity *is* the block.
+ *
+ * A span addresses text; a block-level judgement addresses everything the block
+ * contains. `tone` is semantic rather than a numeric severity because a numeric
+ * range would encode one tool's grading scale into a contract every tool shares.
+ * Colour is never the only signal — `badge` carries the precise claim as text.
+ */
+export type DocumentAnnotationEmphasis = {
+  tone: "neutral" | "caution" | "danger";
+  /** Short text, e.g. a grade letter. */
+  badge?: string;
+};
+
 export type DocumentAnnotation<
   TKind extends string = string,
   TRef = unknown,
@@ -15,6 +29,16 @@ export type DocumentAnnotation<
     quote: string;
     blockIds: string[];
   }>;
+  emphasis?: DocumentAnnotationEmphasis;
+  /**
+   * Where to *display* an annotation that has no document lineage.
+   *
+   * Never a provenance claim. An absence — a missing rubric variable, a section
+   * that was never written — cannot cite a block, so `blockIds` stays empty and
+   * the annotation renders beside the anchor without attaching to its text.
+   * Setting both is a contract violation that `document-trace.test.ts` rejects.
+   */
+  displayAnchorBlockId?: string;
   sourceRef: TRef;
 };
 
@@ -36,6 +60,13 @@ export type DocumentTraceBlock<
     reason: "block_only" | "quote_unmatched";
     unmatchedQuotes: string[];
   }>;
+  /**
+   * Annotations with no lineage that name this block as their display anchor.
+   * They are shown beside the block, never as part of its content.
+   */
+  anchored: Array<DocumentAnnotation<TKind, TRef>>;
+  /** Strongest emphasis claimed over this block, or null when none is. */
+  emphasis: DocumentAnnotationEmphasis | null;
 };
 
 export type DocumentTraceDocument<
@@ -52,8 +83,18 @@ export type DocumentTrace<
 > = {
   documents: Array<DocumentTraceDocument<TKind, TRef>>;
   annotations: Array<DocumentAnnotation<TKind, TRef>>;
+  /** Annotations citing blocks the retained document does not contain. */
   unresolvedAnnotationIds: string[];
   unresolvedBlockIdsByAnnotation: Record<string, string[]>;
+  /**
+   * Annotations with no lineage that could not be anchored — either no anchor
+   * was supplied or it named an unknown block.
+   *
+   * Distinct from `unresolved`: an unresolved annotation cites a block that is
+   * missing, which is a data problem. An unplaced annotation never had lineage,
+   * which for a completeness finding is the substance of the finding itself.
+   */
+  unplacedAnnotationIds: string[];
 };
 
 export type DocumentTraceConnection = {
@@ -420,13 +461,31 @@ export function buildDocumentTrace<
   }
 
   const markersByBlock = new Map<string, DocumentTraceBlock<TKind, TRef>["markers"]>();
+  const anchoredByBlock = new Map<string, Array<DocumentAnnotation<TKind, TRef>>>();
   const unresolvedAnnotationIds: string[] = [];
   const unresolvedBlockIdsByAnnotation: Record<string, string[]> = {};
+  const unplacedAnnotationIds: string[] = [];
   for (const annotation of annotations) {
     const referencedBlockIds = [...new Set([
       ...annotation.blockIds,
       ...annotation.spans.flatMap((span) => span.blockIds),
     ])];
+
+    // An annotation with no lineage is a claim about absent content. Without
+    // this branch it would survive in `annotations` while being reachable from
+    // no segment, marker, or group — present in the data and invisible in the UI.
+    if (referencedBlockIds.length === 0) {
+      const anchorId = annotation.displayAnchorBlockId;
+      if (anchorId && blocksById.has(anchorId)) {
+        const anchored = anchoredByBlock.get(anchorId) ?? [];
+        anchored.push(annotation);
+        anchoredByBlock.set(anchorId, anchored);
+      } else {
+        unplacedAnnotationIds.push(annotation.id);
+      }
+      continue;
+    }
+
     const unknownBlockIds = referencedBlockIds.filter((blockId) => !blocksById.has(blockId));
     if (unknownBlockIds.length) {
       unresolvedAnnotationIds.push(annotation.id);
@@ -451,6 +510,22 @@ export function buildDocumentTrace<
     }
   }
 
+  // Which annotations claim each block, in declaration order, so emphasis
+  // precedence and badge selection are deterministic.
+  const claimsByBlock = new Map<string, Array<DocumentAnnotation<TKind, TRef>>>();
+  for (const annotation of annotations) {
+    const claimed = new Set([
+      ...annotation.blockIds,
+      ...annotation.spans.flatMap((span) => span.blockIds),
+    ]);
+    for (const blockId of claimed) {
+      if (!blocksById.has(blockId)) continue;
+      const claims = claimsByBlock.get(blockId) ?? [];
+      claims.push(annotation);
+      claimsByBlock.set(blockId, claims);
+    }
+  }
+
   const documentsById = new Map<string, Array<DocumentTraceBlock<TKind, TRef>>>();
   for (const block of sortedBlocks) {
     const documentBlocks = documentsById.get(block.doc_id) ?? [];
@@ -458,6 +533,8 @@ export function buildDocumentTrace<
       block,
       segments: traceSegments(block.content, rangesByBlock.get(block.id) ?? []),
       markers: markersByBlock.get(block.id) ?? [],
+      anchored: anchoredByBlock.get(block.id) ?? [],
+      emphasis: strongestEmphasis(claimsByBlock.get(block.id) ?? []),
     });
     documentsById.set(block.doc_id, documentBlocks);
   }
@@ -470,5 +547,33 @@ export function buildDocumentTrace<
     annotations: [...annotations],
     unresolvedAnnotationIds,
     unresolvedBlockIdsByAnnotation,
+    unplacedAnnotationIds,
   };
+}
+
+const TONE_WEIGHT: Record<DocumentAnnotationEmphasis["tone"], number> = {
+  neutral: 1,
+  caution: 2,
+  danger: 3,
+};
+
+/**
+ * Resolve one emphasis for a block that several annotations claim.
+ *
+ * `danger > caution > neutral`, with the badge taken from the strongest claim and
+ * ties broken by declaration order. This is precedence, not domain knowledge: the
+ * shared layer never learns what produced a tone.
+ */
+export function strongestEmphasis<TKind extends string, TRef>(
+  annotations: Array<DocumentAnnotation<TKind, TRef>>,
+): DocumentAnnotationEmphasis | null {
+  let strongest: DocumentAnnotationEmphasis | null = null;
+  for (const annotation of annotations) {
+    const emphasis = annotation.emphasis;
+    if (!emphasis) continue;
+    if (!strongest || TONE_WEIGHT[emphasis.tone] > TONE_WEIGHT[strongest.tone]) {
+      strongest = emphasis;
+    }
+  }
+  return strongest;
 }

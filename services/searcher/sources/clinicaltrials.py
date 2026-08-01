@@ -34,6 +34,7 @@ class ClinicalTrialsSource:
                 "condition": intent.indication or intent.topic,
                 "intervention": intent.intervention_class,
             },
+            anchors=("condition",),
             limit=self.spec.max_requests_per_intent,
         ):
             intent_ids, input_queries, document_refs = request_lineage(queries)

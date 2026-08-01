@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { FileText, Layers3, Link2, X } from "lucide-react";
+import { CircleDashed, FileText, Layers3, Link2, X } from "lucide-react";
 import { BlockReferenceId } from "@/components/block-reference";
 import { TracePanelHeader } from "@/components/document-trace-panel";
 import type { ContentBlock } from "@/lib/api";
@@ -25,6 +25,7 @@ import {
   filterDocumentAnnotations,
   groupDocumentTraceMarkers,
   type DocumentAnnotation,
+  type DocumentAnnotationEmphasis,
   type DocumentTraceConnection,
   type DocumentTraceBlock,
   type DocumentTraceSegment,
@@ -47,6 +48,13 @@ export type DocumentTraceViewerProps<TKind extends string, TRef> = {
   blocks: ContentBlock[];
   annotations: Array<DocumentAnnotation<TKind, TRef>>;
   layers: Array<LayerOption<TKind>>;
+  /**
+   * Layer selected on open. Defaults to showing every layer at once.
+   *
+   * A tool whose annotations carry `emphasis` should name one, because block
+   * emphasis is suppressed while several layers are visible — see below.
+   */
+  defaultLayer?: TKind;
   renderInspector: (
     annotation: DocumentAnnotation<TKind, TRef>,
     connection: DocumentTraceConnection,
@@ -82,6 +90,22 @@ function markerGroupLabel(
   }
   return `${count} linked ${count === 1 ? "result" : "results"}`;
 }
+
+/**
+ * Whole-block emphasis surfaces, kept faint: the document must stay readable, and
+ * the grade itself is carried as text in the badge rather than by colour.
+ */
+const EMPHASIS_SURFACE_CLASS: Record<DocumentAnnotationEmphasis["tone"], string> = {
+  neutral: "bg-[hsl(var(--tone-neutral))]/[0.05]",
+  caution: "bg-[hsl(var(--tone-warning))]/[0.07]",
+  danger: "bg-[hsl(var(--tone-danger))]/[0.07]",
+};
+
+const EMPHASIS_BADGE_CLASS: Record<DocumentAnnotationEmphasis["tone"], string> = {
+  neutral: "border-border/70 bg-background text-muted-foreground",
+  caution: "border-[hsl(var(--tone-warning))]/40 bg-[hsl(var(--tone-warning))]/10 text-[hsl(var(--tone-warning))]",
+  danger: "border-[hsl(var(--tone-danger))]/40 bg-[hsl(var(--tone-danger))]/10 text-[hsl(var(--tone-danger))]",
+};
 
 function blockSpacingClass(spacing: DocumentBlockSpacing): string {
   switch (spacing) {
@@ -138,6 +162,67 @@ function TraceSegmentText<TKind extends string, TRef>({
       </button>
     );
   });
+}
+
+/**
+ * Findings about content that is not in the document, drawn at the end of the
+ * section they belong to.
+ *
+ * Deliberately not in the gutter. Incompleteness is a property of a section, not
+ * of a block, and a control sitting beside one block reads as attached to that
+ * block's text however it is styled. A full-width row is visibly scoped to the
+ * region instead, and naming the section makes the row explain itself.
+ *
+ * It sits inside the paper because a gap belongs to the document's substance, but
+ * carries no block ID and no highlight, because it cites nothing.
+ */
+function SectionGapRow<TKind extends string, TRef>({
+  annotations,
+  sectionLabel,
+  activeAnnotationIds,
+  onSelect,
+}: {
+  annotations: Array<DocumentAnnotation<TKind, TRef>>;
+  sectionLabel: string | null;
+  activeAnnotationIds: string[];
+  onSelect: (
+    annotationIds: string[],
+    trigger: HTMLElement,
+    connection: DocumentTraceConnection,
+  ) => void;
+}) {
+  const isActive = annotations.some((annotation) =>
+    activeAnnotationIds.includes(annotation.id));
+  const scope = sectionLabel?.trim();
+  const label = scope
+    ? `Not present in ${scope}`
+    : "Not present in this section";
+
+  return (
+    <div className="mt-4 border-t border-dashed border-[hsl(var(--tone-warning))]/35 pt-3">
+      <button
+        type="button"
+        onClick={(event) => onSelect(
+          annotations.map((annotation) => annotation.id),
+          event.currentTarget,
+          { type: "unavailable" },
+        )}
+        aria-pressed={isActive}
+        aria-label={`View ${annotations.length} ${
+          annotations.length === 1 ? "item" : "items"
+        } not present in ${scope ?? "this section"}`}
+        className={cn(
+          "inline-flex min-h-7 items-center gap-2 rounded-md border border-dashed px-2 py-1 text-left text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none",
+          "border-[hsl(var(--tone-warning))]/40 text-[hsl(var(--tone-warning))] hover:border-[hsl(var(--tone-warning))]/70 hover:bg-[hsl(var(--tone-warning))]/[0.06]",
+          isActive && "border-[hsl(var(--tone-warning))] bg-[hsl(var(--tone-warning))]/10",
+        )}
+      >
+        <CircleDashed aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+        <span>{label}</span>
+        <span className="tabular-nums opacity-70">· {annotations.length}</span>
+      </button>
+    </div>
+  );
 }
 
 function BlockText<TKind extends string, TRef>({
@@ -354,11 +439,19 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
   blocks,
   annotations,
   layers,
+  defaultLayer,
   renderInspector,
   focusBlockId,
   onFocusBlockConsumed,
 }: DocumentTraceViewerProps<TKind, TRef>) {
-  const [layer, setLayer] = useState<TKind | "all">("all");
+  const [layer, setLayer] = useState<TKind | "all">(defaultLayer ?? "all");
+  /**
+   * Emphasis is a claim on one axis. Tinting a block while several layers are
+   * visible would blend independent judgments into a single colour — a composite
+   * verdict no individual result made. Markers and gap counts stay visible, so
+   * structure still reads; choosing a layer reveals that layer's emphasis.
+   */
+  const emphasisVisible = layer !== "all";
   const [documentId, setDocumentId] = useState("");
   const [activeAnnotationIds, setActiveAnnotationIds] = useState<string[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
@@ -393,6 +486,9 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
     : trace.documents[0]?.docId ?? "";
   const activeDocument = trace.documents.find((document) => document.docId === activeDocumentId) ?? null;
   const unresolvedAnnotations = trace.unresolvedAnnotationIds
+    .map((id) => annotationsById.get(id))
+    .filter((annotation): annotation is DocumentAnnotation<TKind, TRef> => Boolean(annotation));
+  const unplacedAnnotations = trace.unplacedAnnotationIds
     .map((id) => annotationsById.get(id))
     .filter((annotation): annotation is DocumentAnnotation<TKind, TRef> => Boolean(annotation));
   const isNarrow = containerWidth < 1024;
@@ -614,6 +710,34 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
         </details>
       )}
 
+      {unplacedAnnotations.length > 0 && (
+        <details className="border-b border-border/80 bg-card px-5 py-3 sm:px-6">
+          <summary className="cursor-pointer text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
+            Not located in this document · {unplacedAnnotations.length}
+          </summary>
+          <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
+            These results describe content that is absent, so they cite no source
+            passage and cannot be placed in the reconstructed text.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {unplacedAnnotations.map((annotation) => (
+              <button
+                key={annotation.id}
+                type="button"
+                onClick={(event) => selectAnnotations([annotation.id], event.currentTarget, {
+                  type: "unavailable",
+                })}
+                aria-label={`Inspect ${annotation.layerLabel}: ${annotation.title}`}
+                className="min-h-8 rounded-md border border-border/80 bg-background px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
+              >
+                {annotation.layerLabel} · {annotation.title}
+                {annotation.statusLabel ? ` · ${annotation.statusLabel}` : ""}
+              </button>
+            ))}
+          </div>
+        </details>
+      )}
+
       <div className={cn(
         "grid min-h-[38rem]",
         !isNarrow && "grid-cols-[minmax(0,1fr)_22rem]",
@@ -668,6 +792,17 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                       blockId={traceBlock.block.id}
                       className="inline-flex h-6 max-w-full items-center px-1 text-[10px] text-muted-foreground/50 transition-colors group-hover/trace-block:text-muted-foreground motion-reduce:transition-none"
                     />
+                    {emphasisVisible && traceBlock.emphasis?.badge && (
+                      <span
+                        className={cn(
+                          "inline-flex h-6 min-w-6 items-center justify-center rounded-md border px-1.5 text-[10px] font-semibold tabular-nums",
+                          EMPHASIS_BADGE_CLASS[traceBlock.emphasis.tone],
+                        )}
+                        title={`Grade ${traceBlock.emphasis.badge}`}
+                      >
+                        {traceBlock.emphasis.badge}
+                      </span>
+                    )}
                     {markerGroups.map((group) => {
                       const isActive = group.annotationIds.some((id) => activeAnnotationIds.includes(id));
                       const label = markerGroupLabel(group.reason, group.annotationIds.length);
@@ -696,8 +831,14 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                     })}
                   </div>
                   <div className={cn(
-                    "relative z-10 min-w-0 rounded-md transition-[background-color,box-shadow] duration-slow group-hover/trace-block:bg-muted/35 group-focus-within/trace-block:bg-muted/35 motion-reduce:transition-none",
+                    "relative z-10 min-w-0 rounded-md transition-[background-color,box-shadow] duration-slow motion-reduce:transition-none",
                     railMode === "external" && "px-10 py-1",
+                    // Emphasis is the weakest of the three background states, so
+                    // hovering and arriving from a block link both still read.
+                    emphasisVisible
+                      && traceBlock.emphasis
+                      && EMPHASIS_SURFACE_CLASS[traceBlock.emphasis.tone],
+                    "group-hover/trace-block:bg-muted/35 group-focus-within/trace-block:bg-muted/35",
                     focusedBlockId === traceBlock.block.id && "bg-amber-100/75 shadow-[0_0_0_1px_rgb(245_158_11/0.28),0_0_0_7px_rgb(251_191_36/0.10),0_10px_28px_rgb(245_158_11/0.10)] dark:bg-amber-300/15",
                   )}>
                     <BlockText
@@ -707,6 +848,23 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                       onSelect={selectAnnotations}
                     />
                   </div>
+                  {traceBlock.anchored.length > 0 && (
+                    // Its own grid row, outside the block body: inside it, the row
+                    // would sit on the block's emphasis tint and borrow that
+                    // block's grade colour — re-attaching the gap to a passage it
+                    // does not describe.
+                    <div className={cn(
+                      "relative z-10 min-w-0",
+                      railMode === "external" && "col-start-2 px-10",
+                    )}>
+                      <SectionGapRow
+                        annotations={traceBlock.anchored}
+                        sectionLabel={traceBlock.block.section_label}
+                        activeAnnotationIds={activeAnnotationIds}
+                        onSelect={selectAnnotations}
+                      />
+                    </div>
+                  )}
                 </section>
               );
             })}

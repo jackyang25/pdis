@@ -289,3 +289,28 @@ test("produces stable IDs and does not mutate the Scout result", () => {
   assert.deepEqual(result, before);
   assert.equal(first.some((annotation) => annotation.summary === "No document lineage."), false);
 });
+
+test("Scout claims spans and blocks only, never anchors or block emphasis", () => {
+  // The shared contract grew `emphasis` and `displayAnchorBlockId` for Inspector,
+  // whose findings can describe absent content. Scout's every layer is guarded by
+  // document lineage, so neither field applies here. If this fails, Scout has
+  // started rendering Inspector's whole-block tint and dashed gap markers.
+  const annotations = buildScoutDocumentAnnotations(result);
+
+  assert.ok(annotations.length > 0, "fixture produced no annotations to check");
+  assert.deepEqual(
+    annotations.filter((annotation) => annotation.emphasis !== undefined).map((a) => a.id),
+    [],
+    "Scout has no grading scale, so no annotation carries a block tone",
+  );
+  assert.deepEqual(
+    annotations.filter((annotation) => annotation.displayAnchorBlockId !== undefined).map((a) => a.id),
+    [],
+    "Scout never places an annotation without provenance",
+  );
+  assert.deepEqual(
+    annotations.filter((annotation) => annotation.blockIds.length === 0).map((a) => a.id),
+    [],
+    "every Scout annotation cites at least one retained block",
+  );
+});

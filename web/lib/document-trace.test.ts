@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import type { ContentBlock } from "./api.ts";
@@ -8,8 +10,11 @@ import {
   documentTraceSegmentsInRange,
   filterDocumentAnnotations,
   groupDocumentTraceMarkers,
+  strongestEmphasis,
   type DocumentAnnotation,
 } from "./document-trace.ts";
+
+const WEB_ROOT = path.resolve(import.meta.dirname, "..");
 
 type Kind = "field" | "assessment";
 
@@ -442,5 +447,164 @@ test("decodes the scientific entities the server's html.unescape decodes", () =>
   assert.equal(
     result.documents[0].blocks[0].segments.map((segment) => segment.text).join(""),
     source.content,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Absence, anchoring, and whole-block emphasis
+//
+// Added for the Inspector adapter, but these belong to the shared contract: any
+// tool may claim a whole block or describe content that is not present.
+// ---------------------------------------------------------------------------
+
+/** Every place the viewer can surface an annotation. */
+function reachableIds(
+  trace: ReturnType<typeof buildDocumentTrace<Kind, { ref: string }>>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const document of trace.documents) {
+    for (const traceBlock of document.blocks) {
+      for (const segment of traceBlock.segments) {
+        segment.annotationIds.forEach((id) => ids.add(id));
+      }
+      traceBlock.markers.forEach((marker) => ids.add(marker.annotation.id));
+      traceBlock.anchored.forEach((item) => ids.add(item.id));
+    }
+  }
+  trace.unresolvedAnnotationIds.forEach((id) => ids.add(id));
+  trace.unplacedAnnotationIds.forEach((id) => ids.add(id));
+  return ids;
+}
+
+test("no annotation is silently dropped", () => {
+  const blocks = [block("b-1", 1, "Minimum: 60%"), block("b-2", 2, "Safety data")];
+  const annotations = [
+    annotation({
+      id: "exact",
+      kind: "field",
+      blockIds: ["b-1"],
+      spans: [{ quote: "60%", blockIds: ["b-1"] }],
+    }),
+    annotation({ id: "block-only", kind: "field", blockIds: ["b-1"] }),
+    annotation({ id: "unresolved", kind: "field", blockIds: ["b-404"] }),
+    annotation({ id: "anchored", kind: "assessment", blockIds: [], displayAnchorBlockId: "b-2" }),
+    annotation({ id: "unplaced", kind: "assessment", blockIds: [] }),
+    annotation({ id: "bad-anchor", kind: "assessment", blockIds: [], displayAnchorBlockId: "b-404" }),
+  ];
+
+  const trace = buildDocumentTrace(blocks, annotations);
+  const reachable = reachableIds(trace);
+  assert.deepEqual(
+    annotations.map((item) => item.id).filter((id) => !reachable.has(id)),
+    [],
+    "an annotation reachable from nowhere is present in data and invisible in the UI",
+  );
+});
+
+test("an anchored annotation sits beside its block, never inside its text", () => {
+  const blocks = [block("b-1", 1, "Minimum: 60%"), block("b-2", 2, "Safety data")];
+  const trace = buildDocumentTrace(blocks, [
+    annotation({ id: "gap", kind: "assessment", blockIds: [], displayAnchorBlockId: "b-2" }),
+  ]);
+
+  const [first, second] = trace.documents[0].blocks;
+  assert.deepEqual(second.anchored.map((item) => item.id), ["gap"]);
+  assert.deepEqual(first.anchored, []);
+  assert.deepEqual(
+    second.segments.flatMap((segment) => segment.annotationIds),
+    [],
+    "a display anchor never highlights the block's text",
+  );
+  assert.deepEqual(second.markers, [], "a display anchor is not a provenance marker");
+});
+
+test("an unusable display anchor degrades to unplaced, never to a wrong block", () => {
+  const blocks = [block("b-1", 1, "Minimum: 60%")];
+  const trace = buildDocumentTrace(blocks, [
+    annotation({ id: "gap", kind: "assessment", blockIds: [], displayAnchorBlockId: "b-404" }),
+  ]);
+
+  assert.deepEqual(trace.unplacedAnnotationIds, ["gap"]);
+  assert.deepEqual(trace.documents[0].blocks[0].anchored, []);
+});
+
+test("unplaced and unresolved are different claims", () => {
+  const blocks = [block("b-1", 1, "Minimum: 60%")];
+  const trace = buildDocumentTrace(blocks, [
+    annotation({ id: "cites-missing-block", kind: "field", blockIds: ["b-404"] }),
+    annotation({ id: "has-no-lineage", kind: "assessment", blockIds: [] }),
+  ]);
+
+  assert.deepEqual(
+    trace.unresolvedAnnotationIds,
+    ["cites-missing-block"],
+    "citing a block the document lacks is a data problem",
+  );
+  assert.deepEqual(
+    trace.unplacedAnnotationIds,
+    ["has-no-lineage"],
+    "having no lineage at all can be the substance of a finding",
+  );
+});
+
+test("block emphasis takes the strongest tone and that claim's badge", () => {
+  assert.equal(strongestEmphasis([]), null);
+  assert.deepEqual(
+    strongestEmphasis([
+      annotation({ id: "a", kind: "field", blockIds: [], emphasis: { tone: "neutral", badge: "A" } }),
+      annotation({ id: "f", kind: "field", blockIds: [], emphasis: { tone: "danger", badge: "F" } }),
+      annotation({ id: "c", kind: "field", blockIds: [], emphasis: { tone: "caution", badge: "C" } }),
+    ]),
+    { tone: "danger", badge: "F" },
+  );
+  assert.deepEqual(
+    strongestEmphasis([
+      annotation({ id: "a", kind: "field", blockIds: [], emphasis: { tone: "caution", badge: "first" } }),
+      annotation({ id: "b", kind: "field", blockIds: [], emphasis: { tone: "caution", badge: "second" } }),
+    ]),
+    { tone: "caution", badge: "first" },
+    "ties break by declaration order so the rendered badge is deterministic",
+  );
+});
+
+test("emphasis resolves per block from the annotations claiming it", () => {
+  const blocks = [block("b-1", 1, "Minimum: 60%"), block("b-2", 2, "Safety data")];
+  const trace = buildDocumentTrace(blocks, [
+    annotation({ id: "a", kind: "field", blockIds: ["b-1"], emphasis: { tone: "neutral", badge: "A" } }),
+    annotation({ id: "f", kind: "field", blockIds: ["b-1"], emphasis: { tone: "danger", badge: "F" } }),
+  ]);
+
+  const [first, second] = trace.documents[0].blocks;
+  assert.deepEqual(first.emphasis, { tone: "danger", badge: "F" });
+  assert.equal(second.emphasis, null, "an unclaimed block carries no emphasis");
+});
+
+test("no adapter sets a display anchor beside real block lineage", () => {
+  // An absence cannot cite a block. The type system cannot express "these two
+  // fields are mutually exclusive" without making the common case awkward, so
+  // the rule is enforced here rather than left to a comment nobody re-reads.
+  const offenders: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir)) {
+      const full = path.join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!/\.tsx?$/.test(entry) || /\.test\.tsx?$/.test(entry)) continue;
+      const text = readFileSync(full, "utf8");
+      if (!text.includes("displayAnchorBlockId")) continue;
+      for (const [literal] of text.matchAll(/\{[^{}]*displayAnchorBlockId[^{}]*\}/g)) {
+        if (/blockIds:\s*(?!\[\])/.test(literal)) {
+          offenders.push(`${path.relative(WEB_ROOT, full)}: ${literal.slice(0, 80)}`);
+        }
+      }
+    }
+  };
+  for (const dir of ["app", "components", "lib"]) walk(path.join(WEB_ROOT, dir));
+  assert.deepEqual(
+    offenders,
+    [],
+    "an annotation with a display anchor must declare blockIds: []",
   );
 });

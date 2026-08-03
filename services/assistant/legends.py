@@ -26,9 +26,11 @@ Note: Match relations and Precedent answer DIFFERENT questions and can differ wi
 
 INSPECTOR_LEGEND = """This is an INSPECTOR result: a document graded inward against its rubric. Shape:
 - dimensions: document-level grades (A-F) on completeness (is content present?), adherence (does it follow the rubric's structure/format?), rigor (is the content specific, measurable, sound?).
-- section_grades[]: per section - is_present, the three dimension grades (each with issues[] and a recommendation), missing_variables[], and variable_grades[] (per-variable dimension grades).
+- section_grades[]: per section - is_present, the three dimension grades, variable_grades[], and mapped_block_ids[] (the blocks assigned to that section; an assignment, not a citation).
+- each dimension grade carries issues[], a recommendation, and cited_block_ids[] - the blocks THAT judgment cited. The three dimensions judge and cite independently, so do not treat one dimension's lineage as another's.
+- each variable_grade carries content_status: substantive | partial | placeholder | missing | not_applicable. This is the authority on presence: 'missing' means the document does not contain it and it therefore cites no block, while 'placeholder' means a token like <<TBD>> is present. There is no separate list of missing names.
 - cross_section_findings[]: contradictions that span MULTIPLE sections (description, the sections involved, a recommendation).
-- top_issues[]: the most severe issues across the document."""
+- top_issues[]: the most severe issues across the document, each keeping its section, variable, dimension, grade, recommendation, and cited blocks as separate fields."""
 
 ALIGNER_LEGEND = """This is an ALIGNER result: a traceable comparison between a reference product-development document and a downstream or later comparison document. Shape:
 - reference_document and comparison_document identify the two artifacts and their document types.

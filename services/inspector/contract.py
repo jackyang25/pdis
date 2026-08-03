@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from .models import DIMENSIONS, InspectionConfig, InspectionResult
+from .models import (
+    ABSENT_CONTENT_STATUS,
+    CONTENT_STATUSES,
+    DIMENSIONS,
+    InspectionConfig,
+    InspectionResult,
+    PRESENT_CONTENT_STATUSES,
+)
 
 
 def validate_result_contract(
@@ -53,18 +60,51 @@ def validate_result_contract(
                 )
         elif not section.is_present and section.variable_grades:
             raise ValueError("A missing Inspector section cannot contain variable grades")
-        if any(name not in expected_variables for name in section.missing_variables):
-            raise ValueError("Inspector missing_variables contains an unknown rubric variable")
-        allowed_section_blocks = {
-            block.id for block in result.blocks if block.section_label == section.section_name
-        }
+        # The section mapping is published by the grader, so it is validated here
+        # rather than rebuilt from `section_label` a second time.
+        if len(section.mapped_block_ids) != len(set(section.mapped_block_ids)):
+            raise ValueError("Inspector section block mapping must be unique")
+        if any(block_id not in block_by_id for block_id in section.mapped_block_ids):
+            raise ValueError("Inspector section mapped an unknown block")
+        if any(
+            block_by_id[block_id].section_label != section.section_name
+            for block_id in section.mapped_block_ids
+        ):
+            raise ValueError("Inspector section mapped a block labelled for another section")
+        if not section.is_present and section.mapped_block_ids:
+            raise ValueError("An absent Inspector section cannot map source blocks")
+        allowed_section_blocks = set(section.mapped_block_ids)
+
         for variable in section.variable_grades:
             if set(variable.dimensions) != expected_dimensions:
                 raise ValueError(f"Inspector variable {variable.variable_name} has invalid dimensions")
-            if len(variable.block_ids) != len(set(variable.block_ids)):
-                raise ValueError("Inspector variable block lineage must be unique")
-            if any(block_id not in allowed_section_blocks for block_id in variable.block_ids):
-                raise ValueError("Inspector variable cited a block outside its mapped section")
+            if variable.content_status not in CONTENT_STATUSES:
+                raise ValueError(
+                    f"Inspector variable {variable.variable_name} has an invalid content status"
+                )
+            absent = variable.content_status == ABSENT_CONTENT_STATUS
+            for dimension, grade in variable.dimensions.items():
+                cited = grade.cited_block_ids
+                if len(cited) != len(set(cited)):
+                    raise ValueError("Inspector dimension block lineage must be unique")
+                if any(block_id not in allowed_section_blocks for block_id in cited):
+                    raise ValueError(
+                        "Inspector dimension cited a block outside its mapped section"
+                    )
+                # Absence is the one claim that cannot carry lineage. Keeping this
+                # check here, rather than only at parse time, means it also holds
+                # for an imported result.
+                if absent and cited:
+                    raise ValueError(
+                        f"Absent Inspector variable {variable.variable_name} cannot cite a block"
+                    )
+            if (
+                variable.content_status in PRESENT_CONTENT_STATUSES
+                and not variable.dimensions["completeness"].cited_block_ids
+            ):
+                raise ValueError(
+                    f"Present Inspector variable {variable.variable_name} must cite a source block"
+                )
 
     valid_section_names = set(expected_sections)
     for finding in result.cross_section_findings:

@@ -12,6 +12,9 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  ATTACHMENT_ACCEPT,
+  ATTACHMENT_FORMAT_HINT,
+  ATTACHMENT_MEDIA_PREFIXES,
   DOCUMENT_ACCEPT,
   DOCUMENT_FORMAT_HINT,
   DOCUMENT_SUFFIXES,
@@ -44,6 +47,30 @@ test("derived values stay consistent with the set", () => {
   assert.ok(isSupportedDocument("Plan.DOCX"), "extension matching must ignore case");
   assert.ok(!isSupportedDocument("plan.pdf"), "a rendered format is not a document source");
   assert.ok(!isSupportedDocument("docx"), "a bare word is not an extension");
+});
+
+test("the attachment set matches services/chunker", () => {
+  const source = readFileSync(CHUNKER_PIPELINE, "utf8");
+  const declaration = /^ATTACHMENT_MEDIA_PREFIXES\s*=\s*\(([^)]*)\)/m.exec(source);
+  assert.ok(declaration, "ATTACHMENT_MEDIA_PREFIXES is no longer declared as a tuple");
+  const owned = [...declaration[1].matchAll(/"([^"]+)"|'([^']+)'/g)]
+    .map((match) => match[1] ?? match[2])
+    .sort();
+  assert.deepEqual(
+    [...ATTACHMENT_MEDIA_PREFIXES].sort(),
+    owned,
+    "web/lib/document-formats.ts drifted from services/chunker/pipeline.py",
+  );
+});
+
+test("an attachment accepts every document plus its own media types", () => {
+  // A conversation attachment is read once and discarded, so it may include
+  // formats the analysis path refuses. It may never exclude one the path accepts.
+  for (const suffix of DOCUMENT_SUFFIXES) {
+    assert.ok(ATTACHMENT_ACCEPT.includes(suffix), `${suffix} is not attachable`);
+  }
+  assert.equal(ATTACHMENT_ACCEPT, `${DOCUMENT_ACCEPT},image/*`);
+  assert.equal(ATTACHMENT_FORMAT_HINT, "DOCX, PPTX, or image files");
 });
 
 function sourceFiles(): string[] {

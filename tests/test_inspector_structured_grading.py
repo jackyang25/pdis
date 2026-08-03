@@ -144,7 +144,11 @@ class InspectorStructuredGradingTests(unittest.TestCase):
         )
         safety = result.variable_grades[1]
         self.assertEqual(result.missing_variables, ["Safety"])
-        self.assertEqual(safety.block_ids, [])
+        self.assertEqual(safety.content_status, "missing")
+        # Absence is the one claim that cannot carry lineage, on any axis.
+        self.assertEqual(safety.cited_block_ids, [])
+        for dimension in ("completeness", "adherence", "rigor"):
+            self.assertEqual(safety.dimensions[dimension].cited_block_ids, [])
         self.assertEqual(safety.dimensions["completeness"].grade, "F")
         self.assertEqual(safety.dimensions["adherence"].grade, "F")
         self.assertEqual(safety.dimensions["rigor"].grade, "N/A")

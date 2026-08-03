@@ -34,6 +34,59 @@ ConsistencyStatus = Literal["complete", "partial", "failed", "not_applicable", "
 GradingStatus = Literal["complete", "unknown"]
 DIMENSIONS: tuple[Dimension, ...] = ("completeness", "adherence", "rigor")
 
+# --- Closed vocabularies -----------------------------------------------------
+# Declared once. The grading schema offered to the model, the parser that
+# validates its reply, and every downstream consumer read these same names; a
+# second copy is a second thing to keep in step.
+
+ContentStatus = Literal[
+    "substantive", "partial", "placeholder", "missing", "not_applicable"
+]
+CONTENT_STATUSES: frozenset[str] = frozenset(
+    ("substantive", "partial", "placeholder", "missing", "not_applicable")
+)
+"""How much of a rubric variable the document actually supplies."""
+
+ABSENT_CONTENT_STATUS = "missing"
+"""Content the document does not contain. It can cite no block, by definition."""
+
+PRESENT_CONTENT_STATUSES: frozenset[str] = frozenset(
+    ("substantive", "partial", "placeholder")
+)
+"""Content the document does contain, so it must carry exact block lineage."""
+
+VALID_GRADES: frozenset[str] = frozenset(("A", "B", "C", "D", "F", "N/A"))
+
+# --- The grading scale -------------------------------------------------------
+# One scale, one converter. Section rollups and the document rollup previously
+# each carried their own copy of both, so changing the scale in one place moved
+# only half the report card.
+
+GRADE_TO_SCORE: dict[str, float] = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
+
+_GRADE_FLOOR: tuple[tuple[float, Grade], ...] = (
+    (3.5, "A"),
+    (2.5, "B"),
+    (1.5, "C"),
+    (0.5, "D"),
+)
+
+
+def score_to_grade(score: float | None) -> Grade:
+    """Convert an averaged score back to a letter. ``None`` means nothing applied."""
+    if score is None:
+        return "N/A"
+    for floor, grade in _GRADE_FLOOR:
+        if score >= floor:
+            return grade
+    return "F"
+
+
+def average_score(grades: list[Grade]) -> float | None:
+    """Mean of the gradable letters, or ``None`` when every child was ``N/A``."""
+    scores = [GRADE_TO_SCORE[grade] for grade in grades if grade in GRADE_TO_SCORE]
+    return sum(scores) / len(scores) if scores else None
+
 
 @dataclass
 class DimensionGrade:
@@ -52,6 +105,15 @@ class DimensionGrade:
     grade: Grade
     issues: list[str] = field(default_factory=list)
     recommendation: str = ""
+    cited_block_ids: list[str] = field(default_factory=list)
+    """Blocks *this* judgment cited.
+
+    Each dimension is graded independently and cites independently, so the
+    lineage belongs to the dimension. Merging the three into one list per
+    variable made the grades orthogonal and their provenance shared, which let a
+    consumer attribute a completeness verdict to a block only rigor had read.
+    Empty at rolled-up levels: a section grade is arithmetic, not a citation.
+    """
 
 
 def _empty_dimensions() -> dict[str, DimensionGrade]:
@@ -64,7 +126,32 @@ class VariableGrade:
 
     variable_name: str
     dimensions: dict[str, DimensionGrade] = field(default_factory=_empty_dimensions)
-    block_ids: list[str] = field(default_factory=list)
+    content_status: ContentStatus = "not_applicable"
+    """How much of this variable the document supplies.
+
+    The completeness judgment owns presence, and this is the answer it gave.
+    Consumers read it instead of inferring absence from a grade or from prose:
+    `placeholder` and `missing` are different problems with different fixes, and
+    only this field distinguishes them.
+    """
+
+    @property
+    def cited_block_ids(self) -> list[str]:
+        """Every block any dimension cited, in first-seen dimension order.
+
+        Derived rather than stored, so it cannot disagree with the per-dimension
+        lineage it summarizes. Use a dimension's own list when the question is
+        about that dimension.
+        """
+        seen: list[str] = []
+        for dimension in DIMENSIONS:
+            grade = self.dimensions.get(dimension)
+            if grade is None:
+                continue
+            for block_id in grade.cited_block_ids:
+                if block_id not in seen:
+                    seen.append(block_id)
+        return seen
 
 
 @dataclass
@@ -75,8 +162,51 @@ class SectionGrade:
     section_name: str
     is_present: bool = True
     dimensions: dict[str, DimensionGrade] = field(default_factory=_empty_dimensions)
-    missing_variables: list[str] = field(default_factory=list)
     variable_grades: list[VariableGrade] = field(default_factory=list)
+    mapped_block_ids: list[str] = field(default_factory=list)
+    """Blocks the section mapper assigned to this section, in document order.
+
+    A deterministic assignment, not a citation - named apart from
+    `cited_block_ids` so a consumer cannot mistake one for the other. Published
+    because the grader, the contract check, and the document view each used to
+    rebuild it from `section_label`, three times, from the same input.
+    """
+
+    @property
+    def missing_variables(self) -> list[str]:
+        """Rubric variables the document does not contain, in rubric order.
+
+        Derived from each variable's `content_status`, which is the single
+        authority for presence. It was previously stored alongside that status,
+        so the two could disagree.
+        """
+        return [
+            variable.variable_name
+            for variable in self.variable_grades
+            if variable.content_status == ABSENT_CONTENT_STATUS
+        ]
+
+
+@dataclass
+class TopIssue:
+    """One ranked document-level issue, kept as parts rather than a sentence.
+
+    This used to be a formatted string like
+    ``"Dose volume · rigor (D) — Only a placeholder token is present."``.
+    Every consumer that wanted to link an issue to its block, filter by
+    dimension, or re-sort by severity had to take that sentence back apart, so
+    the parts are published and the sentence is the reader's to compose.
+    """
+
+    section_name: str
+    issue: str
+    dimension: Dimension | None = None
+    """Absent only for a whole section that is not present at all."""
+    variable_name: str | None = None
+    grade: Grade = "N/A"
+    content_status: ContentStatus | None = None
+    recommendation: str = ""
+    cited_block_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -101,7 +231,7 @@ class InspectionResult:
 
     doc_id: str
     dimensions: dict[str, DimensionGrade] = field(default_factory=_empty_dimensions)
-    top_issues: list[str] = field(default_factory=list)
+    top_issues: list[TopIssue] = field(default_factory=list)
     section_grades: list[SectionGrade] = field(default_factory=list)
     cross_section_findings: list[CrossSectionFinding] = field(default_factory=list)
     consistency_status: ConsistencyStatus = "unknown"
@@ -184,6 +314,29 @@ class InspectionConfig:
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
 
 
+def available_configs() -> list["InspectionConfig"]:
+    """Every rubric this service can grade against, in stable order.
+
+    Which files are rubrics and which are scaffolds is Inspector's fact, decided
+    by whether a file loads as one rather than by the shape of its name.
+    Mirrors `chunker.available_configs` so a caller can enumerate any service the
+    same way.
+    """
+    configs: list[InspectionConfig] = []
+    for path in sorted(CONFIGS_DIR.glob("*.yaml")):
+        try:
+            config = load_inspection_config(str(path))
+        except (ValueError, KeyError, TypeError):
+            # A malformed file is not an available config. Asking for it by
+            # identity still raises, so nothing is hidden.
+            continue
+        # A config is named for its identity; a scaffold is not.
+        if config.type_key != path.stem:
+            continue
+        configs.append(config)
+    return configs
+
+
 def has_config(org: str, source_type: str, intervention_class: str) -> bool:
     """Report whether this triple has a rubric.
 
@@ -218,6 +371,12 @@ def find_config(org: str, source_type: str, intervention_class: str) -> "Inspect
         raise ValueError(
             "Inspector config identity does not match its filename: "
             f"requested {requested}, configured {configured}"
+        )
+    expected_type_key = "_".join(requested)
+    if config.type_key != expected_type_key:
+        raise ValueError(
+            "Inspector config type_key does not match its identity: "
+            f"expected {expected_type_key!r}, configured {config.type_key!r}"
         )
     return config
 

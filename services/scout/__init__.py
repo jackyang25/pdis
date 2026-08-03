@@ -9,6 +9,7 @@ variable, and emits doc-aware Matches.
 
 from .contract import result_from_target_review
 from .models import (
+    available_configs,
     Attribute,
     ComparisonRule,
     ConformityScore,
@@ -60,6 +61,7 @@ from .models import (
 from .pipeline import continue_pipeline, run_pipeline
 
 __all__ = [
+    "available_configs",
     "result_from_target_review",
     "Attribute",
     "ComparisonRule",

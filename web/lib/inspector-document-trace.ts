@@ -1,5 +1,5 @@
 import type {
-  ContentBlock,
+  ContentStatus,
   DimensionGrade,
   DimensionName,
   Grade,
@@ -36,7 +36,9 @@ export type InspectorDocumentTraceRef =
       grade: Grade;
       issues: string[];
       recommendation: string;
-      /** Absent content, distinguished from present content graded poorly. */
+      /** The presence answer, so a placeholder is not reported as a gap. */
+      contentStatus: ContentStatus;
+      /** Convenience for the common branch; `contentStatus` is the authority. */
       missing: boolean;
     }
   | {
@@ -97,29 +99,48 @@ function unique(values: string[]): string[] {
 }
 
 /**
- * The last retained block of a rubric section, used to place absences.
+ * Where an absence is displayed: the end of the section it belongs to.
  *
- * Last rather than first, so a gap reads after the content it is missing from.
- * Only `section_label` is consulted; falling back to `heading_stack` would give
- * two matching rules and therefore two ways to be wrong about location.
+ * Reads the section's published `mapped_block_ids` - the same mapping the grader
+ * used to build the prompt - so nothing here re-derives a section from
+ * `section_label`. The document is rendered in ordinal order, so the section's
+ * end is its highest-ordinal block. Taking the maximum rather than the last item
+ * means the list's own sequence does not matter, which is one fewer thing that
+ * has to stay true. Last rather than first, so a gap reads after the content it
+ * is missing from.
  */
-function sectionAnchors(blocks: ContentBlock[]): Map<string, string> {
-  const anchors = new Map<string, string>();
-  const ordered = [...blocks].sort(
-    (left, right) =>
-      left.doc_id.localeCompare(right.doc_id) ||
-      left.ordinal - right.ordinal ||
-      left.id.localeCompare(right.id),
-  );
-  for (const block of ordered) {
-    const label = block.section_label?.trim();
-    if (label) anchors.set(label, block.id);
+function sectionAnchor(
+  section: SectionGrade,
+  ordinalById: Map<string, number>,
+): string | undefined {
+  let anchor: string | undefined;
+  let highest = -Infinity;
+  for (const blockId of section.mapped_block_ids) {
+    const ordinal = ordinalById.get(blockId);
+    if (ordinal === undefined || ordinal < highest) continue;
+    highest = ordinal;
+    anchor = blockId;
   }
-  return anchors;
+  return anchor;
+}
+
+/** Presence is the headline when content is absent or only a placeholder. */
+const CONTENT_STATUS_LABEL: Partial<Record<ContentStatus, string>> = {
+  missing: "Not present",
+  placeholder: "Placeholder",
+  partial: "Partially filled",
+};
+
+function statusLabelFor(status: ContentStatus, grade: Grade): string {
+  const presence = CONTENT_STATUS_LABEL[status];
+  return presence ? `${presence} · ${grade}` : grade;
 }
 
 function dimensionSummary(grade: DimensionGrade, fallback: string): string {
-  return grade.issues[0]?.trim() || grade.recommendation.trim() || fallback;
+  // Only an issue can be the summary. Falling through to the recommendation
+  // made a clean grade read "None." — the model's way of saying there is
+  // nothing to recommend, shown as though it were the finding.
+  return grade.issues[0]?.trim() || fallback;
 }
 
 function variableAnnotations(
@@ -131,10 +152,11 @@ function variableAnnotations(
   const grade = variable.dimensions[dimension];
   if (!grade || !isGraded(grade.grade)) return [];
 
-  const missing = section.missing_variables.includes(variable.variable_name);
-  const blockIds = unique(variable.block_ids);
-  // One rule covers missing variables, not-applicable-but-cited content, and
-  // anything else the grader left without lineage.
+  const missing = variable.content_status === "missing";
+  // This dimension's own citations. Each dimension judges and cites
+  // independently, so a completeness verdict is never placed on a block only
+  // rigor read.
+  const blockIds = unique(grade.cited_block_ids);
   const placed = blockIds.length > 0;
 
   return [{
@@ -146,7 +168,7 @@ function variableAnnotations(
       grade,
       missing ? "Required content is not present." : "No issue recorded.",
     ),
-    statusLabel: missing ? `Missing · ${grade.grade}` : grade.grade,
+    statusLabel: statusLabelFor(variable.content_status, grade.grade),
     blockIds: placed ? blockIds : [],
     spans: [],
     emphasis: emphasisFor(grade.grade),
@@ -159,14 +181,20 @@ function variableAnnotations(
       grade: grade.grade,
       issues: [...grade.issues],
       recommendation: grade.recommendation,
+      contentStatus: variable.content_status,
       missing,
     },
   }];
 }
 
 /**
- * A prose section is graded as a whole and `SectionGrade` carries no block IDs,
- * so its grades can only ever be anchored.
+ * A prose section is graded as a whole rather than per variable, so its scope is
+ * every block the section mapper assigned to it.
+ *
+ * That scope is lineage, not absence. Treating it as absence made a section that
+ * exists and scores `A` render under "not present in the document". A section
+ * that genuinely is not present maps no blocks, so the same rule anchors it —
+ * one rule, both cases, matching how variables are placed.
  */
 function proseSectionAnnotations(
   section: SectionGrade,
@@ -175,6 +203,8 @@ function proseSectionAnnotations(
 ): InspectorDocumentAnnotation[] {
   const grade = section.dimensions[dimension];
   if (!grade || !isGraded(grade.grade)) return [];
+  const blockIds = unique(section.mapped_block_ids);
+  const placed = blockIds.length > 0;
   return [{
     id: `inspector:${dimension}:${section.section_name}`,
     kind: dimension,
@@ -182,10 +212,10 @@ function proseSectionAnnotations(
     title: section.section_name,
     summary: dimensionSummary(grade, "No issue recorded."),
     statusLabel: grade.grade,
-    blockIds: [],
+    blockIds: placed ? blockIds : [],
     spans: [],
     emphasis: emphasisFor(grade.grade),
-    ...(anchor ? { displayAnchorBlockId: anchor } : {}),
+    ...(placed ? {} : anchor ? { displayAnchorBlockId: anchor } : {}),
     sourceRef: {
       type: "section",
       sectionName: section.section_name,
@@ -200,11 +230,19 @@ function proseSectionAnnotations(
 export function buildInspectorDocumentAnnotations(
   result: InspectionResult,
 ): InspectorDocumentAnnotation[] {
-  const anchors = sectionAnchors(result.blocks ?? []);
   const annotations: InspectorDocumentAnnotation[] = [];
+  const ordinalById = new Map(
+    (result.blocks ?? []).map((block) => [block.id, block.ordinal]),
+  );
+  const anchorBySection = new Map(
+    (result.section_grades ?? []).map((section) => [
+      section.section_name,
+      sectionAnchor(section, ordinalById),
+    ]),
+  );
 
   for (const section of result.section_grades ?? []) {
-    const anchor = anchors.get(section.section_name.trim());
+    const anchor = anchorBySection.get(section.section_name);
     for (const dimension of DIMENSION_NAMES) {
       if (section.variable_grades.length > 0) {
         for (const variable of section.variable_grades) {
@@ -230,7 +268,7 @@ export function buildInspectorDocumentAnnotations(
       spans: [],
       // Two sections that cannot both hold is a negative result, always.
       emphasis: { tone: "danger", badge: "!" },
-      ...(blockIds.length ? {} : anchorForSections(sections, anchors)),
+      ...(blockIds.length ? {} : anchorForSections(sections, anchorBySection)),
       sourceRef: {
         type: "consistency",
         sections,
@@ -246,10 +284,10 @@ export function buildInspectorDocumentAnnotations(
 /** A conflict without lineage anchors to the first of its named sections. */
 function anchorForSections(
   sections: string[],
-  anchors: Map<string, string>,
+  anchorBySection: Map<string, string | undefined>,
 ): { displayAnchorBlockId?: string } {
   for (const section of sections) {
-    const anchor = anchors.get(section.trim());
+    const anchor = anchorBySection.get(section);
     if (anchor) return { displayAnchorBlockId: anchor };
   }
   return {};

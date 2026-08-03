@@ -19,14 +19,19 @@ def available_configs() -> list["DocumentTypeConfig"]:
     """
     configs: list[DocumentTypeConfig] = []
     for path in sorted(CONFIGS_DIR.glob("*.yaml")):
-        if "TEMPLATE" in path.stem.upper():
-            continue
         try:
-            configs.append(load_config(str(path)))
-        except (ValueError, KeyError):
+            config = load_config(str(path))
+        except (ValueError, KeyError, TypeError):
             # A malformed config is not an available type; loading it by identity
             # will surface the error to whoever asks for it directly.
             continue
+        # A document type is named for its identity. A scaffold is not - the
+        # shipped template declares `example_org_itpp_vaccine` while being called
+        # CONFIG_TEMPLATE. Testing the declared identity rather than the shape of
+        # the filename means enumeration and `find_config` apply the same rule.
+        if config.type_key != path.stem:
+            continue
+        configs.append(config)
     return configs
 
 

@@ -27,6 +27,15 @@ DEFAULT_MAX_OUTPUT_TOKENS = 16000
 # Formats that declare their own structure. See stages/parser.py for why a
 # rendering format is not accepted as a document source.
 DOCUMENT_SUFFIXES = {".docx", ".pptx"}
+# What a conversation attachment may add on top of those documents. An
+# attachment is read once and discarded, so it never reaches the analysis path
+# that requires declared structure — but it must never accept less than that
+# path does.
+ATTACHMENT_MEDIA_PREFIXES = ("image/",)
+ATTACHMENT_FORMAT_HINT = (
+    ", ".join(sorted(suffix.removeprefix(".").upper() for suffix in DOCUMENT_SUFFIXES))
+    + ", and raster images"
+)
 
 
 def run_pipeline(
@@ -91,10 +100,10 @@ def parse_context_file(
         return run_pipeline(file_path, doc_id)
 
     media_type = (source_media_type or mimetypes.guess_type(path.name)[0] or "").lower()
-    if not media_type.startswith("image/"):
+    if not media_type.startswith(ATTACHMENT_MEDIA_PREFIXES):
         raise ValueError(
             f"Unsupported attachment format '{suffix or media_type}'. "
-            "Supported: DOCX, PPTX, and raster images"
+            f"Supported: {ATTACHMENT_FORMAT_HINT}"
         )
     image = image_asset_from_bytes(path.read_bytes(), media_type)
     if image is None:

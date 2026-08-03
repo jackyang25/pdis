@@ -5,9 +5,11 @@ import { ChevronRight } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { CONTENT_ARRIVAL_MOTION } from "@/lib/motion";
+import { promptAnchor, type ToolKey } from "@/lib/prompt-reference";
 import { cn } from "@/lib/utils";
 
 type PromptEntry = {
+  tool: ToolKey;
   id: string;
   stage: string;
   title: string;
@@ -16,34 +18,16 @@ type PromptEntry = {
   text: string;
 };
 
-type FramingEntry = {
-  key: string;
-  org: string;
-  source_type: string;
-  intervention_class: string;
-  text: string;
-};
-
 type Reference = {
   version: number;
   prompts: PromptEntry[];
-  framings: FramingEntry[];
 };
 
-// Roughly 90 KB of instruction text that almost nobody opens, so it is fetched
+// Roughly 100 KB of instruction text that almost nobody opens, so it is fetched
 // on first expansion instead of shipping inside the page bundle.
 const REFERENCE_URL = "/prompt-reference.json";
 
-// The same wording the signal popovers use, so a reader recognises the label
-// they arrived from.
-const SIGNAL_LABEL: Record<string, string> = {
-  relationships: "Evidence relationships",
-  grounding: "Grounding",
-  alignment: "Quantitative calibration",
-  precedent: "Precedent",
-};
-
-export function PromptReference() {
+export function PromptReference({ tool }: { tool: ToolKey }) {
   const [reference, setReference] = useState<Reference | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "failed">("idle");
   // Expanding two entries in one tick would otherwise read a stale `status` and
@@ -85,12 +69,18 @@ export function PromptReference() {
     return () => window.removeEventListener("hashchange", openFromHash);
   }, [load]);
 
+  // Stages come from the published reference in publication order, so adding a
+  // prompt to a catalog surfaces it here without touching this file.
+  const stages = reference
+    ? [...new Set(reference.prompts.filter((p) => p.tool === tool).map((p) => p.stage))]
+    : [];
+
   return (
-    <div className="mt-6" id="prompts">
+    <div className="mt-4">
       <p className="max-w-[75ch] text-xs leading-5 text-muted-foreground">
         Each stage below sends these instructions with every run. Your document&apos;s
         own content is inserted where a slot appears, so {"{field_name}"} and
-        {" {document_target}"} mark where a field and its target go. The response
+        {" {section_name}"} mark where the document&apos;s own values go. The response
         schema each stage requires is not shown.
       </p>
 
@@ -110,62 +100,60 @@ export function PromptReference() {
         </p>
       ) : null}
 
-      <div className="mt-4 divide-y divide-border border-y border-border">
-        {STAGE_ORDER.map((stage) => (
-          <details
-            key={stage.stage}
-            id={`prompt-${stage.stage}`}
-            // Matches the sections' scroll-mt-24 so arriving via a link does not
-            // park the title under the sticky header.
-            className="group scroll-mt-24 py-3.5"
-            onToggle={(event) => {
-              if (event.currentTarget.open) void load();
-            }}
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-xs font-medium [&::-webkit-details-marker]:hidden">
-              <span className="min-w-0">
-                {stage.title}
-                <span className="ml-2 font-normal text-muted-foreground">
-                  {stage.description}
-                </span>
-              </span>
-              <ChevronRight
-                className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90 motion-reduce:transition-none"
-                aria-hidden="true"
-              />
-            </summary>
+      {reference === null ? (
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={status === "loading"}
+          className="mt-4 inline-flex min-h-8 items-center rounded-md border border-border bg-background px-3 text-xs font-medium transition-colors hover:border-foreground/25 disabled:opacity-60 motion-reduce:transition-none"
+        >
+          {status === "loading" ? "Loading instructions…" : "Show the instructions"}
+        </button>
+      ) : (
+        <div className={cn("mt-4 divide-y divide-border border-y border-border", CONTENT_ARRIVAL_MOTION)}>
+          {stages.map((stage) => {
+            const prompts = reference.prompts.filter(
+              (prompt) => prompt.tool === tool && prompt.stage === stage,
+            );
+            return (
+              <details
+                key={stage}
+                id={promptAnchor(tool, stage)}
+                // Matches the sections' scroll-mt-24 so arriving via a link does
+                // not park the title under the sticky header.
+                className="group scroll-mt-24 py-3.5"
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-xs font-medium [&::-webkit-details-marker]:hidden">
+                  <span className="min-w-0">
+                    {prompts[0]?.title ?? stage}
+                    {prompts.length > 1 && (
+                      <span className="ml-2 font-normal text-muted-foreground">
+                        {prompts.length} prompts
+                      </span>
+                    )}
+                  </span>
+                  <ChevronRight
+                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90 motion-reduce:transition-none"
+                    aria-hidden="true"
+                  />
+                </summary>
 
-            <div className="mt-3">
-              {reference === null ? (
-                status === "loading" ? (
-                  // The shape is known: a title, a provenance line, and a block
-                  // of instruction text.
-                  <div className="space-y-2" role="status" aria-label="Loading instructions">
-                    <Skeleton className="h-3 w-40" />
-                    <Skeleton className="h-2.5 w-64" />
-                    <Skeleton className="h-24" />
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground">Expand to load.</p>
-                )
-              ) : (
-                reference.prompts
-                  .filter((prompt) => prompt.stage === stage.stage)
-                  .map((prompt) => (
-                    <div key={prompt.id} className={cn("mb-5 last:mb-0", CONTENT_ARRIVAL_MOTION)}>
-                      <p className="text-[11px] font-medium text-foreground">
-                        {prompt.title}
-                      </p>
-                      {prompt.produces.ui_labels.length > 0 ? (
-                        <p className="mt-1 text-[10px] font-medium text-foreground">
-                          Behind the{" "}
-                          {prompt.produces.ui_labels
-                            .map((label) => SIGNAL_LABEL[label] ?? label)
-                            .join(" and ")}{" "}
-                          signal
+                <div className="mt-3">
+                  {prompts.map((prompt) => (
+                    <div key={prompt.id} className="mb-5 last:mb-0">
+                      {/* The summary already carries the title of a lone prompt;
+                          a per-prompt title only distinguishes siblings. */}
+                      {prompts.length > 1 && (
+                        <p className="text-[11px] font-medium text-foreground">
+                          {prompt.title}
                         </p>
-                      ) : null}
-                      <p className="mt-1 text-[10px] text-muted-foreground">
+                      )}
+                      <p
+                        className={cn(
+                          "text-[10px] text-muted-foreground",
+                          prompts.length > 1 && "mt-1",
+                        )}
+                      >
                         Produces {prompt.produces.result_fields.join(", ")}
                         {prompt.framing_slot
                           ? ` · inserts the configured ${prompt.framing_slot.replace(/_/g, " ")}`
@@ -177,77 +165,27 @@ export function PromptReference() {
                         </code>
                       </pre>
                     </div>
-                  ))
-              )}
-            </div>
-          </details>
-        ))}
-      </div>
+                  ))}
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
+
+      {reference !== null && stages.length === 0 && (
+        <p className="mt-4 text-xs text-muted-foreground">
+          This tool sends no model instructions. Its behaviour is deterministic.
+        </p>
+      )}
+
+      {status === "loading" && reference === null && (
+        <div className="mt-4 space-y-2" role="status" aria-label="Loading instructions">
+          <Skeleton className="h-3 w-40" />
+          <Skeleton className="h-2.5 w-64" />
+          <Skeleton className="h-24" />
+        </div>
+      )}
     </div>
   );
 }
-
-// Stage order and framing follow the retrieval sequence a reader already met in
-// the architecture diagram, so the two sections describe the same pipeline.
-const STAGE_ORDER: { stage: string; title: string; description: string }[] = [
-  {
-    stage: "context_validator",
-    title: "Indication check",
-    description: "confirms the document matches the configured indication",
-  },
-  {
-    stage: "unit_extractor",
-    title: "Claim extraction",
-    description: "pulls investigation units from a development plan",
-  },
-  {
-    stage: "target_resolver",
-    title: "Canonical claim resolution",
-    description: "binds each field to its exact document language",
-  },
-  {
-    stage: "conformity",
-    title: "Quantitative mapping",
-    description: "numeric targets, external measurements, reconciliation",
-  },
-  {
-    stage: "target_reviewer",
-    title: "Target review",
-    description: "recommends which numeric proposals to keep",
-  },
-  {
-    stage: "query_extractor",
-    title: "Query planning",
-    description: "general, geographic, counterfactual, precedent tracks",
-  },
-  {
-    stage: "insight_extractor",
-    title: "Insight extraction",
-    description: "turns source findings into atomic facts",
-  },
-  {
-    stage: "evidence_reviewer",
-    title: "Measurement admission",
-    description: "recommends which comparators enter statistics",
-  },
-  {
-    stage: "drift_classifier",
-    title: "Relationship classification",
-    description: "contradicts, extends, confirms, unrelated",
-  },
-  {
-    stage: "evidence_assessor",
-    title: "Grounding assessment",
-    description: "how well evidence justifies the document target",
-  },
-  {
-    stage: "precedent_classifier",
-    title: "Precedent coverage and outcome",
-    description: "two separate signals, kept separate",
-  },
-  {
-    stage: "projection_classifier",
-    title: "Projection role",
-    description: "classifies development landscape records",
-  },
-];

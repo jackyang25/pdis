@@ -13,8 +13,7 @@ a document's own content is interpolated.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable
+from shared.prompt_catalog import CatalogEntry
 
 from .models import (
     QUANTITATIVE_SEMANTIC_FIELDS,
@@ -89,22 +88,11 @@ PLACEHOLDER_CONFIG = ScoutTypeConfig(
 )
 
 
-@dataclass(frozen=True)
-class CatalogEntry:
-    """One prompt: what it is, how to render it, and what it produces."""
-
-    id: str
-    stage: str
-    title: str
-    builder_name: str
-    render: Callable[[], str]
-    framing_slot: str | None
-    result_fields: tuple[str, ...]
-    ui_labels: tuple[str, ...]
-
+TOOL = "scout"
 
 PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
     CatalogEntry(
+        tool=TOOL,
         id="context_validator.validate",
         stage="context_validator",
         title="Configured indication check",
@@ -115,6 +103,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=(),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="unit_extractor.extract",
         stage="unit_extractor",
         title="Document claim extraction",
@@ -127,6 +116,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=(),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="target_resolver.ledger",
         stage="target_resolver",
         title="Canonical claim resolution",
@@ -139,6 +129,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=(),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="conformity.document_ledger",
         stage="conformity",
         title="Quantitative target mapping",
@@ -154,6 +145,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=("alignment",),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="conformity.measurement",
         stage="conformity",
         title="External measurement mapping",
@@ -169,6 +161,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=("alignment",),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="query_extractor.general",
         stage="query_extractor",
         title="General query planning",
@@ -185,6 +178,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=(),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="query_extractor.geographic",
         stage="query_extractor",
         title="Geographic query planning",
@@ -200,6 +194,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=(),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="query_extractor.counterfactual",
         stage="query_extractor",
         title="Counterfactual query planning",
@@ -215,6 +210,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=(),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="query_extractor.precedent",
         stage="query_extractor",
         title="Precedent query planning",
@@ -230,6 +226,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=("precedent",),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="insight_extractor.extract",
         stage="insight_extractor",
         title="Source insight extraction",
@@ -245,6 +242,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=(),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="insight_reconciler.reconcile",
         stage="insight_reconciler",
         title="Source insight identity reconciliation",
@@ -255,6 +253,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=(),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="drift_classifier.classify",
         stage="drift_classifier",
         title="Evidence relationship classification",
@@ -269,6 +268,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=("relationships",),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="evidence_assessor.assess",
         stage="evidence_assessor",
         title="Grounding assessment",
@@ -284,6 +284,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=("grounding",),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="precedent_classifier.classify",
         stage="precedent_classifier",
         title="Precedent coverage and outcome",
@@ -299,6 +300,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=("precedent",),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="conformity.reconciliation",
         stage="conformity",
         title="Document-wide claim reconciliation",
@@ -309,6 +311,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=("alignment",),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="target_reviewer.prefill",
         stage="target_reviewer",
         title="Numeric target review recommendation",
@@ -319,6 +322,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=("alignment",),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="evidence_reviewer.prefill",
         stage="evidence_reviewer",
         title="Measurement admission recommendation",
@@ -329,6 +333,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ui_labels=("alignment",),
     ),
     CatalogEntry(
+        tool=TOOL,
         id="projection_classifier.classify",
         stage="projection_classifier",
         title="Projection role classification",

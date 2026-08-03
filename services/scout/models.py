@@ -107,6 +107,25 @@ QUANTITATIVE_FIELD_LINK_RELATIONS = frozenset(
 )
 
 
+def available_configs() -> list["ScoutTypeConfig"]:
+    """Every document type Scout can retrieve evidence for, in stable order.
+
+    Decided by whether a file loads as a config, not by the shape of its name.
+    Mirrors `chunker.available_configs` and `inspector.available_configs`.
+    """
+    configs: list[ScoutTypeConfig] = []
+    for path in sorted(CONFIGS_DIR.glob("*.yaml")):
+        try:
+            config = load_config(str(path))
+        except (ValueError, KeyError, TypeError):
+            continue
+        # A config is named for its identity; a scaffold is not.
+        if config.type_key != path.stem:
+            continue
+        configs.append(config)
+    return configs
+
+
 def find_config(org: str, source_type: str, intervention_class: str) -> "ScoutTypeConfig":
     """Load the scout config for the given (org, source_type, intervention)."""
     path = CONFIGS_DIR / f"{org}_{source_type}_{intervention_class}.yaml"

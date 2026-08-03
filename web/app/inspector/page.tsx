@@ -11,6 +11,10 @@ import {
 } from "@/components/document-source-trace";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { HeaderGuard } from "@/components/header-guard";
+import {
+  InspectorSignalHelp,
+  InspectorSignalLabel,
+} from "@/components/inspector-signal-help";
 import { InspectorDocumentTrace } from "@/components/inspector-document-trace";
 import { LabeledItem } from "@/components/labeled-item";
 import { PageHeader } from "@/components/page-header";
@@ -20,7 +24,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DIMENSION_NAMES,
   GRADE_LABELS,
+  missingVariables,
   runInspector,
+  type ContentStatus,
   type CrossSectionFinding,
   type DimensionName,
   type Dimensions,
@@ -225,13 +231,14 @@ function InspectionResultView({
         onOpenInTrace={openBlockInTrace}
       >
         <Tabs value={resultTab} onValueChange={setResultTab} className="w-full">
-          <div className="border-b border-border px-5 pt-2 sm:px-6">
-            <TabsList className="w-full justify-start">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-5 pt-2 sm:px-6">
+            <TabsList className="justify-start border-b-0">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="sections">Sections</TabsTrigger>
               <TabsTrigger value="consistency">Consistency</TabsTrigger>
               <TabsTrigger value="trace">Document trace</TabsTrigger>
             </TabsList>
+            <InspectorSignalHelp />
           </div>
           <TabsContent value="overview" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
             <Overview inspection={inspection} />
@@ -293,9 +300,34 @@ function Overview({ inspection }: { inspection: InspectorResponse["inspection"] 
         {inspection.top_issues.length > 0 ? (
           <ol className="mt-3 divide-y divide-border rounded-lg border border-border">
             {inspection.top_issues.map((issue, index) => (
-              <li key={`${issue}-${index}`} className="flex gap-3 px-4 py-3 text-sm leading-6">
-                <span className="font-mono text-xs text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
-                <span>{issue}</span>
+              <li
+                key={`${issue.section_name}:${issue.variable_name ?? ""}:${issue.dimension ?? ""}:${index}`}
+                className="flex gap-3 px-4 py-3 text-sm leading-6"
+              >
+                <span className="font-mono text-xs text-muted-foreground">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <div className="min-w-0 flex-1">
+                  {/* The parts arrive separately, so the reader gets a scannable
+                      trail instead of one fused sentence. */}
+                  <p className="flex flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      {issue.variable_name ?? issue.section_name}
+                    </span>
+                    {issue.variable_name && <span>· {issue.section_name}</span>}
+                    {issue.dimension && <span>· {issue.dimension}</span>}
+                    <Badge variant="outline">{issue.grade}</Badge>
+                  </p>
+                  <p className="mt-1">{issue.issue}</p>
+                  {issue.recommendation && (
+                    <p className="mt-1 text-xs text-muted-foreground">{issue.recommendation}</p>
+                  )}
+                  {issue.cited_block_ids.length > 0 && (
+                    <div className="mt-2">
+                      <DocumentSourceTrace blockIds={issue.cited_block_ids} />
+                    </div>
+                  )}
+                </div>
               </li>
             ))}
           </ol>
@@ -319,9 +351,12 @@ function SectionHeading({ title, description }: { title: string; description: st
 function DimensionTile({ name, grade }: { name: DimensionName; grade: Grade }) {
   return (
     <div className="rounded-lg border border-border bg-muted/20 p-4">
-      <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      <InspectorSignalLabel
+        topic={name}
+        className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+      >
         {name}
-      </div>
+      </InspectorSignalLabel>
       <div className="mt-2 flex items-baseline gap-3">
         <span className={cn("font-mono text-3xl font-semibold tabular-nums", GRADE_TEXT[grade])}>
           {grade}
@@ -400,12 +435,14 @@ function SectionCard({
       trailing={<DimensionStrip dimensions={section.dimensions} />}
       defaultOpen={false}
     >
-      {section.missing_variables.length > 0 && (
+      {missingVariables(section).length > 0 && (
         <div className="mb-4 rounded-md border border-border bg-muted/20 px-3 py-2.5">
           <p className="text-xs text-muted-foreground">Required variables not stated</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {section.missing_variables.map((variable) => (
-              <Badge key={variable} variant="outline">{variable}</Badge>
+            {missingVariables(section).map((variable) => (
+              <Badge key={variable.variable_name} variant="outline">
+                {variable.variable_name}
+              </Badge>
             ))}
           </div>
         </div>
@@ -428,21 +465,49 @@ function VariableRow({
 }: {
   variable: VariableGrade;
 }) {
+  // Every block any dimension cited, for the row-level source trace. A single
+  // dimension's detail still reports its own lineage.
+  const cited = [
+    ...new Set(
+      DIMENSION_NAMES.flatMap(
+        (dimension) => variable.dimensions[dimension]?.cited_block_ids ?? [],
+      ),
+    ),
+  ];
   return (
     <div className="px-4 py-4">
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-        <p className="text-sm font-medium">{variable.variable_name}</p>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <p className="text-sm font-medium">{variable.variable_name}</p>
+          {CONTENT_STATUS_LABEL[variable.content_status] && (
+            <InspectorSignalLabel topic="presence">
+              <Badge variant="outline">
+                {CONTENT_STATUS_LABEL[variable.content_status]}
+              </Badge>
+            </InspectorSignalLabel>
+          )}
+        </div>
         <DimensionStrip dimensions={variable.dimensions} compact />
       </div>
       <DimensionDetails dimensions={variable.dimensions} />
-      {variable.block_ids.length > 0 && (
+      {cited.length > 0 && (
         <div className="mt-3">
-          <DocumentSourceTrace blockIds={variable.block_ids} />
+          <DocumentSourceTrace blockIds={cited} />
         </div>
       )}
     </div>
   );
 }
+
+/**
+ * Presence worth surfacing beside a variable name. `substantive` and
+ * `not_applicable` say nothing a reader needs, so they carry no badge.
+ */
+const CONTENT_STATUS_LABEL: Partial<Record<ContentStatus, string>> = {
+  missing: "Not present",
+  placeholder: "Placeholder",
+  partial: "Partially filled",
+};
 
 function ConsistencyView({
   findings,

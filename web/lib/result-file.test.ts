@@ -30,9 +30,9 @@ const inspection: InspectorResponse = {
   inspection: {
     doc_id: "doc",
     dimensions: {
-      completeness: { grade: "A", issues: [], recommendation: "" },
-      adherence: { grade: "A", issues: [], recommendation: "" },
-      rigor: { grade: "A", issues: [], recommendation: "" },
+      completeness: { grade: "A", issues: [], recommendation: "", cited_block_ids: [] },
+      adherence: { grade: "A", issues: [], recommendation: "", cited_block_ids: [] },
+      rigor: { grade: "A", issues: [], recommendation: "", cited_block_ids: [] },
     },
     top_issues: [],
     section_grades: [],
@@ -142,7 +142,10 @@ const scout: ScoutResponse = {
 
 test("current Inspector results round-trip exactly", () => {
   const packed = packInspectorResult(inspection);
-  assert.equal(packed.version, 38);
+  // Bumped to 39 when Inspector began publishing per-dimension lineage,
+  // `content_status`, section mapping, and structured top issues. Imports accept
+  // only the current envelope, so earlier downloads must be re-run.
+  assert.equal(packed.version, 39);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("blocks" in packed.analysis.inspection, false);

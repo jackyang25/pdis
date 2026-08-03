@@ -13,7 +13,6 @@ import {
 } from "@/lib/product-knowledge";
 import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
 import { ArchitectureGraphs } from "@/components/docs/architecture-graph";
-import { PromptReference } from "@/components/docs/prompt-reference";
 
 const SECTION_ORDER = ["overview", "tools", "architecture", "workflows", "scout", "assistant", "results", "development", "faq"];
 const DOCUMENT_SECTIONS = [...PRODUCT_KNOWLEDGE.sections].sort(
@@ -144,8 +143,6 @@ function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
           {block.description}
         </p>
         <ArchitectureGraphs graphs={block.graphs} description={block.description} />
-        <h3 className="mt-8 text-sm font-semibold">Instructions given to the model</h3>
-        <PromptReference />
       </ContentGroup>
     );
   }

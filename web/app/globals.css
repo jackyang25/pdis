@@ -41,6 +41,10 @@
     --tone-success: 161 94% 30%;
     --tone-warning: 32 95% 44%;
     --tone-danger: 0 72% 51%;
+    /* A passage a result cites. One meaning, both tools: Scout marks an exact
+       span, Inspector marks a whole block. Navigation uses a ring, never a
+       fill, so "you are here" cannot read as "this is marked". */
+    --tone-marked: 45 93% 47%;
     --tone-external: 262 83% 58%;
   }
 
@@ -76,6 +80,7 @@
     --tone-success: 158 64% 52%;
     --tone-warning: 43 96% 56%;
     --tone-danger: 0 91% 71%;
+    --tone-marked: 48 96% 53%;
     --tone-external: 255 92% 76%;
   }
 }

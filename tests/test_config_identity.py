@@ -1,90 +1,86 @@
-"""Every config's declared identity matches the filename it is selected by.
+"""Every service agrees on which document types exist and what they are called.
 
-A `(org, source_type, intervention_class)` triple is stated twice: once in the
-filename, which is how the triple is resolved to a path, and once in the file's
-own fields, which become output provenance. Nothing forces the two to agree.
+A `(org, source_type, intervention_class)` triple is stated twice: in the
+filename that resolves it to a path, and in the file's own fields, which become
+output provenance. Chunker enumerates the types the whole picker offers and
+builds each entry from the *declared* fields, while Inspector and Scout are then
+looked up by those values as *filenames* - so a file disagreeing with its own
+name would list one identity and load another.
 
-Chunker enumerates the document types the whole picker offers, and it builds each
-entry from the *declared* fields while Inspector and Scout are then looked up by
-those values as *filenames*. A file that disagreed with its own name would
-therefore list one identity and load another, with no error on either side.
-
-Scout validates this at load time and Inspector validates part of it. This test
-covers all three uniformly so the guarantee does not depend on which service a
-config belongs to.
+These tests ask each service what it has rather than reading its config
+directory. Deciding what counts as a config from the shape of a filename would
+be a second rule, in a test, competing with the one the services enforce.
 """
 
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
-import yaml
+from services import chunker, inspector, scout
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-# Aligner is absent deliberately: it owns one source-type-neutral configuration
-# rather than a file per triple, so it has no identity to keep in sync.
-SERVICES = ("chunker", "inspector", "scout")
-IDENTITY_FIELDS = ("org", "source_type", "intervention_class")
-
-
-def _config_paths(service: str) -> list[Path]:
-    directory = REPO_ROOT / "services" / service / "configs"
-    return sorted(
-        path
-        for path in directory.glob("*.yaml")
-        # Scaffolds and shared methodology files are not document types. A type
-        # config is named for its triple, so anything that is not a
-        # lowercase three-part stem is not one.
-        if "TEMPLATE" not in path.stem.upper()
-        and path.stem == path.stem.lower()
-        and len(path.stem.split("_")) == 3
-    )
+SERVICES = (chunker, inspector, scout)
 
 
 class ConfigIdentityTests(unittest.TestCase):
-    def test_every_config_declares_the_identity_it_is_named_for(self) -> None:
-        checked = 0
+    def test_every_config_is_named_for_the_identity_it_declares(self) -> None:
         for service in SERVICES:
-            for path in _config_paths(service):
-                with self.subTest(config=f"{service}/{path.name}"):
-                    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-                    expected = path.stem.split("_")
-                    declared = [data.get(field) for field in IDENTITY_FIELDS]
+            configs = service.available_configs()
+            self.assertTrue(configs, f"{service.__name__} discovered no configs")
+            for config in configs:
+                with self.subTest(service=service.__name__, type_key=config.type_key):
                     self.assertEqual(
-                        declared,
-                        expected,
-                        f"{path.name} is selected as {expected} but declares {declared}",
+                        config.type_key,
+                        f"{config.org}_{config.source_type}_{config.intervention_class}",
+                        "type_key must spell out the triple it is filed under",
                     )
-                    self.assertEqual(
-                        data.get("type_key"),
-                        path.stem,
-                        f"{path.name} declares type_key {data.get('type_key')!r}",
+
+    def test_every_discovered_type_loads_back_by_its_own_identity(self) -> None:
+        """The round trip is the real check: enumerate, then resolve what you got.
+
+        `find_config` raises when a file's declared identity disagrees with the
+        name it was resolved by, so a successful round trip proves the two agree
+        without this test needing to know how paths are built.
+        """
+        for service in SERVICES:
+            for config in service.available_configs():
+                with self.subTest(service=service.__name__, type_key=config.type_key):
+                    found = service.find_config(
+                        config.org, config.source_type, config.intervention_class
                     )
-                    checked += 1
-        self.assertTrue(checked, "no document type configs were discovered")
+                    self.assertEqual(found.type_key, config.type_key)
+
+    def test_scaffolds_are_not_document_types(self) -> None:
+        for service in SERVICES:
+            keys = [config.type_key.upper() for config in service.available_configs()]
+            with self.subTest(service=service.__name__):
+                self.assertFalse([key for key in keys if "TEMPLATE" in key])
+                self.assertFalse([key for key in keys if "EXAMPLE" in key])
 
     def test_the_document_tools_cover_the_same_triples(self) -> None:
-        """A triple Chunker offers must be resolvable by whoever claims it.
+        """A triple a grading tool claims must be one the chunker can parse.
 
-        Coverage may legitimately differ — an Inspector rubric is optional, and
-        the API probes for it. What must not differ is the *spelling* of a triple
-        the services share, which is what an unnoticed rename produces.
+        Coverage may legitimately be narrower - an Inspector rubric is optional,
+        and the API probes for it. What must not differ is the *spelling* of a
+        shared triple, which is what an unnoticed rename produces.
         """
-        by_service = {
-            service: {path.stem for path in _config_paths(service)}
-            for service in SERVICES
-        }
-        for service, stems in by_service.items():
-            if service == "chunker":
-                continue
-            with self.subTest(service=service):
-                unknown = sorted(stems - by_service["chunker"])
+        parseable = {config.type_key for config in chunker.available_configs()}
+        for service in (inspector, scout):
+            with self.subTest(service=service.__name__):
+                unknown = sorted(
+                    {config.type_key for config in service.available_configs()} - parseable
+                )
                 self.assertEqual(
                     unknown,
                     [],
-                    f"{service} configures triples the chunker cannot parse: {unknown}",
+                    f"{service.__name__} configures triples the chunker cannot parse",
                 )
+
+    def test_optional_rubrics_are_asked_about_rather_than_assumed(self) -> None:
+        for config in chunker.available_configs():
+            triple = (config.org, config.source_type, config.intervention_class)
+            with self.subTest(type_key=config.type_key):
+                if inspector.has_config(*triple):
+                    inspector.find_config(*triple)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ per document. Public contract below; internals
 """
 
 from .models import (
+    available_configs,
     LLMClientProtocol,
     BatchInspectionResult,
     InspectionConfig,
@@ -23,6 +24,7 @@ from .pipeline import (
 )
 
 __all__ = [
+    "available_configs",
     "LLMClientProtocol",
     "BatchInspectionResult",
     "DEFAULT_MAX_OUTPUT_TOKENS",

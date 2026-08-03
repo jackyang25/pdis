@@ -86,14 +86,22 @@ function InspectorTraceInspector({
         )}
 
         <TracePanelSection
-          label={absent ? "Not present in the document" : "Source passages"}
+          label={
+            absent
+              ? "Not present in the document"
+              : ref.type === "section"
+                ? "Section scope"
+                : "Source passages"
+          }
           icon={absent ? CircleDashed : connection.type === "exact" ? FileText : Link2}
           className="mt-5"
         >
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
             {absent
               ? "This finding describes content that is absent, so it cites no source passage. It is shown beside the section it belongs to rather than attached to unrelated text."
-              : "The grade applies to every retained passage cited below. Inspector records block lineage rather than exact quotations, so the whole passage is marked rather than a span within it."}
+              : ref.type === "section"
+                ? "This section is graded as a whole rather than variable by variable, so the judgment covers every passage the section contains."
+                : "The grade applies to every retained passage cited below. Inspector records block lineage rather than exact quotations, so the whole passage is marked rather than a span within it."}
           </p>
           {!absent && (
             <p className="mt-2 text-[10px] tabular-nums text-muted-foreground/80">

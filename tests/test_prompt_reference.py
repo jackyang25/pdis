@@ -11,7 +11,8 @@ import json
 import unittest
 from pathlib import Path
 
-from scripts.generate_prompt_reference import REFERENCE, build_reference
+from scripts.generate_prompt_reference import CATALOGS, REFERENCE, build_reference
+from shared.prompt_catalog import catalog_reference
 
 
 class PromptReferenceTest(unittest.TestCase):
@@ -27,15 +28,61 @@ class PromptReferenceTest(unittest.TestCase):
         """A published topic with no prompt would read as an evasive gap."""
         reference = json.loads(REFERENCE.read_text())
         published = {
-            label
+            (prompt["tool"], label)
             for prompt in reference["prompts"]
             for label in prompt["produces"]["ui_labels"]
         }
+        expected = {
+            ("scout", "relationships"),
+            ("scout", "grounding"),
+            ("scout", "alignment"),
+            ("scout", "precedent"),
+            ("inspector", "completeness"),
+            ("inspector", "adherence"),
+            ("inspector", "rigor"),
+            ("inspector", "presence"),
+            ("inspector", "consistency"),
+        }
         self.assertEqual(
-            {"relationships", "grounding", "alignment", "precedent"} - published,
+            expected - published,
             set(),
-            "an interface signal has no prompt behind it in the reference",
+            "an interface signal has no prompt behind it, so its tooltip cannot link",
         )
+
+    def test_every_tool_with_a_catalog_is_published(self) -> None:
+        """A tool absent from the reference has an empty documentation panel."""
+        reference = json.loads(REFERENCE.read_text())
+        declared = {entry.tool for catalog in CATALOGS for entry in catalog}
+        published = {prompt["tool"] for prompt in reference["prompts"]}
+        self.assertEqual(declared, published)
+        self.assertEqual(
+            declared,
+            {"chunker", "inspector", "aligner", "scout"},
+            "add the new tool's catalog to CATALOGS, or remove it here deliberately",
+        )
+
+    def test_documentation_anchors_are_unique(self) -> None:
+        """A tooltip links by anchor, so two prompts sharing one would misroute.
+
+        Stage names are unique only within a tool - Inspector and a future tool
+        may both call a stage `grader` - which is why the anchor carries both.
+        """
+        reference = json.loads(REFERENCE.read_text())
+        anchors = [
+            catalog_reference(prompt["tool"], prompt["stage"])
+            for prompt in reference["prompts"]
+        ]
+        duplicates = sorted({a for a in anchors if anchors.count(a) > 1})
+        # Several prompts may share a stage panel (Scout's conformity sends
+        # three), so duplicates are expected; what must hold is that an anchor
+        # never spans two tools.
+        for anchor in duplicates:
+            tools = {
+                prompt["tool"]
+                for prompt in reference["prompts"]
+                if catalog_reference(prompt["tool"], prompt["stage"]) == anchor
+            }
+            self.assertEqual(len(tools), 1, f"{anchor} resolves to more than one tool")
 
     def test_reference_carries_no_empty_text(self) -> None:
         reference = json.loads(REFERENCE.read_text())

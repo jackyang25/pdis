@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
@@ -13,6 +13,7 @@ import {
   strongestEmphasis,
   type DocumentAnnotation,
 } from "./document-trace.ts";
+
 
 const WEB_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -579,32 +580,78 @@ test("emphasis resolves per block from the annotations claiming it", () => {
   assert.equal(second.emphasis, null, "an unclaimed block carries no emphasis");
 });
 
-test("no adapter sets a display anchor beside real block lineage", () => {
-  // An absence cannot cite a block. The type system cannot express "these two
-  // fields are mutually exclusive" without making the common case awkward, so
-  // the rule is enforced here rather than left to a comment nobody re-reads.
+test("lineage wins over a display anchor, so the pair cannot mislead", () => {
+  // The anchor is placement, the blocks are provenance. Rather than forbidding
+  // the combination by scanning source text for it - a check that reads code as
+  // strings and breaks on formatting - the engine gives lineage precedence and
+  // never reads the anchor when blocks exist. The illegal state is harmless
+  // instead of policed.
+  const blocks = [block("b-1", 1, "Minimum: 60%"), block("b-2", 2, "Safety data")];
+  const trace = buildDocumentTrace(blocks, [
+    annotation({
+      id: "both",
+      kind: "field",
+      blockIds: ["b-1"],
+      displayAnchorBlockId: "b-2",
+    }),
+  ]);
+
+  const [first, second] = trace.documents[0].blocks;
+  assert.deepEqual(
+    first.markers.map((marker) => marker.annotation.id),
+    ["both"],
+    "an annotation with lineage is placed on the block it cites",
+  );
+  assert.deepEqual(second.anchored, [], "its anchor is not consulted");
+  assert.deepEqual(trace.unplacedAnnotationIds, []);
+});
+
+test("the shared trace layer imports nothing tool-specific", () => {
+  // An import graph assertion, not a keyword scan: the rule is that a shared
+  // module may not depend on a tool's adapter, types, or vocabulary. Naming a
+  // tool in a comment to explain a shared decision is fine and expected.
+  const SHARED = [
+    "lib/document-trace.ts",
+    "lib/document-block-presentation.ts",
+    "components/document-trace-viewer.tsx",
+    "components/document-trace-panel.tsx",
+    "components/ui/signal-help.tsx",
+  ];
+  const TOOL_MODULE = /^(?:\.{1,2}\/|@\/)(?:.*\/)?(?:scout|inspector|aligner|chunker)[-/]/;
+
   const offenders: string[] = [];
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir)) {
-      const full = path.join(dir, entry);
-      if (statSync(full).isDirectory()) {
-        walk(full);
-        continue;
-      }
-      if (!/\.tsx?$/.test(entry) || /\.test\.tsx?$/.test(entry)) continue;
-      const text = readFileSync(full, "utf8");
-      if (!text.includes("displayAnchorBlockId")) continue;
-      for (const [literal] of text.matchAll(/\{[^{}]*displayAnchorBlockId[^{}]*\}/g)) {
-        if (/blockIds:\s*(?!\[\])/.test(literal)) {
-          offenders.push(`${path.relative(WEB_ROOT, full)}: ${literal.slice(0, 80)}`);
-        }
-      }
+  for (const relative of SHARED) {
+    const text = readFileSync(path.join(WEB_ROOT, relative), "utf8");
+    for (const [, specifier] of text.matchAll(/from\s+"([^"]+)"/g)) {
+      if (TOOL_MODULE.test(specifier)) offenders.push(`${relative} -> ${specifier}`);
     }
-  };
-  for (const dir of ["app", "components", "lib"]) walk(path.join(WEB_ROOT, dir));
+  }
   assert.deepEqual(
     offenders,
     [],
-    "an annotation with a display anchor must declare blockIds: []",
+    "a shared trace module depends on one tool, so the next tool inherits its assumptions",
   );
+});
+
+test("every tool adapter presents the same surface", () => {
+  // Symmetry is what lets a reader learn one adapter and understand the rest.
+  const ADAPTERS = [
+    { module: "lib/scout-document-trace.ts", build: "buildScoutDocumentAnnotations" },
+    { module: "lib/inspector-document-trace.ts", build: "buildInspectorDocumentAnnotations" },
+  ];
+  for (const { module, build } of ADAPTERS) {
+    const text = readFileSync(path.join(WEB_ROOT, module), "utf8");
+    assert.ok(
+      text.includes(`export function ${build}`),
+      `${module} must export ${build}`,
+    );
+    assert.ok(
+      /export type \w+DocumentTraceKind/.test(text),
+      `${module} must declare its own closed layer vocabulary`,
+    );
+    assert.ok(
+      /export type \w+DocumentAnnotation\b/.test(text),
+      `${module} must name its annotation type`,
+    );
+  }
 });

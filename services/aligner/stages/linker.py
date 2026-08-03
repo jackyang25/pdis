@@ -103,20 +103,14 @@ def align_units(
     return links, _stats(reference_units, comparison_units, links)
 
 
-def _align_batch(
-    reference_units: list[AlignmentUnit],
-    comparison_units: list[AlignmentUnit],
-    *,
-    config: AlignmentConfig,
-    llm_client: LLMClientProtocol,
-    max_tokens: int,
-) -> list[AlignmentLink]:
+def build_alignment_prompt(config: AlignmentConfig) -> str:
+    """Assemble the relation instruction for one reference unit against a pool."""
     relation_text = "\n".join(
         f'- "{item.name}": {item.description}'
         for item in config.relations
         if item.name != "introduced"
     )
-    system_prompt = f"""You compare explicit units from two product-development documents to build a traceability matrix.
+    return f"""You compare explicit units from two product-development documents to build a traceability matrix.
 
 For every REFERENCE unit, choose exactly one relation:
 {relation_text}
@@ -132,6 +126,17 @@ Rules:
 
 Return only the schema-bound response.
 """
+
+
+def _align_batch(
+    reference_units: list[AlignmentUnit],
+    comparison_units: list[AlignmentUnit],
+    *,
+    config: AlignmentConfig,
+    llm_client: LLMClientProtocol,
+    max_tokens: int,
+) -> list[AlignmentLink]:
+    system_prompt = build_alignment_prompt(config)
     user_message = (
         "REFERENCE units:\n"
         + _format_units(reference_units)

@@ -37,10 +37,20 @@ export type ContentBlock = {
 export type DimensionName = "completeness" | "adherence" | "rigor";
 export type Grade = "A" | "B" | "C" | "D" | "F" | "N/A";
 
+/** How much of a rubric variable the document supplies. */
+export type ContentStatus =
+  | "substantive"
+  | "partial"
+  | "placeholder"
+  | "missing"
+  | "not_applicable";
+
 export type DimensionGrade = {
   grade: Grade;
   issues: string[];
   recommendation: string;
+  /** Blocks *this* judgment cited. Each dimension cites independently. */
+  cited_block_ids: string[];
 };
 
 export type Dimensions = Record<DimensionName, DimensionGrade>;
@@ -48,15 +58,29 @@ export type Dimensions = Record<DimensionName, DimensionGrade>;
 export type VariableGrade = {
   variable_name: string;
   dimensions: Dimensions;
-  block_ids: string[];
+  /** The completeness judgment's presence answer — the authority for absence. */
+  content_status: ContentStatus;
 };
 
 export type SectionGrade = {
   section_name: string;
   is_present: boolean;
   dimensions: Dimensions;
-  missing_variables: string[];
   variable_grades: VariableGrade[];
+  /** Deterministic section assignment in document order, not a citation. */
+  mapped_block_ids: string[];
+};
+
+/** One ranked document-level issue, kept as parts rather than a sentence. */
+export type TopIssue = {
+  section_name: string;
+  issue: string;
+  dimension: DimensionName | null;
+  variable_name: string | null;
+  grade: Grade;
+  content_status: ContentStatus | null;
+  recommendation: string;
+  cited_block_ids: string[];
 };
 
 export type CrossSectionFinding = {
@@ -69,7 +93,7 @@ export type CrossSectionFinding = {
 export type InspectionResult = {
   doc_id: string;
   dimensions: Dimensions;
-  top_issues: string[];
+  top_issues: TopIssue[];
   section_grades: SectionGrade[];
   cross_section_findings: CrossSectionFinding[];
   consistency_status: "complete" | "partial" | "failed" | "not_applicable" | "unknown";
@@ -771,4 +795,26 @@ export async function uploadAssistantContext(file: File): Promise<AssistantConte
     method: "POST",
     body: form,
   });
+}
+
+/**
+ * Rubric variables the document does not contain, in rubric order.
+ *
+ * Derived rather than transported. `content_status` is the single authority for
+ * presence, so shipping a parallel list of names alongside it would create two
+ * fields that can disagree.
+ */
+export function missingVariables(section: SectionGrade): VariableGrade[] {
+  return section.variable_grades.filter(
+    (variable) => variable.content_status === "missing",
+  );
+}
+
+/** Whether a variable is present in the document at all. */
+export function hasDocumentContent(variable: VariableGrade): boolean {
+  return (
+    variable.content_status === "substantive" ||
+    variable.content_status === "partial" ||
+    variable.content_status === "placeholder"
+  );
 }

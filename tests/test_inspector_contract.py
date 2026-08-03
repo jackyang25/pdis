@@ -60,7 +60,6 @@ class InspectorContractTests(unittest.TestCase):
         section = config().sections[0]
         blocks = [block("document:b1", "Profile")]
         payload = {
-            "missing_variables": [],
             "variable_grades": [
                 {
                     "variable_name": "Efficacy",
@@ -75,7 +74,14 @@ class InspectorContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "accounted for exactly once"):
             _parse_dimension_payload(payload, "completeness", section, blocks)
 
-    def test_missing_variable_remains_in_the_rollup_ledger(self) -> None:
+    def test_content_status_is_the_only_record_of_absence(self) -> None:
+        """Absence has one representation, carried by the variable it describes.
+
+        It was previously recorded twice - once as a `content_status` and again in
+        a parallel list of names - so the two could disagree. The parser requires
+        every rubric variable in `variable_grades`, so the name list said nothing
+        the status did not.
+        """
         section = config().sections[0]
         present = {
             "variable_name": "Efficacy",
@@ -83,30 +89,82 @@ class InspectorContractTests(unittest.TestCase):
             "grade": "A",
             "issues": [],
             "recommendation": "",
+            "content_status": "substantive",
         }
-        missing = {
+        absent = {
             "variable_name": "Safety",
             "block_ids": [],
             "grade": "N/A",
             "issues": [],
             "recommendation": "",
+            "content_status": "missing",
         }
         merged = _merge_variable_bearing(
             section,
             {
-                "completeness": {
-                    "missing_variables": ["Safety"],
-                    "variable_grades": [present],
-                },
-                "adherence": {"missing_variables": [], "variable_grades": [present, missing]},
-                "rigor": {"missing_variables": [], "variable_grades": [present, missing]},
+                "completeness": {"variable_grades": [present, absent]},
+                "adherence": {"variable_grades": [present, absent]},
+                "rigor": {"variable_grades": [present, absent]},
             },
         )
-        self.assertEqual([item.variable_name for item in merged.variable_grades], ["Efficacy", "Safety"])
+
+        self.assertEqual(
+            [item.variable_name for item in merged.variable_grades],
+            ["Efficacy", "Safety"],
+        )
         safety = merged.variable_grades[1]
+        self.assertEqual(safety.content_status, "missing")
         self.assertEqual(safety.dimensions["completeness"].grade, "F")
         self.assertEqual(safety.dimensions["adherence"].grade, "F")
         self.assertEqual(safety.dimensions["rigor"].grade, "N/A")
+        self.assertEqual(merged.missing_variables, ["Safety"])
+        for dimension in ("completeness", "adherence", "rigor"):
+            self.assertEqual(safety.dimensions[dimension].cited_block_ids, [])
+
+    def test_each_dimension_keeps_its_own_lineage(self) -> None:
+        """Independent judgments cite independently, so lineage is per dimension."""
+        section = config().sections[0]
+
+        def item(name: str, blocks: list[str], status: str) -> dict:
+            return {
+                "variable_name": name,
+                "block_ids": blocks,
+                "grade": "B",
+                "issues": [],
+                "recommendation": "",
+                "content_status": status,
+            }
+
+        merged = _merge_variable_bearing(
+            section,
+            {
+                "completeness": {
+                    "variable_grades": [
+                        item("Efficacy", ["document:b1"], "substantive"),
+                        item("Safety", ["document:b1"], "substantive"),
+                    ]
+                },
+                "adherence": {
+                    "variable_grades": [
+                        item("Efficacy", [], "substantive"),
+                        item("Safety", ["document:b1"], "substantive"),
+                    ]
+                },
+                "rigor": {
+                    "variable_grades": [
+                        item("Efficacy", ["document:b1"], "substantive"),
+                        item("Safety", [], "substantive"),
+                    ]
+                },
+            },
+        )
+
+        efficacy = merged.variable_grades[0]
+        self.assertEqual(efficacy.dimensions["completeness"].cited_block_ids, ["document:b1"])
+        self.assertEqual(efficacy.dimensions["adherence"].cited_block_ids, [])
+        self.assertEqual(efficacy.dimensions["rigor"].cited_block_ids, ["document:b1"])
+        # The variable-level view is the union, derived so it cannot disagree.
+        self.assertEqual(efficacy.cited_block_ids, ["document:b1"])
 
     def test_cross_section_findings_require_a_block_from_each_section(self) -> None:
         blocks_by_section = {

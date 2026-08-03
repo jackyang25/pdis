@@ -13,21 +13,27 @@ from services.chunker import (
 from .stages.grader import check_cross_section, grade_sections
 from .contract import validate_result_contract
 from .models import (
+    ABSENT_CONTENT_STATUS,
     BatchInspectionResult,
+    DIMENSIONS,
+    DimensionGrade,
+    GRADE_TO_SCORE,
     Grade,
     InspectionConfig,
     InspectionResult,
     LLMClientProtocol,
     SectionGrade,
+    TopIssue,
     VariableSpec,
+    score_to_grade,
 )
 
 DEFAULT_MAX_OUTPUT_TOKENS = 32000
 
-GRADE_TO_SCORE = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
 SEVERITY_ORDER = {"F": 0, "D": 1, "C": 2, "B": 3, "A": 4, "N/A": 5}
 MISSING_SECTION_SEVERITY = -2
 MISSING_VARIABLE_SEVERITY = -1
+TOP_ISSUE_LIMIT = 5
 
 
 def run_pipeline(
@@ -233,10 +239,12 @@ def build_report_card(
 def _document_dimensions(
     section_grades: list[SectionGrade],
     config: InspectionConfig,
-) -> dict[str, "DimensionGrade"]:
-    """Weighted roll-up of section dimension grades into document-level dimensions."""
-    from .models import DIMENSIONS, DimensionGrade
+) -> dict[str, DimensionGrade]:
+    """Weighted roll-up of section dimension grades into document-level dimensions.
 
+    Weighted by authored section weight, unlike the unweighted variable-to-section
+    roll-up in the grader. Both read one scale from `models`.
+    """
     weights_by_section = {s.name: s.weight for s in config.sections}
     out: dict[str, DimensionGrade] = {}
     for name in DIMENSIONS:
@@ -256,8 +264,8 @@ def _document_dimensions(
             weight = weights_by_section.get(sg.section_name, 0.0)
             weighted_score += GRADE_TO_SCORE[dg.grade] * weight
             applied_weight += weight
-        grade: Grade = (
-            _score_to_grade(weighted_score / applied_weight) if applied_weight > 0 else "N/A"
+        grade: Grade = score_to_grade(
+            weighted_score / applied_weight if applied_weight > 0 else None
         )
         out[name] = DimensionGrade(
             grade=grade,
@@ -267,88 +275,109 @@ def _document_dimensions(
     return out
 
 
-def _score_to_grade(score: float) -> Grade:
-    if score >= 3.5:
-        return "A"
-    if score >= 2.5:
-        return "B"
-    if score >= 1.5:
-        return "C"
-    if score >= 0.5:
-        return "D"
-    return "F"
-
-
 def _top_issues(
     section_grades: list[SectionGrade],
     config: InspectionConfig,
-    limit: int = 5,
-) -> list[str]:
-    """Pick the most severe issues across sections and variables, across all dimensions.
+    limit: int = TOP_ISSUE_LIMIT,
+) -> list[TopIssue]:
+    """Rank the most severe issues across sections, variables, and dimensions.
 
-    Severity is derived from the dimension grade. Missing sections/variables
-    rank above any letter grade.
+    Severity comes from the dimension grade; an absent section or variable ranks
+    above any letter grade. Each result keeps its parts - section, variable,
+    dimension, grade, presence, recommendation, lineage - so a consumer can link,
+    filter, or re-sort without parsing a sentence back apart.
     """
-    issue_candidates: list[tuple[int, str]] = []
-    for sg in section_grades:
-        if not sg.is_present:
-            recs = "; ".join(
-                dg.recommendation for dg in sg.dimensions.values() if dg.recommendation
-            )
-            issue_candidates.append(
-                (MISSING_SECTION_SEVERITY, f"{sg.section_name} missing - {recs}".strip(" -"))
-            )
+    candidates: list[tuple[int, TopIssue]] = []
+    for section in section_grades:
+        if not section.is_present:
+            candidates.append((
+                MISSING_SECTION_SEVERITY,
+                TopIssue(
+                    section_name=section.section_name,
+                    issue="Required section is not present.",
+                    grade="F",
+                    recommendation="; ".join(
+                        grade.recommendation
+                        for grade in section.dimensions.values()
+                        if grade.recommendation
+                    ),
+                ),
+            ))
             continue
 
-        for variable_name in sg.missing_variables:
-            issue_candidates.append(
-                (
-                    MISSING_VARIABLE_SEVERITY,
-                    _format_missing_variable_issue(variable_name, sg.section_name, config),
-                )
-            )
+        absent = set(section.missing_variables)
+        for variable_name in section.missing_variables:
+            candidates.append((
+                MISSING_VARIABLE_SEVERITY,
+                TopIssue(
+                    section_name=section.section_name,
+                    variable_name=variable_name,
+                    issue="Required variable is not present.",
+                    dimension="completeness",
+                    grade="F",
+                    content_status=ABSENT_CONTENT_STATUS,
+                    recommendation=_missing_variable_recommendation(
+                        variable_name, section.section_name, config
+                    ),
+                ),
+            ))
 
-        if sg.variable_grades:
-            for vg in sg.variable_grades:
-                if vg.variable_name in sg.missing_variables:
+        if section.variable_grades:
+            for variable in section.variable_grades:
+                if variable.variable_name in absent:
                     continue
-                for dim_name, dg in vg.dimensions.items():
-                    for issue in dg.issues:
-                        issue_candidates.append(
-                            (
-                                SEVERITY_ORDER.get(dg.grade, 5),
-                                f"{vg.variable_name} · {dim_name} ({dg.grade}) — {issue}",
-                            )
-                        )
+                for dimension in DIMENSIONS:
+                    grade = variable.dimensions.get(dimension)
+                    if grade is None:
+                        continue
+                    for issue in grade.issues:
+                        candidates.append((
+                            SEVERITY_ORDER.get(grade.grade, 5),
+                            TopIssue(
+                                section_name=section.section_name,
+                                variable_name=variable.variable_name,
+                                issue=issue,
+                                dimension=dimension,
+                                grade=grade.grade,
+                                content_status=variable.content_status,
+                                recommendation=grade.recommendation,
+                                cited_block_ids=list(grade.cited_block_ids),
+                            ),
+                        ))
         else:
-            for dim_name, dg in sg.dimensions.items():
-                for issue in dg.issues:
-                    issue_candidates.append(
-                        (
-                            SEVERITY_ORDER.get(dg.grade, 5),
-                            f"{sg.section_name} · {dim_name} ({dg.grade}) — {issue}",
-                        )
-                    )
+            for dimension in DIMENSIONS:
+                grade = section.dimensions.get(dimension)
+                if grade is None:
+                    continue
+                for issue in grade.issues:
+                    candidates.append((
+                        SEVERITY_ORDER.get(grade.grade, 5),
+                        TopIssue(
+                            section_name=section.section_name,
+                            issue=issue,
+                            dimension=dimension,
+                            grade=grade.grade,
+                            recommendation=grade.recommendation,
+                            cited_block_ids=list(grade.cited_block_ids),
+                        ),
+                    ))
 
-    seen: set[str] = set()
-    ranked: list[str] = []
-    for _, issue in sorted(issue_candidates, key=lambda item: item[0]):
-        if not issue or issue in seen:
+    seen: set[tuple[str, str | None, str | None, str]] = set()
+    ranked: list[TopIssue] = []
+    for _, issue in sorted(candidates, key=lambda item: item[0]):
+        identity = (
+            issue.section_name,
+            issue.variable_name,
+            issue.dimension,
+            issue.issue,
+        )
+        if not issue.issue or identity in seen:
             continue
-        seen.add(issue)
+        seen.add(identity)
         ranked.append(issue)
         if len(ranked) >= limit:
             break
     return ranked
-
-
-def _format_missing_variable_issue(
-    variable_name: str,
-    section_name: str,
-    config: InspectionConfig,
-) -> str:
-    recommendation = _missing_variable_recommendation(variable_name, section_name, config)
-    return f"{section_name} · {variable_name} missing — {recommendation}"
 
 
 def _missing_variable_recommendation(

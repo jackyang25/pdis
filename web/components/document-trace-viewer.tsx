@@ -107,6 +107,15 @@ const EMPHASIS_BADGE_CLASS: Record<DocumentAnnotationEmphasis["tone"], string> =
   danger: "border-[hsl(var(--tone-danger))]/40 bg-[hsl(var(--tone-danger))]/10 text-[hsl(var(--tone-danger))]",
 };
 
+/**
+ * Narrowest a table column may become before its row scrolls sideways instead.
+ *
+ * Sized for prose values rather than short numbers: these cells routinely carry
+ * a sentence, and below roughly this width a sentence breaks into one or two
+ * words per line.
+ */
+const TABLE_COLUMN_MIN_REM = 13;
+
 function blockSpacingClass(spacing: DocumentBlockSpacing): string {
   switch (spacing) {
     case "major":
@@ -148,8 +157,10 @@ function TraceSegmentText<TKind extends string, TRef>({
         key={`${blockId}:annotation:${segment.start}:${segment.end}:${index}`}
         type="button"
         className={cn(
-          "inline box-decoration-clone rounded-[3px] bg-amber-100/80 px-0.5 text-left text-inherit transition-colors hover:bg-amber-200/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/35 dark:bg-amber-300/15 dark:hover:bg-amber-300/25 motion-reduce:transition-none",
-          isActive && "bg-amber-200/90 ring-1 ring-amber-500/25 dark:bg-amber-300/30",
+          // One marking token for both tools. Scout marks an exact span here;
+          // Inspector marks a whole block below. Same meaning, same colour.
+          "inline box-decoration-clone rounded-[3px] bg-[hsl(var(--tone-marked))]/25 px-0.5 text-left text-inherit transition-colors hover:bg-[hsl(var(--tone-marked))]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--tone-marked))]/45 motion-reduce:transition-none",
+          isActive && "bg-[hsl(var(--tone-marked))]/50 ring-1 ring-[hsl(var(--tone-marked))]/40",
         )}
         aria-label={annotationButtonLabel(segmentAnnotations)}
         aria-pressed={isActive}
@@ -199,7 +210,10 @@ function SectionGapRow<TKind extends string, TRef>({
     : "Not present in this section";
 
   return (
-    <div className="mt-4 border-t border-dashed border-[hsl(var(--tone-warning))]/35 pt-3">
+    // Ruled above and below, so the row reads as something inserted between two
+    // passages rather than a note trailing the one above it. That is the honest
+    // shape: the gap belongs to the seam, not to either neighbour.
+    <div className="my-4 border-y border-dashed border-[hsl(var(--tone-warning))]/35 py-3">
       <button
         type="button"
         onClick={(event) => onSelect(
@@ -301,8 +315,14 @@ function BlockText<TKind extends string, TRef>({
             className="grid gap-x-5 gap-y-2 border-l border-border/70 pl-4"
             style={{
               gridTemplateColumns: `repeat(${tableRow.columnCount}, minmax(0, 1fr))`,
-              minWidth: tableRow.columnCount > 3
-                ? `${tableRow.columnCount * 9}rem`
+              // Every column of a multi-column row gets a readable floor, and the
+              // wrapper scrolls sideways when they no longer fit. Previously only
+              // rows with more than three columns had a floor, so a three-column
+              // row of prose compressed into tall thin strips — and it compressed
+              // differently depending on whether the detail panel was open, which
+              // made the same passage read two ways.
+              minWidth: tableRow.columnCount > 1
+                ? `${tableRow.columnCount * TABLE_COLUMN_MIN_REM}rem`
                 : undefined,
             }}
           >
@@ -740,7 +760,9 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
 
       <div className={cn(
         "grid min-h-[38rem]",
-        !isNarrow && "grid-cols-[minmax(0,1fr)_22rem]",
+        // The panel is present only while something is selected, so closing it
+        // returns the width to the document rather than leaving a dead column.
+        !isNarrow && (selectedAnnotationId ? "grid-cols-[minmax(0,1fr)_22rem]" : "grid-cols-1"),
       )}>
         <div className={cn(
           "max-h-[min(76vh,58rem)] overflow-y-auto overscroll-contain bg-muted/20 py-6",
@@ -763,6 +785,14 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
             )}
             {activeDocument?.blocks.map((traceBlock, blockIndex) => {
               const markerGroups = groupDocumentTraceMarkers(traceBlock.markers);
+              // A block becomes its own click target when it carries a visible
+              // mark and no span buttons of its own to nest inside.
+              const blockIsMarkTarget = Boolean(
+                emphasisVisible
+                  && traceBlock.emphasis
+                  && markerGroups.length > 0
+                  && !traceBlock.segments.some((segment) => segment.annotationIds.length > 0),
+              );
               const spacing = documentBlockSpacing(documentBlockPresentation(traceBlock.block));
               return (
                 <section
@@ -792,18 +822,10 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                       blockId={traceBlock.block.id}
                       className="inline-flex h-6 max-w-full items-center px-1 text-[10px] text-muted-foreground/50 transition-colors group-hover/trace-block:text-muted-foreground motion-reduce:transition-none"
                     />
-                    {emphasisVisible && traceBlock.emphasis?.badge && (
-                      <span
-                        className={cn(
-                          "inline-flex h-6 min-w-6 items-center justify-center rounded-md border px-1.5 text-[10px] font-semibold tabular-nums",
-                          EMPHASIS_BADGE_CLASS[traceBlock.emphasis.tone],
-                        )}
-                        title={`Grade ${traceBlock.emphasis.badge}`}
-                      >
-                        {traceBlock.emphasis.badge}
-                      </span>
-                    )}
-                    {markerGroups.map((group) => {
+                    {/* Counts appear only for connections with no visible mark
+                        in the paper. When the block itself is marked, the mark is
+                        the target and a second control here would duplicate it. */}
+                    {!blockIsMarkTarget && markerGroups.map((group) => {
                       const isActive = group.annotationIds.some((id) => activeAnnotationIds.includes(id));
                       const label = markerGroupLabel(group.reason, group.annotationIds.length);
                       return (
@@ -830,23 +852,60 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                       );
                     })}
                   </div>
-                  <div className={cn(
-                    "relative z-10 min-w-0 rounded-md transition-[background-color,box-shadow] duration-slow motion-reduce:transition-none",
-                    railMode === "external" && "px-10 py-1",
-                    // Emphasis is the weakest of the three background states, so
-                    // hovering and arriving from a block link both still read.
-                    emphasisVisible
-                      && traceBlock.emphasis
-                      && EMPHASIS_SURFACE_CLASS[traceBlock.emphasis.tone],
-                    "group-hover/trace-block:bg-muted/35 group-focus-within/trace-block:bg-muted/35",
-                    focusedBlockId === traceBlock.block.id && "bg-amber-100/75 shadow-[0_0_0_1px_rgb(245_158_11/0.28),0_0_0_7px_rgb(251_191_36/0.10),0_10px_28px_rgb(245_158_11/0.10)] dark:bg-amber-300/15",
-                  )}>
+                  <div
+                    className={cn(
+                      "relative z-10 min-w-0 rounded-md transition-[background-color,box-shadow] duration-slow motion-reduce:transition-none",
+                      railMode === "external" && "px-10 py-1",
+                      emphasisVisible
+                        && traceBlock.emphasis
+                        && EMPHASIS_SURFACE_CLASS[traceBlock.emphasis.tone],
+                      "group-hover/trace-block:bg-muted/35 group-focus-within/trace-block:bg-muted/35",
+                      // Arrival is a transient outline, not a fill: a filled block
+                      // already means "a result marks this", and the two states
+                      // regularly coincide.
+                      focusedBlockId === traceBlock.block.id
+                        && "ring-2 ring-[hsl(var(--tone-marked))]/70 ring-offset-2 ring-offset-card",
+                      blockIsMarkTarget
+                        && "cursor-pointer hover:bg-[hsl(var(--tone-marked))]/10 focus-within:bg-[hsl(var(--tone-marked))]/10",
+                    )}
+                    onClick={blockIsMarkTarget ? (event) => {
+                      // Selecting text inside a marked block must not open its
+                      // detail, or the passage becomes impossible to quote.
+                      if (!window.getSelection()?.isCollapsed) return;
+                      const badge = event.currentTarget.querySelector("button");
+                      if (badge instanceof HTMLElement) badge.click();
+                    } : undefined}
+                  >
                     <BlockText
                       traceBlock={traceBlock}
                       annotationsById={annotationsById}
                       activeAnnotationIds={activeAnnotationIds}
                       onSelect={selectAnnotations}
                     />
+                    {blockIsMarkTarget && traceBlock.emphasis && (
+                      // The grade is the focusable control; the surrounding block
+                      // is a convenience target handled above. An overlay covering
+                      // the block would be a larger hit area but would also make
+                      // its text unselectable and swallow a wide table's sideways
+                      // drag, so the affordance stays out of the content's way.
+                      <button
+                        type="button"
+                        onClick={(event) => selectAnnotations(
+                          markerGroups.flatMap((group) => group.annotationIds),
+                          event.currentTarget,
+                          { type: "block", blockId: traceBlock.block.id, markerReason: "block_only" },
+                        )}
+                        aria-pressed={markerGroups.some((group) =>
+                          group.annotationIds.some((id) => activeAnnotationIds.includes(id)))}
+                        aria-label={`View the result marking source passage ${traceBlock.block.id}, graded ${traceBlock.emphasis.badge ?? "unrated"}`}
+                        className={cn(
+                          "absolute bottom-1.5 right-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px] font-semibold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none",
+                          EMPHASIS_BADGE_CLASS[traceBlock.emphasis.tone],
+                        )}
+                      >
+                        {traceBlock.emphasis.badge}
+                      </button>
+                    )}
                   </div>
                   {traceBlock.anchored.length > 0 && (
                     // Its own grid row, outside the block body: inside it, the row
@@ -876,9 +935,19 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
           </article>
         </div>
 
-        {!isNarrow && (
+        {!isNarrow && selectedAnnotationId && (
           <aside className="border-l border-border/80 bg-card" aria-label="Trace details">
             <div className="sticky top-0 max-h-[min(76vh,58rem)] overflow-y-auto overscroll-contain">
+              <div className="flex justify-end border-b border-border/80 px-2 py-2">
+                <button
+                  type="button"
+                  onClick={closeInspector}
+                  aria-label="Close trace details"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
               <AnnotationInspector
                 annotationIds={activeAnnotationIds}
                 annotationsById={annotationsById}

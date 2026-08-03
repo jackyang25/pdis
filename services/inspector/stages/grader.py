@@ -42,10 +42,14 @@ from ..models import (
     SectionSpec,
     VariableGrade,
     VariableSpec,
+    ABSENT_CONTENT_STATUS,
+    CONTENT_STATUSES,
+    PRESENT_CONTENT_STATUSES,
+    VALID_GRADES,
+    average_score,
+    score_to_grade,
 )
 
-VALID_GRADES: set[str] = {"A", "B", "C", "D", "F", "N/A"}
-GRADE_TO_SCORE = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
 MAX_PARALLEL_SECTIONS = 4
 # Per-item scope: one grade per rubric variable, so an unrelated variable can
 # never sit in this decision's prompt. Speed comes from dimension fan-out.
@@ -94,6 +98,10 @@ def grade_sections(
                 section_grade.dimensions = _rollup_dimensions(
                     [vg.dimensions for vg in section_grade.variable_grades]
                 )
+            # Publish the mapping used to build this section's prompt, so the
+            # contract check and the document view read it instead of each
+            # rebuilding it from `section_label`.
+            section_grade.mapped_block_ids = [block.id for block in section_blocks]
             out = (idx, section_grade)
         if progress:
             with lock:
@@ -147,14 +155,8 @@ def _grade_section(
     if not section_spec.variables:
         results = {dimension: batch for dimension, batch in batch_results}
     else:
-        results = {
-            dimension: {"missing_variables": [], "variable_grades": []}
-            for dimension in DIMENSIONS
-        }
+        results = {dimension: {"variable_grades": []} for dimension in DIMENSIONS}
         for dimension, batch in batch_results:
-            results[dimension]["missing_variables"].extend(
-                batch.get("missing_variables", [])
-            )
             results[dimension]["variable_grades"].extend(
                 batch.get("variable_grades", [])
             )
@@ -184,7 +186,6 @@ def _call_dimension(
 
       Variable-bearing section:
         {
-          "missing_variables": [str, ...],   # completeness only
           "variable_grades": [
             {
               "variable_name": str,
@@ -203,7 +204,7 @@ def _call_dimension(
           "recommendation": str
         }
     """
-    system_prompt = _build_system_prompt(dimension, section_spec, grading_guidance)
+    system_prompt = build_dimension_prompt(dimension, section_spec, grading_guidance)
     user_message = _build_user_message(
         section_spec=section_spec,
         blocks_text=blocks_text,
@@ -247,7 +248,7 @@ def _call_dimension(
 # ---------------------------------------------------------------------------
 
 
-def _build_system_prompt(
+def build_dimension_prompt(
     dimension: str, section_spec: SectionSpec, grading_guidance: str = ""
 ) -> str:
     preamble = """You are inspecting a section of a product-development document against its authored rubric.
@@ -450,13 +451,7 @@ def _dimension_schema(
         required.append("content_status")
         properties["content_status"] = {
             "type": "string",
-            "enum": [
-                "substantive",
-                "partial",
-                "placeholder",
-                "missing",
-                "not_applicable",
-            ],
+            "enum": sorted(CONTENT_STATUSES),
         }
     count = len(section_spec.variables)
     return {
@@ -528,26 +523,12 @@ def _parse_dimension_payload(
                 raise ValueError(f"Variable {name} cited an unknown block ID")
             grade = _grade_value(item.get("grade"))
             content_status = (
-                _closed_value(
-                    item.get("content_status"),
-                    {
-                        "substantive",
-                        "partial",
-                        "placeholder",
-                        "missing",
-                        "not_applicable",
-                    },
-                    "content_status",
-                )
+                _closed_value(item.get("content_status"), CONTENT_STATUSES, "content_status")
                 if dimension == "completeness"
                 else ""
             )
-            absent = content_status == "missing"
-            has_source_content = content_status in {
-                "substantive",
-                "partial",
-                "placeholder",
-            }
+            absent = content_status == ABSENT_CONTENT_STATUS
+            has_source_content = content_status in PRESENT_CONTENT_STATUSES
             if dimension == "completeness" and has_source_content and not raw_block_ids:
                 raise ValueError(f"Variable {name} must cite a source block")
             if dimension == "completeness" and raw_block_ids and absent:
@@ -560,16 +541,12 @@ def _parse_dimension_payload(
                 "recommendation": _string_value(item.get("recommendation")),
                 "content_status": content_status,
             }
-        missing = [
-            name
-            for name in expected_names
-            if cleaned_by_name.get(name, {}).get("content_status") == "missing"
-        ]
         accounted = set(cleaned_by_name)
         if accounted != expected_set:
             raise ValueError("Every expected variable must be accounted for exactly once")
+        # No separate missing list: each item carries its own `content_status`,
+        # which is the one authority for presence.
         return {
-            "missing_variables": missing,
             "variable_grades": [
                 cleaned_by_name[name] for name in expected_names if name in cleaned_by_name
             ],
@@ -600,9 +577,6 @@ def _merge_variable_bearing(
     section_spec: SectionSpec,
     results: dict[str, dict[str, Any]],
 ) -> SectionGrade:
-    # Use completeness's missing_variables as the canonical list.
-    missing = list(results.get("completeness", {}).get("missing_variables", []))
-
     # Index each dimension's variable_grades by variable_name.
     per_dim_by_name: dict[str, dict[str, dict[str, Any]]] = {
         dim: {vg["variable_name"]: vg for vg in results.get(dim, {}).get("variable_grades", [])}
@@ -612,9 +586,10 @@ def _merge_variable_bearing(
     variable_grades: list[VariableGrade] = []
     for variable in section_spec.variables:
         name = variable.name
-        completeness_item = per_dim_by_name["completeness"].get(name, {})
-        content_status = completeness_item.get("content_status", "")
-        block_ids: list[str] = []
+        content_status = (
+            per_dim_by_name["completeness"].get(name, {}).get("content_status", "")
+            or "not_applicable"
+        )
         dimensions: dict[str, DimensionGrade] = {}
         for d in DIMENSIONS:
             item = per_dim_by_name[d].get(name)
@@ -625,11 +600,13 @@ def _merge_variable_bearing(
                 grade=item.get("grade", "N/A"),
                 issues=list(item.get("issues", [])),
                 recommendation=item.get("recommendation", ""),
+                # This dimension's own citations. The parser has already rejected
+                # any block outside the section and any lineage that contradicts
+                # the presence decision.
+                cited_block_ids=list(item.get("block_ids", [])),
             )
-            for bid in item.get("block_ids", []):
-                if bid not in block_ids:
-                    block_ids.append(bid)
-        if name in missing:
+        if content_status == ABSENT_CONTENT_STATUS:
+            # Absent content cannot be well-formed or rigorous, and cites nothing.
             dimensions["completeness"] = DimensionGrade(
                 grade="F",
                 issues=["Required variable is missing."],
@@ -647,7 +624,7 @@ def _merge_variable_bearing(
             VariableGrade(
                 variable_name=name,
                 dimensions=dimensions,
-                block_ids=block_ids,
+                content_status=content_status,
             )
         )
 
@@ -656,7 +633,6 @@ def _merge_variable_bearing(
         section_name=section_spec.name,
         is_present=True,
         dimensions={d: DimensionGrade(grade="N/A") for d in DIMENSIONS},
-        missing_variables=missing,
         variable_grades=variable_grades,
     )
 
@@ -692,7 +668,7 @@ def _rollup_dimensions(
     out: dict[str, DimensionGrade] = {}
     for name in DIMENSIONS:
         grades = [c[name].grade for c in children if name in c]
-        score = _average_score(grades)
+        score = average_score(grades)
         issues: list[str] = []
         recs: list[str] = []
         for c in children:
@@ -703,32 +679,12 @@ def _rollup_dimensions(
             if dg.recommendation:
                 recs.append(dg.recommendation)
         out[name] = DimensionGrade(
-            grade=_score_to_grade(score),
+            grade=score_to_grade(score),
             issues=issues,
             recommendation="; ".join(dict.fromkeys(recs)),
+            # A rolled-up grade is arithmetic over children, not a citation.
         )
     return out
-
-
-def _average_score(grades: list[Grade]) -> float | None:
-    scores = [GRADE_TO_SCORE[g] for g in grades if g in GRADE_TO_SCORE]
-    if not scores:
-        return None
-    return sum(scores) / len(scores)
-
-
-def _score_to_grade(score: float | None) -> Grade:
-    if score is None:
-        return "N/A"
-    if score >= 3.5:
-        return "A"
-    if score >= 2.5:
-        return "B"
-    if score >= 1.5:
-        return "C"
-    if score >= 0.5:
-        return "D"
-    return "F"
 
 
 def _missing_section_grade(section_spec: SectionSpec) -> SectionGrade:
@@ -836,7 +792,7 @@ def check_cross_section(
     if len(blocks_by_section) < 2:
         return [], "not_applicable"  # need two sections for a cross-section conflict
 
-    system_prompt = _cross_section_system_prompt(config)
+    system_prompt = build_cross_section_prompt(config)
     user_message, context_blocks_by_section, context_limited = _cross_section_user_message(
         blocks_by_section
     )
@@ -873,7 +829,7 @@ def check_cross_section(
     return findings, "partial" if context_limited else "complete"
 
 
-def _cross_section_system_prompt(config: InspectionConfig) -> str:
+def build_cross_section_prompt(config: InspectionConfig) -> str:
     return (
         f"You check a {config.intervention_class} product-development document for CROSS-SECTION "
         "consistency: places where TWO DIFFERENT sections state conflicting or mismatched "

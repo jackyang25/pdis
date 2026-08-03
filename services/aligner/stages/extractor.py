@@ -77,22 +77,20 @@ def extract_units(
     return list(merged.values())
 
 
-def _extract_batch(
-    blocks: list[ContentBlock],
+def build_extraction_prompt(
     *,
     source_type: str,
     document_role: str,
     config: AlignmentConfig,
-    llm_client: LLMClientProtocol,
-    max_tokens: int,
-) -> list[dict[str, Any]]:
+) -> str:
+    """Assemble the unit-extraction instruction for one document."""
     labels = "\n".join(
         f'- "{item.name}": {item.description}' for item in config.unit_types
     )
     role_description = config.document_roles.get(
         source_type, config.document_roles.get("default", "Product-development document.")
     )
-    system_prompt = f"""You extract traceable units from one product-development document.
+    return f"""You extract traceable units from one product-development document.
 
 Document role: {document_role}
 Document type: {source_type} — {role_description}
@@ -106,6 +104,22 @@ Every unit must cite one or more exact block IDs supplied below. Never invent an
 
 Return only the schema-bound response.
 """
+
+
+def _extract_batch(
+    blocks: list[ContentBlock],
+    *,
+    source_type: str,
+    document_role: str,
+    config: AlignmentConfig,
+    llm_client: LLMClientProtocol,
+    max_tokens: int,
+) -> list[dict[str, Any]]:
+    system_prompt = build_extraction_prompt(
+        source_type=source_type,
+        document_role=document_role,
+        config=config,
+    )
     user_message = "Document blocks:\n\n" + _format_blocks(blocks)
     images = _image_inputs(blocks)
     allowed_ids = {block.id for block in blocks}

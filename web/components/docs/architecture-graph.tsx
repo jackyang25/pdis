@@ -31,6 +31,7 @@ import type {
 } from "@/lib/product-knowledge";
 import { cn } from "@/lib/utils";
 import { PdisIcon, type PdisIconName } from "@/components/ui/pdis-icon";
+import { ToolDetail } from "@/components/docs/tool-detail";
 import {
   FitGraphToView,
   GraphControls,
@@ -289,6 +290,20 @@ export function ArchitectureGraphs({
     }
   }, [layout.nodes, selectedId]);
 
+  // A tooltip links to `#prompt-{tool}-{stage}`. Arriving on that link must
+  // select the tool it names, or the reader lands on a panel showing a different
+  // tool's instructions.
+  useEffect(() => {
+    const selectFromHash = () => {
+      const match = /^#prompt-([a-z]+)-/.exec(window.location.hash);
+      const tool = graphs.find((item) => item.id === match?.[1]);
+      if (tool) setGraphId(tool.id);
+    };
+    selectFromHash();
+    window.addEventListener("hashchange", selectFromHash);
+    return () => window.removeEventListener("hashchange", selectFromHash);
+  }, [graphs]);
+
   if (!graph) return null;
 
   const chooseGraph = (id: ArchitectureGraphContract["id"]) => {
@@ -443,6 +458,12 @@ export function ArchitectureGraphs({
             </details>
           );
         })}
+      </div>
+      {/* The picker above already decides which tool a reader is looking at, so
+          that tool's vocabulary and instructions belong inside the same
+          selection rather than beside it in a second list. */}
+      <div className="border-t border-border/80 px-4 py-5 sm:px-5">
+        <ToolDetail toolId={graph.id} />
       </div>
     </div>
   );

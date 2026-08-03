@@ -20,6 +20,8 @@ from .models import (
     find_config,
 )
 from .pipeline import (
+    ATTACHMENT_FORMAT_HINT,
+    ATTACHMENT_MEDIA_PREFIXES,
     DEFAULT_MAX_OUTPUT_TOKENS,
     DOCUMENT_SUFFIXES,
     map_blocks_batch,
@@ -31,6 +33,8 @@ from .pipeline import (
 __all__ = [
     "LLMClientProtocol",
     "ContentBlock",
+    "ATTACHMENT_FORMAT_HINT",
+    "ATTACHMENT_MEDIA_PREFIXES",
     "DEFAULT_MAX_OUTPUT_TOKENS",
     "DOCUMENT_SUFFIXES",
     "DocumentTypeConfig",

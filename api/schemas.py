@@ -587,20 +587,40 @@ class DimensionGradeOut(BaseModel):
     grade: Literal["A", "B", "C", "D", "F", "N/A"]
     issues: list[str] = []
     recommendation: str = ""
+    # Lineage belongs to the dimension that cited it, not to the variable.
+    cited_block_ids: list[str] = []
 
 
 class VariableGradeOut(BaseModel):
     variable_name: str
     dimensions: dict[str, DimensionGradeOut]
-    block_ids: list[str] = []
+    # The completeness judgment's presence answer. `missing_variables` is derived
+    # from this on the client rather than shipped alongside it.
+    content_status: Literal[
+        "substantive", "partial", "placeholder", "missing", "not_applicable"
+    ] = "not_applicable"
 
 
 class SectionGradeOut(BaseModel):
     section_name: str
     is_present: bool
     dimensions: dict[str, DimensionGradeOut]
-    missing_variables: list[str] = []
     variable_grades: list[VariableGradeOut] = []
+    # Deterministic section assignment, not a citation.
+    mapped_block_ids: list[str] = []
+
+
+class TopIssueOut(BaseModel):
+    section_name: str
+    issue: str
+    dimension: Literal["completeness", "adherence", "rigor"] | None = None
+    variable_name: str | None = None
+    grade: Literal["A", "B", "C", "D", "F", "N/A"] = "N/A"
+    content_status: Literal[
+        "substantive", "partial", "placeholder", "missing", "not_applicable"
+    ] | None = None
+    recommendation: str = ""
+    cited_block_ids: list[str] = []
 
 
 class CrossSectionFindingOut(BaseModel):
@@ -613,7 +633,7 @@ class CrossSectionFindingOut(BaseModel):
 class InspectionResultOut(BaseModel):
     doc_id: str
     dimensions: dict[str, DimensionGradeOut]
-    top_issues: list[str]
+    top_issues: list[TopIssueOut]
     section_grades: list[SectionGradeOut]
     cross_section_findings: list[CrossSectionFindingOut] = []
     consistency_status: Literal[

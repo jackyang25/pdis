@@ -30,6 +30,7 @@ vaccine:
   - pneumococcus
   - klebsiella
   - gbs
+  - polio
 
 drug:
   - malaria

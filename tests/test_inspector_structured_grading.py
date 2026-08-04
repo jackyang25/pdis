@@ -3,13 +3,58 @@ from __future__ import annotations
 import unittest
 
 from services.chunker import ContentBlock
-from services.inspector.models import SectionSpec, VariableSpec
+from services.inspector.models import InspectionConfig, SectionSpec, VariableSpec
 from services.inspector.stages.grader import (
     _cross_section_schema,
     _dimension_schema,
     _grade_section,
     _variable_batches,
+    check_cross_section,
 )
+
+
+def _labeled_block(block_id: str, ordinal: int, section_label: str) -> ContentBlock:
+    return ContentBlock(
+        id=block_id,
+        doc_id="document",
+        ordinal=ordinal,
+        block_type="paragraph",
+        content=f"Content filed under {section_label}.",
+        heading_stack=[],
+        structural_meta={},
+        style_hint={},
+        section_label=section_label,
+    )
+
+
+class _RecordingCrossSectionClient:
+    """Captures the closed vocabulary the consistency pass offers the model."""
+
+    def __init__(self) -> None:
+        self.section_names: list[str] | None = None
+        self.block_ids: list[str] | None = None
+
+    def call_structured(self, _system, _message, *_args, schema, **_kwargs):
+        finding = schema["properties"]["findings"]["items"]["properties"]
+        self.section_names = finding["sections"]["items"]["enum"]
+        self.block_ids = finding["block_ids"]["items"]["enum"]
+        return {"findings": []}
+
+
+class _OutOfRubricCrossSectionClient:
+    """A model that names a section outside the rubric despite the schema."""
+
+    def call_structured(self, _system, _message, *_args, schema, **_kwargs):
+        return {
+            "findings": [
+                {
+                    "description": "The metadata stamp disagrees with the profile.",
+                    "sections": ["Profile", "Other"],
+                    "recommendation": "Reconcile them.",
+                    "block_ids": ["document:b1"],
+                }
+            ]
+        }
 
 
 def _block() -> ContentBlock:
@@ -161,6 +206,74 @@ class InspectorStructuredGradingTests(unittest.TestCase):
                 llm_client=_EmptyStructuredClient(),
                 max_tokens=4000,
             )
+
+
+class CrossSectionScopeTests(unittest.TestCase):
+    """The consistency pass may only name sections the rubric defines.
+
+    Chunker labels blocks with its own taxonomy, which appends "Document
+    Metadata" and "Other". Offering those to the model produces findings that
+    `validate_result_contract` rejects, and the raise discards a fully graded
+    document over a pass that is only additive.
+    """
+
+    def _config(self) -> InspectionConfig:
+        return InspectionConfig(
+            type_key="test_itpp_vaccine",
+            org="test",
+            source_type="itpp",
+            intervention_class="vaccine",
+            display_name="Test",
+            sections=[
+                SectionSpec(name="Profile", description="Targets", weight=1, variables=[]),
+                SectionSpec(name="Timeline", description="Dates", weight=1, variables=[]),
+            ],
+        )
+
+    def _labeled_blocks(self) -> list[ContentBlock]:
+        return [
+            _labeled_block("document:b1", 1, "Profile"),
+            _labeled_block("document:b2", 2, "Timeline"),
+            _labeled_block("document:b3", 3, "Other"),
+            _labeled_block("document:b4", 4, "Document Metadata"),
+        ]
+
+    def test_only_rubric_sections_are_offered_to_the_model(self) -> None:
+        client = _RecordingCrossSectionClient()
+        check_cross_section(
+            self._labeled_blocks(), self._config(), client, max_tokens=4000
+        )
+        self.assertEqual(client.section_names, ["Profile", "Timeline"])
+        self.assertEqual(
+            client.block_ids,
+            ["document:b1", "document:b2"],
+            "a block labelled outside the rubric is not citable evidence here",
+        )
+
+    def test_a_document_with_one_rubric_section_is_not_applicable(self) -> None:
+        # "Other" and "Document Metadata" are not a second section to conflict
+        # with, so counting them would run a pass that cannot produce a finding.
+        blocks = [
+            _labeled_block("document:b1", 1, "Profile"),
+            _labeled_block("document:b3", 3, "Other"),
+            _labeled_block("document:b4", 4, "Document Metadata"),
+        ]
+        client = _RecordingCrossSectionClient()
+        findings, status = check_cross_section(
+            blocks, self._config(), client, max_tokens=4000
+        )
+        self.assertEqual((findings, status), ([], "not_applicable"))
+        self.assertIsNone(client.section_names, "the model was called anyway")
+
+    def test_an_out_of_rubric_finding_degrades_instead_of_being_returned(self) -> None:
+        findings, status = check_cross_section(
+            self._labeled_blocks(),
+            self._config(),
+            _OutOfRubricCrossSectionClient(),
+            max_tokens=4000,
+        )
+        self.assertEqual(findings, [])
+        self.assertEqual(status, "failed")
 
 
 if __name__ == "__main__":

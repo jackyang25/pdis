@@ -51,6 +51,39 @@ class ConfigDiscoveryTests(unittest.TestCase):
                 )
                 self.assertEqual(found.type_key, config.type_key)
 
+    def test_every_rubric_section_is_one_the_chunker_can_label(self) -> None:
+        """Inspector finds a section's content by matching the chunker's label.
+
+        The two live in separate config files, so nothing stops one from being
+        renamed alone. Nothing would raise if that happened: the rubric section
+        would simply match no block and be graded absent, and a whole document
+        would read as empty rather than as broken.
+        """
+        for chunker_config in chunker.available_configs():
+            identity = (
+                chunker_config.org,
+                chunker_config.source_type,
+                chunker_config.intervention_class,
+            )
+            if not inspector.has_config(*identity):
+                continue
+            rubric = inspector.find_config(*identity)
+            labelable = {
+                section["name"] for section in chunker_config.section_taxonomy
+            }
+            with self.subTest(type_key=chunker_config.type_key):
+                unlabelable = [
+                    section.name
+                    for section in rubric.sections
+                    if section.name not in labelable
+                ]
+                self.assertEqual(
+                    unlabelable,
+                    [],
+                    "these rubric sections can never receive a block: rename them in "
+                    "both configs or add them to the chunker's section_taxonomy",
+                )
+
 
 class ResultContractShapeTests(unittest.TestCase):
     """Every service's result validator presents the same shape."""

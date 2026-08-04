@@ -762,7 +762,18 @@ def check_cross_section(
     sees every section together and reports only cross-section conflicts. It is
     an additive quality layer: a parse failure is returned explicitly as a
     failed status and never masquerades as a completed no-conflict result."""
-    blocks_by_section = _group_blocks_by_section(labeled_blocks)
+    # Scoped to rubric sections, in rubric order. Chunker labels blocks with its
+    # own taxonomy, which adds "Document Metadata" and "Other" beyond the
+    # rubric, and the per-section grader ignores those by looking up rubric
+    # names. This pass has to scope the same way: a finding naming "Other" is
+    # one the result contract rejects, which would lose a whole graded document
+    # to an additive check.
+    labeled_by_section = _group_blocks_by_section(labeled_blocks)
+    blocks_by_section = {
+        section.name: labeled_by_section[section.name]
+        for section in config.sections
+        if labeled_by_section.get(section.name)
+    }
     if len(blocks_by_section) < 2:
         return [], "not_applicable"  # need two sections for a cross-section conflict
 

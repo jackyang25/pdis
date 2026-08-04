@@ -5,6 +5,18 @@
 #   - Inspector (labels the inspected document)
 # Stamped on every output (block, claim, review result).
 
+# Granularity standard for a tag:
+#   - Name the disease target, and a syndrome only when leaving it out would
+#     merge two distinct development programs. `hiv` needs no syndrome; Group B
+#     Streptococcus does, because neonatal sepsis and adult GBS disease are
+#     judged against different evidence.
+#   - Never restate prevention or treatment. `intervention_class` carries it.
+#   - Never name a population. Scout derives population from the document as a
+#     cited semantic slot with an explicit unknown state, so a tag that also
+#     encoded it would give one fact two owners that can disagree.
+# Depth therefore varies by pathogen, and that is the intent: it tracks how many
+# distinct programs share a pathogen, not a fixed number of words. That is a
+# judgment, so it lives here rather than in a keyword check.
 vaccine:
   - malaria
   - hiv
@@ -15,6 +27,9 @@ vaccine:
   - dengue
   - cholera
   - hpv
+  - pneumococcal_pneumonia
+  - klebsiella_neonatal_sepsis
+  - gbs_neonatal_sepsis
 
 drug:
   - malaria

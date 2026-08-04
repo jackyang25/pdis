@@ -2,6 +2,7 @@
 
 import { Loader2 } from "lucide-react";
 
+import { QUEUED_STAGE } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export type Step = { key: string; label: string };
@@ -18,18 +19,22 @@ type Props = {
 export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
   if (!busy) return null;
 
+  // A queued run has not started. Unknown stage names fall back to the first
+  // step below, which would announce parsing that is not happening, so waiting
+  // for capacity is reported as itself and claims no step and no progress.
+  const queued = currentStage === QUEUED_STAGE;
   const foundIndex = currentStage
     ? steps.findIndex((step) => step.key === currentStage)
     : -1;
   const activeIndex = foundIndex >= 0 ? foundIndex : 0;
   const activeStep = steps[activeIndex];
-  const hasCount = !!progress && progress.total > 0;
+  const hasCount = !queued && !!progress && progress.total > 0;
 
   // A run lasts tens of seconds, so the wait is determinate: stage position
   // plus the active stage's own count. The bar advances with real work rather
   // than looping, which a spinner alone cannot express.
   const withinStage = hasCount ? progress.completed / progress.total : 0;
-  const fraction = Math.min(1, (activeIndex + withinStage) / steps.length);
+  const fraction = queued ? 0 : Math.min(1, (activeIndex + withinStage) / steps.length);
 
   return (
     <div className="min-w-0">
@@ -41,11 +46,13 @@ export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
       >
       <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
       <span className="min-w-0 truncate font-medium text-foreground">
-        {activeStep?.label ?? "Starting analysis"}
+        {queued ? "Waiting for capacity" : activeStep?.label ?? "Starting analysis"}
       </span>
-      <span className="shrink-0 tabular-nums text-muted-foreground">
-        {activeIndex + 1} of {steps.length}
-      </span>
+      {!queued && (
+        <span className="shrink-0 tabular-nums text-muted-foreground">
+          {activeIndex + 1} of {steps.length}
+        </span>
+      )}
         {hasCount && (
           <span className="shrink-0 tabular-nums text-muted-foreground">
             · {progress.completed}/{progress.total}

@@ -633,6 +633,13 @@ export type AlignerResponse = { alignment: AlignmentResult };
 
 export type StageProgress = { completed: number; total: number };
 export type StageEvent = { event: "stage"; name: string; completed?: number; total?: number };
+
+/**
+ * The stage a run reports while waiting for one of the gateway's bounded run
+ * slots. It belongs to no tool's step list, so a progress display has to
+ * recognize it rather than resolve it; `api/streaming.py` owns the value.
+ */
+export const QUEUED_STAGE = "queued";
 export type CompleteEvent<T> = { event: "complete"; result: T };
 export type ErrorEvent = { event: "error"; detail: string };
 export type StreamEvent<T> = StageEvent | CompleteEvent<T> | ErrorEvent;

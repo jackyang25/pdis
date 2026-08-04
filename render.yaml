@@ -18,6 +18,11 @@ projects:
           # MAX_PARALLEL_DIMENSION_BATCHES). Each holds a request and a response,
           # alongside the parsed document and a LibreOffice process. That peaked
           # at 512 MB and was killed. Starter's 0.5 CPU also saturated.
+          #
+          # One measured run peaks near 530 MB, so MAX_CONCURRENT_RUNS keeps two
+          # in flight (~1.1 GB over an 80 MB baseline) and queues the rest. The
+          # plan and the cap are one decision: raising the plan without raising
+          # the cap wastes memory, and the reverse exceeds the instance.
           - type: web
             name: pdis-api
             runtime: docker
@@ -26,6 +31,8 @@ projects:
             dockerfilePath: ./Dockerfile
             healthCheckPath: /api/health
             envVars:
+              - key: MAX_CONCURRENT_RUNS
+                value: 2
               - key: OPENAI_API_KEY
                 sync: false
               - key: ANTHROPIC_API_KEY

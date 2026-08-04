@@ -9,11 +9,19 @@ projects:
       - name: Production
         services:
           # Public FastAPI gateway. Docker supplies LibreOffice for document
-          # visual conversion; Starter avoids cold starts during long analyses.
+          # visual conversion, and the plan avoids cold starts during long
+          # analyses.
+          #
+          # Standard, not Starter: grading sends one request per rubric variable
+          # rather than batching seven, so a 26-variable rubric issues ~90 model
+          # calls with up to 24 in flight (MAX_PARALLEL_SECTIONS x
+          # MAX_PARALLEL_DIMENSION_BATCHES). Each holds a request and a response,
+          # alongside the parsed document and a LibreOffice process. That peaked
+          # at 512 MB and was killed. Starter's 0.5 CPU also saturated.
           - type: web
             name: pdis-api
             runtime: docker
-            plan: starter
+            plan: standard
             region: ohio
             dockerfilePath: ./Dockerfile
             healthCheckPath: /api/health

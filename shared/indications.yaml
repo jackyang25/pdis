@@ -5,18 +5,18 @@
 #   - Inspector (labels the inspected document)
 # Stamped on every output (block, claim, review result).
 
-# Granularity standard for a tag:
-#   - Name the disease target, and a syndrome only when leaving it out would
-#     merge two distinct development programs. `hiv` needs no syndrome; Group B
-#     Streptococcus does, because neonatal sepsis and adult GBS disease are
-#     judged against different evidence.
-#   - Never restate prevention or treatment. `intervention_class` carries it.
-#   - Never name a population. Scout derives population from the document as a
-#     cited semantic slot with an explicit unknown state, so a tag that also
-#     encoded it would give one fact two owners that can disagree.
-# Depth therefore varies by pathogen, and that is the intent: it tracks how many
-# distinct programs share a pathogen, not a fixed number of words. That is a
-# judgment, so it lives here rather than in a keyword check.
+# A tag travels verbatim. It is substituted into retrieval prompts, and the
+# query_extractor fallback joins it straight into query text beside an attribute
+# name that gets de-underscored while the indication does not. So a tag has to
+# read as a search term rather than as a key: one lowercase word naming the
+# pathogen or disease.
+#
+# Nothing else belongs here, because every other axis already has an owner:
+#   - prevention vs treatment -> intervention_class
+#   - population, endpoint, measure, regimen -> the document, as cited semantic
+#     slots with explicit unknown states
+# `rsv` and `hpv` already follow this. An RSV program is infant prevention and
+# an HPV program is cervical cancer prevention, and neither tag says so.
 vaccine:
   - malaria
   - hiv
@@ -27,9 +27,9 @@ vaccine:
   - dengue
   - cholera
   - hpv
-  - pneumococcal_pneumonia
-  - klebsiella_neonatal_sepsis
-  - gbs_neonatal_sepsis
+  - pneumococcus
+  - klebsiella
+  - gbs
 
 drug:
   - malaria

@@ -5,8 +5,6 @@ import unittest
 from services.chunker import ContentBlock
 from services.inspector.contract import validate_result_contract
 from services.inspector.models import (
-    DIMENSIONS,
-    DimensionGrade,
     InspectionConfig,
     InspectionResult,
     SectionSpec,
@@ -64,7 +62,7 @@ class InspectorContractTests(unittest.TestCase):
                 {
                     "variable_name": "Efficacy",
                     "block_ids": ["document:b1"],
-                    "grade": "A",
+                    "verdict": "meets",
                     "issues": [],
                     "recommendation": "",
                     "content_status": "substantive",
@@ -86,7 +84,7 @@ class InspectorContractTests(unittest.TestCase):
         present = {
             "variable_name": "Efficacy",
             "block_ids": ["document:b1"],
-            "grade": "A",
+            "verdict": "meets",
             "issues": [],
             "recommendation": "",
             "content_status": "substantive",
@@ -94,7 +92,7 @@ class InspectorContractTests(unittest.TestCase):
         absent = {
             "variable_name": "Safety",
             "block_ids": [],
-            "grade": "N/A",
+            "verdict": "not_applicable",
             "issues": [],
             "recommendation": "",
             "content_status": "missing",
@@ -114,9 +112,9 @@ class InspectorContractTests(unittest.TestCase):
         )
         safety = merged.variable_grades[1]
         self.assertEqual(safety.content_status, "missing")
-        self.assertEqual(safety.dimensions["completeness"].grade, "F")
-        self.assertEqual(safety.dimensions["adherence"].grade, "F")
-        self.assertEqual(safety.dimensions["rigor"].grade, "N/A")
+        self.assertEqual(safety.dimensions["completeness"].verdict, "critical")
+        self.assertEqual(safety.dimensions["adherence"].verdict, "critical")
+        self.assertEqual(safety.dimensions["rigor"].verdict, "not_applicable")
         self.assertEqual(merged.missing_variables, ["Safety"])
         for dimension in ("completeness", "adherence", "rigor"):
             self.assertEqual(safety.dimensions[dimension].cited_block_ids, [])
@@ -129,7 +127,7 @@ class InspectorContractTests(unittest.TestCase):
             return {
                 "variable_name": name,
                 "block_ids": blocks,
-                "grade": "B",
+                "verdict": "for_consideration",
                 "issues": [],
                 "recommendation": "",
                 "content_status": status,
@@ -200,7 +198,6 @@ class InspectorContractTests(unittest.TestCase):
         cfg = config()
         result = InspectionResult(
             doc_id="document",
-            dimensions={name: DimensionGrade("A") for name in DIMENSIONS},
             section_grades=[],
             grading_status="complete",
             blocks=[block("document:b1", "Profile")],

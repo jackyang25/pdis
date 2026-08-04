@@ -583,8 +583,8 @@ class ScoutContinueRequest(BaseModel):
     draft: ScoutRunResponse
 
 
-class DimensionGradeOut(BaseModel):
-    grade: Literal["A", "B", "C", "D", "F", "N/A"]
+class DimensionAssessmentOut(BaseModel):
+    verdict: Literal["critical", "for_consideration", "meets", "not_applicable"]
     issues: list[str] = []
     recommendation: str = ""
     # Lineage belongs to the dimension that cited it, not to the variable.
@@ -593,7 +593,7 @@ class DimensionGradeOut(BaseModel):
 
 class VariableGradeOut(BaseModel):
     variable_name: str
-    dimensions: dict[str, DimensionGradeOut]
+    dimensions: dict[str, DimensionAssessmentOut]
     # The completeness judgment's presence answer. `missing_variables` is derived
     # from this on the client rather than shipped alongside it.
     content_status: Literal[
@@ -604,10 +604,13 @@ class VariableGradeOut(BaseModel):
 class SectionGradeOut(BaseModel):
     section_name: str
     is_present: bool
-    dimensions: dict[str, DimensionGradeOut]
+    dimensions: dict[str, DimensionAssessmentOut]
     variable_grades: list[VariableGradeOut] = []
     # Deterministic section assignment, not a citation.
     mapped_block_ids: list[str] = []
+    # Gaps beneath this section, counted by severity. Derived server-side so the
+    # client cannot count differently from the report.
+    gap_counts: dict[str, int] = {}
 
 
 class TopIssueOut(BaseModel):
@@ -615,7 +618,7 @@ class TopIssueOut(BaseModel):
     issue: str
     dimension: Literal["completeness", "adherence", "rigor"] | None = None
     variable_name: str | None = None
-    grade: Literal["A", "B", "C", "D", "F", "N/A"] = "N/A"
+    severity: Literal["critical", "for_consideration", "meets", "not_applicable"] = "not_applicable"
     content_status: Literal[
         "substantive", "partial", "placeholder", "missing", "not_applicable"
     ] | None = None
@@ -632,7 +635,6 @@ class CrossSectionFindingOut(BaseModel):
 
 class InspectionResultOut(BaseModel):
     doc_id: str
-    dimensions: dict[str, DimensionGradeOut]
     top_issues: list[TopIssueOut]
     section_grades: list[SectionGradeOut]
     cross_section_findings: list[CrossSectionFindingOut] = []
@@ -644,8 +646,11 @@ class InspectionResultOut(BaseModel):
     source_type: str | None = None
     intervention_class: str | None = None
     indication: str | None = None
+    # Every section's gaps, summed by severity. There is no document verdict:
+    # averaging section judgements would invent a value none of them returned.
+    gap_counts: dict[str, int] = {}
     # The parsed source document. Read by the Ask assistant and by the Inspector
-    # UI's document-trace view, which renders grades against their source blocks.
+    # UI's document-trace view, which renders findings against their source blocks.
     blocks: list[ContentBlockOut] = []
 
 

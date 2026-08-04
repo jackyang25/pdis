@@ -1,13 +1,13 @@
 import type {
   ContentStatus,
-  DimensionGrade,
+  DimensionAssessment,
   DimensionName,
-  Grade,
+  DimensionVerdict,
   InspectionResult,
   SectionGrade,
   VariableGrade,
 } from "./api.ts";
-import { DIMENSION_NAMES } from "./api.ts";
+import { DIMENSION_NAMES, VERDICT_BADGES } from "./api.ts";
 import type {
   DocumentAnnotation,
   DocumentAnnotationEmphasis,
@@ -16,9 +16,9 @@ import type {
 /**
  * Projects an existing `InspectionResult` into shared document annotations.
  *
- * Pure and order-preserving. It selects, labels, and references existing grades;
- * it never re-grades, re-parses prose, or infers lineage the result does not
- * already carry.
+ * Pure and order-preserving. It selects, labels, and references verdicts the
+ * result already carries; it never re-assesses, re-parses prose, or infers
+ * lineage the result does not already carry.
  *
  * Inspector carries no exact quotes — only `block_ids` — so annotations claim
  * whole blocks rather than spans. Synthesizing a span by searching block text for
@@ -33,7 +33,7 @@ export type InspectorDocumentTraceRef =
       sectionName: string;
       variableName: string;
       dimension: DimensionName;
-      grade: Grade;
+      verdict: DimensionVerdict;
       issues: string[];
       recommendation: string;
       /** The presence answer, so a placeholder is not reported as a gap. */
@@ -45,7 +45,7 @@ export type InspectorDocumentTraceRef =
       type: "section";
       sectionName: string;
       dimension: DimensionName;
-      grade: Grade;
+      verdict: DimensionVerdict;
       issues: string[];
       recommendation: string;
     }
@@ -69,29 +69,37 @@ const DIMENSION_LAYER_LABEL: Record<DimensionName, string> = {
 
 /**
  * A negative result, not a system error, so this rides the tone tokens rather
- * than `--destructive`. `N/A` never reaches here — see `skipsDimension`.
+ * than `--destructive`. `not_applicable` never reaches here — see `isAssessed`.
  */
-const GRADE_TONE: Record<Exclude<Grade, "N/A">, DocumentAnnotationEmphasis["tone"]> = {
-  A: "neutral",
-  B: "neutral",
-  C: "caution",
-  D: "danger",
-  F: "danger",
+const VERDICT_TONE: Record<
+  Exclude<DimensionVerdict, "not_applicable">,
+  DocumentAnnotationEmphasis["tone"]
+> = {
+  meets: "neutral",
+  for_consideration: "caution",
+  critical: "danger",
 };
 
 /**
- * `N/A` means the rubric does not apply, so there is no finding to locate.
- * Emitting one would add a gutter control carrying no information.
+ * `not_applicable` means the rubric does not ask, so there is no finding to
+ * locate. Emitting one would add a gutter control carrying no information.
  *
- * A predicate rather than a boolean helper so callers narrow to the grades that
- * actually have a tone, instead of asserting past the gap.
+ * `meets` is still shown: it reports that this passage was checked and holds,
+ * which is a different statement from never having been asked.
+ *
+ * A predicate rather than a boolean helper so callers narrow to the verdicts
+ * that actually have a tone, instead of asserting past the gap.
  */
-function isGraded(grade: Grade): grade is Exclude<Grade, "N/A"> {
-  return grade !== "N/A";
+function isAssessed(
+  verdict: DimensionVerdict,
+): verdict is Exclude<DimensionVerdict, "not_applicable"> {
+  return verdict !== "not_applicable";
 }
 
-function emphasisFor(grade: Exclude<Grade, "N/A">): DocumentAnnotationEmphasis {
-  return { tone: GRADE_TONE[grade], badge: grade };
+function emphasisFor(
+  verdict: Exclude<DimensionVerdict, "not_applicable">,
+): DocumentAnnotationEmphasis {
+  return { tone: VERDICT_TONE[verdict], badge: VERDICT_BADGES[verdict] };
 }
 
 function unique(values: string[]): string[] {
@@ -131,16 +139,17 @@ const CONTENT_STATUS_LABEL: Partial<Record<ContentStatus, string>> = {
   partial: "Partially filled",
 };
 
-function statusLabelFor(status: ContentStatus, grade: Grade): string {
+function statusLabelFor(status: ContentStatus, verdict: DimensionVerdict): string {
   const presence = CONTENT_STATUS_LABEL[status];
-  return presence ? `${presence} · ${grade}` : grade;
+  const label = VERDICT_BADGES[verdict];
+  return presence ? `${presence} · ${label}` : label;
 }
 
-function dimensionSummary(grade: DimensionGrade, fallback: string): string {
+function dimensionSummary(assessment: DimensionAssessment, fallback: string): string {
   // Only an issue can be the summary. Falling through to the recommendation
-  // made a clean grade read "None." — the model's way of saying there is
+  // made a clean verdict read "None." — the model's way of saying there is
   // nothing to recommend, shown as though it were the finding.
-  return grade.issues[0]?.trim() || fallback;
+  return assessment.issues[0]?.trim() || fallback;
 }
 
 function variableAnnotations(
@@ -149,14 +158,14 @@ function variableAnnotations(
   dimension: DimensionName,
   anchor: string | undefined,
 ): InspectorDocumentAnnotation[] {
-  const grade = variable.dimensions[dimension];
-  if (!grade || !isGraded(grade.grade)) return [];
+  const assessment = variable.dimensions[dimension];
+  if (!assessment || !isAssessed(assessment.verdict)) return [];
 
   const missing = variable.content_status === "missing";
   // This dimension's own citations. Each dimension judges and cites
   // independently, so a completeness verdict is never placed on a block only
   // rigor read.
-  const blockIds = unique(grade.cited_block_ids);
+  const blockIds = unique(assessment.cited_block_ids);
   const placed = blockIds.length > 0;
 
   return [{
@@ -165,22 +174,22 @@ function variableAnnotations(
     layerLabel: DIMENSION_LAYER_LABEL[dimension],
     title: variable.variable_name,
     summary: dimensionSummary(
-      grade,
+      assessment,
       missing ? "Required content is not present." : "No issue recorded.",
     ),
-    statusLabel: statusLabelFor(variable.content_status, grade.grade),
+    statusLabel: statusLabelFor(variable.content_status, assessment.verdict),
     blockIds: placed ? blockIds : [],
     spans: [],
-    emphasis: emphasisFor(grade.grade),
+    emphasis: emphasisFor(assessment.verdict),
     ...(placed ? {} : anchor ? { displayAnchorBlockId: anchor } : {}),
     sourceRef: {
       type: "variable",
       sectionName: section.section_name,
       variableName: variable.variable_name,
       dimension,
-      grade: grade.grade,
-      issues: [...grade.issues],
-      recommendation: grade.recommendation,
+      verdict: assessment.verdict,
+      issues: [...assessment.issues],
+      recommendation: assessment.recommendation,
       contentStatus: variable.content_status,
       missing,
     },
@@ -192,7 +201,7 @@ function variableAnnotations(
  * every block the section mapper assigned to it.
  *
  * That scope is lineage, not absence. Treating it as absence made a section that
- * exists and scores `A` render under "not present in the document". A section
+ * exists and meets the rubric render under "not present in the document". A section
  * that genuinely is not present maps no blocks, so the same rule anchors it —
  * one rule, both cases, matching how variables are placed.
  */
@@ -201,8 +210,8 @@ function proseSectionAnnotations(
   dimension: DimensionName,
   anchor: string | undefined,
 ): InspectorDocumentAnnotation[] {
-  const grade = section.dimensions[dimension];
-  if (!grade || !isGraded(grade.grade)) return [];
+  const assessment = section.dimensions[dimension];
+  if (!assessment || !isAssessed(assessment.verdict)) return [];
   const blockIds = unique(section.mapped_block_ids);
   const placed = blockIds.length > 0;
   return [{
@@ -210,19 +219,19 @@ function proseSectionAnnotations(
     kind: dimension,
     layerLabel: DIMENSION_LAYER_LABEL[dimension],
     title: section.section_name,
-    summary: dimensionSummary(grade, "No issue recorded."),
-    statusLabel: grade.grade,
+    summary: dimensionSummary(assessment, "No issue recorded."),
+    statusLabel: VERDICT_BADGES[assessment.verdict],
     blockIds: placed ? blockIds : [],
     spans: [],
-    emphasis: emphasisFor(grade.grade),
+    emphasis: emphasisFor(assessment.verdict),
     ...(placed ? {} : anchor ? { displayAnchorBlockId: anchor } : {}),
     sourceRef: {
       type: "section",
       sectionName: section.section_name,
       dimension,
-      grade: grade.grade,
-      issues: [...grade.issues],
-      recommendation: grade.recommendation,
+      verdict: assessment.verdict,
+      issues: [...assessment.issues],
+      recommendation: assessment.recommendation,
     },
   }];
 }

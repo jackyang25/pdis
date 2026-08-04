@@ -10,7 +10,7 @@ import test from "node:test";
 import type {
   ContentBlock,
   ContentStatus,
-  Grade,
+  DimensionVerdict,
   InspectionResult,
   SectionGrade,
   VariableGrade,
@@ -39,12 +39,12 @@ function block(
 
 /** Lineage belongs to the dimension that cited it. */
 function grade(
-  value: Grade,
+  value: DimensionVerdict,
   citedBlockIds: string[] = [],
   issues: string[] = [],
   recommendation = "",
 ) {
-  return { grade: value, issues, recommendation, cited_block_ids: citedBlockIds };
+  return { verdict: value, issues, recommendation, cited_block_ids: citedBlockIds };
 }
 
 function dimensions(
@@ -76,13 +76,13 @@ function section(
     dimensions: dims,
     variable_grades: variables,
     mapped_block_ids: mappedBlockIds,
+    gap_counts: { critical: 0, for_consideration: 0 },
   };
 }
 
 function result(overrides: Partial<InspectionResult> = {}): InspectionResult {
   return {
     doc_id: "plan",
-    dimensions: dimensions(grade("B"), grade("B"), grade("B")),
     top_issues: [],
     section_grades: [],
     cross_section_findings: [],
@@ -92,6 +92,7 @@ function result(overrides: Partial<InspectionResult> = {}): InspectionResult {
     source_type: "itpp",
     intervention_class: "vaccine",
     indication: "malaria",
+    gap_counts: { critical: 0, for_consideration: 0 },
     blocks: [],
     ...overrides,
   };
@@ -102,18 +103,18 @@ const BLOCKS = [
   block("b-2", 2, "Minimum: 60% seroconversion", "Efficacy"),
   block("b-3", 3, "Safety", "Safety"),
 ];
-const NA = dimensions(grade("N/A"), grade("N/A"), grade("N/A"));
+const NA = dimensions(grade("not_applicable"), grade("not_applicable"), grade("not_applicable"));
 
-test("projects one annotation per graded variable dimension", () => {
+test("projects one annotation per assessed variable dimension", () => {
   const annotations = buildInspectorDocumentAnnotations(result({
     blocks: BLOCKS,
     section_grades: [section(
       "Efficacy",
-      dimensions(grade("B"), grade("B"), grade("B")),
+      dimensions(grade("for_consideration"), grade("for_consideration"), grade("for_consideration")),
       [variable("Seroconversion rate", "substantive", dimensions(
-        grade("A", ["b-2"]),
-        grade("B", ["b-2"]),
-        grade("D", ["b-2"]),
+        grade("meets", ["b-2"]),
+        grade("for_consideration", ["b-2"]),
+        grade("critical", ["b-2"]),
       ))],
       ["b-1", "b-2"],
     )],
@@ -121,7 +122,11 @@ test("projects one annotation per graded variable dimension", () => {
 
   assert.deepEqual(
     annotations.map((item) => [item.kind, item.statusLabel]),
-    [["completeness", "A"], ["adherence", "B"], ["rigor", "D"]],
+    [
+      ["completeness", "Meets"],
+      ["adherence", "Consider"],
+      ["rigor", "Critical"],
+    ],
   );
 });
 
@@ -132,11 +137,11 @@ test("each dimension is placed on its own citations, never a sibling's", () => {
     blocks: BLOCKS,
     section_grades: [section(
       "Efficacy",
-      dimensions(grade("A"), grade("N/A"), grade("D")),
+      dimensions(grade("meets"), grade("not_applicable"), grade("critical")),
       [variable("Seroconversion rate", "substantive", dimensions(
-        grade("A", ["b-2"]),
-        grade("N/A"),
-        grade("D", ["b-1", "b-2"]),
+        grade("meets", ["b-2"]),
+        grade("not_applicable"),
+        grade("critical", ["b-1", "b-2"]),
       ))],
       ["b-1", "b-2"],
     )],
@@ -147,31 +152,29 @@ test("each dimension is placed on its own citations, never a sibling's", () => {
   assert.deepEqual(byKind.get("rigor"), ["b-1", "b-2"]);
 });
 
-test("maps every grade to its tone and carries the grade as text", () => {
-  const cases: Array<[Grade, string]> = [
-    ["A", "neutral"],
-    ["B", "neutral"],
-    ["C", "caution"],
-    ["D", "danger"],
-    ["F", "danger"],
+test("maps every verdict to its tone and carries a readable badge", () => {
+  const cases: Array<[DimensionVerdict, string, string]> = [
+    ["meets", "neutral", "Meets"],
+    ["for_consideration", "caution", "Consider"],
+    ["critical", "danger", "Critical"],
   ];
-  for (const [value, tone] of cases) {
+  for (const [value, tone, badge] of cases) {
     const annotations = buildInspectorDocumentAnnotations(result({
       blocks: BLOCKS,
       section_grades: [section("Efficacy", NA, [
         variable("V", "substantive", dimensions(
           grade(value, ["b-2"]),
-          grade("N/A"),
-          grade("N/A"),
+          grade("not_applicable"),
+          grade("not_applicable"),
         )),
       ], ["b-1", "b-2"])],
     }));
-    assert.equal(annotations.length, 1, `grade ${value} should emit once`);
-    assert.deepEqual(annotations[0].emphasis, { tone, badge: value });
+    assert.equal(annotations.length, 1, `verdict ${value} should emit once`);
+    assert.deepEqual(annotations[0].emphasis, { tone, badge });
   }
 });
 
-test("skips N/A dimensions because the rubric does not apply", () => {
+test("skips not_applicable dimensions because the rubric does not ask", () => {
   const annotations = buildInspectorDocumentAnnotations(result({
     blocks: BLOCKS,
     section_grades: [section("Efficacy", NA, [
@@ -186,11 +189,11 @@ test("an absent variable cites nothing and anchors to its section's last block",
     blocks: BLOCKS,
     section_grades: [section(
       "Efficacy",
-      dimensions(grade("F"), grade("F"), grade("N/A")),
+      dimensions(grade("critical"), grade("critical"), grade("not_applicable")),
       [variable("Duration of protection", "missing", dimensions(
-        grade("F", [], ["Required variable is missing."]),
-        grade("F", [], ["Required rubric structure is absent."]),
-        grade("N/A"),
+        grade("critical", [], ["Required variable is missing."]),
+        grade("critical", [], ["Required rubric structure is absent."]),
+        grade("not_applicable"),
       ))],
       ["b-1", "b-2"],
     )],
@@ -211,9 +214,9 @@ test("a placeholder is reported as a placeholder, not as a gap", () => {
     blocks: BLOCKS,
     section_grades: [section("Efficacy", NA, [
       variable("Dose volume", "placeholder", dimensions(
-        grade("D", ["b-2"], ["Only a placeholder token is present."]),
-        grade("N/A"),
-        grade("N/A"),
+        grade("critical", ["b-2"], ["Only a placeholder token is present."]),
+        grade("not_applicable"),
+        grade("not_applicable"),
       )),
     ], ["b-1", "b-2"])],
   }));
@@ -229,11 +232,11 @@ test("an unwritten section maps no blocks, so its gap has no anchor", () => {
     blocks: BLOCKS,
     section_grades: [section(
       "Manufacturing",
-      dimensions(grade("F"), grade("N/A"), grade("N/A")),
+      dimensions(grade("critical"), grade("not_applicable"), grade("not_applicable")),
       [variable("Fill-finish capacity", "missing", dimensions(
-        grade("F", [], ["Required variable is missing."]),
-        grade("N/A"),
-        grade("N/A"),
+        grade("critical", [], ["Required variable is missing."]),
+        grade("not_applicable"),
+        grade("not_applicable"),
       ))],
       [],
       false,
@@ -253,7 +256,7 @@ test("a present prose section is scoped to its blocks, not reported absent", () 
     blocks: BLOCKS,
     section_grades: [section(
       "Safety",
-      dimensions(grade("A"), grade("N/A"), grade("N/A")),
+      dimensions(grade("meets"), grade("not_applicable"), grade("not_applicable")),
       [],
       ["b-3"],
     )],
@@ -270,7 +273,7 @@ test("an absent prose section maps no blocks and is anchored", () => {
     blocks: BLOCKS,
     section_grades: [section(
       "Manufacturing",
-      dimensions(grade("F", [], ["Section is absent."]), grade("N/A"), grade("N/A")),
+      dimensions(grade("critical", [], ["Section is absent."]), grade("not_applicable"), grade("not_applicable")),
       [],
       [],
       false,
@@ -290,7 +293,7 @@ test("a clean grade does not borrow its recommendation as the finding", () => {
     blocks: BLOCKS,
     section_grades: [section(
       "Safety",
-      dimensions(grade("A", [], [], "None."), grade("N/A"), grade("N/A")),
+      dimensions(grade("meets", [], [], "None."), grade("not_applicable"), grade("not_applicable")),
       [],
       ["b-3"],
     )],
@@ -322,17 +325,17 @@ test("the input result is not mutated and projection is deterministic", () => {
     blocks: BLOCKS,
     section_grades: [section(
       "Efficacy",
-      dimensions(grade("B"), grade("B"), grade("B")),
+      dimensions(grade("for_consideration"), grade("for_consideration"), grade("for_consideration")),
       [
         variable("Seroconversion rate", "substantive", dimensions(
-          grade("A", ["b-2"]),
-          grade("C", ["b-2"]),
-          grade("F", ["b-2"]),
+          grade("meets", ["b-2"]),
+          grade("for_consideration", ["b-2"]),
+          grade("critical", ["b-2"]),
         )),
         variable("Duration of protection", "missing", dimensions(
-          grade("F"),
-          grade("F"),
-          grade("N/A"),
+          grade("critical"),
+          grade("critical"),
+          grade("not_applicable"),
         )),
       ],
       ["b-1", "b-2"],

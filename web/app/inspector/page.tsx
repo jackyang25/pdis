@@ -23,14 +23,16 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DIMENSION_NAMES,
-  GRADE_LABELS,
+  VERDICT_BADGES,
+  VERDICT_LABELS,
   missingVariables,
   runInspector,
   type ContentStatus,
   type CrossSectionFinding,
   type DimensionName,
   type Dimensions,
-  type Grade,
+  type GapCounts,
+  type DimensionVerdict,
   type Header,
   type InspectorResponse,
   type SectionGrade,
@@ -270,15 +272,15 @@ function Overview({ inspection }: { inspection: InspectorResponse["inspection"] 
     <div className="space-y-6">
       <section>
         <SectionHeading
-          title="Overall assessment"
-          description="Independent document-level rollups across the authored rubric."
+          title="Gaps found"
+          description="Counted from the section assessments below. Every number here can be opened to the rows it came from."
         />
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-          {DIMENSION_NAMES.map((dimension) => (
-            <DimensionTile
-              key={dimension}
-              name={dimension}
-              grade={inspection.dimensions[dimension].grade}
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {GAP_SEVERITIES.map((severity) => (
+            <GapTile
+              key={severity}
+              severity={severity}
+              count={inspection.gap_counts?.[severity] ?? 0}
             />
           ))}
         </div>
@@ -287,9 +289,9 @@ function Overview({ inspection }: { inspection: InspectorResponse["inspection"] 
       <section>
         <SectionHeading
           title="Rubric map"
-          description="Each row is one required section; color is only a reading aid for its letter grade."
+          description="Each row is one required section. Colour is only a reading aid for the severity beside it."
         />
-        <GradeMatrix sections={inspection.section_grades} />
+        <SectionGapMatrix sections={inspection.section_grades} />
       </section>
 
       <section>
@@ -316,7 +318,7 @@ function Overview({ inspection }: { inspection: InspectorResponse["inspection"] 
                     </span>
                     {issue.variable_name && <span>· {issue.section_name}</span>}
                     {issue.dimension && <span>· {issue.dimension}</span>}
-                    <Badge variant="outline">{issue.grade}</Badge>
+                    <Badge variant="outline">{VERDICT_BADGES[issue.severity]}</Badge>
                   </p>
                   <p className="mt-1">{issue.issue}</p>
                   {issue.recommendation && (
@@ -348,56 +350,63 @@ function SectionHeading({ title, description }: { title: string; description: st
   );
 }
 
-function DimensionTile({ name, grade }: { name: DimensionName; grade: Grade }) {
+function GapTile({ severity, count }: { severity: GapSeverity; count: number }) {
   return (
     <div className="rounded-lg border border-border bg-muted/20 p-4">
       <InspectorSignalLabel
-        topic={name}
+        topic="severity"
         className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
       >
-        {name}
+        {VERDICT_BADGES[severity]}
       </InspectorSignalLabel>
       <div className="mt-2 flex items-baseline gap-3">
-        <span className={cn("font-mono text-3xl font-semibold tabular-nums", GRADE_TEXT[grade])}>
-          {grade}
+        <span
+          className={cn(
+            "font-mono text-3xl font-semibold tabular-nums",
+            VERDICT_TEXT[severity],
+          )}
+        >
+          {count}
         </span>
-        <span className="text-xs leading-5 text-muted-foreground">{GRADE_LABELS[grade]}</span>
+        <span className="text-xs leading-5 text-muted-foreground">
+          {VERDICT_LABELS[severity]}
+        </span>
       </div>
     </div>
   );
 }
 
-function GradeMatrix({ sections }: { sections: SectionGrade[] }) {
+function SectionGapMatrix({ sections }: { sections: SectionGrade[] }) {
   return (
     <div className="mt-3 overflow-x-auto rounded-lg border border-border">
-      <div className="grid min-w-[38rem] grid-cols-[minmax(11rem,1fr)_repeat(3,minmax(6rem,0.32fr))] border-b border-border bg-muted/30 px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="grid min-w-[34rem] grid-cols-[minmax(14rem,1fr)_repeat(2,minmax(8rem,0.34fr))] border-b border-border bg-muted/30 px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         <span>Section</span>
-        {DIMENSION_NAMES.map((dimension) => (
-          <span key={dimension} className="text-center capitalize">{dimension}</span>
+        {GAP_SEVERITIES.map((severity) => (
+          <span key={severity} className="text-center">{VERDICT_BADGES[severity]}</span>
         ))}
       </div>
       <div className="divide-y divide-border">
         {sections.map((section) => (
           <div
             key={section.section_name}
-            className="grid min-w-[38rem] grid-cols-[minmax(11rem,1fr)_repeat(3,minmax(6rem,0.32fr))] items-center px-4 py-2.5"
+            className="grid min-w-[34rem] grid-cols-[minmax(14rem,1fr)_repeat(2,minmax(8rem,0.34fr))] items-center px-4 py-2.5"
           >
             <div className="min-w-0 pr-4">
               <p className="truncate text-sm font-medium">{section.section_name}</p>
               {!section.is_present && <p className="text-xs text-muted-foreground">Not present</p>}
             </div>
-            {DIMENSION_NAMES.map((dimension) => {
-              const grade = section.dimensions[dimension].grade;
+            {GAP_SEVERITIES.map((severity) => {
+              const count = section.gap_counts?.[severity] ?? 0;
               return (
-                <div key={dimension} className="flex justify-center">
+                <div key={severity} className="flex justify-center">
                   <span
-                    title={GRADE_LABELS[grade]}
+                    title={VERDICT_LABELS[severity]}
                     className={cn(
-                      "inline-flex h-7 min-w-10 items-center justify-center rounded-md px-2 font-mono text-xs font-semibold",
-                      GRADE_SURFACE[grade],
+                      "inline-flex h-7 min-w-10 items-center justify-center rounded-md px-2 font-mono text-xs font-semibold tabular-nums",
+                      count > 0 ? VERDICT_SURFACE[severity] : "bg-muted text-muted-foreground",
                     )}
                   >
-                    {grade}
+                    {count}
                   </span>
                 </div>
               );
@@ -408,7 +417,6 @@ function GradeMatrix({ sections }: { sections: SectionGrade[] }) {
     </div>
   );
 }
-
 function SectionsList({ sections }: { sections: SectionGrade[] }) {
   return (
     <div className="space-y-3">
@@ -432,7 +440,10 @@ function SectionCard({
     <CollapsibleCard
       title={section.section_name}
       subtitle={section.is_present ? undefined : "Required section not found"}
-      trailing={<DimensionStrip dimensions={section.dimensions} />}
+      // Gap counts, not the section's own verdicts: a section that has
+      // variables no longer carries verdicts, and the counts answer the same
+      // question the rubric map above answers for every row.
+      trailing={<GapCountStrip counts={section.gap_counts} />}
       defaultOpen={false}
     >
       {missingVariables(section).length > 0 && (
@@ -574,19 +585,50 @@ function consistencyDescription(status: InspectorResponse["inspection"]["consist
   return "This saved result does not record consistency-pass completion.";
 }
 
+function GapCountStrip({ counts }: { counts: GapCounts | undefined }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      {GAP_SEVERITIES.map((severity) => {
+        const count = counts?.[severity] ?? 0;
+        return (
+          <span
+            key={severity}
+            title={VERDICT_LABELS[severity]}
+            className="inline-flex items-center gap-1.5 rounded-md bg-muted/40 px-2 py-1"
+          >
+            <span className="text-[10px] text-muted-foreground">
+              {VERDICT_BADGES[severity]}
+            </span>
+            <span
+              className={cn(
+                "font-mono text-xs font-semibold tabular-nums",
+                count > 0 ? VERDICT_TEXT[severity] : "text-muted-foreground",
+              )}
+            >
+              {count}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function DimensionStrip({ dimensions, compact = false }: { dimensions: Dimensions; compact?: boolean }) {
   return (
     <div className={cn("flex flex-wrap items-center gap-2", compact ? "text-xs" : "text-sm")}>
       {DIMENSION_NAMES.map((dimension) => {
-        const grade = dimensions[dimension].grade;
+        const verdict = dimensions[dimension].verdict;
         return (
           <span
             key={dimension}
-            title={`${dimension}: ${GRADE_LABELS[grade]}`}
+            title={`${dimension}: ${VERDICT_LABELS[verdict]}`}
             className="inline-flex items-center gap-1.5 rounded-md bg-muted/40 px-2 py-1"
           >
             <span className="text-[10px] capitalize text-muted-foreground">{dimension}</span>
-            <span className={cn("font-mono text-xs font-semibold", GRADE_TEXT[grade])}>{grade}</span>
+            <span className={cn("text-xs font-semibold", VERDICT_TEXT[verdict])}>
+              {VERDICT_BADGES[verdict]}
+            </span>
           </span>
         );
       })}
@@ -639,20 +681,20 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-const GRADE_TEXT: Record<Grade, string> = {
-  A: "text-emerald-700 dark:text-emerald-300",
-  B: "text-emerald-700 dark:text-emerald-300",
-  C: "text-amber-700 dark:text-amber-300",
-  D: "text-orange-700 dark:text-orange-300",
-  F: "text-[hsl(var(--tone-danger))]",
-  "N/A": "text-muted-foreground",
+/** The two severities a reader can act on, in the order they are published. */
+type GapSeverity = "critical" | "for_consideration";
+const GAP_SEVERITIES: GapSeverity[] = ["critical", "for_consideration"];
+
+const VERDICT_TEXT: Record<DimensionVerdict, string> = {
+  critical: "text-[hsl(var(--tone-danger))]",
+  for_consideration: "text-amber-700 dark:text-amber-300",
+  meets: "text-emerald-700 dark:text-emerald-300",
+  not_applicable: "text-muted-foreground",
 };
 
-const GRADE_SURFACE: Record<Grade, string> = {
-  A: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  B: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  C: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  D: "bg-orange-500/10 text-orange-700 dark:text-orange-300",
-  F: "bg-[hsl(var(--tone-danger))]/10 text-[hsl(var(--tone-danger))]",
-  "N/A": "bg-muted text-muted-foreground",
+const VERDICT_SURFACE: Record<DimensionVerdict, string> = {
+  critical: "bg-[hsl(var(--tone-danger))]/10 text-[hsl(var(--tone-danger))]",
+  for_consideration: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  meets: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  not_applicable: "bg-muted text-muted-foreground",
 };

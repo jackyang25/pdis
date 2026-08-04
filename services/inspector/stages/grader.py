@@ -34,8 +34,8 @@ from ..models import (
     DIMENSIONS,
     CrossSectionFinding,
     ConsistencyStatus,
-    DimensionGrade,
-    Grade,
+    DimensionAssessment,
+    DimensionVerdict,
     LLMClientProtocol,
     InspectionConfig,
     SectionGrade,
@@ -45,9 +45,8 @@ from ..models import (
     ABSENT_CONTENT_STATUS,
     CONTENT_STATUSES,
     PRESENT_CONTENT_STATUSES,
-    VALID_GRADES,
-    average_score,
-    score_to_grade,
+    DIMENSION_VERDICTS,
+    INAPPLICABLE_VERDICT,
 )
 
 MAX_PARALLEL_SECTIONS = 4
@@ -94,10 +93,6 @@ def grade_sections(
                 max_tokens=max_tokens,
                 grading_guidance=config.grading_guidance,
             )
-            if section_spec.variables:
-                section_grade.dimensions = _rollup_dimensions(
-                    [vg.dimensions for vg in section_grade.variable_grades]
-                )
             # Publish the mapping used to build this section's prompt, so the
             # contract check and the document view read it instead of each
             # rebuilding it from `section_label`.
@@ -190,7 +185,7 @@ def _call_dimension(
             {
               "variable_name": str,
               "block_ids": [str, ...],
-              "grade": "A|B|C|D|F|N/A",
+              "verdict": "critical|for_consideration|meets|not_applicable",
               "issues": [str, ...],
               "recommendation": str
             }
@@ -199,7 +194,7 @@ def _call_dimension(
 
       Prose section:
         {
-          "grade": "A|B|C|D|F|N/A",
+          "verdict": "critical|for_consideration|meets|not_applicable",
           "issues": [str, ...],
           "recommendation": str
         }
@@ -225,7 +220,7 @@ def _call_dimension(
             system_prompt,
             message,
             max_tokens=max_tokens,
-            schema_name=f"inspector_{dimension}_grade",
+            schema_name=f"inspector_{dimension}_verdict",
             schema=schema,
             images=images or None,
         )
@@ -261,13 +256,15 @@ Scope boundary:
 
 Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
 
-Grade scale (A–F + N/A):
-- A: Fully meets expectations on this dimension.
-- B: Substantially meets expectations. Minor issues only.
-- C: Partially meets expectations. Noticeable gaps.
-- D: Significant gaps on this dimension.
-- F: Largely fails this dimension.
-- N/A: Not applicable.
+Verdict for this dimension:
+- critical: the rubric requires this and the document does not usably supply it.
+- for_consideration: stated and usable, but it could be stronger.
+- meets: no gap on this dimension.
+- not_applicable: the rubric does not ask this dimension of this content.
+
+Use critical only when the gap must be closed before the document is usable. Do
+not rank severity by how much text is missing; rank it by whether a reader could
+act on what is there.
 
 Style for issues and recommendations:
 - Each issue is one short factual statement (≤20 words). No preamble.
@@ -399,7 +396,7 @@ def _output_schema(dimension: str, section_spec: SectionSpec) -> str:
         lineage = (
             " Completeness owns presence and source lineage: cite exact block IDs for "
             "substantive, partial, or placeholder content, and use no block IDs when content "
-            "is missing. For adherence or rigor, use N/A with no block IDs when there is no "
+            "is missing. For adherence or rigor, use not_applicable with no block IDs when there is no "
             "content to judge."
         )
         return (
@@ -408,7 +405,9 @@ def _output_schema(dimension: str, section_spec: SectionSpec) -> str:
             + status
             + lineage
         )
-    return "Output contract: return one section grade with issues and one recommendation."
+    return (
+        "Output contract: return one section verdict with issues and one recommendation."
+    )
 
 
 def _dimension_schema(
@@ -416,21 +415,21 @@ def _dimension_schema(
     section_spec: SectionSpec,
     section_blocks: list[ContentBlock],
 ) -> dict[str, Any]:
-    grade = {"type": "string", "enum": sorted(VALID_GRADES)}
+    verdict = {"type": "string", "enum": sorted(DIMENSION_VERDICTS)}
     strings = {"type": "array", "items": {"type": "string"}}
     if not section_spec.variables:
         return {
             "type": "object",
             "additionalProperties": False,
-            "required": ["grade", "issues", "recommendation"],
+            "required": ["verdict", "issues", "recommendation"],
             "properties": {
-                "grade": grade,
+                "verdict": verdict,
                 "issues": strings,
                 "recommendation": {"type": "string"},
             },
         }
 
-    required = ["variable_name", "block_ids", "grade", "issues", "recommendation"]
+    required = ["variable_name", "block_ids", "verdict", "issues", "recommendation"]
     properties: dict[str, Any] = {
         "variable_name": {
             "type": "string",
@@ -443,7 +442,7 @@ def _dimension_schema(
                 "enum": [block.id for block in section_blocks],
             },
         },
-        "grade": grade,
+        "verdict": verdict,
         "issues": strings,
         "recommendation": {"type": "string"},
     }
@@ -517,11 +516,11 @@ def _parse_dimension_payload(
             if name not in expected_set:
                 raise ValueError(f"Unknown rubric variable: {name}")
             if name in cleaned_by_name:
-                raise ValueError(f"Duplicate variable grade: {name}")
+                raise ValueError(f"Duplicate variable assessment: {name}")
             raw_block_ids = _string_list(item.get("block_ids"))
             if any(block_id not in valid_block_ids for block_id in raw_block_ids):
                 raise ValueError(f"Variable {name} cited an unknown block ID")
-            grade = _grade_value(item.get("grade"))
+            verdict = _verdict_value(item.get("verdict"))
             content_status = (
                 _closed_value(item.get("content_status"), CONTENT_STATUSES, "content_status")
                 if dimension == "completeness"
@@ -536,7 +535,7 @@ def _parse_dimension_payload(
             cleaned_by_name[name] = {
                 "variable_name": name,
                 "block_ids": list(dict.fromkeys(raw_block_ids)),
-                "grade": grade,
+                "verdict": verdict,
                 "issues": _string_list(item.get("issues")),
                 "recommendation": _string_value(item.get("recommendation")),
                 "content_status": content_status,
@@ -553,7 +552,7 @@ def _parse_dimension_payload(
         }
 
     return {
-        "grade": _grade_value(parsed.get("grade")),
+        "verdict": _verdict_value(parsed.get("verdict")),
         "issues": _string_list(parsed.get("issues")),
         "recommendation": _string_value(parsed.get("recommendation")),
     }
@@ -590,14 +589,14 @@ def _merge_variable_bearing(
             per_dim_by_name["completeness"].get(name, {}).get("content_status", "")
             or "not_applicable"
         )
-        dimensions: dict[str, DimensionGrade] = {}
+        dimensions: dict[str, DimensionAssessment] = {}
         for d in DIMENSIONS:
             item = per_dim_by_name[d].get(name)
             if item is None:
-                dimensions[d] = DimensionGrade(grade="N/A")
+                dimensions[d] = DimensionAssessment(verdict=INAPPLICABLE_VERDICT)
                 continue
-            dimensions[d] = DimensionGrade(
-                grade=item.get("grade", "N/A"),
+            dimensions[d] = DimensionAssessment(
+                verdict=item.get("verdict", INAPPLICABLE_VERDICT),
                 issues=list(item.get("issues", [])),
                 recommendation=item.get("recommendation", ""),
                 # This dimension's own citations. The parser has already rejected
@@ -607,19 +606,21 @@ def _merge_variable_bearing(
             )
         if content_status == ABSENT_CONTENT_STATUS:
             # Absent content cannot be well-formed or rigorous, and cites nothing.
-            dimensions["completeness"] = DimensionGrade(
-                grade="F",
+            dimensions["completeness"] = DimensionAssessment(
+                verdict="critical",
                 issues=["Required variable is missing."],
                 recommendation=f"Add substantive content for {name}.",
             )
-            dimensions["adherence"] = DimensionGrade(
-                grade="F",
+            dimensions["adherence"] = DimensionAssessment(
+                verdict="critical",
                 issues=["Required rubric structure is absent."],
                 recommendation=f"Add the required {name} entry.",
             )
-            dimensions["rigor"] = DimensionGrade(grade="N/A")
+            dimensions["rigor"] = DimensionAssessment(verdict=INAPPLICABLE_VERDICT)
         elif content_status == "not_applicable":
-            dimensions = {d: DimensionGrade(grade="N/A") for d in DIMENSIONS}
+            dimensions = {
+                d: DimensionAssessment(verdict=INAPPLICABLE_VERDICT) for d in DIMENSIONS
+            }
         variable_grades.append(
             VariableGrade(
                 variable_name=name,
@@ -628,11 +629,11 @@ def _merge_variable_bearing(
             )
         )
 
-    # Section dimensions get rolled up from variable dimensions in the caller.
+    # A section that has variables carries no verdict of its own: its variables
+    # hold the judgements and `SectionGrade.gap_counts` counts them.
     return SectionGrade(
         section_name=section_spec.name,
         is_present=True,
-        dimensions={d: DimensionGrade(grade="N/A") for d in DIMENSIONS},
         variable_grades=variable_grades,
     )
 
@@ -641,11 +642,11 @@ def _merge_prose(
     section_spec: SectionSpec,
     results: dict[str, dict[str, Any]],
 ) -> SectionGrade:
-    dimensions: dict[str, DimensionGrade] = {}
+    dimensions: dict[str, DimensionAssessment] = {}
     for d in DIMENSIONS:
         item = results.get(d, {})
-        dimensions[d] = DimensionGrade(
-            grade=item.get("grade", "N/A"),
+        dimensions[d] = DimensionAssessment(
+            verdict=item.get("verdict", INAPPLICABLE_VERDICT),
             issues=list(item.get("issues", [])),
             recommendation=item.get("recommendation", ""),
         )
@@ -661,49 +662,22 @@ def _merge_prose(
 # ---------------------------------------------------------------------------
 
 
-def _rollup_dimensions(
-    children: list[dict[str, DimensionGrade]],
-) -> dict[str, DimensionGrade]:
-    """Average each dimension across children; collect issues/recommendations."""
-    out: dict[str, DimensionGrade] = {}
-    for name in DIMENSIONS:
-        grades = [c[name].grade for c in children if name in c]
-        score = average_score(grades)
-        issues: list[str] = []
-        recs: list[str] = []
-        for c in children:
-            dg = c.get(name)
-            if dg is None:
-                continue
-            issues.extend(dg.issues)
-            if dg.recommendation:
-                recs.append(dg.recommendation)
-        out[name] = DimensionGrade(
-            grade=score_to_grade(score),
-            issues=issues,
-            recommendation="; ".join(dict.fromkeys(recs)),
-            # A rolled-up grade is arithmetic over children, not a citation.
-        )
-    return out
-
-
 def _missing_section_grade(section_spec: SectionSpec) -> SectionGrade:
-    incomplete = DimensionGrade(
-        grade="F",
-        issues=["Section is missing."],
-        recommendation=f"Add this section covering: {section_spec.description}",
-    )
     return SectionGrade(
         section_name=section_spec.name,
         is_present=False,
         dimensions={
-            "completeness": incomplete,
-            "adherence": DimensionGrade(
-                grade="F",
+            "completeness": DimensionAssessment(
+                verdict="critical",
+                issues=["Section is missing."],
+                recommendation=f"Add this section covering: {section_spec.description}",
+            ),
+            "adherence": DimensionAssessment(
+                verdict="critical",
                 issues=["Required section structure is absent."],
                 recommendation=f"Add the required {section_spec.name} section.",
             ),
-            "rigor": DimensionGrade(grade="N/A"),
+            "rigor": DimensionAssessment(verdict=INAPPLICABLE_VERDICT),
         },
     )
 
@@ -740,13 +714,13 @@ def _image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
     ]
 
 
-def _grade_value(value: Any) -> Grade:
+def _verdict_value(value: Any) -> DimensionVerdict:
     if not isinstance(value, str) or not value.strip():
-        raise ValueError("grade must be one of the closed grade labels")
-    grade = value.strip().upper()
-    if grade not in VALID_GRADES:
-        raise ValueError(f"Unknown grade label: {grade}")
-    return grade  # type: ignore[return-value]
+        raise ValueError("verdict must be one of the closed verdict labels")
+    verdict = value.strip().lower()
+    if verdict not in DIMENSION_VERDICTS:
+        raise ValueError(f"Unknown verdict label: {verdict}")
+    return verdict  # type: ignore[return-value]
 
 
 def _string_value(value: Any) -> str:

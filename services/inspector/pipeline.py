@@ -16,23 +16,25 @@ from .models import (
     ABSENT_CONTENT_STATUS,
     BatchInspectionResult,
     DIMENSIONS,
-    DimensionGrade,
-    GRADE_TO_SCORE,
-    Grade,
+    GAP_VERDICTS,
     InspectionConfig,
     InspectionResult,
     LLMClientProtocol,
     SectionGrade,
     TopIssue,
     VariableSpec,
-    score_to_grade,
 )
 
 DEFAULT_MAX_OUTPUT_TOKENS = 32000
 
-SEVERITY_ORDER = {"F": 0, "D": 1, "C": 2, "B": 3, "A": 4, "N/A": 5}
-MISSING_SECTION_SEVERITY = -2
-MISSING_VARIABLE_SEVERITY = -1
+# Ranking is the verdict itself. It used to be a letter that this table then
+# converted into an order, so what a reader saw ranked first was one lookup away
+# from anything the model actually said.
+SEVERITY_RANK = {"critical": 1, "for_consideration": 2}
+UNRANKED_SEVERITY = 3
+# An absence outranks any assessed gap: there is nothing to read at all.
+MISSING_SECTION_RANK = -1
+MISSING_VARIABLE_RANK = 0
 TOP_ISSUE_LIMIT = 5
 
 
@@ -225,54 +227,19 @@ def build_report_card(
     section_grades: list[SectionGrade],
     config: InspectionConfig,
 ) -> InspectionResult:
-    """Roll section grades up into a full report card across three dimensions."""
+    """Assemble the section assessments into one report.
+
+    There is no document-level verdict to compute. The document publishes the
+    gaps its sections found, counted by severity, so every number a reader sees
+    can be traced to rows they can open.
+    """
     doc_id = labeled_blocks[0].doc_id if labeled_blocks else ""
     return InspectionResult(
         doc_id=doc_id,
-        dimensions=_document_dimensions(section_grades, config),
         top_issues=_top_issues(section_grades, config),
         section_grades=section_grades,
         grading_status="complete",
     )
-
-
-def _document_dimensions(
-    section_grades: list[SectionGrade],
-    config: InspectionConfig,
-) -> dict[str, DimensionGrade]:
-    """Weighted roll-up of section dimension grades into document-level dimensions.
-
-    Weighted by authored section weight, unlike the unweighted variable-to-section
-    roll-up in the grader. Both read one scale from `models`.
-    """
-    weights_by_section = {s.name: s.weight for s in config.sections}
-    out: dict[str, DimensionGrade] = {}
-    for name in DIMENSIONS:
-        weighted_score = 0.0
-        applied_weight = 0.0
-        issues: list[str] = []
-        recs: list[str] = []
-        for sg in section_grades:
-            dg = sg.dimensions.get(name)
-            if dg is None:
-                continue
-            issues.extend(dg.issues)
-            if dg.recommendation:
-                recs.append(dg.recommendation)
-            if dg.grade == "N/A" or dg.grade not in GRADE_TO_SCORE:
-                continue
-            weight = weights_by_section.get(sg.section_name, 0.0)
-            weighted_score += GRADE_TO_SCORE[dg.grade] * weight
-            applied_weight += weight
-        grade: Grade = score_to_grade(
-            weighted_score / applied_weight if applied_weight > 0 else None
-        )
-        out[name] = DimensionGrade(
-            grade=grade,
-            issues=issues,
-            recommendation="; ".join(dict.fromkeys(recs)),
-        )
-    return out
 
 
 def _top_issues(
@@ -282,24 +249,30 @@ def _top_issues(
 ) -> list[TopIssue]:
     """Rank the most severe issues across sections, variables, and dimensions.
 
-    Severity comes from the dimension grade; an absent section or variable ranks
-    above any letter grade. Each result keeps its parts - section, variable,
-    dimension, grade, presence, recommendation, lineage - so a consumer can link,
-    filter, or re-sort without parsing a sentence back apart.
+    Severity is the dimension's own verdict; an absent section or variable
+    outranks any assessed gap because there is nothing to read at all. Ties break
+    on the rubric's authored section weight, which is where the author's sense of
+    what matters most now applies — it previously weighted an average of letters.
+
+    Each result keeps its parts - section, variable, dimension, severity,
+    presence, recommendation, lineage - so a consumer can link, filter, or
+    re-sort without parsing a sentence back apart.
     """
-    candidates: list[tuple[int, TopIssue]] = []
+    weights_by_section = {section.name: section.weight for section in config.sections}
+    candidates: list[tuple[int, float, TopIssue]] = []
     for section in section_grades:
         if not section.is_present:
             candidates.append((
-                MISSING_SECTION_SEVERITY,
+                MISSING_SECTION_RANK,
+                -weights_by_section.get(section.section_name, 0.0),
                 TopIssue(
                     section_name=section.section_name,
                     issue="Required section is not present.",
-                    grade="F",
+                    severity="critical",
                     recommendation="; ".join(
-                        grade.recommendation
-                        for grade in section.dimensions.values()
-                        if grade.recommendation
+                        assessment.recommendation
+                        for assessment in section.dimensions.values()
+                        if assessment.recommendation
                     ),
                 ),
             ))
@@ -308,13 +281,14 @@ def _top_issues(
         absent = set(section.missing_variables)
         for variable_name in section.missing_variables:
             candidates.append((
-                MISSING_VARIABLE_SEVERITY,
+                MISSING_VARIABLE_RANK,
+                -weights_by_section.get(section.section_name, 0.0),
                 TopIssue(
                     section_name=section.section_name,
                     variable_name=variable_name,
                     issue="Required variable is not present.",
                     dimension="completeness",
-                    grade="F",
+                    severity="critical",
                     content_status=ABSENT_CONTENT_STATUS,
                     recommendation=_missing_variable_recommendation(
                         variable_name, section.section_name, config
@@ -327,44 +301,46 @@ def _top_issues(
                 if variable.variable_name in absent:
                     continue
                 for dimension in DIMENSIONS:
-                    grade = variable.dimensions.get(dimension)
-                    if grade is None:
+                    assessment = variable.dimensions.get(dimension)
+                    if assessment is None or assessment.verdict not in GAP_VERDICTS:
                         continue
-                    for issue in grade.issues:
+                    for issue in assessment.issues:
                         candidates.append((
-                            SEVERITY_ORDER.get(grade.grade, 5),
+                            SEVERITY_RANK.get(assessment.verdict, UNRANKED_SEVERITY),
+                            -weights_by_section.get(section.section_name, 0.0),
                             TopIssue(
                                 section_name=section.section_name,
                                 variable_name=variable.variable_name,
                                 issue=issue,
                                 dimension=dimension,
-                                grade=grade.grade,
+                                severity=assessment.verdict,
                                 content_status=variable.content_status,
-                                recommendation=grade.recommendation,
-                                cited_block_ids=list(grade.cited_block_ids),
+                                recommendation=assessment.recommendation,
+                                cited_block_ids=list(assessment.cited_block_ids),
                             ),
                         ))
         else:
             for dimension in DIMENSIONS:
-                grade = section.dimensions.get(dimension)
-                if grade is None:
+                assessment = section.dimensions.get(dimension)
+                if assessment is None or assessment.verdict not in GAP_VERDICTS:
                     continue
-                for issue in grade.issues:
+                for issue in assessment.issues:
                     candidates.append((
-                        SEVERITY_ORDER.get(grade.grade, 5),
+                        SEVERITY_RANK.get(assessment.verdict, UNRANKED_SEVERITY),
+                        -weights_by_section.get(section.section_name, 0.0),
                         TopIssue(
                             section_name=section.section_name,
                             issue=issue,
                             dimension=dimension,
-                            grade=grade.grade,
-                            recommendation=grade.recommendation,
-                            cited_block_ids=list(grade.cited_block_ids),
+                            severity=assessment.verdict,
+                            recommendation=assessment.recommendation,
+                            cited_block_ids=list(assessment.cited_block_ids),
                         ),
                     ))
 
     seen: set[tuple[str, str | None, str | None, str]] = set()
     ranked: list[TopIssue] = []
-    for _, issue in sorted(candidates, key=lambda item: item[0]):
+    for *_, issue in sorted(candidates, key=lambda item: item[:2]):
         identity = (
             issue.section_name,
             issue.variable_name,

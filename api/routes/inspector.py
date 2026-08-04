@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import os
 import tempfile
-from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from services.inspector import find_config, run_pipeline
+from services.inspector import find_config, inspection_result_to_dict, run_pipeline
 
 from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import InspectionResultOut, InspectorRunResponse
@@ -64,7 +63,7 @@ async def run_inspector(
             )
 
             return InspectorRunResponse(
-                inspection=InspectionResultOut(**asdict(result)),
+                inspection=InspectionResultOut(**inspection_result_to_dict(result)),
             ).model_dump()
         finally:
             if temp_path and os.path.exists(temp_path):

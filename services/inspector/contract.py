@@ -6,6 +6,7 @@ from .models import (
     ABSENT_CONTENT_STATUS,
     CONTENT_STATUSES,
     DIMENSIONS,
+    DIMENSION_VERDICTS,
     InspectionConfig,
     InspectionResult,
     PRESENT_CONTENT_STATUSES,
@@ -23,8 +24,6 @@ def validate_result_contract(
     drift from the value being checked.
     """
     expected_dimensions = set(DIMENSIONS)
-    if set(result.dimensions) != expected_dimensions:
-        raise ValueError("Inspector document dimensions do not match the closed contract")
     if result.grading_status != "complete":
         raise ValueError("Inspector core grading must be complete before a final result is emitted")
     if result.consistency_status not in {
@@ -59,7 +58,7 @@ def validate_result_contract(
                     f"Inspector variable ledger for {section.section_name} does not match its rubric"
                 )
         elif not section.is_present and section.variable_grades:
-            raise ValueError("A missing Inspector section cannot contain variable grades")
+            raise ValueError("A missing Inspector section cannot contain variable assessments")
         # The section mapping is published by the grader, so it is validated here
         # rather than rebuilt from `section_label` a second time.
         if len(section.mapped_block_ids) != len(set(section.mapped_block_ids)):
@@ -83,8 +82,13 @@ def validate_result_contract(
                     f"Inspector variable {variable.variable_name} has an invalid content status"
                 )
             absent = variable.content_status == ABSENT_CONTENT_STATUS
-            for dimension, grade in variable.dimensions.items():
-                cited = grade.cited_block_ids
+            for dimension, assessment in variable.dimensions.items():
+                if assessment.verdict not in DIMENSION_VERDICTS:
+                    raise ValueError(
+                        f"Inspector variable {variable.variable_name} has an invalid "
+                        f"{dimension} verdict"
+                    )
+                cited = assessment.cited_block_ids
                 if len(cited) != len(set(cited)):
                     raise ValueError("Inspector dimension block lineage must be unique")
                 if any(block_id not in allowed_section_blocks for block_id in cited):

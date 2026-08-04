@@ -98,14 +98,21 @@ evidence. Those comparison targets are not interchangeable.
 
 ### Inspector
 
-- Completeness, adherence, and rigor are independent LLM judgments. Grades are
-  `A`–`F` plus `N/A`.
+- Completeness, adherence, and rigor are independent LLM judgments. Each returns
+  one verdict: `critical`, `for_consideration`, `meets`, or `not_applicable`.
+- Severity is stated, never computed from a scale. There is no letter grade, no
+  score, and no averaging: a letter asserted that the step from `A` to `B` equals
+  the step from `D` to `F`, and that a section's quality is the mean of its
+  variables. Neither is defensible, so a section and the document publish gap
+  counts derived from the verdicts beneath them. `critical` means the rubric
+  requires the content and the document does not usably supply it.
 - Completeness owns whether rubric content is present, missing, or not
   applicable. Present content must retain exact section-block lineage; absent
   content must never require an invented citation. Adherence and rigor merge
   only after that presence decision is known.
-- Variable → section → document rollups are deterministic. The authored rubric
-  is the denominator; model omissions cannot improve a grade.
+- Roll-ups count; they do not average. The authored rubric is the denominator, so
+  model omissions cannot reduce a gap count. An authored section weight ranks the
+  issue list, which is the one place that weight still applies.
 - The document-wide pass reports only cross-section conflicts with exact block
   lineage and an explicit completion status.
 - Inspector evaluates document quality. It does not assign program risk,
@@ -269,7 +276,7 @@ evidence. Those comparison targets are not interchangeable.
 - Browser multipart uploads go directly to FastAPI. Keep all secrets server-side.
 - Bespoke identity icons live in `web/public/icons/pdis/` and are mapped through
   `web/components/ui/pdis-icon.tsx`; use Lucide for generic actions.
-- A negative *result* — a failing grade, a contradiction, an unfavorable
+- A negative *result* — a critical gap, a contradiction, an unfavorable
   precedent — uses `--tone-danger`. `--destructive` is reserved for a system
   error. They are different claims and must not be interchanged.
 - Motion durations, easings, and reduced-motion opt-outs come from the tokens in

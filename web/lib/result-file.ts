@@ -1,7 +1,7 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 39 as const;
+const RESULT_VERSION = 40 as const;
 
 type ResultType = "aligner" | "inspector" | "scout";
 

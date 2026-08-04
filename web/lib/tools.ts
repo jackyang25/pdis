@@ -51,7 +51,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/inspector",
     title: "Inspector",
     description:
-      "Grade one document against its authored rubric: what is missing, off-template, vague, or internally inconsistent.",
+      "Check one document against its authored rubric: what is missing, off-template, vague, or internally inconsistent.",
     capability: "Document review",
     activity: "3–5 min",
     icon: "inspector",

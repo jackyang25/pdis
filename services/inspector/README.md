@@ -22,12 +22,16 @@ serializers from `services.inspector`.
 | Direction | Value |
 |---|---|
 | Input | One document or `ContentBlock` list, `InspectionConfig`, indication, and an injected model client |
-| Output | Variable, section, and document grades plus cited cross-section conflicts |
+| Output | Per-variable dimension verdicts, section and document gap counts, plus cited cross-section conflicts |
 
-Completeness, adherence, and rigor are independent judgments. Grades are `A`
-through `F` or `N/A`. The configured rubric owns the variable ledger; model
-omissions cannot shrink its denominator. Deterministic code calculates rollups,
-and a separate consistency pass reports only cross-section conflicts.
+Completeness, adherence, and rigor are independent judgments. Each returns one
+verdict: `critical`, `for_consideration`, `meets`, or `not_applicable`. There is
+no letter grade and no overall score, because a letter implied an even scale and
+that a section's quality was the mean of its variables. A section and the
+document publish gap counts instead, derived from the verdicts beneath them.
+
+The configured rubric owns the variable ledger; model omissions cannot shrink its
+denominator. A separate consistency pass reports only cross-section conflicts.
 
 Completeness is authoritative for presence. Substantive, partial, or placeholder
 content must cite an exact mapped section block; missing or non-applicable
@@ -35,10 +39,13 @@ content does not invent lineage. Adherence and rigor are merged only after that
 presence decision is established.
 
 Section labels and dimension decisions use schema-bound model outputs. Large
-rubric sections are graded in bounded variable batches that retain the complete
+rubric sections are assessed in bounded variable batches that retain the complete
 mapped section context. Deterministic validation checks rubric coverage and
-block lineage; it does not reinterpret prose. A failed core grading batch stops
-the run, so incomplete model output cannot become a downloadable final report.
+block lineage; it does not reinterpret prose. A failed core batch stops the run,
+so incomplete model output cannot become a downloadable final report.
+
+An authored section weight ranks the issue list. It is the one place the rubric
+author's sense of what matters most still applies, now that nothing is averaged.
 
 ## Development
 

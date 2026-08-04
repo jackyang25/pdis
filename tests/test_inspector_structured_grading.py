@@ -49,7 +49,7 @@ class _StructuredClient:
             value = {
                 "variable_name": name,
                 "block_ids": [] if missing else ["document:b1"],
-                "grade": "N/A" if missing else "A",
+                "verdict": "not_applicable" if missing else "meets",
                 "issues": [],
                 "recommendation": "",
             }
@@ -70,7 +70,7 @@ class _AbsentVariableClient:
     def call_structured(self, _system, _message, *_args, schema, schema_name, **_kwargs):
         item = schema["properties"]["variable_grades"]["items"]
         names = item["properties"]["variable_name"]["enum"]
-        completeness = schema_name == "inspector_completeness_grade"
+        completeness = schema_name == "inspector_completeness_verdict"
         grades = []
         for name in names:
             missing = name == "Safety"
@@ -78,7 +78,7 @@ class _AbsentVariableClient:
                 "variable_name": name,
                 "block_ids": [] if missing else ["document:b1"],
                 # Adherence may penalize absence before completeness establishes it.
-                "grade": "F" if missing else "A",
+                "verdict": "critical" if missing else "meets",
                 "issues": [],
                 "recommendation": "",
             }
@@ -131,9 +131,9 @@ class InspectorStructuredGradingTests(unittest.TestCase):
         )
         self.assertEqual(result.missing_variables, ["Safety"])
         safety = result.variable_grades[1]
-        self.assertEqual(safety.dimensions["completeness"].grade, "F")
-        self.assertEqual(safety.dimensions["adherence"].grade, "F")
-        self.assertEqual(safety.dimensions["rigor"].grade, "N/A")
+        self.assertEqual(safety.dimensions["completeness"].verdict, "critical")
+        self.assertEqual(safety.dimensions["adherence"].verdict, "critical")
+        self.assertEqual(safety.dimensions["rigor"].verdict, "not_applicable")
 
     def test_absent_variable_does_not_require_impossible_adherence_lineage(self) -> None:
         result = _grade_section(
@@ -149,9 +149,9 @@ class InspectorStructuredGradingTests(unittest.TestCase):
         self.assertEqual(safety.cited_block_ids, [])
         for dimension in ("completeness", "adherence", "rigor"):
             self.assertEqual(safety.dimensions[dimension].cited_block_ids, [])
-        self.assertEqual(safety.dimensions["completeness"].grade, "F")
-        self.assertEqual(safety.dimensions["adherence"].grade, "F")
-        self.assertEqual(safety.dimensions["rigor"].grade, "N/A")
+        self.assertEqual(safety.dimensions["completeness"].verdict, "critical")
+        self.assertEqual(safety.dimensions["adherence"].verdict, "critical")
+        self.assertEqual(safety.dimensions["rigor"].verdict, "not_applicable")
 
     def test_failed_core_batch_raises_instead_of_emitting_na_fallbacks(self) -> None:
         with self.assertRaisesRegex(ValueError, "could not complete completeness grading"):

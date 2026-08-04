@@ -12,11 +12,15 @@ import type { DimensionName } from "@/lib/api";
  * shared with Scout through `ui/signal-help`.
  *
  * The three dimensions are deliberately independent, and the most common
- * misreading is treating a low grade on one as a low grade overall - so each
- * entry says what its dimension does *not* judge.
+ * misreading is treating a gap on one as a gap overall - so each entry says what
+ * its dimension does *not* judge.
  */
 
-export type InspectorSignalTopic = DimensionName | "presence" | "consistency";
+export type InspectorSignalTopic =
+  | DimensionName
+  | "presence"
+  | "severity"
+  | "consistency";
 
 const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
   completeness: {
@@ -47,6 +51,12 @@ const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
     detail:
       "Not present means nothing is there, so it cites no passage. Placeholder means a token such as <<TBD>> is sitting where the value belongs. Partially filled means some of it is stated. These need different fixes, which is why they are labelled apart.",
   },
+  severity: {
+    title: "Severity",
+    summary: "How much a gap matters: Critical, or For consideration.",
+    detail:
+      "Critical means the rubric requires the content and the document does not usably supply it — missing, a placeholder, or contradicting the rubric. For consideration means it is stated and usable but could be stronger. There is no letter grade and no overall score: a document shows how many gaps of each severity were found, and every count opens to the rows behind it.",
+  },
   consistency: {
     promptRef: { tool: "inspector", stage: "consistency" },
     title: "Cross-section consistency",
@@ -56,22 +66,8 @@ const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
   },
 };
 
-/**
- * Grades are one scale across all three dimensions, so they are explained once
- * rather than repeated per column.
- */
-const GRADE_TOPIC: SignalTopic = {
-  title: "Grades",
-  summary: "A to F on each dimension, plus N/A when the rubric does not apply.",
-  detail:
-    "A section grade averages its variables and a document grade weights its sections by the rubric's own weights, so the three document letters are roll-ups, never a single overall score. There is deliberately no combined grade.",
-};
-
 /** Publication order, shared by the tooltips and the documentation panel. */
-export const INSPECTOR_TOPIC_LIST: readonly SignalTopic[] = [
-  ...Object.values(TOPICS),
-  GRADE_TOPIC,
-];
+export const INSPECTOR_TOPIC_LIST: readonly SignalTopic[] = Object.values(TOPICS);
 
 export function InspectorSignalLabel({
   topic,
@@ -92,9 +88,9 @@ export function InspectorSignalLabel({
 export function InspectorSignalHelp() {
   return (
     <SignalHelp
-      title="How to read Inspector grades"
+      title="How to read Inspector findings"
       intro="The three dimensions answer different questions about the same content and are never combined into one score."
-      topics={[...Object.values(TOPICS), GRADE_TOPIC]}
+      topics={[...INSPECTOR_TOPIC_LIST]}
     />
   );
 }

@@ -28,7 +28,16 @@ class LLMClientProtocol(Protocol):
         ...
 
 
-Grade = Literal["A", "B", "C", "D", "F", "N/A"]
+DimensionVerdict = Literal["critical", "for_consideration", "meets", "not_applicable"]
+"""What one dimension concluded about one rubric variable.
+
+This replaced a letter grade. A letter carried two claims Inspector cannot
+support: that the step from A to B is the same size as the step from D to F, and
+that a section's quality is the mean of its variables. Both were arithmetic on a
+subjective label. A verdict states only what the model can defend — whether there
+is a gap, and whether it must be addressed.
+"""
+
 Dimension = Literal["completeness", "adherence", "rigor"]
 ConsistencyStatus = Literal["complete", "partial", "failed", "not_applicable", "unknown"]
 GradingStatus = Literal["complete", "unknown"]
@@ -55,77 +64,78 @@ PRESENT_CONTENT_STATUSES: frozenset[str] = frozenset(
 )
 """Content the document does contain, so it must carry exact block lineage."""
 
-VALID_GRADES: frozenset[str] = frozenset(("A", "B", "C", "D", "F", "N/A"))
-
-# --- The grading scale -------------------------------------------------------
-# One scale, one converter. Section rollups and the document rollup previously
-# each carried their own copy of both, so changing the scale in one place moved
-# only half the report card.
-
-GRADE_TO_SCORE: dict[str, float] = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
-
-_GRADE_FLOOR: tuple[tuple[float, Grade], ...] = (
-    (3.5, "A"),
-    (2.5, "B"),
-    (1.5, "C"),
-    (0.5, "D"),
+DIMENSION_VERDICTS: frozenset[str] = frozenset(
+    ("critical", "for_consideration", "meets", "not_applicable")
 )
 
+GAP_VERDICTS: frozenset[str] = frozenset(("critical", "for_consideration"))
+"""The verdicts that assert a gap, so a roll-up can count them.
 
-def score_to_grade(score: float | None) -> Grade:
-    """Convert an averaged score back to a letter. ``None`` means nothing applied."""
-    if score is None:
-        return "N/A"
-    for floor, grade in _GRADE_FLOOR:
-        if score >= floor:
-            return grade
-    return "F"
+`critical` is defensible from the record rather than felt: the rubric requires
+the content and the document does not usably supply it. `for_consideration` is
+present and usable but could be stronger. There is no third severity, because a
+reader who must rank five levels is being asked to do the judging.
+"""
 
+NON_GAP_VERDICT = "meets"
+"""No gap on this dimension."""
 
-def average_score(grades: list[Grade]) -> float | None:
-    """Mean of the gradable letters, or ``None`` when every child was ``N/A``."""
-    scores = [GRADE_TO_SCORE[grade] for grade in grades if grade in GRADE_TO_SCORE]
-    return sum(scores) / len(scores) if scores else None
+INAPPLICABLE_VERDICT = "not_applicable"
+"""The rubric does not ask this dimension of this variable."""
 
 
 @dataclass
-class DimensionGrade:
-    """A grade along one of three orthogonal axes.
+class DimensionAssessment:
+    """One of three orthogonal axes, assessed for one rubric variable.
 
     - completeness: are all required variables present/filled in?
     - adherence:    does the draft follow the rubric's structural expectations?
     - rigor:        is the content substantively sound - specific, measurable,
                     and meaningful (not just present and well-formatted)?
 
-    Same shape at every level (variable, section, document). The LLM
-    produces these at the variable level; section and document grades
-    are mechanical roll-ups.
+    Produced by the model at the variable level, and directly for a section that
+    has no variables. A section or document does not carry an assessment of its
+    own: it carries the count of the gaps beneath it, because averaging verdicts
+    would invent a middle value no dimension ever returned.
     """
 
-    grade: Grade
+    verdict: DimensionVerdict
     issues: list[str] = field(default_factory=list)
     recommendation: str = ""
     cited_block_ids: list[str] = field(default_factory=list)
     """Blocks *this* judgment cited.
 
-    Each dimension is graded independently and cites independently, so the
+    Each dimension is assessed independently and cites independently, so the
     lineage belongs to the dimension. Merging the three into one list per
-    variable made the grades orthogonal and their provenance shared, which let a
-    consumer attribute a completeness verdict to a block only rigor had read.
-    Empty at rolled-up levels: a section grade is arithmetic, not a citation.
+    variable made the verdicts orthogonal and their provenance shared, which let
+    a consumer attribute a completeness verdict to a block only rigor had read.
     """
 
+    def __post_init__(self) -> None:
+        if self.verdict not in DIMENSION_VERDICTS:
+            raise ValueError(f"invalid dimension verdict: {self.verdict!r}")
 
-def _empty_dimensions() -> dict[str, DimensionGrade]:
-    return {d: DimensionGrade(grade="N/A") for d in DIMENSIONS}
+    @property
+    def is_gap(self) -> bool:
+        return self.verdict in GAP_VERDICTS
+
+
+def _empty_dimensions() -> dict[str, DimensionAssessment]:
+    return {d: DimensionAssessment(verdict=INAPPLICABLE_VERDICT) for d in DIMENSIONS}
+
+
+def _empty_gap_counts() -> dict[str, int]:
+    return {verdict: 0 for verdict in sorted(GAP_VERDICTS)}
 
 
 @dataclass
 class VariableGrade:
-    """Atomic graded unit: one rubric variable, three dimension grades."""
+    """Atomic assessed unit: one rubric variable, three dimension verdicts."""
 
     variable_name: str
-    dimensions: dict[str, DimensionGrade] = field(default_factory=_empty_dimensions)
+    dimensions: dict[str, DimensionAssessment] = field(
+        default_factory=_empty_dimensions
+    )
     content_status: ContentStatus = "not_applicable"
     """How much of this variable the document supplies.
 
@@ -145,10 +155,10 @@ class VariableGrade:
         """
         seen: list[str] = []
         for dimension in DIMENSIONS:
-            grade = self.dimensions.get(dimension)
-            if grade is None:
+            assessment = self.dimensions.get(dimension)
+            if assessment is None:
                 continue
-            for block_id in grade.cited_block_ids:
+            for block_id in assessment.cited_block_ids:
                 if block_id not in seen:
                     seen.append(block_id)
         return seen
@@ -156,12 +166,18 @@ class VariableGrade:
 
 @dataclass
 class SectionGrade:
-    """One rubric section. Dimension grades are rolled up from variables
-    (variable-bearing sections) or graded directly by the LLM (prose sections)."""
+    """One rubric section.
+
+    Variables carry the verdicts when the section has them; a prose section is
+    assessed directly. Either way the section itself publishes gap counts rather
+    than a verdict of its own.
+    """
 
     section_name: str
     is_present: bool = True
-    dimensions: dict[str, DimensionGrade] = field(default_factory=_empty_dimensions)
+    dimensions: dict[str, DimensionAssessment] = field(
+        default_factory=_empty_dimensions
+    )
     variable_grades: list[VariableGrade] = field(default_factory=list)
     mapped_block_ids: list[str] = field(default_factory=list)
     """Blocks the section mapper assigned to this section, in document order.
@@ -186,6 +202,37 @@ class SectionGrade:
             if variable.content_status == ABSENT_CONTENT_STATUS
         ]
 
+    @property
+    def gap_counts(self) -> dict[str, int]:
+        """Gaps found in this section, counted by severity.
+
+        A count replaced an averaged letter. Averaging assumed the steps between
+        letters were equal and that a section's quality was the mean of its
+        parts; a count asserts only what was actually found, and a reader can
+        verify it by counting the same rows.
+
+        A section the document never wrote is one critical gap. Its dimensions
+        assessed nothing, so counting them would report zero problems for the
+        most serious problem there is.
+        """
+        counts = _empty_gap_counts()
+        if not self.is_present:
+            counts["critical"] = 1
+            return counts
+        assessed = (
+            [
+                assessment
+                for variable in self.variable_grades
+                for assessment in variable.dimensions.values()
+            ]
+            if self.variable_grades
+            else list(self.dimensions.values())
+        )
+        for assessment in assessed:
+            if assessment.is_gap:
+                counts[assessment.verdict] += 1
+        return counts
+
 
 @dataclass
 class TopIssue:
@@ -196,6 +243,10 @@ class TopIssue:
     Every consumer that wanted to link an issue to its block, filter by
     dimension, or re-sort by severity had to take that sentence back apart, so
     the parts are published and the sentence is the reader's to compose.
+
+    Severity is the dimension's own verdict. It used to be a letter that a
+    lookup table then converted into a rank, so the ordering a reader saw was
+    one step removed from anything the model said.
     """
 
     section_name: str
@@ -203,7 +254,7 @@ class TopIssue:
     dimension: Dimension | None = None
     """Absent only for a whole section that is not present at all."""
     variable_name: str | None = None
-    grade: Grade = "N/A"
+    severity: DimensionVerdict = INAPPLICABLE_VERDICT
     content_status: ContentStatus | None = None
     recommendation: str = ""
     cited_block_ids: list[str] = field(default_factory=list)
@@ -214,9 +265,9 @@ class CrossSectionFinding:
     """A consistency problem that spans MORE THAN ONE section.
 
     Produced by the whole-document consistency pass - the one place that sees
-    all sections at once. Per-section grading cannot catch these by design
-    (sections are graded in isolation), so this is doc-level, not attached to
-    any single section's dimension grade.
+    all sections at once. Per-section assessment cannot catch these by design
+    (sections are assessed in isolation), so this is doc-level, not attached to
+    any single section's dimension verdict.
     """
 
     description: str
@@ -227,10 +278,9 @@ class CrossSectionFinding:
 
 @dataclass
 class InspectionResult:
-    """Full report card. Document-level dimensions are rolled up from sections."""
+    """Full report. Document level counts the gaps its sections found."""
 
     doc_id: str
-    dimensions: dict[str, DimensionGrade] = field(default_factory=_empty_dimensions)
     top_issues: list[TopIssue] = field(default_factory=list)
     section_grades: list[SectionGrade] = field(default_factory=list)
     cross_section_findings: list[CrossSectionFinding] = field(default_factory=list)
@@ -245,8 +295,17 @@ class InspectionResult:
 
     # The parsed source document (ordered, citable blocks). Carried so downstream
     # consumers (e.g. the Ask assistant) can read the full document behind the
-    # grades. Not used by the grading itself.
+    # findings. Not used by the assessment itself.
     blocks: list["ContentBlock"] = field(default_factory=list)
+
+    @property
+    def gap_counts(self) -> dict[str, int]:
+        """Every section's gaps, summed by severity."""
+        totals = _empty_gap_counts()
+        for section in self.section_grades:
+            for verdict, count in section.gap_counts.items():
+                totals[verdict] += count
+        return totals
 
 
 @dataclass
@@ -428,8 +487,17 @@ def load_inspection_config(path: str) -> InspectionConfig:
 
 
 def inspection_result_to_dict(result: InspectionResult) -> dict[str, Any]:
-    """Convert an InspectionResult to JSON-serializable dictionaries."""
-    return asdict(result)
+    """Convert an InspectionResult to JSON-serializable dictionaries.
+
+    Gap counts are derived, so `asdict` cannot see them. They are published
+    anyway: a client that counted for itself could disagree with the report, and
+    the count is the only summary the document now has.
+    """
+    payload = asdict(result)
+    payload["gap_counts"] = result.gap_counts
+    for section, section_payload in zip(result.section_grades, payload["section_grades"]):
+        section_payload["gap_counts"] = section.gap_counts
+    return payload
 
 
 def _validate_string_field(data: dict[str, Any], field_name: str) -> None:

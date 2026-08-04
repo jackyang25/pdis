@@ -35,7 +35,21 @@ export type ContentBlock = {
 };
 
 export type DimensionName = "completeness" | "adherence" | "rigor";
-export type Grade = "A" | "B" | "C" | "D" | "F" | "N/A";
+/**
+ * What one dimension concluded about one rubric variable.
+ *
+ * Mirrors `DimensionVerdict` in `services/inspector/models.py`. It replaced a
+ * letter grade, which implied both an even scale and that a section's quality
+ * was the mean of its parts.
+ */
+export type DimensionVerdict =
+  | "critical"
+  | "for_consideration"
+  | "meets"
+  | "not_applicable";
+
+/** Gaps counted by severity. Derived server-side so a client cannot disagree. */
+export type GapCounts = Record<"critical" | "for_consideration", number>;
 
 /** How much of a rubric variable the document supplies. */
 export type ContentStatus =
@@ -45,15 +59,15 @@ export type ContentStatus =
   | "missing"
   | "not_applicable";
 
-export type DimensionGrade = {
-  grade: Grade;
+export type DimensionAssessment = {
+  verdict: DimensionVerdict;
   issues: string[];
   recommendation: string;
   /** Blocks *this* judgment cited. Each dimension cites independently. */
   cited_block_ids: string[];
 };
 
-export type Dimensions = Record<DimensionName, DimensionGrade>;
+export type Dimensions = Record<DimensionName, DimensionAssessment>;
 
 export type VariableGrade = {
   variable_name: string;
@@ -69,6 +83,8 @@ export type SectionGrade = {
   variable_grades: VariableGrade[];
   /** Deterministic section assignment in document order, not a citation. */
   mapped_block_ids: string[];
+  /** Gaps beneath this section, by severity. */
+  gap_counts: GapCounts;
 };
 
 /** One ranked document-level issue, kept as parts rather than a sentence. */
@@ -77,7 +93,7 @@ export type TopIssue = {
   issue: string;
   dimension: DimensionName | null;
   variable_name: string | null;
-  grade: Grade;
+  severity: DimensionVerdict;
   content_status: ContentStatus | null;
   recommendation: string;
   cited_block_ids: string[];
@@ -92,7 +108,6 @@ export type CrossSectionFinding = {
 
 export type InspectionResult = {
   doc_id: string;
-  dimensions: Dimensions;
   top_issues: TopIssue[];
   section_grades: SectionGrade[];
   cross_section_findings: CrossSectionFinding[];
@@ -102,19 +117,28 @@ export type InspectionResult = {
   source_type: string | null;
   intervention_class: string | null;
   indication: string | null;
-  // The parsed source document behind the grades (for the Ask assistant).
+  /** Every section's gaps, summed. There is no document-level verdict. */
+  gap_counts: GapCounts;
+  // The parsed source document behind the findings (for the Ask assistant).
   blocks: ContentBlock[];
 };
 
 export const DIMENSION_NAMES: DimensionName[] = ["completeness", "adherence", "rigor"];
 
-export const GRADE_LABELS: Record<string, string> = {
-  A: "Fully meets expectations",
-  B: "Substantially meets expectations",
-  C: "Partially meets expectations",
-  D: "Significant gaps",
-  F: "Does not meet expectations",
-  "N/A": "Not applicable",
+/** What each verdict means, in the reader's words. */
+export const VERDICT_LABELS: Record<DimensionVerdict, string> = {
+  critical: "Critical — must be addressed",
+  for_consideration: "For consideration",
+  meets: "Meets the rubric",
+  not_applicable: "Not applicable",
+};
+
+/** The same verdicts where only a few characters fit. */
+export const VERDICT_BADGES: Record<DimensionVerdict, string> = {
+  critical: "Critical",
+  for_consideration: "Consider",
+  meets: "Meets",
+  not_applicable: "N/A",
 };
 
 export type InspectorResponse = {

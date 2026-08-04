@@ -29,11 +29,6 @@ const block: ContentBlock = {
 const inspection: InspectorResponse = {
   inspection: {
     doc_id: "doc",
-    dimensions: {
-      completeness: { grade: "A", issues: [], recommendation: "", cited_block_ids: [] },
-      adherence: { grade: "A", issues: [], recommendation: "", cited_block_ids: [] },
-      rigor: { grade: "A", issues: [], recommendation: "", cited_block_ids: [] },
-    },
     top_issues: [],
     section_grades: [],
     cross_section_findings: [],
@@ -43,6 +38,7 @@ const inspection: InspectorResponse = {
     source_type: "itpp",
     intervention_class: "vaccine",
     indication: "malaria",
+    gap_counts: { critical: 0, for_consideration: 0 },
     blocks: [block],
   },
 };
@@ -142,10 +138,9 @@ const scout: ScoutResponse = {
 
 test("current Inspector results round-trip exactly", () => {
   const packed = packInspectorResult(inspection);
-  // Bumped to 39 when Inspector began publishing per-dimension lineage,
-  // `content_status`, section mapping, and structured top issues. Imports accept
-  // only the current envelope, so earlier downloads must be re-run.
-  assert.equal(packed.version, 39);
+  // Bumped to 40 when Inspector replaced letter grades with gap severities.
+  // Imports accept only the current envelope, so earlier downloads must be re-run.
+  assert.equal(packed.version, 40);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("blocks" in packed.analysis.inspection, false);
@@ -201,7 +196,7 @@ test("imports require the current final envelope", () => {
   assert.throws(() => unpackScoutResult(missingState), /current, final scout result/);
 
   const oldVersion = structuredClone(packScoutResult(scout)) as any;
-  oldVersion.version = 37;
+  oldVersion.version = 39;
   assert.throws(() => unpackScoutResult(oldVersion), /current, final scout result/);
 
   assert.throws(() => unpackScoutResult(scout), /current, final scout result/);

@@ -35,7 +35,8 @@ This replaced a letter grade. A letter carried two claims Inspector cannot
 support: that the step from A to B is the same size as the step from D to F, and
 that a section's quality is the mean of its variables. Both were arithmetic on a
 subjective label. A verdict states only what the model can defend — whether there
-is a gap, and whether it must be addressed.
+is a gap, and whether the content is unusable as written or merely improvable.
+Neither verdict directs the author; both describe the document.
 """
 
 Dimension = Literal["completeness", "adherence", "rigor"]

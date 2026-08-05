@@ -28,7 +28,7 @@ const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
     title: "Completeness",
     summary: "Is the content the rubric asks for actually in the document?",
     detail:
-      "Judges presence only. A target can be fully present and still score badly on rigor for being vague, so a high completeness grade is not a statement about quality.",
+      "Judges presence only. A target can be fully present and still be a critical rigor gap for being vague, so meeting completeness is not a statement about quality.",
   },
   adherence: {
     promptRef: { tool: "inspector", stage: "adherence" },
@@ -62,7 +62,7 @@ const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
     title: "Cross-section consistency",
     summary: "Do two different sections state claims that cannot both hold?",
     detail:
-      "Only conflicts spanning more than one section appear here — a problem inside a single section is graded by the three dimensions instead. This check compares your document with itself; it never consults outside evidence.",
+      "Only conflicts spanning more than one section appear here — a problem inside a single section is judged by the three dimensions instead. This check compares your document with itself; it never consults outside evidence.",
   },
 };
 

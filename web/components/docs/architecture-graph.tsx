@@ -283,6 +283,11 @@ export function ArchitectureGraphs({
   );
   const selectedNode = layout.nodes.find((node) => node.id === selectedId)?.data ?? layout.nodes[0]?.data;
   const displayedNodes = layout.nodes.map((node) => ({ ...node, selected: node.id === selectedNode?.id }));
+  // Expanding replaces a node with its children, so the node that was clicked
+  // is no longer on the canvas to anchor the change. The canvas states it.
+  const expandedNode = expandedNodeId
+    ? graph?.nodes.find((node) => node.id === expandedNodeId)
+    : undefined;
 
   useEffect(() => {
     if (!layout.nodes.some((node) => node.id === selectedId)) {
@@ -364,8 +369,27 @@ export function ArchitectureGraphs({
             if (id) setSelectedId(id);
           }}
         >
+          {expandedNode ? (
+            <div className="absolute left-3 top-3 z-10 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setExpandedNodeId(null)}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card/95 px-2.5 text-[10px] font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+              >
+                <RotateCcw className="h-3 w-3" aria-hidden="true" />
+                Overview
+              </button>
+              <ChevronRight className="h-3 w-3 text-muted-foreground/60" aria-hidden="true" />
+              <span className="inline-flex h-7 max-w-[14rem] items-center rounded-md border border-border bg-card/95 px-2.5 text-[10px] font-medium text-foreground shadow-sm">
+                <span className="truncate">{expandedNode.title}</span>
+              </span>
+            </div>
+          ) : null}
+          {/* Keyed on the graph alone. Expanding swaps one node for its children,
+              and remounting on that would discard the canvas and redraw it as a
+              cut, which is what made an expansion read as a different diagram. */}
           <ReactFlow<ArchitectureFlowNode, Edge>
-            key={`${graph.id}:${expandedNodeId ?? "overview"}`}
+            key={graph.id}
             nodes={displayedNodes}
             edges={layout.edges}
             nodeTypes={NODE_TYPES}

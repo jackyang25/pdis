@@ -125,12 +125,19 @@ export type InspectionResult = {
 
 export const DIMENSION_NAMES: DimensionName[] = ["completeness", "adherence", "rigor"];
 
-/** What each verdict means, in the reader's words. */
+/**
+ * What each verdict means, in the reader's words.
+ *
+ * These describe the finding rather than direct the reader: Inspector can say
+ * the rubric asks for something the document does not usably supply, but not
+ * what the author is obliged to do about it. The badge beside each label
+ * already names the severity, so the label explains it instead of repeating it.
+ */
 export const VERDICT_LABELS: Record<DimensionVerdict, string> = {
-  critical: "Critical — must be addressed",
-  for_consideration: "For consideration",
+  critical: "Required by the rubric and not usably supplied",
+  for_consideration: "Stated and usable, but could be stronger",
   meets: "Meets the rubric",
-  not_applicable: "Not applicable",
+  not_applicable: "The rubric does not ask this here",
 };
 
 /** The same verdicts where only a few characters fit. */

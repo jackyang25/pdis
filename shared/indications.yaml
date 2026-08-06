@@ -37,6 +37,13 @@ drug:
   - hiv
   - tb
 
+# A monoclonal antibody is assessed against the drug profile, so it offers the
+# same indications. See services/inspector/configs/bmgf_*_mab.yaml.
+mab:
+  - malaria
+  - hiv
+  - tb
+
 diagnostic:
   - malaria
   - hiv

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronUp, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { ConfigurationFields } from "@/components/configuration-fields";
@@ -16,6 +16,7 @@ import {
   InspectorSignalLabel,
 } from "@/components/inspector-signal-help";
 import { InspectorDocumentTrace } from "@/components/inspector-document-trace";
+import { PriorityPanel } from "@/components/ui/priority-panel";
 import { LabeledItem } from "@/components/labeled-item";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
@@ -44,6 +45,11 @@ import {
   packInspectorResult,
   unpackInspectorResult,
 } from "@/lib/result-file";
+import {
+  INSPECTOR_EMPTY_MESSAGE,
+  INSPECTOR_ORDER_NOTE,
+  selectInspectorPriorities,
+} from "@/lib/inspector-priorities";
 import { useInspectorSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -245,7 +251,7 @@ function InspectionResultView({
             />
           </TabsContent>
           <TabsContent value="sections" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
-            <SectionsList sections={sections} findings={findings} />
+            <SectionsList sections={sections} inspection={inspection} />
           </TabsContent>
           <TabsContent value="consistency" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
             <ConsistencyView
@@ -261,14 +267,20 @@ function InspectionResultView({
 
 function SectionsList({
   sections,
-  findings,
+  inspection,
 }: {
   sections: SectionAssessment[];
-  findings: RubricFinding[];
+  inspection: InspectionResult;
 }) {
   return (
     <div className="space-y-6">
-      <Priorities findings={findings} />
+      <PriorityPanel
+        title="Findings"
+        attribution="in priority order"
+        items={selectInspectorPriorities(inspection)}
+        emptyMessage={INSPECTOR_EMPTY_MESSAGE}
+        orderNote={INSPECTOR_ORDER_NOTE}
+      />
       <div className="space-y-3">
         <SectionHeading
           title="Section assessments"
@@ -279,68 +291,6 @@ function SectionsList({
         ))}
       </div>
     </div>
-  );
-}
-
-/**
- * The document's findings, fenced and collapsible.
- *
- * The order is the one the result assigned: level first, then the sequence the
- * rubric author wrote. Nothing here re-ranks, and there is no authored weight to
- * apply - it ranked this one list, nobody calibrated it, and it sat in eleven
- * configs.
- */
-function Priorities({ findings }: { findings: RubricFinding[] }) {
-  const [open, setOpen] = useState(true);
-  return (
-    <section className="rounded-lg border border-border">
-      <div className="flex flex-wrap items-center gap-3 px-5 py-[14px] sm:px-6">
-        <p className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-          <Sparkles className="h-4 w-4 shrink-0 text-foreground" aria-hidden />
-          <span className="font-semibold text-foreground">Findings</span>
-          <span className="text-muted-foreground">
-            {findings.length} in priority order
-          </span>
-        </p>
-        <button
-          type="button"
-          onClick={() => setOpen((current) => !current)}
-          aria-expanded={open}
-          aria-label={open ? "Hide findings" : "Show findings"}
-          className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
-        >
-          <ChevronUp
-            className={cn(
-              "h-4 w-4 transition-transform duration-base motion-reduce:transition-none",
-              !open && "rotate-180",
-            )}
-          />
-        </button>
-      </div>
-      {open && (
-        <div className="border-t border-border px-5 py-4 sm:px-6">
-          {findings.length > 0 ? (
-            <ul className="space-y-3">
-              {findings.map((finding) => (
-                <li key={finding.id} className="flex gap-2.5 text-sm leading-6">
-                  <span aria-hidden className="select-none text-muted-foreground">•</span>
-                  <FindingBody finding={finding} />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Every unit the rubric requires is met, and no section conflicts with another.
-            </p>
-          )}
-          <p className="mt-4 border-t border-border pt-2.5 text-xs leading-5 text-muted-foreground">
-            Wording is Inspector&apos;s. The order is not: findings are sorted by level,
-            then by the order the rubric author wrote. Each one also appears in its own
-            section below.
-          </p>
-        </div>
-      )}
-    </section>
   );
 }
 

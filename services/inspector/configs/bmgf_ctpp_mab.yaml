@@ -1,0 +1,104 @@
+type_key: bmgf_ctpp_mab
+org: bmgf
+source_type: ctpp
+intervention_class: mab
+display_name: "Monoclonal Antibody Candidate TPP"
+# What this rubric's structure comes from. Nothing here can verify it:
+# it names which source to re-check when that source moves. Everything the
+# source does not contain is maintained here — see services/inspector/README.md.
+mirrors: >-
+  PDID Reference Library — drug candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention. The library publishes no monoclonal antibody template, so a monoclonal is assessed against the drug profile with its units unchanged; only the stage guidance names the modality.
+stage_guidance: |
+  This is a CANDIDATE TPP (CTPP): a profile of a specific candidate. Calibrate ALL judgments to candidate-stage maturity. Expect concrete, measured values - numeric targets with units, named formulations, and defined schedules. Vague qualitative targets, unspecified ranges, or placeholders fall short at this stage. Hold the document to the standard of a product-specific specification.
+
+  This profile describes a MONOCLONAL ANTIBODY. It is assessed against the drug profile because the PDID Reference Library publishes no monoclonal template, and the drug template's units cover a monoclonal's development questions. Read the units accordingly: protection is pharmacokinetic rather than immunological, so duration and dosing are matters of half-life and administration interval rather than immune memory, and a prophylactic monoclonal is given to healthy people. Do not fault the document for omitting anything this rubric does not ask.
+
+sections:
+  - name: "Introduction"
+    description: "Background on what TPPs are and how they're used. Sets context for the document."
+
+  - name: "Instructions for Use"
+    description: "Guidance on completing the template, including Minimum vs. Optimistic framing and version conventions."
+
+  - name: "Summary: Intervention Use Case"
+    description: "Problem definition, target user group, intended use case, barriers, medical need, critical assumptions."
+    variables:
+      - name: "Problem Definition"
+        description: "What is the problem you’re trying to solve?"
+      - name: "Target User Group"
+        description: "Who do you envision as your primary users – providers, front line health
+          workers, caregivers, etc."
+      - name: "Intended Use Case Scenario"
+        description: "Describe the envisioned scenario(s) and the critical assumptions in which this
+          product will be accessed/used."
+      - name: "Barriers"
+        description: "Describe potential barriers to access, understanding value, intent to use, and
+          maintenance over time."
+      - name: "Medical Need"
+        description: "Brief description of the medical need and differentiation strategy from
+          existing or projected future interventions i.e."
+      - name: "Critical Assumptions"
+        description: "Highlight the critical assumptions used to develop the TPP."
+
+  - name: "Executive Summary (Core Variables)"
+    description: "Main TPP table with Variable / Minimum / Optimistic / Annotations columns. Each variable should have both Minimum and Optimistic targets, with annotations citing source data or rationale."
+    variables:
+      - name: "Indication"
+        description: "The disease or condition the drug is intended to treat. Should be specific and aligned with regulatory language."
+      - name: "Product"
+        description: "Drug name and mechanism of action (Candidate TPP only)."
+      - name: "Target Population"
+        description: "Demographic and clinical characteristics of patients. Specify age range, geography, disease stage, and any risk factors."
+      - name: "Target Countries"
+        description: "Geographic markets and tiers (LMIC focus). Should reference WHO regions or specific country lists with rationale."
+      - name: "Efficacy"
+        description: "Primary efficacy endpoints and target levels. Quantitative target like 'at least X% reduction in mortality at Y months.' Should reference comparable interventions."
+      - name: "Safety"
+        description: "Primary safety endpoints and target levels. Quantitative target with acceptable adverse event rates. Reference WHO/regulatory benchmarks."
+      - name: "Formulation Dosage and Administration"
+        description: "Target formulation, route of administration, dose strengths, and regimen. Specify rationale and reference supporting data."
+      - name: "Stability / Shelf Life"
+        description: "Target duration of stability and storage conditions. Quantitative target like 'X months at 2-8 C, Y months at 25 C.' Specify cold chain tolerance."
+      - name: "Product Presentation"
+        description: "How the product is presented (tablet, vial, etc.). Address registration requirements and access considerations."
+      - name: "Product Registration Pathway(s)"
+        description: "Regulatory pathway: country focus, intended path (Fast to POC, Launch, Experimental), anticipated challenges."
+      - name: "WHO Prequalification Date"
+        description: "Target year/timeframe for WHO PQ. Quantitative timeframe."
+      - name: "National Policy Recommendation Needs"
+        description: "Targeted policy requirements and timeframe based on focus countries."
+      - name: "Primary Target Delivery Channel"
+        description: "Intended delivery channels - direct to consumer, health care facility, public/private funding, campaign mode."
+      - name: "Target Affordable Pricing / Procurement"
+        description: "Fixed costs and country for manufacturing. Pricing rationale and regulatory considerations."
+      - name: "COGS"
+        description: "Target cost of goods. Quantitative target like 'less than $X per dose.' Should include rationale and source data."
+
+  - name: "Additional Variables of Interest"
+    description: "Secondary variables in same min/optimistic/annotations format. Variables not relevant to every TPP."
+    # The description above is the rubric's own: absence here is not a shortfall.
+    optional: true
+    variables:
+      - name: "Special Populations"
+        description: "Considerations for pregnancy, immunocompromised, elderly, pediatric subgroups."
+      - name: "Population/Segment unlikely to be treated (i.e. DDI)"
+        description: "Patient populations or segments unlikely to be treated, including drug-drug interactions and contraindications (renal/hepatic dysfunction)."
+      - name: "Treatment adherence risks"
+        description: "Minimally acceptable and optimistic treatment adherence risks. How adherence affects safety and efficacy."
+      - name: "Is companion diagnostic needed for use?"
+        description: "Whether use is conditional on a companion diagnostic test or follow-up testing."
+      - name: "Target Procurement Price"
+        description: "Target wholesale price for procurement (Gavi, UNICEF, country governments). Quantitative."
+      - name: "Total Per Patient Costs (Delivered)"
+        description: "Full cost including delivery, cold chain, administration, and treatment regimen. Quantitative."
+      - name: "Expected Financing Source"
+        description: "Expected financing - subsidized, consumer-paid, donor-funded, government-funded. Cost sharing across country income categories."
+      - name: "Clinical Endpoint for Licensure"
+        description: "Primary endpoint required for regulatory approval. Specify the measure and target."
+      - name: "User Benefits"
+        description: "Benefits the product offers the primary user and key stakeholders."
+      - name: "User Barriers"
+        description: "Barriers preventing the primary user, influencers, and stakeholders from adopting the product."
+
+  - name: "Change Management"
+    description: "Version history tracking changes between TPP versions. Should record what changed, who made the change, and when."

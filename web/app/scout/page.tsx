@@ -61,6 +61,13 @@ import {
 import { SourceAttributions } from "@/components/source-attributions";
 import { ComparatorDistributionPlot } from "@/components/comparator-distribution-plot";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RELATION_ORDER, sortMatchesForReading } from "@/lib/scout-match-order";
+import {
+  SCOUT_EMPTY_MESSAGE,
+  SCOUT_ORDER_NOTE,
+  selectScoutPriorities,
+} from "@/lib/scout-priorities";
+import { PriorityPanel } from "@/components/ui/priority-panel";
 import { cn } from "@/lib/utils";
 import { DISCLOSURE_MOTION, SURFACE_ENTRY_MOTION } from "@/lib/motion";
 import {
@@ -122,12 +129,6 @@ const SCOUT_STEPS = [
 
 const SOURCE_LIST_LIMIT = 5;
 
-const RELATION_ORDER: Record<Match["relation"], number> = {
-  contradicts: 0,
-  extends: 1,
-  confirms: 2,
-  unrelated: 3,
-};
 
 // Tone tokens are reserved for direct signal values, never derived UI grades.
 const NEUTRAL_DOT = "bg-muted-foreground/40";
@@ -1809,9 +1810,7 @@ function FieldGrid({
   const rows = variables
     .map((variable) => {
       const variableMatches = matchesByVariable.get(variable.name) ?? [];
-      const sortedMatches = [...variableMatches].sort(
-        (a, b) => RELATION_ORDER[a.relation] - RELATION_ORDER[b.relation],
-      );
+      const sortedMatches = sortMatchesForReading(variableMatches);
       return {
         variable,
         matches: sortedMatches,
@@ -1914,6 +1913,14 @@ function FieldGrid({
                 </div>
               </div>
             )}
+            <div className="px-5 pt-5 sm:px-6">
+              <PriorityPanel
+                attribution="by Scout"
+                items={selectScoutPriorities(result)}
+                emptyMessage={SCOUT_EMPTY_MESSAGE}
+                orderNote={SCOUT_ORDER_NOTE}
+              />
+            </div>
             <div className="flex flex-col gap-2 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
               <label className="relative min-w-0 flex-1 sm:max-w-xs">
                 <span className="sr-only">Search fields</span>

@@ -319,6 +319,31 @@ def _target_retrieval_text(target: QuantitativeTarget) -> str:
     return " ".join(unique)
 
 
+# --- Which era a track asks about -------------------------------------------
+# One rule per stance, named once. It was four inline copies that had already
+# drifted apart in wording, and a track's era is a choice worth seeing as a choice:
+# a builder picks a constant rather than restating the rule in its own prose.
+#
+# Neither is a filter. A retrieval index reads "recent" as a word to match, so era
+# is expressed through the SUBJECT asked about. A real date bound is a source
+# adapter's parameter, recorded in `SearchTrace.request_options`, never a query term.
+
+CURRENT_ERA = (
+    "Prefer current developments - recent readouts, the present standard of care, "
+    "live registrations - when the field admits them. Express that through the "
+    "SUBJECT you ask about, never through words like \"recent\" or \"latest\" and "
+    "never a calendar year: a retrieval index reads those as terms to match, not as a "
+    "date bound, so they narrow results to documents that happen to contain the word. "
+    "Any real date bound belongs to the source adapter, not to this query."
+)
+
+HISTORICAL_ERA = (
+    "Precedent is HISTORICAL - do NOT restrict to recent years. Prior attempts may be "
+    "old; include first-in-class, original-development, and historical framing. Do not "
+    "hardcode a specific calendar year in the query text."
+)
+
+
 def build_system_prompt_for_variable(
     config: ScoutTypeConfig,
     *,
@@ -344,10 +369,7 @@ def build_system_prompt_for_variable(
         "beyond this one variable. Example: for the variable \"Indication\", search the "
         "disease/target-population scope (e.g. which products are indicated for the "
         "disease) - not efficacy percentages or dosing schedules.",
-        "Favor recent developments (roughly the last 1-2 years). Do NOT hardcode a "
-        "specific calendar year in the query text - downstream retrieval stays current "
-        "on its own. Use relative terms like \"recent\" or \"latest\", or omit the year "
-        "entirely.",
+        CURRENT_ERA,
         "Generate a diverse query set across THREE axes: content, source, and language. "
         "Content coverage should include standard of care and new scientific data when "
         "those angles fit this variable. Source coverage should spread across regulators, "
@@ -448,9 +470,7 @@ def build_system_prompt_for_geographic_variable(
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this "
         "variable is that topic.",
-        "Favor recent developments (roughly the last 1-2 years). Do NOT hardcode a "
-        "specific calendar year in the query text. Use relative terms like "
-        "\"recent\" or \"latest\", or omit the year entirely.",
+        CURRENT_ERA,
         "Global-South emphasis: target national regulators and implementation/access "
         "evidence from LMIC settings. Include regulators such as SAHPRA, NMPA, BPOM, "
         "CDSCO, ANVISA; regional bodies such as Africa CDC and WHO regional offices; "
@@ -504,9 +524,7 @@ def build_system_prompt_for_counterfactual_variable(
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this variable "
         "is that topic.",
-        "Favor recent developments (roughly the last 1-2 years). Do NOT hardcode a "
-        "specific calendar year. Use relative terms like \"recent\" or \"latest\", or "
-        "omit the year entirely.",
+        CURRENT_ERA,
         "Counterfactual emphasis: search for DISCONFIRMING evidence - null or failed "
         "results, efficacy waning or shortfalls, safety signals or adverse events, "
         "feasibility / cost / cold-chain problems, limited generalizability across "
@@ -564,9 +582,7 @@ def build_system_prompt_for_precedent_variable(
         "abandoned), and the same platform/mechanism proven in ADJACENT indications as "
         "analogous precedent. The goal is to establish whether the approach is new or has "
         "a track record.",
-        "Recency: precedent is HISTORICAL - do NOT restrict to recent years. Prior "
-        "attempts may be old; include first-in-class, original-development, and historical "
-        "framing. Do not hardcode a specific calendar year in the query text.",
+        HISTORICAL_ERA,
         "Do NOT seek disconfirming/failure evidence here (a separate track covers that); "
         "seek the EXISTENCE of prior or analogous work, positive or negative.",
         "Return the precedent queries only; the caller appends them after the other tracks.",

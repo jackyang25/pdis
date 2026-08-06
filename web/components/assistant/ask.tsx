@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { TextStreamChatTransport, type UIMessage } from "ai";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Check, Copy, FileText, Image as ImageIcon, Loader2, Maximize2, Minimize2, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import {
   API_BASE,
@@ -509,80 +511,68 @@ function resizeTextarea(element: HTMLTextAreaElement | null) {
   element.style.height = `${Math.min(element.scrollHeight, 112)}px`;
 }
 
+const LINK_CLASS =
+  "break-all font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground motion-reduce:transition-none";
+
+/**
+ * The model writes GitHub-flavoured Markdown, so the full grammar is parsed
+ * rather than the handful of constructs a bespoke renderer could keep up with:
+ * a table it emitted used to arrive as raw pipes.
+ *
+ * Elements are mapped to the app's own tokens instead of a prose stylesheet, so
+ * an answer reads as part of the product. Wide content scrolls inside its own
+ * bubble rather than widening the panel, which floats over the results being
+ * discussed. Raw HTML stays escaped: `rehype-raw` is deliberately absent, so
+ * model output cannot inject markup.
+ */
+const MARKDOWN_ELEMENTS = {
+  a: ({ children, href }) => (
+    <a href={href} target="_blank" rel="noreferrer" className={LINK_CLASS}>
+      {children}
+    </a>
+  ),
+  ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
+  h1: ({ children }) => <h3 className="text-sm font-semibold">{children}</h3>,
+  h2: ({ children }) => <h4 className="text-sm font-semibold">{children}</h4>,
+  h3: ({ children }) => <h5 className="text-[13px] font-semibold">{children}</h5>,
+  code: ({ children }) => (
+    <code className="rounded bg-muted px-1 py-0.5 text-[0.85em]">{children}</code>
+  ),
+  // Nested code keeps the block's own surface; the inline pill would repeat it.
+  pre: ({ children }) => (
+    <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs [&_code]:bg-transparent [&_code]:p-0">
+      {children}
+    </pre>
+  ),
+  table: ({ children }) => (
+    <div className="overflow-x-auto rounded-md border border-border">
+      <table className="w-full border-collapse text-xs">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th className="border-b border-border bg-muted/40 px-2.5 py-1.5 text-left font-medium">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border-b border-border/60 px-2.5 py-1.5 align-top">{children}</td>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-2 border-border pl-3 text-muted-foreground">
+      {children}
+    </blockquote>
+  ),
+  hr: () => <hr className="border-border" />,
+} satisfies Components;
+
 function Markdown({ text }: { text: string }) {
   if (!text) return null;
-  const blocks = text.trim().split(/\n{2,}/);
   return (
     <div className="space-y-2 leading-relaxed">
-      {blocks.map((block, bi) => {
-        const lines = block.split("\n");
-        const isList = lines.length > 0 && lines.every((line) => /^\s*[-*]\s+/.test(line));
-        if (isList) {
-          return (
-            <ul key={bi} className="list-disc space-y-1 pl-5">
-              {lines.map((line, li) => (
-                <li key={li}>
-                  {renderInline(line.replace(/^\s*[-*]\s+/, ""), `${bi}-${li}`)}
-                </li>
-              ))}
-            </ul>
-          );
-        }
-        return (
-          <p key={bi}>
-            {lines.map((line, li) => (
-              <span key={li}>
-                {li > 0 && <br />}
-                {renderInline(line, `${bi}-${li}`)}
-              </span>
-            ))}
-          </p>
-        );
-      })}
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_ELEMENTS}>
+        {text}
+      </ReactMarkdown>
     </div>
   );
-}
-
-const INLINE_RE =
-  /(\*\*([^*]+)\*\*)|(`([^`]+)`)|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s\])]+)/g;
-
-function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  let last = 0;
-  let i = 0;
-  let match: RegExpExecArray | null;
-  INLINE_RE.lastIndex = 0;
-  while ((match = INLINE_RE.exec(text)) !== null) {
-    if (match.index > last) {
-      nodes.push(<span key={`${keyPrefix}-${i++}`}>{text.slice(last, match.index)}</span>);
-    }
-    const linkClass =
-      "break-all font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground motion-reduce:transition-none";
-    if (match[2] != null) {
-      nodes.push(<strong key={`${keyPrefix}-${i++}`}>{match[2]}</strong>);
-    } else if (match[4] != null) {
-      nodes.push(
-        <code key={`${keyPrefix}-${i++}`} className="rounded bg-muted px-1 py-0.5 text-[0.85em]">
-          {match[4]}
-        </code>,
-      );
-    } else if (match[6] != null) {
-      nodes.push(
-        <a key={`${keyPrefix}-${i++}`} href={match[7]} target="_blank" rel="noreferrer" className={linkClass}>
-          {match[6]}
-        </a>,
-      );
-    } else if (match[0]) {
-      nodes.push(
-        <a key={`${keyPrefix}-${i++}`} href={match[0]} target="_blank" rel="noreferrer" className={linkClass}>
-          {match[0]}
-        </a>,
-      );
-    }
-    last = INLINE_RE.lastIndex;
-  }
-  if (last < text.length) {
-    nodes.push(<span key={`${keyPrefix}-${i++}`}>{text.slice(last)}</span>);
-  }
-  return nodes;
 }

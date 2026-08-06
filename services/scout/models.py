@@ -24,6 +24,16 @@ if TYPE_CHECKING:
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
 ATTRIBUTES_FILE = Path(__file__).resolve().parents[2] / "shared" / "attributes.yaml"
 VALID_RELATIONS = {"contradicts", "extends", "confirms", "unrelated"}
+"""How one insight stands against the document's claim.
+
+Assigned by answering four questions in order, not by weighing four labels: is it
+off-topic (`unrelated`), does it show the target cannot be achieved or a stated fact
+is wrong (`contradicts`), does it show the target holds (`confirms`), otherwise it
+bears on the claim without settling it (`extends`).
+
+`unrelated` here means "does not bear on this claim". `TARGET_RELATIONSHIPS` also has
+an `unrelated`, and it means something else - see there.
+"""
 VALID_QUERY_TRACKS = {"general", "geographic", "counterfactual", "precedent"}
 VALID_EVIDENCE_STRENGTHS = {
     "well_grounded",
@@ -38,6 +48,17 @@ VALID_CONTEXT_STATUSES = {"match", "mismatch", "uncertain"}
 TARGET_RELATIONSHIPS = frozenset(
     {"direct", "analogous", "adjacent", "unrelated", "unknown"}
 )
+"""How close a retrieved record's subject is to the uploaded product.
+
+A different axis from `VALID_RELATIONS`: this asks what the record is ABOUT, that one
+asks what the evidence DOES to a claim. They share the token `unrelated` and mean
+different things by it - here, the record concerns no comparable product; there, the
+insight does not bear on the claim. A record can be `analogous` on this axis while
+its insight is `unrelated` on that one.
+
+Kept as-is rather than renamed: the field name carries the axis, and changing a
+published member would invalidate every saved Scout result for a wording gain.
+"""
 QUANTITATIVE_SEMANTIC_FIELDS = (
     "measure",
     "endpoint",

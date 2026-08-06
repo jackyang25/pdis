@@ -273,6 +273,16 @@ it. `document_findings[]` holds the conflicts no unit owns.
     deterministic descriptive statistics
   - precedent: coverage `direct | adjacent | none | unknown`, with outcome
     `favorable | mixed | unfavorable | unknown` stored separately
+  - a record's `target_relationship` (`direct | analogous | adjacent | unrelated |
+    unknown`) asks what a record is ABOUT; `relationship` asks what an insight DOES
+    to a claim. They share the token `unrelated` and mean different things by it, so
+    a record may be `analogous` while its insight is `unrelated`. Separate stages
+    assign them, neither prompt sees the other's vocabulary, and neither consumes the
+    other's output.
+- Scout's three negatives are distinct and none implies another: `contradicts` says
+  the document's claim is disproven, precedent `unfavorable` says the approach has a
+  poor track record, and the `counterfactual` query track only says where the
+  evidence was looked for. A discovery track never determines a relation.
 - Do not restore holistic “basis” labels or present descriptive cohort statistics
   as confidence intervals, success probabilities, or causal estimates.
 

@@ -297,6 +297,13 @@ it. `document_findings[]` holds the conflicts no unit owns.
   one, run by both `pack` and `unpack` so a file that could not be read is never
   written. Those contracts sit outside every functional pipeline; nothing there runs
   during an analysis.
+- A tool's top-of-page priorities render through the shared `ui/priority-panel`,
+  which owns the container and decides nothing. What qualifies and in what order is
+  one selector per tool in `web/lib/*-priorities.ts`, so improving priorities is an
+  edit to that selector or to what it is handed - never to the panel, a page, or
+  another tool. Every selector returns the same `PriorityItem`, and each states how
+  its order was decided, because the AI glyph marks the wording as the model's and
+  says nothing about the ranking.
 - Review drafts are portable client state but are not downloadable final results.
   Final results are immutable: import, export, and Ask never recalculate them.
 - Imports accept only the current final-result envelope, and report which version

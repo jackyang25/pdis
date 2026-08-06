@@ -1,8 +1,9 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
+import { RESULT_CONTRACTS, type ResultType } from "./result-contracts.ts";
+
+export { isScoutResultFinal, pendingQuantitativeReviewCount } from "./result-contracts.ts";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-
-type ResultType = "aligner" | "inspector" | "scout";
 
 /**
  * The wrapper every tool shares: how documents are separated from analysis.
@@ -54,153 +55,18 @@ type AlignerAnalysis = {
   alignment: Omit<AlignerResponse["alignment"], "blocks">;
 };
 
-/** Pending admissions make a Scout analysis a review draft, not a final result. */
-export function pendingQuantitativeReviewCount(result: ScoutResponse): number {
-  const targetReviews = (result.quantitative_ledger?.targets ?? [])
-    .filter((target) => target.review_status === "needs_review").length;
-  const statementReviews = (result.quantitative_ledger?.reviews ?? [])
-    .filter((review) => review.review_status === "needs_review").length;
-  const evidenceReviews = (result.conformity ?? []).reduce(
-    (total, score) => total + [...score.measurements, ...score.excluded_measurements]
-      .filter((measurement) => measurement.admission_status === "needs_review")
-      .length,
-    0,
-  );
-  return targetReviews + statementReviews + evidenceReviews;
-}
 
-export function isScoutResultFinal(result: ScoutResponse): boolean {
-  return result.phase === "final" && pendingQuantitativeReviewCount(result) === 0;
-}
 
-function hasCompleteEvidenceUnitContract(result: ScoutResponse): boolean {
-  return (result.conformity ?? []).every((score) => {
-    const admittedIds = score.measurements.map((measurement) => measurement.evidence_unit_id);
-    return admittedIds.every(Boolean)
-      && new Set(admittedIds).size === admittedIds.length
-      && score.measurements.every((measurement) =>
-        Boolean(measurement.evidence_unit)
-          && ["approved", "auto_admitted"].includes(measurement.admission_status)
-      )
-      && score.excluded_measurements.every((measurement) =>
-        Boolean(measurement.evidence_unit_id)
-          && Boolean(measurement.evidence_unit)
-          && !["approved", "auto_admitted"].includes(measurement.admission_status)
-      );
-  });
-}
 
-function semanticFields(): string[] {
-  return [
-    "measure", "endpoint", "intervention", "population", "regimen",
-    "time_horizon", "statistic", "conditions",
-  ];
-}
 
-function hasCompleteComparisonContract(value: unknown): boolean {
-  const result = value as { quantitative_ledger?: { targets?: unknown } } | null;
-  const targets = result?.quantitative_ledger?.targets;
-  if (!Array.isArray(targets)) return false;
-  const fields = semanticFields();
-  return targets.every((target) => {
-    if (!target || typeof target !== "object") return false;
-    const contract = (target as Record<string, unknown>).comparison_contract;
-    if (!contract || typeof contract !== "object" || Array.isArray(contract)) return false;
-    const rules = contract as Record<string, unknown>;
-    if (Object.keys(rules).length !== fields.length || fields.some((field) => !(field in rules))) {
-      return false;
-    }
-    return fields.every((field) => {
-      const rule = rules[field] as Record<string, unknown> | null;
-      if (!rule || typeof rule !== "object" || Array.isArray(rule)) return false;
-      const mode = rule.mode;
-      const scope = typeof rule.scope === "string" ? rule.scope.trim() : "";
-      const reason = typeof rule.reason === "string" ? rule.reason.trim() : "";
-      if (!["exact", "compatible", "unconstrained", "unknown"].includes(String(mode))) {
-        return false;
-      }
-      if (field === "measure" && mode !== "exact") return false;
-      if ((mode === "exact" || mode === "compatible") && !scope) return false;
-      if (mode === "unconstrained" && scope) return false;
-      return mode !== "unknown" || Boolean(reason);
-    });
-  });
-}
 
-function hasCompleteProjectionRoleContract(value: unknown): boolean {
-  const result = value as {
-    development_landscape?: unknown;
-    safety_observations?: unknown;
-  } | null;
-  const sourceRoles = new Set([
-    "experimental", "comparator", "control", "co_intervention", "unknown",
-  ]);
-  const relationships = new Set([
-    "direct", "analogous", "adjacent", "unrelated", "unknown",
-  ]);
-  const projections = [result?.development_landscape, result?.safety_observations];
-  return projections.every((items) => Array.isArray(items) && items.every((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return false;
-    const projection = item as Record<string, unknown>;
-    return typeof projection.projection_id === "string"
-      && Boolean(projection.projection_id.trim())
-      && sourceRoles.has(String(projection.source_role))
-      && relationships.has(String(projection.target_relationship))
-      && typeof projection.target_relationship_reason === "string";
-  }));
-}
 
-function hasCompleteSafetyObservationContract(value: unknown): boolean {
-  const recordTypes = new Set([
-    "label_warning", "reported_event", "device_event", "recall",
-  ]);
-  const sourceSystems = new Set([
-    "fda_label", "faers", "maude", "fda_recall",
-  ]);
-  const visit = (node: unknown): boolean => {
-    if (Array.isArray(node)) return node.every(visit);
-    if (!node || typeof node !== "object") return true;
-    const record = node as Record<string, unknown>;
-    const observations = record.safety_observations;
-    if (observations !== undefined) {
-      if (!Array.isArray(observations) || !observations.every((item) => {
-        if (!item || typeof item !== "object" || Array.isArray(item)) return false;
-        const observation = item as Record<string, unknown>;
-        const count = observation.report_count;
-        const sourceSystem = String(observation.source_system);
-        const validCount = sourceSystem === "faers"
-          ? Number.isInteger(count) && Number(count) >= 0
-          : count === null;
-        return typeof observation.product_name === "string"
-          && Boolean(observation.product_name.trim())
-          && recordTypes.has(String(observation.record_type))
-          && sourceSystems.has(sourceSystem)
-          && typeof observation.label === "string"
-          && Boolean(observation.label.trim())
-          && typeof observation.detail === "string"
-          && validCount
-          && typeof observation.qualification === "string";
-      })) return false;
-    }
-    return Object.values(record).every(visit);
-  };
-  return visit(value);
-}
 
 /** Build a portable artifact without coupling the analysis tree to document text. */
 export function packScoutResult(result: ScoutResponse): ResultFile<"scout", ScoutAnalysis> {
-  if (
-    !isScoutResultFinal(result)
-    || !hasCompleteComparisonContract(result)
-    || !hasCompleteEvidenceUnitContract(result)
-    || !hasCompleteProjectionRoleContract(result)
-    || !hasCompleteSafetyObservationContract(result)
-  ) {
-    if (!hasCompleteSafetyObservationContract(result)) {
-      throw new Error("Scout result has an incomplete safety observation contract");
-    }
-    throw new Error("Scout review is incomplete or its quantitative evidence contract is invalid");
-  }
+  // The same contract the import path runs, so a file we could not read is never
+  // written in the first place.
+  RESULT_CONTRACTS.scout(result);
   const { blocks, ...analysis } = result;
   return {
     schema: RESULT_SCHEMA,
@@ -239,8 +105,9 @@ function safeFilenamePart(value: string): string {
 export function packInspectorResult(
   result: InspectorResponse,
 ): ResultFile<"inspector", InspectorAnalysis> {
+  RESULT_CONTRACTS.inspector(result);
   if (!isInspectorResultFinal(result)) {
-    throw new Error("Inspector grading is incomplete and cannot be exported as a final result");
+    throw new Error("this inspector result cannot be read: the run did not complete");
   }
   const { blocks, ...inspection } = result.inspection;
   return {
@@ -265,6 +132,7 @@ export function inspectorResultFilename(result: InspectorResponse): string {
 export function packAlignerResult(
   result: AlignerResponse,
 ): ResultFile<"aligner", AlignerAnalysis> {
+  RESULT_CONTRACTS.aligner(result);
   const { blocks, ...alignment } = result.alignment;
   return {
     schema: RESULT_SCHEMA,
@@ -290,34 +158,22 @@ export function unpackScoutResult(value: unknown): ScoutResponse {
     ...(file.analysis as ScoutAnalysis),
     blocks: flattenDocuments(file.source_documents),
   } as ScoutResponse;
-  if (
-    !isScoutResultFinal(result)
-    || !hasCompleteComparisonContract(result)
-    || !hasCompleteEvidenceUnitContract(result)
-  ) {
-    throw new Error("final Scout result contains an incomplete quantitative evidence contract");
-  }
-  if (!hasCompleteProjectionRoleContract(result)) {
-    throw new Error("final Scout result contains an incomplete projection role contract");
-  }
-  if (!hasCompleteSafetyObservationContract(result)) {
-    throw new Error("final Scout result contains an incomplete safety observation contract");
-  }
+  RESULT_CONTRACTS.scout(result);
   return result;
 }
 
 export function unpackInspectorResult(value: unknown): InspectorResponse {
   const file = requireResultFile(value, "inspector");
   const analysis = file.analysis as InspectorAnalysis;
-  if (!analysis.inspection) throw new Error("not an Inspector result file");
   const result = {
     inspection: {
-      ...analysis.inspection,
+      ...(analysis.inspection ?? {}),
       blocks: flattenDocuments(file.source_documents),
     },
-  };
+  } as InspectorResponse;
+  RESULT_CONTRACTS.inspector(result);
   if (!isInspectorResultFinal(result)) {
-    throw new Error("final Inspector result contains incomplete grading");
+    throw new Error("this inspector result cannot be read: the run did not complete");
   }
   return result;
 }
@@ -325,13 +181,14 @@ export function unpackInspectorResult(value: unknown): InspectorResponse {
 export function unpackAlignerResult(value: unknown): AlignerResponse {
   const file = requireResultFile(value, "aligner");
   const analysis = file.analysis as AlignerAnalysis;
-  if (!analysis.alignment) throw new Error("not an Aligner result file");
-  return {
+  const result = {
     alignment: {
-      ...analysis.alignment,
+      ...(analysis.alignment ?? {}),
       blocks: flattenDocuments(file.source_documents),
     },
-  };
+  } as AlignerResponse;
+  RESULT_CONTRACTS.aligner(result);
+  return result;
 }
 
 /** Separate document context from an analysis before sending it to Ask. */

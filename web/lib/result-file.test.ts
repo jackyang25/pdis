@@ -187,7 +187,7 @@ test("current Scout results round-trip exactly", () => {
 test("Scout export rejects an unfinished review draft", () => {
   const draft = structuredClone(scout);
   draft.phase = "target_review";
-  assert.throws(() => packScoutResult(draft), /review is incomplete/);
+  assert.throws(() => packScoutResult(draft), /quantitative evidence contract/);
 });
 
 test("imports require the current final envelope", () => {
@@ -227,7 +227,7 @@ test("current Scout artifacts require complete projection roles", () => {
   delete malformed.analysis.development_landscape[0].target_relationship;
   assert.throws(
     () => unpackScoutResult(malformed),
-    /incomplete projection role contract/,
+    /projection role contract/,
   );
 });
 
@@ -236,7 +236,7 @@ test("current Scout artifacts require complete safety observations", () => {
   delete malformed.analysis.safety_observations[0].source_system;
   assert.throws(
     () => unpackScoutResult(malformed),
-    /incomplete safety observation contract/,
+    /safety observation contract/,
   );
 });
 
@@ -255,7 +255,7 @@ test("current Scout artifacts reject malformed evidence units", () => {
   }];
   assert.throws(
     () => unpackScoutResult(malformed),
-    /incomplete quantitative evidence contract/,
+    /quantitative evidence contract/,
   );
 });
 
@@ -269,7 +269,7 @@ test("current Scout artifacts require a complete comparison contract", () => {
   }];
   assert.throws(
     () => unpackScoutResult(malformed),
-    /incomplete quantitative evidence contract/,
+    /quantitative evidence contract/,
   );
 });
 

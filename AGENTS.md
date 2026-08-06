@@ -290,6 +290,13 @@ it. `document_findings[]` holds the conflicts no unit owns.
   shape, so bumping it invalidates only that tool's files. Change a tool's result
   shape, bump its entry — never the envelope. They were one number, which meant an
   Inspector change rejected saved Scout results that were still readable.
+- Import validity is decided by the version, not by a field check: only a version
+  can catch a field whose name and type survive while its meaning changes. A per-tool
+  contract in `web/lib/result-contracts.ts` is the backstop for the version gate's
+  weak point - a shape changed without its number bumped - and every tool has exactly
+  one, run by both `pack` and `unpack` so a file that could not be read is never
+  written. Those contracts sit outside every functional pipeline; nothing there runs
+  during an analysis.
 - Review drafts are portable client state but are not downloadable final results.
   Final results are immutable: import, export, and Ask never recalculate them.
 - Imports accept only the current final-result envelope, and report which version

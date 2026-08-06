@@ -18,9 +18,28 @@ type PromptEntry = {
   text: string;
 };
 
+/**
+ * One configuration's domain content: where its structure came from, and the text
+ * its prompts insert at run time.
+ *
+ * This was generated into the reference file and rendered nowhere, so 55 published
+ * texts were unreadable. It is per configuration rather than per text, because a
+ * reader asking "what does this rubric hold me to" wants one entry, not five.
+ */
+type ConfigurationEntry = {
+  tool: ToolKey;
+  org: string;
+  source_type: string;
+  intervention_class: string;
+  display_name: string;
+  mirrors: string;
+  texts: Record<string, string>;
+};
+
 type Reference = {
   version: number;
   prompts: PromptEntry[];
+  configurations: ConfigurationEntry[];
 };
 
 // Roughly 100 KB of instruction text that almost nobody opens, so it is fetched
@@ -173,6 +192,12 @@ export function PromptReference({ tool }: { tool: ToolKey }) {
         </div>
       )}
 
+      {reference !== null && (
+        <Configurations
+          entries={(reference.configurations ?? []).filter((entry) => entry.tool === tool)}
+        />
+      )}
+
       {reference !== null && stages.length === 0 && (
         <p className="mt-4 text-xs text-muted-foreground">
           This tool sends no model instructions. Its behaviour is deterministic.
@@ -186,6 +211,71 @@ export function PromptReference({ tool }: { tool: ToolKey }) {
           <Skeleton className="h-24" />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * What each configuration contributes to the prompts above.
+ *
+ * `mirrors` is the one claim on this page nothing in the repo can verify: the
+ * source template lives outside it. It names which source to re-check when that
+ * source moves, and the split between what is mirrored and what is authored here is
+ * stated once in the service README rather than repeated per configuration.
+ */
+function Configurations({ entries }: { entries: ConfigurationEntry[] }) {
+  if (entries.length === 0) return null;
+  return (
+    <div className="mt-6">
+      <h4 className="text-xs font-medium text-foreground">
+        Configurations
+        <span className="ml-2 font-normal text-muted-foreground">{entries.length}</span>
+      </h4>
+      <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+        Domain content the prompts above insert at run time, and the authored source
+        each configuration mirrors.
+      </p>
+      <div className="mt-3 divide-y divide-border border-y border-border">
+        {entries.map((entry) => (
+          <details
+            key={`${entry.org}-${entry.source_type}-${entry.intervention_class}`}
+            className="group py-3"
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-xs font-medium [&::-webkit-details-marker]:hidden">
+              <span className="min-w-0">
+                {entry.display_name || entry.source_type}
+                <span className="ml-2 font-normal text-muted-foreground">
+                  {entry.org} · {entry.source_type} · {entry.intervention_class}
+                </span>
+              </span>
+              <ChevronRight
+                className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90 motion-reduce:transition-none"
+                aria-hidden="true"
+              />
+            </summary>
+            <div className="mt-3 space-y-3">
+              {entry.mirrors && (
+                <div>
+                  <p className="text-[10px] font-medium text-foreground">Mirrors</p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                    {entry.mirrors}
+                  </p>
+                </div>
+              )}
+              {Object.entries(entry.texts).map(([slot, text]) => (
+                <div key={slot}>
+                  <p className="text-[10px] font-medium text-foreground">
+                    {slot.replace(/_/g, " ")}
+                  </p>
+                  <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-muted/20 p-3 text-[10px] leading-[1.55] text-muted-foreground">
+                    <code className="whitespace-pre-wrap break-words">{text}</code>
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </details>
+        ))}
+      </div>
     </div>
   );
 }

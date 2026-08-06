@@ -14,15 +14,17 @@ import json
 from pathlib import Path
 
 from services.aligner.prompt_catalog import PROMPT_CATALOG as ALIGNER_CATALOG
+from services.chunker import available_configs as chunker_configs
 from services.chunker.prompt_catalog import PROMPT_CATALOG as CHUNKER_CATALOG
 from services.inspector.prompt_catalog import PROMPT_CATALOG as INSPECTOR_CATALOG
+from services.inspector import available_configs as inspector_configs
 from services.scout import available_configs as scout_configs
 from services.scout.prompt_catalog import PROMPT_CATALOG as SCOUT_CATALOG
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "shared" / "prompt_reference.json"
 
-VERSION = 2
+VERSION = 3
 
 # Publication order, matching the order a document moves through the suite.
 CATALOGS = (
@@ -32,16 +34,21 @@ CATALOGS = (
     SCOUT_CATALOG,
 )
 
-# Per-configuration domain content a prompt inserts at run time. Listed once here
-# rather than inlined into every prompt that carries the slot. Only Scout varies
-# its instructions by configuration today.
-CONFIG_TEXT_FIELDS = (
-    "drift_framing",
-    "evidence_framing",
-    "precedent_framing",
-    "quantitative_target_framing",
-    "query_extraction_guidance",
-)
+# Where each tool's configurations come from.
+#
+# Aligner is deliberately absent: its `document_roles` slot is a mapping keyed by
+# source type rather than one text, and the package exposes no config enumerator to
+# read it from. `test_prompt_reference` names that gap explicitly, so registering
+# Aligner later is a change the test asks for rather than one nobody notices.
+CONFIG_SOURCES = {
+    "chunker": chunker_configs,
+    "inspector": inspector_configs,
+    "scout": scout_configs,
+}
+
+# Provenance a configuration may declare: the authored source its structure comes
+# from. Optional, because not every configuration mirrors one.
+PROVENANCE_FIELD = "mirrors"
 
 
 def build_reference() -> dict:
@@ -64,35 +71,53 @@ def build_reference() -> dict:
         for entry in catalog
     ]
 
-    framings = []
-    # Which files are configs is Scout's fact, asked for rather than inferred
-    # from the shape of a filename.
-    for config in scout_configs():
-        for key in CONFIG_TEXT_FIELDS:
-            text = (getattr(config, key, "") or "").strip()
-            if not text:
+    # Which text a prompt inserts at run time is declared by the catalog entry that
+    # inserts it, so the slots are read from there rather than listed again here. A
+    # declared slot that publishes nothing was previously possible - and Inspector's
+    # went unpublished for exactly that reason.
+    slots_by_tool: dict[str, list[str]] = {}
+    for catalog in CATALOGS:
+        for entry in catalog:
+            if not entry.framing_slot:
                 continue
-            framings.append(
+            slots = slots_by_tool.setdefault(entry.tool, [])
+            if entry.framing_slot not in slots:
+                slots.append(entry.framing_slot)
+
+    configurations = []
+    # Which files are configurations is each service's own fact, asked for rather
+    # than inferred from the shape of a filename.
+    for tool, load in CONFIG_SOURCES.items():
+        for config in load():
+            texts = {
+                slot: text
+                for slot in slots_by_tool.get(tool, ())
+                if (text := (getattr(config, slot, "") or "").strip())
+            }
+            mirrors = (getattr(config, PROVENANCE_FIELD, "") or "").strip()
+            if not texts and not mirrors:
+                continue
+            configurations.append(
                 {
-                    "tool": "scout",
-                    "key": key,
+                    "tool": tool,
                     "org": config.org,
                     "source_type": config.source_type,
                     "intervention_class": config.intervention_class,
-                    "text": text,
+                    "display_name": getattr(config, "display_name", "") or "",
+                    "mirrors": mirrors,
+                    "texts": texts,
                 }
             )
-    framings.sort(
+    configurations.sort(
         key=lambda item: (
             item["tool"],
             item["org"],
             item["source_type"],
             item["intervention_class"],
-            item["key"],
         )
     )
 
-    return {"version": VERSION, "prompts": prompts, "framings": framings}
+    return {"version": VERSION, "prompts": prompts, "configurations": configurations}
 
 
 def main() -> None:
@@ -105,7 +130,7 @@ def main() -> None:
     print(
         f"wrote {REFERENCE.relative_to(ROOT)}: "
         f"{len(reference['prompts'])} prompts ({summary}), "
-        f"{len(reference['framings'])} configuration texts"
+        f"{len(reference['configurations'])} configurations"
     )
 
 

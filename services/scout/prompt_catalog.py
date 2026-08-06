@@ -173,7 +173,8 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
             quantitative_targets=[PLACEHOLDER_TARGET],
             queries_per_variable=1,
         ),
-        framing_slot=None,
+        # This builder inserts it; the other three query-extractor builders do not.
+        framing_slot="query_extraction_guidance",
         result_fields=("stats.queries",),
         ui_labels=(),
     ),

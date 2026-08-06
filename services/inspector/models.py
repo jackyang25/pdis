@@ -1,3 +1,13 @@
+"""Inspector's shapes and its one published vocabulary.
+
+This module declares what things are. How they combine is `assembly.py`, and what
+the model is asked is `stages/assessor.py`; keeping those apart is what lets a reader
+answer "where did this value come from" by looking in one place.
+
+Every published value is authored in the rubric, observed by the model, or derived
+by a property here. Nothing is stored twice.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -28,267 +38,236 @@ class LLMClientProtocol(Protocol):
         ...
 
 
-DimensionVerdict = Literal["critical", "for_consideration", "meets", "not_applicable"]
-"""What one dimension concluded about one rubric variable.
-
-This replaced a letter grade. A letter carried two claims Inspector cannot
-support: that the step from A to B is the same size as the step from D to F, and
-that a section's quality is the mean of its variables. Both were arithmetic on a
-subjective label. A verdict states only what the model can defend — whether there
-is a gap, and whether the content is unusable as written or merely improvable.
-Neither verdict directs the author; both describe the document.
-"""
-
-Dimension = Literal["completeness", "adherence", "rigor"]
 ConsistencyStatus = Literal["complete", "partial", "failed", "not_applicable", "unknown"]
-GradingStatus = Literal["complete", "unknown"]
-DIMENSIONS: tuple[Dimension, ...] = ("completeness", "adherence", "rigor")
+AssessmentStatus = Literal["complete", "unknown"]
 
-# --- Closed vocabularies -----------------------------------------------------
-# Declared once. The grading schema offered to the model, the parser that
-# validates its reply, and every downstream consumer read these same names; a
-# second copy is a second thing to keep in step.
+# --- The one published vocabulary --------------------------------------------
+# Declared here, mirrored in `web/lib/api.ts`, and bound by
+# `inspector-vocabulary.test.ts`. Every layer reads these names; none invents a
+# synonym for one, because a second name for the same thing is a second thing to
+# keep in step and a reader cannot tell which is authoritative.
 
-ContentStatus = Literal[
-    "substantive", "partial", "placeholder", "missing", "not_applicable"
+FindingReason = Literal[
+    "missing", "placeholder", "unmet", "off_template", "unclear", "conflicting"
 ]
-CONTENT_STATUSES: frozenset[str] = frozenset(
-    ("substantive", "partial", "placeholder", "missing", "not_applicable")
+FINDING_REASONS: tuple[FindingReason, ...] = (
+    "missing",
+    "placeholder",
+    "unmet",
+    "off_template",
+    "unclear",
+    "conflicting",
 )
-"""How much of a rubric variable the document actually supplies."""
+"""Why one finding exists. Declared worst-first, which is also display order.
 
-ABSENT_CONTENT_STATUS = "missing"
-"""Content the document does not contain. It can cite no block, by definition."""
+- `missing`      nothing is there
+- `placeholder`  a token such as <<TBD>> sits where the value belongs
+- `unmet`        content is present and does not satisfy the requirement
+- `off_template` the structure or naming deviates from the rubric
+- `unclear`      the requirement is satisfied but the content is vague
+- `conflicting`  two sections state claims that cannot both hold
 
-PRESENT_CONTENT_STATUSES: frozenset[str] = frozenset(
-    ("substantive", "partial", "placeholder")
-)
-"""Content the document does contain, so it must carry exact block lineage."""
-
-DIMENSION_VERDICTS: frozenset[str] = frozenset(
-    ("critical", "for_consideration", "meets", "not_applicable")
-)
-
-GAP_VERDICTS: frozenset[str] = frozenset(("critical", "for_consideration"))
-"""The verdicts that assert a gap, so a roll-up can count them.
-
-`critical` is defensible from the record rather than felt: the rubric requires
-the content and the document does not usably supply it. `for_consideration` is
-present and usable but could be stronger. There is no third severity, because a
-reader who must rank five levels is being asked to do the judging.
+This replaced three separate dimension verdicts plus a five-value content status.
+One defect belonged to up to three of those at once, so it was counted up to three
+times, and absence was recorded in three places that could disagree.
 """
 
-NON_GAP_VERDICT = "meets"
-"""No gap on this dimension."""
+UNIT_REASONS: tuple[FindingReason, ...] = tuple(
+    reason for reason in FINDING_REASONS if reason != "conflicting"
+)
+"""The reasons one rubric unit can raise, and the enum offered to the model.
 
-INAPPLICABLE_VERDICT = "not_applicable"
-"""The rubric does not ask this dimension of this variable."""
+A conflict spans sections, so no single unit can own it; it comes from the
+whole-document pass instead.
+"""
+
+FindingLevel = Literal["not_met", "could_be_stronger"]
+FINDING_LEVELS: tuple[FindingLevel, ...] = ("not_met", "could_be_stronger")
+"""How far short a finding falls.
+
+Conformance language, deliberately not severity language. Inspector knows what the
+rubric asked and what the document supplies; it does not know what a shortfall
+costs a given programme, so it does not claim one.
+"""
+
+LEVEL_BY_REASON: dict[FindingReason, FindingLevel] = {
+    "missing": "not_met",
+    "placeholder": "not_met",
+    "unmet": "not_met",
+    "off_template": "could_be_stronger",
+    "unclear": "could_be_stronger",
+    "conflicting": "not_met",
+}
+"""The level is derived from the reason, never stored beside it.
+
+A reason already carries the distinction the two levels express, so storing a
+severity as well would create two fields that can disagree about one fact.
+"""
+
+UNCITED_REASON: FindingReason = "missing"
+"""The one reason that cites no block, because there is nothing to cite.
+
+It is also the only reason exempt from citing: every other finding was read from
+somewhere, so a reader can check it against the document.
+"""
+
+UnitStatus = Literal["met", "could_be_stronger", "not_met", "not_applicable"]
+UNIT_STATUSES: tuple[UnitStatus, ...] = (
+    "met",
+    "could_be_stronger",
+    "not_met",
+    "not_applicable",
+)
+"""How one rubric unit stands. Derived from the findings on that unit alone."""
 
 
 @dataclass
-class DimensionAssessment:
-    """One of three orthogonal axes, assessed for one rubric variable.
+class Finding:
+    """One thing to fix: a defect, its remedy, and the blocks it was read from.
 
-    - completeness: are all required variables present/filled in?
-    - adherence:    does the draft follow the rubric's structural expectations?
-    - rigor:        is the content substantively sound - specific, measurable,
-                    and meaningful (not just present and well-formatted)?
+    The atom. Three shapes used to carry this - a dimension assessment holding a
+    list of issues against a single recommendation, a separately ranked copy of the
+    worst of them, and a cross-section conflict with its own field names for the
+    same concepts. A reader could not act on the second of three issues, because
+    only the list had three entries and the fix had one.
 
-    Produced by the model at the variable level, and directly for a section that
-    has no variables. A section or document does not carry an assessment of its
-    own: it carries the count of the gaps beneath it, because averaging verdicts
-    would invent a middle value no dimension ever returned.
+    Which unit a finding is about is read from its names rather than a separate
+    scope field: both names set is a variable, section alone is a whole section,
+    neither is the document.
     """
 
-    verdict: DimensionVerdict
-    issues: list[str] = field(default_factory=list)
+    id: str
+    reason: FindingReason
+    statement: str
+    """What is wrong, in one sentence. One defect per finding, never a list."""
     recommendation: str = ""
+    section_name: str | None = None
+    variable_name: str | None = None
     cited_block_ids: list[str] = field(default_factory=list)
-    """Blocks *this* judgment cited.
+    """The blocks this finding was read from. Empty exactly when nothing is there.
 
-    Each dimension is assessed independently and cites independently, so the
-    lineage belongs to the dimension. Merging the three into one list per
-    variable made the verdicts orthogonal and their provenance shared, which let
-    a consumer attribute a completeness verdict to a block only rigor had read.
+    For a conflict these are the passages that disagree, so the sections involved
+    are resolved from them rather than stored a second time.
+    """
+    rank: int = 0
+    """Position in the worklist, assigned once during assembly.
+
+    Stored so every consumer orders identically without holding the rubric. This
+    replaced a separately computed list of top issues that duplicated the rows it
+    ranked and could fall out of step with them.
     """
 
     def __post_init__(self) -> None:
-        if self.verdict not in DIMENSION_VERDICTS:
-            raise ValueError(f"invalid dimension verdict: {self.verdict!r}")
+        if self.reason not in FINDING_REASONS:
+            raise ValueError(f"invalid finding reason: {self.reason!r}")
+        if not self.statement:
+            raise ValueError("a finding must state what is wrong")
+        if self.variable_name and not self.section_name:
+            raise ValueError("a variable finding must name its section")
+        if self.reason == UNCITED_REASON and self.cited_block_ids:
+            raise ValueError("an absent unit cannot cite blocks")
+        if self.reason != UNCITED_REASON and not self.cited_block_ids:
+            raise ValueError("a finding must cite the block it was read from")
 
     @property
-    def is_gap(self) -> bool:
-        return self.verdict in GAP_VERDICTS
-
-
-def _empty_dimensions() -> dict[str, DimensionAssessment]:
-    return {d: DimensionAssessment(verdict=INAPPLICABLE_VERDICT) for d in DIMENSIONS}
-
-
-def _empty_gap_counts() -> dict[str, int]:
-    return {verdict: 0 for verdict in sorted(GAP_VERDICTS)}
+    def level(self) -> FindingLevel:
+        return LEVEL_BY_REASON[self.reason]
 
 
 @dataclass
-class VariableGrade:
-    """Atomic assessed unit: one rubric variable, three dimension verdicts."""
+class UnitAssessment:
+    """One rubric unit: a variable, or a section that declares none.
 
-    variable_name: str
-    dimensions: dict[str, DimensionAssessment] = field(
-        default_factory=_empty_dimensions
-    )
-    content_status: ContentStatus = "not_applicable"
-    """How much of this variable the document supplies.
-
-    The completeness judgment owns presence, and this is the answer it gave.
-    Consumers read it instead of inferring absence from a grade or from prose:
-    `placeholder` and `missing` are different problems with different fixes, and
-    only this field distinguishes them.
+    The unit owns its findings rather than referring to them by id, so a finding
+    cannot belong to two units or to none, and the status is a property of data the
+    unit already holds.
     """
 
-    @property
-    def cited_block_ids(self) -> list[str]:
-        """Every block any dimension cited, in first-seen dimension order.
+    variable_name: str | None = None
+    """None when the section itself is the unit, as a prose section is."""
+    optional: bool = False
+    """The rubric author's decision that absence here is acceptable."""
+    findings: list[Finding] = field(default_factory=list)
 
-        Derived rather than stored, so it cannot disagree with the per-dimension
-        lineage it summarizes. Use a dimension's own list when the question is
-        about that dimension.
+    @property
+    def status(self) -> UnitStatus:
+        """What this unit reports, derived from its own findings.
+
+        The only place a status is decided. `met` therefore means exactly zero
+        findings, and no consumer can arrive at a different answer.
         """
-        seen: list[str] = []
-        for dimension in DIMENSIONS:
-            assessment = self.dimensions.get(dimension)
-            if assessment is None:
-                continue
-            for block_id in assessment.cited_block_ids:
-                if block_id not in seen:
-                    seen.append(block_id)
-        return seen
+        if self.optional and any(f.reason == UNCITED_REASON for f in self.findings):
+            return "not_applicable"
+        if not self.findings:
+            return "met"
+        if any(f.level == "not_met" for f in self.findings):
+            return "not_met"
+        return "could_be_stronger"
 
 
 @dataclass
-class SectionGrade:
-    """One rubric section.
+class SectionAssessment:
+    """One rubric section: where it was found, and the units beneath it.
 
-    Variables carry the verdicts when the section has them; a prose section is
-    assessed directly. Either way the section itself publishes gap counts rather
-    than a verdict of its own.
+    Every section has at least one unit, so there is no prose-versus-table branch
+    for a consumer to get wrong. IPDP rubrics declare no prose sections at all and
+    every TPP declares three or four, so a shape that split them was carrying a
+    branch for one of them on every run.
     """
 
     section_name: str
-    is_present: bool = True
-    dimensions: dict[str, DimensionAssessment] = field(
-        default_factory=_empty_dimensions
-    )
-    variable_grades: list[VariableGrade] = field(default_factory=list)
     mapped_block_ids: list[str] = field(default_factory=list)
-    """Blocks the section mapper assigned to this section, in document order.
+    """Blocks the section mapper assigned here, in document order.
 
-    A deterministic assignment, not a citation - named apart from
-    `cited_block_ids` so a consumer cannot mistake one for the other. Published
-    because the grader, the contract check, and the document view each used to
-    rebuild it from `section_label`, three times, from the same input.
+    A deterministic assignment, not a citation. Published because the assessor, the
+    contract check, and the document view each used to rebuild it from
+    `section_label`, three times, from the same input.
     """
+    units: list[UnitAssessment] = field(default_factory=list)
 
     @property
-    def missing_variables(self) -> list[str]:
-        """Rubric variables the document does not contain, in rubric order.
+    def is_present(self) -> bool:
+        """Whether the document contains this section.
 
-        Derived from each variable's `content_status`, which is the single
-        authority for presence. It was previously stored alongside that status,
-        so the two could disagree.
+        Derived, because it was never anything else: the assessor marked a section
+        present exactly when the mapper gave it blocks. Storing it made one fact
+        carried three ways - this flag, `mapped_block_ids`, and a list of present
+        section names threaded through two layers - so the contract had to police an
+        agreement that is now definitional.
         """
-        return [
-            variable.variable_name
-            for variable in self.variable_grades
-            if variable.content_status == ABSENT_CONTENT_STATUS
-        ]
+        return bool(self.mapped_block_ids)
 
     @property
-    def gap_counts(self) -> dict[str, int]:
-        """Gaps found in this section, counted by severity.
+    def status_counts(self) -> dict[str, int]:
+        """This section's units, counted by status.
 
-        A count replaced an averaged letter. Averaging assumed the steps between
-        letters were equal and that a section's quality was the mean of its
-        parts; a count asserts only what was actually found, and a reader can
-        verify it by counting the same rows.
-
-        A section the document never wrote is one critical gap. Its dimensions
-        assessed nothing, so counting them would report zero problems for the
-        most serious problem there is.
+        Bounded by the rubric, so "3 not met" always means three of a known number
+        of units. The count it replaced counted judgments, which was unbounded and
+        comparable to nothing.
         """
-        counts = _empty_gap_counts()
-        if not self.is_present:
-            counts["critical"] = 1
-            return counts
-        assessed = (
-            [
-                assessment
-                for variable in self.variable_grades
-                for assessment in variable.dimensions.values()
-            ]
-            if self.variable_grades
-            else list(self.dimensions.values())
-        )
-        for assessment in assessed:
-            if assessment.is_gap:
-                counts[assessment.verdict] += 1
+        counts = {status: 0 for status in UNIT_STATUSES}
+        for unit in self.units:
+            counts[unit.status] += 1
         return counts
 
 
 @dataclass
-class TopIssue:
-    """One ranked document-level issue, kept as parts rather than a sentence.
-
-    This used to be a formatted string like
-    ``"Dose volume · rigor (D) — Only a placeholder token is present."``.
-    Every consumer that wanted to link an issue to its block, filter by
-    dimension, or re-sort by severity had to take that sentence back apart, so
-    the parts are published and the sentence is the reader's to compose.
-
-    Severity is the dimension's own verdict. It used to be a letter that a
-    lookup table then converted into a rank, so the ordering a reader saw was
-    one step removed from anything the model said.
-    """
-
-    section_name: str
-    issue: str
-    dimension: Dimension | None = None
-    """Absent only for a whole section that is not present at all."""
-    variable_name: str | None = None
-    severity: DimensionVerdict = INAPPLICABLE_VERDICT
-    content_status: ContentStatus | None = None
-    recommendation: str = ""
-    cited_block_ids: list[str] = field(default_factory=list)
-
-
-@dataclass
-class CrossSectionFinding:
-    """A consistency problem that spans MORE THAN ONE section.
-
-    Produced by the whole-document consistency pass - the one place that sees
-    all sections at once. Per-section assessment cannot catch these by design
-    (sections are assessed in isolation), so this is doc-level, not attached to
-    any single section's dimension verdict.
-    """
-
-    description: str
-    sections: list[str] = field(default_factory=list)
-    recommendation: str = ""
-    block_ids: list[str] = field(default_factory=list)
-
-
-@dataclass
 class InspectionResult:
-    """Full report. Document level counts the gaps its sections found."""
+    """One document against one rubric."""
 
     doc_id: str
-    top_issues: list[TopIssue] = field(default_factory=list)
-    section_grades: list[SectionGrade] = field(default_factory=list)
-    cross_section_findings: list[CrossSectionFinding] = field(default_factory=list)
+    sections: list[SectionAssessment] = field(default_factory=list)
+    document_findings: list[Finding] = field(default_factory=list)
+    """Conflicts spanning sections, which no single unit can own."""
     consistency_status: ConsistencyStatus = "unknown"
-    grading_status: GradingStatus = "unknown"
+    assessment_status: AssessmentStatus = "unknown"
+    """Whether this run completed.
 
-    # --- Header (document provenance, stamped by pipeline) ---
+    A process fact, deliberately outside the assessment: "not checked" must never
+    read as "nothing found".
+    """
+
+    # --- Header (document provenance, stamped by the pipeline) ---
     org: str | None = None
     source_type: str | None = None
     intervention_class: str | None = None
@@ -298,15 +277,6 @@ class InspectionResult:
     # consumers (e.g. the Ask assistant) can read the full document behind the
     # findings. Not used by the assessment itself.
     blocks: list["ContentBlock"] = field(default_factory=list)
-
-    @property
-    def gap_counts(self) -> dict[str, int]:
-        """Every section's gaps, summed by severity."""
-        totals = _empty_gap_counts()
-        for section in self.section_grades:
-            for verdict, count in section.gap_counts.items():
-                totals[verdict] += count
-        return totals
 
 
 @dataclass
@@ -318,41 +288,50 @@ class BatchInspectionResult:
     error: str | None = None
 
 
+# --- Rubric configuration ----------------------------------------------------
+# One shape at both levels: a section and a variable declare the same things, so a
+# reader learns the schema once. A section adds only its variables.
+
+
 @dataclass
 class VariableSpec:
-    """Rubric expectations for one variable within a section.
-
-    `completeness`, `adherence`, and `rigor` are optional per-dimension
-    rule hints (free-form dicts). The grader uses each block only when
-    grading that dimension — no cross-dimension leakage. The blocks are
-    informational; the grader reads them into the dimension's prompt
-    section verbatim.
-    """
+    """Rubric expectations for one variable within a section."""
 
     name: str
     description: str
-    completeness: dict[str, Any] = field(default_factory=dict)
-    adherence: dict[str, Any] = field(default_factory=dict)
-    rigor: dict[str, Any] = field(default_factory=dict)
+    optional: bool = False
+    """Whether the rubric accepts this being absent.
+
+    An optional variable that is present is assessed like any other; absent, it is
+    `not_applicable` rather than a shortfall. Without this the tool asserted
+    something the rubric author explicitly had not: every "Additional Variables of
+    Interest" section says its variables are not relevant to every document, and on
+    the device profiles that section holds 25 of 48 units.
+    """
+    expectations: str = ""
+    """What good looks like here, read into the prompt verbatim.
+
+    One block, not one per question. This is where an external standard belongs
+    when one applies - as the expectation a unit is held to, never as a second
+    rubric.
+    """
 
 
 @dataclass
 class SectionSpec:
     """Rubric expectations for one section.
 
-    For prose sections (no variables) the dimension blocks below carry
-    the per-dimension rule hints. For variable-bearing sections, dimension
-    grading happens at the variable level — the section blocks are
-    typically empty and unused.
+    A section with no variables is itself one unit and carries the expectations
+    below. A section with variables contributes one unit per variable.
     """
 
     name: str
     description: str
-    weight: float
+    optional: bool = False
+    """Applied to every unit in the section, so a whole optional section need not
+    repeat the flag on each variable."""
+    expectations: str = ""
     variables: list[VariableSpec] = field(default_factory=list)
-    completeness: dict[str, Any] = field(default_factory=dict)
-    adherence: dict[str, Any] = field(default_factory=dict)
-    rigor: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -365,30 +344,42 @@ class InspectionConfig:
     intervention_class: str
     display_name: str
     sections: list[SectionSpec]
-    # Document-wide grading guidance injected into every dimension prompt. Used
-    # for stage calibration (e.g. ITPP grades leniently on numeric specificity,
-    # CTPP strictly). Optional; empty means no extra framing.
-    grading_guidance: str = ""
+    # Document-wide stage calibration injected into the assessment prompt (e.g.
+    # ITPP expects less numeric specificity than CTPP). Empty means no extra
+    # framing.
+    stage_guidance: str = ""
+    mirrors: str = ""
+    """The authored source this rubric's structure comes from.
+
+    Free text, because the sources do not share a shape: naming a library, a
+    document, and a revision separately would bake in the conventions of one of
+    them. Published so the question "is this the official template" is answerable
+    from the file rather than from memory.
+
+    This is the one boundary that leaves the codebase, so nothing here can verify
+    it. It names which source to re-check when that source moves; it is not a
+    drift check. Everything the source does not contain - each unit's
+    `description`, `stage_guidance`, `optional`, `expectations` - is maintained
+    here, and `README.md` states that split once rather than repeating it per
+    config.
+    """
 
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
 
 
 def available_configs() -> list["InspectionConfig"]:
-    """Every rubric this service can grade against, in stable order.
+    """Every rubric this service can assess against, in stable order.
 
-    Which files are rubrics and which are scaffolds is Inspector's fact, decided
-    by whether a file loads as one rather than by the shape of its name.
-    Mirrors `chunker.available_configs` so a caller can enumerate any service the
-    same way.
+    Which files are rubrics and which are scaffolds is Inspector's fact, decided by
+    whether a file loads as one rather than by the shape of its name. Mirrors
+    `chunker.available_configs` so a caller can enumerate any service the same way.
     """
     configs: list[InspectionConfig] = []
     for path in sorted(CONFIGS_DIR.glob("*.yaml")):
         try:
             config = load_inspection_config(str(path))
         except (ValueError, KeyError, TypeError):
-            # A malformed file is not an available config. Asking for it by
-            # identity still raises, so nothing is hidden.
             continue
         # A config is named for its identity; a scaffold is not.
         if config.type_key != path.stem:
@@ -463,18 +454,15 @@ def load_inspection_config(path: str) -> InspectionConfig:
         missing = ", ".join(sorted(missing_fields))
         raise ValueError(f"Inspector config missing required fields: {missing}")
 
-    _validate_string_field(data, "type_key")
-    _validate_string_field(data, "org")
-    _validate_string_field(data, "source_type")
-    _validate_string_field(data, "intervention_class")
-    _validate_string_field(data, "display_name")
-    sections = _parse_sections(data["sections"])
-    if sum(section.weight for section in sections) <= 0:
-        raise ValueError("Inspector section weights must have a positive total")
+    for field_name in ("type_key", "org", "source_type", "intervention_class", "display_name"):
+        _validate_string_field(data, field_name)
 
-    grading_guidance = data.get("grading_guidance", "") or ""
-    if not isinstance(grading_guidance, str):
-        raise ValueError("Inspector config field 'grading_guidance' must be a string")
+    stage_guidance = data.get("stage_guidance", "") or ""
+    if not isinstance(stage_guidance, str):
+        raise ValueError("Inspector config field 'stage_guidance' must be a string")
+    mirrors = data.get("mirrors", "") or ""
+    if not isinstance(mirrors, str):
+        raise ValueError("Inspector config field 'mirrors' must be a string")
 
     return InspectionConfig(
         type_key=data["type_key"],
@@ -482,22 +470,39 @@ def load_inspection_config(path: str) -> InspectionConfig:
         source_type=data["source_type"],
         intervention_class=data["intervention_class"],
         display_name=data["display_name"],
-        sections=sections,
-        grading_guidance=grading_guidance.strip(),
+        sections=_parse_sections(data["sections"]),
+        stage_guidance=stage_guidance.strip(),
+        mirrors=mirrors.strip(),
     )
 
 
 def inspection_result_to_dict(result: InspectionResult) -> dict[str, Any]:
     """Convert an InspectionResult to JSON-serializable dictionaries.
 
-    Gap counts are derived, so `asdict` cannot see them. They are published
-    anyway: a client that counted for itself could disagree with the report, and
-    the count is the only summary the document now has.
+    Derived values `asdict` cannot see are added here: each unit's status, each
+    finding's level, and each section's status counts. They are published rather
+    than left to the client because a client deriving them independently could
+    disagree with the assessment it is displaying.
+
+    No flattened copy of the findings is published. A worklist is those same
+    findings ordered by `rank`, which the presentation layer composes - a second
+    array here would be a shape that can drift from the units it came from.
     """
     payload = asdict(result)
-    payload["gap_counts"] = result.gap_counts
-    for section, section_payload in zip(result.section_grades, payload["section_grades"]):
-        section_payload["gap_counts"] = section.gap_counts
+    # `zip` truncates silently, so a shape that stopped lining up would leave later
+    # units without their derived status - and the API refuses that rather than
+    # defaulting it, so this assert names the cause instead of the symptom.
+    if len(result.sections) != len(payload["sections"]):
+        raise ValueError("Inspector payload lost sections during serialization")
+    for section, section_payload in zip(result.sections, payload["sections"]):
+        section_payload["is_present"] = section.is_present
+        section_payload["status_counts"] = section.status_counts
+        for unit, unit_payload in zip(section.units, section_payload["units"]):
+            unit_payload["status"] = unit.status
+            for finding, finding_payload in zip(unit.findings, unit_payload["findings"]):
+                finding_payload["level"] = finding.level
+    for finding, finding_payload in zip(result.document_findings, payload["document_findings"]):
+        finding_payload["level"] = finding.level
     return payload
 
 
@@ -517,7 +522,6 @@ def _parse_sections(value: Any) -> list[SectionSpec]:
             raise ValueError(f"sections[{index}] must be a mapping")
         _validate_string_field(section_data, "name")
         _validate_string_field(section_data, "description")
-        _validate_weight(section_data.get("weight"), f"sections[{index}].weight")
 
         section_name = section_data["name"]
         if section_name in seen_names:
@@ -528,11 +532,11 @@ def _parse_sections(value: Any) -> list[SectionSpec]:
             SectionSpec(
                 name=section_name,
                 description=section_data["description"],
-                weight=float(section_data["weight"]),
+                optional=_parse_flag(section_data.get("optional"), f"sections[{index}].optional"),
+                expectations=_parse_expectations(
+                    section_data.get("expectations"), f"sections[{index}].expectations"
+                ),
                 variables=_parse_variables(section_data.get("variables", []), index),
-                completeness=_parse_dimension_block(section_data.get("completeness"), f"sections[{index}].completeness"),
-                adherence=_parse_dimension_block(section_data.get("adherence"), f"sections[{index}].adherence"),
-                rigor=_parse_dimension_block(section_data.get("rigor"), f"sections[{index}].rigor"),
             )
         )
 
@@ -550,10 +554,9 @@ def _parse_variables(value: Any, section_index: int) -> list[VariableSpec]:
     variables: list[VariableSpec] = []
     seen_names: set[str] = set()
     for index, variable_data in enumerate(value):
+        where = f"sections[{section_index}].variables[{index}]"
         if not isinstance(variable_data, dict):
-            raise ValueError(
-                f"sections[{section_index}].variables[{index}] must be a mapping"
-            )
+            raise ValueError(f"{where} must be a mapping")
         _validate_string_field(variable_data, "name")
         _validate_string_field(variable_data, "description")
 
@@ -568,33 +571,26 @@ def _parse_variables(value: Any, section_index: int) -> list[VariableSpec]:
             VariableSpec(
                 name=variable_name,
                 description=variable_data["description"],
-                completeness=_parse_dimension_block(
-                    variable_data.get("completeness"),
-                    f"sections[{section_index}].variables[{index}].completeness",
-                ),
-                adherence=_parse_dimension_block(
-                    variable_data.get("adherence"),
-                    f"sections[{section_index}].variables[{index}].adherence",
-                ),
-                rigor=_parse_dimension_block(
-                    variable_data.get("rigor"),
-                    f"sections[{section_index}].variables[{index}].rigor",
+                optional=_parse_flag(variable_data.get("optional"), f"{where}.optional"),
+                expectations=_parse_expectations(
+                    variable_data.get("expectations"), f"{where}.expectations"
                 ),
             )
         )
     return variables
 
 
-def _parse_dimension_block(value: Any, field_name: str) -> dict[str, Any]:
+def _parse_flag(value: Any, field_name: str) -> bool:
     if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError(f"{field_name} must be a mapping")
+        return False
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be true or false")
     return value
 
 
-def _validate_weight(value: Any, field_name: str) -> None:
-    if not isinstance(value, (int, float)):
-        raise ValueError(f"{field_name} must be numeric")
-    if value < 0:
-        raise ValueError(f"{field_name} must be non-negative")
+def _parse_expectations(value: Any, field_name: str) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    return value.strip()

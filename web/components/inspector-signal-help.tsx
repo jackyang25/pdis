@@ -5,64 +5,40 @@ import {
   SignalLabel,
   type SignalTopic,
 } from "@/components/ui/signal-help";
-import type { DimensionName } from "@/lib/api";
 
 /**
  * Inspector's vocabulary. The wording is Inspector's; the popover behaviour is
  * shared with Scout through `ui/signal-help`.
  *
- * The three dimensions are deliberately independent, and the most common
- * misreading is treating a gap on one as a gap overall - so each entry says what
- * its dimension does *not* judge.
+ * Three topics, one per published vocabulary: what a finding is, what a unit's
+ * status means, and what the whole-document check covers. There were six, because
+ * three internal questions each needed explaining plus a presence scale and a
+ * severity scale on top; merging the questions merged their explanations too.
  */
 
-export type InspectorSignalTopic =
-  | DimensionName
-  | "presence"
-  | "severity"
-  | "consistency";
+export type InspectorSignalTopic = "finding" | "status" | "consistency";
 
 const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
-  completeness: {
-    promptRef: { tool: "inspector", stage: "completeness" },
-    title: "Completeness",
-    summary: "Is the content the rubric asks for actually in the document?",
+  finding: {
+    promptRef: { tool: "inspector", stage: "assessment" },
+    title: "Finding",
+    summary: "One thing to fix, with the reason it was raised.",
     detail:
-      "Judges presence only. A target can be fully present and still be a critical rigor gap for being vague, so meeting completeness is not a statement about quality.",
+      "A finding is one problem, one recommendation, and the exact passage it was read from, so a count of findings is a count of things to do. Reasons: Not present means nothing is there. Placeholder left in means a token such as <<TBD>> sits where the value belongs. Does not meet the requirement means content is there and does not satisfy it. Off template means the structure or naming deviates. Not specific enough means the requirement is satisfied but the content is vague. Conflicts with another section comes from the whole-document check. A unit raises each reason at most once, and content that is not present raises nothing else, because there is nothing there to have read.",
   },
-  adherence: {
-    promptRef: { tool: "inspector", stage: "adherence" },
-    title: "Template adherence",
-    summary: "Does the content follow the rubric's expected structure and naming?",
+  status: {
+    promptRef: { tool: "inspector", stage: "assessment" },
+    title: "Status",
+    summary: "How one rubric unit stands: met, could be stronger, not met, or not applicable.",
     detail:
-      "Judges form, not substance: section and variable names matching the rubric, expected columns present, no template tokens left behind. Well-formed content can still be wrong.",
-  },
-  rigor: {
-    promptRef: { tool: "inspector", stage: "rigor" },
-    title: "Rigor",
-    summary: "Is the content that is present specific, measurable, and sound?",
-    detail:
-      "Judges quality only, never presence or formatting. A target should be testable — a value with units or a clear pass/fail — rather than language like 'robust' that has no checkable meaning. Judged against the document's stage: an early profile is held to a different bar than a candidate specification.",
-  },
-  presence: {
-    promptRef: { tool: "inspector", stage: "completeness" },
-    title: "Presence",
-    summary: "How much of a required variable the document actually supplies.",
-    detail:
-      "Not present means nothing is there, so it cites no passage. Placeholder means a token such as <<TBD>> is sitting where the value belongs. Partially filled means some of it is stated. These need different fixes, which is why they are labelled apart.",
-  },
-  severity: {
-    title: "Severity",
-    summary: "How much a gap matters: Critical, or For consideration.",
-    detail:
-      "Critical means the rubric requires the content and the document does not usably supply it — missing, a placeholder, or contradicting the rubric. For consideration means it is stated and usable but could be stronger. There is no letter grade and no overall score: a document shows how many gaps of each severity were found, and every count opens to the rows behind it.",
+      "Derived from the findings on that unit alone, so met always means exactly zero findings and no view can show you a different answer. Not met covers content that is absent, a placeholder, or present but not satisfying the requirement. Could be stronger covers content that satisfies the requirement and would be better with more specificity. Not applicable means the rubric itself accepts this being absent, so it is not a shortfall. Nothing here says what a shortfall costs your programme, because that is not something this tool can see: there is no letter grade, no severity scale, and no overall score.",
   },
   consistency: {
     promptRef: { tool: "inspector", stage: "consistency" },
     title: "Cross-section consistency",
     summary: "Do two different sections state claims that cannot both hold?",
     detail:
-      "Only conflicts spanning more than one section appear here — a problem inside a single section is judged by the three dimensions instead. This check compares your document with itself; it never consults outside evidence.",
+      "Only conflicts spanning more than one section are reported here, and a conflict must cite passages from at least two of them; that span is what makes it cross-section. A problem inside one section belongs to that unit instead. This check compares your document with itself and never consults outside evidence. If it does not complete, that is reported as its own status rather than as a document with nothing wrong.",
   },
 };
 
@@ -88,9 +64,9 @@ export function InspectorSignalLabel({
 export function InspectorSignalHelp() {
   return (
     <SignalHelp
-      title="How to read Inspector findings"
-      intro="The three dimensions answer different questions about the same content and are never combined into one score."
-      topics={[...INSPECTOR_TOPIC_LIST]}
+      title="How to read this assessment"
+      intro="Inspector checks one document against its authored rubric. Every unit the rubric asks about is assessed, and every finding cites the passage it came from."
+      topics={INSPECTOR_TOPIC_LIST as SignalTopic[]}
     />
   );
 }

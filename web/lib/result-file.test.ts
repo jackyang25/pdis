@@ -29,16 +29,14 @@ const block: ContentBlock = {
 const inspection: InspectorResponse = {
   inspection: {
     doc_id: "doc",
-    top_issues: [],
-    section_grades: [],
-    cross_section_findings: [],
+    sections: [],
+    document_findings: [],
     consistency_status: "complete",
-    grading_status: "complete",
+    assessment_status: "complete",
     org: "bmgf",
     source_type: "itpp",
     intervention_class: "vaccine",
     indication: "malaria",
-    gap_counts: { critical: 0, for_consideration: 0 },
     blocks: [block],
   },
 };
@@ -142,7 +140,7 @@ test("current Inspector results round-trip exactly", () => {
   // share, and the analysis version belongs to this tool alone. An Inspector change
   // bumps only its own entry, so a saved Scout result stays readable.
   assert.equal(packed.envelope_version, 1);
-  assert.equal(packed.analysis_version, 1);
+  assert.equal(packed.analysis_version, 2);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("blocks" in packed.analysis.inspection, false);

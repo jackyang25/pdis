@@ -1,443 +1,410 @@
 {
-  "framings": [
+  "configurations": [
     {
+      "display_name": "Medical Device Candidate TPP",
       "intervention_class": "device",
-      "key": "drift_framing",
+      "mirrors": "",
       "org": "bmgf",
       "source_type": "ctpp",
-      "text": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
-      "tool": "scout"
+      "texts": {
+        "preamble": "This is a Medical Device Target Product Profile (TPP). Device TPPs define the desired characteristics of a medical device using minimum and optimistic targets. Structure: instructions for use, medical need/use case (single-column table with medical need, use case scenario, and critical assumptions), annotated product requirements split into intervention-wide variables and device-specific additional variables, change management log, and appendix.\nThe annotated product requirements have two distinct sub-sections: intervention-wide variables (broad characteristics) and additional variables of interest (device-specific operation, design, and performance). Both are multi-column tables with min/optimistic/annotations columns."
+      },
+      "tool": "chunker"
     },
     {
+      "display_name": "Diagnostic Candidate TPP",
+      "intervention_class": "diagnostic",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "preamble": "This is a Diagnostic Assay/Instrument Target Product Profile (TPP). Diagnostic TPPs define the desired characteristics of a diagnostic test or instrument using minimum and optimistic targets. Structure: instructions for use, medical need/use case (single-column table with medical need, use case scenario, and critical assumptions), annotated product requirements (multi-column table grouped by category - intended use, performance characteristics, regulatory needs, healthcare system needs, commercial needs), and a change management log.\nThe annotated product requirements section is a single dense table organized into categorical sub-headers (e.g., \"1. Intended Use\", \"2. Individual or Population Needs\"). All rows under all sub-headers belong to the \"Annotated Product Requirements\" section - do not split sub-categories into separate sections."
+      },
+      "tool": "chunker"
+    },
+    {
+      "display_name": "Drug Candidate TPP",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "preamble": "This is a Drug Target Product Profile (TPP). Drug TPPs define the desired characteristics of a pharmaceutical product using minimum and optimistic targets. Structure: introduction, instructions for use, summary use case (single-column table with problem definition, target users, barriers, and critical assumptions), executive summary table with core variables in minimum/optimistic/annotations columns, additional variables of interest in the same table format, and a change management log.\nThe executive summary and additional variables sections contain dense multi-column tables where each row is a separate variable. Label all rows within a table under the same section - do not split individual table rows into different sections."
+      },
+      "tool": "chunker"
+    },
+    {
+      "display_name": "Vaccine Candidate TPP",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "preamble": "This is a Vaccine Target Product Profile (TPP). TPPs define the desired characteristics of a vaccine product using minimum and optimistic targets. They typically follow this structure: an introduction explaining what TPPs are, instructions for completing the template, a medical need and use case section (often a single-column table with problem definition, target users, barriers, and critical assumptions), an executive summary table with core variables (indication, target population, efficacy, safety, dosing, COGS, etc.) in minimum/optimistic/annotations columns, additional variables of interest in the same table format, and a change management log tracking version history.\nThe executive summary and additional variables sections contain dense multi-column tables where each row is a separate variable. Label all rows within a table under the same section - do not split individual table rows into different sections."
+      },
+      "tool": "chunker"
+    },
+    {
+      "display_name": "Diagnostic Integrated Product Development Plan",
+      "intervention_class": "diagnostic",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "preamble": "This is a Diagnostic Integrated Product Development Plan (IPDP): a grantee's high-level plan describing the critical path across functional domains (research, regulatory, clinical, development, manufacturing, quality, global access, partner management, delivery), anticipated risks, decision criteria, and an integrated timeline from feasibility through regulatory approval and WHO PQ/endorsement.\nThe document is built largely from tables. Some are administrative key/value tables (general information, development team, change history); some are registers where each row is a distinct item (the decision-criteria table, the risk table, the intended countries table, the partner table, delivery metrics); and many functional-domain sections are single-cell narrative summaries. Label all rows of a given table under the same section - do not split individual rows into different sections. Integrated development timelines often appear as figures; label them under \"Integrated Development Timeline\"."
+      },
+      "tool": "chunker"
+    },
+    {
+      "display_name": "Drug Integrated Product Development Plan",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "preamble": "This is a Drug Integrated Product Development Plan (IPDP): a grantee's high-level plan describing the critical path across functional domains (non-clinical, regulatory, clinical, CMC, partner management, launch and delivery), anticipated risks, decision criteria, and an integrated timeline from discovery through launch and delivery.\nThe document is built largely from tables. Some are administrative key/value tables (general information, development team, change history); some are registers where each row is a distinct item (the risk table, the intended countries table, the critical-path clinical studies table, the partner table); and many functional-domain sections are single-cell narrative summaries. Label all rows of a given table under the same section - do not split individual rows into different sections. Integrated development timelines often appear as figures; label them under \"Integrated Development Timeline\"."
+      },
+      "tool": "chunker"
+    },
+    {
+      "display_name": "Vaccine Integrated Product Development Plan",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "preamble": "This is a Vaccine Integrated Product Development Plan (IPDP): a grantee's high-level plan describing the critical path across functional domains (non-clinical, regulatory, clinical, CMC, global access, partner management, delivery), anticipated risks, decision criteria, and an integrated timeline from preclinical development through licensure and WHO prequalification.\nThe document is built largely from tables. Some are administrative key/value tables (general information, development team, change history); some are registers where each row is a distinct item (the risk table, the intended countries table, the critical-path clinical studies table, delivery metrics); and many functional-domain sections are single-cell narrative summaries. Label all rows of a given table under the same section - do not split individual rows into different sections. Integrated development timelines often appear as figures; label them under \"Integrated Development Timeline\"."
+      },
+      "tool": "chunker"
+    },
+    {
+      "display_name": "Medical Device Intervention TPP",
       "intervention_class": "device",
-      "key": "evidence_framing",
+      "mirrors": "",
       "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
-      "tool": "scout"
+      "source_type": "itpp",
+      "texts": {
+        "preamble": "This is a Medical Device Target Product Profile (TPP). Device TPPs define the desired characteristics of a medical device using minimum and optimistic targets. Structure: instructions for use, medical need/use case (single-column table with medical need, use case scenario, and critical assumptions), annotated product requirements split into intervention-wide variables and device-specific additional variables, change management log, and appendix.\nThe annotated product requirements have two distinct sub-sections: intervention-wide variables (broad characteristics) and additional variables of interest (device-specific operation, design, and performance). Both are multi-column tables with min/optimistic/annotations columns."
+      },
+      "tool": "chunker"
     },
     {
+      "display_name": "Diagnostic Intervention TPP",
+      "intervention_class": "diagnostic",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "preamble": "This is a Diagnostic Assay/Instrument Target Product Profile (TPP). Diagnostic TPPs define the desired characteristics of a diagnostic test or instrument using minimum and optimistic targets. Structure: instructions for use, medical need/use case (single-column table with medical need, use case scenario, and critical assumptions), annotated product requirements (multi-column table grouped by category - intended use, performance characteristics, regulatory needs, healthcare system needs, commercial needs), and a change management log.\nThe annotated product requirements section is a single dense table organized into categorical sub-headers (e.g., \"1. Intended Use\", \"2. Individual or Population Needs\"). All rows under all sub-headers belong to the \"Annotated Product Requirements\" section - do not split sub-categories into separate sections."
+      },
+      "tool": "chunker"
+    },
+    {
+      "display_name": "Drug Intervention TPP",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "preamble": "This is a Drug Target Product Profile (TPP). Drug TPPs define the desired characteristics of a pharmaceutical product using minimum and optimistic targets. Structure: introduction, instructions for use, summary use case (single-column table with problem definition, target users, barriers, and critical assumptions), executive summary table with core variables in minimum/optimistic/annotations columns, additional variables of interest in the same table format, and a change management log.\nThe executive summary and additional variables sections contain dense multi-column tables where each row is a separate variable. Label all rows within a table under the same section - do not split individual table rows into different sections."
+      },
+      "tool": "chunker"
+    },
+    {
+      "display_name": "Vaccine Intervention TPP",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "preamble": "This is a Vaccine Target Product Profile (TPP). TPPs define the desired characteristics of a vaccine product using minimum and optimistic targets. They typically follow this structure: an introduction explaining what TPPs are, instructions for completing the template, a medical need and use case section (often a single-column table with problem definition, target users, barriers, and critical assumptions), an executive summary table with core variables (indication, target population, efficacy, safety, dosing, COGS, etc.) in minimum/optimistic/annotations columns, additional variables of interest in the same table format, and a change management log tracking version history.\nThe executive summary and additional variables sections contain dense multi-column tables where each row is a separate variable. Label all rows within a table under the same section - do not split individual table rows into different sections."
+      },
+      "tool": "chunker"
+    },
+    {
+      "display_name": "Medical Device Candidate TPP",
       "intervention_class": "device",
-      "key": "precedent_framing",
+      "mirrors": "PDID Reference Library \u2014 device Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
       "org": "bmgf",
       "source_type": "ctpp",
-      "text": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
-      "tool": "scout"
+      "texts": {
+        "stage_guidance": "This is a CANDIDATE TPP (CTPP): a profile of a specific candidate. Calibrate ALL judgments to candidate-stage maturity. Expect concrete, measured values - numeric targets with units, named formulations, and defined schedules. Vague qualitative targets, unspecified ranges, or placeholders fall short at this stage. Hold the document to the standard of a product-specific specification."
+      },
+      "tool": "inspector"
     },
     {
+      "display_name": "Diagnostic Candidate TPP",
+      "intervention_class": "diagnostic",
+      "mirrors": "PDID Reference Library \u2014 diagnostic Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "This is a CANDIDATE TPP (CTPP): a profile of a specific candidate. Calibrate ALL judgments to candidate-stage maturity. Expect concrete, measured values - numeric targets with units, named formulations, and defined schedules. Vague qualitative targets, unspecified ranges, or placeholders fall short at this stage. Hold the document to the standard of a product-specific specification."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "Drug Candidate TPP",
+      "intervention_class": "drug",
+      "mirrors": "PDID Reference Library \u2014 drug Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "This is a CANDIDATE TPP (CTPP): a profile of a specific candidate. Calibrate ALL judgments to candidate-stage maturity. Expect concrete, measured values - numeric targets with units, named formulations, and defined schedules. Vague qualitative targets, unspecified ranges, or placeholders fall short at this stage. Hold the document to the standard of a product-specific specification."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "Vaccine Candidate TPP",
+      "intervention_class": "vaccine",
+      "mirrors": "PDID Reference Library \u2014 vaccine Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "This is a CANDIDATE TPP (CTPP): a profile of a specific candidate. Calibrate ALL judgments to candidate-stage maturity. Expect concrete, measured values - numeric targets with units, named formulations, and defined schedules. Vague qualitative targets, unspecified ranges, or placeholders fall short at this stage. Hold the document to the standard of a product-specific specification."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "Diagnostic Integrated Product Development Plan",
+      "intervention_class": "diagnostic",
+      "mirrors": "PDID Reference Library \u2014 diagnostic Integrated Product Development Plan template: functional-domain sections and the activities each expects.",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "This is an INTEGRATED PRODUCT DEVELOPMENT PLAN (IPDP): a high-level plan a grantee submits at investment and updates at each stage gate. Calibrate ALL judgments to a strategic development plan - NOT to a candidate specification or a TPP. Each functional domain is intentionally a high-level summary (the template limits most to 1-2 pages), so do not treat appropriate brevity as a deficiency. What matters: the critical path is articulated end to end; key risks are identified per functional area with probability/impact ratings and credible mitigations; Go / No-Go decision criteria are explicit (by functional criterion) and tied to the data the planned activities will produce; and the research, regulatory, clinical, development, manufacturing, quality, access, and delivery strategies are present and mutually consistent (timeline <-> studies <-> risks <-> decision criteria). Diagnostics separate development, manufacturing, and quality management - expect each to be addressed. Numeric specifics ARE expected where the template asks for them (clinical performance, study sizes, costs, delivery metrics); narrative is appropriate for strategy summaries. Reward internal consistency and a coherent, feasible plan over exhaustive detail."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "Drug Integrated Product Development Plan",
+      "intervention_class": "drug",
+      "mirrors": "PDID Reference Library \u2014 drug Integrated Product Development Plan template: functional-domain sections and the activities each expects.",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "This is an INTEGRATED PRODUCT DEVELOPMENT PLAN (IPDP): a high-level plan a grantee submits at investment and updates at each stage gate. Calibrate ALL judgments to a strategic development plan - NOT to a candidate specification or a TPP. Each functional domain is intentionally a high-level summary (the template limits most to ~1 page), so do not treat appropriate brevity as a deficiency. What matters: the critical path is articulated end to end (including the detailed timeline to proof of concept); key risks are identified per functional area with probability/impact ratings and credible mitigations; Go / No-Go decision criteria are explicit and tied to the data the planned activities will produce; and the regulatory, clinical, non-clinical, CMC, partner, and launch/delivery strategies are present and mutually consistent (timeline <-> clinical studies <-> risks <-> decision criteria). Numeric specifics ARE expected where the template asks for them (study sizes, costs, dates); narrative is appropriate for strategy summaries. Reward internal consistency and a coherent, feasible plan over exhaustive detail."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "Vaccine Integrated Product Development Plan",
+      "intervention_class": "vaccine",
+      "mirrors": "PDID Reference Library \u2014 vaccine Integrated Product Development Plan template: functional-domain sections and the activities each expects.",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "This is an INTEGRATED PRODUCT DEVELOPMENT PLAN (IPDP): a high-level plan a grantee submits at investment and updates at each stage gate. Calibrate ALL judgments to a strategic development plan - NOT to a candidate specification or a TPP. Each functional domain is intentionally a high-level summary (the template limits most to ~1 page), so do not treat appropriate brevity as a deficiency. What matters: the critical path is articulated end to end; key risks are identified per functional area with probability/impact ratings and credible mitigations; Go / No-Go decision criteria are explicit and tied to the data the planned activities will produce; and the regulatory, clinical, non-clinical, CMC, access, and delivery strategies are present and mutually consistent (timeline <-> clinical studies <-> risks <-> decision criteria). Numeric specifics ARE expected where the template asks for them (study sizes, costs, dates, delivery metrics); narrative is appropriate for strategy summaries. Reward internal consistency and a coherent, feasible plan over exhaustive detail."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "Medical Device Intervention TPP",
       "intervention_class": "device",
-      "key": "quantitative_target_framing",
+      "mirrors": "PDID Reference Library \u2014 device Intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
       "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
-      "tool": "scout"
+      "source_type": "itpp",
+      "texts": {
+        "stage_guidance": "This is an INTERVENTION TPP (ITPP): an early, candidate-agnostic profile that sets targets for the intervention class before any specific candidate is chosen. Calibrate ALL judgments to intervention-stage maturity. Qualitative targets, clear directions, and ranges are appropriate and expected at this stage; candidate-specific numeric precision (exact values, named formulations, specific schedules) is NOT expected yet, so do not treat its absence as a deficiency on any dimension. Assess whether the strategic intent is clear, sound, and well-formed for an early-stage profile."
+      },
+      "tool": "inspector"
     },
     {
+      "display_name": "Diagnostic Intervention TPP",
+      "intervention_class": "diagnostic",
+      "mirrors": "PDID Reference Library \u2014 diagnostic Intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "stage_guidance": "This is an INTERVENTION TPP (ITPP): an early, candidate-agnostic profile that sets targets for the intervention class before any specific candidate is chosen. Calibrate ALL judgments to intervention-stage maturity. Qualitative targets, clear directions, and ranges are appropriate and expected at this stage; candidate-specific numeric precision (exact values, named formulations, specific schedules) is NOT expected yet, so do not treat its absence as a deficiency on any dimension. Assess whether the strategic intent is clear, sound, and well-formed for an early-stage profile."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "Drug Intervention TPP",
+      "intervention_class": "drug",
+      "mirrors": "PDID Reference Library \u2014 drug Intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "stage_guidance": "This is an INTERVENTION TPP (ITPP): an early, candidate-agnostic profile that sets targets for the intervention class before any specific candidate is chosen. Calibrate ALL judgments to intervention-stage maturity. Qualitative targets, clear directions, and ranges are appropriate and expected at this stage; candidate-specific numeric precision (exact values, named formulations, specific schedules) is NOT expected yet, so do not treat its absence as a deficiency on any dimension. Assess whether the strategic intent is clear, sound, and well-formed for an early-stage profile."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "Vaccine Intervention TPP",
+      "intervention_class": "vaccine",
+      "mirrors": "PDID Reference Library \u2014 vaccine Intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "stage_guidance": "This is an INTERVENTION TPP (ITPP): an early, candidate-agnostic profile that sets targets for the intervention class before any specific candidate is chosen. Calibrate ALL judgments to intervention-stage maturity. Qualitative targets, clear directions, and ranges are appropriate and expected at this stage; candidate-specific numeric precision (exact values, named formulations, specific schedules) is NOT expected yet, so do not treat its absence as a deficiency on any dimension. Assess whether the strategic intent is clear, sound, and well-formed for an early-stage profile."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "BMGF Candidate TPP - Device",
       "intervention_class": "device",
-      "key": "query_extraction_guidance",
+      "mirrors": "",
       "org": "bmgf",
       "source_type": "ctpp",
-      "text": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current devices or approaches for the indication,\n   their clinical performance, usability, durability, and cost. Frame\n   queries around how a new device could win: better clinical outcomes,\n   easier use, lower cost, or suitability for low-resource settings.\n\n2. New scientific data - recent device entrants, clinical and usability\n   studies, engineering/materials advances, and epidemiology trends that\n   change how valuable a device is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators (including device clearance pathways), WHO technical\n   specifications and prequalification, LMIC national regulators,\n   procurement, registries, and literature. Include LMIC approval, access,\n   and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, technical specifications, registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming the\nsame authorities.",
+      "texts": {
+        "drift_framing": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+        "evidence_framing": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
+        "precedent_framing": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
+        "quantitative_target_framing": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
+        "query_extraction_guidance": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current devices or approaches for the indication,\n   their clinical performance, usability, durability, and cost. Frame\n   queries around how a new device could win: better clinical outcomes,\n   easier use, lower cost, or suitability for low-resource settings.\n\n2. New scientific data - recent device entrants, clinical and usability\n   studies, engineering/materials advances, and epidemiology trends that\n   change how valuable a device is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators (including device clearance pathways), WHO technical\n   specifications and prequalification, LMIC national regulators,\n   procurement, registries, and literature. Include LMIC approval, access,\n   and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, technical specifications, registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming the\nsame authorities."
+      },
       "tool": "scout"
     },
     {
+      "display_name": "BMGF Candidate TPP - Diagnostic",
       "intervention_class": "diagnostic",
-      "key": "drift_framing",
+      "mirrors": "",
       "org": "bmgf",
       "source_type": "ctpp",
-      "text": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+      "texts": {
+        "drift_framing": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+        "evidence_framing": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
+        "precedent_framing": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
+        "quantitative_target_framing": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
+        "query_extraction_guidance": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current diagnostic methods for the indication, their\n   sensitivity, specificity, time-to-result, cost, and setting (central lab\n   vs. point-of-care). Frame queries around how a new test could win: higher\n   sensitivity/specificity, faster result, lower cost, or decentralized /\n   point-of-care use.\n\n2. New scientific data - recent assay platforms, comparative performance\n   evaluations, clinical validation studies, and epidemiology trends that\n   change how valuable a test is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, IVD prequalification, evaluation bodies, LMIC national\n   regulators, procurement, registries, and literature. Include WHO IVD\n   prequalification, FIND evaluations, LMIC approval, access, and uptake\n   signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, evaluation bodies, registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming the\nsame authorities."
+      },
       "tool": "scout"
     },
     {
+      "display_name": "BMGF Candidate TPP - Drug",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "drift_framing": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+        "evidence_framing": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
+        "precedent_framing": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
+        "quantitative_target_framing": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
+        "query_extraction_guidance": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current treatment regimens for the indication, their\n   cure/response rates, safety, regimen length, pill burden, and resistance\n   profile. Frame queries around how a new drug could win: higher efficacy,\n   shorter regimen, fewer doses, better safety, or activity against\n   resistant strains.\n\n2. New scientific data - recent trial readouts, new drug entrants, mechanism\n   and formulation advances (long-acting, fixed-dose combinations), and\n   resistance/epidemiology trends that change how valuable a drug is for\n   this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, LMIC national regulators, procurement bodies, registries, and\n   literature. Include LMIC approval, WHO Essential Medicines List, access,\n   financing, prequalification, and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, trial registries, or peer-reviewed literature\nover generic phrasing. Spread queries across priority institutions and configured\nlanguages rather than repeatedly naming the same authorities."
+      },
+      "tool": "scout"
+    },
+    {
+      "display_name": "BMGF Candidate TPP - Vaccine",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "drift_framing": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+        "evidence_framing": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
+        "precedent_framing": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
+        "quantitative_target_framing": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
+        "query_extraction_guidance": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current prevention and treatment options for the\n   indication, their efficacy and safety numbers, regimen length, and\n   number of doses. Frame queries around how a new vaccine product could\n   win: higher efficacy, comparable efficacy with a better safety\n   profile, or fewer doses.\n\n2. New scientific data - recent trial readouts, new product entrants,\n   platform and manufacturing advances, and epidemiology trends that\n   change how valuable a vaccine is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, LMIC national regulators, procurement bodies, registries,\n   and literature sources. Include LMIC approval, access, financing,\n   prequalification, and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer\nqueries that target named regulators, trial registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming\nthe same authorities."
+      },
+      "tool": "scout"
+    },
+    {
+      "display_name": "BMGF Integrated Product Development Plan - Diagnostic",
       "intervention_class": "diagnostic",
-      "key": "evidence_framing",
+      "mirrors": "",
       "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
+      "source_type": "ipdp",
+      "texts": {
+        "drift_framing": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, clinical performance study designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
+        "evidence_framing": "This is an integrated product development plan. Assess whether the stated plan commitment or assumption is externally supported and feasible. Thin precedent is uncertainty or execution risk, not intentional product ambition.",
+        "precedent_framing": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, clinical performance study designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
+        "quantitative_target_framing": "This is an integrated product development plan. Preserve a document-stated exact or directional scalar as the plan's milestone, timeline, cost, capacity, performance, study-design, or feasibility commitment. Do not convert descriptive numbers into targets.",
+        "query_extraction_guidance": "Each unit is a concrete plan assertion from a diagnostic development plan - a\nmilestone with a date, a development timeline, a cost or volume projection, a\nregulatory expectation, a clinical performance study design, or a\nmanufacturing/access assumption. Generate retrieval intents that test\nwhether the assertion is realistic and has precedent:\n\n1. Feasibility precedent - has a comparable milestone, timeline, or approach\n   actually been achieved for similar diagnostics or assay platforms? Search\n   for prior programs, their realized timelines, and where they slipped.\n\n2. Regulatory reality - typical requirements and timelines for in vitro\n   diagnostics from the named or relevant bodies (FDA, EMA/IVDR, WHO PQ and\n   WHO endorsement, and LMIC national regulators) for this kind of test.\n\n3. Benchmarks - typical clinical performance evaluation sizes, sensitivity/\n   specificity targets, manufacturing yields and cost per test, and\n   procurement prices for comparable diagnostics, so the plan's numbers can be\n   checked against the field.\n\nUse the indication name and the claim's topic in queries. Prefer queries\ntargeting named regulators, trial registries, or peer-reviewed literature\nover generic phrasing. Spread queries across priority institutions and configured\nlanguages rather than repeatedly naming the same authorities."
+      },
       "tool": "scout"
     },
     {
-      "intervention_class": "diagnostic",
-      "key": "precedent_framing",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "diagnostic",
-      "key": "quantitative_target_framing",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "diagnostic",
-      "key": "query_extraction_guidance",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current diagnostic methods for the indication, their\n   sensitivity, specificity, time-to-result, cost, and setting (central lab\n   vs. point-of-care). Frame queries around how a new test could win: higher\n   sensitivity/specificity, faster result, lower cost, or decentralized /\n   point-of-care use.\n\n2. New scientific data - recent assay platforms, comparative performance\n   evaluations, clinical validation studies, and epidemiology trends that\n   change how valuable a test is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, IVD prequalification, evaluation bodies, LMIC national\n   regulators, procurement, registries, and literature. Include WHO IVD\n   prequalification, FIND evaluations, LMIC approval, access, and uptake\n   signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, evaluation bodies, registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming the\nsame authorities.",
-      "tool": "scout"
-    },
-    {
+      "display_name": "BMGF Integrated Product Development Plan - Drug",
       "intervention_class": "drug",
-      "key": "drift_framing",
+      "mirrors": "",
       "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+      "source_type": "ipdp",
+      "texts": {
+        "drift_framing": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, trial designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
+        "evidence_framing": "This is an integrated product development plan. Assess whether the stated plan commitment or assumption is externally supported and feasible. Thin precedent is uncertainty or execution risk, not intentional product ambition.",
+        "precedent_framing": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, trial designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
+        "quantitative_target_framing": "This is an integrated product development plan. Preserve a document-stated exact or directional scalar as the plan's milestone, timeline, cost, capacity, performance, study-design, or feasibility commitment. Do not convert descriptive numbers into targets.",
+        "query_extraction_guidance": "Each unit is a concrete plan assertion from a drug development plan - a\nmilestone with a date, a development timeline, a cost or volume projection, a\nregulatory expectation, a clinical trial design, or a manufacturing/access\nassumption. Generate retrieval intents that test whether the assertion is\nrealistic and has precedent:\n\n1. Feasibility precedent - has a comparable milestone, timeline, or approach\n   actually been achieved for similar drugs or modalities? Search for prior\n   programs, their realized timelines, and where they slipped.\n\n2. Regulatory reality - typical requirements and timelines from the named or\n   relevant authorities (FDA, EMA, WHO PQ, and LMIC national regulators) for\n   this kind of drug and pathway.\n\n3. Benchmarks - typical trial sizes and endpoints, manufacturing yields and\n   cost of goods, and procurement prices for comparable drugs, so the plan's\n   numbers can be checked against the field.\n\nUse the indication name and the claim's topic in queries. Prefer queries\ntargeting named regulators, trial registries, or peer-reviewed literature\nover generic phrasing. Spread queries across priority institutions and configured\nlanguages rather than repeatedly naming the same authorities."
+      },
       "tool": "scout"
     },
     {
-      "intervention_class": "drug",
-      "key": "evidence_framing",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "precedent_framing",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "quantitative_target_framing",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "query_extraction_guidance",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current treatment regimens for the indication, their\n   cure/response rates, safety, regimen length, pill burden, and resistance\n   profile. Frame queries around how a new drug could win: higher efficacy,\n   shorter regimen, fewer doses, better safety, or activity against\n   resistant strains.\n\n2. New scientific data - recent trial readouts, new drug entrants, mechanism\n   and formulation advances (long-acting, fixed-dose combinations), and\n   resistance/epidemiology trends that change how valuable a drug is for\n   this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, LMIC national regulators, procurement bodies, registries, and\n   literature. Include LMIC approval, WHO Essential Medicines List, access,\n   financing, prequalification, and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, trial registries, or peer-reviewed literature\nover generic phrasing. Spread queries across priority institutions and configured\nlanguages rather than repeatedly naming the same authorities.",
-      "tool": "scout"
-    },
-    {
+      "display_name": "BMGF Integrated Product Development Plan - Vaccine",
       "intervention_class": "vaccine",
-      "key": "drift_framing",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "evidence_framing",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "precedent_framing",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "quantitative_target_framing",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "query_extraction_guidance",
-      "org": "bmgf",
-      "source_type": "ctpp",
-      "text": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current prevention and treatment options for the\n   indication, their efficacy and safety numbers, regimen length, and\n   number of doses. Frame queries around how a new vaccine product could\n   win: higher efficacy, comparable efficacy with a better safety\n   profile, or fewer doses.\n\n2. New scientific data - recent trial readouts, new product entrants,\n   platform and manufacturing advances, and epidemiology trends that\n   change how valuable a vaccine is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, LMIC national regulators, procurement bodies, registries,\n   and literature sources. Include LMIC approval, access, financing,\n   prequalification, and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer\nqueries that target named regulators, trial registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming\nthe same authorities.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "diagnostic",
-      "key": "drift_framing",
+      "mirrors": "",
       "org": "bmgf",
       "source_type": "ipdp",
-      "text": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, clinical performance study designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
+      "texts": {
+        "drift_framing": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, trial designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
+        "evidence_framing": "This is an integrated product development plan. Assess whether the stated plan commitment or assumption is externally supported and feasible. Thin precedent is uncertainty or execution risk, not intentional product ambition.",
+        "precedent_framing": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, trial designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
+        "quantitative_target_framing": "This is an integrated product development plan. Preserve a document-stated exact or directional scalar as the plan's milestone, timeline, cost, capacity, performance, study-design, or feasibility commitment. Do not convert descriptive numbers into targets.",
+        "query_extraction_guidance": "Each unit is a concrete plan assertion from a vaccine development plan - a\nmilestone with a date, a development timeline, a cost or volume projection, a\nregulatory expectation, a clinical trial design, or a manufacturing/access\nassumption. Generate retrieval intents that test whether the assertion is\nrealistic and has precedent:\n\n1. Feasibility precedent - has a comparable milestone, timeline, or approach\n   actually been achieved for similar vaccines or platforms? Search for prior\n   programs, their realized timelines, and where they slipped.\n\n2. Regulatory reality - typical requirements and timelines from the named or\n   relevant authorities (FDA, EMA, WHO PQ, and LMIC national regulators) for\n   this kind of vaccine and pathway.\n\n3. Benchmarks - typical trial sizes and endpoints, manufacturing yields and\n   cost of goods, and procurement prices for comparable vaccines, so the\n   plan's numbers can be checked against the field.\n\nUse the indication name and the claim's topic in queries. Prefer queries\ntargeting named regulators, trial registries, or peer-reviewed literature\nover generic phrasing. Spread queries across priority institutions and configured\nlanguages rather than repeatedly naming the same authorities."
+      },
       "tool": "scout"
     },
     {
-      "intervention_class": "diagnostic",
-      "key": "evidence_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan. Assess whether the stated plan commitment or assumption is externally supported and feasible. Thin precedent is uncertainty or execution risk, not intentional product ambition.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "diagnostic",
-      "key": "precedent_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, clinical performance study designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "diagnostic",
-      "key": "quantitative_target_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan. Preserve a document-stated exact or directional scalar as the plan's milestone, timeline, cost, capacity, performance, study-design, or feasibility commitment. Do not convert descriptive numbers into targets.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "diagnostic",
-      "key": "query_extraction_guidance",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "Each unit is a concrete plan assertion from a diagnostic development plan - a\nmilestone with a date, a development timeline, a cost or volume projection, a\nregulatory expectation, a clinical performance study design, or a\nmanufacturing/access assumption. Generate retrieval intents that test\nwhether the assertion is realistic and has precedent:\n\n1. Feasibility precedent - has a comparable milestone, timeline, or approach\n   actually been achieved for similar diagnostics or assay platforms? Search\n   for prior programs, their realized timelines, and where they slipped.\n\n2. Regulatory reality - typical requirements and timelines for in vitro\n   diagnostics from the named or relevant bodies (FDA, EMA/IVDR, WHO PQ and\n   WHO endorsement, and LMIC national regulators) for this kind of test.\n\n3. Benchmarks - typical clinical performance evaluation sizes, sensitivity/\n   specificity targets, manufacturing yields and cost per test, and\n   procurement prices for comparable diagnostics, so the plan's numbers can be\n   checked against the field.\n\nUse the indication name and the claim's topic in queries. Prefer queries\ntargeting named regulators, trial registries, or peer-reviewed literature\nover generic phrasing. Spread queries across priority institutions and configured\nlanguages rather than repeatedly naming the same authorities.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "drift_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, trial designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "evidence_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan. Assess whether the stated plan commitment or assumption is externally supported and feasible. Thin precedent is uncertainty or execution risk, not intentional product ambition.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "precedent_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, trial designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "quantitative_target_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan. Preserve a document-stated exact or directional scalar as the plan's milestone, timeline, cost, capacity, performance, study-design, or feasibility commitment. Do not convert descriptive numbers into targets.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "query_extraction_guidance",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "Each unit is a concrete plan assertion from a drug development plan - a\nmilestone with a date, a development timeline, a cost or volume projection, a\nregulatory expectation, a clinical trial design, or a manufacturing/access\nassumption. Generate retrieval intents that test whether the assertion is\nrealistic and has precedent:\n\n1. Feasibility precedent - has a comparable milestone, timeline, or approach\n   actually been achieved for similar drugs or modalities? Search for prior\n   programs, their realized timelines, and where they slipped.\n\n2. Regulatory reality - typical requirements and timelines from the named or\n   relevant authorities (FDA, EMA, WHO PQ, and LMIC national regulators) for\n   this kind of drug and pathway.\n\n3. Benchmarks - typical trial sizes and endpoints, manufacturing yields and\n   cost of goods, and procurement prices for comparable drugs, so the plan's\n   numbers can be checked against the field.\n\nUse the indication name and the claim's topic in queries. Prefer queries\ntargeting named regulators, trial registries, or peer-reviewed literature\nover generic phrasing. Spread queries across priority institutions and configured\nlanguages rather than repeatedly naming the same authorities.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "drift_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, trial designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "evidence_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan. Assess whether the stated plan commitment or assumption is externally supported and feasible. Thin precedent is uncertainty or execution risk, not intentional product ambition.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "precedent_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan (IPDP). Its units are PLAN COMMITMENTS and ASSUMPTIONS - milestones, timelines, costs, trial designs, and regulatory, manufacturing, and access approaches the team intends to execute - NOT aspirational product targets. Treat external evidence as a REALITY CHECK on whether each commitment is feasible and on track: prior programs' realized timelines, typical requirements, and field benchmarks are the baseline the plan must be consistent with. A milestone or approach with NO prior precedent is a RISK to surface (unproven feasibility), not deliberate innovation; strong precedent is reassuring.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "quantitative_target_framing",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "This is an integrated product development plan. Preserve a document-stated exact or directional scalar as the plan's milestone, timeline, cost, capacity, performance, study-design, or feasibility commitment. Do not convert descriptive numbers into targets.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "query_extraction_guidance",
-      "org": "bmgf",
-      "source_type": "ipdp",
-      "text": "Each unit is a concrete plan assertion from a vaccine development plan - a\nmilestone with a date, a development timeline, a cost or volume projection, a\nregulatory expectation, a clinical trial design, or a manufacturing/access\nassumption. Generate retrieval intents that test whether the assertion is\nrealistic and has precedent:\n\n1. Feasibility precedent - has a comparable milestone, timeline, or approach\n   actually been achieved for similar vaccines or platforms? Search for prior\n   programs, their realized timelines, and where they slipped.\n\n2. Regulatory reality - typical requirements and timelines from the named or\n   relevant authorities (FDA, EMA, WHO PQ, and LMIC national regulators) for\n   this kind of vaccine and pathway.\n\n3. Benchmarks - typical trial sizes and endpoints, manufacturing yields and\n   cost of goods, and procurement prices for comparable vaccines, so the\n   plan's numbers can be checked against the field.\n\nUse the indication name and the claim's topic in queries. Prefer queries\ntargeting named regulators, trial registries, or peer-reviewed literature\nover generic phrasing. Spread queries across priority institutions and configured\nlanguages rather than repeatedly naming the same authorities.",
-      "tool": "scout"
-    },
-    {
+      "display_name": "BMGF Intervention TPP - Device",
       "intervention_class": "device",
-      "key": "drift_framing",
+      "mirrors": "",
       "org": "bmgf",
       "source_type": "itpp",
-      "text": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+      "texts": {
+        "drift_framing": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+        "evidence_framing": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
+        "precedent_framing": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
+        "quantitative_target_framing": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
+        "query_extraction_guidance": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current devices or approaches for the indication,\n   their clinical performance, usability, durability, and cost. Frame\n   queries around how a new device could win: better clinical outcomes,\n   easier use, lower cost, or suitability for low-resource settings.\n\n2. New scientific data - recent device entrants, clinical and usability\n   studies, engineering/materials advances, and epidemiology trends that\n   change how valuable a device is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators (including device clearance pathways), WHO technical\n   specifications and prequalification, LMIC national regulators,\n   procurement, registries, and literature. Include LMIC approval, access,\n   and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, technical specifications, registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming the\nsame authorities."
+      },
       "tool": "scout"
     },
     {
-      "intervention_class": "device",
-      "key": "evidence_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "device",
-      "key": "precedent_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "device",
-      "key": "quantitative_target_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "device",
-      "key": "query_extraction_guidance",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current devices or approaches for the indication,\n   their clinical performance, usability, durability, and cost. Frame\n   queries around how a new device could win: better clinical outcomes,\n   easier use, lower cost, or suitability for low-resource settings.\n\n2. New scientific data - recent device entrants, clinical and usability\n   studies, engineering/materials advances, and epidemiology trends that\n   change how valuable a device is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators (including device clearance pathways), WHO technical\n   specifications and prequalification, LMIC national regulators,\n   procurement, registries, and literature. Include LMIC approval, access,\n   and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, technical specifications, registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming the\nsame authorities.",
-      "tool": "scout"
-    },
-    {
+      "display_name": "BMGF Intervention TPP - Diagnostic",
       "intervention_class": "diagnostic",
-      "key": "drift_framing",
+      "mirrors": "",
       "org": "bmgf",
       "source_type": "itpp",
-      "text": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+      "texts": {
+        "drift_framing": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+        "evidence_framing": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
+        "precedent_framing": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
+        "quantitative_target_framing": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
+        "query_extraction_guidance": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current diagnostic methods for the indication, their\n   sensitivity, specificity, time-to-result, cost, and setting (central lab\n   vs. point-of-care). Frame queries around how a new test could win: higher\n   sensitivity/specificity, faster result, lower cost, or decentralized /\n   point-of-care use.\n\n2. New scientific data - recent assay platforms, comparative performance\n   evaluations, clinical validation studies, and epidemiology trends that\n   change how valuable a test is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, IVD prequalification, evaluation bodies, LMIC national\n   regulators, procurement, registries, and literature. Include WHO IVD\n   prequalification, FIND evaluations, LMIC approval, access, and uptake\n   signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, evaluation bodies, registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming the\nsame authorities."
+      },
       "tool": "scout"
     },
     {
-      "intervention_class": "diagnostic",
-      "key": "evidence_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "diagnostic",
-      "key": "precedent_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "diagnostic",
-      "key": "quantitative_target_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "diagnostic",
-      "key": "query_extraction_guidance",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current diagnostic methods for the indication, their\n   sensitivity, specificity, time-to-result, cost, and setting (central lab\n   vs. point-of-care). Frame queries around how a new test could win: higher\n   sensitivity/specificity, faster result, lower cost, or decentralized /\n   point-of-care use.\n\n2. New scientific data - recent assay platforms, comparative performance\n   evaluations, clinical validation studies, and epidemiology trends that\n   change how valuable a test is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, IVD prequalification, evaluation bodies, LMIC national\n   regulators, procurement, registries, and literature. Include WHO IVD\n   prequalification, FIND evaluations, LMIC approval, access, and uptake\n   signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, evaluation bodies, registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming the\nsame authorities.",
-      "tool": "scout"
-    },
-    {
+      "display_name": "BMGF Intervention TPP - Drug",
       "intervention_class": "drug",
-      "key": "drift_framing",
+      "mirrors": "",
       "org": "bmgf",
       "source_type": "itpp",
-      "text": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+      "texts": {
+        "drift_framing": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+        "evidence_framing": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
+        "precedent_framing": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
+        "quantitative_target_framing": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
+        "query_extraction_guidance": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current treatment regimens for the indication, their\n   cure/response rates, safety, regimen length, pill burden, and resistance\n   profile. Frame queries around how a new drug could win: higher efficacy,\n   shorter regimen, fewer doses, better safety, or activity against\n   resistant strains.\n\n2. New scientific data - recent trial readouts, new drug entrants, mechanism\n   and formulation advances (long-acting, fixed-dose combinations), and\n   resistance/epidemiology trends that change how valuable a drug is for\n   this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, LMIC national regulators, procurement bodies, registries, and\n   literature. Include LMIC approval, WHO Essential Medicines List, access,\n   financing, prequalification, and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, trial registries, or peer-reviewed literature\nover generic phrasing. Spread queries across priority institutions and configured\nlanguages rather than repeatedly naming the same authorities."
+      },
       "tool": "scout"
     },
     {
-      "intervention_class": "drug",
-      "key": "evidence_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "precedent_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "quantitative_target_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "drug",
-      "key": "query_extraction_guidance",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current treatment regimens for the indication, their\n   cure/response rates, safety, regimen length, pill burden, and resistance\n   profile. Frame queries around how a new drug could win: higher efficacy,\n   shorter regimen, fewer doses, better safety, or activity against\n   resistant strains.\n\n2. New scientific data - recent trial readouts, new drug entrants, mechanism\n   and formulation advances (long-acting, fixed-dose combinations), and\n   resistance/epidemiology trends that change how valuable a drug is for\n   this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, LMIC national regulators, procurement bodies, registries, and\n   literature. Include LMIC approval, WHO Essential Medicines List, access,\n   financing, prequalification, and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer queries\nthat target named regulators, trial registries, or peer-reviewed literature\nover generic phrasing. Spread queries across priority institutions and configured\nlanguages rather than repeatedly naming the same authorities.",
-      "tool": "scout"
-    },
-    {
+      "display_name": "BMGF Intervention TPP - Vaccine",
       "intervention_class": "vaccine",
-      "key": "drift_framing",
+      "mirrors": "",
       "org": "bmgf",
       "source_type": "itpp",
-      "text": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "evidence_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "precedent_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "quantitative_target_framing",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
-      "tool": "scout"
-    },
-    {
-      "intervention_class": "vaccine",
-      "key": "query_extraction_guidance",
-      "org": "bmgf",
-      "source_type": "itpp",
-      "text": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current prevention and treatment options for the\n   indication, their efficacy and safety numbers, regimen length, and\n   number of doses. Frame queries around how a new vaccine product could\n   win: higher efficacy, comparable efficacy with a better safety\n   profile, or fewer doses.\n\n2. New scientific data - recent trial readouts, new product entrants,\n   platform and manufacturing advances, and epidemiology trends that\n   change how valuable a vaccine is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, LMIC national regulators, procurement bodies, registries,\n   and literature sources. Include LMIC approval, access, financing,\n   prequalification, and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer\nqueries that target named regulators, trial registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming\nthe same authorities.",
+      "texts": {
+        "drift_framing": "You compare external-evidence insights against a Target Product Profile (TPP) document for a {intervention_class} targeting {indication}.\n\nIMPORTANT - the document is a TPP: its specifications are ASPIRATIONAL TARGETS for a desired product, NOT claims about products that already exist. Evidence about a current or standard-of-care product is the BASELINE the target aims to improve on - it does not refute the target.",
+        "evidence_framing": "This is a Target Product Profile. Assess whether the document's aspirational target is grounded and achievable from current evidence. Do not penalize a target merely for improving on today's standard.",
+        "precedent_framing": "A TPP specifies aspirational, often first-in-class products. A target with little supporting evidence is NOT automatically weak - it may be deliberately novel. Your job is to say which.",
+        "quantitative_target_framing": "This is a Target Product Profile. Preserve each document-stated numeric value as an aspirational product target and preserve its optimal or threshold role exactly as written. Do not reinterpret it as a claim about a current product.",
+        "query_extraction_guidance": "Generate retrieval intents across THREE axes for a complete global\nevidence landscape:\n\n1. Standard of care - current prevention and treatment options for the\n   indication, their efficacy and safety numbers, regimen length, and\n   number of doses. Frame queries around how a new vaccine product could\n   win: higher efficacy, comparable efficacy with a better safety\n   profile, or fewer doses.\n\n2. New scientific data - recent trial readouts, new product entrants,\n   platform and manufacturing advances, and epidemiology trends that\n   change how valuable a vaccine is for this indication.\n\n3. Global access and regulatory signals - spread queries across global\n   regulators, LMIC national regulators, procurement bodies, registries,\n   and literature sources. Include LMIC approval, access, financing,\n   prequalification, and uptake signals where relevant.\n\nUse the indication name and the variable topic in queries. Prefer\nqueries that target named regulators, trial registries, or\npeer-reviewed literature over generic phrasing. Spread queries across\npriority institutions and configured languages rather than repeatedly naming\nthe same authorities."
+      },
       "tool": "scout"
     }
   ],
@@ -458,65 +425,31 @@
       "tool": "chunker"
     },
     {
-      "builder": "build_dimension_prompt",
-      "framing_slot": "grading_guidance",
-      "id": "grader.completeness",
+      "builder": "build_assessment_prompt",
+      "framing_slot": "stage_guidance",
+      "id": "assessor.unit",
       "produces": {
         "result_fields": [
-          "section_grades[].variable_grades[].dimensions.completeness",
-          "section_grades[].variable_grades[].content_status"
+          "sections[].units[].findings[]",
+          "sections[].units[].status"
         ],
         "ui_labels": [
-          "completeness",
-          "presence"
+          "finding",
+          "status"
         ]
       },
-      "stage": "completeness",
-      "text": "You are inspecting a section of a product-development document against its authored rubric.\n\nScope boundary:\n- Judge the quality and usability of what the document states; do not assess real-world program feasibility or investment merit.\n- If the rubric expects risks, judge whether the document identifies, rates, and mitigates them. Do not independently assign program risk levels.\n- Do not recommend funding decisions, prioritize an investment portfolio, or propose organizational support.\n- Do not assume external facts or evidence that are absent from the supplied document and rubric.\n\nReturn ONLY valid JSON. No markdown fences, no preamble, no explanation.\n\nVerdict for this dimension:\n- critical: the rubric requires this and the document does not usably supply it.\n- for_consideration: stated and usable, but it could be stronger.\n- meets: no gap on this dimension.\n- not_applicable: the rubric does not ask this dimension of this content.\n\nUse critical only when the gap must be closed before the document is usable. Do\nnot rank severity by how much text is missing; rank it by whether a reader could\nact on what is there.\n\nStyle for issues and recommendations:\n- Each issue is one short factual statement (\u226420 words). No preamble.\n- Each recommendation is one short action sentence (\u226420 words). Action-verb-leading. No preamble.\n- Do not repeat the variable name. Do not hedge.\n\n# GRADING BAR (document stage)\n{grading_guidance}\n\n# DIMENSION: COMPLETENESS\nQuestion: is every required variable filled with substantive content?\n\nInputs you may consider: the rubric's expected variables and the draft content.\n\nRules:\n- A required variable is missing if it has no content at all.\n- A variable is incomplete if only one of Minimum/Optimistic is filled, or values are placeholders (<<TBD>>, TBD, blank, dashes).\n- Substantive content means a concrete value or sentence, not a category label.\n\nExpected variables for this section:\n- {variable_name}: {variable_description}\n\nOutput contract: return exactly one decision for every listed variable. Use exact supplied variable names and block IDs; an absent variable uses no block IDs. For completeness, also classify content_status as substantive, partial, placeholder, missing, or not_applicable. Completeness owns presence and source lineage: cite exact block IDs for substantive, partial, or placeholder content, and use no block IDs when content is missing. For adherence or rigor, use not_applicable with no block IDs when there is no content to judge.",
-      "title": "Completeness grading",
-      "tool": "inspector"
-    },
-    {
-      "builder": "build_dimension_prompt",
-      "framing_slot": "grading_guidance",
-      "id": "grader.adherence",
-      "produces": {
-        "result_fields": [
-          "section_grades[].variable_grades[].dimensions.adherence"
-        ],
-        "ui_labels": [
-          "adherence"
-        ]
-      },
-      "stage": "adherence",
-      "text": "You are inspecting a section of a product-development document against its authored rubric.\n\nScope boundary:\n- Judge the quality and usability of what the document states; do not assess real-world program feasibility or investment merit.\n- If the rubric expects risks, judge whether the document identifies, rates, and mitigates them. Do not independently assign program risk levels.\n- Do not recommend funding decisions, prioritize an investment portfolio, or propose organizational support.\n- Do not assume external facts or evidence that are absent from the supplied document and rubric.\n\nReturn ONLY valid JSON. No markdown fences, no preamble, no explanation.\n\nVerdict for this dimension:\n- critical: the rubric requires this and the document does not usably supply it.\n- for_consideration: stated and usable, but it could be stronger.\n- meets: no gap on this dimension.\n- not_applicable: the rubric does not ask this dimension of this content.\n\nUse critical only when the gap must be closed before the document is usable. Do\nnot rank severity by how much text is missing; rank it by whether a reader could\nact on what is there.\n\nStyle for issues and recommendations:\n- Each issue is one short factual statement (\u226420 words). No preamble.\n- Each recommendation is one short action sentence (\u226420 words). Action-verb-leading. No preamble.\n- Do not repeat the variable name. Do not hedge.\n\n# GRADING BAR (document stage)\n{grading_guidance}\n\n# DIMENSION: ADHERENCE\nQuestion: does the content follow the rubric's structural expectations?\n\nInputs you may consider: the rubric's structural rules and the draft content.\n\nRules:\n- Section and variable names should match the rubric's expected names.\n- Annotations column should be present where the rubric expects it.\n- No template tokens like <<...>> should remain.\n\nExpected variables for this section:\n- {variable_name}: {variable_description}\n\nOutput contract: return exactly one decision for every listed variable. Use exact supplied variable names and block IDs; an absent variable uses no block IDs. Completeness owns presence and source lineage: cite exact block IDs for substantive, partial, or placeholder content, and use no block IDs when content is missing. For adherence or rigor, use not_applicable with no block IDs when there is no content to judge.",
-      "title": "Template adherence grading",
-      "tool": "inspector"
-    },
-    {
-      "builder": "build_dimension_prompt",
-      "framing_slot": "grading_guidance",
-      "id": "grader.rigor",
-      "produces": {
-        "result_fields": [
-          "section_grades[].variable_grades[].dimensions.rigor"
-        ],
-        "ui_labels": [
-          "rigor"
-        ]
-      },
-      "stage": "rigor",
-      "text": "You are inspecting a section of a product-development document against its authored rubric.\n\nScope boundary:\n- Judge the quality and usability of what the document states; do not assess real-world program feasibility or investment merit.\n- If the rubric expects risks, judge whether the document identifies, rates, and mitigates them. Do not independently assign program risk levels.\n- Do not recommend funding decisions, prioritize an investment portfolio, or propose organizational support.\n- Do not assume external facts or evidence that are absent from the supplied document and rubric.\n\nReturn ONLY valid JSON. No markdown fences, no preamble, no explanation.\n\nVerdict for this dimension:\n- critical: the rubric requires this and the document does not usably supply it.\n- for_consideration: stated and usable, but it could be stronger.\n- meets: no gap on this dimension.\n- not_applicable: the rubric does not ask this dimension of this content.\n\nUse critical only when the gap must be closed before the document is usable. Do\nnot rank severity by how much text is missing; rank it by whether a reader could\nact on what is there.\n\nStyle for issues and recommendations:\n- Each issue is one short factual statement (\u226420 words). No preamble.\n- Each recommendation is one short action sentence (\u226420 words). Action-verb-leading. No preamble.\n- Do not repeat the variable name. Do not hedge.\n\n# GRADING BAR (document stage)\n{grading_guidance}\n\n# DIMENSION: RIGOR\nQuestion: is the content substantively sound - specific, measurable, and meaningful?\n\nThis is about QUALITY, not presence (that is completeness) and not formatting (that is adherence). Do NOT re-report missing variables, naming, template tokens, or structural issues here - only the substantive quality of the content that IS present.\n\nRules:\n- Measurability: a target should be concrete and testable - a value with units or a clear pass/fail - not vague language ('robust', 'adequate', 'best-in-class') that has no testable meaning.\n- Specificity: the target should be unambiguous; flag hand-waving or undefined terms.\n- Soundness: the value should be meaningful for the variable; flag filler that is technically present but says nothing, or content that is internally incoherent.\n- Internal coherence: Minimum and Optimistic values must not contradict or reverse their stated ordering.\n- Judge against the document's stage (see GRADING BAR above): an intervention-stage qualitative target can still be rigorous if it is clear and bounded; a candidate-stage target should be concretely measured.\n\nExpected variables for this section:\n- {variable_name}: {variable_description}\n\nOutput contract: return exactly one decision for every listed variable. Use exact supplied variable names and block IDs; an absent variable uses no block IDs. Completeness owns presence and source lineage: cite exact block IDs for substantive, partial, or placeholder content, and use no block IDs when content is missing. For adherence or rigor, use not_applicable with no block IDs when there is no content to judge.",
-      "title": "Rigor grading",
+      "stage": "assessment",
+      "text": "You are inspecting one unit of a product-development document against its authored rubric.\n\nScope boundary:\n- Judge the quality and usability of what the document states; do not assess real-world program feasibility or investment merit.\n- If the rubric expects risks, judge whether the document identifies, rates, and mitigates them. Do not independently assign program risk levels.\n- Do not recommend funding decisions, prioritize an investment portfolio, or propose organizational support.\n- Do not assume external facts or evidence that are absent from the supplied document and rubric.\n\nReturn ONLY valid JSON. No markdown fences, no preamble, no explanation.\n\nReport every distinct problem with this unit, at most one per reason, and nothing\nwhen the unit is sound. Do not report the same problem twice under two reasons:\nchoose the one that names it best.\n\nReasons:\n- missing: there is no content at all for this unit.\n- placeholder: a template token such as <<TBD>>, TBD, a dash, or a blank sits where the value belongs.\n- unmet: content is present and does not satisfy the requirement, for example only one of Minimum/Optimistic is filled, or a category label stands in for a value.\n- off_template: the content is there but does not follow the rubric's expected structure or naming, or a template token remains beside real content.\n- unclear: the requirement is satisfied but the content is vague, unmeasurable, or internally incoherent.\n\nIf the content is absent, report `missing` alone. Absence is not also off-template\nor unclear, and there is nothing there to have read.\n\nLineage is required, not optional. Every finding except `missing` MUST cite in\n`block_ids` the exact blocks you read to reach it.\n\nDescribe the document; do not direct the reader. State what is or is not there,\nnot what must be done about it. The recommendation is the one place an action\nbelongs.\n\nStyle:\n- `statement` is one short factual sentence (max 20 words) naming the problem.\n- `recommendation` is one short action sentence (max 20 words), action-verb-leading.\n- Do not repeat the unit's name in either. Do not hedge.\n\n# ASSESSMENT BAR (document stage)\n{stage_guidance}\n\n# THE UNIT YOU ARE ASSESSING\n{variable_name}, within the {section_name} section.\nWhat it should contain: {variable_description}\nExpectations: {variable_expectations}",
+      "title": "Rubric unit assessment",
       "tool": "inspector"
     },
     {
       "builder": "build_cross_section_prompt",
       "framing_slot": null,
-      "id": "grader.cross_section",
+      "id": "assessor.cross_section",
       "produces": {
         "result_fields": [
-          "cross_section_findings",
+          "document_findings[]",
           "consistency_status"
         ],
         "ui_labels": [
@@ -524,7 +457,7 @@
         ]
       },
       "stage": "consistency",
-      "text": "You check a {intervention_class} product-development document for CROSS-SECTION consistency: places where TWO DIFFERENT sections state conflicting or mismatched claims about the SAME attribute - e.g. one section targets >=80% efficacy and another states 90%; the target population, dosing schedule, presentation, or timelines disagree between sections.\n\nReport ONLY conflicts that span more than one section. Do NOT report problems inside a single section, missing content, vague wording, or formatting - those are graded elsewhere. If there are no cross-section conflicts, return an empty array.\n\nReturn only structured findings. Each item contains:\n{\"description\": \"the specific conflicting values and what disagrees\", \"sections\": [\"Section A name\", \"Section B name\"], \"recommendation\": \"one short action to reconcile them\", \"block_ids\": [\"exact supporting block ID from each named section\"]}\n\nUse only supplied section names and block IDs. Every finding must name at least two sections and cite at least one block from each named section.",
+      "text": "You check a {intervention_class} product-development document for CROSS-SECTION consistency: places where TWO DIFFERENT sections state conflicting or mismatched claims about the SAME attribute - e.g. one section targets >=80% efficacy and another states 90%; the target population, dosing schedule, presentation, or timelines disagree between sections.\n\nReport ONLY conflicts that span more than one section. Do NOT report problems inside a single section, missing content, vague wording, or formatting - those are assessed per unit. If there are no cross-section conflicts, return an empty array.\n\nReturn only structured findings. Each item contains:\n{\"statement\": \"the specific conflicting values and what disagrees\", \"recommendation\": \"one short action to reconcile them\", \"block_ids\": [\"exact supporting block ID from each disagreeing section\"]}\n\nUse only supplied block IDs, and cite at least one from each of at least two different sections - that span is what makes a conflict cross-section. The sections involved are read back from the blocks you cite, so do not name them separately.",
       "title": "Cross-section consistency check",
       "tool": "inspector"
     },
@@ -646,7 +579,7 @@
     },
     {
       "builder": "build_system_prompt_for_variable",
-      "framing_slot": null,
+      "framing_slot": "query_extraction_guidance",
       "id": "query_extractor.general",
       "produces": {
         "result_fields": [
@@ -855,5 +788,5 @@
       "tool": "scout"
     }
   ],
-  "version": 2
+  "version": 3
 }

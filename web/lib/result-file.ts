@@ -27,7 +27,7 @@ const ENVELOPE_VERSION = 1 as const;
  */
 const ANALYSIS_VERSIONS = {
   aligner: 1,
-  inspector: 1,
+  inspector: 2,
   scout: 1,
 } as const satisfies Record<ResultType, number>;
 
@@ -255,7 +255,7 @@ export function packInspectorResult(
 }
 
 export function isInspectorResultFinal(result: InspectorResponse): boolean {
-  return result.inspection.grading_status === "complete";
+  return result.inspection.assessment_status === "complete";
 }
 
 export function inspectorResultFilename(result: InspectorResponse): string {

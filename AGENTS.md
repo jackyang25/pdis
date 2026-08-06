@@ -98,23 +98,57 @@ evidence. Those comparison targets are not interchangeable.
 
 ### Inspector
 
-- Completeness, adherence, and rigor are independent LLM judgments. Each returns
-  one verdict: `critical`, `for_consideration`, `meets`, or `not_applicable`.
-- Severity is stated, never computed from a scale. There is no letter grade, no
-  score, and no averaging: a letter asserted that the step from `A` to `B` equals
-  the step from `D` to `F`, and that a section's quality is the mean of its
-  variables. Neither is defensible, so a section and the document publish gap
-  counts derived from the verdicts beneath them. `critical` means the rubric
-  requires the content and the document does not usably supply it.
-- Completeness owns whether rubric content is present, missing, or not
-  applicable. Present content must retain exact section-block lineage; absent
-  content must never require an invented citation. Adherence and rigor merge
-  only after that presence decision is known.
-- Roll-ups count; they do not average. The authored rubric is the denominator, so
-  model omissions cannot reduce a gap count. An authored section weight ranks the
-  issue list, which is the one place that weight still applies.
-- The document-wide pass reports only cross-section conflicts with exact block
-  lineage and an explicit completion status.
+Inspector publishes one atom under one vocabulary. `sections[]` holds every rubric
+section, each with `units[]`, each unit owning the `Finding` objects raised against
+it. `document_findings[]` holds the conflicts no unit owns.
+
+- A `Finding` is one statement, one recommendation, one `reason`, and the blocks it
+  was read from. It replaced three shapes for the same concept - a dimension
+  assessment holding an issue list against a single recommendation, a ranked copy of
+  the worst of them, and a cross-section conflict with different field names.
+- `FINDING_REASONS` is the whole vocabulary: `missing | placeholder | unmet |
+  off_template | unclear | conflicting`. `conflicting` is the only one no unit can
+  raise. Adding a reason means one entry there and one label in `web/lib/api.ts`;
+  nothing between the two branches on a reason's value.
+- `level` derives from `reason` and a unit's `status` derives from its findings'
+  levels, so `met` means exactly zero findings and no consumer can differ. Nothing
+  stores a severity beside a reason.
+- Conformance language, never severity language. Inspector knows what the rubric
+  asked and what the document supplies, not what a shortfall costs a programme.
+  There is no letter grade, no score, and no averaging.
+- `not_applicable` comes only from the rubric's `optional` flag. Whether absence is
+  acceptable is the author's decision, never the model's.
+- **One model call per rubric unit.** Not one per axis: three calls cost three times
+  the requests and each could report the same defect under its own name. A unit
+  raises each reason at most once and `missing` silences the rest, enforced at parse
+  time so a bad reply gets the retry, and again in `contract.py` for an imported
+  result.
+- `missing` is the only reason that cites nothing and the only one exempt from
+  citing. Every other finding names the block it was read from.
+- Ordering is `level`, then the sequence the rubric author wrote. That is the only
+  authored priority signal; there is no section `weight`, which had one consumer and
+  sat in eleven configs.
+- A section and a variable declare the same four config keys - `name`,
+  `description`, `optional`, `expectations` - so a section adds only `variables`.
+  `expectations` is where an external standard belongs when one applies, as the
+  expectation a unit is held to rather than as a second rubric.
+- `assessment_status` and `consistency_status` are process facts outside the
+  assessment: "not checked" must never read as "nothing found". A failed unit stops
+  the run; the additive cross-section pass reports its own failure instead.
+- Module responsibilities do not overlap: `models.py` declares shapes, `assembly.py`
+  joins and ranks, `stages/assessor.py` owns the prompt and what is accepted back,
+  `contract.py` owns the deterministic checks, `pipeline.py` owns the order.
+- A derived value is computed, never defaulted. A default on one can only mask a
+  missing derivation, so the published models declare derived fields required and
+  `test_inspector_contract` reads the derived set from the serializer rather than
+  keeping a list. And a fact has one representation: `is_present` is a property over
+  `mapped_block_ids` because storing it made one fact carried three ways, which a
+  contract check then had to police.
+- A rubric mirrors an authored source template for its structure and records which
+  one in `mirrors:`. Everything that makes it assessable - unit `description`,
+  `stage_guidance`, `optional`, `expectations` - is authored here and is not in the
+  source. `mirrors:` is a pointer for re-syncing, never a drift check: the source
+  lives outside the repository and nothing here can verify it.
 - Inspector evaluates document quality. It does not assign program risk,
   feasibility, funding decisions, or investment recommendations.
 
@@ -244,6 +278,10 @@ evidence. Those comparison targets are not interchangeable.
 
 ## Results, Ask, and API
 
+- A prompt that inserts configured text declares the slot on its catalog entry, and
+  `scripts/generate_prompt_reference.py` reads the slots from the catalogs rather
+  than a list of its own. A declared slot that publishes nothing, or inserted text no
+  entry declares, is a documentation gap the generator can no longer hide.
 - Inspector, Aligner, and Scout use the versioned `pdis.result` envelope in
   `web/lib/result-file.ts`, separating `analysis` from `source_documents`.
 - A saved file carries two versions, and they answer different questions.

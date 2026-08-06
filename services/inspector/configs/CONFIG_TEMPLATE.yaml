@@ -1,12 +1,17 @@
 # InspectionConfig template.
 #
-# Copy this file to a new config (e.g., new_product_type.yaml) and fill
-# in the sections, variables, and weights for the document rubric you
-# want to grade against.
+# Copy this file to a new config (e.g., new_product_type.yaml) and fill in the
+# sections and units of the rubric you want to assess against.
 #
-# Each section gets a letter grade (A–F or N/A). Section weights
-# determine how each section contributes to the overall grade. Variables
-# within a section let the grader call out specific gaps.
+# A section and a variable declare the same four things, so there is one schema to
+# learn rather than two. A section adds only its `variables` list.
+#
+# Every rubric unit is assessed by one model call and reports zero or more
+# findings, each with one reason, one statement, one recommendation, and the exact
+# blocks it was read from. Units report met, could be stronger, not met, or not
+# applicable. There is no letter grade, no score, and no section weight: findings
+# are ordered by level and then by the order you write the rubric in, so the
+# sequence below is itself the statement of what matters most.
 
 type_key: example_org_itpp_vaccine
 org: example_org
@@ -14,37 +19,37 @@ source_type: itpp
 intervention_class: vaccine
 display_name: "Template Rubric"
 
-# Optional document-stage calibration applied independently inside each
-# dimension prompt (for example, ITPP versus CTPP specificity expectations).
-grading_guidance: |
-  Replace with concise stage-specific grading guidance.
+# Optional document-stage calibration, injected into every assessment prompt (for
+# example, an ITPP expects less numeric specificity than a CTPP).
+stage_guidance: |
+  Replace with concise stage-specific guidance.
 
-# The chunker config used for parsing/labeling is resolved automatically
-# from (org, source_type, intervention_class) — same triple as this file.
+# The chunker config used for parsing/labeling is resolved automatically from
+# (org, source_type, intervention_class) — the same triple as this file.
 
-# Sections the grader evaluates. Weights should sum to ~1.0 across all
-# sections (the weights are renormalized internally if they don't, but
-# keeping them ~1.0 makes the math obvious).
 sections:
+  # A section with no variables is itself one unit, assessed as prose.
   - name: "Introduction"
     description: "Background or framing for this document type. What should be present here, and what makes it complete?"
-    weight: 0.10
 
   - name: "Section Name (with structured variables)"
-    description: "Describe what the grader should look for. If the section is a table or has discrete variables, list them under `variables` below so missing/weak variables show up as specific issues."
-    weight: 0.50
+    description: "Describe what to look for. List discrete variables below so each becomes its own unit."
     variables:
       - name: "Variable Name"
-        description: "What this variable should contain. The grader uses this to detect missing or template-token (<<...>>) content."
-        completeness:
-          expectations: "Required elements that must be present."
-        adherence:
-          expectations: "Structural or rubric rules this variable must follow."
-        rigor:
-          expectations: "Specificity, measurability, and technical quality expected."
+        description: "What this unit should contain."
+        # What good looks like, read into the prompt verbatim. This is where an
+        # external standard belongs when one applies (ICH, WHO PQ, a house style):
+        # as the expectation a unit is held to, never as a second rubric.
+        expectations: "A point estimate or range with units, and the source behind it."
+
       - name: "Another Variable"
         description: "Quantitative target, source citation, both Minimum and Optimistic columns filled — whatever the rubric expects."
+        # Absence here is reported as not applicable rather than a shortfall. Set
+        # this only where the rubric genuinely does not require the unit; it is the
+        # rubric author's decision and the model is never allowed to make it.
+        optional: true
 
-  - name: "Section Name (prose only)"
-    description: "Sections without discrete variables can omit the `variables` list. The grader will evaluate the section as prose."
-    weight: 0.40
+  - name: "Optional Section"
+    description: "A whole section may be optional, which applies to every unit in it."
+    optional: true
+    expectations: "Applies to each of this section's units unless the unit overrides it."

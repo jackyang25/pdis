@@ -3,30 +3,46 @@ org: bmgf
 source_type: itpp
 intervention_class: vaccine
 display_name: "Vaccine Intervention TPP"
-grading_guidance: |
+# What this rubric's structure comes from. Nothing here can verify it:
+# it names which source to re-check when that source moves. Everything the
+# source does not contain is maintained here — see services/inspector/README.md.
+mirrors: >-
+  PDID Reference Library — vaccine Intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.
+stage_guidance: |
   This is an INTERVENTION TPP (ITPP): an early, candidate-agnostic profile that sets targets for the intervention class before any specific candidate is chosen. Calibrate ALL judgments to intervention-stage maturity. Qualitative targets, clear directions, and ranges are appropriate and expected at this stage; candidate-specific numeric precision (exact values, named formulations, specific schedules) is NOT expected yet, so do not treat its absence as a deficiency on any dimension. Assess whether the strategic intent is clear, sound, and well-formed for an early-stage profile.
 
 sections:
   - name: "Introduction"
     description: "Background on what TPPs are and how they're used. Sets context for the document."
-    weight: 0.05
 
   - name: "Instructions for Use"
     description: "Guidance on completing the template, including Minimum vs. Optimistic framing and version conventions."
-    weight: 0.05
 
   - name: "Medical Need / Use Case"
     description: "Problem definition, target user group, intended use case, barriers, medical need, critical assumptions."
-    weight: 0.20
+    variables:
+      - name: "Problem Definition"
+        description: "What is the problem you’re trying to solve?"
+      - name: "Target User Group"
+        description: "Who do you envision as your primary users – providers, front line health
+          workers, caregivers, etc."
+      - name: "Intended Use Case Scenario"
+        description: "Describe the envisioned scenario(s) and the critical assumptions in which this
+          product will be accessed/used."
+      - name: "Barriers"
+        description: "Describe potential barriers to access, understanding value, intent to use, and
+          maintenance over time."
+      - name: "Medical Need"
+        description: "Brief description of the medical need and differentiation strategy from
+          existing or projected future interventions i.e."
+      - name: "Critical Assumptions"
+        description: "Highlight the critical assumptions used to develop the TPP."
 
   - name: "Executive Summary (Core Variables)"
     description: "Main TPP table with Variable / Minimum / Optimistic / Annotations columns. Each variable should have both Minimum and Optimistic targets, with annotations citing source data or rationale."
-    weight: 0.40
     variables:
       - name: "Indication"
         description: "The disease or condition the vaccine is intended to prevent or treat. Should be specific and aligned with regulatory language."
-      - name: "Product"
-        description: "The vaccine candidate or class -- antigens, platform, formulation."
       - name: "Target Population"
         description: "Demographic and clinical characteristics of recipients. Specify age range, geography, and risk factors."
       - name: "Target Countries"
@@ -59,17 +75,14 @@ sections:
         description: "EPI vs. campaign vs. private market. Specify delivery model."
       - name: "COGS"
         description: "Cost of goods per dose at scale. Quantitative target like 'less than $X per dose.'"
-      - name: "Manufacturing Capacities"
-        description: "Annual production capacity needed. Quantitative target in doses per year."
 
   - name: "Additional Variables of Interest"
     description: "Secondary variables in same min/optimistic/annotations format. Variables not relevant to every TPP."
-    weight: 0.20
+    # The description above is the rubric's own: absence here is not a shortfall.
+    optional: true
     variables:
       - name: "Special Populations"
         description: "Considerations for pregnancy, immunocompromised, elderly, pediatric subgroups."
-      - name: "Anticipated Safety Profile"
-        description: "Expected adverse events based on platform and prior data. Quantify rates."
       - name: "Regimen Compliance Risks"
         description: "Risks to completing the dosing schedule (drop-off, refrigeration access)."
       - name: "Companion Diagnostic"
@@ -83,4 +96,3 @@ sections:
 
   - name: "Change Management"
     description: "Version history tracking changes between TPP versions. Should record what changed, who made the change, and when."
-    weight: 0.10

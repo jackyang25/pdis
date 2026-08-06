@@ -3,21 +3,31 @@ org: bmgf
 source_type: ctpp
 intervention_class: diagnostic
 display_name: "Diagnostic Candidate TPP"
-grading_guidance: |
+# What this rubric's structure comes from. Nothing here can verify it:
+# it names which source to re-check when that source moves. Everything the
+# source does not contain is maintained here — see services/inspector/README.md.
+mirrors: >-
+  PDID Reference Library — diagnostic Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.
+stage_guidance: |
   This is a CANDIDATE TPP (CTPP): a profile of a specific candidate. Calibrate ALL judgments to candidate-stage maturity. Expect concrete, measured values - numeric targets with units, named formulations, and defined schedules. Vague qualitative targets, unspecified ranges, or placeholders fall short at this stage. Hold the document to the standard of a product-specific specification.
 
 sections:
   - name: "Instructions for Use"
     description: "Guidance on completing the template, including Minimum vs. Optimistic framing and annotation conventions."
-    weight: 0.05
 
   - name: "Medical Need / Differentiation Strategy / Use Case"
     description: "Medical need, intended use case scenario, and critical assumptions used to develop the TPP."
-    weight: 0.20
+    variables:
+      - name: "Medical Need"
+        description: "Brief description of the medical need and differentiation strategy from
+          existing or projected future interventions i.e."
+      - name: "Intended Use Case Scenario"
+        description: "Describe the envisioned scenario(s) and the critical assumptions."
+      - name: "Critical Assumptions"
+        description: "Highlight the critical assumptions used to develop the TPP."
 
   - name: "Annotated Product Requirements"
     description: "Main diagnostic TPP table with Variable / Minimum / Optimistic / Annotation columns. Each variable should have both Minimum and Optimistic targets with annotations citing source data or rationale."
-    weight: 0.65
     variables:
       - name: "Intended detection target"
         description: "What the test detects - target organism or molecular component. Should specify variants, genotypes, or subtypes to be detected or avoided."
@@ -68,4 +78,3 @@ sections:
 
   - name: "Change Management"
     description: "Version history tracking changes between TPP versions. Should record what changed, who made the change, and when."
-    weight: 0.10

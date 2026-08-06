@@ -89,7 +89,7 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "get",
-            "description": "Return the JSON subtree at a dotted/indexed path, e.g. 'matches[3].insight' or 'section_grades[2].dimensions.rigor'. Use the overview to find paths.",
+            "description": "Return the JSON subtree at a dotted/indexed path, e.g. 'matches[3].insight' or 'sections[2].units[0].findings[0]'. Use the overview to find paths.",
             "parameters": {
                 "type": "object",
                 "properties": {"path": {"type": "string", "description": "Path into the result, '' for the whole result."}},

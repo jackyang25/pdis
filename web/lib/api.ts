@@ -34,119 +34,147 @@ export type ContentBlock = {
   } | null;
 };
 
-export type DimensionName = "completeness" | "adherence" | "rigor";
 /**
- * What one dimension concluded about one rubric variable.
+ * Inspector's published vocabulary.
  *
- * Mirrors `DimensionVerdict` in `services/inspector/models.py`. It replaced a
- * letter grade, which implied both an even scale and that a section's quality
- * was the mean of its parts.
+ * Mirrors `FINDING_REASONS`, `FINDING_LEVELS`, and `UNIT_STATUSES` in
+ * `services/inspector/models.py`; `inspector-vocabulary.test.ts` fails if the two
+ * diverge. Every name here is the one the service uses - no layer invents a
+ * synonym, because a second name for one thing is a second thing to keep in step.
  */
-export type DimensionVerdict =
-  | "critical"
-  | "for_consideration"
-  | "meets"
-  | "not_applicable";
+export const FINDING_REASONS = [
+  "missing",
+  "placeholder",
+  "unmet",
+  "off_template",
+  "unclear",
+  "conflicting",
+] as const;
+export type FindingReason = (typeof FINDING_REASONS)[number];
 
-/** Gaps counted by severity. Derived server-side so a client cannot disagree. */
-export type GapCounts = Record<"critical" | "for_consideration", number>;
+export const FINDING_LEVELS = ["not_met", "could_be_stronger"] as const;
+export type FindingLevel = (typeof FINDING_LEVELS)[number];
 
-/** How much of a rubric variable the document supplies. */
-export type ContentStatus =
-  | "substantive"
-  | "partial"
-  | "placeholder"
-  | "missing"
-  | "not_applicable";
+export const UNIT_STATUSES = [
+  "met",
+  "could_be_stronger",
+  "not_met",
+  "not_applicable",
+] as const;
+export type UnitStatus = (typeof UNIT_STATUSES)[number];
 
-export type DimensionAssessment = {
-  verdict: DimensionVerdict;
-  issues: string[];
+/** One thing to fix: one statement, one recommendation, one reason. */
+export type RubricFinding = {
+  id: string;
+  reason: FindingReason;
+  statement: string;
   recommendation: string;
-  /** Blocks *this* judgment cited. Each dimension cites independently. */
+  /** Both names set is a variable, section alone is a section, neither is the document. */
+  section_name: string | null;
+  variable_name: string | null;
+  /** Where this was read from. Empty exactly when nothing is there. */
   cited_block_ids: string[];
+  /** Worklist position, assigned server-side so every view orders identically. */
+  rank: number;
+  level: FindingLevel;
 };
 
-export type Dimensions = Record<DimensionName, DimensionAssessment>;
-
-export type VariableGrade = {
-  variable_name: string;
-  dimensions: Dimensions;
-  /** The completeness judgment's presence answer — the authority for absence. */
-  content_status: ContentStatus;
+/** One rubric unit. `status` is derived from the findings beneath it. */
+export type UnitAssessment = {
+  variable_name: string | null;
+  optional: boolean;
+  findings: RubricFinding[];
+  status: UnitStatus;
 };
 
-export type SectionGrade = {
+export type SectionAssessment = {
   section_name: string;
   is_present: boolean;
-  dimensions: Dimensions;
-  variable_grades: VariableGrade[];
-  /** Deterministic section assignment in document order, not a citation. */
+  /** A deterministic section assignment in document order, not a citation. */
   mapped_block_ids: string[];
-  /** Gaps beneath this section, by severity. */
-  gap_counts: GapCounts;
-};
-
-/** One ranked document-level issue, kept as parts rather than a sentence. */
-export type TopIssue = {
-  section_name: string;
-  issue: string;
-  dimension: DimensionName | null;
-  variable_name: string | null;
-  severity: DimensionVerdict;
-  content_status: ContentStatus | null;
-  recommendation: string;
-  cited_block_ids: string[];
-};
-
-export type CrossSectionFinding = {
-  description: string;
-  sections: string[];
-  recommendation: string;
-  block_ids: string[];
+  units: UnitAssessment[];
+  /** This section's units counted by status. Bounded by the rubric. */
+  status_counts: Record<UnitStatus, number>;
 };
 
 export type InspectionResult = {
   doc_id: string;
-  top_issues: TopIssue[];
-  section_grades: SectionGrade[];
-  cross_section_findings: CrossSectionFinding[];
+  sections: SectionAssessment[];
+  /** Conflicts spanning sections, which no single unit can own. */
+  document_findings: RubricFinding[];
   consistency_status: "complete" | "partial" | "failed" | "not_applicable" | "unknown";
-  grading_status: "complete" | "unknown";
+  /** Whether the run completed. A process fact, never a finding. */
+  assessment_status: "complete" | "unknown";
   org: string | null;
   source_type: string | null;
   intervention_class: string | null;
   indication: string | null;
-  /** Every section's gaps, summed. There is no document-level verdict. */
-  gap_counts: GapCounts;
   // The parsed source document behind the findings (for the Ask assistant).
   blocks: ContentBlock[];
 };
 
-export const DIMENSION_NAMES: DimensionName[] = ["completeness", "adherence", "rigor"];
+/**
+ * What each name means, in the reader's words.
+ *
+ * One map per vocabulary, read through a lookup rather than branched on, so a
+ * value added upstream renders as itself instead of failing to compile. Nothing
+ * here names a consequence: what a shortfall costs a programme is not something
+ * Inspector can see.
+ */
+export const REASON_LABELS: Record<FindingReason, string> = {
+  missing: "Not present",
+  placeholder: "Placeholder left in",
+  unmet: "Does not meet the requirement",
+  off_template: "Off template",
+  unclear: "Not specific enough",
+  conflicting: "Conflicts with another section",
+};
+
+export const LEVEL_LABELS: Record<FindingLevel, string> = {
+  not_met: "Not met",
+  could_be_stronger: "Could be stronger",
+};
+
+export const STATUS_LABELS: Record<UnitStatus, string> = {
+  met: "Meets the rubric",
+  could_be_stronger: "Supplied and usable, but could be stronger",
+  not_met: "The rubric asks for this and the document does not usably supply it",
+  not_applicable: "The rubric accepts this being absent",
+};
+
+export function reasonLabel(reason: string): string {
+  return REASON_LABELS[reason as FindingReason] ?? reason;
+}
+
+/** The two levels a reader can act on, in published order. */
+export const SHORTFALL_LEVELS: FindingLevel[] = ["not_met", "could_be_stronger"];
 
 /**
- * What each verdict means, in the reader's words.
+ * Every finding worth acting on, in the order the result already assigned.
  *
- * These describe the finding rather than direct the reader: Inspector can say
- * the rubric asks for something the document does not usably supply, but not
- * what the author is obliged to do about it. The badge beside each label
- * already names the severity, so the label explains it instead of repeating it.
+ * A view over the sections rather than a second array in the payload. The ranked
+ * list used to be computed server-side and published beside the units it
+ * duplicated, so the two could disagree; `rank` travels on the finding instead.
  */
-export const VERDICT_LABELS: Record<DimensionVerdict, string> = {
-  critical: "Required by the rubric and not usably supplied",
-  for_consideration: "Stated and usable, but could be stronger",
-  meets: "Meets the rubric",
-  not_applicable: "The rubric does not ask this here",
-};
+export function worklist(inspection: InspectionResult): RubricFinding[] {
+  const fromUnits = (inspection.sections ?? [])
+    .flatMap((section) => section.units)
+    .filter((unit) => unit.status !== "not_applicable")
+    .flatMap((unit) => unit.findings);
+  return [...fromUnits, ...(inspection.document_findings ?? [])].sort(
+    (left, right) => left.rank - right.rank,
+  );
+}
 
-/** The same verdicts where only a few characters fit. */
-export const VERDICT_BADGES: Record<DimensionVerdict, string> = {
-  critical: "Critical",
-  for_consideration: "Consider",
-  meets: "Meets",
-  not_applicable: "N/A",
-};
+/** How many units of a section fall at each level, for its collapsed header. */
+export function sectionShortfalls(
+  section: SectionAssessment,
+): Record<FindingLevel, number> {
+  return {
+    not_met: section.status_counts?.not_met ?? 0,
+    could_be_stronger: section.status_counts?.could_be_stronger ?? 0,
+  };
+}
 
 export type InspectorResponse = {
   inspection: InspectionResult;
@@ -833,26 +861,4 @@ export async function uploadAssistantContext(file: File): Promise<AssistantConte
     method: "POST",
     body: form,
   });
-}
-
-/**
- * Rubric variables the document does not contain, in rubric order.
- *
- * Derived rather than transported. `content_status` is the single authority for
- * presence, so shipping a parallel list of names alongside it would create two
- * fields that can disagree.
- */
-export function missingVariables(section: SectionGrade): VariableGrade[] {
-  return section.variable_grades.filter(
-    (variable) => variable.content_status === "missing",
-  );
-}
-
-/** Whether a variable is present in the document at all. */
-export function hasDocumentContent(variable: VariableGrade): boolean {
-  return (
-    variable.content_status === "substantive" ||
-    variable.content_status === "partial" ||
-    variable.content_status === "placeholder"
-  );
 }

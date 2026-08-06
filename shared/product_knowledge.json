@@ -68,9 +68,9 @@
             }
           ]
         },
-    {
-      "type": "definitions",
-      "title": "Core design",
+        {
+          "type": "definitions",
+          "title": "Core design",
           "items": [
             {
               "term": "Document blocks",
@@ -360,623 +360,796 @@
           "title": "Interactive architecture",
           "description": "Choose a tool for its end-to-end flow. Select a stage to inspect what it consumes, produces, and guarantees; stages with a technical flow can expand in place.",
           "graphs": [
-        {
-          "id": "inspector",
-          "title": "Inspector",
-          "summary": "Turns one parsed development document and its authored rubric into independent quality judgments, deterministic rollups, and cited consistency findings.",
-          "nodes": [
             {
-              "id": "document",
-              "title": "Document and rubric",
-              "summary": "One parsed document enters with its configured quality rubric.",
-              "kind": "input",
-              "layer": "Input",
-              "inputs": ["Ordered ContentBlocks", "Configured sections, variables, and requirements"],
-              "outputs": ["Stable document context", "Authored grading denominator"],
-              "guarantee": "The rubric, not model output, defines what must be evaluated."
-            },
-            {
-              "id": "mapping",
-              "title": "Section mapping",
-              "summary": "Every source block is assigned once to the configured section taxonomy.",
-              "kind": "model",
-              "layer": "Interpretation",
-              "details": "A schema-bound mapping stage associates exact block IDs with rubric sections before grading begins.",
-              "inputs": ["Complete block catalog", "Configured section vocabulary"],
-              "outputs": ["Section-to-block lineage"],
-              "guarantee": "Unknown, omitted, or duplicate block decisions fail this boundary instead of creating partial context."
-            },
-            {
-              "id": "grading",
-              "title": "Independent grading",
-              "summary": "Completeness, adherence, and rigor receive separate bounded judgments.",
-              "kind": "model",
-              "layer": "Analysis",
-              "details": "Each dimension has one responsibility. Presence is established before adherence and rigor are merged.",
-              "inputs": ["Mapped section context", "Variable-level rubric requirements"],
-              "outputs": ["Variable judgments with exact block lineage"],
-              "guarantee": "Inspector evaluates document quality only; it does not infer funding merit or feasibility.",
-              "children": [
-                {
-                  "id": "completeness",
-                  "title": "Completeness",
-                  "summary": "Decides whether required content is present, missing, partial, or not applicable.",
-                  "kind": "model",
-                  "layer": "Presence",
-                  "outputs": ["Authoritative presence decision", "Exact citations for present content"],
-                  "guarantee": "Absent content never requires an invented citation."
-                },
-                {
-                  "id": "adherence",
-                  "title": "Adherence",
-                  "summary": "Tests present content against its configured requirement.",
-                  "kind": "model",
-                  "layer": "Conformance",
-                  "inputs": ["Completeness decision", "Present source blocks"],
-                  "outputs": ["A–F or N/A adherence judgment"]
-                },
-                {
-                  "id": "rigor",
-                  "title": "Rigor",
-                  "summary": "Assesses whether present content is specific and sufficiently supported.",
-                  "kind": "model",
-                  "layer": "Quality",
-                  "inputs": ["Completeness decision", "Present source blocks"],
-                  "outputs": ["A–F or N/A rigor judgment"]
-                }
-              ]
-            },
-            {
-              "id": "rollup",
-              "title": "Rollups and consistency",
-              "summary": "Code aggregates grades while a separate model pass finds cited cross-section conflicts.",
-              "kind": "deterministic",
-              "layer": "Assembly",
-              "inputs": ["Complete variable ledger", "Independent dimension judgments"],
-              "outputs": ["Variable, section, and document rollups", "Cross-section conflict trace"],
-              "guarantee": "Model omissions cannot shrink the denominator or improve a grade.",
-              "children": [
-                {
-                  "id": "variables",
-                  "title": "Variable rollup",
-                  "summary": "Preserves every authored rubric variable and its three dimensions.",
-                  "kind": "deterministic",
-                  "layer": "Calculation"
-                },
-                {
-                  "id": "sections",
-                  "title": "Section rollup",
-                  "summary": "Aggregates the complete variable ledger into section grades.",
-                  "kind": "deterministic",
-                  "layer": "Calculation"
-                },
+              "id": "inspector",
+              "title": "Inspector",
+              "summary": "Turns one parsed development document and its authored rubric into one finding per thing to fix, each citing the passage it was read from, plus cited cross-section conflicts.",
+              "nodes": [
                 {
                   "id": "document",
-                  "title": "Document rollup",
-                  "summary": "Produces the document-level quality view from complete section results.",
+                  "title": "Document and rubric",
+                  "summary": "One parsed document enters with its configured rubric.",
+                  "kind": "input",
+                  "layer": "Input",
+                  "inputs": [
+                    "Ordered ContentBlocks",
+                    "Configured sections and units"
+                  ],
+                  "outputs": [
+                    "Stable document context",
+                    "The authored denominator of units"
+                  ]
+                },
+                {
+                  "id": "mapping",
+                  "title": "Section mapping",
+                  "summary": "Every source block is assigned once to the configured section taxonomy.",
+                  "kind": "model",
+                  "layer": "Interpretation",
+                  "inputs": [
+                    "Complete block catalog",
+                    "Configured section vocabulary"
+                  ],
+                  "outputs": [
+                    "Section-to-block lineage"
+                  ]
+                },
+                {
+                  "id": "assessment",
+                  "title": "Unit assessment",
+                  "summary": "One bounded call per rubric unit asks what is wrong with it and why. A unit raises each reason at most once, and content that is absent raises nothing else.",
+                  "kind": "model",
+                  "layer": "Analysis",
+                  "inputs": [
+                    "Mapped section context",
+                    "The unit's description and expectations"
+                  ],
+                  "outputs": [
+                    "Findings with exact block lineage"
+                  ]
+                },
+                {
+                  "id": "assembly",
+                  "title": "Assembly and consistency",
+                  "summary": "Code joins the rubric with the findings and orders them, while a separate model pass finds cited cross-section conflicts.",
                   "kind": "deterministic",
-                  "layer": "Calculation"
+                  "layer": "Assembly",
+                  "inputs": [
+                    "Every rubric unit",
+                    "Findings raised against them"
+                  ],
+                  "outputs": [
+                    "Unit statuses derived from their own findings",
+                    "One worklist order",
+                    "Cross-section conflict trace"
+                  ]
                 },
                 {
-                  "id": "conflicts",
-                  "title": "Consistency pass",
-                  "summary": "Reports only cross-section conflicts with exact source blocks.",
-                  "kind": "model",
-                  "layer": "Document-wide review"
+                  "id": "result",
+                  "title": "Portable inspection",
+                  "summary": "The final analysis and parsed source document travel together.",
+                  "kind": "output",
+                  "layer": "Result",
+                  "inputs": [
+                    "Validated findings",
+                    "Conflict trace",
+                    "Source blocks"
+                  ],
+                  "outputs": [
+                    "Immutable pdis.result artifact"
+                  ]
+                }
+              ],
+              "edges": [
+                {
+                  "source": "document",
+                  "target": "mapping"
+                },
+                {
+                  "source": "mapping",
+                  "target": "assessment"
+                },
+                {
+                  "source": "assessment",
+                  "target": "assembly"
+                },
+                {
+                  "source": "assembly",
+                  "target": "result"
                 }
               ]
             },
             {
-              "id": "result",
-              "title": "Portable inspection",
-              "summary": "The final analysis and parsed source document travel together.",
-              "kind": "output",
-              "layer": "Result",
-              "inputs": ["Validated grades", "Conflict trace", "Source blocks"],
-              "outputs": ["Immutable pdis.result artifact"],
-              "guarantee": "The final result remains traceable without hidden server state."
-            }
-          ],
-          "edges": [
-            { "source": "document", "target": "mapping" },
-            { "source": "mapping", "target": "grading" },
-            { "source": "grading", "target": "rollup" },
-            { "source": "rollup", "target": "result" }
-          ]
-        },
-        {
-          "id": "aligner",
-          "title": "Aligner",
-          "summary": "Converts two documents into the same unit vocabulary, links their commitments, and derives a complete change ledger.",
-          "nodes": [
-            {
-              "id": "documents",
-              "title": "Reference and comparison",
-              "summary": "Exactly two parsed documents enter with shared product context.",
-              "kind": "input",
-              "layer": "Input",
-              "inputs": ["Reference ContentBlocks", "Comparison ContentBlocks", "Alignment configuration"],
-              "outputs": ["Two isolated document contexts"],
-              "guarantee": "Document-type differences remain configuration rather than downstream branches."
-            },
-            {
-              "id": "units",
-              "title": "Unit extraction",
-              "summary": "Each document becomes a cited ledger of comparable development units.",
-              "kind": "model",
-              "layer": "Interpretation",
-              "inputs": ["Complete blocks for one document", "Closed unit vocabulary"],
-              "outputs": ["Target, activity, milestone, requirement, dependency, or risk-response units"],
-              "guarantee": "Every unit retains the exact blocks from its own document."
-            },
-            {
-              "id": "relations",
-              "title": "Cross-document relations",
-              "summary": "Units are linked as aligned, modified, conflicting, missing, or introduced.",
-              "kind": "model",
-              "layer": "Comparison",
-              "inputs": ["Reference unit ledger", "Comparison unit ledger"],
-              "outputs": ["Typed, two-sided relation proposals"],
-              "guarantee": "A relation carries exact lineage from both documents rather than a free-floating summary."
-            },
-            {
-              "id": "closure",
-              "title": "Coverage closure",
-              "summary": "Code derives omitted missing and introduced relations and calculates counts.",
-              "kind": "deterministic",
-              "layer": "Assembly",
-              "inputs": ["Both complete unit ledgers", "Validated relation proposals"],
-              "outputs": ["Complete relation ledger", "Reproducible relation counts"],
-              "guarantee": "Unlinked units cannot disappear from the comparison."
-            },
-            {
-              "id": "result",
-              "title": "Portable alignment",
-              "summary": "The two source documents and their complete change trace form one result.",
-              "kind": "output",
-              "layer": "Result",
-              "outputs": ["Immutable pdis.result artifact"],
-              "guarantee": "Every reported change remains navigable to both source documents."
-            }
-          ],
-          "edges": [
-            { "source": "documents", "target": "units" },
-            { "source": "units", "target": "relations" },
-            { "source": "relations", "target": "closure" },
-            { "source": "closure", "target": "result" }
-          ]
-        },
-        {
-          "id": "scout",
-          "title": "Scout",
-          "summary": "Binds document authority before retrieval, preserves source-lane lineage, and reports orthogonal evidence signals without a blended score.",
-          "nodes": [
-            {
-              "id": "document",
-              "title": "Parsed document",
-              "summary": "Ordered blocks and selected product context establish the source boundary.",
-              "kind": "input",
-              "layer": "Input",
-              "inputs": ["ContentBlocks", "Organization, document type, intervention, and indication"],
-              "outputs": ["Document-bound analysis context"]
-            },
-            {
-              "id": "authority",
-              "title": "Canonical claim authority",
-              "summary": "Fields, claims, atomic targets, entities, and exact spans converge before search.",
-              "kind": "model",
-              "layer": "Document interpretation",
-              "details": "Fixed TPP fields and extracted IPDP claims converge to one Attribute contract; quantitative targets remain in one document-owned ledger.",
-              "inputs": ["Complete block catalog", "Configured field definitions"],
-              "outputs": ["Canonical Attributes", "Atomic quantitative target ledger", "Typed field links"],
-              "guarantee": "Downstream stages consume this meaning and cannot rewrite it.",
-              "children": [
+              "id": "aligner",
+              "title": "Aligner",
+              "summary": "Converts two documents into the same unit vocabulary, links their commitments, and derives a complete change ledger.",
+              "nodes": [
                 {
-                  "id": "indication",
-                  "title": "Indication check",
-                  "summary": "Stops only a clear, block-cited mismatch; ambiguity remains explicit.",
-                  "kind": "model",
-                  "layer": "Context validation"
+                  "id": "documents",
+                  "title": "Reference and comparison",
+                  "summary": "Exactly two parsed documents enter with shared product context.",
+                  "kind": "input",
+                  "layer": "Input",
+                  "inputs": [
+                    "Reference ContentBlocks",
+                    "Comparison ContentBlocks",
+                    "Alignment configuration"
+                  ],
+                  "outputs": [
+                    "Two isolated document contexts"
+                  ],
+                  "guarantee": "Document-type differences remain configuration rather than downstream branches."
                 },
                 {
-                  "id": "claims",
-                  "title": "Field and claim binding",
-                  "summary": "Resolves each canonical field or dynamic claim to exact document spans.",
+                  "id": "units",
+                  "title": "Unit extraction",
+                  "summary": "Each document becomes a cited ledger of comparable development units.",
                   "kind": "model",
-                  "layer": "Claim binding"
+                  "layer": "Interpretation",
+                  "inputs": [
+                    "Complete blocks for one document",
+                    "Closed unit vocabulary"
+                  ],
+                  "outputs": [
+                    "Target, activity, milestone, requirement, dependency, or risk-response units"
+                  ],
+                  "guarantee": "Every unit retains the exact blocks from its own document."
                 },
                 {
-                  "id": "targets",
-                  "title": "Atomic target mapping",
-                  "summary": "Splits owned spans into measurable targets with semantic profiles and comparator policies.",
+                  "id": "relations",
+                  "title": "Cross-document relations",
+                  "summary": "Units are linked as aligned, modified, conflicting, missing, or introduced.",
                   "kind": "model",
-                  "layer": "Quantitative mapping"
+                  "layer": "Comparison",
+                  "inputs": [
+                    "Reference unit ledger",
+                    "Comparison unit ledger"
+                  ],
+                  "outputs": [
+                    "Typed, two-sided relation proposals"
+                  ],
+                  "guarantee": "A relation carries exact lineage from both documents rather than a free-floating summary."
                 },
                 {
-                  "id": "reconcile",
-                  "title": "Document-wide reconciliation",
-                  "summary": "Groups calculation-compatible representations without rewriting claim meaning.",
-                  "kind": "model",
-                  "layer": "Canonicalization"
+                  "id": "closure",
+                  "title": "Coverage closure",
+                  "summary": "Code derives omitted missing and introduced relations and calculates counts.",
+                  "kind": "deterministic",
+                  "layer": "Assembly",
+                  "inputs": [
+                    "Both complete unit ledgers",
+                    "Validated relation proposals"
+                  ],
+                  "outputs": [
+                    "Complete relation ledger",
+                    "Reproducible relation counts"
+                  ],
+                  "guarantee": "Unlinked units cannot disappear from the comparison."
+                },
+                {
+                  "id": "result",
+                  "title": "Portable alignment",
+                  "summary": "The two source documents and their complete change trace form one result.",
+                  "kind": "output",
+                  "layer": "Result",
+                  "outputs": [
+                    "Immutable pdis.result artifact"
+                  ],
+                  "guarantee": "Every reported change remains navigable to both source documents."
+                }
+              ],
+              "edges": [
+                {
+                  "source": "documents",
+                  "target": "units"
+                },
+                {
+                  "source": "units",
+                  "target": "relations"
+                },
+                {
+                  "source": "relations",
+                  "target": "closure"
+                },
+                {
+                  "source": "closure",
+                  "target": "result"
                 }
               ]
             },
             {
-              "id": "target-review",
-              "title": "Target review",
-              "summary": "AI recommendations and explicit decisions determine which proposals drive retrieval.",
-              "kind": "review",
-              "layer": "Checkpoint",
-              "inputs": ["Source-verifiable target proposals", "Complete uploaded document"],
-              "outputs": ["Confirmed targets", "Auditable exclusions and uncertainty"],
-              "guarantee": "Contextual links remain traceable but never create statistics."
-            },
-            {
-              "id": "retrieval",
-              "title": "Intent and source fan-out",
-              "summary": "Neutral query intents are compiled and executed by independent source adapters.",
-              "kind": "integration",
-              "layer": "Retrieval",
-              "inputs": ["Canonical Attributes", "Reviewed target coverage", "Enabled adapter keys"],
-              "outputs": ["Findings with intent, target, adapter, connector, query, and URL lineage"],
-              "guarantee": "Source failures remain isolated and source grammar never leaks into Scout.",
-              "children": [
+              "id": "scout",
+              "title": "Scout",
+              "summary": "Binds document authority before retrieval, preserves source-lane lineage, and reports orthogonal evidence signals without a blended score.",
+              "nodes": [
                 {
-                  "id": "intents",
-                  "title": "Source-neutral intents",
-                  "summary": "General, geographic, counterfactual, and precedent tracks add coverage without overwriting each other.",
-                  "kind": "model",
-                  "layer": "Query generation"
+                  "id": "document",
+                  "title": "Parsed document",
+                  "summary": "Ordered blocks and selected product context establish the source boundary.",
+                  "kind": "input",
+                  "layer": "Input",
+                  "inputs": [
+                    "ContentBlocks",
+                    "Organization, document type, intervention, and indication"
+                  ],
+                  "outputs": [
+                    "Document-bound analysis context"
+                  ]
                 },
                 {
-                  "id": "planning",
-                  "title": "Adapter planning",
-                  "summary": "Each adapter applies its source grammar, applicability rules, rate limit, and request budget.",
+                  "id": "authority",
+                  "title": "Canonical claim authority",
+                  "summary": "Fields, claims, atomic targets, entities, and exact spans converge before search.",
+                  "kind": "model",
+                  "layer": "Document interpretation",
+                  "details": "Fixed TPP fields and extracted IPDP claims converge to one Attribute contract; quantitative targets remain in one document-owned ledger.",
+                  "inputs": [
+                    "Complete block catalog",
+                    "Configured field definitions"
+                  ],
+                  "outputs": [
+                    "Canonical Attributes",
+                    "Atomic quantitative target ledger",
+                    "Typed field links"
+                  ],
+                  "guarantee": "Downstream stages consume this meaning and cannot rewrite it.",
+                  "children": [
+                    {
+                      "id": "indication",
+                      "title": "Indication check",
+                      "summary": "Stops only a clear, block-cited mismatch; ambiguity remains explicit.",
+                      "kind": "model",
+                      "layer": "Context validation"
+                    },
+                    {
+                      "id": "claims",
+                      "title": "Field and claim binding",
+                      "summary": "Resolves each canonical field or dynamic claim to exact document spans.",
+                      "kind": "model",
+                      "layer": "Claim binding"
+                    },
+                    {
+                      "id": "targets",
+                      "title": "Atomic target mapping",
+                      "summary": "Splits owned spans into measurable targets with semantic profiles and comparator policies.",
+                      "kind": "model",
+                      "layer": "Quantitative mapping"
+                    },
+                    {
+                      "id": "reconcile",
+                      "title": "Document-wide reconciliation",
+                      "summary": "Groups calculation-compatible representations without rewriting claim meaning.",
+                      "kind": "model",
+                      "layer": "Canonicalization"
+                    }
+                  ]
+                },
+                {
+                  "id": "target-review",
+                  "title": "Target review",
+                  "summary": "AI recommendations and explicit decisions determine which proposals drive retrieval.",
+                  "kind": "review",
+                  "layer": "Checkpoint",
+                  "inputs": [
+                    "Source-verifiable target proposals",
+                    "Complete uploaded document"
+                  ],
+                  "outputs": [
+                    "Confirmed targets",
+                    "Auditable exclusions and uncertainty"
+                  ],
+                  "guarantee": "Contextual links remain traceable but never create statistics."
+                },
+                {
+                  "id": "retrieval",
+                  "title": "Intent and source fan-out",
+                  "summary": "Neutral query intents are compiled and executed by independent source adapters.",
                   "kind": "integration",
-                  "layer": "Source compilation"
+                  "layer": "Retrieval",
+                  "inputs": [
+                    "Canonical Attributes",
+                    "Reviewed target coverage",
+                    "Enabled adapter keys"
+                  ],
+                  "outputs": [
+                    "Findings with intent, target, adapter, connector, query, and URL lineage"
+                  ],
+                  "guarantee": "Source failures remain isolated and source grammar never leaks into Scout.",
+                  "children": [
+                    {
+                      "id": "intents",
+                      "title": "Source-neutral intents",
+                      "summary": "General, geographic, counterfactual, and precedent tracks add coverage without overwriting each other.",
+                      "kind": "model",
+                      "layer": "Query generation"
+                    },
+                    {
+                      "id": "planning",
+                      "title": "Adapter planning",
+                      "summary": "Each adapter applies its source grammar, applicability rules, rate limit, and request budget.",
+                      "kind": "integration",
+                      "layer": "Source compilation"
+                    },
+                    {
+                      "id": "execution",
+                      "title": "Bounded execution",
+                      "summary": "Runnable source lanes execute concurrently without slow lanes consuming all capacity.",
+                      "kind": "deterministic",
+                      "layer": "Scheduler"
+                    },
+                    {
+                      "id": "normalization",
+                      "title": "Finding normalization",
+                      "summary": "Adapters return one finding contract while preserving every retrieval path.",
+                      "kind": "integration",
+                      "layer": "Evidence boundary"
+                    }
+                  ]
                 },
                 {
-                  "id": "execution",
-                  "title": "Bounded execution",
-                  "summary": "Runnable source lanes execute concurrently without slow lanes consuming all capacity.",
-                  "kind": "deterministic",
-                  "layer": "Scheduler"
+                  "id": "reasoning",
+                  "title": "Independent evidence axes",
+                  "summary": "Insights feed relationship, grounding, precedent, and quantitative calibration separately.",
+                  "kind": "model",
+                  "layer": "Evidence analysis",
+                  "inputs": [
+                    "Normalized Findings",
+                    "Canonical document authority"
+                  ],
+                  "outputs": [
+                    "Matches",
+                    "Grounding assessments",
+                    "Precedent coverage and outcome",
+                    "Measurement candidates"
+                  ],
+                  "guarantee": "No axis reads another axis or contributes to a holistic score.",
+                  "children": [
+                    {
+                      "id": "insights",
+                      "title": "Insight extraction",
+                      "summary": "Source findings become field-bound, cited evidence statements.",
+                      "kind": "model",
+                      "layer": "Synthesis"
+                    },
+                    {
+                      "id": "insight-identity",
+                      "title": "Insight identity reconciliation",
+                      "summary": "Groups statements of the same external fact without rewriting any statement.",
+                      "kind": "model",
+                      "layer": "Synthesis"
+                    },
+                    {
+                      "id": "qualitative",
+                      "title": "Relationship and grounding",
+                      "summary": "Reports how evidence relates to a target and how well the target is supported.",
+                      "kind": "model",
+                      "layer": "Qualitative axes"
+                    },
+                    {
+                      "id": "precedent",
+                      "title": "Precedent",
+                      "summary": "Separates comparable coverage from favorable, mixed, or unfavorable outcome.",
+                      "kind": "model",
+                      "layer": "Precedent axis"
+                    },
+                    {
+                      "id": "measurements",
+                      "title": "Measurement mapping",
+                      "summary": "Maps exact source-owned numeric passages against each target comparator contract.",
+                      "kind": "model",
+                      "layer": "Quantitative axis"
+                    }
+                  ]
                 },
                 {
-                  "id": "normalization",
-                  "title": "Finding normalization",
-                  "summary": "Adapters return one finding contract while preserving every retrieval path.",
-                  "kind": "integration",
-                  "layer": "Evidence boundary"
+                  "id": "evidence-review",
+                  "title": "Evidence review and calculation",
+                  "summary": "Explicit admission and evidence-unit deduplication precede descriptive statistics.",
+                  "kind": "review",
+                  "layer": "Checkpoint and calculation",
+                  "inputs": [
+                    "Mapped measurement candidates grouped by source record"
+                  ],
+                  "outputs": [
+                    "Admitted comparator cohort",
+                    "Deterministic descriptive statistics",
+                    "Audit ledger"
+                  ],
+                  "guarantee": "Only admitted, source-owned, unit-compatible, deduplicated scalars enter calculations."
+                },
+                {
+                  "id": "result",
+                  "title": "Portable evidence result",
+                  "summary": "All traces, independent axes, review decisions, and source documents are packaged together.",
+                  "kind": "output",
+                  "layer": "Result",
+                  "outputs": [
+                    "Immutable pdis.result artifact",
+                    "Fields, landscape, safety, and evidence-map views"
+                  ],
+                  "guarantee": "Import, export, Assistant, and UI consume the same final contract without recalculation."
+                }
+              ],
+              "edges": [
+                {
+                  "source": "document",
+                  "target": "authority"
+                },
+                {
+                  "source": "authority",
+                  "target": "target-review"
+                },
+                {
+                  "source": "target-review",
+                  "target": "retrieval"
+                },
+                {
+                  "source": "retrieval",
+                  "target": "reasoning"
+                },
+                {
+                  "source": "reasoning",
+                  "target": "evidence-review"
+                },
+                {
+                  "source": "reasoning",
+                  "target": "result",
+                  "label": "qualitative axes"
+                },
+                {
+                  "source": "evidence-review",
+                  "target": "result",
+                  "label": "quantitative axis"
                 }
               ]
             },
             {
-              "id": "reasoning",
-              "title": "Independent evidence axes",
-              "summary": "Insights feed relationship, grounding, precedent, and quantitative calibration separately.",
-              "kind": "model",
-              "layer": "Evidence analysis",
-              "inputs": ["Normalized Findings", "Canonical document authority"],
-              "outputs": ["Matches", "Grounding assessments", "Precedent coverage and outcome", "Measurement candidates"],
-              "guarantee": "No axis reads another axis or contributes to a holistic score.",
-              "children": [
+              "id": "chunker",
+              "title": "Chunker",
+              "summary": "Normalizes DOCX and PPTX into one ordered block contract with stable citations and retained visuals.",
+              "nodes": [
                 {
-                  "id": "insights",
-                  "title": "Insight extraction",
-                  "summary": "Source findings become field-bound, cited evidence statements.",
-                  "kind": "model",
-                  "layer": "Synthesis"
+                  "id": "file",
+                  "title": "Source file",
+                  "summary": "A supported document enters with its original filename stem as stable identity.",
+                  "kind": "input",
+                  "layer": "Input",
+                  "inputs": [
+                    "DOCX or PPTX",
+                    "Stable doc_id and provenance"
+                  ],
+                  "guarantee": "Temporary upload names never enter citations."
                 },
                 {
-                  "id": "insight-identity",
-                  "title": "Insight identity reconciliation",
-                  "summary": "Groups statements of the same external fact without rewriting any statement.",
-                  "kind": "model",
-                  "layer": "Synthesis"
-                },
-                {
-                  "id": "qualitative",
-                  "title": "Relationship and grounding",
-                  "summary": "Reports how evidence relates to a target and how well the target is supported.",
-                  "kind": "model",
-                  "layer": "Qualitative axes"
-                },
-                {
-                  "id": "precedent",
-                  "title": "Precedent",
-                  "summary": "Separates comparable coverage from favorable, mixed, or unfavorable outcome.",
-                  "kind": "model",
-                  "layer": "Precedent axis"
-                },
-                {
-                  "id": "measurements",
-                  "title": "Measurement mapping",
-                  "summary": "Maps exact source-owned numeric passages against each target comparator contract.",
-                  "kind": "model",
-                  "layer": "Quantitative axis"
-                }
-              ]
-            },
-            {
-              "id": "evidence-review",
-              "title": "Evidence review and calculation",
-              "summary": "Explicit admission and evidence-unit deduplication precede descriptive statistics.",
-              "kind": "review",
-              "layer": "Checkpoint and calculation",
-              "inputs": ["Mapped measurement candidates grouped by source record"],
-              "outputs": ["Admitted comparator cohort", "Deterministic descriptive statistics", "Audit ledger"],
-              "guarantee": "Only admitted, source-owned, unit-compatible, deduplicated scalars enter calculations."
-            },
-            {
-              "id": "result",
-              "title": "Portable evidence result",
-              "summary": "All traces, independent axes, review decisions, and source documents are packaged together.",
-              "kind": "output",
-              "layer": "Result",
-              "outputs": ["Immutable pdis.result artifact", "Fields, landscape, safety, and evidence-map views"],
-              "guarantee": "Import, export, Assistant, and UI consume the same final contract without recalculation."
-            }
-          ],
-          "edges": [
-            { "source": "document", "target": "authority" },
-            { "source": "authority", "target": "target-review" },
-            { "source": "target-review", "target": "retrieval" },
-            { "source": "retrieval", "target": "reasoning" },
-            { "source": "reasoning", "target": "evidence-review" },
-            { "source": "reasoning", "target": "result", "label": "qualitative axes" },
-            { "source": "evidence-review", "target": "result", "label": "quantitative axis" }
-          ]
-        },
-        {
-          "id": "chunker",
-          "title": "Chunker",
-          "summary": "Normalizes DOCX and PPTX into one ordered block contract with stable citations and retained visuals.",
-          "nodes": [
-            {
-              "id": "file",
-              "title": "Source file",
-              "summary": "A supported document enters with its original filename stem as stable identity.",
-              "kind": "input",
-              "layer": "Input",
-              "inputs": ["DOCX or PPTX", "Stable doc_id and provenance"],
-              "guarantee": "Temporary upload names never enter citations."
-            },
-            {
-              "id": "parse",
-              "title": "Format-native parsing",
-              "summary": "Each format preserves its native order, tables, metadata, and visuals.",
-              "kind": "deterministic",
-              "layer": "Parsing",
-              "outputs": ["Ordered text and table content", "Canonical image assets"],
-              "children": [
-                {
-                  "id": "docx",
-                  "title": "DOCX parser",
-                  "summary": "Preserves body order, tables, and embedded images.",
+                  "id": "parse",
+                  "title": "Format-native parsing",
+                  "summary": "Each format preserves its native order, tables, metadata, and visuals.",
                   "kind": "deterministic",
-                  "layer": "Format adapter"
-                },
-                {
-                  "id": "pptx",
-                  "title": "PPTX parser",
-                  "summary": "Retains slide text, tables, notes, positions, and rendered slide images.",
-                  "kind": "deterministic",
-                  "layer": "Format adapter"
-                }
-              ]
-            },
-            {
-              "id": "blocks",
-              "title": "Block normalization",
-              "summary": "Format-native records converge to stable ContentBlocks and ImageAssets.",
-              "kind": "deterministic",
-              "layer": "Canonicalization",
-              "inputs": ["Native parser records"],
-              "outputs": ["Stable block IDs", "Ordered text, table, and image blocks"],
-              "guarantee": "Images remain canonical bytes rather than generated descriptions."
-            },
-            {
-              "id": "sections",
-              "title": "Section mapping",
-              "summary": "A schema-bound stage labels every block once against the configured taxonomy.",
-              "kind": "model",
-              "layer": "Structure",
-              "inputs": ["Complete block catalog", "Optional document-type section taxonomy"],
-              "outputs": ["Section labels for every block"],
-              "guarantee": "Unknown, duplicate, or omitted decisions fail the boundary."
-            },
-            {
-              "id": "result",
-              "title": "Citable document",
-              "summary": "Downstream tools receive one portable ordered block contract.",
-              "kind": "output",
-              "layer": "Output",
-              "outputs": ["ContentBlock list with retained visual assets"]
-            }
-          ],
-          "edges": [
-            { "source": "file", "target": "parse" },
-            { "source": "parse", "target": "blocks" },
-            { "source": "blocks", "target": "sections" },
-            { "source": "sections", "target": "result" }
-          ]
-        },
-        {
-          "id": "searcher",
-          "title": "Searcher",
-          "summary": "Translates neutral retrieval intent into source-native requests while keeping credentials, rate limits, failures, and normalization inside adapters.",
-          "nodes": [
-            {
-              "id": "intent",
-              "title": "Retrieval intent",
-              "summary": "Free text or typed source-neutral intents enter with requested source keys.",
-              "kind": "input",
-              "layer": "Input",
-              "inputs": ["Intent IDs and text", "Target and query lineage", "Enabled adapter keys"],
-              "outputs": ["Source-agnostic retrieval workload"]
-            },
-            {
-              "id": "adapters",
-              "title": "Adapter planning",
-              "summary": "Each registered source owns its grammar, applicability, credentials, and budget.",
-              "kind": "integration",
-              "layer": "Source boundary",
-              "inputs": ["Neutral intents", "Injected runtime capabilities"],
-              "outputs": ["Source-native requests or traced skips"],
-              "guarantee": "Unknown source keys fail explicitly; ToolUniverse remains an injected connector, not a router.",
-              "children": [
-                {
-                  "id": "applicability",
-                  "title": "Applicability",
-                  "summary": "Checks declared evidence domains and entity requirements.",
-                  "kind": "deterministic",
-                  "layer": "Adapter policy"
-                },
-                {
-                  "id": "compile",
-                  "title": "Request compilation",
-                  "summary": "Compacts intent concepts into valid native source grammar without dropping lineage.",
-                  "kind": "integration",
-                  "layer": "Adapter grammar"
-                },
-                {
-                  "id": "budget",
-                  "title": "Runtime policy",
-                  "summary": "Applies source-specific credentials, rate limits, concurrency, and request budgets.",
-                  "kind": "deterministic",
-                  "layer": "Adapter execution"
-                }
-              ]
-            },
-            {
-              "id": "scheduler",
-              "title": "Bounded scheduler",
-              "summary": "Runnable source lanes execute concurrently and failures remain isolated.",
-              "kind": "deterministic",
-              "layer": "Execution",
-              "inputs": ["Planned native requests"],
-              "outputs": ["Order-preserving source outcomes"],
-              "guarantee": "A slow or failed lane cannot corrupt another lane or occupy all runnable capacity."
-            },
-            {
-              "id": "normalize",
-              "title": "Finding normalization",
-              "summary": "Source responses converge to one finding contract and URL duplicates retain every path.",
-              "kind": "integration",
-              "layer": "Normalization",
-              "inputs": ["Native source responses"],
-              "outputs": ["Findings with evidence role and complete retrieval trace"],
-              "guarantee": "Reference-only records remain distinguishable from evidence-bearing passages."
-            },
-            {
-              "id": "result",
-              "title": "Search outcomes",
-              "summary": "Direct callers receive ordered outcomes or URL-deduplicated findings.",
-              "kind": "output",
-              "layer": "Output",
-              "outputs": ["Normalized findings and isolated failure traces"]
-            }
-          ],
-          "edges": [
-            { "source": "intent", "target": "adapters" },
-            { "source": "adapters", "target": "scheduler" },
-            { "source": "scheduler", "target": "normalize" },
-            { "source": "normalize", "target": "result" }
-          ]
-        },
-        {
-          "id": "chat",
-          "title": "Assistant",
-          "summary": "Answers read-only questions by navigating only the catalog, documentation, final results, source blocks, attachments, and cited URLs submitted in the current workspace.",
-          "nodes": [
-            {
-              "id": "workspace",
-              "title": "Workspace bundle",
-              "summary": "The client submits current catalog, eligible results, utility outputs, attachments, and conversation history.",
-              "kind": "input",
-              "layer": "Input",
-              "inputs": ["Current in-memory workspace", "Transient conversation attachments"],
-              "outputs": ["Request-scoped read-only context"],
-              "guarantee": "Active review drafts and provider credentials are never included."
-            },
-            {
-              "id": "maps",
-              "title": "Compact context maps",
-              "summary": "Assistant starts with navigational summaries rather than placing every artifact into the prompt.",
-              "kind": "deterministic",
-              "layer": "Indexing",
-              "inputs": ["Tool catalog", "Documentation section map", "Result and document maps"],
-              "outputs": ["Bounded tool-readable indexes"],
-              "guarantee": "Product documentation remains separate from product evidence."
-            },
-            {
-              "id": "navigation",
-              "title": "Bounded navigation loop",
-              "summary": "The model chooses narrow read tools to gather only the context needed for the answer.",
-              "kind": "model",
-              "layer": "Reasoning",
-              "inputs": ["User question", "Compact context maps"],
-              "outputs": ["Targeted documentation, result, block, image, or cited-source reads"],
-              "guarantee": "Assistant cannot mutate analyses, run workflows, or start a new evidence search.",
-              "children": [
-                {
-                  "id": "docs",
-                  "title": "Product documentation",
-                  "summary": "Finds and reads canonical process, architecture, and terminology sections.",
-                  "kind": "integration",
-                  "layer": "Context reader"
-                },
-                {
-                  "id": "results",
-                  "title": "Result navigation",
-                  "summary": "Traverses eligible final analysis subtrees and direct utility output.",
-                  "kind": "integration",
-                  "layer": "Context reader"
+                  "layer": "Parsing",
+                  "outputs": [
+                    "Ordered text and table content",
+                    "Canonical image assets"
+                  ],
+                  "children": [
+                    {
+                      "id": "docx",
+                      "title": "DOCX parser",
+                      "summary": "Preserves body order, tables, and embedded images.",
+                      "kind": "deterministic",
+                      "layer": "Format adapter"
+                    },
+                    {
+                      "id": "pptx",
+                      "title": "PPTX parser",
+                      "summary": "Retains slide text, tables, notes, positions, and rendered slide images.",
+                      "kind": "deterministic",
+                      "layer": "Format adapter"
+                    }
+                  ]
                 },
                 {
                   "id": "blocks",
-                  "title": "Document blocks",
-                  "summary": "Finds and pages exact parsed text or retained visuals packaged with results and attachments.",
-                  "kind": "integration",
-                  "layer": "Context reader"
+                  "title": "Block normalization",
+                  "summary": "Format-native records converge to stable ContentBlocks and ImageAssets.",
+                  "kind": "deterministic",
+                  "layer": "Canonicalization",
+                  "inputs": [
+                    "Native parser records"
+                  ],
+                  "outputs": [
+                    "Stable block IDs",
+                    "Ordered text, table, and image blocks"
+                  ],
+                  "guarantee": "Images remain canonical bytes rather than generated descriptions."
                 },
                 {
-                  "id": "sources",
-                  "title": "Cited URLs",
-                  "summary": "Opens only URLs already cited by a submitted analysis.",
-                  "kind": "integration",
-                  "layer": "Context reader"
+                  "id": "sections",
+                  "title": "Section mapping",
+                  "summary": "A schema-bound stage labels every block once against the configured taxonomy.",
+                  "kind": "model",
+                  "layer": "Structure",
+                  "inputs": [
+                    "Complete block catalog",
+                    "Optional document-type section taxonomy"
+                  ],
+                  "outputs": [
+                    "Section labels for every block"
+                  ],
+                  "guarantee": "Unknown, duplicate, or omitted decisions fail the boundary."
+                },
+                {
+                  "id": "result",
+                  "title": "Citable document",
+                  "summary": "Downstream tools receive one portable ordered block contract.",
+                  "kind": "output",
+                  "layer": "Output",
+                  "outputs": [
+                    "ContentBlock list with retained visual assets"
+                  ]
+                }
+              ],
+              "edges": [
+                {
+                  "source": "file",
+                  "target": "parse"
+                },
+                {
+                  "source": "parse",
+                  "target": "blocks"
+                },
+                {
+                  "source": "blocks",
+                  "target": "sections"
+                },
+                {
+                  "source": "sections",
+                  "target": "result"
                 }
               ]
             },
             {
-              "id": "answer",
-              "title": "Grounded response",
-              "summary": "The selected context and conversation produce one streamed read-only answer.",
-              "kind": "model",
-              "layer": "Answering",
-              "inputs": ["Bounded context reads", "Conversation history"],
-              "outputs": ["Plain-text token stream"],
-              "guarantee": "An absent result remains explicit rather than being inferred from unrelated context."
+              "id": "searcher",
+              "title": "Searcher",
+              "summary": "Translates neutral retrieval intent into source-native requests while keeping credentials, rate limits, failures, and normalization inside adapters.",
+              "nodes": [
+                {
+                  "id": "intent",
+                  "title": "Retrieval intent",
+                  "summary": "Free text or typed source-neutral intents enter with requested source keys.",
+                  "kind": "input",
+                  "layer": "Input",
+                  "inputs": [
+                    "Intent IDs and text",
+                    "Target and query lineage",
+                    "Enabled adapter keys"
+                  ],
+                  "outputs": [
+                    "Source-agnostic retrieval workload"
+                  ]
+                },
+                {
+                  "id": "adapters",
+                  "title": "Adapter planning",
+                  "summary": "Each registered source owns its grammar, applicability, credentials, and budget.",
+                  "kind": "integration",
+                  "layer": "Source boundary",
+                  "inputs": [
+                    "Neutral intents",
+                    "Injected runtime capabilities"
+                  ],
+                  "outputs": [
+                    "Source-native requests or traced skips"
+                  ],
+                  "guarantee": "Unknown source keys fail explicitly; ToolUniverse remains an injected connector, not a router.",
+                  "children": [
+                    {
+                      "id": "applicability",
+                      "title": "Applicability",
+                      "summary": "Checks declared evidence domains and entity requirements.",
+                      "kind": "deterministic",
+                      "layer": "Adapter policy"
+                    },
+                    {
+                      "id": "compile",
+                      "title": "Request compilation",
+                      "summary": "Compacts intent concepts into valid native source grammar without dropping lineage.",
+                      "kind": "integration",
+                      "layer": "Adapter grammar"
+                    },
+                    {
+                      "id": "budget",
+                      "title": "Runtime policy",
+                      "summary": "Applies source-specific credentials, rate limits, concurrency, and request budgets.",
+                      "kind": "deterministic",
+                      "layer": "Adapter execution"
+                    }
+                  ]
+                },
+                {
+                  "id": "scheduler",
+                  "title": "Bounded scheduler",
+                  "summary": "Runnable source lanes execute concurrently and failures remain isolated.",
+                  "kind": "deterministic",
+                  "layer": "Execution",
+                  "inputs": [
+                    "Planned native requests"
+                  ],
+                  "outputs": [
+                    "Order-preserving source outcomes"
+                  ],
+                  "guarantee": "A slow or failed lane cannot corrupt another lane or occupy all runnable capacity."
+                },
+                {
+                  "id": "normalize",
+                  "title": "Finding normalization",
+                  "summary": "Source responses converge to one finding contract and URL duplicates retain every path.",
+                  "kind": "integration",
+                  "layer": "Normalization",
+                  "inputs": [
+                    "Native source responses"
+                  ],
+                  "outputs": [
+                    "Findings with evidence role and complete retrieval trace"
+                  ],
+                  "guarantee": "Reference-only records remain distinguishable from evidence-bearing passages."
+                },
+                {
+                  "id": "result",
+                  "title": "Search outcomes",
+                  "summary": "Direct callers receive ordered outcomes or URL-deduplicated findings.",
+                  "kind": "output",
+                  "layer": "Output",
+                  "outputs": [
+                    "Normalized findings and isolated failure traces"
+                  ]
+                }
+              ],
+              "edges": [
+                {
+                  "source": "intent",
+                  "target": "adapters"
+                },
+                {
+                  "source": "adapters",
+                  "target": "scheduler"
+                },
+                {
+                  "source": "scheduler",
+                  "target": "normalize"
+                },
+                {
+                  "source": "normalize",
+                  "target": "result"
+                }
+              ]
             },
             {
-              "id": "client",
-              "title": "Current conversation",
-              "summary": "Floating and full-page views render the same in-memory conversation state.",
-              "kind": "output",
-              "layer": "Output",
-              "outputs": ["Answer with current-workspace scope"],
-              "guarantee": "Conversation, results, blocks, and attachments reset together on reload."
+              "id": "chat",
+              "title": "Assistant",
+              "summary": "Answers read-only questions by navigating only the catalog, documentation, final results, source blocks, attachments, and cited URLs submitted in the current workspace.",
+              "nodes": [
+                {
+                  "id": "workspace",
+                  "title": "Workspace bundle",
+                  "summary": "The client submits current catalog, eligible results, utility outputs, attachments, and conversation history.",
+                  "kind": "input",
+                  "layer": "Input",
+                  "inputs": [
+                    "Current in-memory workspace",
+                    "Transient conversation attachments"
+                  ],
+                  "outputs": [
+                    "Request-scoped read-only context"
+                  ],
+                  "guarantee": "Active review drafts and provider credentials are never included."
+                },
+                {
+                  "id": "maps",
+                  "title": "Compact context maps",
+                  "summary": "Assistant starts with navigational summaries rather than placing every artifact into the prompt.",
+                  "kind": "deterministic",
+                  "layer": "Indexing",
+                  "inputs": [
+                    "Tool catalog",
+                    "Documentation section map",
+                    "Result and document maps"
+                  ],
+                  "outputs": [
+                    "Bounded tool-readable indexes"
+                  ],
+                  "guarantee": "Product documentation remains separate from product evidence."
+                },
+                {
+                  "id": "navigation",
+                  "title": "Bounded navigation loop",
+                  "summary": "The model chooses narrow read tools to gather only the context needed for the answer.",
+                  "kind": "model",
+                  "layer": "Reasoning",
+                  "inputs": [
+                    "User question",
+                    "Compact context maps"
+                  ],
+                  "outputs": [
+                    "Targeted documentation, result, block, image, or cited-source reads"
+                  ],
+                  "guarantee": "Assistant cannot mutate analyses, run workflows, or start a new evidence search.",
+                  "children": [
+                    {
+                      "id": "docs",
+                      "title": "Product documentation",
+                      "summary": "Finds and reads canonical process, architecture, and terminology sections.",
+                      "kind": "integration",
+                      "layer": "Context reader"
+                    },
+                    {
+                      "id": "results",
+                      "title": "Result navigation",
+                      "summary": "Traverses eligible final analysis subtrees and direct utility output.",
+                      "kind": "integration",
+                      "layer": "Context reader"
+                    },
+                    {
+                      "id": "blocks",
+                      "title": "Document blocks",
+                      "summary": "Finds and pages exact parsed text or retained visuals packaged with results and attachments.",
+                      "kind": "integration",
+                      "layer": "Context reader"
+                    },
+                    {
+                      "id": "sources",
+                      "title": "Cited URLs",
+                      "summary": "Opens only URLs already cited by a submitted analysis.",
+                      "kind": "integration",
+                      "layer": "Context reader"
+                    }
+                  ]
+                },
+                {
+                  "id": "answer",
+                  "title": "Grounded response",
+                  "summary": "The selected context and conversation produce one streamed read-only answer.",
+                  "kind": "model",
+                  "layer": "Answering",
+                  "inputs": [
+                    "Bounded context reads",
+                    "Conversation history"
+                  ],
+                  "outputs": [
+                    "Plain-text token stream"
+                  ],
+                  "guarantee": "An absent result remains explicit rather than being inferred from unrelated context."
+                },
+                {
+                  "id": "client",
+                  "title": "Current conversation",
+                  "summary": "Floating and full-page views render the same in-memory conversation state.",
+                  "kind": "output",
+                  "layer": "Output",
+                  "outputs": [
+                    "Answer with current-workspace scope"
+                  ],
+                  "guarantee": "Conversation, results, blocks, and attachments reset together on reload."
+                }
+              ],
+              "edges": [
+                {
+                  "source": "workspace",
+                  "target": "maps"
+                },
+                {
+                  "source": "maps",
+                  "target": "navigation"
+                },
+                {
+                  "source": "navigation",
+                  "target": "answer"
+                },
+                {
+                  "source": "answer",
+                  "target": "client"
+                }
+              ]
             }
-          ],
-          "edges": [
-            { "source": "workspace", "target": "maps" },
-            { "source": "maps", "target": "navigation" },
-            { "source": "navigation", "target": "answer" },
-            { "source": "answer", "target": "client" }
-          ]
-        }
           ]
         }
       ]

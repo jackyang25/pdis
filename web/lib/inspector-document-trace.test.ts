@@ -1,7 +1,12 @@
 /**
  * The Inspector trace adapter is a projection, so these tests assert it reports
- * exactly what the result already says and derives nothing the canonical layer
- * has not already resolved.
+ * exactly what the result already says and derives nothing the service has not
+ * already resolved.
+ *
+ * The shape this replaced looped three dimensions over every unit, so one defect
+ * could produce three gutter markers and two were usually empty. One finding is now
+ * one annotation, drawn from the same worklist the findings list shows, so the
+ * gutter and the list cannot disagree about what counts as work.
  */
 
 import assert from "node:assert/strict";
@@ -9,11 +14,12 @@ import test from "node:test";
 
 import type {
   ContentBlock,
-  ContentStatus,
-  DimensionVerdict,
+  FindingReason,
   InspectionResult,
-  SectionGrade,
-  VariableGrade,
+  RubricFinding,
+  SectionAssessment,
+  UnitAssessment,
+  UnitStatus,
 } from "./api.ts";
 import { buildDocumentTrace } from "./document-trace.ts";
 import { buildInspectorDocumentAnnotations } from "./inspector-document-trace.ts";
@@ -37,62 +43,60 @@ function block(
   };
 }
 
-/** Lineage belongs to the dimension that cited it. */
-function grade(
-  value: DimensionVerdict,
+function finding(
+  reason: FindingReason,
   citedBlockIds: string[] = [],
-  issues: string[] = [],
-  recommendation = "",
-) {
-  return { verdict: value, issues, recommendation, cited_block_ids: citedBlockIds };
+  overrides: Partial<RubricFinding> = {},
+): RubricFinding {
+  return {
+    id: `${overrides.section_name ?? "Efficacy"}|${overrides.variable_name ?? ""}|${reason}`,
+    reason,
+    statement: `A ${reason} problem.`,
+    recommendation: "Do the thing.",
+    section_name: "Efficacy",
+    variable_name: null,
+    cited_block_ids: citedBlockIds,
+    rank: 0,
+    level: reason === "off_template" || reason === "unclear" ? "could_be_stronger" : "not_met",
+    ...overrides,
+  };
 }
 
-function dimensions(
-  completeness: ReturnType<typeof grade>,
-  adherence: ReturnType<typeof grade>,
-  rigor: ReturnType<typeof grade>,
-) {
-  return { completeness, adherence, rigor };
-}
-
-function variable(
-  name: string,
-  contentStatus: ContentStatus,
-  dims: ReturnType<typeof dimensions>,
-): VariableGrade {
-  return { variable_name: name, dimensions: dims, content_status: contentStatus };
+function unit(
+  variableName: string | null,
+  status: UnitStatus,
+  findings: RubricFinding[],
+  optional = false,
+): UnitAssessment {
+  return { variable_name: variableName, optional, findings, status };
 }
 
 function section(
   name: string,
-  dims: ReturnType<typeof dimensions>,
-  variables: VariableGrade[],
   mappedBlockIds: string[],
+  units: UnitAssessment[],
   isPresent = true,
-): SectionGrade {
+): SectionAssessment {
   return {
     section_name: name,
     is_present: isPresent,
-    dimensions: dims,
-    variable_grades: variables,
     mapped_block_ids: mappedBlockIds,
-    gap_counts: { critical: 0, for_consideration: 0 },
+    units,
+    status_counts: { met: 0, could_be_stronger: 0, not_met: 0, not_applicable: 0 },
   };
 }
 
 function result(overrides: Partial<InspectionResult> = {}): InspectionResult {
   return {
     doc_id: "plan",
-    top_issues: [],
-    section_grades: [],
-    cross_section_findings: [],
+    sections: [],
+    document_findings: [],
     consistency_status: "complete",
-    grading_status: "complete",
+    assessment_status: "complete",
     org: "bmgf",
     source_type: "itpp",
     intervention_class: "vaccine",
     indication: "malaria",
-    gap_counts: { critical: 0, for_consideration: 0 },
     blocks: [],
     ...overrides,
   };
@@ -103,144 +107,130 @@ const BLOCKS = [
   block("b-2", 2, "Minimum: 60% seroconversion", "Efficacy"),
   block("b-3", 3, "Safety", "Safety"),
 ];
-const NA = dimensions(grade("not_applicable"), grade("not_applicable"), grade("not_applicable"));
 
-test("projects one annotation per assessed variable dimension", () => {
+test("projects one annotation per finding, not one per question asked", () => {
   const annotations = buildInspectorDocumentAnnotations(result({
     blocks: BLOCKS,
-    section_grades: [section(
-      "Efficacy",
-      dimensions(grade("for_consideration"), grade("for_consideration"), grade("for_consideration")),
-      [variable("Seroconversion rate", "substantive", dimensions(
-        grade("meets", ["b-2"]),
-        grade("for_consideration", ["b-2"]),
-        grade("critical", ["b-2"]),
-      ))],
-      ["b-1", "b-2"],
-    )],
+    sections: [
+      section("Efficacy", ["b-1", "b-2"], [
+        unit("Seroconversion rate", "could_be_stronger", [
+          finding("off_template", ["b-2"], { variable_name: "Seroconversion rate", rank: 0 }),
+          finding("unclear", ["b-2"], { variable_name: "Seroconversion rate", rank: 1 }),
+        ]),
+      ]),
+    ],
   }));
 
   assert.deepEqual(
     annotations.map((item) => [item.kind, item.statusLabel]),
     [
-      ["completeness", "Meets"],
-      ["adherence", "Consider"],
-      ["rigor", "Critical"],
+      ["off_template", "Off template"],
+      ["unclear", "Not specific enough"],
     ],
   );
 });
 
-test("each dimension is placed on its own citations, never a sibling's", () => {
-  // The whole point of per-dimension lineage: rigor read a block completeness
-  // did not, so a completeness verdict must not land on it.
+test("each finding is placed on its own citations, never a sibling's", () => {
   const annotations = buildInspectorDocumentAnnotations(result({
     blocks: BLOCKS,
-    section_grades: [section(
-      "Efficacy",
-      dimensions(grade("meets"), grade("not_applicable"), grade("critical")),
-      [variable("Seroconversion rate", "substantive", dimensions(
-        grade("meets", ["b-2"]),
-        grade("not_applicable"),
-        grade("critical", ["b-1", "b-2"]),
-      ))],
-      ["b-1", "b-2"],
-    )],
+    sections: [
+      section("Efficacy", ["b-1", "b-2"], [
+        unit("Seroconversion rate", "could_be_stronger", [
+          finding("off_template", ["b-1"], { variable_name: "Seroconversion rate", rank: 0 }),
+          finding("unclear", ["b-1", "b-2"], { variable_name: "Seroconversion rate", rank: 1 }),
+        ]),
+      ]),
+    ],
   }));
 
   const byKind = new Map(annotations.map((item) => [item.kind, item.blockIds]));
-  assert.deepEqual(byKind.get("completeness"), ["b-2"]);
-  assert.deepEqual(byKind.get("rigor"), ["b-1", "b-2"]);
+  assert.deepEqual(byKind.get("off_template"), ["b-1"]);
+  assert.deepEqual(byKind.get("unclear"), ["b-1", "b-2"]);
 });
 
-test("maps every verdict to its tone and carries a readable badge", () => {
-  const cases: Array<[DimensionVerdict, string, string]> = [
-    ["meets", "neutral", "Meets"],
-    ["for_consideration", "caution", "Consider"],
-    ["critical", "danger", "Critical"],
+test("tone follows the level, so there is no second table to keep in step", () => {
+  const cases: Array<[FindingReason, string]> = [
+    ["missing", "danger"],
+    ["placeholder", "danger"],
+    ["unmet", "danger"],
+    ["off_template", "caution"],
+    ["unclear", "caution"],
   ];
-  for (const [value, tone, badge] of cases) {
+  for (const [reason, tone] of cases) {
+    const cited = reason === "missing" ? [] : ["b-2"];
     const annotations = buildInspectorDocumentAnnotations(result({
       blocks: BLOCKS,
-      section_grades: [section("Efficacy", NA, [
-        variable("V", "substantive", dimensions(
-          grade(value, ["b-2"]),
-          grade("not_applicable"),
-          grade("not_applicable"),
-        )),
-      ], ["b-1", "b-2"])],
+      sections: [
+        section("Efficacy", ["b-1", "b-2"], [
+          unit("V", reason === "off_template" || reason === "unclear" ? "could_be_stronger" : "not_met", [
+            finding(reason, cited, { variable_name: "V" }),
+          ]),
+        ]),
+      ],
     }));
-    assert.equal(annotations.length, 1, `verdict ${value} should emit once`);
-    assert.deepEqual(annotations[0].emphasis, { tone, badge });
+    assert.equal(annotations.length, 1, `${reason} should emit once`);
+    assert.equal(annotations[0].emphasis?.tone, tone, reason);
   }
 });
 
-test("skips not_applicable dimensions because the rubric does not ask", () => {
+test("a met unit contributes nothing, because there is no finding to place", () => {
   const annotations = buildInspectorDocumentAnnotations(result({
     blocks: BLOCKS,
-    section_grades: [section("Efficacy", NA, [
-      variable("V", "not_applicable", NA),
-    ], ["b-1", "b-2"])],
+    sections: [section("Efficacy", ["b-1", "b-2"], [unit("V", "met", [])])],
   }));
+
   assert.deepEqual(annotations, []);
 });
 
-test("an absent variable cites nothing and anchors to its section's last block", () => {
+test("an absence the rubric accepts is not shown in the gutter", () => {
+  // The one rule that keeps the trace and the findings list in agreement: the unit
+  // keeps its finding so it can explain itself, and both views exclude it by
+  // reading the same worklist.
   const annotations = buildInspectorDocumentAnnotations(result({
     blocks: BLOCKS,
-    section_grades: [section(
-      "Efficacy",
-      dimensions(grade("critical"), grade("critical"), grade("not_applicable")),
-      [variable("Duration of protection", "missing", dimensions(
-        grade("critical", [], ["Required variable is missing."]),
-        grade("critical", [], ["Required rubric structure is absent."]),
-        grade("not_applicable"),
-      ))],
-      ["b-1", "b-2"],
-    )],
+    sections: [
+      section("Efficacy", ["b-1", "b-2"], [
+        unit("Companion test", "not_applicable", [
+          finding("missing", [], { variable_name: "Companion test" }),
+        ], true),
+      ]),
+    ],
   }));
 
-  assert.equal(annotations.length, 2, "completeness and adherence; rigor is N/A");
-  for (const annotation of annotations) {
-    assert.deepEqual(annotation.blockIds, [], "an absence cites nothing");
-    assert.equal(annotation.displayAnchorBlockId, "b-2", "last mapped block");
-    assert.match(annotation.statusLabel ?? "", /^Not present/);
-  }
+  assert.deepEqual(annotations, []);
 });
 
-test("a placeholder is reported as a placeholder, not as a gap", () => {
-  // `placeholder` and `missing` were indistinguishable before the canonical layer
-  // published `content_status`; this is the distinction that could not be made.
+test("an absent unit cites nothing and anchors to its section's last block", () => {
   const annotations = buildInspectorDocumentAnnotations(result({
     blocks: BLOCKS,
-    section_grades: [section("Efficacy", NA, [
-      variable("Dose volume", "placeholder", dimensions(
-        grade("critical", ["b-2"], ["Only a placeholder token is present."]),
-        grade("not_applicable"),
-        grade("not_applicable"),
-      )),
-    ], ["b-1", "b-2"])],
+    sections: [
+      section("Efficacy", ["b-1", "b-2"], [
+        unit("Duration of protection", "not_met", [
+          finding("missing", [], { variable_name: "Duration of protection" }),
+        ]),
+      ]),
+    ],
   }));
 
-  assert.equal(annotations.length, 1);
-  assert.deepEqual(annotations[0].blockIds, ["b-2"], "a placeholder is present text");
-  assert.equal(annotations[0].displayAnchorBlockId, undefined);
-  assert.match(annotations[0].statusLabel ?? "", /^Placeholder/);
+  assert.equal(annotations.length, 1, "one absence is one finding");
+  assert.deepEqual(annotations[0].blockIds, [], "an absence cites nothing");
+  assert.equal(annotations[0].displayAnchorBlockId, "b-2", "last mapped block");
+  assert.equal(annotations[0].statusLabel, "Not present");
 });
 
-test("an unwritten section maps no blocks, so its gap has no anchor", () => {
+test("an unwritten section maps no blocks, so its finding has no anchor", () => {
   const annotations = buildInspectorDocumentAnnotations(result({
     blocks: BLOCKS,
-    section_grades: [section(
-      "Manufacturing",
-      dimensions(grade("critical"), grade("not_applicable"), grade("not_applicable")),
-      [variable("Fill-finish capacity", "missing", dimensions(
-        grade("critical", [], ["Required variable is missing."]),
-        grade("not_applicable"),
-        grade("not_applicable"),
-      ))],
-      [],
-      false,
-    )],
+    sections: [
+      section("Manufacturing", [], [
+        unit("Fill-finish capacity", "not_met", [
+          finding("missing", [], {
+            section_name: "Manufacturing",
+            variable_name: "Fill-finish capacity",
+          }),
+        ]),
+      ], false),
+    ],
   }));
 
   assert.equal(annotations.length, 1);
@@ -249,108 +239,105 @@ test("an unwritten section maps no blocks, so its gap has no anchor", () => {
   assert.deepEqual(trace.unplacedAnnotationIds, [annotations[0].id]);
 });
 
-test("a present prose section is scoped to its blocks, not reported absent", () => {
-  // A section-level grade covers every block the section maps. Treating that as
-  // absence made a section that exists and scores well read as missing.
+test("a prose section's finding is titled and scoped by the section itself", () => {
   const annotations = buildInspectorDocumentAnnotations(result({
     blocks: BLOCKS,
-    section_grades: [section(
-      "Safety",
-      dimensions(grade("meets"), grade("not_applicable"), grade("not_applicable")),
-      [],
-      ["b-3"],
-    )],
+    sections: [
+      section("Safety", ["b-3"], [
+        unit(null, "could_be_stronger", [
+          finding("unclear", ["b-3"], { section_name: "Safety" }),
+        ]),
+      ]),
+    ],
   }));
 
   assert.equal(annotations.length, 1);
   assert.equal(annotations[0].title, "Safety");
-  assert.deepEqual(annotations[0].blockIds, ["b-3"], "the section's scope is lineage");
-  assert.equal(annotations[0].displayAnchorBlockId, undefined, "a present section is not anchored");
+  assert.deepEqual(annotations[0].blockIds, ["b-3"]);
+  assert.equal(annotations[0].displayAnchorBlockId, undefined, "a cited finding is placed");
 });
 
-test("an absent prose section maps no blocks and is anchored", () => {
+test("the summary is the finding's own statement, never its recommendation", () => {
   const annotations = buildInspectorDocumentAnnotations(result({
     blocks: BLOCKS,
-    section_grades: [section(
-      "Manufacturing",
-      dimensions(grade("critical", [], ["Section is absent."]), grade("not_applicable"), grade("not_applicable")),
-      [],
-      [],
-      false,
-    )],
+    sections: [
+      section("Safety", ["b-3"], [
+        unit(null, "could_be_stronger", [
+          finding("unclear", ["b-3"], {
+            section_name: "Safety",
+            statement: "No units are given.",
+            recommendation: "State the value with units.",
+          }),
+        ]),
+      ]),
+    ],
+  }));
+
+  assert.equal(annotations[0].summary, "No units are given.");
+});
+
+test("a conflict is danger, keeps its lineage, and titles itself from it", () => {
+  const annotations = buildInspectorDocumentAnnotations(result({
+    blocks: BLOCKS,
+    sections: [
+      section("Efficacy", ["b-1", "b-2"], [unit("V", "met", [])]),
+      section("Safety", ["b-3"], [unit(null, "met", [])]),
+    ],
+    document_findings: [
+      finding("conflicting", ["b-2", "b-3"], {
+        id: "conflict|0",
+        section_name: null,
+        statement: "Efficacy targets 60% while Safety assumes 90%.",
+      }),
+    ],
   }));
 
   assert.equal(annotations.length, 1);
-  assert.deepEqual(annotations[0].blockIds, []);
-  const trace = buildDocumentTrace(BLOCKS, annotations);
-  assert.deepEqual(trace.unplacedAnnotationIds, [annotations[0].id]);
-});
-
-test("a clean grade does not borrow its recommendation as the finding", () => {
-  // The grader answers "nothing to recommend" in prose. Using that as the
-  // summary made an A-graded section read "None."
-  const annotations = buildInspectorDocumentAnnotations(result({
-    blocks: BLOCKS,
-    section_grades: [section(
-      "Safety",
-      dimensions(grade("meets", [], [], "None."), grade("not_applicable"), grade("not_applicable")),
-      [],
-      ["b-3"],
-    )],
-  }));
-
-  assert.equal(annotations[0].summary, "No issue recorded.");
-});
-
-test("cross-section findings are always danger and keep their lineage", () => {
-  const annotations = buildInspectorDocumentAnnotations(result({
-    blocks: BLOCKS,
-    cross_section_findings: [{
-      description: "Efficacy targets 60% while Safety assumes 90%.",
-      sections: ["Efficacy", "Safety"],
-      recommendation: "Reconcile the two figures.",
-      block_ids: ["b-2", "b-3"],
-    }],
-  }));
-
-  assert.equal(annotations.length, 1);
-  assert.equal(annotations[0].kind, "consistency");
+  assert.equal(annotations[0].kind, "conflicting");
+  // The sections involved are resolved from the citations rather than stored, so
+  // the title cannot name a section the finding does not actually cite.
   assert.equal(annotations[0].title, "Efficacy ↔ Safety");
   assert.deepEqual(annotations[0].blockIds, ["b-2", "b-3"]);
   assert.equal(annotations[0].emphasis?.tone, "danger");
 });
 
+test("annotations follow the order the result assigned", () => {
+  const annotations = buildInspectorDocumentAnnotations(result({
+    blocks: BLOCKS,
+    sections: [
+      section("Efficacy", ["b-1", "b-2"], [
+        unit("Seroconversion rate", "could_be_stronger", [
+          finding("unclear", ["b-2"], { variable_name: "Seroconversion rate", rank: 2 }),
+        ]),
+        unit("Duration of protection", "not_met", [
+          finding("missing", [], { variable_name: "Duration of protection", rank: 1 }),
+        ]),
+      ]),
+    ],
+  }));
+
+  assert.deepEqual(annotations.map((item) => item.kind), ["missing", "unclear"]);
+});
+
 test("the input result is not mutated and projection is deterministic", () => {
   const input = result({
     blocks: BLOCKS,
-    section_grades: [section(
-      "Efficacy",
-      dimensions(grade("for_consideration"), grade("for_consideration"), grade("for_consideration")),
-      [
-        variable("Seroconversion rate", "substantive", dimensions(
-          grade("meets", ["b-2"]),
-          grade("for_consideration", ["b-2"]),
-          grade("critical", ["b-2"]),
-        )),
-        variable("Duration of protection", "missing", dimensions(
-          grade("critical"),
-          grade("critical"),
-          grade("not_applicable"),
-        )),
-      ],
-      ["b-1", "b-2"],
-    )],
-    cross_section_findings: [{
-      description: "d",
-      sections: ["Efficacy"],
-      recommendation: "r",
-      block_ids: ["b-2"],
-    }],
+    sections: [
+      section("Efficacy", ["b-1", "b-2"], [
+        unit("Seroconversion rate", "could_be_stronger", [
+          finding("unclear", ["b-2"], { variable_name: "Seroconversion rate", rank: 1 }),
+        ]),
+        unit("Duration of protection", "not_met", [
+          finding("missing", [], { variable_name: "Duration of protection", rank: 0 }),
+        ]),
+      ]),
+    ],
   });
-  const snapshot = JSON.stringify(input);
+  const snapshot = structuredClone(input);
+
   const first = buildInspectorDocumentAnnotations(input);
   const second = buildInspectorDocumentAnnotations(input);
 
-  assert.equal(JSON.stringify(input), snapshot, "input must not be mutated");
-  assert.deepEqual(first, second, "projection must be deterministic");
+  assert.deepEqual(input, snapshot, "the projection must not mutate its input");
+  assert.deepEqual(first, second);
 });

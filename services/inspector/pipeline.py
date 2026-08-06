@@ -10,32 +10,17 @@ from services.chunker import (
     run_pipeline as chunker_run_pipeline,
 )
 
-from .stages.grader import check_cross_section, grade_sections
+from .assembly import assess_sections, rank_findings
 from .contract import validate_result_contract
 from .models import (
-    ABSENT_CONTENT_STATUS,
     BatchInspectionResult,
-    DIMENSIONS,
-    GAP_VERDICTS,
     InspectionConfig,
     InspectionResult,
     LLMClientProtocol,
-    SectionGrade,
-    TopIssue,
-    VariableSpec,
 )
+from .stages.assessor import assess_document, check_cross_section
 
 DEFAULT_MAX_OUTPUT_TOKENS = 32000
-
-# Ranking is the verdict itself. It used to be a letter that this table then
-# converted into an order, so what a reader saw ranked first was one lookup away
-# from anything the model actually said.
-SEVERITY_RANK = {"critical": 1, "for_consideration": 2}
-UNRANKED_SEVERITY = 3
-# An absence outranks any assessed gap: there is nothing to read at all.
-MISSING_SECTION_RANK = -1
-MISSING_VARIABLE_RANK = 0
-TOP_ISSUE_LIMIT = 5
 
 
 def run_pipeline(
@@ -88,32 +73,44 @@ def inspect_blocks(
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     progress_callback=None,
 ) -> InspectionResult:
-    """Grade + report a document whose blocks have already been parsed and labeled.
-    """
+    """Assess and assemble a document whose blocks are already parsed and labeled."""
     if progress_callback:
-        progress_callback("grade")
-    section_grades = grade_sections(
+        progress_callback("assess")
+    findings, mapped_blocks = assess_document(
         blocks,
         config,
         llm_client,
         max_tokens=max_tokens,
         progress=progress_callback,
     )
-    result = build_report_card(blocks, section_grades, config)
 
-    # Whole-document consistency pass - the one place that sees all sections at
-    # once. Its explicit status distinguishes failure from a clean result.
+    # The whole-document pass is the one place that sees every section at once. It
+    # runs before assembly because its findings share one ranking with the rest.
     if progress_callback:
         progress_callback("consistency")
-    result.cross_section_findings, result.consistency_status = check_cross_section(
+    document_findings, consistency_status = check_cross_section(
         blocks, config, llm_client, max_tokens=max_tokens
     )
 
-    result.org = config.org
-    result.source_type = config.source_type
-    result.intervention_class = config.intervention_class
-    result.indication = indication
-    result.blocks = blocks
+    sections = assess_sections(
+        config,
+        findings,
+        mapped_blocks=mapped_blocks,
+    )
+    rank_findings(config, sections, document_findings)
+
+    result = InspectionResult(
+        doc_id=blocks[0].doc_id if blocks else "",
+        sections=sections,
+        document_findings=document_findings,
+        consistency_status=consistency_status,
+        assessment_status="complete",
+        org=config.org,
+        source_type=config.source_type,
+        intervention_class=config.intervention_class,
+        indication=indication,
+        blocks=blocks,
+    )
     return validate_result_contract(result, config)
 
 
@@ -218,164 +215,3 @@ def _inspect_one_batch(
         return BatchInspectionResult(doc_key=doc_key, inspection=inspection)
     except Exception as exc:
         return BatchInspectionResult(doc_key=doc_key, error=str(exc))
-
-
-
-
-def build_report_card(
-    labeled_blocks: list[ContentBlock],
-    section_grades: list[SectionGrade],
-    config: InspectionConfig,
-) -> InspectionResult:
-    """Assemble the section assessments into one report.
-
-    There is no document-level verdict to compute. The document publishes the
-    gaps its sections found, counted by severity, so every number a reader sees
-    can be traced to rows they can open.
-    """
-    doc_id = labeled_blocks[0].doc_id if labeled_blocks else ""
-    return InspectionResult(
-        doc_id=doc_id,
-        top_issues=_top_issues(section_grades, config),
-        section_grades=section_grades,
-        grading_status="complete",
-    )
-
-
-def _top_issues(
-    section_grades: list[SectionGrade],
-    config: InspectionConfig,
-    limit: int = TOP_ISSUE_LIMIT,
-) -> list[TopIssue]:
-    """Rank the most severe issues across sections, variables, and dimensions.
-
-    Severity is the dimension's own verdict; an absent section or variable
-    outranks any assessed gap because there is nothing to read at all. Ties break
-    on the rubric's authored section weight, which is where the author's sense of
-    what matters most now applies — it previously weighted an average of letters.
-
-    Each result keeps its parts - section, variable, dimension, severity,
-    presence, recommendation, lineage - so a consumer can link, filter, or
-    re-sort without parsing a sentence back apart.
-    """
-    weights_by_section = {section.name: section.weight for section in config.sections}
-    candidates: list[tuple[int, float, TopIssue]] = []
-    for section in section_grades:
-        if not section.is_present:
-            candidates.append((
-                MISSING_SECTION_RANK,
-                -weights_by_section.get(section.section_name, 0.0),
-                TopIssue(
-                    section_name=section.section_name,
-                    issue="Required section is not present.",
-                    severity="critical",
-                    recommendation="; ".join(
-                        assessment.recommendation
-                        for assessment in section.dimensions.values()
-                        if assessment.recommendation
-                    ),
-                ),
-            ))
-            continue
-
-        absent = set(section.missing_variables)
-        for variable_name in section.missing_variables:
-            candidates.append((
-                MISSING_VARIABLE_RANK,
-                -weights_by_section.get(section.section_name, 0.0),
-                TopIssue(
-                    section_name=section.section_name,
-                    variable_name=variable_name,
-                    issue="Required variable is not present.",
-                    dimension="completeness",
-                    severity="critical",
-                    content_status=ABSENT_CONTENT_STATUS,
-                    recommendation=_missing_variable_recommendation(
-                        variable_name, section.section_name, config
-                    ),
-                ),
-            ))
-
-        if section.variable_grades:
-            for variable in section.variable_grades:
-                if variable.variable_name in absent:
-                    continue
-                for dimension in DIMENSIONS:
-                    assessment = variable.dimensions.get(dimension)
-                    if assessment is None or assessment.verdict not in GAP_VERDICTS:
-                        continue
-                    for issue in assessment.issues:
-                        candidates.append((
-                            SEVERITY_RANK.get(assessment.verdict, UNRANKED_SEVERITY),
-                            -weights_by_section.get(section.section_name, 0.0),
-                            TopIssue(
-                                section_name=section.section_name,
-                                variable_name=variable.variable_name,
-                                issue=issue,
-                                dimension=dimension,
-                                severity=assessment.verdict,
-                                content_status=variable.content_status,
-                                recommendation=assessment.recommendation,
-                                cited_block_ids=list(assessment.cited_block_ids),
-                            ),
-                        ))
-        else:
-            for dimension in DIMENSIONS:
-                assessment = section.dimensions.get(dimension)
-                if assessment is None or assessment.verdict not in GAP_VERDICTS:
-                    continue
-                for issue in assessment.issues:
-                    candidates.append((
-                        SEVERITY_RANK.get(assessment.verdict, UNRANKED_SEVERITY),
-                        -weights_by_section.get(section.section_name, 0.0),
-                        TopIssue(
-                            section_name=section.section_name,
-                            issue=issue,
-                            dimension=dimension,
-                            severity=assessment.verdict,
-                            recommendation=assessment.recommendation,
-                            cited_block_ids=list(assessment.cited_block_ids),
-                        ),
-                    ))
-
-    seen: set[tuple[str, str | None, str | None, str]] = set()
-    ranked: list[TopIssue] = []
-    for *_, issue in sorted(candidates, key=lambda item: item[:2]):
-        identity = (
-            issue.section_name,
-            issue.variable_name,
-            issue.dimension,
-            issue.issue,
-        )
-        if not issue.issue or identity in seen:
-            continue
-        seen.add(identity)
-        ranked.append(issue)
-        if len(ranked) >= limit:
-            break
-    return ranked
-
-
-def _missing_variable_recommendation(
-    variable_name: str,
-    section_name: str,
-    config: InspectionConfig,
-) -> str:
-    variable_spec = _find_variable_spec(variable_name, section_name, config)
-    if variable_spec is not None:
-        return f"Add this required variable: {variable_spec.description}"
-    return "Add the required variable with minimum, optimistic, and annotation details."
-
-
-def _find_variable_spec(
-    variable_name: str,
-    section_name: str,
-    config: InspectionConfig,
-) -> VariableSpec | None:
-    for section_spec in config.sections:
-        if section_spec.name != section_name:
-            continue
-        for variable_spec in section_spec.variables:
-            if variable_spec.name == variable_name:
-                return variable_spec
-    return None

@@ -583,74 +583,73 @@ class ScoutContinueRequest(BaseModel):
     draft: ScoutRunResponse
 
 
-class DimensionAssessmentOut(BaseModel):
-    verdict: Literal["critical", "for_consideration", "meets", "not_applicable"]
-    issues: list[str] = []
+class RubricFindingOut(BaseModel):
+    """One thing to fix. One statement, one recommendation, one reason."""
+
+    id: str
+    reason: Literal[
+        "missing", "placeholder", "unmet", "off_template", "unclear", "conflicting"
+    ]
+    statement: str
     recommendation: str = ""
-    # Lineage belongs to the dimension that cited it, not to the variable.
-    cited_block_ids: list[str] = []
-
-
-class VariableGradeOut(BaseModel):
-    variable_name: str
-    dimensions: dict[str, DimensionAssessmentOut]
-    # The completeness judgment's presence answer. `missing_variables` is derived
-    # from this on the client rather than shipped alongside it.
-    content_status: Literal[
-        "substantive", "partial", "placeholder", "missing", "not_applicable"
-    ] = "not_applicable"
-
-
-class SectionGradeOut(BaseModel):
-    section_name: str
-    is_present: bool
-    dimensions: dict[str, DimensionAssessmentOut]
-    variable_grades: list[VariableGradeOut] = []
-    # Deterministic section assignment, not a citation.
-    mapped_block_ids: list[str] = []
-    # Gaps beneath this section, counted by severity. Derived server-side so the
-    # client cannot count differently from the report.
-    gap_counts: dict[str, int] = {}
-
-
-class TopIssueOut(BaseModel):
-    section_name: str
-    issue: str
-    dimension: Literal["completeness", "adherence", "rigor"] | None = None
+    # Which unit this is about is read from the names: both set is a variable,
+    # section alone is a whole section, neither is the document.
+    section_name: str | None = None
     variable_name: str | None = None
-    severity: Literal["critical", "for_consideration", "meets", "not_applicable"] = "not_applicable"
-    content_status: Literal[
-        "substantive", "partial", "placeholder", "missing", "not_applicable"
-    ] | None = None
-    recommendation: str = ""
+    # Where this was read from. Empty exactly when nothing is there.
     cited_block_ids: list[str] = []
+    # Worklist position, assigned server-side so every view orders identically.
+    rank: int = 0
+    # Derived from the reason. Required, not defaulted: a missing derivation must
+    # fail here rather than publish a plausible wrong level.
+    level: Literal["not_met", "could_be_stronger"]
 
 
-class CrossSectionFindingOut(BaseModel):
-    description: str
-    sections: list[str] = []
-    recommendation: str = ""
-    block_ids: list[str] = []
+class UnitAssessmentOut(BaseModel):
+    """One rubric unit. `status` is derived from the findings beneath it."""
+
+    variable_name: str | None = None
+    optional: bool = False
+    findings: list[RubricFindingOut] = []
+    # Derived from this unit's findings. Required for the same reason: defaulting it
+    # to "met" would report a unit with findings as satisfied.
+    status: Literal["met", "could_be_stronger", "not_met", "not_applicable"]
+
+
+class SectionAssessmentOut(BaseModel):
+    """One rubric section, its parse lineage, and the units beneath it."""
+
+    section_name: str
+    # A deterministic section assignment, not a citation.
+    mapped_block_ids: list[str] = []
+    # Derived from that mapping: a section is present exactly when the mapper gave it
+    # blocks. Required, so a missed derivation cannot pass for a present section.
+    is_present: bool
+    units: list[UnitAssessmentOut] = []
+    # This section's units counted by status. Bounded by the rubric, and required
+    # rather than defaulted so an empty count cannot pass for a clean section.
+    status_counts: dict[str, int]
 
 
 class InspectionResultOut(BaseModel):
     doc_id: str
-    top_issues: list[TopIssueOut]
-    section_grades: list[SectionGradeOut]
-    cross_section_findings: list[CrossSectionFindingOut] = []
+    # Every rubric section in rubric order, each holding every unit the rubric
+    # asks about, so the denominator is identical for every document.
+    sections: list[SectionAssessmentOut] = []
+    # Conflicts spanning sections, which no single unit can own.
+    document_findings: list[RubricFindingOut] = []
     consistency_status: Literal[
         "complete", "partial", "failed", "not_applicable", "unknown"
     ] = "unknown"
-    grading_status: Literal["complete", "unknown"] = "unknown"
+    # Whether the run completed. A process fact, kept out of the assessment so
+    # "not checked" cannot read as "nothing found".
+    assessment_status: Literal["complete", "unknown"] = "unknown"
     org: str | None = None
     source_type: str | None = None
     intervention_class: str | None = None
     indication: str | None = None
-    # Every section's gaps, summed by severity. There is no document verdict:
-    # averaging section judgements would invent a value none of them returned.
-    gap_counts: dict[str, int] = {}
     # The parsed source document. Read by the Ask assistant and by the Inspector
-    # UI's document-trace view, which renders findings against their source blocks.
+    # UI's document view, which renders findings against their source blocks.
     blocks: list[ContentBlockOut] = []
 
 

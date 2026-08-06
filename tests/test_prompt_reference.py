@@ -37,10 +37,8 @@ class PromptReferenceTest(unittest.TestCase):
             ("scout", "grounding"),
             ("scout", "alignment"),
             ("scout", "precedent"),
-            ("inspector", "completeness"),
-            ("inspector", "adherence"),
-            ("inspector", "rigor"),
-            ("inspector", "presence"),
+            ("inspector", "finding"),
+            ("inspector", "status"),
             ("inspector", "consistency"),
         }
         self.assertEqual(
@@ -88,8 +86,51 @@ class PromptReferenceTest(unittest.TestCase):
         reference = json.loads(REFERENCE.read_text())
         for prompt in reference["prompts"]:
             self.assertTrue(prompt["text"].strip(), f"{prompt['id']} rendered empty")
-        for framing in reference["framings"]:
-            self.assertTrue(framing["text"].strip(), f"{framing['key']} rendered empty")
+        for configuration in reference["configurations"]:
+            where = "/".join(
+                (
+                    configuration["tool"],
+                    configuration["org"],
+                    configuration["source_type"],
+                    configuration["intervention_class"],
+                )
+            )
+            # A configuration is published only when it has something to say, so an
+            # empty entry means the generator collected a slot the config leaves blank.
+            self.assertTrue(
+                configuration["mirrors"].strip() or configuration["texts"],
+                f"{where} published with nothing in it",
+            )
+            for slot, text in configuration["texts"].items():
+                self.assertTrue(text.strip(), f"{where} {slot} rendered empty")
+
+    def test_every_declared_framing_slot_publishes_its_text(self) -> None:
+        """A slot a prompt declares but never publishes is an invisible gap.
+
+        Inspector declared one and published nothing for it, because the generator
+        read a list of Scout's field names instead of the catalogs.
+        """
+        reference = json.loads(REFERENCE.read_text())
+        declared = {
+            (prompt["tool"], prompt["framing_slot"])
+            for prompt in reference["prompts"]
+            if prompt["framing_slot"]
+        }
+        published = {
+            (configuration["tool"], slot)
+            for configuration in reference["configurations"]
+            for slot in configuration["texts"]
+        }
+
+        # Aligner's `document_roles` is a mapping keyed by source type rather than
+        # one text, and its package exposes no config enumerator, so it cannot be
+        # published as it stands. Named rather than tolerated: if Aligner gains an
+        # enumerator, this set is what tells someone to register it.
+        self.assertEqual(
+            declared - published,
+            {("aligner", "document_roles")},
+            "a prompt declares configured text that no configuration publishes",
+        )
 
 
 if __name__ == "__main__":

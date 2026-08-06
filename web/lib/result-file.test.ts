@@ -138,9 +138,11 @@ const scout: ScoutResponse = {
 
 test("current Inspector results round-trip exactly", () => {
   const packed = packInspectorResult(inspection);
-  // Bumped to 40 when Inspector replaced letter grades with gap severities.
-  // Imports accept only the current envelope, so earlier downloads must be re-run.
-  assert.equal(packed.version, 40);
+  // Two versions, checked separately: the envelope is the wrapper all three tools
+  // share, and the analysis version belongs to this tool alone. An Inspector change
+  // bumps only its own entry, so a saved Scout result stays readable.
+  assert.equal(packed.envelope_version, 1);
+  assert.equal(packed.analysis_version, 1);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("blocks" in packed.analysis.inspection, false);
@@ -193,13 +195,33 @@ test("Scout export rejects an unfinished review draft", () => {
 test("imports require the current final envelope", () => {
   const missingState = structuredClone(packScoutResult(scout)) as any;
   delete missingState.state;
-  assert.throws(() => unpackScoutResult(missingState), /current, final scout result/);
+  assert.throws(() => unpackScoutResult(missingState), /complete, final scout result/);
 
-  const oldVersion = structuredClone(packScoutResult(scout)) as any;
-  oldVersion.version = 39;
-  assert.throws(() => unpackScoutResult(oldVersion), /current, final scout result/);
+  assert.throws(() => unpackScoutResult(scout), /not a PDIS result file/);
+});
 
-  assert.throws(() => unpackScoutResult(scout), /current, final scout result/);
+test("an older envelope says every saved result must be re-run", () => {
+  const stale = structuredClone(packScoutResult(scout)) as any;
+  stale.envelope_version = 0;
+  assert.throws(() => unpackScoutResult(stale), /every saved result must be re-run/);
+});
+
+test("an older analysis version names only the tool that changed", () => {
+  // The reason the two are separate. A single number meant an Inspector change
+  // rejected saved Scout files that were still perfectly readable, and the message
+  // told everyone to re-run everything.
+  const stale = structuredClone(packScoutResult(scout)) as any;
+  stale.analysis_version = 0;
+  assert.throws(() => unpackScoutResult(stale), /re-run the scout analysis/);
+});
+
+test("one tool's analysis version does not gate another's", () => {
+  const scoutFile = packScoutResult(scout);
+  const inspectorFile = packInspectorResult(inspection);
+
+  assert.equal(scoutFile.envelope_version, inspectorFile.envelope_version);
+  assert.deepEqual(unpackScoutResult(scoutFile), scout);
+  assert.deepEqual(unpackInspectorResult(inspectorFile), inspection);
 });
 
 test("current Scout artifacts require complete projection roles", () => {

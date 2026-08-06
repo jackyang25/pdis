@@ -246,10 +246,17 @@ evidence. Those comparison targets are not interchangeable.
 
 - Inspector, Aligner, and Scout use the versioned `pdis.result` envelope in
   `web/lib/result-file.ts`, separating `analysis` from `source_documents`.
+- A saved file carries two versions, and they answer different questions.
+  `ENVELOPE_VERSION` covers the wrapper all three tools share, so bumping it
+  invalidates every saved result. `ANALYSIS_VERSIONS[tool]` covers one tool's own
+  shape, so bumping it invalidates only that tool's files. Change a tool's result
+  shape, bump its entry — never the envelope. They were one number, which meant an
+  Inspector change rejected saved Scout results that were still readable.
 - Review drafts are portable client state but are not downloadable final results.
   Final results are immutable: import, export, and Ask never recalculate them.
-- Imports accept only the current final-result envelope. Runtime services and
-  UI consume one contract without migration or legacy branches.
+- Imports accept only the current final-result envelope, and report which version
+  failed so a reader knows whether to re-run one tool or all of them. Runtime
+  services and UI consume one contract without migration or legacy branches.
 - Ask is stateless and read-only. The client submits the tool catalog, current
   final analyses, and direct utility outputs as one workspace bundle. Ask may
   inspect those result trees, parsed blocks, retained images, and URLs already

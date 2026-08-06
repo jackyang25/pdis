@@ -1,9 +1,35 @@
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
 
 const RESULT_SCHEMA = "pdis.result" as const;
-const RESULT_VERSION = 40 as const;
 
 type ResultType = "aligner" | "inspector" | "scout";
+
+/**
+ * The wrapper every tool shares: how documents are separated from analysis.
+ *
+ * Bump this only when that wrapper changes, which invalidates every tool's saved
+ * results because none of them can be read.
+ */
+const ENVELOPE_VERSION = 1 as const;
+
+/**
+ * Each tool's own analysis shape.
+ *
+ * Bump one entry when that tool's result changes. Only its files become
+ * unreadable - which is the question a version is actually answering: can this
+ * code read this file? That is per tool, because the three shapes are
+ * independent.
+ *
+ * This replaced a single number stamped on all three, so an Inspector change
+ * rejected saved Scout and Aligner results that were still perfectly readable.
+ * The counters restart at 1 rather than continuing that number, because they mean
+ * something narrower than it did and continuing its count would imply otherwise.
+ */
+const ANALYSIS_VERSIONS = {
+  aligner: 1,
+  inspector: 1,
+  scout: 1,
+} as const satisfies Record<ResultType, number>;
 
 type SourceDocument = {
   doc_id: string;
@@ -12,7 +38,8 @@ type SourceDocument = {
 
 type ResultFile<TResultType extends ResultType, TAnalysis> = {
   schema: typeof RESULT_SCHEMA;
-  version: typeof RESULT_VERSION;
+  envelope_version: typeof ENVELOPE_VERSION;
+  analysis_version: (typeof ANALYSIS_VERSIONS)[TResultType];
   state: "final";
   result_type: TResultType;
   analysis: TAnalysis;
@@ -177,7 +204,8 @@ export function packScoutResult(result: ScoutResponse): ResultFile<"scout", Scou
   const { blocks, ...analysis } = result;
   return {
     schema: RESULT_SCHEMA,
-    version: RESULT_VERSION,
+    envelope_version: ENVELOPE_VERSION,
+    analysis_version: ANALYSIS_VERSIONS.scout,
     state: "final",
     result_type: "scout",
     analysis,
@@ -217,7 +245,8 @@ export function packInspectorResult(
   const { blocks, ...inspection } = result.inspection;
   return {
     schema: RESULT_SCHEMA,
-    version: RESULT_VERSION,
+    envelope_version: ENVELOPE_VERSION,
+    analysis_version: ANALYSIS_VERSIONS.inspector,
     state: "final",
     result_type: "inspector",
     analysis: { inspection },
@@ -239,7 +268,8 @@ export function packAlignerResult(
   const { blocks, ...alignment } = result.alignment;
   return {
     schema: RESULT_SCHEMA,
-    version: RESULT_VERSION,
+    envelope_version: ENVELOPE_VERSION,
+    analysis_version: ANALYSIS_VERSIONS.aligner,
     state: "final",
     result_type: "aligner",
     analysis: { alignment },
@@ -321,32 +351,50 @@ export function splitResultContext(result: unknown): {
   return { analysis: result };
 }
 
-function isResultFile(value: unknown): value is ResultFile<ResultType, unknown> {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<ResultFile<ResultType, unknown>>;
-  return (
-    candidate.schema === RESULT_SCHEMA
-    && candidate.version === RESULT_VERSION
-    && candidate.state === "final"
-    && (candidate.result_type === "aligner"
-      || candidate.result_type === "inspector"
-      || candidate.result_type === "scout")
-    && candidate.analysis != null
-    && Array.isArray(candidate.source_documents)
-  );
-}
-
+/**
+ * Read a saved file, failing with the reason a reader can act on.
+ *
+ * The two versions are checked separately and reported separately, because they
+ * call for different things: an envelope change means every saved result must be
+ * re-run, while an analysis change means only this tool's must. A single message
+ * covering both told everyone to re-run everything.
+ */
 function requireResultFile(
   value: unknown,
   expected: ResultType,
 ): ResultFile<ResultType, unknown> {
-  if (!isResultFile(value)) {
-    throw new Error(`expected a current, final ${expected} result file`);
+  if (!value || typeof value !== "object") {
+    throw new Error(`expected a ${expected} result file`);
   }
-  if (value.result_type !== expected) {
-    throw new Error(`expected a ${expected} result, received ${value.result_type}`);
+  const candidate = value as Partial<ResultFile<ResultType, unknown>> & {
+    result_type?: string;
+  };
+  if (candidate.schema !== RESULT_SCHEMA) {
+    throw new Error("not a PDIS result file");
   }
-  return value;
+  if (candidate.result_type !== expected) {
+    throw new Error(
+      `expected a ${expected} result, received ${candidate.result_type ?? "nothing"}`,
+    );
+  }
+  if (candidate.envelope_version !== ENVELOPE_VERSION) {
+    throw new Error(
+      "this file uses an older PDIS result envelope; every saved result must be re-run",
+    );
+  }
+  if (candidate.analysis_version !== ANALYSIS_VERSIONS[expected]) {
+    throw new Error(
+      `this file predates the current ${expected} result contract; re-run the ${expected} analysis`,
+    );
+  }
+  if (
+    candidate.state !== "final"
+    || candidate.analysis == null
+    || !Array.isArray(candidate.source_documents)
+  ) {
+    throw new Error(`expected a complete, final ${expected} result file`);
+  }
+  return candidate as ResultFile<ResultType, unknown>;
 }
 
 function groupDocuments(blocks: ContentBlock[]): SourceDocument[] {

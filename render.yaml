@@ -85,10 +85,16 @@ projects:
 
           # Private ToolUniverse connector. Its generated bearer token and
           # private address are injected into the API above.
+          #
+          # Standard, not Starter: retrieval fans out to
+          # searcher's global_worker_limit (48) concurrent calls per run, and the
+          # API admits MAX_CONCURRENT_RUNS at once, so this single-worker process
+          # can hold ~96 requests and their responses. That exceeded 512 MB and
+          # was killed. Raising the API's cap raises this ceiling too.
           - type: pserv
             name: pdis-tooluniverse
             runtime: docker
-            plan: starter
+            plan: standard
             region: ohio
             dockerfilePath: ./deploy/tooluniverse/Dockerfile
             dockerContext: ./deploy/tooluniverse

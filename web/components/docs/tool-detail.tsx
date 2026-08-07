@@ -1,10 +1,13 @@
 "use client";
 
 import { PromptReference } from "@/components/docs/prompt-reference";
+import { EXPERT_TOPIC_LIST } from "@/components/expert-signal-help";
 import { INSPECTOR_TOPIC_LIST } from "@/components/inspector-signal-help";
 import { SCOUT_TOPIC_LIST } from "@/components/scout-signal-help";
 import type { SignalTopic } from "@/components/ui/signal-help";
+import { KnowledgeContent } from "@/components/docs/knowledge-content";
 import { promptAnchor, type ToolKey } from "@/lib/prompt-reference";
+import { toolReference, type KnowledgeBlock } from "@/lib/product-knowledge";
 
 /**
  * Everything about one tool, below that tool's diagram.
@@ -25,6 +28,7 @@ import { promptAnchor, type ToolKey } from "@/lib/prompt-reference";
 const PUBLISHED_TOOLS: readonly string[] = [
   "chunker",
   "inspector",
+  "expert",
   "scout",
 ];
 
@@ -38,6 +42,7 @@ const PUBLISHED_TOOLS: readonly string[] = [
 const TOOL_TOPICS: Partial<Record<ToolKey, readonly SignalTopic[]>> = {
   scout: SCOUT_TOPIC_LIST,
   inspector: INSPECTOR_TOPIC_LIST,
+  expert: EXPERT_TOPIC_LIST,
 };
 
 function isPublished(toolId: string): toolId is ToolKey {
@@ -45,12 +50,19 @@ function isPublished(toolId: string): toolId is ToolKey {
 }
 
 export function ToolDetail({ toolId }: { toolId: string }) {
+  // A tool's own reference, when the documentation carries any. Rendered here rather
+  // than as a page-level section so every tool's material sits at one altitude.
+  const reference = toolReference(toolId);
+
   if (!isPublished(toolId)) {
     return (
-      <p className="text-xs leading-5 text-muted-foreground">
-        This stage sends no model instructions of its own. Its behaviour is
-        deterministic, or it composes the tools above.
-      </p>
+      <div className="space-y-7">
+        <ToolReference blocks={reference} />
+        <p className="text-xs leading-5 text-muted-foreground">
+          This stage sends no model instructions of its own. Its behaviour is
+          deterministic, or it composes the tools above.
+        </p>
+      </div>
     );
   }
 
@@ -58,6 +70,8 @@ export function ToolDetail({ toolId }: { toolId: string }) {
 
   return (
     <div className="space-y-7">
+      <ToolReference blocks={reference} />
+
       {topics.length > 0 && (
         <section>
           <h4 className="text-sm font-semibold">What its labels mean</h4>
@@ -95,5 +109,24 @@ export function ToolDetail({ toolId }: { toolId: string }) {
         <PromptReference tool={toolId} />
       </section>
     </div>
+  );
+}
+
+/**
+ * The tool's own reference material, or nothing.
+ *
+ * Absent for most tools, and silently so: a heading with no content under it would
+ * imply the documentation is missing rather than that this tool needs none. Scout is
+ * currently the only tool with any, because its evidence semantics are the only ones
+ * that need more than a label definition.
+ */
+function ToolReference({ blocks }: { blocks: KnowledgeBlock[] }) {
+  if (blocks.length === 0) return null;
+  return (
+    <section>
+      {blocks.map((block, index) => (
+        <KnowledgeContent key={`${block.type}-${index}`} block={block} />
+      ))}
+    </section>
   );
 }

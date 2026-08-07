@@ -27,7 +27,7 @@ export type ArchitectureNode = {
 };
 
 export type ArchitectureGraph = {
-  id: "inspector" | "aligner" | "scout" | "chunker" | "searcher" | "chat";
+  id: "inspector" | "aligner" | "expert" | "scout" | "chunker" | "searcher" | "chat";
   title: string;
   summary: string;
   nodes: ArchitectureNode[];
@@ -101,3 +101,21 @@ function validateProductKnowledge(value: unknown): ProductKnowledge {
 }
 
 export const PRODUCT_KNOWLEDGE = validateProductKnowledge(rawProductKnowledge);
+
+/**
+ * Reference content for one tool, when the documentation carries any.
+ *
+ * A section whose id is a tool id is that tool's reference, and it renders inside the
+ * tool's detail panel rather than as a top-level section. Before this, Scout's evidence
+ * semantics sat as a peer of "Overview" and "Architecture" — one tool at system
+ * altitude, while every other tool's vocabulary lived a level down inside the workflows
+ * section. It was also documented twice, since `ToolDetail` already rendered Scout's
+ * label definitions.
+ *
+ * Addressed by id rather than by a list of the tools that have reference content, so a
+ * tool gains some by adding a section and nothing needs to be told which tools do.
+ */
+export function toolReference(toolId: string): KnowledgeBlock[] {
+  const section = PRODUCT_KNOWLEDGE.sections.find((entry) => entry.id === toolId);
+  return section ? section.content : [];
+}

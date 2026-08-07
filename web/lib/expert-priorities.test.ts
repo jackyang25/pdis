@@ -1,0 +1,241 @@
+/**
+ * What Expert counts, and the numbers a reader is asked to trust.
+ *
+ * The counts are derived rather than carried, so this is where "the figures sum to
+ * the total" is actually guaranteed. If it stops holding, the header row silently
+ * stops adding up and nothing else notices.
+ */
+
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import type { GateReview, QuestionAssessment } from "./api.ts";
+import {
+  countStates,
+  groupedByDiscipline,
+  questionsInState,
+  suggestedDocuments,
+} from "./expert-priorities.ts";
+
+function question(
+  id: string,
+  state: QuestionAssessment["state"],
+  overrides: Partial<QuestionAssessment> = {},
+): QuestionAssessment {
+  return {
+    id,
+    text: `Question ${id}?`,
+    state,
+    pq: false,
+    likely_in: [],
+    statement: "",
+    source: null,
+    cited_block_ids: [],
+    context_label: "",
+    ...overrides,
+  };
+}
+
+function review(
+  disciplines: { id: string; label: string; questions: QuestionAssessment[] }[],
+  overrides: Partial<GateReview> = {},
+): GateReview {
+  return {
+    gate_id: "eop1",
+    gate_label: "End of Phase 1",
+    bank_source: "Stage Gate Question Bank — SME Edition v5, test fixture",
+    documents: [{ doc_id: "profile", source_type: "itpp" }],
+    disciplines,
+    context_labels: [],
+    org: "bmgf",
+    intervention_class: "vaccine",
+    indication: "malaria",
+    blocks: [],
+    ...overrides,
+  };
+}
+
+test("the counts sum to the total, so the header row checks itself", () => {
+  const counts = countStates(
+    review([
+      {
+        id: "cd",
+        label: "Clinical Development",
+        questions: [
+          question("A", "answered", { source: "document", cited_block_ids: ["b1"] }),
+          question("B", "answered", { source: "context", context_label: "Report" }),
+          question("C", "not_found"),
+          question("D", "not_applicable"),
+        ],
+      },
+    ]),
+  );
+  assert.equal(counts.total, 4);
+  assert.equal(
+    counts.answered + counts.notFound + counts.notApplicable,
+    counts.total,
+  );
+});
+
+test("there are only three states to count", () => {
+  // Two more used to exist, both derived from a guess about which document could
+  // answer a question. If either returns, this fails rather than the count row
+  // silently ceasing to add up.
+  const counts = countStates(
+    review([{ id: "cd", label: "CD", questions: [question("A", "not_found")] }]),
+  );
+  assert.deepEqual(Object.keys(counts).sort(), [
+    "answered",
+    "cited",
+    "fromContext",
+    "notApplicable",
+    "notFound",
+    "total",
+  ]);
+});
+
+test("answered is split by whether the answer can be checked", () => {
+  const counts = countStates(
+    review([
+      {
+        id: "cd",
+        label: "CD",
+        questions: [
+          question("A", "answered", { source: "document", cited_block_ids: ["b1"] }),
+          question("B", "answered", { source: "context", context_label: "Report" }),
+          question("C", "answered", { source: "context", context_label: "Report" }),
+        ],
+      },
+    ]),
+  );
+  assert.equal(counts.answered, 3);
+  assert.equal(counts.cited, 1);
+  assert.equal(counts.fromContext, 2);
+  assert.equal(counts.cited + counts.fromContext, counts.answered);
+});
+
+test("the routing is by discipline, which the question bank guarantees", () => {
+  const groups = groupedByDiscipline(
+    review([
+      { id: "cmc", label: "CMC", questions: [question("C1", "not_found")] },
+      {
+        id: "cd",
+        label: "CD",
+        questions: [
+          question("D1", "answered", { source: "document", cited_block_ids: ["b"] }),
+        ],
+      },
+      {
+        id: "pv",
+        label: "Drug Safety",
+        questions: [question("P1", "not_found"), question("P2", "not_found")],
+      },
+    ]),
+    "not_found",
+  );
+  // CD is absent rather than present at zero: a heading with no rows under it is
+  // noise, and the count is intrinsic to the group.
+  assert.deepEqual(
+    groups.map((group) => [group.label, group.questions.length]),
+    [["CMC", 1], ["Drug Safety", 2]],
+  );
+});
+
+test("groups keep bank order, and so do the questions inside them", () => {
+  const groups = groupedByDiscipline(
+    review([
+      {
+        id: "cmc",
+        label: "CMC",
+        questions: [question("C1", "not_found"), question("C2", "not_found")],
+      },
+      { id: "cd", label: "CD", questions: [question("D1", "not_found")] },
+    ]),
+    "not_found",
+  );
+  assert.deepEqual(
+    groups.flatMap((group) => group.questions.map((q) => q.id)),
+    ["C1", "C2", "D1"],
+  );
+});
+
+test("suggested documents come from the hint on unanswered questions", () => {
+  const suggested = suggestedDocuments(
+    review(
+      [
+        {
+          id: "cd",
+          label: "CD",
+          questions: [
+            question("A", "not_found", { likely_in: ["ipdp"] }),
+            question("B", "not_found", { likely_in: ["ipdp", "ctpp"] }),
+            // Already uploaded, so suggesting it would be noise.
+            question("C", "not_found", { likely_in: ["itpp"] }),
+            // Answered, so there is nothing to suggest for it.
+            question("D", "answered", {
+              source: "document",
+              cited_block_ids: ["b"],
+              likely_in: ["ipdp"],
+            }),
+          ],
+        },
+      ],
+      { documents: [{ doc_id: "profile", source_type: "itpp" }] },
+    ),
+  );
+  assert.deepEqual(suggested, [
+    { sourceType: "ipdp", count: 2 },
+    { sourceType: "ctpp", count: 1 },
+  ]);
+});
+
+test("a question with no hint suggests nothing", () => {
+  // The hint is optional and absent on most questions, so its absence has to be
+  // silent rather than producing an empty suggestion.
+  const suggested = suggestedDocuments(
+    review([{ id: "cd", label: "CD", questions: [question("A", "not_found")] }]),
+  );
+  assert.deepEqual(suggested, []);
+});
+
+test("only questions in the asked-for state are returned", () => {
+  const entries = questionsInState(
+    review([
+      {
+        id: "cd",
+        label: "Clinical Development",
+        questions: [
+          question("A", "not_found", { statement: "No stopping criteria are stated." }),
+          question("B", "answered", { source: "document", cited_block_ids: ["b1"] }),
+          question("C", "not_applicable"),
+        ],
+      },
+    ]),
+    "not_found",
+  );
+  assert.deepEqual(
+    entries.map((entry) => entry.question.id),
+    ["A"],
+  );
+});
+
+test("questionsInState keeps bank order and names the discipline", () => {
+  const entries = questionsInState(
+    review([
+      {
+        id: "cmc",
+        label: "CMC",
+        questions: [
+          question("C1", "not_found"),
+          question("C2", "answered", { source: "document", cited_block_ids: ["b"] }),
+        ],
+      },
+      { id: "cd", label: "CD", questions: [question("D1", "not_found")] },
+    ]),
+    "not_found",
+  );
+  assert.deepEqual(
+    entries.map((entry) => [entry.discipline, entry.question.id]),
+    [["CMC", "C1"], ["CD", "D1"]],
+  );
+});

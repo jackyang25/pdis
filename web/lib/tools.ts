@@ -25,8 +25,9 @@ type ToolBase = {
    * What the tool reads, against the authority it is judged by, then what you
    * learn — one sentence, in that order.
    *
-   * Inspector, Aligner, and Scout are told apart by their authority alone — a
-   * rubric, the other documents, outside evidence — so stating it in one shape is
+   * Inspector, Aligner, Expert, and Scout are told apart by their authority alone —
+   * a rubric, the other documents, a gate's question bank, outside evidence — so
+   * stating it in one shape is
    * what keeps their scopes legible. Never write what a tool does not do; if the
    * boundary is unclear, the positive statement is too vague.
    *
@@ -140,15 +141,21 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
   },
   {
     id: "expert",
+    href: "/expert",
     title: "Expert",
     description:
       "The iTPP, cTPP, and IPDP against the stage-gate criteria: what is still unresolved, and which reviewer it goes to.",
     capability: "Stage-gate preparation",
+    // Observed, not estimated. 80 questions at six concurrent is ~14 waves, and each
+    // call returns one decision and one sentence — a few hundred bytes — against a
+    // document context the provider caches after the first. The count of calls is not
+    // what costs time here; the size of each answer is, and these are tiny.
+    activity: "1 min",
     icon: "expert",
     audience: "pst",
     workflow: "stage_gate",
     delivery: "workspace",
-    availability: "coming_soon",
+    availability: "available",
   },
   {
     id: "librarian",
@@ -170,8 +177,8 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     workflow: "document_intelligence",
     delivery: "workspace",
     // Nothing is built. The card exists so the gap it fills is visible next to the
-    // tools that cannot fill it: Inspector, Aligner, and Scout all need a document
-    // that already states something, and drafting from scratch has none.
+    // tools that cannot fill it: Inspector, Aligner, Expert, and Scout all need a
+    // document that already states something, and drafting from scratch has none.
     availability: "coming_soon",
   },
   {

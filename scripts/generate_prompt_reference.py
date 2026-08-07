@@ -16,6 +16,7 @@ from pathlib import Path
 from services.aligner.prompt_catalog import PROMPT_CATALOG as ALIGNER_CATALOG
 from services.chunker import available_configs as chunker_configs
 from services.chunker.prompt_catalog import PROMPT_CATALOG as CHUNKER_CATALOG
+from services.expert.prompt_catalog import PROMPT_CATALOG as EXPERT_CATALOG
 from services.inspector.prompt_catalog import PROMPT_CATALOG as INSPECTOR_CATALOG
 from services.inspector import available_configs as inspector_configs
 from services.scout import available_configs as scout_configs
@@ -32,6 +33,7 @@ CATALOGS = (
     INSPECTOR_CATALOG,
     ALIGNER_CATALOG,
     SCOUT_CATALOG,
+    EXPERT_CATALOG,
 )
 
 # Where each tool's configurations come from.
@@ -40,6 +42,10 @@ CATALOGS = (
 # source type rather than one text, and the package exposes no config enumerator to
 # read it from. `test_prompt_reference` names that gap explicitly, so registering
 # Aligner later is a change the test asks for rather than one nobody notices.
+#
+# Expert is absent for a different reason and permanently: its prompt has no framing
+# slot at all. The question bank supplies each question's whole text, so there is no
+# configuration field interpolated into the prompt for a reader to be shown.
 CONFIG_SOURCES = {
     "chunker": chunker_configs,
     "inspector": inspector_configs,

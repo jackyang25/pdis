@@ -30,7 +30,7 @@ is complete, whether two documents agree, and whether stated targets are
 supported by external evidence. PDIS keeps those responsibilities separate
 instead of collapsing them into one score.
 
-The system is stateless. Inspector, Aligner, and Scout produce portable,
+The system is stateless. Inspector, Aligner, Expert, and Scout produce portable,
 versioned result files containing their parsed source blocks and retained
 visuals. Imported final results are read-only and Assistant never performs a new
 search.

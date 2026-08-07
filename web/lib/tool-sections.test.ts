@@ -86,7 +86,7 @@ test("a section drops the tools an audience filter excludes without resorting", 
     sectionTools(pst, (tool) => tool.availability === "available").map(
       (tool) => tool.id,
     ),
-    ["inspector", "scout"],
+    ["inspector", "scout", "expert"],
   );
 });
 

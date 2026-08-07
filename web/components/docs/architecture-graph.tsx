@@ -29,8 +29,9 @@ import type {
   ArchitectureNode as ArchitectureNodeContract,
   ArchitectureNodeKind,
 } from "@/lib/product-knowledge";
+import { graphIcon } from "@/lib/pdis-icon-paths";
 import { cn } from "@/lib/utils";
-import { PdisIcon, type PdisIconName } from "@/components/ui/pdis-icon";
+import { PdisIcon } from "@/components/ui/pdis-icon";
 import { ToolDetail } from "@/components/docs/tool-detail";
 import {
   FitGraphToView,
@@ -64,14 +65,6 @@ const KIND_META: Record<
   output: { label: "Output", icon: FileOutput, dot: "bg-[hsl(var(--tone-neutral-strong))]" },
 };
 
-const TOOL_ICONS: Record<ArchitectureGraphContract["id"], PdisIconName> = {
-  inspector: "inspector",
-  aligner: "aligner",
-  scout: "scout",
-  chunker: "chunker",
-  searcher: "searcher",
-  chat: "chat",
-};
 
 function ArchitectureNode({ data, selected }: NodeProps<ArchitectureFlowNode>) {
   const meta = KIND_META[data.kind];
@@ -321,7 +314,7 @@ export function ArchitectureGraphs({
     <div className="mt-5 overflow-hidden rounded-xl border border-border bg-card">
       <div className="border-b border-border/80 px-4 py-4 sm:px-5">
         <div className="flex items-start gap-3">
-          <PdisIcon name={TOOL_ICONS[graph.id]} className="mt-0.5 h-5 w-5 text-foreground" />
+          <PdisIcon name={graphIcon(graph.id)} className="mt-0.5 h-5 w-5 text-foreground" />
           <div className="min-w-0">
             <h4 className="text-sm font-semibold">{graph.title}</h4>
             <p className="mt-1 max-w-2xl text-[11px] leading-[1.6] text-muted-foreground">
@@ -348,7 +341,7 @@ export function ArchitectureGraphs({
                 item.id === graph.id && "bg-foreground text-background hover:bg-foreground hover:text-background",
               )}
             >
-              <PdisIcon name={TOOL_ICONS[item.id]} className="h-3.5 w-3.5" />
+              <PdisIcon name={graphIcon(item.id)} className="h-3.5 w-3.5" />
               {item.title}
             </button>
           ))}

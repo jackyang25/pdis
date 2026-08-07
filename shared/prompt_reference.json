@@ -795,6 +795,26 @@
       "text": "Classify how each structured source projection relates to the product described by the canonical document claims. This is a display-only relationship label; do not assess evidence quality, precedent, safety causality, or whether a numeric target is met.\n\nConfigured product class: {intervention_class}. Indication: {indication}.\n\ntarget_relationship meanings:\n- direct: the record or signal concerns the same product/intervention represented by the uploaded document.\n- analogous: it concerns a different named candidate or product in the same relevant intervention class or product archetype.\n- adjacent: it is relevant contextual work, a complementary intervention, or another product class, but is not a same-class analogue.\n- unrelated: it has no meaningful relationship to the document product.\n- unknown: the supplied canonical claims or source context are insufficient.\n\nSource-study role is an independent provider fact. Experimental, comparator, or control does not by itself determine target relationship. Return one schema-bound decision for every supplied projection ID and a short reason.",
       "title": "Projection role classification",
       "tool": "scout"
+    },
+    {
+      "builder": "build_assessment_prompt",
+      "framing_slot": null,
+      "id": "assessor.question",
+      "produces": {
+        "result_fields": [
+          "disciplines[].questions[].state",
+          "disciplines[].questions[].source",
+          "disciplines[].questions[].statement"
+        ],
+        "ui_labels": [
+          "answered",
+          "absent"
+        ]
+      },
+      "stage": "triage",
+      "text": "You are triaging one stage-gate review question against a set of product-development documents.\n\nScope boundary:\n- You are deciding only whether the supplied material ANSWERS the question. Do not\n  judge how well the documents are written, whether they follow a template, or\n  whether their targets are realistic. Those are other tools' jobs and a verdict\n  here would contradict them.\n- Do not answer the question yourself from your own knowledge. A question is\n  answered only when the supplied material answers it.\n- Partial is not answered. If the material addresses the subject but leaves the\n  question open, that is absent.\n\nReturn ONLY valid JSON. No markdown fences, no preamble, no explanation.\n\nDecisions:\n- answered_from_document: the supplied document blocks answer the question. Cite in `block_ids` every block you read to reach that.\n- answered_from_context: the supplied context answers the question and the documents do not. Name the exact context item in `context_label`. Context is not chunked, so it has no block IDs.\n- not_found: nothing supplied answers the question. Leave `block_ids` empty and `context_label` blank. This is the right answer for a question the supplied material was never going to contain \u2014 an operational check, or a matter of judgment \u2014 as much as for one it should have.\n\nPrefer the documents. When both a document and a context item answer the question, choose the document, because only that answer can be checked.\n\nLineage is required, not optional. `answered_from_document` MUST cite the exact\nsupplied block IDs it was read from. A citation you cannot point at is worse than\nreporting the question unanswered.\n\n`statement` is one short factual sentence (max 25 words). When answered, say what\nthe material states. When absent, say what is missing. Describe the material; do\nnot instruct the reader, and do not restate the question.",
+      "title": "Gate question triage",
+      "tool": "expert"
     }
   ],
   "version": 3

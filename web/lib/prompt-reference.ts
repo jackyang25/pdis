@@ -8,7 +8,7 @@
  */
 
 /** Tools whose model instructions are published. */
-export type ToolKey = "chunker" | "inspector" | "aligner" | "scout";
+export type ToolKey = "chunker" | "inspector" | "aligner" | "expert" | "scout";
 
 /**
  * A prompt's anchor, qualified by tool.

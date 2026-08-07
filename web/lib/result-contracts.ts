@@ -1,4 +1,11 @@
-import type { AlignerResponse, InspectorResponse, ScoutResponse } from "./api.ts";
+import type {
+  AlignerResponse,
+  DisciplineReview,
+  ExpertResponse,
+  InspectorResponse,
+  QuestionAssessment,
+  ScoutResponse,
+} from "./api.ts";
 
 /**
  * What each tool's saved analysis must contain to be readable.
@@ -21,7 +28,7 @@ import type { AlignerResponse, InspectorResponse, ScoutResponse } from "./api.ts
  */
 
 /** The tools that produce a downloadable result. */
-export type ResultType = "aligner" | "inspector" | "scout";
+export type ResultType = "aligner" | "expert" | "inspector" | "scout";
 
 /** Throws with the reason this analysis cannot be hydrated. */
 export type ResultContract = (result: unknown) => void;
@@ -98,6 +105,71 @@ function assertAlignerReadable(result: unknown): void {
   }
 }
 
+// --- Expert ------------------------------------------------------------------
+
+/**
+ * What a gate review must contain to be rendered.
+ *
+ * The completeness check the service enforces cannot be repeated here, because a
+ * file carries no bank to compare against — which is exactly why every question
+ * carries its own `text`. So this checks the two things a reader depends on: that
+ * each question can be displayed, and that an answer's evidence matches the source
+ * it claims. A `context` answer with a block ID would render as checkable when it
+ * is not, and that is the one way this result can mislead.
+ */
+function assertExpertReadable(result: unknown): void {
+  const review = (result as ExpertResponse | null)?.review;
+  if (!review) fail("expert", "it carries no gate review");
+  requireText("expert", review.gate_id, "the gate");
+  requireText("expert", review.gate_label, "the gate label");
+  if (requireArray("expert", review.documents, "documents").length === 0) {
+    fail("expert", "it names no document");
+  }
+  const labels = new Set(review.context_labels ?? []);
+  const blocks = new Set((review.blocks ?? []).map((block) => block.id));
+
+  const disciplines = requireArray("expert", review.disciplines, "disciplines");
+  if (disciplines.length === 0) fail("expert", "it carries no discipline");
+  let questions = 0;
+  for (const entry of disciplines as DisciplineReview[]) {
+    requireText("expert", entry.label, "a discipline label");
+    for (const question of requireArray("expert", entry.questions, "questions")) {
+      const held = question as QuestionAssessment;
+      questions += 1;
+      requireText("expert", held.id, "a question id");
+      requireText("expert", held.text, "a question's text");
+      requireText("expert", held.state, "a question state");
+      if (held.state !== "answered") {
+        // A v1 file's `absent`, `not_answerable`, or `not_assessable` reaches here as
+        // an unknown string. The version gate is what actually refuses it; this only
+        // keeps such a file from rendering blank rows if the gate is ever bypassed.
+        if (!["not_applicable", "not_found"].includes(held.state)) {
+          fail("expert", `it uses a question state this version cannot read: ${held.state}`);
+        }
+        continue;
+      }
+      if (held.source === "document") {
+        if ((held.cited_block_ids ?? []).length === 0) {
+          fail("expert", "an answer from a document cites no passage");
+        }
+        if (held.cited_block_ids.some((id) => !blocks.has(id))) {
+          fail("expert", "an answer cites a passage the file does not carry");
+        }
+      } else if (held.source === "context") {
+        if ((held.cited_block_ids ?? []).length > 0) {
+          fail("expert", "an answer from supplied context cites a passage");
+        }
+        if (!labels.has(held.context_label)) {
+          fail("expert", "an answer names a context item the file does not list");
+        }
+      } else {
+        fail("expert", "an answered question does not say where the answer came from");
+      }
+    }
+  }
+  if (questions === 0) fail("expert", "it carries no question");
+}
+
 // --- Scout -------------------------------------------------------------------
 
 /**
@@ -131,6 +203,7 @@ function assertScoutReadable(result: unknown): void {
  */
 export const RESULT_CONTRACTS = {
   aligner: assertAlignerReadable,
+  expert: assertExpertReadable,
   inspector: assertInspectorReadable,
   scout: assertScoutReadable,
 } as const satisfies Record<ResultType, ResultContract>;

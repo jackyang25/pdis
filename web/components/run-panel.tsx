@@ -111,11 +111,12 @@ export function RunPanel({
         <div className="flex h-full flex-col gap-4">
           <div
             className={cn(
-              // Columns follow the slot count so three documents do not sit two
-              // over one. Capped at three: past that the drop zones get too
-              // narrow to read a filename in.
-              documents.length > 1 && "grid gap-4 md:grid-cols-2",
-              documents.length > 2 && "lg:grid-cols-3",
+              // Two columns at most, whatever the slot count. Three across put each
+              // drop zone under about 170px beside the configuration rail, which is
+              // too narrow to read a filename in — the reason the third column
+              // existed was to avoid a two-over-one row, and an unreadable row is
+              // worse than an uneven one. A fourth document wraps to a third row.
+              documents.length > 1 && "grid gap-4 sm:grid-cols-2",
             )}
           >
             {documents.map((slot) => (

@@ -17,6 +17,7 @@ import {
 } from "@/components/inspector-signal-help";
 import { InspectorDocumentTrace } from "@/components/inspector-document-trace";
 import { PriorityPanel } from "@/components/ui/priority-panel";
+import { SectionHeading } from "@/components/ui/section-heading";
 import { LabeledItem } from "@/components/labeled-item";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
@@ -237,7 +238,7 @@ function InspectionResultView({
             <TabsList className="justify-start border-b-0">
               {/* The document is what Inspector is about, so it opens on the
                   document. Scout opens on its evidence for the same reason. */}
-              <TabsTrigger value="trace">Document</TabsTrigger>
+              <TabsTrigger value="trace">Documents</TabsTrigger>
               <TabsTrigger value="sections">Sections</TabsTrigger>
               <TabsTrigger value="consistency">Consistency</TabsTrigger>
             </TabsList>
@@ -275,8 +276,7 @@ function SectionsList({
   return (
     <div className="space-y-6">
       <PriorityPanel
-        title="Findings"
-        attribution="in priority order"
+        attribution="by Inspector"
         items={selectInspectorPriorities(inspection)}
         emptyMessage={INSPECTOR_EMPTY_MESSAGE}
         orderNote={INSPECTOR_ORDER_NOTE}
@@ -479,15 +479,6 @@ function StatusPill({ status }: { status: UnitStatus }) {
         {STATUS_BADGES[status]}
       </span>
     </InspectorSignalLabel>
-  );
-}
-
-function SectionHeading({ title, description }: { title: string; description: string }) {
-  return (
-    <div>
-      <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
-    </div>
   );
 }
 

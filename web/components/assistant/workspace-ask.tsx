@@ -11,6 +11,7 @@ import {
 import {
   useAlignerSession,
   useChunkerSession,
+  useExpertSession,
   useInspectorSession,
   useSearcherSession,
   useScoutSession,
@@ -20,7 +21,16 @@ import type { ContentBlock } from "@/lib/api";
 
 type WorkspaceResult = {
   id: string;
-  result_type: "inspector" | "aligner" | "scout" | "chunker" | "searcher";
+  // Every tool that produces a result the assistant can read. A tool absent here has
+  // a legend nothing ever reaches: Expert shipped with `EXPERT_LEGEND` registered and
+  // no session collected, so Ask could interpret a gate review it was never handed.
+  result_type:
+    | "inspector"
+    | "aligner"
+    | "expert"
+    | "scout"
+    | "chunker"
+    | "searcher";
   label: string;
   analysis: unknown;
   document_block_ids: string[];
@@ -35,6 +45,7 @@ export function WorkspaceAsk() {
   const chunker = useChunkerSession((state) => state.result);
   const inspector = useInspectorSession((state) => state.result);
   const aligner = useAlignerSession((state) => state.result);
+  const expert = useExpertSession((state) => state.result);
   const scout = useScoutSession((state) => state.result);
   const searcher = useSearcherSession((state) => state.result);
 
@@ -95,6 +106,17 @@ export function WorkspaceAsk() {
       );
     }
 
+    if (expert) {
+      // Named by the gate, because the same documents are triaged again at every one
+      // and the gate is what distinguishes two reviews of the same set.
+      addResult(
+        "expert-current",
+        "expert",
+        expert.review.gate_label || "Gate review",
+        expert.review,
+      );
+    }
+
     if (scout && isScoutResultFinal(scout)) {
       const documentIds = Array.from(
         new Set(scout.blocks.map((block) => block.doc_id).filter(Boolean)),
@@ -138,7 +160,7 @@ export function WorkspaceAsk() {
       },
       resultCount: results.length,
     };
-  }, [aligner, chunker, inspector, scout, searcher]);
+  }, [aligner, chunker, expert, inspector, scout, searcher]);
 
   return (
     <Ask

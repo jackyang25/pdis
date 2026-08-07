@@ -26,7 +26,16 @@ except ImportError:
 
 import os
 
-from api.routes import aligner, assistant, chunker, configs, inspector, scout, searcher
+from api.routes import (
+    aligner,
+    assistant,
+    chunker,
+    configs,
+    expert,
+    inspector,
+    scout,
+    searcher,
+)
 
 app = FastAPI(title="PDIS API", version="0.1.0")
 
@@ -59,6 +68,7 @@ app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
 app.include_router(chunker.router, prefix="/api/chunker", tags=["chunker"])
 app.include_router(aligner.router, prefix="/api/aligner", tags=["aligner"])
 app.include_router(inspector.router, prefix="/api/inspector", tags=["inspector"])
+app.include_router(expert.router, prefix="/api/expert", tags=["expert"])
 app.include_router(searcher.router, prefix="/api/searcher", tags=["searcher"])
 app.include_router(scout.router, prefix="/api/scout", tags=["scout"])
 app.include_router(assistant.router, prefix="/api/assistant", tags=["assistant"])

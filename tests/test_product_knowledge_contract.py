@@ -116,11 +116,11 @@ class GraphIntegrityTests(unittest.TestCase):
             self.assertEqual(orphans, [], f"{graph['id']}: unreachable nodes")
 
     def test_every_tool_with_a_workflow_publishes_one(self) -> None:
-        # Expert and Librarian are absent on purpose: they are `coming_soon` cards
-        # with no pipeline, and a graph for a tool that runs nothing would document
-        # a flow no code performs. Add them here when their stages exist.
+        # Librarian is absent on purpose: it is a `coming_soon` card with no
+        # pipeline, and a graph for a tool that runs nothing would document a flow no
+        # code performs. Add it here when its stages exist.
         published = {graph["id"] for graph in self._graphs()}
-        for tool in ("inspector", "aligner", "scout", "chunker"):
+        for tool in ("inspector", "aligner", "expert", "scout", "chunker"):
             self.assertIn(tool, published, f"{tool} publishes no workflow")
 
 

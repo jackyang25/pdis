@@ -54,13 +54,28 @@ export function PriorityPanel({
   title = "Priorities",
   defaultOpen = true,
 }: {
-  /** Who produced the wording, e.g. "by Inspector". */
+  /**
+   * Who produced the wording, always as `by <Tool>`.
+   *
+   * One grammar, because the panel reads `<count> <attribution>` and three tools
+   * saying three different things there is three panels. Inspector used to pass
+   * "in priority order", which answered a different question — the one `orderNote`
+   * below already answers — and left the tool whose wording is model-written as the
+   * only one not naming itself.
+   */
   attribution: string;
   items: PriorityItem[];
   /** Shown instead of the list when there is nothing to raise. */
   emptyMessage: string;
   /** How the order was decided. Stated because the sparkle does not cover it. */
   orderNote: string;
+  /**
+   * Overridden only by a tool whose own published vocabulary names this list
+   * better than "Priorities" does. No tool currently does: Inspector's "Findings"
+   * and Expert's "Gaps" were both removed, because a reader who learns this panel
+   * in one tool should recognise it in the next, and the tool's own noun is already
+   * on every row beneath it.
+   */
   title?: string;
   defaultOpen?: boolean;
 }) {

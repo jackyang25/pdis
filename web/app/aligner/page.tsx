@@ -230,6 +230,9 @@ function DocumentChooser({
                 label={`Document ${index + 1}`}
                 value={choice.sourceType || undefined}
                 exclude={taken}
+                // Once, under the first row: the note is about what the field does,
+                // not about one document, so repeating it per row is noise.
+                hint={index === 0}
                 onChange={(value) =>
                   onChange(
                     choices.map((item, position) =>

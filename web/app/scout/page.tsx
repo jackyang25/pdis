@@ -1949,7 +1949,7 @@ function FieldGrid({
                 <TabsTrigger value="safety">Safety</TabsTrigger>
               )}
               <TabsTrigger value="map">Evidence map</TabsTrigger>
-              <TabsTrigger value="trace">Document trace</TabsTrigger>
+              <TabsTrigger value="trace">Documents</TabsTrigger>
             </TabsList>
           </div>
           <TabsContent value="fields" className="mt-0">

@@ -5,7 +5,7 @@ export type Header = {
   indication: string;
 };
 
-export type ToolName = "chunker" | "aligner" | "inspector" | "scout";
+export type ToolName = "chunker" | "aligner" | "expert" | "inspector" | "scout";
 
 export type DocumentType = {
   key: string;
@@ -663,6 +663,98 @@ export type AlignmentResult = {
 
 export type AlignerResponse = { alignment: AlignmentResult };
 
+// --- Expert ------------------------------------------------------------------
+
+/** One declared stage gate, for a selector that has not chosen one yet. */
+export type GateSpec = {
+  id: string;
+  label: string;
+  ordinal: number;
+};
+
+/**
+ * What became of one gate question. Three values, each traceable.
+ *
+ * `not_applicable` means the question's own text states a class this run is not, so
+ * no model read it and it is not a shortfall. `answered` and `not_found` are what a
+ * model concluded from the material supplied.
+ *
+ * `not_found` rather than `absent`: the claim has to hold whether or not the bank's
+ * `likely_in` hint was right, and "not found in what was supplied" always does.
+ * There were five states; two of them rested on a judgment about which document
+ * could answer a question, which the source question bank does not contain.
+ */
+export type QuestionState = "not_applicable" | "answered" | "not_found";
+
+/**
+ * Where an answer came from.
+ *
+ * `document` carries `cited_block_ids` and can be checked. `context` names a
+ * transient item the user pasted for that run, whose text is deliberately not
+ * retained anywhere — so the label is the entire record, and an answer sourced
+ * that way can never be verified from the saved file. There is no third value, so
+ * nothing can look cited without being so.
+ */
+export type AnswerSource = "document" | "context";
+
+export type QuestionAssessment = {
+  id: string;
+  text: string;
+  state: QuestionState;
+  pq: boolean;
+  /**
+   * Where the answer would usually live — a hint carried from the bank, so a reader
+   * can see which document to open or upload. It decided nothing about this
+   * question's state, and is absent from the source question bank entirely.
+   */
+  likely_in: string[];
+  statement: string;
+  source: AnswerSource | null;
+  cited_block_ids: string[];
+  context_label: string;
+};
+
+export type DisciplineReview = {
+  id: string;
+  label: string;
+  questions: QuestionAssessment[];
+};
+
+export type ReviewDocument = {
+  doc_id: string;
+  source_type: string;
+};
+
+/**
+ * One gate's triage.
+ *
+ * Every question the gate asks is here with a state, so the denominator never
+ * shrinks and two runs on one gate compare line by line. Counts are derived by
+ * readers and never carried: a stored count is a second authority that can
+ * disagree with the list it summarises.
+ */
+export type GateReview = {
+  gate_id: string;
+  gate_label: string;
+  /**
+   * The authored question bank this triage transcribes, with its version.
+   *
+   * Carried on the result rather than looked up, so a downloaded review states its
+   * own authority — a reader cannot otherwise tell a v5 triage from a v6 one.
+   */
+  bank_source: string;
+  documents: ReviewDocument[];
+  disciplines: DisciplineReview[];
+  /** Labels of the transient context items supplied, never their text. */
+  context_labels: string[];
+  org: string;
+  intervention_class: string;
+  indication: string;
+  blocks: ContentBlock[];
+};
+
+export type ExpertResponse = { review: GateReview };
+
 export type StageProgress = { completed: number; total: number };
 export type StageEvent = { event: "stage"; name: string; completed?: number; total?: number };
 
@@ -861,6 +953,42 @@ export async function runAligner(
   });
   Object.entries(configuration).forEach(([key, value]) => form.append(key, value));
   return streamRequest("/api/aligner/run", form, onStage);
+}
+
+export async function fetchExpertGates(org: string): Promise<GateSpec[]> {
+  const data = await jsonRequest<{ gates: GateSpec[] }>(
+    `/api/expert/gates?org=${encodeURIComponent(org)}`,
+  );
+  return data.gates;
+}
+
+/**
+ * `contextItems` are transient: their text is sent with this one request and never
+ * stored. Only the labels come back on the result, which is what lets an answer
+ * name its source without the tool taking the content into its contract.
+ */
+export async function runExpert(
+  documents: { file: File; sourceType: string }[],
+  configuration: {
+    gate: string;
+    org: string;
+    intervention_class: string;
+    indication: string;
+  },
+  contextItems: { label: string; text: string }[],
+  onStage?: (stage: string, progress?: StageProgress) => void,
+): Promise<ExpertResponse> {
+  const form = new FormData();
+  documents.forEach(({ file, sourceType }) => {
+    form.append("files", file);
+    form.append("source_types", sourceType);
+  });
+  Object.entries(configuration).forEach(([key, value]) => form.append(key, value));
+  contextItems.forEach(({ label, text }) => {
+    form.append("context_labels", label);
+    form.append("context_texts", text);
+  });
+  return streamRequest("/api/expert/run", form, onStage);
 }
 
 // --- Ask: read-only, grounded chat over any result object ---

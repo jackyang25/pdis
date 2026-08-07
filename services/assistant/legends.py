@@ -44,15 +44,34 @@ ALIGNER_LEGEND = """This is an ALIGNER result. Aligner is between designs: its c
 There are no units, links, relations, counts, or findings of any kind. If the user asks what changed, what drifted, or whether one document satisfies another, say plainly that Aligner does not currently report that - do not derive it yourself from the blocks, and do not read an edge as evidence that a comparison was made.
 Aligner never judges document quality (Inspector does that against a rubric) and never retrieves external evidence (Scout does that)."""
 
+EXPERT_LEGEND = """This is an EXPERT result: one stage gate's SME question bank triaged against a set of product-development documents. Expert does not answer the questions and renders no verdict on the documents - it reports which of them the supplied material answers and which it does not. Shape:
+- gate_id / gate_label: the gate this bank belongs to. A different gate asks different questions of the same documents.
+- bank_source: the authored SME question bank these questions were transcribed from, named with its version. Cite it when a reader asks where a question comes from or whether it is current, and never present a question as PDIS's own wording.
+- documents[]: every document read, by doc_id and source_type. Every applicable question was read against all of them; nothing was withheld because of an assumption about which document ought to hold an answer.
+- disciplines[]: the eight owning disciplines, in the order the bank's authors wrote them, each with questions[]. The discipline IS the routing, and it is the only grouping the source document guarantees. Nothing is ranked - the order is the authors' sequence, so two runs on one gate compare line by line. Never re-order or re-rank it.
+- disciplines[].questions[]: every question the gate asks, each carrying its full text and exactly one state. The denominator cannot shrink, which is what makes a count safe to quote.
+- state is answered | not_found | not_applicable, and only the first two come from a model:
+    answered = the supplied material answers the question;
+    not_found = it was read against everything supplied and no answer was there. Say exactly that. It is NOT a statement about whose fault it is, and NOT a claim that a document ought to have contained it: many of these questions ask about operational facts or matters of judgment that no profile or plan would carry, and the tool cannot tell which is which. When reporting one, name its discipline, because that is who can answer it;
+    not_applicable = the question's own text restricts it to another intervention class ("For biologics:"). No model read it. It is NOT a shortfall of any kind.
+- source is set only when answered, and it separates an answer that can be checked from one that cannot. document carries cited_block_ids naming the exact passages. context names a transient item the user pasted for that one run, in context_label; that text was never stored, so the label is the entire record. NEVER present a context-sourced answer as cited, and when reporting one, say it cannot be verified from this file.
+- likely_in[]: where an answer of this kind usually lives, as a HINT. It is not in the source question bank, it played no part in any state, and it may be wrong. Use it only to suggest which document a reader might open or upload next, always hedged. Never say a question "should have been" answered by a document because of it, and never treat it as evidence about the documents supplied.
+- context_labels[]: the names of the transient items supplied. Their text is deliberately absent - do not claim to know what they said beyond the statement attributed to them.
+- pq marks a WHO prequalification question, transcribed from the source's [PQ] markers. Display only; it affected nothing.
+- statement is the model's own sentence about what the material states or what was not found. Questions that are not_applicable carry none, because nothing read them.
+There is no coverage score and no weighting. Do not compute one: a single figure blending "the document says it" with "nobody has asked yet" would misrepresent the review. Report the states separately, and note that they sum to the total."""
+
+
 WORKSPACE_LEGEND = """This is a read-only PDIS WORKSPACE bundle. Shape:
 - catalog[]: every available or planned tool with its audience, workflow, availability, delivery, and provider labels. Catalog entries describe capabilities; they are not analysis findings. Each description names what a tool reads and the authority it is judged against, which is what tells them apart; a tool whose description names no authority renders no verdict and only reports what a source already says.
 - results[]: current client-held final analyses or direct utility outputs. Each entry has a stable id, result_type, human-readable label, analysis tree, and the exact document_block_ids available to it.
 - conversation_attachments[]: transient files the user added to this conversation. They are user-supplied context, not PDIS findings or independently verified evidence; their block_ids link to the same exact document-reading tools.
 - An absent result type means that no eligible current result of that type is available. Say so plainly; never imply that a tool was run.
-Use each entry's result_type to interpret its analysis: Inspector judges one document against a rubric; Aligner judges the iTPP, cTPP, and IPDP against each other; Scout judges one document's targets against external evidence and precedent; Chunker exposes parsed source blocks; Searcher contains direct normalized retrieval findings. Compare entries only when the question calls for it, and identify which result supports each statement."""
+Use each entry's result_type to interpret its analysis: Inspector judges one document against a rubric; Aligner judges the iTPP, cTPP, and IPDP against each other; Scout judges one document's targets against external evidence and precedent; Expert triages one stage gate's question bank across a set of documents, reporting only whether the supplied material answers each question; Chunker exposes parsed source blocks; Searcher contains direct normalized retrieval findings. Compare entries only when the question calls for it, and identify which result supports each statement."""
 
 _LEGENDS: dict[str, str] = {
     "aligner": ALIGNER_LEGEND,
+    "expert": EXPERT_LEGEND,
     "scout": SCOUT_LEGEND,
     "inspector": INSPECTOR_LEGEND,
     "workspace": WORKSPACE_LEGEND,

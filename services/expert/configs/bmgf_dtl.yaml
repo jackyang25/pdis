@@ -1,0 +1,594 @@
+# Decision to Launch — the SME question bank, transcribed.
+#
+# `bmgf_lcs.yaml` is the reference bank and documents the field rules: only the
+# gate, the discipline, the question text and the `[PQ]` markers come from the
+# source document, and only those decide anything. `applies_to` appears solely
+# where the question text states the restriction; `likely_in` is a hint and never
+# gates a question.
+#
+# This is the only gate carrying `pq: true` questions. In the source bank they are
+# marked `[PQ]`: WHO prequalification questions carried inside the discipline's ten
+# rather than held in a separate list, because for most of the world PQ rather than
+# the reference approval is the actual launch gate.
+org: bmgf
+
+# What this bank is a transcription of. Nothing here can verify it: the source lives
+# outside the repository and is access-controlled. It names which document to
+# re-check when that document moves, and the version is the load-bearing part —
+# a bank transcribed from v5 is stale the moment v6 is published, and only this
+# line says which one produced a saved review.
+mirrors: >-
+  Stage Gate Question Bank — SME Edition v5 (TOC corrected): the Decision to Launch
+  section, its eight disciplines and their ten questions each, transcribed
+  verbatim. Held in the GHIDE Product Development Support SharePoint site —
+  https://bmgf.sharepoint.com/:w:/r/sites/GHIDEProductDevelopmentSupport/_layouts/15/Doc.aspx?sourcedoc=%7BB962E8DB-8422-4810-9AFD-334876DE515F%7D&file=Stage_Gate_Question_Bank_v5_TOC%20corrected.docx&action=default&mobileredirect=true
+
+gate:
+  id: dtl
+  label: Decision to Launch
+  ordinal: 7
+
+disciplines:
+  - id: cmc
+    label: CMC
+    questions:
+      - id: CMC.DTL.1
+        text: >-
+          Is validated commercial product released and physically available in the
+          quantities each launch market requires, at the correct presentation, with
+          correct labeling in the correct language?
+        likely_in: [ipdp]
+
+      - id: CMC.DTL.2
+        text: >-
+          Is the distribution chain qualified for each market: shipping lane validation,
+          cold chain to the last mile, customs clearance experience, and the storage
+          reality at district level rather than at central store?
+        likely_in: [ipdp]
+
+      - id: CMC.DTL.3
+        text: >-
+          Is there adequate safety stock, with a plan for both scenarios — demand above
+          forecast following a policy recommendation, and demand below forecast leaving
+          expiring inventory?
+        likely_in: [ipdp]
+
+      - id: CMC.DTL.4
+        text: >-
+          Are second sites and second sources approved or on a defined timeline, and does
+          the approved change strategy allow them to be added without a year-long
+          variation in each market?
+        likely_in: [ipdp]
+
+      - id: CMC.DTL.5
+        text: >-
+          Are country-specific requirements met for each market — labeling, language,
+          serialisation, import testing, sample retention, local release — including the
+          ones that only appear when the first shipment is held at the port?
+
+      - id: CMC.DTL.6
+        text: >-
+          Is lot release capacity arranged in each market, including national control
+          laboratory release for vaccines and release by the producing country's NRA where
+          prequalification depends on it, with the timelines built into the supply plan?
+        likely_in: [ipdp]
+
+      - id: CMC.DTL.7
+        text: >-
+          Is every site in the prequalification dossier — API, drug product, fill-finish,
+          packaging, contract QC — ready for a WHO inspection, recognising that WHO
+          inspects on its own schedule and may select sites the reference agency did not?
+        pq: true
+
+      - id: CMC.DTL.8
+        text: >-
+          Does each presentation submitted for prequalification meet the programmatic
+          suitability criteria — doses per container, vial size, VVM where required, packed
+          volume per dose, shelf life, storage temperature, labeling, ease of
+          administration, waste burden — and was any criterion assessed as unmet or waived?
+        pq: true
+        likely_in: [itpp, ctpp]
+
+      - id: CMC.DTL.9
+        text: >-
+          Is the post-prequalification change notification process understood, owned and
+          resourced — because an unreported variation is a route to suspension, and
+          delisting is a supply-stop event rather than an administrative one?
+        pq: true
+        likely_in: [ipdp]
+
+      - id: CMC.DTL.10
+        text: >-
+          Is the COGS on the trajectory required to sustain the tiered pricing commitments
+          as volume grows, and is the quality complaint, recall and stock-out response plan
+          written and tested — including the decision authority for a recall affecting a
+          donor-funded campaign mid-cycle?
+        likely_in: [ipdp]
+
+  - id: nc
+    label: Preclinical Pharmacology / Toxicology / PK
+    questions:
+      - id: NC.DTL.1
+        text: >-
+          Are all nonclinical post-approval commitments scheduled with agreed timelines,
+          budgets and named owners?
+        likely_in: [ipdp]
+
+      - id: NC.DTL.2
+        text: >-
+          Are long-term studies still reporting, and is there a prepared position if a
+          result proves unfavourable after launch?
+
+      - id: NC.DTL.3
+        text: >-
+          Is there a retained mechanism and capability to investigate a post-marketing
+          safety signal nonclinically — because the team that could do so is typically
+          disbanded within a year of launch and the knowledge goes with it?
+
+      - id: NC.DTL.4
+        text: >-
+          Are the nonclinical data supporting planned line extensions — new formulations,
+          routes, presentations, combinations — in place or scheduled?
+        likely_in: [ipdp]
+
+      - id: NC.DTL.5
+        text: >-
+          Are the animal data supporting pediatric and pregnancy label expansion complete,
+          or is that expansion blocked by a study nobody has started?
+        likely_in: [ipdp]
+
+      - id: NC.DTL.6
+        text: >-
+          Is the environmental risk obligation satisfied in every launch market?
+
+      - id: NC.DTL.7
+        text: >-
+          Are archives, specimens and raw data retained per the longest applicable
+          retention requirement across all markets, with the CRO archives secured?
+
+      - id: NC.DTL.8
+        text: >-
+          Is the nonclinical package in the prequalification dossier reviewable on its own
+          terms by a WHO assessor, or does it assume access to a reference agency assessment
+          report we may not be permitted to share?
+        pq: true
+
+      - id: NC.DTL.9
+        text: >-
+          For vaccines: does the adjuvant, vector or platform nonclinical package meet WHO's
+          expectations, which may differ from the reference agency's — including any
+          biodistribution, shedding or integration assessment the construct requires?
+        pq: true
+        applies_to: [vaccine]
+
+      - id: NC.DTL.10
+        text: >-
+          Which nonclinical findings will need re-explaining to each new NRA during the
+          registration wave, and is a standard response package prepared so that thirty
+          countries do not each receive a bespoke answer?
+
+  - id: tm
+    label: Translational Medicine
+    questions:
+      - id: TM.DTL.1
+        text: >-
+          Are the biomarker or diagnostic requirements in the label deliverable in every
+          launch market — and where they are not, does the product become effectively
+          unavailable there despite being registered?
+        likely_in: [itpp, ipdp]
+
+      - id: TM.DTL.2
+        text: >-
+          Is the companion diagnostic available, affordable, quality-assured and
+          distributed alongside the product, or is it a theoretical requirement that will be
+          ignored or improvised in practice?
+        likely_in: [ipdp]
+
+      - id: TM.DTL.3
+        text: >-
+          Are post-launch effectiveness, durability and correlate studies designed, funded
+          and initiated, particularly in the settings that were underrepresented in the
+          pivotal program?
+        likely_in: [ipdp]
+
+      - id: TM.DTL.4
+        text: >-
+          Is there a plan to monitor for resistance, immune escape, waning protection or
+          loss of response, with defined thresholds for action and an agreed owner?
+        likely_in: [ipdp]
+
+      - id: TM.DTL.5
+        text: >-
+          Are real-world sample collection and analysis arrangements in place in the
+          settings of highest use, with the consent and governance framework that permits
+          them?
+        likely_in: [ipdp]
+
+      - id: TM.DTL.6
+        text: >-
+          Are the assays sustainable — funded, staffed, transferred, with reagent supply
+          secured — for the duration of the post-launch commitments?
+        likely_in: [ipdp]
+
+      - id: TM.DTL.7
+        text: >-
+          Has WHO indicated whether it accepts the correlate or surrogate for a policy
+          recommendation — a decision separate from both registration and prequalification —
+          and if the advisory body's position differs from the regulator's, what follows?
+        pq: true
+        likely_in: [ipdp]
+
+      - id: TM.DTL.8
+        text: >-
+          Are the assays underpinning any prequalification or policy claim quality-assured
+          and deployable in the settings of use, to a standard WHO will accept?
+        pq: true
+
+      - id: TM.DTL.9
+        text: >-
+          Is the translational package published sufficiently to support guideline inclusion
+          and clinical adoption, on the timeline the guideline committees work to?
+        likely_in: [ipdp]
+
+      - id: TM.DTL.10
+        text: >-
+          Have the mechanistic lessons been fed back into discovery, or will the next program
+          in this target class repeat this one's learning at full cost?
+
+  - id: cp
+    label: Clinical Pharmacology
+    questions:
+      - id: CP.DTL.1
+        text: >-
+          Does the approved label's dosing guidance work in each launch setting, or does it
+          assume measurements, timing or fasting conditions that will not occur?
+        likely_in: [itpp, ctpp]
+
+      - id: CP.DTL.2
+        text: >-
+          Are dose adjustments implementable where the relevant laboratory test is
+          unavailable, and if not, what practical guidance replaces them?
+        likely_in: [itpp, ipdp]
+
+      - id: CP.DTL.3
+        text: >-
+          Are DDI warnings compatible with the standard co-medications in each market, and
+          is prescriber guidance prepared for the interactions that will occur regardless of
+          the warning?
+        likely_in: [ipdp]
+
+      - id: CP.DTL.4
+        text: >-
+          Are pediatric doses and age-appropriate formulations available at launch? If not,
+          state the gap in months and identify who is accountable for closing it.
+        likely_in: [itpp, ipdp]
+
+      - id: CP.DTL.5
+        text: >-
+          If the label implies therapeutic drug monitoring and the setting cannot deliver
+          it, what is the practical alternative and has it been communicated?
+        likely_in: [ipdp]
+
+      - id: CP.DTL.6
+        text: >-
+          Is there a funded plan to collect PK in the populations underrepresented in
+          development — pregnancy, lactation, malnutrition, extremes of weight, co-infection,
+          pediatric age bands?
+        likely_in: [ipdp]
+
+      - id: CP.DTL.7
+        text: >-
+          Are the biopharmaceutics tools in place to support post-approval manufacturing
+          changes without new clinical studies, in every market including those that do not
+          accept biowaivers?
+        likely_in: [ipdp]
+
+      - id: CP.DTL.8
+        text: >-
+          Does the clinical pharmacology section of the prequalification dossier stand alone
+          — including the dose justification — without relying on the reference agency's
+          assessment?
+        pq: true
+
+      - id: CP.DTL.9
+        text: >-
+          Where the product relies on bioequivalence, are the BE study sites and the CROs
+          that ran them ready for WHO inspection, since WHO inspects bioequivalence CROs
+          directly?
+        pq: true
+
+      - id: CP.DTL.10
+        text: >-
+          Is practical prescriber guidance prepared on adherence, missed doses and
+          administration conditions — and is the dosing information consistent between the
+          WHO-accepted product information and the national labels in reliance markets?
+        likely_in: [ipdp]
+
+  - id: cd
+    label: Clinical Development
+    questions:
+      - id: CD.DTL.1
+        text: >-
+          Is the approved indication, population and label consistent with what the launch
+          and access strategies assume, and where it is narrower, has the strategy been
+          revised rather than the difference ignored?
+        likely_in: [itpp, ipdp]
+
+      - id: CD.DTL.2
+        text: >-
+          Are all post-approval and confirmatory studies initiated or ready to initiate on
+          the committed timeline, with sites identified and funding secured?
+        likely_in: [ipdp]
+
+      - id: CD.DTL.3
+        text: >-
+          Have trial participants been transitioned to continued access or commercial supply
+          appropriately, including at LMIC sites where the ethical obligation is clearest
+          and the operational path is hardest?
+        likely_in: [ipdp]
+
+      - id: CD.DTL.4
+        text: >-
+          Are medical affairs, medical information and scientific communication ready, in the
+          relevant languages, for the questions that will come from settings the development
+          program never studied?
+
+      - id: CD.DTL.5
+        text: >-
+          Is the pivotal trial published, are results posted per transparency obligations,
+          and is the publication consistent with the label?
+
+      - id: CD.DTL.6
+        text: >-
+          Are treatment guidelines and professional societies engaged — WHO guideline
+          processes, national technical advisory groups, specialty societies — on their
+          calendars rather than ours?
+        likely_in: [ipdp]
+
+      - id: CD.DTL.7
+        text: >-
+          Are the pivotal trial sites ready for a WHO prequalification inspection, which may
+          select sites the reference agency did not and frequently selects LMIC sites?
+        pq: true
+
+      - id: CD.DTL.8
+        text: >-
+          Does the clinical summary in the prequalification dossier support the indication as
+          it will be used programmatically, which may be broader or narrower than the
+          registered indication?
+        pq: true
+
+      - id: CD.DTL.9
+        text: >-
+          Is the plan for additional indications, populations and geographies defined and
+          funded?
+        likely_in: [ipdp]
+
+      - id: CD.DTL.10
+        text: >-
+          What evidence gap could undermine adoption, and who is closing it, on what
+          timeline?
+        likely_in: [ipdp]
+
+  - id: pv
+    label: Drug Safety and Pharmacovigilance
+    questions:
+      - id: PV.DTL.1
+        text: >-
+          Is the pharmacovigilance system operational in every launch market — case intake,
+          local literature screening, local regulatory reporting, and named local safety
+          contacts where the market requires one?
+
+      - id: PV.DTL.2
+        text: >-
+          Is the company core safety information final, are national labels reconciled
+          against it, and is there a process to propagate a safety update to every market
+          inside the required timelines rather than market by market over a year?
+
+      - id: PV.DTL.3
+        text: >-
+          Is signal detection live with defined thresholds, cadence and a named owner — and
+          is it calibrated for markets where spontaneous reporting approaches zero and
+          disproportionality methods will therefore detect nothing?
+        likely_in: [ipdp]
+
+      - id: PV.DTL.4
+        text: >-
+          Where spontaneous reporting will not work, is active surveillance in place and
+          funded — cohort event monitoring, sentinel sites, a registry — because zero reports
+          from a market means there is no system, not that there is no risk?
+        likely_in: [ipdp]
+
+      - id: PV.DTL.5
+        text: >-
+          Are risk minimisation tools deployed and understood in the settings that need them
+          most rather than only where deployment was easiest, with evidence they are being
+          used and a plan to measure whether they work?
+        likely_in: [ipdp]
+
+      - id: PV.DTL.6
+        text: >-
+          Is a safety crisis plan written and rehearsed: investigation, causality assessment,
+          regulator and procurer notification, communication to health workers and the
+          public, and who holds authority to recommend suspension?
+
+      - id: PV.DTL.7
+        text: >-
+          Are product quality complaints and adverse event reports connected and reconciled,
+          given that substandard or falsified product presents first as a safety signal and
+          follows successful products into the markets with the weakest oversight?
+
+      - id: PV.DTL.8
+        text: >-
+          For vaccines: is there an AEFI surveillance and causality assessment plan for the
+          countries introducing the product — validated case definitions, background
+          incidence rates, trained assessors — because an AEFI that cannot be investigated
+          locally becomes a rumour, and rumours have stopped immunisation programmes
+          outright?
+        pq: true
+        applies_to: [vaccine]
+        likely_in: [ipdp]
+
+      - id: PV.DTL.9
+        text: >-
+          Are the post-prequalification safety obligations owned by a named person —
+          complaint handling, quality defect reporting, periodic reporting, notification of
+          safety-related changes — since failure here suspends the listing and therefore
+          stops supply?
+        pq: true
+
+      - id: PV.DTL.10
+        text: >-
+          Is there a funded plan to support national pharmacovigilance capacity where the
+          volume will sit — training, causality assessment, sentinel surveillance — and is
+          reporting to national centres and onward to the WHO international monitoring
+          programme defined and reconciled?
+        pq: true
+        likely_in: [ipdp]
+
+  - id: ra
+    label: Regulatory Affairs
+    questions:
+      - id: RA.DTL.1
+        text: >-
+          Is approval secured, and are all conditions and commitments logged with owners,
+          dates and a tracking system that will survive reorganisation — because these
+          obligations outlive the launch team by a decade and are discharged badly when
+          nobody remembers why they exist?
+
+      - id: RA.DTL.2
+        text: >-
+          Is registration status tracked country by country, with the LMIC wave actively
+          managed by named staff rather than passively awaited?
+        likely_in: [ipdp]
+
+      - id: RA.DTL.3
+        text: >-
+          Are reliance and collaborative procedure applications submitted for every eligible
+          market, and is someone chasing them, because these procedures stall silently?
+        likely_in: [ipdp]
+
+      - id: RA.DTL.4
+        text: >-
+          Is prequalification achieved, under assessment, or not yet submitted — state the
+          date, because for most of the world PQ, not the reference approval, is the actual
+          launch gate.
+        pq: true
+        likely_in: [ipdp]
+
+      - id: RA.DTL.5
+        text: >-
+          Which procurement mechanisms require prequalification specifically, and which
+          accept reference-agency approval, a WHO-listed authority assessment or Emergency
+          Use Listing — and has each confirmed its position in writing?
+        pq: true
+        likely_in: [ipdp]
+
+      - id: RA.DTL.6
+        text: >-
+          For vaccines: is the producing country's NRA assessed by WHO as meeting the
+          required maturity with its lot release function operating — because if that status
+          lapses, the listing is exposed regardless of product quality?
+        pq: true
+        applies_to: [vaccine]
+
+      - id: RA.DTL.7
+        text: >-
+          Are post-prequalification regulatory obligations understood and resourced —
+          variation notification, requalification, re-inspection, periodic reporting — and if
+          PQ is delayed or refused, what is the authorised interim access route?
+        pq: true
+        likely_in: [ipdp]
+
+      - id: RA.DTL.8
+        text: >-
+          Are variation and lifecycle strategies in place for the changes already
+          anticipated, sequenced so that a global change does not create a patchwork of
+          markets running different specifications?
+        likely_in: [ipdp]
+
+      - id: RA.DTL.9
+        text: >-
+          Are patent term extension, data protection and exclusivity filings complete, since
+          several are time-barred and irreversible?
+
+      - id: RA.DTL.10
+        text: >-
+          Is there a plan to support NRAs with limited capacity through their review —
+          dossier training, scientific exchange, reliance facilitation — recognising that
+          this shortens registration timelines more than any other intervention available to
+          us?
+        likely_in: [ipdp]
+
+  - id: ax
+    label: LMIC Access
+    questions:
+      - id: AX.DTL.1
+        text: >-
+          What is the actual date the product will be available in the highest-burden
+          countries, who owns that date, and what is the current variance against the plan?
+        likely_in: [ipdp]
+
+      - id: AX.DTL.2
+        text: >-
+          Is the price in each segment final, published and honoured — including under the
+          conditions where honouring it is expensive?
+        likely_in: [itpp]
+
+      - id: AX.DTL.3
+        text: >-
+          Is supply allocated so that LMIC demand is not deprioritised under constraint, with
+          the commitment binding rather than intentional? Every recent supply crisis has
+          tested this, and intention has consistently lost.
+        likely_in: [ipdp]
+
+      - id: AX.DTL.4
+        text: >-
+          Is WHO policy recommendation secured or scheduled, and are national technical
+          advisory groups engaged with the evidence they need on the timeline they work to?
+        likely_in: [ipdp]
+
+      - id: AX.DTL.5
+        text: >-
+          Are procurement contracts and financing in place — Gavi, Global Fund, PEPFAR, World
+          Bank, national budget lines — with the funding decision made rather than
+          anticipated?
+        likely_in: [ipdp]
+
+      - id: AX.DTL.6
+        text: >-
+          Are country introduction plans funded, including the elements that always get cut:
+          health worker training, demand generation, supply chain strengthening, waste
+          management and the recurrent costs ministries must absorb?
+        likely_in: [ipdp]
+
+      - id: AX.DTL.7
+        text: >-
+          Is procurement contractually contingent on prequalification, what volume is at risk
+          in the interval before listing, and does the prequalified presentation match what
+          programmes will actually order?
+        pq: true
+        likely_in: [ipdp]
+
+      - id: AX.DTL.8
+        text: >-
+          Is the listing in place for every presentation we intend to supply, and does it
+          cover the site that carries the LMIC volume — because a presentation or a site
+          outside the listing is not procurable through PQ-dependent channels no matter how
+          well it is registered?
+        pq: true
+
+      - id: AX.DTL.9
+        text: >-
+          What is the plan if the listing is suspended or the product delisted mid-supply, and
+          who is authorised to execute it — because for donor-funded programmes that is an
+          immediate stock-out?
+        pq: true
+        likely_in: [ipdp]
+
+      - id: AX.DTL.10
+        text: >-
+          Is regional manufacturing on a defined timeline with milestones and a first-supply
+          date that is real rather than announced — and what happens when donor financing ends
+          and countries must self-finance?
+        likely_in: [ipdp]

@@ -1,4 +1,10 @@
-import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api";
+import type {
+  AlignerResponse,
+  ContentBlock,
+  ExpertResponse,
+  InspectorResponse,
+  ScoutResponse,
+} from "./api";
 import { RESULT_CONTRACTS, type ResultType } from "./result-contracts.ts";
 
 export { isScoutResultFinal, pendingQuantitativeReviewCount } from "./result-contracts.ts";
@@ -31,6 +37,11 @@ const ANALYSIS_VERSIONS = {
   // documents and their blocks. Saved v1 files describe units and relations this
   // code no longer has types for, so they cannot be rendered.
   aligner: 2,
+  // 2: five states became three. `not_answerable` and `not_assessable` were both
+  // derived from a judgment about which document could answer a question — a judgment
+  // the source question bank does not contain — so a v1 file describes states this
+  // code has no types for, and its counts were computed on a different denominator.
+  expert: 2,
   inspector: 2,
   scout: 1,
 } as const satisfies Record<ResultType, number>;
@@ -56,6 +67,9 @@ type InspectorAnalysis = {
 };
 type AlignerAnalysis = {
   alignment: Omit<AlignerResponse["alignment"], "blocks">;
+};
+type ExpertAnalysis = {
+  review: Omit<ExpertResponse["review"], "blocks">;
 };
 
 
@@ -148,6 +162,32 @@ export function packAlignerResult(
   };
 }
 
+export function packExpertResult(
+  result: ExpertResponse,
+): ResultFile<"expert", ExpertAnalysis> {
+  RESULT_CONTRACTS.expert(result);
+  const { blocks, ...review } = result.review;
+  return {
+    schema: RESULT_SCHEMA,
+    envelope_version: ENVELOPE_VERSION,
+    analysis_version: ANALYSIS_VERSIONS.expert,
+    state: "final",
+    result_type: "expert",
+    analysis: { review },
+    source_documents: groupDocuments(blocks),
+  };
+}
+
+export function expertResultFilename(result: ExpertResponse): string {
+  // Named by the gate and the documents read, because the same document set is
+  // triaged again at every gate and the gate is what distinguishes the files.
+  const parts = result.review.documents.map((document) =>
+    safeFilenamePart(document.source_type || document.doc_id),
+  );
+  const gate = safeFilenamePart(result.review.gate_id || "gate");
+  return `${[gate, ...parts].join("-")}-expert.json`;
+}
+
 export function alignerResultFilename(result: AlignerResponse): string {
   // Named by the documents rather than by the comparisons, because a run holds
   // any number of either and the documents are what a reader recognises.
@@ -194,6 +234,19 @@ export function unpackAlignerResult(value: unknown): AlignerResponse {
     },
   } as AlignerResponse;
   RESULT_CONTRACTS.aligner(result);
+  return result;
+}
+
+export function unpackExpertResult(value: unknown): ExpertResponse {
+  const file = requireResultFile(value, "expert");
+  const analysis = file.analysis as ExpertAnalysis;
+  const result = {
+    review: {
+      ...(analysis.review ?? {}),
+      blocks: flattenDocuments(file.source_documents),
+    },
+  } as ExpertResponse;
+  RESULT_CONTRACTS.expert(result);
   return result;
 }
 

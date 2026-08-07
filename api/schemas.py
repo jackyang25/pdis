@@ -714,6 +714,84 @@ class AlignerRunResponse(BaseModel):
     alignment: AlignmentResultOut
 
 
+class GateSpecOut(BaseModel):
+    """One declared stage gate, for a selector that has not chosen one yet."""
+
+    id: str
+    label: str
+    ordinal: int
+
+
+class ExpertGatesResponse(BaseModel):
+    gates: list[GateSpecOut]
+
+
+class QuestionAssessmentOut(BaseModel):
+    """One gate question and what became of it.
+
+    Three states, each traceable. `not_applicable` means the question text states a
+    class this run is not, so no model read it and it is not a shortfall of any kind.
+    `answered` and `not_found` are what a model concluded from the supplied material.
+
+    `source` separates an answer that can be checked from one that cannot.
+    `document` carries `cited_block_ids`; `context` carries the label of a
+    transient item the user supplied for that run, whose text is deliberately not
+    retained anywhere.
+    """
+
+    id: str
+    text: str
+    state: Literal["not_applicable", "answered", "not_found"]
+    pq: bool = False
+    # Where the answer would usually live: a hint for a reader, carried from the bank.
+    # It decided nothing about this question's state.
+    likely_in: list[str] = Field(default_factory=list)
+    statement: str = ""
+    source: Literal["document", "context"] | None = None
+    cited_block_ids: list[str] = Field(default_factory=list)
+    context_label: str = ""
+
+
+class DisciplineReviewOut(BaseModel):
+    id: str
+    label: str
+    questions: list[QuestionAssessmentOut] = Field(default_factory=list)
+
+
+class ReviewDocumentOut(BaseModel):
+    doc_id: str
+    source_type: str
+
+
+class GateReviewOut(BaseModel):
+    """One gate's triage, with every question the gate asks.
+
+    The denominator never shrinks: a question the run could not assess is present
+    with the state that says so, rather than absent from the list. Counts are
+    derived by readers and never carried, so nothing can disagree with the list it
+    would be summarizing.
+    """
+
+    gate_id: str
+    gate_label: str
+    # The authored document the bank transcribes, with its version. Carried so a
+    # saved review states its own authority rather than depending on a config that
+    # will move.
+    bank_source: str = ""
+    documents: list[ReviewDocumentOut]
+    disciplines: list[DisciplineReviewOut]
+    # Labels of the transient context items supplied, never their text.
+    context_labels: list[str] = Field(default_factory=list)
+    org: str
+    intervention_class: str
+    indication: str
+    blocks: list[ContentBlockOut] = Field(default_factory=list)
+
+
+class ExpertRunResponse(BaseModel):
+    review: GateReviewOut
+
+
 class AskMessage(BaseModel):
     role: str  # "user" | "assistant"
     content: str

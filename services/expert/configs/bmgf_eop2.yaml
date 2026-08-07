@@ -1,0 +1,613 @@
+# End of Phase 2 — the SME question bank, transcribed.
+#
+# `bmgf_lcs.yaml` is the reference bank and documents the field rules: only the
+# gate, the discipline, the question text and the `[PQ]` markers come from the
+# source document, and only those decide anything. `applies_to` appears solely
+# where the question text states the restriction; `likely_in` is a hint and never
+# gates a question.
+#
+# TM.EOP2.5 and CP.EOP2.1 both ask whether the Phase 3 dose is supported, from
+# Translational Medicine and Clinical Pharmacology respectively. As at EOP1 that
+# duplication is deliberate in the source bank and nothing downstream merges them.
+org: bmgf
+
+# What this bank is a transcription of. Nothing here can verify it: the source lives
+# outside the repository and is access-controlled. It names which document to
+# re-check when that document moves, and the version is the load-bearing part —
+# a bank transcribed from v5 is stale the moment v6 is published, and only this
+# line says which one produced a saved review.
+mirrors: >-
+  Stage Gate Question Bank — SME Edition v5 (TOC corrected): the End of Phase 2
+  section, its eight disciplines and their ten questions each, transcribed
+  verbatim. Held in the GHIDE Product Development Support SharePoint site —
+  https://bmgf.sharepoint.com/:w:/r/sites/GHIDEProductDevelopmentSupport/_layouts/15/Doc.aspx?sourcedoc=%7BB962E8DB-8422-4810-9AFD-334876DE515F%7D&file=Stage_Gate_Question_Bank_v5_TOC%20corrected.docx&action=default&mobileredirect=true
+
+gate:
+  id: eop2
+  label: End of Phase 2
+  ordinal: 5
+
+disciplines:
+  - id: cmc
+    label: CMC
+    questions:
+      - id: CMC.EOP2.1
+        text: >-
+          Is the commercial process locked, or will further changes follow pivotal
+          material — because every post-pivotal change requires a comparability
+          exercise judged against clinical relevance, and the burden rises sharply once
+          the clinical data are the basis of approval?
+        likely_in: [ipdp]
+
+      - id: CMC.EOP2.2
+        text: >-
+          Is Phase 3 material demonstrably comparable to Phase 2 material under ICH Q5E
+          or the small-molecule equivalent, with the assessment covering structural,
+          functional and, where relevant, immunogenicity-relevant attributes — and is
+          the package agency-ready rather than a set of release results?
+
+      - id: CMC.EOP2.3
+        text: >-
+          Is the commercial site selected, licensed, qualified and slotted, with
+          capacity confirmed for launch plus LMIC volumes — and is the contract signed,
+          because CMO capacity for a launch-scale product is typically committed 24–36
+          months ahead?
+        likely_in: [ipdp]
+
+      - id: CMC.EOP2.4
+        text: >-
+          Is the commercial presentation final — device, prefilled syringe, vial and
+          stopper, blister, FDC, multi-dose vial with preservative, pediatric form —
+          including every presentation intended for LMIC markets? Adding a presentation
+          after Phase 3 means a separate development and bridging program.
+        likely_in: [itpp, ctpp]
+
+      - id: CMC.EOP2.5
+        text: >-
+          Are all methods validated, and is the specification-setting strategy based on
+          adequate batch history with statistically justified limits rather than round
+          numbers? Specifications set too tight generate OOS events for the product's
+          life; set too loose, they are rejected at review.
+
+      - id: CMC.EOP2.6
+        text: >-
+          Does stability support the labeled shelf life and storage statement —
+          including the Zone IVb statement, and for vaccines, the VVM category,
+          freeze-sensitivity data and any controlled temperature chain claim, each of
+          which requires its own data package?
+        likely_in: [itpp, ctpp]
+
+      - id: CMC.EOP2.7
+        text: >-
+          Is the process validation strategy defined — PPQ batch number and
+          justification, continued process verification plan, and the lifecycle approach
+          under ICH Q8–Q12 including established conditions and post-approval change
+          management protocols that preserve future flexibility?
+        likely_in: [ipdp]
+
+      - id: CMC.EOP2.8
+        text: >-
+          Is the supply chain mapped to the raw material level with a documented risk
+          assessment, single-source components identified, and geographic concentration
+          understood — including the sub-suppliers your supplier has not told you about?
+
+      - id: CMC.EOP2.9
+        text: >-
+          What is the confirmed commercial-scale COGS, and does it support the committed
+          price in every market segment at the forecast volumes — including at the low
+          end of the forecast, where fixed-cost absorption fails?
+        likely_in: [itpp]
+
+      - id: CMC.EOP2.10
+        text: >-
+          Does the locked process permit technology transfer to a regional manufacturer,
+          and has the receiving partner reviewed it and confirmed feasibility with their
+          equipment, their materials and their regulatory environment?
+        likely_in: [ipdp]
+
+  - id: nc
+    label: Preclinical Pharmacology / Toxicology / PK
+    questions:
+      - id: NC.EOP2.1
+        text: >-
+          Is the nonclinical package complete for the intended treatment duration and
+          indication under the applicable ICH guidance, and does anything remain that
+          could generate a review question capable of delaying approval?
+        likely_in: [ipdp]
+
+      - id: NC.EOP2.2
+        text: >-
+          Are carcinogenicity studies complete or on a timeline that delivers before the
+          filing, and if a weight-of-evidence waiver is being pursued, has the agency
+          agreed prospectively?
+        likely_in: [ipdp]
+
+      - id: NC.EOP2.3
+        text: >-
+          Do the DART data support the pregnancy and lactation labeling required — and if
+          the plan produces a "no data" pregnancy section, has that been accepted as a
+          decision by someone accountable for the consequences in the populations where
+          it matters most?
+        likely_in: [ipdp]
+
+      - id: NC.EOP2.4
+        text: >-
+          Has every clinical safety signal been investigated nonclinically where a
+          mechanism could be established, and does the resulting narrative explain rather
+          than merely describe?
+
+      - id: NC.EOP2.5
+        text: >-
+          Are juvenile toxicology data adequate for the pediatric indications sought, and
+          available when the pediatric submission requires them?
+        likely_in: [ipdp]
+
+      - id: NC.EOP2.6
+        text: >-
+          Are all human metabolites covered by nonclinical exposure at the Phase 3 dose
+          and duration?
+
+      - id: NC.EOP2.7
+        text: >-
+          Do the safety margins hold at the Phase 3 dose, duration and population —
+          including in the subgroups with higher exposure identified by popPK?
+
+      - id: NC.EOP2.8
+        text: >-
+          Are Modules 2.4, 2.6 and 4 being authored now, in final form, or is that being
+          deferred to the filing crunch where it competes with the clinical summaries for
+          the same reviewers?
+        likely_in: [ipdp]
+
+      - id: NC.EOP2.9
+        text: >-
+          Has the nonclinical package been reviewed against the guidance versions that
+          will apply at the time of filing rather than those current when the studies were
+          designed — because expectations move over a ten-year program and a study run to
+          a superseded standard is a review question?
+
+      - id: NC.EOP2.10
+        text: >-
+          For vaccines: is the adjuvant and platform nonclinical package complete and
+          consistent with precedent, including any biodistribution, integration or
+          shedding assessment the vector requires?
+        applies_to: [vaccine]
+
+  - id: tm
+    label: Translational Medicine
+    questions:
+      - id: TM.EOP2.1
+        text: >-
+          Do the Phase 2 data confirm the mechanism end to end — exposure, target
+          engagement, proximal pharmacology, clinical effect — or is there a break in the
+          chain that the positive clinical result is masking?
+
+      - id: TM.EOP2.2
+        text: >-
+          If Phase 3 relies on a surrogate endpoint or a correlate of protection, is the
+          validation adequate for the regulatory and policy claims resting on it — and
+          specifically, has WHO or the relevant advisory body indicated whether they would
+          accept it for a policy recommendation, which is a separate and often higher bar
+          than registration?
+        likely_in: [ipdp]
+
+      - id: TM.EOP2.3
+        text: >-
+          Was a responder subgroup identified, is it reproducible, is it biologically
+          coherent, and will Phase 3 enrich, stratify or ignore it? Each option has a
+          different label consequence; make the choice deliberately.
+        likely_in: [ipdp]
+
+      - id: TM.EOP2.4
+        text: >-
+          If a companion or complementary diagnostic is implied, is co-development on the
+          same timeline, with the same regulatory submissions, and is the assay affordable
+          and deployable in every market where the drug will be sold?
+        likely_in: [ipdp]
+
+      - id: TM.EOP2.5
+        text: >-
+          Do exposure–response and PD data support the Phase 3 dose, or is the dose
+          selected on tolerability with a PD narrative added afterward?
+
+      - id: TM.EOP2.6
+        text: >-
+          Which translational endpoints belong in Phase 3, and for each: what decision,
+          label claim, HTA argument or policy submission does it support? Endpoints that
+          support none should not consume site effort in a global trial.
+        likely_in: [ipdp]
+
+      - id: TM.EOP2.7
+        text: >-
+          Are the assays scalable, transferable and sustainable across a multi-year,
+          multi-thousand-subject, multi-continent trial, with reagent lot bridging,
+          proficiency testing and a plan for the central lab changing hands mid-study?
+        likely_in: [ipdp]
+
+      - id: TM.EOP2.8
+        text: >-
+          Does the biology behave the same way in the populations of highest burden —
+          different baseline immunity, prior exposure, microbiome, nutritional status,
+          co-infection, genotype — and do we have data, or an assumption?
+
+      - id: TM.EOP2.9
+        text: >-
+          What alternative explanation for the Phase 2 result has not been excluded:
+          placebo response, regression to the mean, functional unblinding, site or
+          investigator effect, seasonality, force of infection, population selection, or
+          an analysis chosen after seeing the data?
+
+      - id: TM.EOP2.10
+        text: >-
+          If Phase 3 fails, what will we have collected that tells us why — and is that
+          collection designed in, or will we be running a post hoc biomarker fishing
+          exercise on inadequate samples?
+        likely_in: [ipdp]
+
+  - id: cp
+    label: Clinical Pharmacology
+    questions:
+      - id: CP.EOP2.1
+        text: >-
+          Is the Phase 3 dose justified by exposure–response for efficacy and for safety,
+          in the target population, with the analysis documented to submission standard?
+          Assume this will be the most scrutinized argument in the dossier.
+        likely_in: [ipdp]
+
+      - id: CP.EOP2.2
+        text: >-
+          Should more than one dose go into Phase 3? State the cost of the extra arm and
+          the cost of being wrong. In a modern review environment the second number is
+          usually larger.
+        likely_in: [ipdp]
+
+      - id: CP.EOP2.3
+        text: >-
+          Does the popPK model identify covariates requiring dose adjustment — weight,
+          age, renal function, hepatic function, genotype, albumin, disease severity — and
+          is the resulting dosing scheme implementable where the covariate cannot be
+          measured?
+
+      - id: CP.EOP2.4
+        text: >-
+          Are DDI studies complete for the co-medications the target population actually
+          takes, including in LMIC treatment contexts — rifamycins, ART, antimalarials,
+          hormonal contraception, TB regimens, traditional medicines where relevant?
+        likely_in: [ipdp]
+
+      - id: CP.EOP2.5
+        text: >-
+          Are hepatic and renal impairment studies complete or scheduled to support
+          labeling at approval, and does the hepatic study population reflect the etiology
+          prevalent in the target geography?
+        likely_in: [ipdp]
+
+      - id: CP.EOP2.6
+        text: >-
+          Is the cardiac assessment definitive under the integrated E14/S7B framework,
+          including at the exposures produced by the worst-case intrinsic and extrinsic
+          factor combination, not just at the therapeutic dose?
+
+      - id: CP.EOP2.7
+        text: >-
+          Is the pediatric strategy defined with an extrapolation framework — how much of
+          the adult efficacy conclusion is being extrapolated, on what assumption of
+          similar exposure–response, and does the agency agree?
+        likely_in: [ipdp]
+
+      - id: CP.EOP2.8
+        text: >-
+          Is there a pregnancy and lactation pharmacokinetic plan — physiologically-based
+          modeling, opportunistic sampling, milk transfer assessment — that will yield an
+          actual dosing recommendation, or will the label say only that data are lacking?
+        likely_in: [ipdp]
+
+      - id: CP.EOP2.9
+        text: >-
+          Does the commercial formulation require a BE bridge, and is it scheduled before
+          Phase 3 material is made — or is the plan to run it later and hope the result is
+          within limits?
+        likely_in: [ipdp]
+
+      - id: CP.EOP2.10
+        text: >-
+          Does the Phase 3 regimen remain the regimen that is deliverable in the setting of
+          intended use, or has it drifted toward what is convenient in a Phase 3 site?
+        likely_in: [itpp, ctpp]
+
+  - id: cd
+    label: Clinical Development
+    questions:
+      - id: CD.EOP2.1
+        text: >-
+          Did Phase 2 meet its prespecified criteria, on the prespecified endpoint, in the
+          prespecified population, under the prespecified analysis? Any "yes, if" answer
+          should be treated as a no for investment purposes.
+
+      - id: CD.EOP2.2
+        text: >-
+          Is the effect size clinically meaningful, and has it been discounted for the
+          shrinkage routinely observed between Phase 2 and Phase 3 — selection effects,
+          regression to the mean, less experienced sites, broader population, and the
+          disappearance of the enthusiasm that surrounded the pilot?
+
+      - id: CD.EOP2.3
+        text: >-
+          Does any emerging safety signal require a change to the Phase 3 design —
+          eligibility criteria, monitoring schedule, stopping rules, adjudication — and is
+          that change written into the protocol rather than logged in the risk register?
+        likely_in: [ipdp]
+
+      - id: CD.EOP2.4
+        text: >-
+          Is the Phase 3 design — estimand, endpoint, comparator, duration, population,
+          non-inferiority margin if applicable, statistical analysis plan, multiplicity
+          strategy — agreed in writing with every regulator we will file with, or only with
+          the first one?
+        likely_in: [ipdp]
+
+      - id: CD.EOP2.5
+        text: >-
+          Is the comparator the standard of care at launch, in the markets where we will
+          file — and is it the standard of care in the LMIC markets, which is frequently
+          different and sometimes makes the trial unethical or uninformative there?
+        likely_in: [ipdp]
+
+      - id: CD.EOP2.6
+        text: >-
+          What retention and completion rate does the Phase 3 plan assume over the full
+          treatment and follow-up duration, on what evidence from comparable trials in
+          comparable settings — and what happens to the primary analysis if dropout exceeds
+          it?
+        likely_in: [ipdp]
+
+      - id: CD.EOP2.7
+        text: >-
+          Is enrollment feasible in the stated time, based on site-level data, competing
+          trials, and realistic screen-failure rates — and is the country mix compatible
+          with ICH E17 expectations for pooling and with each regulator's expectations for
+          local representation?
+        likely_in: [ipdp]
+
+      - id: CD.EOP2.8
+        text: >-
+          Does the Phase 3 population include the geographies, ages, sexes, comorbidities,
+          background therapies and settings where the product must be used — and is there a
+          diversity plan meeting the current US requirements as well as the scientific
+          requirement?
+        likely_in: [ipdp]
+
+      - id: CD.EOP2.9
+        text: >-
+          What are the interim analysis, futility and adaptation rules, who governs them,
+          and is the information firewall designed so that the sponsor cannot be accused of
+          operational bias?
+        likely_in: [ipdp]
+
+      - id: CD.EOP2.10
+        text: >-
+          What is the total Phase 3 cost and duration, and would we authorize this
+          investment today if we were seeing these Phase 2 data for the first time, with no
+          sunk cost?
+        likely_in: [ipdp]
+
+  - id: pv
+    label: Drug Safety and Pharmacovigilance
+    questions:
+      - id: PV.EOP2.1
+        text: >-
+          Will the safety database reach the size and duration the indication requires by
+          the time of filing — against ICH E1 for a chronic indication or the
+          indication-specific expectation — and if not, what is the plan, given that the
+          alternative is an approvable-with-conditions outcome?
+        likely_in: [ipdp]
+
+      - id: PV.EOP2.2
+        text: >-
+          Is the risk management plan drafted with its three parts coherent — safety
+          specification, pharmacovigilance plan, risk minimisation measures — and has it
+          been discussed with agencies rather than written for them?
+        likely_in: [ipdp]
+
+      - id: PV.EOP2.3
+        text: >-
+          Are adverse events of special interest defined with validated case definitions,
+          an adjudication charter, and blinded independent adjudication where the endpoint
+          is subjective or the event is the one the label will turn on?
+        likely_in: [ipdp]
+
+      - id: PV.EOP2.4
+        text: >-
+          Are the proposed risk minimisation measures operable in every market in the
+          access strategy, or will they strand the product in the settings it was built
+          for? Name the markets where each measure cannot be operated.
+        likely_in: [ipdp]
+
+      - id: PV.EOP2.5
+        text: >-
+          Is there a plan to measure whether risk minimisation actually works — the
+          effectiveness evaluation, with defined indicators and a study design — because
+          committing to measures without a way to demonstrate effect creates an obligation
+          with no exit?
+        likely_in: [ipdp]
+
+      - id: PV.EOP2.6
+        text: >-
+          Which post-authorisation safety studies are likely to be required, and should we
+          design and propose our own now rather than accept an assigned design that is
+          infeasible in our markets?
+        likely_in: [ipdp]
+
+      - id: PV.EOP2.7
+        text: >-
+          Does the Phase 3 program generate the safety data the risk management plan will
+          commit to, including in the subgroups the label will cover and the settings where
+          use will concentrate?
+        likely_in: [ipdp]
+
+      - id: PV.EOP2.8
+        text: >-
+          Is a prospective pregnancy exposure follow-up mechanism — registry or
+          protocol-embedded follow-up to outcome — defined and funded before Phase 3
+          enrols, since exposures will occur regardless of the exclusion criteria and an
+          unresolved outcome is a permanent gap in the label?
+        likely_in: [ipdp]
+
+      - id: PV.EOP2.9
+        text: >-
+          Is a structured benefit-risk framework being built now, with the effects table
+          populated as data arrive, rather than assembled retrospectively during dossier
+          writing when the uncertainties are inconvenient?
+        likely_in: [ipdp]
+
+      - id: PV.EOP2.10
+        text: >-
+          Are signal detection processes and safety governance scaled for a
+          multi-thousand-subject, multi-continent trial — including routine review of
+          blinded aggregate data at a defined cadence, with documented decisions?
+        likely_in: [ipdp]
+
+  - id: ra
+    label: Regulatory Affairs
+    questions:
+      - id: RA.EOP2.1
+        text: >-
+          Has an end-of-Phase-2 interaction been held with each major regulator, and are
+          their positions in the official minutes — including their disagreements, which
+          are the ones that matter?
+        likely_in: [ipdp]
+
+      - id: RA.EOP2.2
+        text: >-
+          Is the primary endpoint and its analysis acceptable in every intended market, or
+          does any region require a different endpoint, a local trial, or a different
+          comparator — and has the cost of that been put into the plan rather than
+          discovered later?
+        likely_in: [ipdp]
+
+      - id: RA.EOP2.3
+        text: >-
+          Is an accelerated or conditional pathway still appropriate, and are the
+          confirmatory obligations understood — including that a confirmatory trial is
+          expected to be underway at the time of accelerated approval, and that withdrawal
+          procedures have been formalized?
+        likely_in: [ipdp]
+
+      - id: RA.EOP2.4
+        text: >-
+          Is the PIP or PSP agreed, with deferrals and waivers secured, and does it commit
+          us to studies that remain scientifically sensible?
+        likely_in: [ipdp]
+
+      - id: RA.EOP2.5
+        text: >-
+          Has any agency stated in writing what safety database size and exposure duration
+          it expects for this indication — and if our plan falls short of that, what is the
+          agreed position rather than the hoped-for one?
+        likely_in: [ipdp]
+
+      - id: RA.EOP2.6
+        text: >-
+          Has the agency agreed in minutes the comparability approach for post-pivotal CMC
+          changes and the established conditions we intend to claim — because what is
+          conceded here determines ten years of change-management flexibility in thirty
+          markets?
+        likely_in: [ipdp]
+
+      - id: RA.EOP2.7
+        text: >-
+          Does the Phase 3 design generate what WHO prequalification and target-country
+          registration require — including programmatic suitability criteria for vaccines,
+          which cover presentation, VVM, packaging volume and vial size, and which are
+          assessed separately from safety and efficacy?
+        likely_in: [ipdp]
+
+      - id: RA.EOP2.8
+        text: >-
+          Is a reliance or joint assessment route mapped for LMIC registration — WHO CRP,
+          regional joint review, or a WHO-listed authority assessment as the reference —
+          with the consent to share the assessment secured from the reference agency?
+        likely_in: [ipdp]
+
+      - id: RA.EOP2.9
+        text: >-
+          Is the filing sequence across markets defined, with the LMIC submissions
+          positioned in parallel rather than after the commercially attractive ones?
+        likely_in: [ipdp]
+
+      - id: RA.EOP2.10
+        text: >-
+          Are all prior commitments closed, and is the regulatory risk register current
+          with the three risks most likely to cost a review cycle?
+        likely_in: [ipdp]
+
+  - id: ax
+    label: LMIC Access
+    questions:
+      - id: AX.EOP2.1
+        text: >-
+          Does Phase 3 include sites in high-burden LMIC countries, and if not, on what
+          basis will those countries register — and have their NRAs confirmed that basis is
+          acceptable?
+        likely_in: [ipdp]
+
+      - id: AX.EOP2.2
+        text: >-
+          Is the confirmed COGS compatible with the target price, is the tiered pricing
+          policy agreed and documented, and is it defensible if published?
+        likely_in: [itpp]
+
+      - id: AX.EOP2.3
+        text: >-
+          Are technology transfer or voluntary licensing agreements executed or in advanced
+          negotiation, with milestones, and does the timeline deliver regional supply within
+          a period that matters?
+        likely_in: [ipdp]
+
+      - id: AX.EOP2.4
+        text: >-
+          Is the volume forecast credible, has manufacturing capacity been reserved against
+          it, and what happens at the low end of the forecast where the price assumption
+          breaks?
+        likely_in: [ipdp]
+
+      - id: AX.EOP2.5
+        text: >-
+          Is the evidence required for WHO policy recommendation and prequalification being
+          generated inside Phase 3 — including the presentation, schedule, co-administration
+          and subgroup data that policy bodies require and that registration does not?
+        likely_in: [ipdp]
+
+      - id: AX.EOP2.6
+        text: >-
+          Is a cost-effectiveness and budget impact analysis underway using target-country
+          costs, epidemiology and health system assumptions rather than adapted high-income
+          models?
+        likely_in: [ipdp]
+
+      - id: AX.EOP2.7
+        text: >-
+          Are Gavi, the Global Fund, UNICEF Supply Division, PAHO Revolving Fund or the
+          relevant procurers engaged, and is their decision cycle mapped against our
+          approval timeline — because missing a funding window costs a year or more
+          regardless of when approval arrives?
+        likely_in: [ipdp]
+
+      - id: AX.EOP2.8
+        text: >-
+          Are pediatric, adolescent and pregnancy studies sequenced to support labeling
+          within a short interval of the adult indication, and is that sequencing funded?
+        likely_in: [ipdp]
+
+      - id: AX.EOP2.9
+        text: >-
+          Is the delivery strategy defined and tested: who administers, at what health
+          system contact, with what training, alongside what other interventions, with what
+          waste management and what cold chain?
+        likely_in: [itpp, ipdp]
+
+      - id: AX.EOP2.10
+        text: >-
+          Is this still the product implementers asked for, or has it drifted during Phase 2
+          toward the requirements of high-income markets? Ask the implementers, not the team.
+        likely_in: [itpp, ctpp]

@@ -48,6 +48,7 @@ const PATH_TO_TOOL: Record<string, ToolName> = {
   "/inspector": "inspector",
   "/scout": "scout",
   "/aligner": "aligner",
+  "/expert": "expert",
 };
 
 /**
@@ -205,12 +206,19 @@ export function SourceTypeField({
   onChange,
   label = "Document type",
   exclude = [],
+  hint = true,
 }: {
   value: string | undefined;
   onChange: (value: string) => void;
   label?: string;
   /** Types other selects have taken, so a tool cannot pick one twice. */
   exclude?: readonly string[];
+  /**
+   * Show the consequence note. On by default; a tool rendering several of these
+   * shows it on the first row only, because the sentence is about the field rather
+   * than about one document.
+   */
+  hint?: boolean;
 }) {
   const header = useHeaderStore((state) => state.header);
   const { types } = useSupportedDocumentTypes();
@@ -238,7 +246,32 @@ export function SourceTypeField({
         disabled={!ready}
         onChange={onChange}
       />
+      {hint && <SourceTypeHint />}
     </ConfigField>
+  );
+}
+
+/**
+ * The one consequence of this field that nothing else states.
+ *
+ * Deliberately says "what it is read against" rather than "which rubric": the type
+ * selects Inspector's rubric and Scout's attribute configuration, but Aligner holds
+ * one source-type-neutral configuration and Expert's bank is keyed by gate. Naming
+ * the rubric would be precise for two tools and false for two.
+ *
+ * It lives here rather than in each tool's copy because the sentence is about the
+ * field, and four tools writing their own version of it is the drift this module
+ * exists to prevent. Nothing validates that the chosen type matches the document, so
+ * this warning is the only thing standing between a mis-selection and a confident
+ * answer about the wrong thing.
+ */
+function SourceTypeHint() {
+  return (
+    <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+      Sets how the document is parsed and what it is read against. Nothing checks
+      that the file matches, so the wrong type gives a confident result about the
+      wrong thing.
+    </p>
   );
 }
 

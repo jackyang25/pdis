@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Product Development Intelligence Suite",
-  "description": "A concise guide to choosing a tool, understanding the architecture, interpreting Scout evidence, and working with portable results.",
+  "description": "A concise guide to choosing a tool, understanding the architecture, interpreting what each tool reports, and working with portable results.",
   "sections": [
     {
       "id": "overview",
@@ -28,7 +28,7 @@
         {
           "type": "note",
           "title": "Why this matters",
-          "text": "Inspector, Aligner, and Scout intentionally produce different outputs, because each judges against a different authority. None is a funding recommendation or a universal product score."
+          "text": "Inspector, Aligner, Expert, and Scout intentionally produce different outputs, because each judges against a different authority. None is a funding recommendation or a universal product score."
         }
       ]
     },
@@ -60,7 +60,7 @@
             },
             {
               "term": "Services",
-              "description": "Run stateless Inspector, Aligner, Scout, Chunker, Searcher, and Assistant workflows through typed contracts."
+              "description": "Run stateless Inspector, Aligner, Expert, Scout, Chunker, Searcher, and Assistant workflows through typed contracts."
             },
             {
               "term": "Shared",
@@ -82,7 +82,7 @@
             },
             {
               "term": "Portable results",
-              "description": "Final Inspector, Aligner, and Scout artifacts package analysis separately from their parsed source documents."
+              "description": "Final Inspector, Aligner, Expert, and Scout artifacts package analysis separately from their parsed source documents."
             },
             {
               "term": "Model boundaries",
@@ -265,7 +265,7 @@
     {
       "id": "results",
       "title": "Saved results",
-      "intro": "Inspector, Aligner, and Scout downloads are portable, versioned artifacts. Their analysis and source documents travel together.",
+      "intro": "Every tool that produces a result \u2014 Inspector, Aligner, Expert, and Scout \u2014 downloads a portable, versioned artifact. Their analysis and source documents travel together.",
       "content": [
         {
           "type": "definitions",
@@ -789,6 +789,115 @@
                   "source": "evidence-review",
                   "target": "result",
                   "label": "quantitative axis"
+                }
+              ]
+            },
+            {
+              "id": "expert",
+              "title": "Expert",
+              "summary": "Sorts one stage gate's question bank against a set of documents: what they answer, cited to the passage, and what they do not, alongside the discipline that owns it. Only the gate, the discipline and the question text decide anything — everything else the bank carries is a hint.",
+              "nodes": [
+                {
+                  "id": "inputs",
+                  "title": "Documents and gate",
+                  "summary": "A gate selects the question bank; the uploaded document types decide which of its questions can be assessed at all.",
+                  "kind": "input",
+                  "layer": "Input",
+                  "inputs": [
+                    "One or more product-development documents",
+                    "The stage gate under preparation",
+                    "Organization, intervention, and indication",
+                    "Optional pasted context, used for this run only"
+                  ],
+                  "outputs": [
+                    "The gate's question bank",
+                    "The material every question is read against"
+                  ]
+                },
+                {
+                  "id": "resolve",
+                  "title": "Applicability",
+                  "summary": "The one state config owns, and the question's own text is what states it: eleven of 560 questions restrict themselves to an intervention class.",
+                  "kind": "deterministic",
+                  "layer": "Triage",
+                  "inputs": [
+                    "Every question in the gate",
+                    "The run's intervention class"
+                  ],
+                  "outputs": [
+                    "Questions the question text excludes from this run",
+                    "Every other question, queued for assessment"
+                  ],
+                  "guarantee": "Which documents were uploaded is deliberately not an input. Withholding a question because of an assumption about where its answer lives would make a guess decide the result."
+                },
+                {
+                  "id": "parse",
+                  "title": "Document parsing",
+                  "summary": "Canonical documents become ordered, citable blocks. Pasted context is never parsed and never stored.",
+                  "kind": "integration",
+                  "layer": "Source",
+                  "inputs": [
+                    "DOCX and PPTX uploads"
+                  ],
+                  "outputs": [
+                    "Ordered ContentBlocks with stable IDs"
+                  ]
+                },
+                {
+                  "id": "assess",
+                  "title": "Per-question decision",
+                  "summary": "One bounded call per question, each reading the same material, returning a single three-value decision so an answer citing nothing is unrepresentable.",
+                  "kind": "model",
+                  "layer": "Assessment",
+                  "inputs": [
+                    "One question",
+                    "Every document supplied",
+                    "Any pasted context, labelled"
+                  ],
+                  "outputs": [
+                    "Answered with its passages",
+                    "Answered from a named context item",
+                    "Not found"
+                  ],
+                  "guarantee": "Identical material on every call, so a citation is membership-checked and the expensive half of the prompt is a cacheable prefix rather than paid for once per question."
+                },
+                {
+                  "id": "result",
+                  "title": "Portable gate review",
+                  "summary": "Every question the gate asks, each in one of three states, with the passages behind the answers and the source documents beside them.",
+                  "kind": "output",
+                  "layer": "Result",
+                  "inputs": [
+                    "Every resolved and assessed question"
+                  ],
+                  "outputs": [
+                    "The complete question list with states",
+                    "Cited passages",
+                    "Parsed source documents"
+                  ],
+                  "guarantee": "The denominator never shrinks and no count is stored, so the figures a reader sees are derived from the list they can open."
+                }
+              ],
+              "edges": [
+                {
+                  "source": "inputs",
+                  "target": "resolve"
+                },
+                {
+                  "source": "resolve",
+                  "target": "parse"
+                },
+                {
+                  "source": "parse",
+                  "target": "assess"
+                },
+                {
+                  "source": "assess",
+                  "target": "result"
+                },
+                {
+                  "source": "resolve",
+                  "target": "result"
                 }
               ]
             },

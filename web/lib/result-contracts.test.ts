@@ -3,7 +3,7 @@
  *
  * Before this, Scout ran four deep contract checks while Inspector and Aligner ran a
  * single `if`, and all of it lived inside the module that owns the envelope. The
- * asymmetry was invisible because nothing compared the three.
+ * asymmetry was invisible because nothing compared them.
  */
 
 import assert from "node:assert/strict";
@@ -11,14 +11,14 @@ import test from "node:test";
 
 import { RESULT_CONTRACTS, type ResultType } from "./result-contracts.ts";
 
-const TOOLS: ResultType[] = ["aligner", "inspector", "scout"];
+const TOOLS: ResultType[] = ["aligner", "expert", "inspector", "scout"];
 
 test("every tool has exactly one contract, and no tool is missing one", () => {
   assert.deepEqual(Object.keys(RESULT_CONTRACTS).sort(), [...TOOLS].sort());
 });
 
 test("each contract refuses an empty analysis and names the tool", () => {
-  // The same call shape for all three: hand it a result, get a reason or nothing.
+  // One call shape for every tool: hand it a result, get a reason or nothing.
   for (const tool of TOOLS) {
     assert.throws(
       () => RESULT_CONTRACTS[tool]({}),

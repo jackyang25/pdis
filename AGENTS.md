@@ -81,6 +81,45 @@ web/ → api/ → services/ → shared/
   not status.
 - `itpp`, `ctpp`, and `ipdp` differences belong in configuration framing and
   unit providers, not downstream conditionals.
+- A result view is read by someone who learned the previous tool, so four things
+  are the same everywhere and none of them is checkable by a type:
+  1. **`PriorityPanel` is the opening panel**, and `attribution` is always
+     `by <Tool>` — never a description of the ordering, which is what `orderNote`
+     is for. A tool may decline the panel only when its atom does not fit
+     `PriorityItem`; Expert is the one case, because a 40–60 word gate question has
+     nowhere to go in that shape and the panel would restate a list already flat.
+     Record the reason at the call site, as Expert does.
+  2. **One count grammar per page:** `<title> <count>`, the count in muted
+     tabular figures beside the heading. Not `Title · 7`, and never both on one
+     screen. `SectionHeading` takes a node rather than a string so a caller does
+     not have to pre-format one into the other.
+  3. **A number the model produced is shown even at zero**, because zero means the
+     check ran and found nothing. A number config or the inputs produced is hidden
+     at zero, because there is nothing to report. Hiding `0 answered` once made a
+     run that assessed almost nothing look like a run with no such concept, and the
+     figures still summed to the total, so nothing looked wrong.
+  4. **`SignalHelp` is an affordance, not a section.** It sits right-aligned on the
+     control row beside what it explains — Inspector's and Scout's tab rows, Expert's
+     count row — never as its own left-aligned block in the vertical stack, where a
+     reader takes it for a heading.
+  5. **A trace places only lineage the result carries.** An annotation with no cited
+     passage does not get anchored at a probable block to make the viewer look
+     complete: that would turn a hint into provenance. Expert places answers read from
+     a document and nothing else — an unanswered question has no passage, and an answer
+     from pasted context was never chunked. A document with no marks is accounted for in
+     the panels, not papered over in the trace.
+  6. **One tab per view, not one per document**, and it is labelled **Documents**.
+     `DocumentTraceViewer` already switches between the documents a result carries, so
+     per-document tabs would be a second mechanism for the same thing and would break
+     at one document. The label names what is behind it, not the mechanism: it read
+     "Document", "Document trace" and "Documents" across three tools, and "trace" is
+     jargon a reader has to be taught. Plural everywhere rather than varying with the
+     count — one string beats three, and a tool holding one document is not misled by
+     it. `value="trace"` stays as the internal key.
+  7. **Weight follows consequence.** The most consequential fact in a result gets
+     the strongest treatment — amber and an icon, as Scout's context-validation
+     notice does — and provenance gets the weakest, at the foot of the card. A
+     result whose review mostly could not be run must not read as a completed one.
 
 ## Documents and visuals
 
@@ -101,7 +140,7 @@ web/ → api/ → services/ → shared/
   raster bytes, normalize other rasters with Pillow, and use LibreOffice only
   for vector fallback and PPTX slide rendering.
 - Every multimodal call labels an image with its exact block ID. Preserve that
-  association through Inspector, Aligner, Scout, Ask, and portable JSON.
+  association through Inspector, Aligner, Expert, Scout, Ask, and portable JSON.
 - Result JSON embeds parsed blocks and image bytes, not the original uploaded
   binary. Larger image-bearing artifacts are expected.
 
@@ -216,6 +255,66 @@ it. `document_findings[]` holds the conflicts no unit owns.
 - Aligner never grades quality and never retrieves external evidence. Those are
   Inspector's and Scout's authorities, and a tool with two authorities can
   contradict the tool that owns one.
+
+### Expert
+
+Expert's authority is one stage gate's SME question bank. It reads several documents at
+once and **renders no verdict on them**: it reports which of the gate's questions the
+supplied material answers and which it does not.
+
+- The boundary against Inspector, which shares no code or config with it: Inspector
+  asks whether *one* document is complete against its own template; Expert asks
+  whether the evidence exists *anywhere in the set* for a reviewer to close a
+  question. The resemblance is structural — a list of sections holding units, one call
+  per unit — and structural only.
+- The bank is **transcribed** into `services/expert/configs/*.yaml`, never parsed from
+  the SME document. A reader for someone else's prose format is a normalization layer
+  that breaks whenever that document is edited.
+- **Only what the source document guarantees may decide anything.** That is the gate,
+  the owning discipline, the question text, the `[PQ]` markers, and the eleven
+  questions whose own text states a class restriction. Everything else the bank
+  carries is a tag: displayed, never gating. This is the invariant the tool exists
+  under, and it was learned by violating it — a per-question judgment about which
+  document type could answer a question drove two of five states, so a wrong judgment
+  withheld a question from assessment or attributed a gap to a grantee for something no
+  document was ever meant to hold.
+- `likely_in` is that judgment, demoted. It never reaches resolution, never reaches
+  the model, and is presented as "usually answered in". A wrong value costs a
+  misleading hint.
+- `applies_to` is the one field that removes a question from a run, so it is set only
+  where the question text states the restriction, never by reading subject matter and
+  inferring a class. A wrongly inapplicable question vanishes silently and reports as
+  "not a shortfall", which is the least detectable error the bank can hold.
+- Three states, and every one is traceable: `not_applicable` from the question text,
+  `answered` and `not_found` from one model call. A model is offered only the last
+  two. `not_found` is named for what is true regardless of any hint — "not found in
+  what was supplied" — because `absent` invites the reader to hear a fault.
+- **The routing is the discipline**, which the source document guarantees. Grouping
+  unanswered questions by discipline is the tool's main output; a claim that no
+  document could ever answer one is not.
+- Every applicable question is read against **everything supplied**. That is what
+  makes the run honest, and it is also what makes it affordable: identical material on
+  every call is a cacheable prompt prefix, so the supplied documents precede the
+  question in the user message and the expensive half is paid for once.
+- Banks are keyed `(org, gate)`; the intervention class filters questions inside a
+  bank rather than selecting which to read, so `find_config` takes two keys.
+- `load_config` raises on a bank naming an unknown intervention class or document
+  type, and `available_gates` does not swallow load errors — a malformed bank is a
+  broken gate, not a scaffold to skip. Swallowing them once emptied the gate selector
+  with no error anywhere.
+- The denominator never shrinks, and counts are derived by readers rather than carried:
+  a stored count is a second authority that can disagree with its own list. Never
+  publish a combined coverage figure.
+- Transient context is prompt-only: pasted, never chunked, never stored. Only its label
+  reaches the result, so an answer sourced from it carries attribution without lineage
+  and can never be presented as cited. A label is free text the user typed, never a
+  `source_type`.
+- **No reconciliation or deduplication stage.** The bank's coordination map has
+  Translational Medicine and Clinical Pharmacology reach dose selection independently
+  and disagree in public at EOP1 and EOP2. Merging their answers would destroy the one
+  thing the bank was built to produce.
+- Order is the bank's own: discipline sequence, then question number. Nothing re-ranks,
+  so two runs on one gate compare line by line.
 
 ### Scout
 
@@ -355,7 +454,7 @@ it. `document_findings[]` holds the conflicts no unit owns.
   `scripts/generate_prompt_reference.py` reads the slots from the catalogs rather
   than a list of its own. A declared slot that publishes nothing, or inserted text no
   entry declares, is a documentation gap the generator can no longer hide.
-- Inspector, Aligner, and Scout use the versioned `pdis.result` envelope in
+- Inspector, Aligner, Expert, and Scout use the versioned `pdis.result` envelope in
   `web/lib/result-file.ts`, separating `analysis` from `source_documents`.
 - A saved file carries two versions, and they answer different questions.
   `ENVELOPE_VERSION` covers the wrapper all three tools share, so bumping it

@@ -327,6 +327,12 @@ export type SearchTrace = {
   error: string;
   finding_count: number;
   source_urls: string[];
+  /**
+   * A subset of source_urls the window held out. Undated sources are never here.
+   * Optional for the same reason as `ScoutResponse.published_since`: traces in
+   * results saved before windows existed do not carry it.
+   */
+  excluded_before_window?: string[];
 };
 
 export type Measurement = {
@@ -583,6 +589,13 @@ export type ScoutResponse = {
   source_type: string;
   intervention_class: string;
   indication: string;
+  /** ISO date retrieval was scoped to, or "" for none. Every statistic in this
+   *  result describes only the evidence that window admitted.
+   *
+   *  Optional because results saved before windows existed are still readable and
+   *  carry no such field - the same reason `search_plan` is optional. A live run
+   *  always sends it. */
+  published_since?: string;
   context_validation: {
     status: "match" | "mismatch" | "uncertain" | "not_checked";
     configured_indication: string;
@@ -785,9 +798,15 @@ export async function fetchSearchSources(): Promise<SearchSource[]> {
   return jsonRequest<SearchSource[]>("/api/searcher/sources");
 }
 
+/**
+ * `publishedSince` is Scout's own retrieval window, not part of the shared
+ * `Header`: only this tool searches externally, so putting it there would hand a
+ * field to three tools that cannot act on it.
+ */
 export async function runScout(
   files: File[],
   header: Header,
+  options?: { publishedSince?: string },
   onStage?: (stage: string, progress?: StageProgress) => void,
 ): Promise<ScoutResponse> {
   const form = new FormData();
@@ -795,6 +814,7 @@ export async function runScout(
     form.append("files", file);
   }
   appendHeader(form, header);
+  form.append("published_since", options?.publishedSince ?? "");
   return streamRequest("/api/scout/run", form, onStage);
 }
 

@@ -638,6 +638,11 @@ def result_from_target_review(payload: dict) -> ScoutResult:
         ],
         blocks=[_block_from_dict(item) for item in payload["blocks"]],
         phase="target_review",
+        # The window was declared before the targets were reviewed, so it is
+        # rehydrated with them. Dropping it here would silently widen the cohort
+        # the continuation retrieves, and the statistics would then describe a
+        # different question than the one the run was scoped to.
+        published_since=payload.get("published_since", ""),
     )
 
 

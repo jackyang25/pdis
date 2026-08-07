@@ -2,11 +2,26 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, ChevronDown, CircleHelp, Search } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarRange,
+  ChevronDown,
+  CircleHelp,
+  Search,
+} from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { RunPanel } from "@/components/run-panel";
-import { ConfigurationFields } from "@/components/configuration-fields";
+import {
+  ContextFields,
+  SourceTypeField,
+} from "@/components/configuration-fields";
+import {
+  ConfigDateInput,
+  ConfigField,
+  ConfigurationShell,
+} from "@/components/ui/config-field";
+import { useHeaderStore } from "@/lib/store";
 import { HeaderGuard } from "@/components/header-guard";
 import { EmptyState } from "@/components/empty-state";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -375,7 +390,7 @@ function SourceList({ findings }: { findings: Finding[] }) {
 export default function ScoutPage() {
   return (
     <>
-      <PageHeader title="Scout" description="Pressure-test document targets against live evidence, precedent, and quantitative alignment." />
+      <PageHeader title="Scout" description="One document’s targets against external evidence: live measurements, comparators, and development precedent." />
       <HeaderGuard>
         {(header, ready) => <ScoutView header={header as Header} ready={ready} />}
       </HeaderGuard>
@@ -408,6 +423,9 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const [showRunPanel, setShowRunPanel] = useState(!result);
+  // Scout-only: the retrieval window, declared before the run and carried
+  // on the draft so the continuation searches the same cohort.
+  const [publishedSince, setPublishedSince] = useState("");
 
   useEffect(() => {
     if (result) setShowRunPanel(false);
@@ -425,7 +443,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     setStage(null);
     setProgress(null);
     try {
-      const res = await runScout([file], header, (s, p) => {
+      const res = await runScout([file], header, { publishedSince }, (s, p) => {
         setStage(s);
         setProgress(p ?? null);
       });
@@ -593,7 +611,12 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     <div className="flex flex-col gap-6">
       {(!result || showRunPanel) && (
         <RunPanel
-          configuration={<ConfigurationFields />}
+          configuration={
+            <ScoutConfiguration
+              publishedSince={publishedSince}
+              onPublishedSinceChange={setPublishedSince}
+            />
+          }
           busy={busy}
           onRun={(files) => handleRun(files.document)}
           steps={SCOUT_STEPS}
@@ -629,6 +652,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
       )}
       {error && <ErrorMessage>{error}</ErrorMessage>}
       {result && <ContextValidationNotice result={result} />}
+      {result && <RetrievalWindowNotice result={result} />}
       {result && result.phase === "target_review" && (
         <DocumentTargetReviewCheckpoint
           result={result}
@@ -1717,6 +1741,56 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
       </div>
     </div>
   );
+}
+
+/**
+ * The retrieval window this result was scoped to.
+ *
+ * Shown because the window removes evidence rather than hiding it: every count,
+ * benchmark, and precedent below describes the cohort it admitted, so the same
+ * document produces different numbers under different windows. The other
+ * configuration values select which config a run uses and do not move the
+ * numbers, which is why they are not echoed here.
+ *
+ * Neutral rather than a warning - a scoped run is a valid run - and absent when
+ * no window was set, so an unscoped result gains no chrome. `published_since` is
+ * optional because results saved before the window existed do not carry it.
+ */
+function RetrievalWindowNotice({ result }: { result: ScoutResponse }) {
+  const since = formatWindowDate(result.published_since);
+  if (!since) return null;
+
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/40 px-3.5 py-3 text-xs text-foreground"
+    >
+      <CalendarRange className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0">
+        <p className="font-medium">Scoped to evidence published since {since}</p>
+        <p className="mt-0.5 leading-relaxed text-muted-foreground">
+          Every count, benchmark, and precedent below describes only that window.
+          Sources that publish no date, such as web pages, are included.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Day precision, unlike `formatDate` - a window boundary is a specific day, and
+ * rendering it to the month would misstate which evidence was admitted. Parsed as
+ * local midnight so a UTC-negative timezone does not display the day before.
+ */
+function formatWindowDate(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00`);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 }
 
 /** True count of distinct sources cited anywhere in the result. */
@@ -2890,5 +2964,47 @@ function MatchesBlock({ matches }: { matches: Match[] }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+/**
+ * Scout's own configuration rail: the shared context and document-type fields,
+ * plus the retrieval window only this tool can act on.
+ *
+ * Composed here rather than added to `ConfigurationFields`, which Inspector also
+ * renders — the same reason Aligner composes the primitives itself.
+ */
+function ScoutConfiguration({
+  publishedSince,
+  onPublishedSinceChange,
+}: {
+  publishedSince: string;
+  onPublishedSinceChange: (value: string) => void;
+}) {
+  const setHeader = useHeaderStore((state) => state.setHeader);
+  const sourceType = useHeaderStore((state) => state.header.source_type);
+  return (
+    <ConfigurationShell>
+      <ContextFields />
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <SourceTypeField
+          value={sourceType}
+          onChange={(value) => setHeader({ source_type: value })}
+        />
+        <ConfigField label="Published since (optional)">
+          <ConfigDateInput
+            value={publishedSince}
+            onChange={onPublishedSinceChange}
+            max={new Date().toISOString().slice(0, 10)}
+          />
+          <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+            Searches only evidence published on or after this date, so a refresh
+            skips what the document already accounts for. Every count and
+            benchmark then describes that window. Sources that publish no date,
+            such as web pages, are still included.
+          </p>
+        </ConfigField>
+      </div>
+    </ConfigurationShell>
   );
 }

@@ -111,6 +111,19 @@ Each tool judges a document against a different authority: Inspector against an
 authored rubric, Aligner against a second document, Scout against external
 evidence. Those comparison targets are not interchangeable.
 
+Every user-facing description of these tools states that in one shape — *what it
+reads* against *the authority it is judged by* — so a reader can tell the tools
+apart without any of them saying what it does not do. A negative clause ("Aligner
+does not grade quality") means the positive statement is too weak; tighten the
+positive statement instead. Guidance for the model, such as the Ask legends, is
+the exception: there a negative is a guardrail, not a definition.
+
+Where the tools sit in a PPL's process is a separate statement and is made once,
+in the section above the tool cards: between stage gates the document set drifts,
+and these tools keep it true to its rubric, true to itself, and true to the
+evidence before the next gate. Repeating that per tool guarantees the copies
+drift.
+
 ### Inspector
 
 Inspector publishes one atom under one vocabulary. `sections[]` holds every rubric
@@ -248,6 +261,15 @@ it. `document_findings[]` holds the conflicts no unit owns.
   additive. Preserve track, block, intent, target, source-lane, connector, and
   URL lineage through planning and deduplication. Target IDs indicate retrieval
   coverage, not evidentiary support.
+- A requested publication window is applied where retrieved evidence enters the
+  run, never at display. Every insight, precedent, and benchmark must describe the
+  cohort that window admitted; filtering later would leave statistics computed over
+  a wider set than the one shown. The window is declared before retrieval and
+  carried on the reviewed draft, so a continuation cannot widen it after targets
+  were approved. A finding whose source supplied no publication date is admitted —
+  an absent date is not evidence of age. The retrieval record stays complete: a
+  trace's `source_urls` is what the source returned, and
+  `excluded_before_window` names which of those the window held out.
 - Searcher adapters own source grammar, applicability metadata, credentials,
   rate limits, concurrency, execution, and normalization. Scout supplies neutral
   intents and config-selected adapter keys.

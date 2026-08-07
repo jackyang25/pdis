@@ -1,6 +1,7 @@
 # Aligner
 
-Compare product-development documents against the ones they answer to.
+Product-development documents against each other: whether the candidate and the
+plan deliver what was asked for.
 **Between designs — the analysis has been removed.**
 
 ## Background

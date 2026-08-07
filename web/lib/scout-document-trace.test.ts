@@ -16,6 +16,7 @@ function slot(value = ""): {
 
 const result = {
   phase: "final",
+  published_since: "",
   org: "bmgf",
   source_type: "itpp",
   intervention_class: "vaccine",

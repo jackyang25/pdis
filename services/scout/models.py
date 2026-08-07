@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import math
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
@@ -355,6 +356,12 @@ class SearchTrace:
     error: str = ""
     finding_count: int = 0
     source_urls: list[str] = field(default_factory=list)
+    # Retrieved, then held out of this run because the source dated them before
+    # the requested window. `source_urls` stays the complete retrieval record, so
+    # these are a subset of it: what the window cost, not a separate search.
+    # A finding the source left undated is never listed here, because an absent
+    # date is not evidence of age.
+    excluded_before_window: list[str] = field(default_factory=list)
 
 
 def load_attributes(intervention_class: str) -> list[Attribute]:
@@ -1183,10 +1190,23 @@ class ScoutResult:
     # distilled analysis. Not used by the analysis itself.
     blocks: list["ContentBlock"] = field(default_factory=list)
     phase: str = "final"  # target_review | evidence_review | final
+    # ISO date the user scoped retrieval to, or "" for no window. Recorded on the
+    # result because every statistic below describes the cohort this admitted:
+    # a benchmark read without knowing its window answers a different question
+    # than the one asked.
+    published_since: str = ""
 
     def __post_init__(self) -> None:
         if self.phase not in {"target_review", "evidence_review", "final"}:
             raise ValueError("invalid Scout result phase")
+        self.published_since = self.published_since.strip()
+        if self.published_since:
+            try:
+                date.fromisoformat(self.published_since)
+            except ValueError as exc:
+                raise ValueError(
+                    "published_since must be an ISO date (YYYY-MM-DD)"
+                ) from exc
 
 
 @dataclass

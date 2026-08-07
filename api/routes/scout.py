@@ -71,6 +71,7 @@ def _response_from_result(
         source_type=source_type,
         intervention_class=intervention_class,
         indication=indication,
+        published_since=result.published_since,
         context_validation=DocumentContextValidationOut.model_validate(
             asdict(result.context_validation)
         ),
@@ -154,6 +155,7 @@ async def run_scout(
     source_type: str = Form(...),
     intervention_class: str = Form(...),
     indication: str = Form(...),
+    published_since: str = Form(""),
 ) -> StreamingResponse:
     try:
         config = find_config(org, source_type, intervention_class)
@@ -199,6 +201,9 @@ async def run_scout(
                 source_type=source_type,
                 intervention_class=intervention_class,
                 indication=indication,
+                # Declared here and carried on the draft, so the continuation
+                # cannot widen the cohort after targets were approved.
+                published_since=published_since,
                 quantitative_mapping_client=quantitative_client,
                 progress_callback=progress,
             )

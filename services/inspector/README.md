@@ -1,6 +1,6 @@
 # Inspector
 
-Evaluate a product-development document against its configured quality rubric.
+One product-development document against its configured quality rubric.
 
 ## Background
 

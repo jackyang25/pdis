@@ -550,10 +550,12 @@
                   "layer": "Input",
                   "inputs": [
                     "ContentBlocks",
-                    "Organization, document type, intervention, and indication"
+                    "Organization, document type, intervention, and indication",
+                    "An optional publication window"
                   ],
                   "outputs": [
-                    "Document-bound analysis context"
+                    "Document-bound analysis context",
+                    "The evidence window every later statistic describes"
                   ]
                 },
                 {
@@ -662,6 +664,13 @@
                       "title": "Finding normalization",
                       "summary": "Adapters return one finding contract while preserving every retrieval path.",
                       "kind": "integration",
+                      "layer": "Evidence boundary"
+                    },
+                    {
+                      "id": "window",
+                      "title": "Publication window",
+                      "summary": "A requested window is applied where evidence enters the run, not at display, so every later statistic describes the cohort it admitted. Findings their source left undated stay admitted, and each trace names the URLs the window held out.",
+                      "kind": "deterministic",
                       "layer": "Evidence boundary"
                     }
                   ]

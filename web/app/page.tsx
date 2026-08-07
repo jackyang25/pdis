@@ -29,10 +29,16 @@ const SECTIONS: readonly {
 }[] = [
   {
     id: "pst-workflows",
-    toolIds: ["inspector", "aligner", "scout", "bouncer"],
+    // Reading order, not alphabetical: check a document, test what it claims, then
+    // check the documents against each other, then take them to the gate. In the
+    // two-column grid this puts the two per-document tools on the first row.
+    toolIds: ["inspector", "scout", "aligner", "expert"],
     title: "PST team workflows",
+    // The only place the between-gates cycle is stated. Each card states what its
+    // tool is judged against; none of them repeats this. Keep the three clauses in
+    // the same order as `toolIds` above — the sentence is what the cards read as.
     description:
-      "Review development documents, test their evidence, and prepare stage-gate decisions.",
+      "Between stage gates these documents drift apart. Keep each one true to its rubric, its targets true to the evidence, and the documents true to each other — then bundle for the next gate.",
   },
   {
     id: "ghide-workflows",

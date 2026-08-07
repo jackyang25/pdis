@@ -2,7 +2,7 @@ export type ToolIcon =
   | "inspector"
   | "aligner"
   | "scout"
-  | "bouncer"
+  | "expert"
   | "chunker"
   | "searcher"
   | "evaluator"
@@ -20,6 +20,17 @@ export type ToolWorkflow =
 type ToolBase = {
   id: string;
   title: string;
+  /**
+   * What the tool reads, against the authority it is judged by, in that order.
+   *
+   * Inspector, Aligner, and Scout are told apart by their authority alone — a
+   * rubric, the other documents, outside evidence — so stating it in one shape is
+   * what keeps their scopes legible. Never write what a tool does not do; if the
+   * boundary is unclear, the positive statement is too vague.
+   *
+   * Where these sit in a PPL's process is said once, in the section copy in
+   * `app/page.tsx`, not here.
+   */
   description: string;
   capability: string;
   icon: ToolIcon;
@@ -51,7 +62,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/inspector",
     title: "Inspector",
     description:
-      "Check one document against its authored rubric: what is missing, off-template, vague, or internally inconsistent.",
+      "One document against its rubric: what is missing, off-template, vague, or internally inconsistent.",
     capability: "Document review",
     activity: "3–5 min",
     icon: "inspector",
@@ -65,7 +76,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/aligner",
     title: "Aligner",
     description:
-      "Check whether a candidate profile meets the intervention profile it answers to, and whether the development plan delivers it.",
+      "The intervention profile, candidate profile, and development plan against each other: where the candidate and the plan diverge from what was asked for.",
     capability: "Document comparison",
     activity: "10–15 min",
     icon: "aligner",
@@ -82,7 +93,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/scout",
     title: "Scout",
     description:
-      "Test a document’s targets against external evidence, comparable measurements, and development precedent.",
+      "One document’s targets against external evidence: comparable measurements and development precedent.",
     capability: "Evidence review",
     activity: "25–30 min",
     icon: "scout",
@@ -92,12 +103,12 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     availability: "available",
   },
   {
-    id: "bouncer",
-    title: "Bouncer",
+    id: "expert",
+    title: "Expert",
     description:
-      "Prepare a stage-gate review by checking required evidence and routing unresolved criteria to the right reviewers.",
+      "The documents against the stage-gate criteria: what is still unresolved, and which expert reviewer it goes to.",
     capability: "Stage-gate preparation",
-    icon: "bouncer",
+    icon: "expert",
     audience: "pst",
     workflow: "stage_gate",
     delivery: "workspace",

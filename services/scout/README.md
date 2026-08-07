@@ -1,6 +1,7 @@
 # Scout
 
-Test document targets against live evidence, comparators, and precedent.
+One document's targets against external evidence: live measurements, comparators,
+and development precedent.
 
 ## Background
 
@@ -40,6 +41,17 @@ domain field extends this vocabulary without adding a pipeline branch.
 `ScoutResult` contains attributes, source blocks, query and retrieval traces,
 insights, independent evidence judgments, quantitative review and calibration,
 and deterministic landscape and safety views.
+
+A run may declare `published_since`, an ISO date scoping retrieval. It is applied
+where retrieved evidence enters the run rather than at display, so every insight,
+precedent, and benchmark describes the cohort it admitted. The window is declared
+before retrieval and carried on the reviewed draft, so a continuation searches the
+window the user chose rather than widening it after targets were approved. A
+finding whose source supplied no publication date is admitted — an absent date is
+not evidence of age. `ScoutResult.published_since` records the window because a
+benchmark read without it answers a different question, and each
+`SearchTrace.excluded_before_window` names the subset of that trace's
+`source_urls` the window held out.
 
 ## Request scope
 

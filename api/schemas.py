@@ -201,6 +201,9 @@ class SearchTraceOut(BaseModel):
     error: str = ""
     finding_count: int = 0
     source_urls: list[str] = Field(default_factory=list)
+    # A subset of source_urls: retrieved, then held out because the source dated
+    # them before the requested window. Undated findings are never listed here.
+    excluded_before_window: list[str] = Field(default_factory=list)
 
 
 class EvidenceEntityOut(BaseModel):
@@ -563,6 +566,9 @@ class ScoutRunResponse(BaseModel):
     source_type: str
     intervention_class: str
     indication: str
+    # The retrieval window this run was scoped to, or "" for none. Published on
+    # the result because every statistic below describes the cohort it admitted.
+    published_since: str = ""
     context_validation: DocumentContextValidationOut
     quantitative_ledger: QuantitativeLedgerOut
     variables: list[VariableOut]

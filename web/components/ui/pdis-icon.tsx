@@ -14,7 +14,7 @@ export const PDIS_ICON_PATHS = {
   inspector: "freehand/form-edition-clipboard-check--Streamline-Freehand.svg",
   aligner: "freehand/business-workflow-compare--Streamline-Freehand.svg",
   scout: "freehand/hierarchy-web--Streamline-Freehand.svg",
-  bouncer: "freehand/business-coaching-whistle--Streamline-Freehand.svg",
+  expert: "freehand/human-resources-rating-man--Streamline-Freehand.svg",
   chunker: "freehand/data-transfer-document-module--Streamline-Freehand.svg",
   searcher: "freehand/search-magnifier--Streamline-Freehand.svg",
 

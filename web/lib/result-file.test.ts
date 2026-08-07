@@ -43,6 +43,7 @@ const inspection: InspectorResponse = {
 
 const scout: ScoutResponse = {
   phase: "final",
+  published_since: "",
   org: "bmgf",
   source_type: "itpp",
   intervention_class: "vaccine",

@@ -65,7 +65,7 @@ export default function InspectorPage() {
     <>
       <PageHeader
         title="Inspector"
-        description="Check every unit of the selected rubric, and every claim against the passage it came from."
+        description="One document against its rubric: every unit the rubric asks about, and every finding tied to the passage it came from."
       />
       <HeaderGuard>
         {(header, ready) => <InspectorView header={header as Header} ready={ready} />}

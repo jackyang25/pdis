@@ -6,6 +6,7 @@ import { buildScoutEvidenceMap } from "./scout-evidence-map.ts";
 
 const result = {
   phase: "final" as const,
+  published_since: "",
   org: "bmgf",
   source_type: "itpp",
   intervention_class: "vaccine",

@@ -9,6 +9,7 @@ searcher through their public contracts only.
 from __future__ import annotations
 
 import threading
+from datetime import date
 from pathlib import Path
 from typing import Callable, TypeVar
 
@@ -94,6 +95,7 @@ def run_pipeline(
     source_type: str,
     intervention_class: str,
     indication: str,
+    published_since: str = "",
     progress_callback=None,
 ) -> ScoutResult:
     """Prepare one canonical, client-held document-target review draft.
@@ -149,6 +151,7 @@ def run_pipeline(
             ),
             context_validation=context_validation,
             blocks=blocks,
+            published_since=published_since,
         ))
 
     # Provider-specific work ends here. Fixed definitions are resolved in
@@ -187,6 +190,7 @@ def run_pipeline(
                 ),
             ),
             context_validation=context_validation,
+            published_since=published_since,
         )
     ledger_batches = prepare_quantitative_ledger_batches(blocks, attributes)
 
@@ -241,6 +245,9 @@ def run_pipeline(
         variables=attributes,
         blocks=blocks,
         phase="target_review",
+        # Declared before retrieval and carried through the review round-trip,
+        # so the continuation searches the window the user actually chose.
+        published_since=published_since,
     ))
 
 
@@ -311,6 +318,7 @@ def continue_pipeline(
             variables=attributes,
             quantitative_ledger=quantitative_ledger,
             context_validation=context_validation,
+            published_since=prepared.published_since,
         )
 
     if progress_callback:
@@ -325,6 +333,7 @@ def continue_pipeline(
     findings_by_attribute, total_findings, search_plan = _search_all(
         search_tasks,
         retrieval_runtime,
+        published_since=prepared.published_since,
         progress=progress_callback,
     )
     if not findings_by_attribute:
@@ -335,6 +344,7 @@ def continue_pipeline(
             quantitative_ledger=quantitative_ledger,
             search_plan=search_plan,
             context_validation=context_validation,
+            published_since=prepared.published_since,
         )
 
     # Adapters own source-specific parsing. These views consume only normalized
@@ -478,6 +488,7 @@ def continue_pipeline(
         variables=attributes,
         blocks=blocks,
         phase="evidence_review" if has_evidence_review else "final",
+        published_since=prepared.published_since,
     ))
 
 
@@ -743,11 +754,23 @@ def _search_all(
     tasks: list[SearchRequest],
     runtime: SearchRuntime,
     *,
+    published_since: str = "",
     progress: ProgressFn | None = None,
 ) -> tuple[dict[str, list[Finding]], int, list[SearchTrace]]:
-    """Run Searcher's controller and merge normalized findings per Scout unit."""
+    """Run Searcher's controller and merge normalized findings per Scout unit.
+
+    This is the one place retrieved evidence enters the run, so a requested
+    window is applied here rather than at display: every insight, precedent, and
+    benchmark statistic downstream must describe the cohort the user asked for,
+    not a filtered view of a wider one.
+
+    A source that supplied no publication date leaves the finding admitted. Web
+    pages rarely carry one, and treating an absent date as an old date would
+    silently discard current evidence.
+    """
     if not tasks:
         return {}, 0, []
+    window_start = date.fromisoformat(published_since) if published_since else None
     outcomes = run_requests(
         tasks,
         runtime=runtime,
@@ -762,16 +785,25 @@ def _search_all(
         else None,
     )
 
+    def before_window(finding: Finding) -> bool:
+        if window_start is None or finding.published_at is None:
+            return False
+        return finding.published_at.date() < window_start
+
     findings_by_attribute: dict[str, list[Finding]] = {}
     by_attribute_url: dict[str, dict[str, Finding]] = {}
+    excluded_by_outcome: dict[int, list[str]] = {}
     total_findings = 0
     for outcome in outcomes:
         task = outcome.request
-        findings = outcome.findings
-        total_findings += len(findings)
+        excluded = excluded_by_outcome.setdefault(id(outcome), [])
         output = findings_by_attribute.setdefault(task.scope_ref, [])
         by_url = by_attribute_url.setdefault(task.scope_ref, {})
-        for finding in findings:
+        for finding in outcome.findings:
+            if before_window(finding):
+                excluded.append(finding.url)
+                continue
+            total_findings += 1
             if finding.url in by_url:
                 merge_findings(by_url[finding.url], finding)
                 continue
@@ -796,8 +828,14 @@ def _search_all(
             applicability_reason=task.applicability_reason,
             status=outcome.status,
             error=outcome.error,
+            # The retrieval record stays complete: `source_urls` is what the
+            # source returned, and the exclusions name which of those the window
+            # held out.
             finding_count=len(outcome.findings),
             source_urls=[finding.url for finding in outcome.findings],
+            excluded_before_window=list(
+                dict.fromkeys(excluded_by_outcome.get(id(outcome), []))
+            ),
         )
 
     search_plan = [trace_for(outcome) for outcome in outcomes]
@@ -994,6 +1032,7 @@ def _empty_result(
     variables: list[Attribute] | None = None,
     quantitative_ledger: QuantitativeLedger | None = None,
     search_plan: list[SearchTrace] | None = None,
+    published_since: str = "",
 ) -> ScoutResult:
     return validate_result_contract(ScoutResult(
         matches=[],
@@ -1018,6 +1057,7 @@ def _empty_result(
         search_plan=search_plan or [],
         context_validation=context_validation,
         blocks=blocks or [],
+        published_since=published_since,
     ))
 
 

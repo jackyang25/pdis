@@ -127,7 +127,7 @@ export default function AlignerPage() {
     <>
       <PageHeader
         title="Aligner"
-        description="Product-development documents against each other: whether the candidate and the plan deliver what was asked for."
+        description="The iTPP, cTPP, and IPDP against each other: whether the candidate and the plan deliver what was asked for."
       />
       <div className="flex flex-col gap-6">
         {(!session.result || showSetup) && (

@@ -6,7 +6,7 @@
     {
       "id": "overview",
       "title": "Overview",
-      "intro": "PDIS turns product-development documents into traceable analysis while keeping document quality, document alignment, and external evidence as separate responsibilities.",
+      "intro": "PDIS turns product-development documents into traceable analysis while keeping document quality, document alignment, and external evidence as separate responsibilities. Each tool is told apart by the authority it judges against, and a tool that judges nothing only reports what a source already states.",
       "content": [
         {
           "type": "steps",
@@ -28,7 +28,7 @@
         {
           "type": "note",
           "title": "Why this matters",
-          "text": "Inspector, Aligner, and Scout intentionally produce different outputs. None is a funding recommendation or a universal product score."
+          "text": "Inspector, Aligner, and Scout intentionally produce different outputs, because each judges against a different authority. None is a funding recommendation or a universal product score."
         }
       ]
     },

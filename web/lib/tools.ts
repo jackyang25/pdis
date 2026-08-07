@@ -22,12 +22,31 @@ type ToolBase = {
   id: string;
   title: string;
   /**
-   * What the tool reads, against the authority it is judged by, in that order.
+   * What the tool reads, against the authority it is judged by, then what you
+   * learn — one sentence, in that order.
    *
    * Inspector, Aligner, and Scout are told apart by their authority alone — a
    * rubric, the other documents, outside evidence — so stating it in one shape is
    * what keeps their scopes legible. Never write what a tool does not do; if the
    * boundary is unclear, the positive statement is too vague.
+   *
+   * Four rules keep them comparable, because a card is read beside its siblings and
+   * the differences between them are the whole point:
+   *
+   *   1. One sentence, 13-24 words. A longer card reads as a more important tool.
+   *      Librarian sits at the top of the range because it is the only one whose
+   *      source is access-controlled, and saying so is worth the words.
+   *   2. Name artifacts by their acronym — iTPP, cTPP, IPDP. Long-form
+   *      paraphrases make two cards about the same documents look like they are
+   *      about different ones.
+   *   3. The clause after the colon says what you learn, never what was searched.
+   *   4. No domain examples. Naming vaccine attributes couples the copy to one of
+   *      five intervention classes; what qualifies belongs in the attribute
+   *      vocabulary.
+   *
+   * Utility and external tools are a separate family and use imperative voice
+   * ("Turn DOCX and PPTX files into…"), because they perform a task rather than
+   * judge a document. Keep each family internally consistent.
    *
    * Where these sit in a PPL's process is said once, in the section copy in
    * `lib/tool-sections.ts`, not here.
@@ -89,7 +108,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/scout",
     title: "Scout",
     description:
-      "One document’s targets against external evidence: comparable measurements and development precedent.",
+      "One document’s targets against external evidence: whether its numbers hold up against comparable measurements and precedent.",
     capability: "Evidence review",
     activity: "25–30 min",
     icon: "scout",
@@ -103,7 +122,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/aligner",
     title: "Aligner",
     description:
-      "The intervention profile, candidate profile, and development plan against each other: where the candidate and the plan diverge from what was asked for.",
+      "The iTPP, cTPP, and IPDP against each other: where the candidate and the plan diverge from what was asked for.",
     capability: "Document comparison",
     activity: "10–15 min",
     icon: "aligner",
@@ -119,7 +138,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     id: "expert",
     title: "Expert",
     description:
-      "The documents against the stage-gate criteria: what is still unresolved, and which expert reviewer it goes to.",
+      "The iTPP, cTPP, and IPDP against the stage-gate criteria: what is still unresolved, and which reviewer it goes to.",
     capability: "Stage-gate preparation",
     icon: "expert",
     audience: "pst",
@@ -133,8 +152,14 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     // No authority clause, because this tool judges nothing. See the note on
     // `description` above: the others name what they are judged against, and
     // giving this one an authority to match would make it Aligner with a corpus.
+    // "Indication-independent", not "pathogen-independent": a pathogen is the
+    // vaccine-shaped instance of the general rule, and the config also carries
+    // drugs, mabs, diagnostics, and devices, whose indication may name no pathogen
+    // at all. No attribute examples for the same reason - dosing and duration of
+    // protection are vaccine-shaped, and which attributes qualify belongs to the
+    // attribute vocabulary rather than to this sentence.
     description:
-      "What comparable programs committed to on pathogen-independent attributes — dosing, protection, presentation, shelf life, price — read from the iTPPs, cTPPs, and IPDPs you are permitted to view. Nothing is uploaded; every value cites its source.",
+      "The iTPPs, cTPPs, and IPDPs you are permitted to view, without uploading one: what comparable programs committed to on attributes independent of the indication.",
     capability: "Library reference",
     icon: "librarian",
     audience: "pst",

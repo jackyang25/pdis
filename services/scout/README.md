@@ -1,7 +1,7 @@
 # Scout
 
-One document's targets against external evidence: live measurements, comparators,
-and development precedent.
+One document's targets against external evidence: whether its numbers hold up
+against live measurements, comparators, and development precedent.
 
 ## Background
 

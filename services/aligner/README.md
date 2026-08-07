@@ -1,7 +1,7 @@
 # Aligner
 
-Product-development documents against each other: whether the candidate and the
-plan deliver what was asked for.
+The iTPP, cTPP, and IPDP against each other: whether the candidate and the plan
+deliver what was asked for.
 **Between designs — the analysis has been removed.**
 
 ## Background

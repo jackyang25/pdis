@@ -45,11 +45,11 @@ There are no units, links, relations, counts, or findings of any kind. If the us
 Aligner never judges document quality (Inspector does that against a rubric) and never retrieves external evidence (Scout does that)."""
 
 WORKSPACE_LEGEND = """This is a read-only PDIS WORKSPACE bundle. Shape:
-- catalog[]: every available or planned tool with its audience, workflow, availability, delivery, and provider labels. Catalog entries describe capabilities; they are not analysis findings.
+- catalog[]: every available or planned tool with its audience, workflow, availability, delivery, and provider labels. Catalog entries describe capabilities; they are not analysis findings. Each description names what a tool reads and the authority it is judged against, which is what tells them apart; a tool whose description names no authority renders no verdict and only reports what a source already says.
 - results[]: current client-held final analyses or direct utility outputs. Each entry has a stable id, result_type, human-readable label, analysis tree, and the exact document_block_ids available to it.
 - conversation_attachments[]: transient files the user added to this conversation. They are user-supplied context, not PDIS findings or independently verified evidence; their block_ids link to the same exact document-reading tools.
 - An absent result type means that no eligible current result of that type is available. Say so plainly; never imply that a tool was run.
-Use each entry's result_type to interpret its analysis: Inspector judges one document against a rubric; Aligner judges documents against each other; Scout judges one document's targets against external evidence and precedent; Chunker exposes parsed source blocks; Searcher contains direct normalized retrieval findings. Compare entries only when the question calls for it, and identify which result supports each statement."""
+Use each entry's result_type to interpret its analysis: Inspector judges one document against a rubric; Aligner judges the iTPP, cTPP, and IPDP against each other; Scout judges one document's targets against external evidence and precedent; Chunker exposes parsed source blocks; Searcher contains direct normalized retrieval findings. Compare entries only when the question calls for it, and identify which result supports each statement."""
 
 _LEGENDS: dict[str, str] = {
     "aligner": ALIGNER_LEGEND,

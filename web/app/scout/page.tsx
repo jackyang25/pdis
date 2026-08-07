@@ -390,7 +390,7 @@ function SourceList({ findings }: { findings: Finding[] }) {
 export default function ScoutPage() {
   return (
     <>
-      <PageHeader title="Scout" description="One document’s targets against external evidence: live measurements, comparators, and development precedent." />
+      <PageHeader title="Scout" description="One document’s targets against external evidence: whether its numbers hold up against live measurements, comparators, and development precedent." />
       <HeaderGuard>
         {(header, ready) => <ScoutView header={header as Header} ready={ready} />}
       </HeaderGuard>
@@ -2998,10 +2998,9 @@ function ScoutConfiguration({
             max={new Date().toISOString().slice(0, 10)}
           />
           <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-            Searches only evidence published on or after this date, so a refresh
-            skips what the document already accounts for. Every count and
-            benchmark then describes that window. Sources that publish no date,
-            such as web pages, are still included.
+            Only evidence published on or after this date enters the run. Anything
+            older is dropped, so no count or benchmark includes it. Sources that
+            publish no date, such as web pages, are still included.
           </p>
         </ConfigField>
       </div>

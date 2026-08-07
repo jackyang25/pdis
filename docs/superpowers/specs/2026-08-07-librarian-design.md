@@ -25,8 +25,19 @@ The scope as settled: a dataset of the Foundation's own iTPPs, cTPPs, and IPDPs
 already exists. The user picks a few facts about the product they are planning —
 vaccine, infants, routine immunization — and Librarian reads across that library
 and shows what comparable programs committed to on the attributes that do not
-depend on the pathogen. Every value cites the exact block in the source document.
-No public evidence, no upload.
+depend on the indication. Every value cites the exact block in the source
+document. No public evidence, no upload.
+
+**A note on wording.** The email says "pathogen agnostic," and that is right for
+vaccines, but a pathogen is the vaccine-shaped instance of a general rule. The
+config carries five intervention classes — `vaccine`, `mab`, `drug`, `diagnostic`,
+`device` — and a diagnostic's or device's indication may name no pathogen at all.
+The general form is **independent of the indication**, which is the field the
+system already has. The same caution applies to the attribute examples: dosing
+schedule and duration of protection are vaccine-shaped, while presentation, shelf
+life, and procurement price hold across every class. Which attributes are actually
+indication-independent is per intervention class, so it belongs in the attribute
+vocabulary, not in code or copy.
 
 The question it answers is not "does my target hold up" but "what have we asked
 for before" — an answer that today exists only in people's heads and in thirty
@@ -184,8 +195,13 @@ wrong by most of the effort.
 ## Open product questions
 
 - Does "comparable" ever need to cross intervention classes? Two vaccines for
-  different pathogens are comparable; is a vaccine ever usefully compared to a
+  different indications are comparable; is a vaccine ever usefully compared to a
   monoclonal for the same population?
+- Which attributes are indication-independent for each of the five intervention
+  classes? This is a vocabulary question, answered per class in
+  `shared/attributes.yaml`, not a branch in the tool. Getting it wrong in one
+  direction hides useful comparisons; in the other it presents an
+  indication-specific number as though it generalized.
 - Are IPDPs in scope for values, or only iTPPs and cTPPs? An IPDP states plan
   commitments rather than product attributes, which may make it a third partition
   rather than a source of attribute values.

@@ -118,6 +118,14 @@ does not grade quality") means the positive statement is too weak; tighten the
 positive statement instead. Guidance for the model, such as the Ask legends, is
 the exception: there a negative is a guardrail, not a definition.
 
+Those descriptions are read side by side, so they must be comparable as well as
+correct. One sentence, 13–24 words, artifacts named by acronym (iTPP, cTPP, IPDP),
+the clause after the colon saying what you learn rather than what was searched, and
+no domain examples — naming vaccine attributes couples the copy to one of five
+intervention classes. Utility and external tools are a separate family in
+imperative voice; keep each family internally consistent. The rules and their
+reasons live on `description` in `web/lib/tools.ts`.
+
 Where the tools sit in a PPL's process is a separate statement and is made once,
 in the section above the tool cards: between stage gates the document set drifts,
 and these tools keep it true to its rubric, true to itself, and true to the

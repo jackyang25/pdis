@@ -1,33 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, CircleHelp } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, Plus, X } from "lucide-react";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ErrorMessage } from "@/components/ui/error-message";
-import {
-  DocumentSourceProvider,
-  DocumentSourceTrace,
-} from "@/components/document-source-trace";
+import { DocumentSourceProvider } from "@/components/document-source-trace";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel, type DocumentSlot } from "@/components/run-panel";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  ConfigField,
-  ConfigFieldGrid,
-  ConfigSelect,
-  ConfigurationShell,
-} from "@/components/ui/config-field";
+  ContextFields,
+  SourceTypeField,
+  useSupportedDocumentTypes,
+} from "@/components/configuration-fields";
+import { ConfigurationShell } from "@/components/ui/config-field";
 import {
-  fetchDocumentTypes,
-  fetchIndications,
+  fetchAlignerEdges,
   runAligner,
-  type AlignmentLink,
-  type AlignmentRelation,
+  type AlignmentEdgeSpec,
   type AlignmentResult,
-  type AlignmentUnit,
-  type AlignmentUnitType,
-  type DocumentType,
 } from "@/lib/api";
 import {
   alignerResultFilename,
@@ -35,60 +26,27 @@ import {
   unpackAlignerResult,
 } from "@/lib/result-file";
 import { useAlignerSession } from "@/lib/session";
-import { cn } from "@/lib/utils";
+import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
 
-const STEPS = [
-  { key: "parse", label: "Parsing documents" },
-  { key: "extract", label: "Extracting traceable units" },
-  { key: "align", label: "Aligning documents" },
+const STEPS = [{ key: "parse", label: "Parsing documents" }];
+
+/** A document the user has added but may not have chosen a type for yet. */
+type DocumentChoice = { key: string; sourceType: string };
+
+const INITIAL_CHOICES: DocumentChoice[] = [
+  { key: "d1", sourceType: "" },
+  { key: "d2", sourceType: "" },
 ];
-// The relations are directional — `missing` and `introduced` are mirror images —
-// so which document is the baseline is a stated choice, not an upload order.
-const DOCUMENT_SLOTS: readonly DocumentSlot[] = [
-  {
-    id: "reference",
-    label: "Reference document",
-    helper: "The baseline whose commitments should be carried forward.",
-  },
-  {
-    id: "comparison",
-    label: "Comparison document",
-    helper: "The later or downstream artifact being checked.",
-  },
-];
-const RELATIONS: AlignmentRelation[] = [
-  "aligned",
-  "modified",
-  "conflict",
-  "missing",
-  "introduced",
-];
-const UNIT_TYPES: AlignmentUnitType[] = [
-  "target",
-  "activity",
-  "milestone",
-  "requirement",
-  "dependency",
-  "risk_response",
-];
-const RELATION_STYLES: Record<AlignmentRelation, string> = {
-  aligned: "border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-700",
-  modified: "border-amber-500/30 bg-amber-500/[0.07] text-amber-700",
-  conflict: "border-[hsl(var(--tone-danger))]/25 bg-[hsl(var(--tone-danger))]/[0.06] text-[hsl(var(--tone-danger))]",
-  missing: "border-slate-400/30 bg-slate-500/[0.06] text-slate-700",
-  introduced: "border-blue-500/25 bg-blue-500/[0.06] text-blue-700",
-};
 
 export default function AlignerPage() {
   const session = useAlignerSession();
-  const [documentTypes, setDocumentTypes] = useState<DocumentType[] | null>(null);
-  const [indications, setIndications] = useState<string[]>([]);
-  const [org, setOrg] = useState("");
-  const [intervention, setIntervention] = useState("");
-  const [indication, setIndication] = useState("");
-  const [referenceType, setReferenceType] = useState("");
-  const [comparisonType, setComparisonType] = useState("");
+  // Context comes from the shared store like every other tool, so a choice made
+  // on Inspector or Scout is still there when the user arrives here. Only the
+  // per-document types are Aligner's own, because only their count differs.
+  const header = useHeaderStore((state) => state.header);
+  const [declaredEdges, setDeclaredEdges] = useState<AlignmentEdgeSpec[]>([]);
+  const [choices, setChoices] = useState<DocumentChoice[]>(INITIAL_CHOICES);
   const [showSetup, setShowSetup] = useState(!session.result);
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -97,50 +55,51 @@ export default function AlignerPage() {
   }, [session.result]);
 
   useEffect(() => {
-    fetchDocumentTypes()
-      .then(setDocumentTypes)
-      .catch((error: Error) => session.setError(error.message));
+    // Surfaced rather than swallowed: without the declared comparisons nothing
+    // can resolve, so Run would gate with no way for the user to learn why.
+    fetchAlignerEdges()
+      .then(setDeclaredEdges)
+      .catch((error: Error) =>
+        session.setError(`Could not load the comparisons Aligner makes: ${error.message}`),
+      );
   }, [session.setError]);
 
+  // A type chosen under one context does not exist under another, so changing
+  // either clears the document rows rather than leaving a stale selection.
   useEffect(() => {
-    if (!intervention) {
-      setIndications([]);
-      return;
-    }
-    fetchIndications(intervention).then(setIndications).catch(() => setIndications([]));
-  }, [intervention]);
+    setChoices(INITIAL_CHOICES);
+  }, [header.org, header.intervention_class]);
 
-  const supported = useMemo(
-    () => (documentTypes ?? []).filter((item) => item.supports.aligner),
-    [documentTypes],
-  );
-  const orgs = unique(supported.map((item) => item.org));
-  const interventions = unique(
-    supported.filter((item) => item.org === org).map((item) => item.intervention_class),
-  );
-  const sourceTypes = supported.filter(
-    (item) => item.org === org && item.intervention_class === intervention,
-  );
-  const configured = Boolean(
-    org && intervention && indication && referenceType && comparisonType,
+  const chosen = choices.map((choice) => choice.sourceType).filter(Boolean);
+  // Every declared comparison whose two documents are both present. This is the
+  // same rule the service applies, read from the same config it publishes, so the
+  // preview cannot promise a comparison the run will not make.
+  const comparisons = declaredEdges.filter(
+    (edge) => chosen.includes(edge.reference) && chosen.includes(edge.comparison),
   );
 
-  async function handleRun(referenceFile: File, comparisonFile: File) {
-    if (!configured) return;
+  const slots: readonly DocumentSlot[] = chosen.map((sourceType) => ({
+    id: sourceType,
+    label: displayLabel(sourceType),
+  }));
+  const contextReady = isContextComplete(header);
+  const configured = contextReady && chosen.length >= 2 && comparisons.length > 0;
+
+  async function handleRun(files: Record<string, File>) {
+    if (!configured || !contextReady) return;
     session.setBusy(true);
     session.setError(null);
     session.setStage(null);
     session.setProgress(null);
     try {
       const result = await runAligner(
-        referenceFile,
-        comparisonFile,
+        // Read from the slots this page declared, never from every file the panel
+        // is holding: a type the user switched away from may still have one.
+        chosen.map((sourceType) => ({ file: files[sourceType], sourceType })),
         {
-          org,
-          reference_source_type: referenceType,
-          comparison_source_type: comparisonType,
-          intervention_class: intervention,
-          indication,
+          org: header.org,
+          intervention_class: header.intervention_class,
+          indication: header.indication,
         },
         (stage, progress) => {
           session.setStage(stage);
@@ -168,76 +127,34 @@ export default function AlignerPage() {
     <>
       <PageHeader
         title="Aligner"
-        description="Trace what was preserved, changed, contradicted, omitted, or introduced across two development documents."
+        description="Compare product-development documents against the ones they answer to."
       />
       <div className="flex flex-col gap-6">
         {(!session.result || showSetup) && (
           <RunPanel
             busy={session.busy}
-            documents={DOCUMENT_SLOTS}
-            onRun={(files) => void handleRun(files.reference, files.comparison)}
+            documents={slots}
+            onRun={(files) => void handleRun(files)}
             steps={STEPS}
             currentStage={session.stage}
             progress={session.progress}
             runDisabled={!configured}
-            hint={configured ? undefined : "Complete the configuration to run."}
+            hint={runHint(contextReady, chosen, comparisons, declaredEdges)}
             runLabel="Run alignment"
             busyLabel="Aligning"
             configuration={
               <ConfigurationShell>
-                <ConfigFieldGrid>
-                  <ConfigField label="Organization">
-                    <ConfigSelect
-                      value={org}
-                      options={orgs.map((value) => ({ value, label: displayLabel(value) }))}
-                      disabled={!documentTypes}
-                      onChange={(value) => {
-                        setOrg(value);
-                        setIntervention("");
-                        setIndication("");
-                        setReferenceType("");
-                        setComparisonType("");
-                      }}
-                    />
-                  </ConfigField>
-                  <ConfigField label="Intervention" disabled={!org}>
-                    <ConfigSelect
-                      value={intervention}
-                      options={interventions.map((value) => ({ value, label: displayLabel(value) }))}
-                      disabled={!org}
-                      onChange={(value) => {
-                        setIntervention(value);
-                        setIndication("");
-                        setReferenceType("");
-                        setComparisonType("");
-                      }}
-                    />
-                  </ConfigField>
-                  <ConfigField label="Reference type" disabled={!intervention}>
-                    <ConfigSelect
-                      value={referenceType}
-                      options={sourceTypes.map((item) => ({ value: item.source_type, label: displayLabel(item.source_type) }))}
-                      disabled={!intervention}
-                      onChange={setReferenceType}
-                    />
-                  </ConfigField>
-                  <ConfigField label="Comparison type" disabled={!intervention}>
-                    <ConfigSelect
-                      value={comparisonType}
-                      options={sourceTypes.map((item) => ({ value: item.source_type, label: displayLabel(item.source_type) }))}
-                      disabled={!intervention}
-                      onChange={setComparisonType}
-                    />
-                  </ConfigField>
-                  <ConfigField label="Indication" disabled={!intervention}>
-                    <ConfigSelect
-                      value={indication}
-                      options={indications.map((value) => ({ value, label: displayLabel(value) }))}
-                      disabled={!intervention}
-                      onChange={setIndication}
-                    />
-                  </ConfigField>
-                </ConfigFieldGrid>
+                <ContextFields />
+                <DocumentChooser
+                  choices={choices}
+                  disabled={!contextReady}
+                  onChange={setChoices}
+                />
+                <ComparisonPreview
+                  comparisons={comparisons}
+                  chosen={chosen}
+                  declared={declaredEdges}
+                />
               </ConfigurationShell>
             }
             extraControls={
@@ -279,6 +196,148 @@ export default function AlignerPage() {
   );
 }
 
+/**
+ * Which documents this run holds.
+ *
+ * Each row offers only the types no other row has taken, so two documents of the
+ * same type - which the service refuses - cannot be selected in the first place.
+ * A rule enforced by the options is one the user never has to read an error about.
+ */
+function DocumentChooser({
+  choices,
+  disabled,
+  onChange,
+}: {
+  choices: DocumentChoice[];
+  disabled?: boolean;
+  onChange: (next: DocumentChoice[]) => void;
+}) {
+  // Only to cap the rows: a run cannot hold more documents than there are types,
+  // because each type may appear once. The options themselves are the shared
+  // field's business, not this component's.
+  const { types } = useSupportedDocumentTypes();
+  const available = new Set((types ?? []).map((item) => item.source_type)).size;
+  const taken = choices.map((choice) => choice.sourceType).filter(Boolean);
+  const canAdd = !disabled && choices.length < available;
+
+  return (
+    <div className="mt-4">
+      <div className="mt-1 flex flex-col gap-3">
+        {choices.map((choice, index) => (
+          <div key={choice.key} className="flex items-end gap-1.5">
+            <div className="min-w-0 flex-1">
+              <SourceTypeField
+                label={`Document ${index + 1}`}
+                value={choice.sourceType || undefined}
+                exclude={taken}
+                onChange={(value) =>
+                  onChange(
+                    choices.map((item, position) =>
+                      position === index ? { ...item, sourceType: value } : item,
+                    ),
+                  )
+                }
+              />
+            </div>
+            <button
+              type="button"
+              aria-label={`Remove document ${index + 1}`}
+              disabled={disabled || choices.length <= 2}
+              onClick={() =>
+                onChange(choices.filter((_, position) => position !== index))
+              }
+              className="mb-0.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        disabled={!canAdd}
+        onClick={() =>
+          onChange([...choices, { key: `d${Date.now()}`, sourceType: "" }])
+        }
+        className="mt-2.5 flex items-center gap-1.5 text-xs font-medium text-primary transition-opacity hover:opacity-75 disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add document
+      </button>
+    </div>
+  );
+}
+
+/**
+ * What the run will actually compare, shown before it runs.
+ *
+ * Read from the service's own declared comparisons rather than a list restated
+ * here, so the preview and the run cannot disagree.
+ */
+function ComparisonPreview({
+  comparisons,
+  chosen,
+  declared,
+}: {
+  comparisons: AlignmentEdgeSpec[];
+  chosen: string[];
+  declared: AlignmentEdgeSpec[];
+}) {
+  if (chosen.length < 2) return null;
+
+  return (
+    <div className="mt-5 border-t border-border pt-4">
+      <p className="text-xs font-medium">Comparisons</p>
+      {comparisons.length > 0 ? (
+        <ul className="mt-2 flex flex-col gap-2.5">
+          {comparisons.map((edge) => (
+            <li key={`${edge.reference}-${edge.comparison}`}>
+              <p className="flex items-center gap-1.5 text-xs font-medium">
+                <span>{displayLabel(edge.reference)}</span>
+                <ArrowRight aria-label="compared against" className="h-3 w-3 text-muted-foreground" />
+                <span>{displayLabel(edge.comparison)}</span>
+              </p>
+              <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                {edge.question}
+              </p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+          These documents form no comparison. Aligner compares{" "}
+          {declared
+            .map((edge) => `${displayLabel(edge.reference)} to ${displayLabel(edge.comparison)}`)
+            .join(", ")}
+          .
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Why Run is gated, naming the one thing still missing. */
+function runHint(
+  contextReady: boolean,
+  chosen: string[],
+  comparisons: AlignmentEdgeSpec[],
+  declared: AlignmentEdgeSpec[],
+): string | undefined {
+  if (!contextReady) return "Complete the configuration to run.";
+  if (chosen.length < 2) return "Choose a type for at least two documents.";
+  if (declared.length > 0 && comparisons.length === 0) {
+    return "These documents form no comparison.";
+  }
+  return undefined;
+}
+
+/**
+ * What a run produces today: every document, parsed and citable.
+ *
+ * The matrix, relation filters, and link rows that used to live here were removed
+ * with the analysis behind them. `DocumentSourceProvider` stays because it is what
+ * makes any future finding resolvable to its source passage.
+ */
 function AlignmentView({
   result,
   onNewAnalysis,
@@ -286,30 +345,21 @@ function AlignmentView({
   result: AlignmentResult;
   onNewAnalysis: () => void;
 }) {
-  const [relationFilter, setRelationFilter] = useState<AlignmentRelation | "all">("all");
-  const [unitTypeFilter, setUnitTypeFilter] = useState<AlignmentUnitType | "all">("all");
-  const units = useMemo(() => new Map(result.units.map((unit) => [unit.id, unit])), [result.units]);
-  const links = result.links.filter((link) => {
-    const unitType = primaryUnitType(link, units);
-    return (
-      (relationFilter === "all" || link.relation === relationFilter) &&
-      (unitTypeFilter === "all" || unitType === unitTypeFilter)
-    );
-  });
-  const definitions = new Map(result.relations.map((item) => [item.name, item.description]));
+  const nameOf = new Map(
+    result.documents.map((document) => [document.doc_id, displayLabel(document.source_type)]),
+  );
+  const blockCount = (docId: string) =>
+    result.blocks.filter((block) => block.doc_id === docId).length;
 
   return (
     <DocumentSourceProvider blocks={result.blocks}>
       <CollapsibleCard
-        title="Traceability result"
+        title="Parsed documents"
         subtitle={
           <span>
-            {result.reference_document.doc_id}{" "}
-            <ArrowRight className="mx-1 inline h-3 w-3" />{" "}
-            {result.comparison_document.doc_id}
+            {result.documents.map((document) => document.doc_id).join(", ")}
           </span>
         }
-        contentClassName="p-0"
         trailing={
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
@@ -320,235 +370,45 @@ function AlignmentView({
           />
         }
       >
-        <div className="flex items-center gap-2 border-b border-border px-5 py-3 sm:px-6">
-          <p className="text-xs font-medium text-muted-foreground">Relationship matrix</p>
-          <RelationHelp definitions={result.relations} />
-        </div>
-        <AlignmentMatrix
-          links={result.links}
-          units={units}
-          relationFilter={relationFilter}
-          unitTypeFilter={unitTypeFilter}
-          definitions={definitions}
-          onRelationChange={setRelationFilter}
-          onUnitTypeChange={setUnitTypeFilter}
-        />
+        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {result.documents.map((document) => (
+            <div key={document.doc_id} className="min-w-0">
+              <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                {displayLabel(document.source_type)}
+              </dt>
+              <dd className="mt-1 truncate text-sm font-medium">{document.doc_id}</dd>
+              <dd className="mt-0.5 text-xs text-muted-foreground">
+                {blockCount(document.doc_id)} blocks
+              </dd>
+            </div>
+          ))}
+        </dl>
 
-        <div className="flex min-h-11 items-center justify-between gap-4 border-b border-border px-5 py-2.5 text-xs text-muted-foreground">
-          <span>Showing {links.length} of {result.links.length} links</span>
-          {(relationFilter !== "all" || unitTypeFilter !== "all") && (
-            <button
-              type="button"
-              className="font-medium text-foreground transition-opacity hover:opacity-65 motion-reduce:transition-none"
-              onClick={() => { setRelationFilter("all"); setUnitTypeFilter("all"); }}
-            >
-              Clear filter
-            </button>
-          )}
+        <div className="mt-5 border-t border-border pt-4">
+          <p className="text-xs font-medium">Comparisons</p>
+          <ul className="mt-2 flex flex-col gap-2.5">
+            {result.edges.map((edge) => (
+              <li key={`${edge.reference_doc_id}-${edge.comparison_doc_id}`}>
+                <p className="flex items-center gap-1.5 text-xs font-medium">
+                  <span>{nameOf.get(edge.reference_doc_id)}</span>
+                  <ArrowRight aria-label="compared against" className="h-3 w-3 text-muted-foreground" />
+                  <span>{nameOf.get(edge.comparison_doc_id)}</span>
+                </p>
+                <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                  {edge.question}
+                </p>
+              </li>
+            ))}
+          </ul>
         </div>
 
-        <div className="divide-y divide-border">
-          {links.map((link) => <AlignmentRow key={link.id} link={link} units={units} definition={definitions.get(link.relation)} />)}
-          {links.length === 0 && <p className="px-5 py-10 text-center text-sm text-muted-foreground">No links match this filter.</p>}
-        </div>
+        <p className="mt-5 border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
+          Every document is parsed and citable, and the comparisons above are the
+          ones a run will make. Aligner reports no findings against them yet: its
+          analysis was removed and the shape that replaces it is still being
+          designed.
+        </p>
       </CollapsibleCard>
     </DocumentSourceProvider>
   );
 }
-
-function AlignmentMatrix({
-  links,
-  units,
-  relationFilter,
-  unitTypeFilter,
-  definitions,
-  onRelationChange,
-  onUnitTypeChange,
-}: {
-  links: AlignmentLink[];
-  units: Map<string, AlignmentUnit>;
-  relationFilter: AlignmentRelation | "all";
-  unitTypeFilter: AlignmentUnitType | "all";
-  definitions: Map<string, string>;
-  onRelationChange: (value: AlignmentRelation | "all") => void;
-  onUnitTypeChange: (value: AlignmentUnitType | "all") => void;
-}) {
-  const counts = new Map<string, number>();
-  for (const link of links) {
-    const unitType = primaryUnitType(link, units);
-    if (!unitType) continue;
-    const key = `${unitType}:${link.relation}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  const maxCount = Math.max(1, ...counts.values());
-
-  return (
-    <div className="border-b border-border px-5 py-5">
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold tracking-[-0.015em]">Alignment matrix</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Select a row, column, or cell to inspect its underlying trace.
-        </p>
-      </div>
-      <div className="overflow-x-auto rounded-md border border-border">
-        <table className="w-full min-w-[680px] table-fixed border-collapse text-xs">
-          <thead>
-            <tr className="bg-muted/25">
-              <th scope="col" className="w-40 border-b border-r border-border px-3 py-2.5 text-left font-medium text-muted-foreground">
-                Unit type
-              </th>
-              {RELATIONS.map((relation) => {
-                const total = links.filter((link) => link.relation === relation).length;
-                return (
-                  <th key={relation} scope="col" className="border-b border-r border-border p-0 last:border-r-0">
-                    <button
-                      type="button"
-                      title={definitions.get(relation)}
-                      onClick={() => onRelationChange(relationFilter === relation ? "all" : relation)}
-                      className={cn(
-                        "flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left font-medium transition-colors hover:bg-muted/50 motion-reduce:transition-none",
-                        relationFilter === relation && "bg-muted/70 text-foreground",
-                      )}
-                    >
-                      <span>{displayLabel(relation)}</span>
-                      <span className="tabular-nums text-muted-foreground">{total}</span>
-                    </button>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {UNIT_TYPES.map((unitType) => (
-              <tr key={unitType}>
-                <th scope="row" className="border-b border-r border-border p-0 last:border-b-0">
-                  <button
-                    type="button"
-                    onClick={() => onUnitTypeChange(unitTypeFilter === unitType ? "all" : unitType)}
-                    className={cn(
-                      "w-full px-3 py-3 text-left font-medium transition-colors hover:bg-muted/50 motion-reduce:transition-none",
-                      unitTypeFilter === unitType && "bg-muted/70",
-                    )}
-                  >
-                    {displayLabel(unitType)}
-                  </button>
-                </th>
-                {RELATIONS.map((relation) => {
-                  const count = counts.get(`${unitType}:${relation}`) ?? 0;
-                  const selected = relationFilter === relation && unitTypeFilter === unitType;
-                  return (
-                    <td key={relation} className="border-b border-r border-border p-1.5 last:border-r-0">
-                      <button
-                        type="button"
-                        disabled={count === 0}
-                        aria-label={`${count} ${displayLabel(relation)} ${displayLabel(unitType)} links`}
-                        onClick={() => {
-                          if (selected) {
-                            onRelationChange("all");
-                            onUnitTypeChange("all");
-                          } else {
-                            onRelationChange(relation);
-                            onUnitTypeChange(unitType);
-                          }
-                        }}
-                        style={{ backgroundColor: matrixColor(relation, count, maxCount) }}
-                        className={cn(
-                          "flex h-9 w-full items-center justify-center rounded text-sm font-semibold tabular-nums transition-[box-shadow,transform] enabled:hover:-translate-y-px enabled:hover:shadow-sm disabled:text-muted-foreground/30 motion-reduce:transition-none",
-                          selected && "ring-1 ring-inset ring-foreground/60",
-                        )}
-                      >
-                        {count}
-                      </button>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function primaryUnitType(
-  link: AlignmentLink,
-  units: Map<string, AlignmentUnit>,
-): AlignmentUnitType | null {
-  const unitId = link.reference_unit_ids[0] ?? link.comparison_unit_ids[0];
-  return unitId ? units.get(unitId)?.unit_type ?? null : null;
-}
-
-function matrixColor(
-  relation: AlignmentRelation,
-  count: number,
-  maxCount: number,
-): string {
-  if (count === 0) return "transparent";
-  const colors: Record<AlignmentRelation, string> = {
-    aligned: "16, 185, 129",
-    modified: "245, 158, 11",
-    conflict: "239, 68, 68",
-    missing: "100, 116, 139",
-    introduced: "59, 130, 246",
-  };
-  const alpha = 0.08 + 0.2 * (count / maxCount);
-  return `rgba(${colors[relation]}, ${alpha.toFixed(3)})`;
-}
-
-function RelationHelp({ definitions }: { definitions: { name: string; description: string }[] }) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button type="button" aria-label="Explain alignment relations" className="text-muted-foreground transition-colors hover:text-foreground motion-reduce:transition-none">
-          <CircleHelp className="h-3.5 w-3.5" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-80">
-        <p className="text-xs font-semibold">Alignment relations</p>
-        <dl className="mt-3 space-y-2.5">
-          {definitions.map((item) => <div key={item.name}><dt className="text-[11px] font-medium">{displayLabel(item.name)}</dt><dd className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{item.description}</dd></div>)}
-        </dl>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function AlignmentRow({ link, units, definition }: { link: AlignmentLink; units: Map<string, AlignmentUnit>; definition?: string }) {
-  const references = link.reference_unit_ids.map((id) => units.get(id)).filter(Boolean) as AlignmentUnit[];
-  const comparisons = link.comparison_unit_ids.map((id) => units.get(id)).filter(Boolean) as AlignmentUnit[];
-  return (
-    <article className="px-5 py-5">
-      <div className="flex items-start justify-between gap-4">
-        <span title={definition} className={cn("rounded-full border px-2.5 py-1 text-[10px] font-semibold capitalize", RELATION_STYLES[link.relation])}>
-          {displayLabel(link.relation)}
-        </span>
-        <span className="text-[10px] text-muted-foreground">{references[0]?.unit_type ? displayLabel(references[0].unit_type) : comparisons[0]?.unit_type ? displayLabel(comparisons[0].unit_type) : "Unit"}</span>
-      </div>
-      <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-start">
-        <UnitSide label="Reference" units={references} empty="No reference unit" />
-        <ArrowRight className="mt-7 hidden h-4 w-4 text-muted-foreground/60 md:block" />
-        <UnitSide label="Comparison" units={comparisons} empty="No comparison unit" />
-      </div>
-      <p className="mt-4 text-xs leading-5 text-muted-foreground">{link.reason}</p>
-    </article>
-  );
-}
-
-function UnitSide({ label, units, empty }: { label: string; units: AlignmentUnit[]; empty: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
-      {units.length ? units.map((unit) => (
-        <div key={unit.id} className="mb-2 last:mb-0">
-          <p className="text-sm leading-6">{unit.statement}</p>
-          <div className="mt-1">
-            <DocumentSourceTrace blockIds={unit.block_ids} />
-          </div>
-        </div>
-      )) : <p className="text-sm italic text-muted-foreground/70">{empty}</p>}
-    </div>
-  );
-}
-
-function unique(values: string[]) { return Array.from(new Set(values)).sort(); }

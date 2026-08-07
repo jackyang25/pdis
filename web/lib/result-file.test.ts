@@ -147,26 +147,53 @@ test("current Inspector results round-trip exactly", () => {
   assert.deepEqual(unpackInspectorResult(packed), inspection);
 });
 
-test("current Aligner results separate both source documents", () => {
-  const comparisonBlock = { ...block, id: "later:1", doc_id: "later" };
-  const result: AlignerResponse = {
+/** Three documents and the two comparisons they resolve, matching the config. */
+function alignerResult(): AlignerResponse {
+  return {
     alignment: {
-      reference_document: { role: "reference", doc_id: "doc", source_type: "itpp", display_name: "iTPP" },
-      comparison_document: { role: "comparison", doc_id: "later", source_type: "ipdp", display_name: "IPDP" },
-      units: [],
-      links: [],
-      stats: { reference_units: 0, comparison_units: 0, aligned: 0, modified: 0, conflict: 0, missing: 0, introduced: 0 },
+      documents: [
+        { doc_id: "doc", source_type: "itpp", display_name: "iTPP" },
+        { doc_id: "candidate", source_type: "ctpp", display_name: "cTPP" },
+        { doc_id: "later", source_type: "ipdp", display_name: "IPDP" },
+      ],
+      edges: [
+        { reference_doc_id: "doc", comparison_doc_id: "candidate", question: "Meets the bar?" },
+        { reference_doc_id: "candidate", comparison_doc_id: "later", question: "Delivers it?" },
+      ],
       org: "bmgf",
       intervention_class: "vaccine",
       indication: "malaria",
-      unit_types: [],
-      relations: [],
-      blocks: [block, comparisonBlock],
+      blocks: [
+        block,
+        { ...block, id: "candidate:1", doc_id: "candidate" },
+        { ...block, id: "later:1", doc_id: "later" },
+      ],
     },
   };
+}
+
+test("current Aligner results separate every source document", () => {
+  const result = alignerResult();
   const packed = packAlignerResult(result);
-  assert.equal(packed.source_documents.length, 2);
+  // 2, because the extract-and-link analysis was removed: a v1 file describes
+  // units and relations this code has no types for, so it must not import.
+  assert.equal(packed.analysis_version, 2);
+  // Three, not two: how many documents a run holds is Aligner's configuration to
+  // decide, and nothing in the envelope assumes a number.
+  assert.equal(packed.source_documents.length, 3);
   assert.deepEqual(unpackAlignerResult(packed), result);
+});
+
+test("an Aligner comparison must name documents the file carries", () => {
+  const dangling = alignerResult();
+  dangling.alignment.edges[0].reference_doc_id = "absent";
+  assert.throws(() => packAlignerResult(dangling), /does not carry/);
+});
+
+test("an Aligner result with no comparison is refused", () => {
+  const uncompared = alignerResult();
+  uncompared.alignment.edges = [];
+  assert.throws(() => packAlignerResult(uncompared), /no comparison/);
 });
 
 test("current Scout results round-trip exactly", () => {
@@ -287,14 +314,7 @@ test("portable result filenames consistently use source IDs and tool names", () 
     "draft-aiv-itpp-v1-13july2016-inspector.json",
   );
 
-  const namedAligner = structuredClone({
-    alignment: {
-      reference_document: { doc_id: "Reference TPP" },
-      comparison_document: { doc_id: "Candidate TPP" },
-    },
-  }) as AlignerResponse;
-  assert.equal(
-    alignerResultFilename(namedAligner),
-    "reference-tpp-to-candidate-tpp-aligner.json",
-  );
+  // Named by document type, so a three-document run reads as what it compared
+  // rather than as two filenames with a third silently dropped.
+  assert.equal(alignerResultFilename(alignerResult()), "itpp-ctpp-ipdp-aligner.json");
 });

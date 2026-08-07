@@ -64,6 +64,21 @@ web/ → api/ → services/ → shared/
 - Document tools use `org`, `source_type`, `intervention_class`, and
   `indication`. The first three select configuration; all four are output
   provenance. Never reintroduce `therapeutic_area`.
+- A tool's configuration rail holds three buckets, and which one a field belongs
+  to is decided by a single question: **does the value leave the tool?**
+  1. **Context** — `org`, `intervention_class`, `indication`. Always one each,
+     every tool, from the shared store via `ContextFields`.
+  2. **Document type** — `source_type`, via `SourceTypeField`. One per document,
+     so one for most tools and several for Aligner.
+  3. **Run parameters** — a tool's own knobs. Composed from the primitives in
+     `ui/config-field.tsx`, owned entirely by that tool's page.
+
+  Buckets 1 and 2 are contract data: they select configuration, are stamped on
+  every block, travel in saved results, and are read across tools by Ask. They
+  have one implementation each and take no field list — a shared component that
+  could be configured is one that lets two tools disagree. Bucket 3 never leaves
+  its tool, so nothing shared owns it. The split between 1 and 2 is cardinality,
+  not status.
 - `itpp`, `ctpp`, and `ipdp` differences belong in configuration framing and
   unit providers, not downstream conditionals.
 
@@ -154,14 +169,25 @@ it. `document_findings[]` holds the conflicts no unit owns.
 
 ### Aligner
 
-- Aligner compares exactly one reference document with one comparison document.
-- Units use the closed vocabulary `target | activity | milestone | requirement |
-  dependency | risk_response`. Relations are `aligned | modified | conflict |
-  missing | introduced`.
-- Every unit and relation retains both documents' exact block lineage. Code
-  derives omitted `missing`/`introduced` relations and counts deterministically.
-- Document-type differences remain configuration; both inputs converge to the
-  same unit and relation contracts.
+- Aligner currently reports no findings. A run parses its documents and returns
+  them with the comparisons they resolve. When an analysis vocabulary is added it
+  belongs in `configs/alignment.yaml`, never in code.
+- **No stage knows how many documents a run holds or which types compare.**
+  `document_roles` names the types and `edges` declares the ordered pairs; a run
+  makes every declared comparison whose documents were both supplied, so two
+  documents produce one and three produce two. Supporting a new document type is
+  a config edit and must not reach `run_pipeline`, the route, the schema, or the
+  upload form.
+- An `edges` entry is ordered: `reference` is the document being honoured,
+  `comparison` is the one measured against it. Direction lives on the edge, never
+  on the document, because a document can sit on either side — the cTPP is
+  compared against the iTPP and is the reference for the IPDP.
+- Documents that resolve no declared comparison, or two documents of one type,
+  fail loudly before parsing. A run that silently compares nothing is
+  indistinguishable from one that found nothing wrong.
+- Aligner never grades quality and never retrieves external evidence. Those are
+  Inspector's and Scout's authorities, and a tool with two authorities can
+  contradict the tool that owns one.
 
 ### Scout
 

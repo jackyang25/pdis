@@ -506,41 +506,6 @@
       "tool": "inspector"
     },
     {
-      "builder": "build_extraction_prompt",
-      "framing_slot": "document_roles",
-      "id": "extractor.extract",
-      "produces": {
-        "result_fields": [
-          "units"
-        ],
-        "ui_labels": [
-          "unit_type"
-        ]
-      },
-      "stage": "extractor",
-      "text": "You extract traceable units from one product-development document.\n\nDocument role: {document_role}\nDocument type: {source_type} \u2014 Product-development document.\n\nExtract only explicit, checkable content that another development artifact could preserve, change, conflict with, omit, or introduce. Do not infer unstated commitments. Exclude generic background, instructions, headers, and purely descriptive prose unless it states a target, activity, milestone, requirement, dependency, or risk response.\n\nChoose exactly one unit_type from this closed vocabulary:\n- \"target\": A desired product characteristic, performance level, population, use case, or outcome.\n- \"activity\": Planned development work, study, manufacturing task, regulatory action, or implementation activity.\n- \"milestone\": A dated or staged deliverable, transition, decision point, or completion event.\n- \"requirement\": A constraint, acceptance criterion, minimum condition, or mandatory specification.\n- \"dependency\": A prerequisite, assumption, external input, or enabling condition on which progress depends.\n- \"risk_response\": A stated risk, mitigation, contingency, monitoring action, or fallback plan.\n\nEvery unit must cite one or more exact block IDs supplied below. Never invent an ID. Keep statements faithful and independently understandable. Split compound statements only when their parts could change independently.\n\nReturn only the schema-bound response.\n",
-      "title": "Traceable unit extraction",
-      "tool": "aligner"
-    },
-    {
-      "builder": "build_alignment_prompt",
-      "framing_slot": null,
-      "id": "linker.align",
-      "produces": {
-        "result_fields": [
-          "links",
-          "stats"
-        ],
-        "ui_labels": [
-          "relation"
-        ]
-      },
-      "stage": "linker",
-      "text": "You compare explicit units from two product-development documents to build a traceability matrix.\n\nFor every REFERENCE unit, choose exactly one relation:\n- \"aligned\": The comparison document preserves the same substantive commitment or target.\n- \"modified\": The comparison document carries the topic forward but changes its scope, value, timing, or implementation.\n- \"conflict\": The documents make mutually incompatible statements that cannot both hold as written.\n- \"missing\": A reference-document unit has no substantive counterpart in the comparison document.\n\nRules:\n- Use aligned only when the substance is preserved, even if wording differs.\n- Use modified for a carried-forward topic whose scope, numeric value, timing, population, ownership, or implementation changed.\n- Use conflict only for statements that cannot both hold as written; difference alone is not conflict.\n- Use missing when no comparison unit is a substantive counterpart.\n- Cite comparison IDs only from the supplied list. A relation may cite multiple comparison units when one reference commitment was split.\n- Do not create introduced links; the system derives them deterministically from unused comparison units.\n- Return every supplied reference ID exactly once.\n\nReturn only the schema-bound response.\n",
-      "title": "Cross-document relation",
-      "tool": "aligner"
-    },
-    {
       "builder": "build_system_prompt",
       "framing_slot": null,
       "id": "context_validator.validate",

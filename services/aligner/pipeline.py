@@ -1,8 +1,20 @@
+"""Aligner's entry point: identify documents, resolve comparisons, parse, publish.
+
+Everything here is work the suite asks of every tool - resolve a chunker config
+per document, parse, assemble a result, validate it. The analysis that used to
+sit between the parse and the result has been removed, so this is the substrate a
+new design builds on rather than a pipeline with a hole in it.
+
+Note what is absent: no document count, no source type, no notion of which pair
+compares to which. All of that is read from config, so supporting a new document
+type never reaches this file.
+"""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 import threading
+from typing import Sequence
 
 from services.chunker import (
     ContentBlock,
@@ -14,65 +26,70 @@ from .models import (
     AlignmentConfig,
     AlignmentDocument,
     AlignmentResult,
+    DocumentInput,
     LLMClientProtocol,
+    resolve_edges,
 )
 from .contract import validate_result_contract
-from .stages.extractor import extract_units
-from .stages.linker import align_units
 
 DEFAULT_MAX_OUTPUT_TOKENS = 12000
 
+# Documents parse independently, so they parse at once. Bounded because each one
+# fans out into its own chunker calls.
+MAX_PARALLEL_DOCUMENTS = 3
+
 
 def run_pipeline(
-    reference_file_path: str,
-    comparison_file_path: str,
+    documents: Sequence[DocumentInput],
     *,
-    reference_source_type: str,
-    comparison_source_type: str,
     org: str,
     intervention_class: str,
     indication: str,
     config: AlignmentConfig,
     llm_client: LLMClientProtocol,
-    reference_doc_id: str | None = None,
-    comparison_doc_id: str | None = None,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     progress_callback=None,
 ) -> AlignmentResult:
-    reference_config = find_chunker_config(org, reference_source_type, intervention_class)
-    comparison_config = find_chunker_config(org, comparison_source_type, intervention_class)
-    reference_id = reference_doc_id or Path(reference_file_path).stem
-    comparison_id = comparison_doc_id or Path(comparison_file_path).stem
-    if reference_id == comparison_id:
-        raise ValueError("Reference and comparison documents must have distinct filenames")
+    """Parse every document and return them with the comparisons they resolve.
 
-    parse_jobs = [
-        (
-            "reference",
-            reference_file_path,
-            reference_id,
-            reference_source_type,
-            reference_config,
-        ),
-        (
-            "comparison",
-            comparison_file_path,
-            comparison_id,
-            comparison_source_type,
-            comparison_config,
-        ),
+    Comparisons are resolved before any parsing, so a set of documents that
+    forms none fails immediately rather than after the expensive part.
+    """
+    if len(documents) < 2:
+        raise ValueError("Aligner needs at least two documents to compare")
+    doc_ids = [document.doc_id for document in documents]
+    if len(set(doc_ids)) != len(doc_ids):
+        raise ValueError("Aligner documents must have distinct filenames")
+
+    chunker_configs = {
+        document.doc_id: find_chunker_config(
+            org, document.source_type, intervention_class
+        )
+        for document in documents
+    }
+    identified = [
+        AlignmentDocument(
+            doc_id=document.doc_id,
+            source_type=document.source_type,
+            display_name=chunker_configs[document.doc_id].display_name,
+        )
+        for document in documents
     ]
+    # Before parsing, not after: resolving no comparison is a configuration
+    # mistake, and finding that out costs nothing here.
+    edges = resolve_edges(config, identified)
+
+    total = len(documents)
     if progress_callback:
-        progress_callback("parse", completed=0, total=2)
+        progress_callback("parse", completed=0, total=total)
     parse_lock = threading.Lock()
     parsed_count = {"value": 0}
 
-    def parse(job):
-        role, file_path, doc_id, source_type, chunker_config = job
+    def parse(document: DocumentInput) -> tuple[str, list[ContentBlock]]:
         blocks = chunker_run_pipeline(
-            file_path,
-            doc_id=doc_id,
-            config=chunker_config,
+            document.file_path,
+            doc_id=document.doc_id,
+            config=chunker_configs[document.doc_id],
             llm_client=llm_client,
             max_tokens=max_tokens,
             indication=indication,
@@ -80,83 +97,26 @@ def run_pipeline(
         if progress_callback:
             with parse_lock:
                 parsed_count["value"] += 1
-                progress_callback("parse", completed=parsed_count["value"], total=2)
-        return role, blocks
+                progress_callback("parse", completed=parsed_count["value"], total=total)
+        return document.doc_id, blocks
 
     parsed: dict[str, list[ContentBlock]] = {}
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(parse, job) for job in parse_jobs]
+    with ThreadPoolExecutor(
+        max_workers=min(MAX_PARALLEL_DOCUMENTS, total)
+    ) as executor:
+        futures = [executor.submit(parse, document) for document in documents]
         for future in as_completed(futures):
-            role, blocks = future.result()
-            parsed[role] = blocks
+            doc_id, blocks = future.result()
+            parsed[doc_id] = blocks
 
-    if progress_callback:
-        progress_callback("extract", completed=0, total=2)
-    extract_jobs = [
-        ("reference", parsed["reference"], reference_source_type),
-        ("comparison", parsed["comparison"], comparison_source_type),
-    ]
-    extract_lock = threading.Lock()
-    extracted_count = {"value": 0}
-    extraction_workers_per_document = max(1, config.max_parallel_calls // 2)
-
-    def extract(job):
-        role, blocks, source_type = job
-        units = extract_units(
-            blocks,
-            document_role=role,
-            source_type=source_type,
-            config=config,
-            llm_client=llm_client,
-            max_tokens=max_tokens,
-            max_workers=extraction_workers_per_document,
-        )
-        if progress_callback:
-            with extract_lock:
-                extracted_count["value"] += 1
-                progress_callback("extract", completed=extracted_count["value"], total=2)
-        return role, units
-
-    units_by_role = {}
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(extract, job) for job in extract_jobs]
-        for future in as_completed(futures):
-            role, units = future.result()
-            units_by_role[role] = units
-
-    if progress_callback:
-        progress_callback("align")
-    links, stats = align_units(
-        units_by_role["reference"],
-        units_by_role["comparison"],
-        config=config,
-        llm_client=llm_client,
-        max_tokens=max_tokens,
-    )
-    all_units = [*units_by_role["reference"], *units_by_role["comparison"]]
-    all_blocks = [*parsed["reference"], *parsed["comparison"]]
     result = AlignmentResult(
-        reference_document=AlignmentDocument(
-            role="reference",
-            doc_id=reference_id,
-            source_type=reference_source_type,
-            display_name=reference_config.display_name,
-        ),
-        comparison_document=AlignmentDocument(
-            role="comparison",
-            doc_id=comparison_id,
-            source_type=comparison_source_type,
-            display_name=comparison_config.display_name,
-        ),
-        units=all_units,
-        links=links,
-        stats=stats,
+        documents=identified,
+        edges=edges,
         org=org,
         intervention_class=intervention_class,
         indication=indication,
-        unit_types=config.unit_types,
-        relations=config.relations,
-        blocks=all_blocks,
+        # Ordered by the documents as supplied rather than by completion, so two
+        # identical runs produce byte-identical results.
+        blocks=[block for document in documents for block in parsed[document.doc_id]],
     )
-    result = validate_result_contract(result, config)
-    return result
+    return validate_result_contract(result, config)

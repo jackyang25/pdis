@@ -657,60 +657,50 @@ class InspectorRunResponse(BaseModel):
     inspection: InspectionResultOut
 
 
-class AlignmentLabelOut(BaseModel):
-    name: str
-    description: str
-
-
 class AlignmentDocumentOut(BaseModel):
-    role: Literal["reference", "comparison"]
     doc_id: str
     source_type: str
     display_name: str
 
 
-class AlignmentUnitOut(BaseModel):
-    id: str
-    document_role: Literal["reference", "comparison"]
-    document_id: str
-    unit_type: Literal[
-        "target", "activity", "milestone", "requirement", "dependency", "risk_response"
-    ]
-    statement: str
-    block_ids: list[str] = Field(default_factory=list)
+class AlignmentEdgeOut(BaseModel):
+    """One comparison the run makes, and what it asks.
+
+    Direction lives here rather than on the document because a document can sit
+    on either side: in a three-document run the cTPP is compared against the
+    iTPP and is the reference for the IPDP.
+    """
+
+    reference_doc_id: str
+    comparison_doc_id: str
+    question: str
 
 
-class AlignmentLinkOut(BaseModel):
-    id: str
-    relation: Literal["aligned", "modified", "conflict", "missing", "introduced"]
-    reference_unit_ids: list[str] = Field(default_factory=list)
-    comparison_unit_ids: list[str] = Field(default_factory=list)
-    reason: str = ""
-    reference_block_ids: list[str] = Field(default_factory=list)
-    comparison_block_ids: list[str] = Field(default_factory=list)
+class AlignmentEdgeSpecOut(BaseModel):
+    """One declared comparison, by source type, for the picker to preview."""
+
+    reference: str
+    comparison: str
+    question: str
 
 
-class AlignmentStatsOut(BaseModel):
-    reference_units: int
-    comparison_units: int
-    aligned: int
-    modified: int
-    conflict: int
-    missing: int
-    introduced: int
+class AlignerEdgesResponse(BaseModel):
+    edges: list[AlignmentEdgeSpecOut]
 
 
 class AlignmentResultOut(BaseModel):
-    reference_document: AlignmentDocumentOut
-    comparison_document: AlignmentDocumentOut
-    units: list[AlignmentUnitOut]
-    links: list[AlignmentLinkOut]
-    stats: AlignmentStatsOut
+    """Identified documents, the comparisons they resolve, and their parsed source.
+
+    Carries no findings: Aligner's extract-and-link stages were removed and the
+    shape a new design publishes is not yet decided. Findings are added as fields
+    beside these, citing `blocks` for lineage the way every other tool does.
+    """
+
+    documents: list[AlignmentDocumentOut]
+    edges: list[AlignmentEdgeOut]
     org: str
     intervention_class: str
     indication: str
-    unit_types: list[AlignmentLabelOut]
-    relations: list[AlignmentLabelOut]
     blocks: list[ContentBlockOut] = Field(default_factory=list)
 
 

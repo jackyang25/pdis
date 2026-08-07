@@ -74,19 +74,35 @@ test("Inspector refuses a section with no units", () => {
   );
 });
 
-test("Aligner refuses an alignment missing either document", () => {
+test("Aligner refuses a result that cannot form a comparison", () => {
   const alignment = {
-    units: [],
-    links: [],
-    reference_document: { doc_id: "a" },
-    comparison_document: { doc_id: "b" },
+    documents: [{ doc_id: "a" }, { doc_id: "b" }, { doc_id: "c" }],
+    edges: [
+      { reference_doc_id: "a", comparison_doc_id: "b", question: "?" },
+      { reference_doc_id: "b", comparison_doc_id: "c", question: "?" },
+    ],
   };
   RESULT_CONTRACTS.aligner({ alignment });
 
-  const { comparison_document, ...oneDocument } = alignment;
   assert.throws(
-    () => RESULT_CONTRACTS.aligner({ alignment: oneDocument }),
-    /both documents/,
+    () => RESULT_CONTRACTS.aligner({ alignment: { ...alignment, documents: [{ doc_id: "a" }] } }),
+    /fewer than two documents/,
+  );
+  assert.throws(
+    () => RESULT_CONTRACTS.aligner({ alignment: { ...alignment, edges: [] } }),
+    /no comparison/,
+  );
+  // A comparison pointing at a document the file does not carry would render as a
+  // blank side rather than as the error it is.
+  assert.throws(
+    () =>
+      RESULT_CONTRACTS.aligner({
+        alignment: {
+          ...alignment,
+          edges: [{ reference_doc_id: "a", comparison_doc_id: "absent", question: "?" }],
+        },
+      }),
+    /does not carry/,
   );
 });
 

@@ -75,13 +75,26 @@ function assertInspectorReadable(result: unknown): void {
 
 // --- Aligner -----------------------------------------------------------------
 
+/**
+ * Aligner carries no findings yet, so what it checks is that the documents and the
+ * comparisons between them are present and refer to each other. When findings are
+ * added they are checked here, beside this - the version bump that accompanies them
+ * is what actually keeps older files out.
+ */
 function assertAlignerReadable(result: unknown): void {
   const alignment = (result as AlignerResponse | null)?.alignment;
   if (!alignment) fail("aligner", "it carries no alignment");
-  requireArray("aligner", alignment.units, "units");
-  requireArray("aligner", alignment.links, "links");
-  if (!alignment.reference_document || !alignment.comparison_document) {
-    fail("aligner", "it does not name both documents");
+  const documents = requireArray("aligner", alignment.documents, "documents");
+  if (documents.length < 2) fail("aligner", "it names fewer than two documents");
+  const known = new Set(
+    documents.map((document) => (document as { doc_id?: string }).doc_id),
+  );
+  const edges = requireArray("aligner", alignment.edges, "comparisons");
+  if (edges.length === 0) fail("aligner", "it carries no comparison");
+  for (const edge of edges as AlignerResponse["alignment"]["edges"]) {
+    if (!known.has(edge.reference_doc_id) || !known.has(edge.comparison_doc_id)) {
+      fail("aligner", "a comparison names a document the file does not carry");
+    }
   }
 }
 

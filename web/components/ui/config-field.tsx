@@ -10,11 +10,10 @@ import {
 /**
  * The vocabulary of a tool's configuration rail.
  *
- * Every tool panel renders its configuration in `RunPanel`'s left column. Most
- * select one `(org, source_type, intervention_class)` triple through
- * `HeaderPicker`; a tool whose configuration genuinely differs — Aligner needs a
- * source type per document — composes these primitives instead, so the rail
- * still looks and behaves the same either way.
+ * Generic on purpose: these are the primitives everything above them is built
+ * from. The shared, non-negotiable fields live in `configuration-fields.tsx`
+ * — `ContextFields` and `SourceTypeField` — and a tool composes these directly
+ * only for parameters of its own, so the rail looks the same either way.
  */
 export function ConfigurationShell({ children }: { children: React.ReactNode }) {
   return (

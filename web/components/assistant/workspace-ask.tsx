@@ -82,12 +82,15 @@ export function WorkspaceAsk() {
     }
 
     if (aligner) {
-      const reference = aligner.alignment.reference_document.doc_id || "Reference";
-      const comparison = aligner.alignment.comparison_document.doc_id || "Comparison";
+      // Named by the documents rather than by the comparisons: a run holds any
+      // number of either, and the documents are what the user recognises.
+      const names = aligner.alignment.documents
+        .map((document) => document.doc_id)
+        .filter(Boolean);
       addResult(
         "aligner-current",
         "aligner",
-        `${reference} → ${comparison}`,
+        names.join(" · ") || "Documents",
         aligner.alignment,
       );
     }

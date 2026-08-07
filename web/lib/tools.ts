@@ -65,14 +65,17 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/aligner",
     title: "Aligner",
     description:
-      "Compare one document against another: what stayed aligned, was modified, conflicts, is missing, or was introduced.",
+      "Check whether a candidate profile meets the intervention profile it answers to, and whether the development plan delivers it.",
     capability: "Document comparison",
     activity: "10–15 min",
     icon: "aligner",
     audience: "pst",
     workflow: "document_intelligence",
     delivery: "workspace",
-    availability: "available",
+    // The input layer is built and the page runs, but no comparison is reported
+    // yet. `href` stays so the route remains reachable for development; the card
+    // renders unlinked until this flips back to `available`.
+    availability: "coming_soon",
   },
   {
     id: "scout",

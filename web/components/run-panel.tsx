@@ -86,7 +86,9 @@ export function RunPanel({
     });
   }
 
-  const complete = documents.every((slot) => files[slot.id]);
+  // `every` is true for an empty list, so a tool that has not decided on its
+  // documents yet would otherwise enable Run with nothing attached.
+  const complete = documents.length > 0 && documents.every((slot) => files[slot.id]);
 
   return (
     <section
@@ -109,7 +111,11 @@ export function RunPanel({
         <div className="flex h-full flex-col gap-4">
           <div
             className={cn(
+              // Columns follow the slot count so three documents do not sit two
+              // over one. Capped at three: past that the drop zones get too
+              // narrow to read a filename in.
               documents.length > 1 && "grid gap-4 md:grid-cols-2",
+              documents.length > 2 && "lg:grid-cols-3",
             )}
           >
             {documents.map((slot) => (

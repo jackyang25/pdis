@@ -13,9 +13,21 @@ export const useHeaderStore = create<HeaderState>((set) => ({
   reset: () => set({ header: {} }),
 }));
 
+/**
+ * The context every tool needs: org, intervention, indication.
+ *
+ * Separate from `isHeaderComplete` because a tool that reads several documents
+ * has several source types and holds them itself, so it can be ready to run
+ * without one in the store.
+ */
+export function isContextComplete(
+  h: Partial<Header>,
+): h is Omit<Header, "source_type"> & Partial<Header> {
+  return Boolean(h.org && h.intervention_class && h.indication);
+}
+
+/** The context plus the one document type a single-document tool reads. */
 export function isHeaderComplete(h: Partial<Header>): h is Header {
-  return Boolean(
-    h.org && h.source_type && h.intervention_class && h.indication,
-  );
+  return isContextComplete(h) && Boolean(h.source_type);
 }
 

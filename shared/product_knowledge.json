@@ -462,97 +462,77 @@
             {
               "id": "aligner",
               "title": "Aligner",
-              "summary": "Converts two documents into the same unit vocabulary, links their commitments, and derives a complete change ledger.",
+              "summary": "Parses a set of product-development documents and resolves which pairs of them compare. Between designs: the extract-and-link comparison was removed and its replacement is not yet built.",
               "nodes": [
                 {
                   "id": "documents",
-                  "title": "Reference and comparison",
-                  "summary": "Exactly two parsed documents enter with shared product context.",
+                  "title": "Document set",
+                  "summary": "Two or more documents enter, each named by its type, with shared product context.",
                   "kind": "input",
                   "layer": "Input",
                   "inputs": [
-                    "Reference ContentBlocks",
-                    "Comparison ContentBlocks",
+                    "Uploaded documents",
+                    "A document type for each",
                     "Alignment configuration"
                   ],
                   "outputs": [
-                    "Two isolated document contexts"
+                    "Identified documents"
                   ],
-                  "guarantee": "Document-type differences remain configuration rather than downstream branches."
+                  "guarantee": "No stage knows how many documents a run holds; the count is whatever was supplied."
                 },
                 {
-                  "id": "units",
-                  "title": "Unit extraction",
-                  "summary": "Each document becomes a cited ledger of comparable development units.",
-                  "kind": "model",
+                  "id": "edges",
+                  "title": "Comparison resolution",
+                  "summary": "Configuration declares which ordered pairs of document types compare; a run resolves those whose documents are both present.",
+                  "kind": "deterministic",
                   "layer": "Interpretation",
                   "inputs": [
-                    "Complete blocks for one document",
-                    "Closed unit vocabulary"
+                    "Identified documents",
+                    "Declared comparisons"
                   ],
                   "outputs": [
-                    "Target, activity, milestone, requirement, dependency, or risk-response units"
+                    "Resolved comparisons, each with the question it asks"
                   ],
-                  "guarantee": "Every unit retains the exact blocks from its own document."
+                  "guarantee": "A set of documents that forms no declared comparison fails before parsing rather than returning an empty result."
                 },
                 {
-                  "id": "relations",
-                  "title": "Cross-document relations",
-                  "summary": "Units are linked as aligned, modified, conflicting, missing, or introduced.",
-                  "kind": "model",
-                  "layer": "Comparison",
-                  "inputs": [
-                    "Reference unit ledger",
-                    "Comparison unit ledger"
-                  ],
-                  "outputs": [
-                    "Typed, two-sided relation proposals"
-                  ],
-                  "guarantee": "A relation carries exact lineage from both documents rather than a free-floating summary."
-                },
-                {
-                  "id": "closure",
-                  "title": "Coverage closure",
-                  "summary": "Code derives omitted missing and introduced relations and calculates counts.",
+                  "id": "parse",
+                  "title": "Parallel parse",
+                  "summary": "Each document is parsed through its own chunker configuration, resolved from its type.",
                   "kind": "deterministic",
-                  "layer": "Assembly",
+                  "layer": "Interpretation",
                   "inputs": [
-                    "Both complete unit ledgers",
-                    "Validated relation proposals"
+                    "Every uploaded file",
+                    "A chunker configuration per document type"
                   ],
                   "outputs": [
-                    "Complete relation ledger",
-                    "Reproducible relation counts"
+                    "Cited ContentBlocks for every document"
                   ],
-                  "guarantee": "Unlinked units cannot disappear from the comparison."
+                  "guarantee": "Every block keeps the identity of the document it came from."
                 },
                 {
                   "id": "result",
-                  "title": "Portable alignment",
-                  "summary": "The two source documents and their complete change trace form one result.",
+                  "title": "Portable result",
+                  "summary": "The documents, the comparisons they resolve, and every block form one downloadable result. No findings are reported.",
                   "kind": "output",
                   "layer": "Result",
                   "outputs": [
                     "Immutable pdis.result artifact"
                   ],
-                  "guarantee": "Every reported change remains navigable to both source documents."
+                  "guarantee": "Anything a future analysis claims will be navigable to the documents it compared."
                 }
               ],
               "edges": [
                 {
                   "source": "documents",
-                  "target": "units"
+                  "target": "edges"
                 },
                 {
-                  "source": "units",
-                  "target": "relations"
+                  "source": "edges",
+                  "target": "parse"
                 },
                 {
-                  "source": "relations",
-                  "target": "closure"
-                },
-                {
-                  "source": "closure",
+                  "source": "parse",
                   "target": "result"
                 }
               ]

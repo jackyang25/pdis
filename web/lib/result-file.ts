@@ -27,7 +27,10 @@ const ENVELOPE_VERSION = 1 as const;
  * something narrower than it did and continuing its count would imply otherwise.
  */
 const ANALYSIS_VERSIONS = {
-  aligner: 1,
+  // 2: the extract-and-link analysis was removed; a result is now two identified
+  // documents and their blocks. Saved v1 files describe units and relations this
+  // code no longer has types for, so they cannot be rendered.
+  aligner: 2,
   inspector: 2,
   scout: 1,
 } as const satisfies Record<ResultType, number>;
@@ -146,9 +149,12 @@ export function packAlignerResult(
 }
 
 export function alignerResultFilename(result: AlignerResponse): string {
-  const reference = safeFilenamePart(result.alignment.reference_document.doc_id || "reference");
-  const comparison = safeFilenamePart(result.alignment.comparison_document.doc_id || "comparison");
-  return `${reference}-to-${comparison}-aligner.json`;
+  // Named by the documents rather than by the comparisons, because a run holds
+  // any number of either and the documents are what a reader recognises.
+  const parts = result.alignment.documents.map((document) =>
+    safeFilenamePart(document.source_type || document.doc_id),
+  );
+  return `${parts.join("-") || "aligner"}-aligner.json`;
 }
 
 /** Read a final result produced by the current application contract. */

@@ -27,7 +27,9 @@ function messageText(message: UIMessage): string {
 }
 
 const SUGGESTIONS: Record<string, string[]> = {
-  aligner: ["What changed between these documents?", "Which reference commitments are missing?"],
+  // Aligner reports no comparison right now, so suggesting "what changed?" would
+  // invite an answer it cannot ground. These ask only about what a run produces.
+  aligner: ["Which documents are loaded?", "Show me a passage from the reference document."],
   inspector: ["What needs the most attention?", "Summarize the cross-section conflicts."],
   scout: ["Which targets conflict with current evidence?", "Where is the evidence weakest?"],
   workspace: ["Which tool should I use?", "What results are available?"],

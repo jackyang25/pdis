@@ -15,10 +15,16 @@ import { promptAnchor, type ToolKey } from "@/lib/prompt-reference";
  * page from privileging whichever tool happened to be documented first.
  */
 
+/**
+ * Tools that send model instructions of their own.
+ *
+ * Aligner is deliberately absent: its analysis stages were removed, so it sends
+ * no prompts and the fallback below is the accurate thing to show. It returns
+ * here when it declares one.
+ */
 const PUBLISHED_TOOLS: readonly string[] = [
   "chunker",
   "inspector",
-  "aligner",
   "scout",
 ];
 

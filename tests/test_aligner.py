@@ -1,299 +1,271 @@
+"""What Aligner guarantees while it has no analysis.
+
+Every test here covers the surface a new design will build on: config that keeps
+document types and document counts out of code, the comparisons a set of
+documents resolves, the result envelope, and the structural contract. Nothing
+tests a finding, because Aligner makes none - the extract-and-link stages were
+removed along with their symmetric relation vocabulary.
+"""
+
 from __future__ import annotations
 
+import tempfile
 import unittest
 
-from services.aligner import AlignmentUnit, load_config
+from services.aligner import describe_document, describe_edges, load_config, resolve_edges
 from services.aligner.contract import validate_result_contract
 from services.aligner.models import (
+    AlignmentConfig,
     AlignmentDocument,
+    AlignmentEdge,
     AlignmentResult,
+    EdgeSpec,
 )
-from services.aligner.stages.extractor import extract_units
-from services.aligner.stages.linker import align_units
+from services.aligner.prompt_catalog import PROMPT_CATALOG
 from services.chunker import ContentBlock
 
+CONFIG = """
+document_roles:
+  itpp: A profile.
+  ctpp: A candidate.
+  ipdp: A plan.
+  default: A document.
+edges:
+  - reference: itpp
+    comparison: ctpp
+    question: Does the candidate meet the bar?
+  - reference: ctpp
+    comparison: ipdp
+    question: Does the plan deliver it?
+"""
 
-class StaticClient:
-    def __init__(self, response: dict) -> None:
-        self.response = response
 
-    def call_structured(self, *_args, **_kwargs) -> dict:
-        return self.response
+def write_config(body: str) -> str:
+    handle = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8")
+    with handle:
+        handle.write(body)
+    return handle.name
 
 
-def block(block_id: str, ordinal: int, content: str) -> ContentBlock:
+def doc(source_type: str, doc_id: str | None = None) -> AlignmentDocument:
+    return AlignmentDocument(
+        doc_id=doc_id or f"{source_type}_file",
+        source_type=source_type,
+        display_name=source_type.upper(),
+    )
+
+
+def block(block_id: str, doc_id: str, ordinal: int = 0) -> ContentBlock:
     return ContentBlock(
         id=block_id,
-        doc_id="reference",
+        doc_id=doc_id,
         ordinal=ordinal,
         block_type="paragraph",
-        content=content,
+        content=f"Content of {block_id}.",
         heading_stack=[],
         structural_meta={},
         style_hint={},
     )
 
 
-class AlignerTests(unittest.TestCase):
-    def test_config_owns_complete_closed_vocabularies(self) -> None:
+def result(
+    documents: list[AlignmentDocument] | None = None,
+    edges: list[AlignmentEdge] | None = None,
+    blocks: list[ContentBlock] | None = None,
+) -> AlignmentResult:
+    documents = documents if documents is not None else [doc("itpp"), doc("ctpp")]
+    return AlignmentResult(
+        documents=documents,
+        edges=edges
+        if edges is not None
+        else [AlignmentEdge("itpp_file", "ctpp_file", "Does the candidate meet the bar?")],
+        org="bmgf",
+        intervention_class="vaccine",
+        indication="malaria",
+        blocks=blocks
+        if blocks is not None
+        else [block(f"{document.doc_id}:b1", document.doc_id) for document in documents],
+    )
+
+
+class ConfigTests(unittest.TestCase):
+    def test_the_config_carries_no_analysis_vocabulary(self) -> None:
+        """Roles and pairings only, so nothing constrains what the next design says."""
+        self.assertEqual(list(vars(load_config())), ["document_roles", "edges"])
+
+    def test_a_source_type_the_config_never_names_still_resolves(self) -> None:
+        """A document the chunker learns to parse is describable before anyone names it."""
         config = load_config()
+        self.assertNotIn("launch_plan", config.document_roles)
         self.assertEqual(
-            {item.name for item in config.unit_types},
-            {"target", "activity", "milestone", "requirement", "dependency", "risk_response"},
-        )
-        self.assertEqual(
-            {item.name for item in config.relations},
-            {"aligned", "modified", "conflict", "missing", "introduced"},
+            describe_document(config, "launch_plan"), config.document_roles["default"]
         )
 
-    def test_extraction_validates_and_preserves_block_lineage(self) -> None:
+    def test_a_named_source_type_gets_its_own_description(self) -> None:
         config = load_config()
-        blocks = [block("reference:b1", 0, "Reach 80% efficacy."), block("reference:b2", 1, "Run Phase 2.")]
-        client = StaticClient(
-            {
-                "units": [
-                    {"statement": "Reach 80% efficacy.", "unit_type": "target", "block_ids": ["reference:b1"]},
-                    {"statement": "Reach 80% efficacy", "unit_type": "target", "block_ids": ["reference:b2"]},
-                ]
-            }
+        self.assertNotEqual(
+            describe_document(config, "itpp"), describe_document(config, "ipdp")
         )
-        units = extract_units(
-            blocks,
-            document_role="reference",
-            source_type="itpp",
-            config=config,
-            llm_client=client,
-            max_tokens=1000,
-        )
-        self.assertEqual(len(units), 1)
-        self.assertEqual(units[0].block_ids, ["reference:b1", "reference:b2"])
-        self.assertEqual(units[0].document_id, "reference")
 
-        single_source = StaticClient(
-            {
-                "units": [
-                    {"statement": "Reach 80% efficacy.", "unit_type": "target", "block_ids": ["reference:b1"]}
-                ]
-            }
+    def test_the_shipped_config_declares_the_two_comparisons(self) -> None:
+        """The chain, not a mesh: there is deliberately no itpp/ipdp pair."""
+        self.assertEqual(
+            [(spec.reference, spec.comparison) for spec in load_config().edges],
+            [("itpp", "ctpp"), ("ctpp", "ipdp")],
         )
-        single = extract_units(
-            blocks,
-            document_role="reference",
-            source_type="itpp",
-            config=config,
-            llm_client=single_source,
-            max_tokens=1000,
-        )
-        self.assertEqual(units[0].id, single[0].id)
 
-    def test_extraction_fails_closed_on_invented_lineage(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "unit extraction failed"):
-            extract_units(
-                [block("reference:b1", 0, "Reach 80% efficacy.")],
-                document_role="reference",
-                source_type="itpp",
-                config=load_config(),
-                llm_client=StaticClient(
-                    {
-                        "units": [
-                            {
-                                "statement": "Invented",
-                                "unit_type": "target",
-                                "block_ids": ["not-a-block"],
-                            }
-                        ]
-                    }
-                ),
-                max_tokens=1000,
+    def test_a_config_without_a_default_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must define `default`"):
+            load_config(write_config("document_roles:\n  itpp: A profile.\nedges: []\n"))
+
+    def test_an_empty_role_description_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non-empty strings"):
+            load_config(write_config("document_roles:\n  default: '   '\nedges: []\n"))
+
+    def test_a_config_with_no_comparison_is_refused(self) -> None:
+        """A tool that compares nothing would parse two documents and stop."""
+        with self.assertRaisesRegex(ValueError, "edges must be a non-empty list"):
+            load_config(write_config("document_roles:\n  default: A document.\nedges: []\n"))
+
+    def test_an_edge_naming_an_undeclared_type_is_refused(self) -> None:
+        """A typo here would resolve to nothing at run time rather than fail."""
+        body = CONFIG.replace("comparison: ipdp", "comparison: idpp")
+        with self.assertRaisesRegex(ValueError, "document_roles does not declare"):
+            load_config(write_config(body))
+
+    def test_an_edge_comparing_a_type_with_itself_is_refused(self) -> None:
+        """Two revisions of one document is a different question, not this one."""
+        body = CONFIG.replace("comparison: ctpp\n    question: Does the candidate meet the bar?",
+                              "comparison: itpp\n    question: Did it change?")
+        with self.assertRaisesRegex(ValueError, "compares itpp with itself"):
+            load_config(write_config(body))
+
+    def test_a_repeated_pair_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "more than once"):
+            load_config(write_config(CONFIG + """  - reference: itpp
+    comparison: ctpp
+    question: Asked twice.
+"""))
+
+
+class ResolveEdgeTests(unittest.TestCase):
+    """The one place a document count exists, and it is derived rather than set."""
+
+    def setUp(self) -> None:
+        self.config = load_config(write_config(CONFIG))
+
+    def test_two_documents_resolve_one_comparison(self) -> None:
+        edges = resolve_edges(self.config, [doc("itpp"), doc("ctpp")])
+        self.assertEqual(
+            [(edge.reference_doc_id, edge.comparison_doc_id) for edge in edges],
+            [("itpp_file", "ctpp_file")],
+        )
+
+    def test_three_documents_resolve_two_comparisons(self) -> None:
+        """Adding the third document adds a comparison with no code change."""
+        edges = resolve_edges(self.config, [doc("itpp"), doc("ctpp"), doc("ipdp")])
+        self.assertEqual(
+            [(edge.reference_doc_id, edge.comparison_doc_id) for edge in edges],
+            [("itpp_file", "ctpp_file"), ("ctpp_file", "ipdp_file")],
+        )
+
+    def test_upload_order_does_not_change_the_comparisons(self) -> None:
+        """Direction comes from the config, never from which file arrived first."""
+        forwards = resolve_edges(self.config, [doc("itpp"), doc("ctpp")])
+        backwards = resolve_edges(self.config, [doc("ctpp"), doc("itpp")])
+        self.assertEqual(forwards, backwards)
+
+    def test_an_edge_carries_the_question_its_config_declared(self) -> None:
+        edge = resolve_edges(self.config, [doc("ctpp"), doc("ipdp")])[0]
+        self.assertEqual(edge.question, "Does the plan deliver it?")
+
+    def test_documents_forming_no_declared_pair_are_refused(self) -> None:
+        """iTPP with IPDP skips the candidate, so the config declares no pair."""
+        with self.assertRaisesRegex(ValueError, "no comparison declared"):
+            resolve_edges(self.config, [doc("itpp"), doc("ipdp")])
+
+    def test_the_refusal_names_what_it_would_have_compared(self) -> None:
+        with self.assertRaisesRegex(ValueError, "itpp to ctpp, ctpp to ipdp"):
+            resolve_edges(self.config, [doc("itpp"), doc("ipdp")])
+
+    def test_two_documents_of_one_type_are_refused(self) -> None:
+        """Screening several candidates at once is a different tool, not this one."""
+        with self.assertRaisesRegex(ValueError, "two documents of the same type"):
+            resolve_edges(self.config, [doc("ctpp", "a"), doc("ctpp", "b")])
+
+    def test_describe_edges_reads_the_config(self) -> None:
+        self.assertEqual(describe_edges(self.config), "itpp to ctpp, ctpp to ipdp")
+
+
+class ContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.config = load_config()
+
+    def test_a_valid_result_is_returned_rather_than_dropped(self) -> None:
+        """The validator this replaced returned None, so `run_pipeline` did too."""
+        original = result()
+        self.assertIs(validate_result_contract(original, self.config), original)
+
+    def test_one_document_cannot_be_a_comparison(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at least one comparison"):
+            validate_result_contract(result(edges=[]), self.config)
+
+    def test_duplicate_document_ids_are_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "document IDs must be distinct"):
+            validate_result_contract(
+                result(documents=[doc("itpp", "same"), doc("ctpp", "same")]), self.config
             )
 
-    def test_linking_fills_missing_and_introduced_deterministically(self) -> None:
-        config = load_config()
-        reference = [
-            AlignmentUnit("r1", "reference", "reference", "target", "Reach 80% efficacy", ["reference:b1"]),
-            AlignmentUnit("r2", "reference", "reference", "milestone", "Complete Phase 2", ["reference:b2"]),
-        ]
-        comparison = [
-            AlignmentUnit("c1", "comparison", "comparison", "target", "Reach 70% efficacy", ["comparison:b1"]),
-            AlignmentUnit("c2", "comparison", "comparison", "activity", "Add a stability study", ["comparison:b2"]),
-        ]
-        # Answer per request: a link may only cite a unit the request carried.
-        class _PerRequestClient(StaticClient):
-            def call_structured(self, _system_prompt, message, *_args, **_kwargs) -> dict:
-                if "r1" not in message:
-                    return {"links": []}
-                return {
-                    "links": [
-                        {
-                            "reference_unit_id": "r1",
-                            "comparison_unit_ids": ["c1"],
-                            "relation": "modified",
-                            "reason": "The efficacy threshold changed from 80% to 70%.",
-                        },
-                    ]
-                }
-
-        client = _PerRequestClient({"links": []})
-        links, stats = align_units(
-            reference,
-            comparison,
-            config=config,
-            llm_client=client,
-            max_tokens=1000,
-        )
-        self.assertEqual([link.relation for link in links], ["modified", "missing", "introduced"])
-        self.assertEqual(links[0].reference_block_ids, ["reference:b1"])
-        self.assertEqual(links[0].comparison_block_ids, ["comparison:b1"])
-        self.assertEqual(stats.reference_units, 2)
-        self.assertEqual(stats.comparison_units, 2)
-        self.assertEqual(stats.modified, 1)
-        self.assertEqual(stats.missing, 1)
-        self.assertEqual(stats.introduced, 1)
-
-    def test_each_reference_unit_is_linked_in_its_own_request(self) -> None:
-        """One relation per reference unit, judged against the candidate pool."""
-        class _RecordingClient(StaticClient):
-            def __init__(self, payload) -> None:
-                super().__init__(payload)
-                self.messages: list[str] = []
-
-            def call_structured(self, system_prompt, message, *args, **kwargs) -> dict:
-                self.messages.append(message)
-                return super().call_structured(system_prompt, message, *args, **kwargs)
-
-        config = load_config()
-        reference = [
-            AlignmentUnit(
-                f"ref-unit-{index}", "reference", "reference", "target",
-                f"Reference statement {index}", [f"reference:b{index}"],
+    def test_two_documents_of_one_type_are_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "two documents of the same type"):
+            validate_result_contract(
+                result(documents=[doc("ctpp", "a"), doc("ctpp", "b")]), self.config
             )
-            for index in range(3)
-        ]
-        comparison = [
-            AlignmentUnit(
-                "cmp-unit-0", "comparison", "comparison", "target",
-                "Comparison statement", ["comparison:b0"],
+
+    def test_a_comparison_naming_an_absent_document_is_refused(self) -> None:
+        """It would render as a blank side rather than as the error it is."""
+        with self.assertRaisesRegex(ValueError, "not in this result"):
+            validate_result_contract(
+                result(edges=[AlignmentEdge("itpp_file", "absent", "?")]), self.config
             )
-        ]
-        client = _RecordingClient({"links": []})
 
-        align_units(
-            reference,
-            comparison,
-            config=config,
-            llm_client=client,
-            max_tokens=1000,
-        )
+    def test_a_comparison_must_state_what_it_asks(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must state what it asks"):
+            validate_result_contract(
+                result(edges=[AlignmentEdge("itpp_file", "ctpp_file", "  ")]), self.config
+            )
 
-        # Retries repeat a request, so assert on scope rather than call count.
-        mentioned = [
-            [unit.id for unit in reference if unit.id in message]
-            for message in client.messages
-        ]
-        self.assertTrue(
-            all(len(ids) == 1 for ids in mentioned),
-            f"a request carried more than one reference unit: {mentioned}",
-        )
-        self.assertEqual(
-            {ids[0] for ids in mentioned},
-            {"ref-unit-0", "ref-unit-1", "ref-unit-2"},
-        )
+    def test_duplicate_block_ids_are_refused(self) -> None:
+        """Two blocks under one ID would make a citation ambiguous."""
+        with self.assertRaisesRegex(ValueError, "block IDs must be unique"):
+            validate_result_contract(
+                result(blocks=[block("b1", "itpp_file"), block("b1", "ctpp_file", 1)]),
+                self.config,
+            )
 
-    def test_final_contract_accepts_an_exhaustive_trace(self) -> None:
-        config = load_config()
-        reference_block = block("reference:b1", 0, "Reach 80% efficacy")
-        comparison_block = ContentBlock(
-            id="comparison:b1",
-            doc_id="comparison",
-            ordinal=0,
-            block_type="paragraph",
-            content="Reach 70% efficacy",
-            heading_stack=[],
-            structural_meta={},
-            style_hint={},
+    def test_a_block_from_no_document_in_the_run_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown document"):
+            validate_result_contract(result(blocks=[block("x:b1", "other")]), self.config)
+
+    def test_a_result_with_no_blocks_is_accepted(self) -> None:
+        """An empty document is a parse outcome, not a contract violation."""
+        empty = result(blocks=[])
+        self.assertIs(validate_result_contract(empty, self.config), empty)
+
+    def test_a_config_missing_its_default_cannot_validate(self) -> None:
+        broken = AlignmentConfig(
+            document_roles={"itpp": "A profile."},
+            edges=[EdgeSpec("itpp", "ctpp", "?")],
         )
-        reference = AlignmentUnit(
-            "r1", "reference", "reference", "target", "Reach 80% efficacy", ["reference:b1"]
-        )
-        comparison = AlignmentUnit(
-            "c1", "comparison", "comparison", "target", "Reach 70% efficacy", ["comparison:b1"]
-        )
-        links, stats = align_units(
-            [reference],
-            [comparison],
-            config=config,
-            llm_client=StaticClient(
-                {
-                    "links": [
-                        {
-                            "reference_unit_id": "r1",
-                            "comparison_unit_ids": ["c1"],
-                            "relation": "modified",
-                            "reason": "The target changed.",
-                        }
-                    ]
-                }
-            ),
-            max_tokens=1000,
-        )
-        result = AlignmentResult(
-            reference_document=AlignmentDocument("reference", "reference", "itpp", "iTPP"),
-            comparison_document=AlignmentDocument("comparison", "comparison", "ctpp", "cTPP"),
-            units=[reference, comparison],
-            links=links,
-            stats=stats,
-            org="org",
-            intervention_class="vaccine",
-            indication="malaria",
-            unit_types=config.unit_types,
-            relations=config.relations,
-            blocks=[reference_block, comparison_block],
-        )
-        validate_result_contract(result, config)
+        with self.assertRaises(KeyError):
+            validate_result_contract(result(), broken)
+
+
+class PromptCatalogTests(unittest.TestCase):
+    def test_aligner_declares_no_prompts(self) -> None:
+        """The slot stays so the reference generator needs no special case."""
+        self.assertEqual(PROMPT_CATALOG, ())
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class SchemaBoundContractTests(unittest.TestCase):
-    """Aligner must use the suite's schema-bound client contract."""
-
-    class _StructuredOnlyClient:
-        """Implements only `call_structured`, like every other service's client."""
-
-        def __init__(self, payload: dict) -> None:
-            self.payload = payload
-            self.schemas: list[dict] = []
-
-        def call_structured(self, _system, _message, _max_tokens, *, schema, **_kwargs):
-            self.schemas.append(schema)
-            return self.payload
-
-    def test_extraction_drives_a_schema_bound_client(self) -> None:
-        config = load_config()
-        source = block("reference:b1", 1, "Reach 80% efficacy by 2027.")
-        client = self._StructuredOnlyClient({
-            "units": [{
-                "statement": "Reach 80% efficacy by 2027.",
-                "unit_type": "target",
-                "block_ids": ["reference:b1"],
-            }]
-        })
-
-        units = extract_units(
-            [source],
-            source_type="itpp",
-            document_role="reference",
-            config=config,
-            llm_client=client,
-            max_tokens=1000,
-        )
-
-        self.assertEqual(len(units), 1)
-        self.assertEqual(units[0].statement, "Reach 80% efficacy by 2027.")
-        # The block lineage is constrained by the schema, not by prose validation.
-        block_ids = client.schemas[0]["properties"]["units"]["items"]["properties"][
-            "block_ids"
-        ]["items"]["enum"]
-        self.assertEqual(block_ids, ["reference:b1"])

@@ -36,18 +36,12 @@ INSPECTOR_LEGEND = """This is an INSPECTOR result: a document assessed inward ag
 - consistency_status and assessment_status describe whether the run completed. They are process facts, never findings: a failed check means the document was not checked, which is not the same as a document with nothing wrong."""
 
 
-ALIGNER_LEGEND = """This is an ALIGNER result: a traceable comparison between a reference product-development document and a downstream or later comparison document. Shape:
-- reference_document and comparison_document identify the two artifacts and their document types.
-- units[]: explicit, independently checkable targets, activities, milestones, requirements, dependencies, or risk responses. Every unit retains its exact source block_ids and document role.
-- links[]: one traceability relation with reference/comparison unit IDs, exact block IDs, and a concise reason:
-    aligned = the substantive commitment was preserved;
-    modified = the topic continues but scope, value, timing, population, ownership, or implementation changed;
-    conflict = the two statements cannot both hold as written;
-    missing = a reference unit has no comparison counterpart;
-    introduced = a comparison unit has no reference antecedent.
-- stats: deterministic counts of units and relations.
-- unit_types[] and relations[]: the exact controlled-vocabulary definitions used for this result.
-Aligner does not assess investment risk, judge document quality, or retrieve external evidence. Do not interpret missing as automatically bad; explain it in the context of the two document roles."""
+ALIGNER_LEGEND = """This is an ALIGNER result. Aligner is between designs: its comparison analysis was removed and a run currently parses the documents without comparing them. Shape:
+- documents[]: every artifact in the run, each with its doc_id and source_type (itpp, ctpp, ipdp, and any other type configured). A run holds two or more; do not assume two.
+- edges[]: the comparisons this run WOULD make, each naming a reference_doc_id, a comparison_doc_id, and the question it asks. reference is the document being honoured and comparison is the one measured against it - the direction is meaningful, not a diff order. An edge is a declared intent, NOT a finding: no comparison has been performed.
+- blocks[]: every parsed block from every document, readable through the same document tools as any other result.
+There are no units, links, relations, counts, or findings of any kind. If the user asks what changed, what drifted, or whether one document satisfies another, say plainly that Aligner does not currently report that - do not derive it yourself from the blocks, and do not read an edge as evidence that a comparison was made.
+Aligner never judges document quality (Inspector does that against a rubric) and never retrieves external evidence (Scout does that)."""
 
 WORKSPACE_LEGEND = """This is a read-only PDIS WORKSPACE bundle. Shape:
 - catalog[]: every available or planned tool with its audience, workflow, availability, delivery, and provider labels. Catalog entries describe capabilities; they are not analysis findings.

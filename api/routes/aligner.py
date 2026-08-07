@@ -1,4 +1,10 @@
-"""Aligner route — build a streamed traceability comparison across two documents."""
+"""Aligner route — parse a set of product-development documents together.
+
+Takes documents as parallel lists rather than named reference/comparison fields,
+because how many there are and which pairs compare is Aligner's configuration to
+decide, not this route's. Adding a document type reaches neither this file nor
+its schema.
+"""
 
 from __future__ import annotations
 
@@ -10,11 +16,22 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from services.aligner import load_config, run_pipeline
+from services.aligner import (
+    DocumentInput,
+    load_config,
+    resolve_edges,
+    run_pipeline,
+)
+from services.aligner.models import AlignmentDocument
 from services.chunker import DOCUMENT_SUFFIXES, find_config as find_chunker_config
 
 from api.deps import MissingCredentialError, get_openai_client
-from api.schemas import AlignerRunResponse, AlignmentResultOut
+from api.schemas import (
+    AlignerEdgesResponse,
+    AlignerRunResponse,
+    AlignmentEdgeSpecOut,
+    AlignmentResultOut,
+)
 from api.streaming import run_with_progress
 
 router = APIRouter()
@@ -22,40 +39,80 @@ router = APIRouter()
 DEFAULT_MAX_TOKENS = 16000
 
 
+@router.get("/edges", response_model=AlignerEdgesResponse)
+def list_edges() -> AlignerEdgesResponse:
+    """The comparisons Aligner declares, so the picker can preview them.
+
+    Published rather than mirrored in the web app: the config is the one place
+    that decides what compares to what, and a copy in TypeScript would be a
+    second answer that could disagree with it.
+    """
+    return AlignerEdgesResponse(
+        edges=[
+            AlignmentEdgeSpecOut(
+                reference=spec.reference,
+                comparison=spec.comparison,
+                question=spec.question,
+            )
+            for spec in load_config().edges
+        ]
+    )
+
+
 @router.post("/run")
 async def run_aligner(
-    reference_file: UploadFile = File(...),
-    comparison_file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
+    source_types: list[str] = Form(...),
     org: str = Form(...),
-    reference_source_type: str = Form(...),
-    comparison_source_type: str = Form(...),
     intervention_class: str = Form(...),
     indication: str = Form(...),
 ) -> StreamingResponse:
-    reference_name = reference_file.filename or "reference.docx"
-    comparison_name = comparison_file.filename or "comparison.docx"
-    reference_suffix = Path(reference_name).suffix.lower()
-    comparison_suffix = Path(comparison_name).suffix.lower()
-    if reference_suffix not in DOCUMENT_SUFFIXES or comparison_suffix not in DOCUMENT_SUFFIXES:
+    if len(files) != len(source_types):
         raise HTTPException(
-            status_code=400, detail="Aligner supports DOCX and PPTX files."
+            status_code=400, detail="Each document must be given a document type."
         )
-    reference_doc_id = Path(reference_name).stem
-    comparison_doc_id = Path(comparison_name).stem
-    if reference_doc_id == comparison_doc_id:
+    if len(files) < 2:
         raise HTTPException(
-            status_code=400,
-            detail="Reference and comparison documents must have distinct filenames.",
+            status_code=400, detail="Aligner needs at least two documents to compare."
+        )
+
+    uploads: list[tuple[UploadFile, str, str, str]] = []
+    for upload, source_type in zip(files, source_types):
+        name = upload.filename or f"{source_type}.docx"
+        suffix = Path(name).suffix.lower()
+        if suffix not in DOCUMENT_SUFFIXES:
+            raise HTTPException(
+                status_code=400, detail="Aligner supports DOCX and PPTX files."
+            )
+        uploads.append((upload, source_type, Path(name).stem, suffix))
+
+    doc_ids = [doc_id for _, _, doc_id, _ in uploads]
+    if len(set(doc_ids)) != len(doc_ids):
+        raise HTTPException(
+            status_code=400, detail="Each document must have a distinct filename."
         )
     try:
-        find_chunker_config(org, reference_source_type, intervention_class)
-        find_chunker_config(org, comparison_source_type, intervention_class)
+        for _, source_type, _, _ in uploads:
+            find_chunker_config(org, source_type, intervention_class)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    reference_contents = await reference_file.read()
-    comparison_contents = await comparison_file.read()
     config = load_config()
+    # Resolve before reading a single byte: a set of documents that forms no
+    # comparison is a 400, not a run that streams and then fails.
+    try:
+        resolve_edges(
+            config,
+            [
+                AlignmentDocument(doc_id=doc_id, source_type=source_type, display_name="")
+                for _, source_type, doc_id, _ in uploads
+            ],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    contents = [(await upload.read(), source_type, doc_id, suffix)
+                for upload, source_type, doc_id, suffix in uploads]
 
     # Construct provider clients before the stream opens: a missing credential
     # must fail the request, not arrive as an event on a 200 response.
@@ -67,25 +124,25 @@ async def run_aligner(
     def work(progress):
         temp_paths: list[str] = []
         try:
-            for contents, suffix in (
-                (reference_contents, reference_suffix),
-                (comparison_contents, comparison_suffix),
-            ):
+            documents: list[DocumentInput] = []
+            for payload, source_type, doc_id, suffix in contents:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-                    temp_file.write(contents)
+                    temp_file.write(payload)
                     temp_paths.append(temp_file.name)
+                documents.append(
+                    DocumentInput(
+                        file_path=temp_file.name,
+                        source_type=source_type,
+                        doc_id=doc_id,
+                    )
+                )
             result = run_pipeline(
-                temp_paths[0],
-                temp_paths[1],
-                reference_source_type=reference_source_type,
-                comparison_source_type=comparison_source_type,
+                documents,
                 org=org,
                 intervention_class=intervention_class,
                 indication=indication,
                 config=config,
                 llm_client=llm_client,
-                reference_doc_id=reference_doc_id,
-                comparison_doc_id=comparison_doc_id,
                 max_tokens=DEFAULT_MAX_TOKENS,
                 progress_callback=progress,
             )

@@ -604,63 +604,47 @@ export type ScoutResponse = {
   blocks: ContentBlock[];
 };
 
-export type AlignmentUnitType =
-  | "target"
-  | "activity"
-  | "milestone"
-  | "requirement"
-  | "dependency"
-  | "risk_response";
-
-export type AlignmentRelation =
-  | "aligned"
-  | "modified"
-  | "conflict"
-  | "missing"
-  | "introduced";
-
-export type AlignmentLabel = { name: string; description: string };
-
 export type AlignmentDocument = {
-  role: "reference" | "comparison";
   doc_id: string;
   source_type: string;
   display_name: string;
 };
 
-export type AlignmentUnit = {
-  id: string;
-  document_role: "reference" | "comparison";
-  document_id: string;
-  unit_type: AlignmentUnitType;
-  statement: string;
-  block_ids: string[];
+/**
+ * One comparison a run makes.
+ *
+ * Direction lives here rather than on the document, because a document can sit
+ * on either side: with three documents the cTPP is compared against the iTPP and
+ * is the reference for the IPDP.
+ */
+export type AlignmentEdge = {
+  reference_doc_id: string;
+  comparison_doc_id: string;
+  question: string;
 };
 
-export type AlignmentLink = {
-  id: string;
-  relation: AlignmentRelation;
-  reference_unit_ids: string[];
-  comparison_unit_ids: string[];
-  reason: string;
-  reference_block_ids: string[];
-  comparison_block_ids: string[];
+/** One comparison Aligner declares, by document type, before any run. */
+export type AlignmentEdgeSpec = {
+  reference: string;
+  comparison: string;
+  question: string;
 };
 
+/**
+ * Identified documents, the comparisons they resolve, and their parsed source.
+ *
+ * Carries no findings. Aligner's extract-and-link stages were removed because
+ * their relation vocabulary was symmetric - it described how two documents
+ * differed, never whether the second met the bar the first set - and the shape
+ * that replaces it is not yet decided. Findings arrive as fields beside these,
+ * citing `blocks` for lineage the way every other tool does.
+ */
 export type AlignmentResult = {
-  reference_document: AlignmentDocument;
-  comparison_document: AlignmentDocument;
-  units: AlignmentUnit[];
-  links: AlignmentLink[];
-  stats: Record<AlignmentRelation, number> & {
-    reference_units: number;
-    comparison_units: number;
-  };
+  documents: AlignmentDocument[];
+  edges: AlignmentEdge[];
   org: string;
   intervention_class: string;
   indication: string;
-  unit_types: AlignmentLabel[];
-  relations: AlignmentLabel[];
   blocks: ContentBlock[];
 };
 
@@ -826,21 +810,35 @@ export async function continueScout(
   );
 }
 
+/**
+ * The comparisons Aligner declares.
+ *
+ * Fetched rather than mirrored here: the service config is the one place that
+ * decides what compares to what, and a copy in TypeScript would be a second
+ * answer that could disagree with it.
+ */
+export async function fetchAlignerEdges(): Promise<AlignmentEdgeSpec[]> {
+  const data = await jsonRequest<{ edges: AlignmentEdgeSpec[] }>("/api/aligner/edges");
+  return data.edges;
+}
+
 export async function runAligner(
-  referenceFile: File,
-  comparisonFile: File,
+  documents: { file: File; sourceType: string }[],
   configuration: {
     org: string;
-    reference_source_type: string;
-    comparison_source_type: string;
     intervention_class: string;
     indication: string;
   },
   onStage?: (stage: string, progress?: StageProgress) => void,
 ): Promise<AlignerResponse> {
   const form = new FormData();
-  form.append("reference_file", referenceFile);
-  form.append("comparison_file", comparisonFile);
+  // Parallel lists, paired by position: how many documents a run takes is
+  // Aligner's configuration to decide, so neither this function nor the route
+  // names them.
+  documents.forEach(({ file, sourceType }) => {
+    form.append("files", file);
+    form.append("source_types", sourceType);
+  });
   Object.entries(configuration).forEach(([key, value]) => form.append(key, value));
   return streamRequest("/api/aligner/run", form, onStage);
 }

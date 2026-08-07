@@ -48,14 +48,20 @@ class PromptReferenceTest(unittest.TestCase):
         )
 
     def test_every_tool_with_a_catalog_is_published(self) -> None:
-        """A tool absent from the reference has an empty documentation panel."""
+        """A tool that declares prompts and publishes none has an empty panel.
+
+        Aligner is absent from both sides, not one: its catalog is an empty tuple
+        because its analysis stages were removed, so it sends no prompts and has
+        nothing to publish. It is still registered in `CATALOGS`, which is what
+        makes adding a stage back a one-line change.
+        """
         reference = json.loads(REFERENCE.read_text())
         declared = {entry.tool for catalog in CATALOGS for entry in catalog}
         published = {prompt["tool"] for prompt in reference["prompts"]}
         self.assertEqual(declared, published)
         self.assertEqual(
             declared,
-            {"chunker", "inspector", "aligner", "scout"},
+            {"chunker", "inspector", "scout"},
             "add the new tool's catalog to CATALOGS, or remove it here deliberately",
         )
 
@@ -122,13 +128,14 @@ class PromptReferenceTest(unittest.TestCase):
             for slot in configuration["texts"]
         }
 
-        # Aligner's `document_roles` is a mapping keyed by source type rather than
-        # one text, and its package exposes no config enumerator, so it cannot be
-        # published as it stands. Named rather than tolerated: if Aligner gains an
-        # enumerator, this set is what tells someone to register it.
+        # Held at zero. Aligner used to sit here: its prompts declared
+        # `document_roles`, a mapping keyed by source type that the generator had no
+        # enumerator for. Those prompts are gone with its analysis stages, so the
+        # exemption goes too rather than being kept warm for a design that may not
+        # want it.
         self.assertEqual(
             declared - published,
-            {("aligner", "document_roles")},
+            set(),
             "a prompt declares configured text that no configuration publishes",
         )
 

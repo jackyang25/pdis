@@ -1,38 +1,39 @@
-unit_types:
-  - name: target
-    description: A desired product characteristic, performance level, population, use case, or outcome.
-  - name: activity
-    description: Planned development work, study, manufacturing task, regulatory action, or implementation activity.
-  - name: milestone
-    description: A dated or staged deliverable, transition, decision point, or completion event.
-  - name: requirement
-    description: A constraint, acceptance criterion, minimum condition, or mandatory specification.
-  - name: dependency
-    description: A prerequisite, assumption, external input, or enabling condition on which progress depends.
-  - name: risk_response
-    description: A stated risk, mitigation, contingency, monitoring action, or fallback plan.
+# Aligner's whole configuration: the documents it may be handed, and which pairs
+# of them form a comparison.
+#
+# Nothing in the pipeline knows how many documents a run has or which types are
+# comparable. Both facts live here, which is what makes adding a document type a
+# config edit rather than a change to `run_pipeline`, the API route, the upload
+# form, and the result schema.
 
-relations:
-  - name: aligned
-    description: The comparison document preserves the same substantive commitment or target.
-  - name: modified
-    description: The comparison document carries the topic forward but changes its scope, value, timing, or implementation.
-  - name: conflict
-    description: The documents make mutually incompatible statements that cannot both hold as written.
-  - name: missing
-    description: A reference-document unit has no substantive counterpart in the comparison document.
-  - name: introduced
-    description: A comparison-document unit has no substantive antecedent in the reference document.
-
+# How each source type is described. `default` is required: a source type the
+# chunker can parse is usable the moment it exists, and naming it below only
+# makes the description specific.
 document_roles:
-  itpp: Early, candidate-agnostic intervention target profile.
-  ctpp: Candidate-specific target product profile.
+  itpp: Early, candidate-agnostic intervention target profile stating what the Foundation wants.
+  ctpp: Candidate-specific target product profile describing what a grantee is developing.
   ipdp: Integrated product development plan describing execution and decision pathways.
   default: Product-development document.
 
-execution:
-  extraction_batch_characters: 50000
-  extraction_batch_blocks: 40
-  alignment_batch_units: 1
-  alignment_comparison_batch_units: 48
-  max_parallel_calls: 6
+# Which ordered pairs form a comparison, and what each one asks.
+#
+# `reference` is the document being honoured; `comparison` is the one measured
+# against it. The direction is the whole point - it is not a symmetric diff.
+#
+# A run compares every declared pair whose documents were both supplied, so two
+# documents produce one comparison and three produce two. There is deliberately
+# no itpp/ipdp pair: a plan is written against the candidate, not against the
+# Foundation's abstract goal, so that comparison reports differences the cTPP
+# pair already explains.
+#
+# The two entries below ask structurally different questions - one asks whether a
+# candidate clears a bar, the other whether a plan delivers a commitment. Nothing
+# in code distinguishes them today. When an analysis needs to, that distinction
+# becomes a field here rather than a branch in a stage.
+edges:
+  - reference: itpp
+    comparison: ctpp
+    question: Does the candidate meet the bar the intervention profile sets?
+  - reference: ctpp
+    comparison: ipdp
+    question: Does the plan deliver what the candidate profile commits to?

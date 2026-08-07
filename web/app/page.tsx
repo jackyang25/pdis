@@ -5,71 +5,20 @@ import Link from "next/link";
 import { ArrowUpRight, ExternalLink } from "lucide-react";
 import { PdisIcon } from "@/components/ui/pdis-icon";
 import {
-  EXTERNAL_TOOLS,
-  WORKSPACE_TOOLS,
   type ExternalToolDefinition,
   type ToolAudience,
   type ToolDefinition,
   type WorkspaceToolDefinition,
 } from "@/lib/tools";
+import { TOOL_SECTIONS, sectionTools } from "@/lib/tool-sections";
 
 type AudienceFilter = "all" | Exclude<ToolAudience, "shared">;
 
-const ALL_TOOLS: readonly ToolDefinition[] = [
-  ...WORKSPACE_TOOLS,
-  ...EXTERNAL_TOOLS,
-];
-
-const SECTIONS: readonly {
-  id: string;
-  toolIds: readonly ToolDefinition["id"][];
-  title: string;
-  description: string;
-  compact?: boolean;
-}[] = [
-  {
-    id: "pst-workflows",
-    // Reading order, not alphabetical: check a document, test what it claims, then
-    // check the documents against each other, then take them to the gate. In the
-    // two-column grid this puts the two per-document tools on the first row.
-    toolIds: ["inspector", "scout", "aligner", "expert"],
-    title: "PST team workflows",
-    // The only place the between-gates cycle is stated. Each card states what its
-    // tool is judged against; none of them repeats this. Keep the three clauses in
-    // the same order as `toolIds` above — the sentence is what the cards read as.
-    description:
-      "Between stage gates these documents drift apart. Keep each one true to its rubric, its targets true to the evidence, and the documents true to each other — then bundle for the next gate.",
-  },
-  {
-    id: "ghide-workflows",
-    toolIds: [
-      "ghide-evaluator",
-      "ghide-roadmap-body-compiler",
-      "ghide-executive-summary-compiler",
-      "ghide-stage-gate-evaluator",
-    ],
-    title: "GHIDE team workflows",
-    description:
-      "Evaluate investments, prepare stage-gate decisions, and turn findings into leadership-ready outputs.",
-  },
-  {
-    id: "shared-utilities",
-    toolIds: ["chunker", "searcher"],
-    title: "Shared utilities",
-    description:
-      "Work directly with parsed document content or registered evidence sources.",
-    compact: true,
-  },
-];
-
 export default function Home() {
   const [audience, setAudience] = useState<AudienceFilter>("all");
-  const visibleSections = SECTIONS.map((section) => ({
+  const visibleSections = TOOL_SECTIONS.map((section) => ({
     ...section,
-    tools: ALL_TOOLS.filter(
-      (tool) => section.toolIds.includes(tool.id)
-        && isVisibleToAudience(tool, audience),
-    ),
+    tools: sectionTools(section, (tool) => isVisibleToAudience(tool, audience)),
   })).filter((section) => section.tools.length > 0);
 
   return (

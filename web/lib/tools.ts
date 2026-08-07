@@ -3,6 +3,7 @@ export type ToolIcon =
   | "aligner"
   | "scout"
   | "expert"
+  | "librarian"
   | "chunker"
   | "searcher"
   | "evaluator"
@@ -29,7 +30,11 @@ type ToolBase = {
    * boundary is unclear, the positive statement is too vague.
    *
    * Where these sit in a PPL's process is said once, in the section copy in
-   * `app/page.tsx`, not here.
+   * `lib/tool-sections.ts`, not here.
+   *
+   * A tool that renders no verdict has no authority to name, so it states what it
+   * reports and where that came from instead. Librarian is the only one; do not
+   * give it an authority to make the sentences match.
    */
   description: string;
   capability: string;
@@ -55,7 +60,15 @@ export type ExternalToolDefinition = ToolBase & {
 
 export type ToolDefinition = WorkspaceToolDefinition | ExternalToolDefinition;
 
-/** Native tools run inside PDIS and may own workspace configuration. */
+/**
+ * Native tools run inside PDIS and may own workspace configuration.
+ *
+ * Declared in the order a PPL uses them — check a document, test what it claims,
+ * check the documents against each other, take them to the gate — because the
+ * docs page and the Ask catalog both present them in this order and nothing sorts
+ * them. The landing page states the same order in its own `toolIds`; keep the two
+ * agreeing so one surface never lists the tools differently from another.
+ */
 export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
   {
     id: "inspector",
@@ -66,6 +79,20 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     capability: "Document review",
     activity: "3–5 min",
     icon: "inspector",
+    audience: "pst",
+    workflow: "document_intelligence",
+    delivery: "workspace",
+    availability: "available",
+  },
+  {
+    id: "scout",
+    href: "/scout",
+    title: "Scout",
+    description:
+      "One document’s targets against external evidence: comparable measurements and development precedent.",
+    capability: "Evidence review",
+    activity: "25–30 min",
+    icon: "scout",
     audience: "pst",
     workflow: "document_intelligence",
     delivery: "workspace",
@@ -89,20 +116,6 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     availability: "coming_soon",
   },
   {
-    id: "scout",
-    href: "/scout",
-    title: "Scout",
-    description:
-      "One document’s targets against external evidence: comparable measurements and development precedent.",
-    capability: "Evidence review",
-    activity: "25–30 min",
-    icon: "scout",
-    audience: "pst",
-    workflow: "document_intelligence",
-    delivery: "workspace",
-    availability: "available",
-  },
-  {
     id: "expert",
     title: "Expert",
     description:
@@ -112,6 +125,24 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     audience: "pst",
     workflow: "stage_gate",
     delivery: "workspace",
+    availability: "coming_soon",
+  },
+  {
+    id: "librarian",
+    title: "Librarian",
+    // No authority clause, because this tool judges nothing. See the note on
+    // `description` above: the others name what they are judged against, and
+    // giving this one an authority to match would make it Aligner with a corpus.
+    description:
+      "What comparable programs committed to on pathogen-independent attributes — dosing, protection, presentation, shelf life, price — read from the iTPPs, cTPPs, and IPDPs you are permitted to view. Nothing is uploaded; every value cites its source.",
+    capability: "Library reference",
+    icon: "librarian",
+    audience: "pst",
+    workflow: "document_intelligence",
+    delivery: "workspace",
+    // Nothing is built. The card exists so the gap it fills is visible next to the
+    // tools that cannot fill it: Inspector, Aligner, and Scout all need a document
+    // that already states something, and drafting from scratch has none.
     availability: "coming_soon",
   },
   {

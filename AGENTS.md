@@ -119,7 +119,7 @@ positive statement instead. Guidance for the model, such as the Ask legends, is
 the exception: there a negative is a guardrail, not a definition.
 
 Those descriptions are read side by side, so they must be comparable as well as
-correct. One sentence, 13–24 words, artifacts named by acronym (iTPP, cTPP, IPDP),
+correct. One sentence, 12–24 words, artifacts named by acronym (iTPP, cTPP, IPDP),
 the clause after the colon saying what you learn rather than what was searched, and
 no domain examples — naming vaccine attributes couples the copy to one of five
 intervention classes. Utility and external tools are a separate family in
@@ -127,10 +127,17 @@ imperative voice; keep each family internally consistent. The rules and their
 reasons live on `description` in `web/lib/tools.ts`.
 
 Where the tools sit in a PPL's process is a separate statement and is made once,
-in the section above the tool cards: between stage gates the document set drifts,
-and these tools keep it true to its rubric, true to itself, and true to the
-evidence before the next gate. Repeating that per tool guarantees the copies
-drift.
+in the section copy above the tool cards: between stage gates the documents drift
+apart, and these tools keep each one true to its rubric, its targets true to the
+evidence, and the documents true to each other before the next gate. Repeating that
+per tool guarantees the copies drift. Its clauses stay in the same order as the
+cards, so the sentence reads as what the cards say.
+
+Sections themselves group by **audience** and by nothing else. A section named
+after a phase of the process or a kind of analysis puts two axes at one heading
+level, and a reader can no longer tell what a heading is telling them. A tool's
+kind of work is already carried per card by `capability`, which is where a second
+axis belongs. `web/lib/tool-sections.test.ts` enforces this.
 
 ### Inspector
 

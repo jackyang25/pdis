@@ -44,9 +44,8 @@ test("the catalog leads with the order a PPL uses the tools in", () => {
   const pst = WORKSPACE_TOOLS.filter((tool) => tool.audience === "pst").map(
     (tool) => tool.id,
   );
-  // Librarian trails the four judging tools: it answers the question that comes
-  // before any of them, but it reads a stored library rather than a document, so it
-  // is presented as its own group rather than a fifth card in that band.
+  // Librarian trails the four judging tools even though its question comes first:
+  // leading with it pushes Scout off the first row of the two-column grid.
   assert.deepEqual(pst, [
     "inspector",
     "scout",
@@ -56,12 +55,27 @@ test("the catalog leads with the order a PPL uses the tools in", () => {
   ]);
 });
 
+// Sections group by audience and nothing else. A section mixing in another axis -
+// a phase of the process, a kind of analysis - puts two axes at one heading level.
+test("every section groups by a single audience", () => {
+  for (const section of TOOL_SECTIONS) {
+    const audiences = new Set(
+      sectionTools(section, () => true).map((tool) => tool.audience),
+    );
+    assert.equal(
+      audiences.size,
+      1,
+      `${section.id} mixes audiences: ${[...audiences].join(", ")}`,
+    );
+  }
+});
+
 test("a section renders the tools it declares, in that order", () => {
   const pst = TOOL_SECTIONS.find((section) => section.id === "pst-workflows");
   assert.ok(pst);
   assert.deepEqual(
     sectionTools(pst, () => true).map((tool) => tool.id),
-    ["inspector", "scout", "aligner", "expert"],
+    ["inspector", "scout", "aligner", "expert", "librarian"],
   );
 });
 

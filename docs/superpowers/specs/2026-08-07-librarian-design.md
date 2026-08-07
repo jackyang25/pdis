@@ -66,11 +66,14 @@ silently make Librarian into Aligner with a corpus.
 - **It reuses nothing of Scout's result contract.** It may reuse measurement
   normalization if that turns out to be separable; it cannot reuse the result
   shape, because Scout's lineage is anchored to an uploaded document's blocks.
-- **Its own group on the overview**, titled "Drafting from precedent", rather than
-  a fifth card in the PST band. Two reasons: a fifth card pushes Scout out of the
-  first row of the two-column grid, and this is a different moment in the process
-  — before the first profile exists, when there is nothing yet to check, compare,
-  or test.
+- **A fifth card in the PST band, last**, not a group of its own. It was briefly
+  given a "Drafting from precedent" section, which was wrong twice: sections group
+  by audience, so a section named after a phase of the process puts two axes at one
+  heading level; and "precedent" is Scout's own vocabulary (`precedent_classifier`,
+  a precedent axis in its results), so the heading implied a relationship to Scout
+  that does not exist. It goes last despite asking the earliest question, because
+  leading with it pushes Scout off the first row of the two-column grid. The PST
+  section copy carries its clause at the end, matching card order.
 - **Named Librarian.** Not *Drafter*, which implies it writes the iTPP; it writes
   nothing. Not *Precedent*, which collides with a term Scout already owns in its
   result axes.

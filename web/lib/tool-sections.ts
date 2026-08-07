@@ -7,6 +7,12 @@ import {
 /**
  * How the landing page groups the catalog, and the order it presents each group in.
  *
+ * Sections group by **audience** — who the tools belong to — and that is the only
+ * axis they may use. A section grouped by anything else (a phase of the process, a
+ * kind of analysis) puts two axes at one heading level, and a reader can no longer
+ * tell what a heading is telling them. The kind of work a tool does is already
+ * expressed per card, in `capability`, which is where a second axis belongs.
+ *
  * Here rather than inside the page so the invariants can be tested: every id
  * resolves, every tool is placed exactly once, and no section reorders the tools
  * relative to the catalog. That last one is what keeps the landing page, the docs
@@ -32,26 +38,16 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
   {
     id: "pst-workflows",
     // Reading order, not alphabetical: check a document, test what it claims, then
-    // check the documents against each other, then take them to the gate. In the
-    // two-column grid this puts the two per-document tools on the first row.
-    toolIds: ["inspector", "scout", "aligner", "expert"],
+    // check the documents against each other, then take them to the gate. Librarian
+    // trails because it answers the question that comes before all of them, and
+    // leading with it would push Scout off the first row of the two-column grid.
+    toolIds: ["inspector", "scout", "aligner", "expert", "librarian"],
     title: "PST team workflows",
-    // The only place the between-gates cycle is stated. Each card states what its
-    // tool is judged against; none of them repeats this. Keep the three clauses in
-    // the same order as `toolIds` above - the sentence is what the cards read as.
+    // The only place the cycle is stated. Each card states what its tool is judged
+    // against; none of them repeats this. Keep the clauses in the same order as
+    // `toolIds` above - the sentence is what the cards read as.
     description:
-      "Between stage gates these documents drift apart. Keep each one true to its rubric, its targets true to the evidence, and the documents true to each other — then bundle for the next gate.",
-  },
-  {
-    id: "drafting",
-    toolIds: ["librarian"],
-    title: "Drafting from precedent",
-    // Its own group rather than a fifth card in the band above, for two reasons: a
-    // fifth card would push Scout out of the first row, and this is a different
-    // moment in the process - before the first profile exists, when there is
-    // nothing yet to check, compare, or test.
-    description:
-      "Before the first profile exists there is nothing to check against. Read what comparable programs have already asked for.",
+      "Between stage gates these documents drift apart. Keep each one true to its rubric, its targets true to the evidence, and the documents true to each other — then bundle for the next gate. When there is no profile yet, read what comparable programs asked for.",
   },
   {
     id: "ghide-workflows",
@@ -66,11 +62,14 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
       "Evaluate investments, prepare stage-gate decisions, and turn findings into leadership-ready outputs.",
   },
   {
-    id: "shared-utilities",
+    id: "building-blocks",
     toolIds: ["chunker", "searcher"],
-    title: "Shared utilities",
+    // Not a subsection of the tools above, though every one of them parses through
+    // Chunker and Scout searches through Searcher: these sit under those tools
+    // rather than beside them, and nesting would read as a step in the sequence.
+    title: "Building blocks",
     description:
-      "Work directly with parsed document content or registered evidence sources.",
+      "The parsing and retrieval layers the tools above are built on, usable directly.",
     compact: true,
   },
 ];

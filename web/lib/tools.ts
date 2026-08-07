@@ -33,7 +33,7 @@ type ToolBase = {
    * Four rules keep them comparable, because a card is read beside its siblings and
    * the differences between them are the whole point:
    *
-   *   1. One sentence, 13-24 words. A longer card reads as a more important tool.
+   *   1. One sentence, 12-24 words. A longer card reads as a more important tool.
    *      Librarian sits at the top of the range because it is the only one whose
    *      source is access-controlled, and saying so is worth the words.
    *   2. Name artifacts by their acronym — iTPP, cTPP, IPDP. Long-form
@@ -87,6 +87,10 @@ export type ToolDefinition = WorkspaceToolDefinition | ExternalToolDefinition;
  * docs page and the Ask catalog both present them in this order and nothing sorts
  * them. The landing page states the same order in its own `toolIds`; keep the two
  * agreeing so one surface never lists the tools differently from another.
+ *
+ * Librarian trails those four although its question comes before all of them,
+ * because leading with it pushes Scout off the first row of the landing page's
+ * two-column grid.
  */
 export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
   {

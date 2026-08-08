@@ -6,6 +6,9 @@ import test from "node:test";
 import type { ContentBlock } from "./api.ts";
 import {
   buildDocumentTrace,
+  displayDocumentName,
+  documentTraceDocumentIdOf,
+  documentTracePassages,
   documentTraceFocusTarget,
   documentTraceSegmentsInRange,
   filterDocumentAnnotations,
@@ -606,6 +609,146 @@ test("lineage wins over a display anchor, so the pair cannot mislead", () => {
   assert.deepEqual(trace.unplacedAnnotationIds, []);
 });
 
+test("an annotation's passages are listed in document order, not citation order", () => {
+  // The list doubles as a map of where an answer is spread through a document, so a
+  // reader stepping down it moves downward through the text.
+  const first = block("document/b-0001", 1, "The target shelf life is 24 months.");
+  const second = block("document/b-0002", 2, "Storage is 2-8 degrees Celsius.");
+  const trace = buildDocumentTrace([first, second], [
+    annotation({
+      id: "a-1",
+      kind: "field",
+      // Cited out of order on purpose.
+      blockIds: [second.id, first.id],
+    }),
+  ]);
+
+  assert.deepEqual(
+    documentTracePassages(trace, "a-1").map((passage) => passage.blockId),
+    [first.id, second.id],
+  );
+});
+
+test("each passage carries where it sits and how the result attaches to it", () => {
+  const source: ContentBlock = {
+    ...block("document/b-0001", 1, "Target efficacy is greater than 80% at twelve months."),
+    section_label: "Efficacy",
+  };
+  const trace = buildDocumentTrace([source], [
+    annotation({
+      id: "a-1",
+      kind: "field",
+      blockIds: [source.id],
+      spans: [{ quote: "Target efficacy is greater than 80%", blockIds: [source.id] }],
+    }),
+  ]);
+
+  const [passage] = documentTracePassages(trace, "a-1");
+  assert.equal(passage.sectionLabel, "Efficacy");
+  assert.equal(passage.connection, "exact");
+  assert.equal(passage.preview, "Target efficacy is greater than 80% at twelve months.");
+  assert.equal(passage.documentId, "document");
+});
+
+test("a passage falls back to its nearest heading when it declares no section", () => {
+  const source: ContentBlock = {
+    ...block("document/b-0001", 1, "Two doses, four weeks apart."),
+    heading_stack: ["Clinical", "Regimen"],
+  };
+  const trace = buildDocumentTrace([source], [
+    annotation({ id: "a-1", kind: "field", blockIds: [source.id] }),
+  ]);
+  assert.equal(documentTracePassages(trace, "a-1")[0].sectionLabel, "Regimen");
+});
+
+test("a whole-block citation is reported as a block connection, not an exact one", () => {
+  const source = block("document/b-0001", 1, "Manufacturing scale is not yet fixed.");
+  const trace = buildDocumentTrace([source], [
+    annotation({ id: "a-1", kind: "assessment", blockIds: [source.id] }),
+  ]);
+  assert.equal(documentTracePassages(trace, "a-1")[0].connection, "block");
+});
+
+test("a long passage is previewed at a word boundary", () => {
+  const source = block(
+    "document/b-0001",
+    1,
+    "Stability data are available for zones I and II across twenty-four months, with "
+      + "accelerated data at forty degrees, and a vaccine vial monitor category is not "
+      + "stated anywhere in the profile.",
+  );
+  const trace = buildDocumentTrace([source], [
+    annotation({ id: "a-1", kind: "field", blockIds: [source.id] }),
+  ]);
+  const { preview } = documentTracePassages(trace, "a-1")[0];
+  assert.ok(preview.endsWith("…"), preview);
+  assert.ok(preview.length <= 111, `${preview.length}`);
+  assert.ok(!preview.includes("  "));
+  // The cut lands between words: no half word before the ellipsis.
+  assert.ok(source.content.startsWith(preview.slice(0, -1)), preview);
+});
+
+test("passages span every document a result was read from", () => {
+  // This is the case a count could never serve: two documents, and the viewer shows
+  // one at a time, so the reader has no way to learn the other citation exists.
+  const profile = block("profile/b-0001", 1, "Target shelf life is 24 months.", "profile");
+  const plan = block("plan/b-0001", 1, "Stability studies start in Q3.", "plan");
+  const trace = buildDocumentTrace([profile, plan], [
+    annotation({ id: "a-1", kind: "field", blockIds: [profile.id, plan.id] }),
+  ]);
+  // Grouped in the trace's own document order, which is the order of the switcher
+  // above the list, so stepping down the list runs the switcher forward rather than
+  // jumping back and forth between documents.
+  assert.deepEqual(
+    documentTracePassages(trace, "a-1").map((passage) => passage.documentId),
+    trace.documents.map((document) => document.docId),
+  );
+});
+
+test("a display anchor is never listed as a passage", () => {
+  // An anchor is where an absence is shown. Listing it would turn a placement
+  // decision into a source citation.
+  const source = block("document/b-0001", 1, "Clinical development plan.");
+  const trace = buildDocumentTrace([source], [
+    annotation({
+      id: "a-1",
+      kind: "assessment",
+      blockIds: [],
+      displayAnchorBlockId: source.id,
+    }),
+  ]);
+  assert.deepEqual(documentTracePassages(trace, "a-1"), []);
+});
+
+test("a cited block the document does not contain is not offered as a passage", () => {
+  // It cannot be opened, and the viewer reports it as unavailable instead.
+  const source = block("document/b-0001", 1, "Present.");
+  const trace = buildDocumentTrace([source], [
+    annotation({ id: "a-1", kind: "field", blockIds: [source.id, "document/b-9999"] }),
+  ]);
+  assert.deepEqual(
+    documentTracePassages(trace, "a-1").map((passage) => passage.blockId),
+    [source.id],
+  );
+  assert.deepEqual(trace.unresolvedBlockIdsByAnnotation["a-1"], ["document/b-9999"]);
+});
+
+test("revealing a passage can resolve which document holds it", () => {
+  const profile = block("profile/b-0001", 1, "Present.", "profile");
+  const plan = block("plan/b-0001", 1, "Present.", "plan");
+  const trace = buildDocumentTrace([profile, plan], [
+    annotation({ id: "a-1", kind: "field", blockIds: [profile.id, plan.id] }),
+  ]);
+  assert.equal(documentTraceDocumentIdOf(trace, plan.id), "plan");
+  assert.equal(documentTraceDocumentIdOf(trace, "nowhere/b-1"), null);
+});
+
+test("a document is named the same way wherever it is shown", () => {
+  assert.equal(displayDocumentName("product_profile"), "product profile");
+  assert.equal(displayDocumentName("dev-plan"), "dev plan");
+  assert.equal(displayDocumentName(""), "Source document");
+});
+
 test("the shared trace layer imports nothing tool-specific", () => {
   // An import graph assertion, not a keyword scan: the rule is that a shared
   // module may not depend on a tool's adapter, types, or vocabulary. Naming a
@@ -638,6 +781,7 @@ test("every tool adapter presents the same surface", () => {
   const ADAPTERS = [
     { module: "lib/scout-document-trace.ts", build: "buildScoutDocumentAnnotations" },
     { module: "lib/inspector-document-trace.ts", build: "buildInspectorDocumentAnnotations" },
+    { module: "lib/expert-document-trace.ts", build: "buildExpertDocumentAnnotations" },
   ];
   for (const { module, build } of ADAPTERS) {
     const text = readFileSync(path.join(WEB_ROOT, module), "utf8");
@@ -652,6 +796,28 @@ test("every tool adapter presents the same surface", () => {
     assert.ok(
       /export type \w+DocumentAnnotation\b/.test(text),
       `${module} must name its annotation type`,
+    );
+  }
+});
+
+test("no inspector renders a passage count in place of the passages", () => {
+  // The regression this exists for: a count reads as provenance while being
+  // unnavigable, so every citation after the first was asserted and unreachable.
+  // Any tool adding a trace inherits the list rather than reinventing the number.
+  const INSPECTORS = [
+    "components/scout-document-trace.tsx",
+    "components/inspector-document-trace.tsx",
+    "components/expert-document-trace.tsx",
+  ];
+  for (const module of INSPECTORS) {
+    const text = readFileSync(path.join(WEB_ROOT, module), "utf8");
+    assert.ok(
+      text.includes("<TracePassageList"),
+      `${module} must list its passages, not count them`,
+    );
+    assert.ok(
+      !/\{\s*annotation\.blockIds\.length\s*\}/.test(text),
+      `${module} must not render a bare citation count`,
     );
   }
 });

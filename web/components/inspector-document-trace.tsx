@@ -3,8 +3,15 @@
 import { useMemo } from "react";
 import { CircleDashed, FileText, Link2, Wrench } from "lucide-react";
 
-import { DocumentTraceViewer } from "@/components/document-trace-viewer";
-import { TracePanelHeader, TracePanelSection } from "@/components/document-trace-panel";
+import {
+  DocumentTraceViewer,
+  type DocumentTracePassageAccess,
+} from "@/components/document-trace-viewer";
+import {
+  TracePanelHeader,
+  TracePanelSection,
+  TracePassageList,
+} from "@/components/document-trace-panel";
 import { FINDING_REASONS, REASON_LABELS, STATUS_LABELS } from "@/lib/api";
 import type { InspectionResult } from "@/lib/api";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
@@ -30,9 +37,11 @@ const TRACE_LAYERS: Array<{ value: InspectorDocumentTraceKind; label: string }> 
 function InspectorTraceInspector({
   annotation,
   connection,
+  passages,
 }: {
   annotation: InspectorDocumentAnnotation;
   connection: DocumentTraceConnection;
+  passages: DocumentTracePassageAccess;
 }) {
   const ref = annotation.sourceRef;
   const absent = annotation.blockIds.length === 0;
@@ -80,13 +89,14 @@ function InspectorTraceInspector({
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
             {absent
               ? "This finding describes content that is absent, so it cites no source passage. It is shown beside the section it belongs to rather than attached to unrelated text."
-              : "This finding was read from every passage cited below. Inspector records block lineage rather than exact quotations, so the whole passage is marked rather than a span within it."}
+              : "This finding was read from every passage listed below. Inspector records block lineage rather than exact quotations, so the whole passage is marked rather than a span within it."}
           </p>
           {!absent && (
-            <p className="mt-2 text-[10px] tabular-nums text-muted-foreground/80">
-              {annotation.blockIds.length}{" "}
-              {annotation.blockIds.length === 1 ? "source passage" : "source passages"}
-            </p>
+            <TracePassageList
+              passages={passages.passages}
+              openedBlockId={connection.blockId}
+              onReveal={passages.reveal}
+            />
           )}
         </TracePanelSection>
       </div>
@@ -118,8 +128,12 @@ export function InspectorDocumentTrace({
       defaultLayer="missing"
       focusBlockId={focusBlockId}
       onFocusBlockConsumed={onFocusBlockConsumed}
-      renderInspector={(annotation, connection) => (
-        <InspectorTraceInspector annotation={annotation} connection={connection} />
+      renderInspector={(annotation, connection, passages) => (
+        <InspectorTraceInspector
+          annotation={annotation}
+          connection={connection}
+          passages={passages}
+        />
       )}
     />
   );

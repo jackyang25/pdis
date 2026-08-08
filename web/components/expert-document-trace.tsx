@@ -3,8 +3,15 @@
 import { useMemo } from "react";
 import { CircleDashed, FileText, HelpCircle, Link2 } from "lucide-react";
 
-import { DocumentTraceViewer } from "@/components/document-trace-viewer";
-import { TracePanelHeader, TracePanelSection } from "@/components/document-trace-panel";
+import {
+  DocumentTraceViewer,
+  type DocumentTracePassageAccess,
+} from "@/components/document-trace-viewer";
+import {
+  TracePanelHeader,
+  TracePanelSection,
+  TracePassageList,
+} from "@/components/document-trace-panel";
 import type { GateReview } from "@/lib/api";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
 import {
@@ -32,9 +39,11 @@ const TRACE_LAYERS: Array<{ value: ExpertDocumentTraceKind; label: string }> = [
 function ExpertTraceInspector({
   annotation,
   connection,
+  passages,
 }: {
   annotation: ExpertDocumentAnnotation;
   connection: DocumentTraceConnection;
+  passages: DocumentTracePassageAccess;
 }) {
   const ref = annotation.sourceRef;
   return (
@@ -68,14 +77,16 @@ function ExpertTraceInspector({
           className="mt-5"
         >
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            This answer was read from every passage marked below. Expert records block
+            This answer was read from every passage listed below. Expert records block
             lineage rather than exact quotations, so the whole passage is marked rather
-            than a span within it.
+            than a span within it. A compound question is often answered across several,
+            which is also where a partial answer shows how far the document got.
           </p>
-          <p className="mt-2 text-[10px] tabular-nums text-muted-foreground/80">
-            {annotation.blockIds.length}{" "}
-            {annotation.blockIds.length === 1 ? "source passage" : "source passages"}
-          </p>
+          <TracePassageList
+            passages={passages.passages}
+            openedBlockId={connection.blockId}
+            onReveal={passages.reveal}
+          />
         </TracePanelSection>
       </div>
     </div>
@@ -105,8 +116,12 @@ export function ExpertDocumentTrace({
       defaultLayer="partly_answered"
       focusBlockId={focusBlockId}
       onFocusBlockConsumed={onFocusBlockConsumed}
-      renderInspector={(annotation, connection) => (
-        <ExpertTraceInspector annotation={annotation} connection={connection} />
+      renderInspector={(annotation, connection, passages) => (
+        <ExpertTraceInspector
+          annotation={annotation}
+          connection={connection}
+          passages={passages}
+        />
       )}
     />
   );

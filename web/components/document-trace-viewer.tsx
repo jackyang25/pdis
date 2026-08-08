@@ -20,7 +20,10 @@ import {
 } from "@/lib/document-block-presentation";
 import {
   buildDocumentTrace,
+  displayDocumentName,
+  documentTraceDocumentIdOf,
   documentTraceFocusTarget,
+  documentTracePassages,
   documentTraceSegmentsInRange,
   filterDocumentAnnotations,
   groupDocumentTraceMarkers,
@@ -28,6 +31,7 @@ import {
   type DocumentAnnotationEmphasis,
   type DocumentTraceConnection,
   type DocumentTraceBlock,
+  type DocumentTracePassage,
   type DocumentTraceSegment,
 } from "@/lib/document-trace";
 import { cn } from "@/lib/utils";
@@ -44,6 +48,25 @@ type LayerOption<TKind extends string> = {
   label: string;
 };
 
+/**
+ * What an inspector needs to account for its own lineage: the passages the result was
+ * read from, and a way to show one.
+ *
+ * The viewer supplies both because it owns the things a jump requires — the document
+ * switcher, the rendered blocks, the scroll container. An inspector holds one
+ * annotation and cannot resolve a block id on its own, which is why the count was all
+ * it could ever render.
+ */
+export type DocumentTracePassageAccess = {
+  passages: DocumentTracePassage[];
+  /**
+   * Scrolls to a passage of the result already open. Deliberately not a selection
+   * change: moving between the passages of one result must not change which result
+   * you are reading, so this switches documents and scrolls, and nothing else.
+   */
+  reveal: (blockId: string) => void;
+};
+
 export type DocumentTraceViewerProps<TKind extends string, TRef> = {
   blocks: ContentBlock[];
   annotations: Array<DocumentAnnotation<TKind, TRef>>;
@@ -58,14 +81,11 @@ export type DocumentTraceViewerProps<TKind extends string, TRef> = {
   renderInspector: (
     annotation: DocumentAnnotation<TKind, TRef>,
     connection: DocumentTraceConnection,
+    passages: DocumentTracePassageAccess,
   ) => ReactNode;
   focusBlockId?: string | null;
   onFocusBlockConsumed?: (blockId: string) => void;
 };
-
-function displayDocumentName(docId: string): string {
-  return docId.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || "Source document";
-}
 
 function annotationButtonLabel<TKind extends string, TRef>(
   annotations: Array<DocumentAnnotation<TKind, TRef>>,
@@ -390,6 +410,8 @@ function AnnotationInspector<TKind extends string, TRef>({
   selectedId,
   connection,
   onSelectId,
+  passagesFor,
+  onReveal,
   renderInspector,
 }: {
   annotationIds: string[];
@@ -397,9 +419,12 @@ function AnnotationInspector<TKind extends string, TRef>({
   selectedId: string | null;
   connection: DocumentTraceConnection;
   onSelectId: (id: string) => void;
+  passagesFor: (annotationId: string) => DocumentTracePassage[];
+  onReveal: (blockId: string) => void;
   renderInspector: (
     annotation: DocumentAnnotation<TKind, TRef>,
     connection: DocumentTraceConnection,
+    passages: DocumentTracePassageAccess,
   ) => ReactNode;
 }) {
   const annotations = annotationIds
@@ -450,7 +475,10 @@ function AnnotationInspector<TKind extends string, TRef>({
           </div>
         </div>
       )}
-      {renderInspector(selected, connection)}
+      {renderInspector(selected, connection, {
+        passages: passagesFor(selected.id),
+        reveal: onReveal,
+      })}
     </div>
   );
 }
@@ -478,6 +506,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
   const [connection, setConnection] = useState<DocumentTraceConnection>({ type: "block" });
   const [containerWidth, setContainerWidth] = useState(0);
   const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
+  const [revealBlockId, setRevealBlockId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -564,6 +593,56 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
     onFocusBlockConsumed,
   ]);
 
+  /**
+   * Show one passage of the result already open.
+   *
+   * Kept apart from `focusBlockId`, which arrives from a result row and *selects* the
+   * connection at the block it names. Here the result is already selected and the
+   * reader is walking its citations, so this moves the document and nothing else —
+   * selecting as we went would swap the panel to a different result whenever a
+   * passage happened to carry two.
+   */
+  useEffect(() => {
+    if (!revealBlockId) return;
+    const documentId = documentTraceDocumentIdOf(fullTrace, revealBlockId);
+    if (!documentId) {
+      setRevealBlockId(null);
+      return;
+    }
+    // A cited passage can live in another uploaded document. Switch first, then let
+    // the effect run again once that document's blocks are mounted.
+    if (documentId !== activeDocumentId) {
+      setDocumentId(documentId);
+      return;
+    }
+    const target = blockRefs.current.get(revealBlockId);
+    // Cleared rather than left pending: the request is retried across the document
+    // switch above, so by here the block is either mounted or genuinely not in the
+    // document. Holding a request that can never complete would make a second click
+    // on the same passage a no-op, since the state would not change.
+    if (!target) {
+      setRevealBlockId(null);
+      return;
+    }
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "center",
+      inline: "nearest",
+    });
+    target.focus({ preventScroll: true });
+    setFocusedBlockId(revealBlockId);
+    // On a narrow screen the panel is a sheet over the document, so it would cover
+    // the passage it just sent the reader to. Dismiss it without pulling focus back:
+    // the block keeps its mark and can be reopened from the text.
+    if (isNarrow) {
+      setActiveAnnotationIds([]);
+      setSelectedAnnotationId(null);
+    }
+    setRevealBlockId(null);
+  }, [activeDocumentId, fullTrace, isNarrow, revealBlockId]);
+
   useEffect(() => {
     if (!focusedBlockId) return;
     const timeout = window.setTimeout(() => setFocusedBlockId(null), 2200);
@@ -639,6 +718,15 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
     setActiveAnnotationIds(availableIds);
     setSelectedAnnotationId(availableIds[0]);
     setConnection(nextConnection);
+  }
+
+  /**
+   * Read from `fullTrace`, not the filtered one: a result's own passages are its
+   * lineage regardless of which layer is on display, and resolving them against the
+   * visible subset would drop citations for no reason the reader could see.
+   */
+  function passagesFor(annotationId: string): DocumentTracePassage[] {
+    return documentTracePassages(fullTrace, annotationId);
   }
 
   function closeInspector() {
@@ -954,6 +1042,8 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                 selectedId={selectedAnnotationId}
                 connection={connection}
                 onSelectId={setSelectedAnnotationId}
+                passagesFor={passagesFor}
+                onReveal={setRevealBlockId}
                 renderInspector={renderInspector}
               />
             </div>
@@ -999,6 +1089,8 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
               selectedId={selectedAnnotationId}
               connection={connection}
               onSelectId={setSelectedAnnotationId}
+              passagesFor={passagesFor}
+              onReveal={setRevealBlockId}
               renderInspector={renderInspector}
             />
           </div>

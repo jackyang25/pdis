@@ -114,6 +114,106 @@ export type DocumentTraceFocusTarget = {
 };
 
 /**
+ * One passage an annotation was read from, described well enough to choose between.
+ *
+ * A result routinely cites several passages, and until this existed the panel could
+ * only say how many: the count was the whole of it, so every passage after the one
+ * you arrived at was unreachable. Nothing here is new evidence — it is the lineage
+ * the annotation already carries, resolved against the retained document so each
+ * citation can be named and navigated to.
+ */
+export type DocumentTracePassage = {
+  blockId: string;
+  documentId: string;
+  /** Where the passage sits: the nearest heading the block declares, if any. */
+  sectionLabel: string;
+  /** The passage's opening words, so the list reads without navigating away. */
+  preview: string;
+  /** How the annotation attaches here — an exact quotation, or the whole block. */
+  connection: "exact" | "block";
+};
+
+/** Longest preview kept. Two lines in the panel, which is as much as it can show. */
+const PASSAGE_PREVIEW_LIMIT = 110;
+
+function passagePreview(content: string): string {
+  const flat = content.replace(/\s+/g, " ").trim();
+  if (flat.length <= PASSAGE_PREVIEW_LIMIT) return flat;
+  // Cut back to a word boundary: a preview ending mid-word reads as corruption.
+  return `${flat.slice(0, PASSAGE_PREVIEW_LIMIT).replace(/\s+\S*$/, "")}…`;
+}
+
+/**
+ * Every passage one annotation was read from, in document order.
+ *
+ * Document order, not citation order, because the list doubles as a map of where
+ * the answer is spread through the document, and a reader stepping through it
+ * moves downward rather than jumping about.
+ *
+ * `anchored` annotations are deliberately excluded. A display anchor is where an
+ * absence is *shown*, never where anything was read from, so listing it here would
+ * turn a placement decision into a source citation — the one claim the trace must
+ * not manufacture. Blocks the retained document does not contain are excluded for
+ * the same reason: the viewer reports those separately as unavailable rather than
+ * offering a passage that cannot be opened.
+ */
+export function documentTracePassages<TKind extends string, TRef>(
+  trace: DocumentTrace<TKind, TRef>,
+  annotationId: string,
+): DocumentTracePassage[] {
+  const passages: DocumentTracePassage[] = [];
+  for (const document of trace.documents) {
+    for (const traceBlock of document.blocks) {
+      const exact = traceBlock.segments.some((segment) =>
+        segment.annotationIds.includes(annotationId)
+      );
+      const marked = traceBlock.markers.some(
+        (marker) => marker.annotation.id === annotationId,
+      );
+      if (!exact && !marked) continue;
+      passages.push({
+        blockId: traceBlock.block.id,
+        documentId: document.docId,
+        sectionLabel:
+          traceBlock.block.section_label
+          ?? traceBlock.block.heading_stack.at(-1)
+          ?? "",
+        preview: passagePreview(traceBlock.block.content),
+        connection: exact ? "exact" : "block",
+      });
+    }
+  }
+  return passages;
+}
+
+/**
+ * Which retained document holds one block, or null when none does.
+ *
+ * Revealing a passage has to answer this first: a result can cite passages in more
+ * than one uploaded document, and the viewer shows one document at a time.
+ */
+export function documentTraceDocumentIdOf<TKind extends string, TRef>(
+  trace: DocumentTrace<TKind, TRef>,
+  blockId: string,
+): string | null {
+  const document = trace.documents.find((item) =>
+    item.blocks.some((traceBlock) => traceBlock.block.id === blockId)
+  );
+  return document?.docId ?? null;
+}
+
+/**
+ * A document id as a reader should see it.
+ *
+ * Here rather than in the viewer because the passage list names documents too, and
+ * one document reading `product_profile` in a list and `product profile` in the
+ * switcher above it is the same drift twice on one screen.
+ */
+export function displayDocumentName(docId: string): string {
+  return docId.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || "Source document";
+}
+
+/**
  * Resolve a saved block reference into a navigation target without guessing
  * which connected result the user intended. A result is selected only when the
  * block has exactly one connected annotation in the current trace.

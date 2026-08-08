@@ -2,7 +2,11 @@
 
 import { useMemo } from "react";
 import { FileText, Link2 } from "lucide-react";
-import { TracePanelHeader, TracePanelSection } from "@/components/document-trace-panel";
+import {
+  TracePanelHeader,
+  TracePanelSection,
+  TracePassageList,
+} from "@/components/document-trace-panel";
 import type { ScoutResponse } from "@/lib/api";
 import {
   buildScoutDocumentAnnotations,
@@ -11,6 +15,7 @@ import {
 } from "@/lib/scout-document-trace";
 import {
   DocumentTraceViewer,
+  type DocumentTracePassageAccess,
 } from "@/components/document-trace-viewer";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
 
@@ -29,9 +34,11 @@ const TRACE_LAYERS: Array<{
 function ScoutTraceInspector({
   annotation,
   connection,
+  passages,
 }: {
   annotation: ScoutDocumentAnnotation;
   connection: DocumentTraceConnection;
+  passages: DocumentTracePassageAccess;
 }) {
   const connectionLabel = connection.type === "exact"
     ? "Exact source passage"
@@ -84,9 +91,11 @@ function ScoutTraceInspector({
               {connection.unmatchedQuotes.length} unmatched exact {connection.unmatchedQuotes.length === 1 ? "passage" : "passages"}
             </p>
           ) : null}
-          <p className="mt-2 text-[10px] tabular-nums text-muted-foreground/80">
-            {annotation.blockIds.length} {annotation.blockIds.length === 1 ? "source passage" : "source passages"}
-          </p>
+          <TracePassageList
+            passages={passages.passages}
+            openedBlockId={connection.blockId}
+            onReveal={passages.reveal}
+          />
         </TracePanelSection>
       </div>
     </div>
@@ -114,8 +123,12 @@ export function ScoutDocumentTrace({
       layers={TRACE_LAYERS}
       focusBlockId={focusBlockId}
       onFocusBlockConsumed={onFocusBlockConsumed}
-      renderInspector={(annotation, connection) => (
-        <ScoutTraceInspector annotation={annotation} connection={connection} />
+      renderInspector={(annotation, connection, passages) => (
+        <ScoutTraceInspector
+          annotation={annotation}
+          connection={connection}
+          passages={passages}
+        />
       )}
     />
   );

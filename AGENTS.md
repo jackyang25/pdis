@@ -81,7 +81,7 @@ web/ → api/ → services/ → shared/
   not status.
 - `itpp`, `ctpp`, and `ipdp` differences belong in configuration framing and
   unit providers, not downstream conditionals.
-- A result view is read by someone who learned the previous tool, so four things
+- A result view is read by someone who learned the previous tool, so eight things
   are the same everywhere and none of them is checkable by a type:
   1. **`PriorityPanel` is the opening panel**, and `attribution` is always
      `by <Tool>` — never a description of the ordering, which is what `orderNote`
@@ -108,7 +108,17 @@ web/ → api/ → services/ → shared/
      a document and nothing else — an unanswered question has no passage, and an answer
      from pasted context was never chunked. A document with no marks is accounted for in
      the panels, not papered over in the trace.
-  6. **One tab per view, not one per document**, and it is labelled **Documents**.
+  6. **Lineage is listed, never counted.** A trace inspector shows every passage its
+     result was read from, each one openable, via the shared `TracePassageList`. Three
+     tools printed "4 source passages" beside the one passage the reader arrived at, so
+     the other three were asserted and unreachable — a count reads as provenance while
+     being the one thing a trace exists to let you check. The list carries where each
+     passage sits and its opening words, names its document only when the result spans
+     more than one, and marks the passage the panel was opened from. Opening a passage
+     switches documents and scrolls; it never changes which result is selected, because
+     walking one result's citations must not swap the panel to another result that
+     happens to share a passage.
+  7. **One tab per view, not one per document**, and it is labelled **Documents**.
      `DocumentTraceViewer` already switches between the documents a result carries, so
      per-document tabs would be a second mechanism for the same thing and would break
      at one document. The label names what is behind it, not the mechanism: it read
@@ -116,7 +126,7 @@ web/ → api/ → services/ → shared/
      jargon a reader has to be taught. Plural everywhere rather than varying with the
      count — one string beats three, and a tool holding one document is not misled by
      it. `value="trace"` stays as the internal key.
-  7. **Weight follows consequence.** The most consequential fact in a result gets
+  8. **Weight follows consequence.** The most consequential fact in a result gets
      the strongest treatment — amber and an icon, as Scout's context-validation
      notice does — and provenance gets the weakest, at the foot of the card. A
      result whose review mostly could not be run must not read as a completed one.

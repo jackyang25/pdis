@@ -42,6 +42,7 @@ function question(
     pq: false,
     likely_in: [],
     statement: "",
+    missing: "",
     source: null,
     cited_block_ids: [],
     context_label: "",
@@ -75,6 +76,34 @@ const cited = (id: string, blockIds: string[]) =>
     statement: "The profile states it.",
   });
 
+const partly = (id: string, blockIds: string[]) =>
+  question(id, "partly_answered", {
+    source: "document",
+    cited_block_ids: blockIds,
+    statement: "The profile states the target.",
+    missing: "Zone IVb stability data.",
+  });
+
+test("a partial is placed too, and carries what it leaves open", () => {
+  // The passages a document got part of the way with are the most useful thing in the
+  // trace, because that is where a specific ask to the grantee comes from.
+  const [annotation] = buildExpertDocumentAnnotations(
+    review([partly("A", ["profile:1"])]),
+  );
+  assert.equal(annotation.kind, "partly_answered");
+  assert.equal(annotation.layerLabel, "Partly answered");
+  assert.equal(annotation.emphasis?.tone, "caution");
+  assert.equal(annotation.sourceRef.missing, "Zone IVb stability data.");
+});
+
+test("a whole answer is neutral, so one colour never means two things", () => {
+  const [annotation] = buildExpertDocumentAnnotations(
+    review([cited("A", ["profile:1"])]),
+  );
+  assert.equal(annotation.emphasis?.tone, "neutral");
+  assert.equal(annotation.sourceRef.missing, "");
+});
+
 test("only answers read from a document are placed", () => {
   const annotations = buildExpertDocumentAnnotations(
     review([
@@ -82,6 +111,12 @@ test("only answers read from a document are placed", () => {
       question("B", "not_found", { statement: "Not stated." }),
       question("C", "not_applicable"),
       question("D", "answered", { source: "context", context_label: "CMC Report" }),
+      // A partial from pasted context has no passage either.
+      question("E", "partly_answered", {
+        source: "context",
+        context_label: "CMC Report",
+        missing: "The rest.",
+      }),
     ]),
   );
   assert.deepEqual(

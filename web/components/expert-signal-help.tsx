@@ -23,16 +23,17 @@ const TOPICS: Record<ExpertSignalTopic, SignalTopic> = {
   state: {
     promptRef: { tool: "expert", stage: "triage" },
     title: "State",
-    summary: "What became of one question: answered, not found, or not applicable.",
+    summary:
+      "What became of one question: answered, partly answered, not found, or not applicable.",
     detail:
-      "Answered means the supplied material answers the question. Not found means the question was read against everything you supplied and no answer was there — nothing more than that. It is not a judgment about whose fault it is, and not a claim that one of your documents should have contained it: many of these questions ask about operational facts or matters of judgment that no profile or plan would ever carry, and this tool cannot tell those apart from a real omission. What it can tell you is which discipline owns the question, which is who can answer it. Not applicable means the question's own text restricts it to a different intervention class, so no model read it and it is not a shortfall of any kind. There were once five states; two of them rested on a judgment about which of your documents ought to hold an answer, which the question bank does not state, so they were removed rather than left to look authoritative.",
+      "These questions are compound — most ask three to five things in one sentence — so they are judged clause by clause. Answered means every part is answered. Partly answered means some parts are and some are not, and it carries a line saying exactly what is still not stated; that line is the specific thing to ask the grantee for, and it is the most actionable output here. Not found means the question was read against everything you supplied and nothing addressed it — nothing more than that. It is not a judgment about whose fault it is, and not a claim that one of your documents should have contained it: many of these questions ask about operational facts or matters of judgment that no profile or plan would ever carry, and this tool cannot tell those apart from a real omission. What it can tell you is which discipline owns the question. Not applicable means the question's own text restricts it to a different intervention class, so no model read it and it is not a shortfall of any kind. Partly answered is not a progress bar and there is no score: 40 partial answers is not 'half done'.",
   },
   source: {
     promptRef: { tool: "expert", stage: "triage" },
     title: "Source",
     summary: "Whether an answer can be checked, or only attributed.",
     detail:
-      "An answer read from an uploaded document cites the exact passage, so you can open it and confirm it. An answer read from context you pasted for the run names which item it came from and nothing more, because that text is never stored — it goes into the request and is gone. So the label is the whole record: reopening this result later shows the name with nothing behind it. Both are genuinely answered and both are counted the same way; what differs is whether anyone can verify it afterwards. A run answered mostly from pasted context is a different situation from one answered from the documents, which is why the two are counted separately.",
+      "This applies to a partial answer exactly as it does to a whole one. An answer read from an uploaded document cites the exact passage, so you can open it and confirm it. An answer read from context you pasted for the run names which item it came from and nothing more, because that text is never stored — it goes into the request and is gone. So the label is the whole record: reopening this result later shows the name with nothing behind it. Both are genuinely answered and both are counted the same way; what differs is whether anyone can verify it afterwards. A run answered mostly from pasted context is a different situation from one answered from the documents, which is why the two are counted separately.",
   },
   pq: {
     // No promptRef: the marker is transcribed from the question bank, not produced
@@ -54,7 +55,7 @@ const TOPICS: Record<ExpertSignalTopic, SignalTopic> = {
     title: "The count",
     summary: "Every question the gate asks appears, in every run.",
     detail:
-      "The states sum to the total, so the row of counts checks itself. Nothing is filtered out of the denominator, which is what lets two runs on one gate be compared line by line and what makes a count safe to quote in a review. There is no combined coverage figure, because one number blending 'the document says it' with 'nobody has asked yet' would tell a committee something untrue.",
+      "The states sum to the total, so the row of counts checks itself. Nothing is filtered out of the denominator, which is what lets two runs on one gate be compared line by line and what makes a count safe to quote in a review. There is no combined coverage figure, and no way to add the states into a score: one number blending 'the document says it', 'it says half of it', and 'nobody has asked yet' would tell a committee something untrue.",
   },
 };
 

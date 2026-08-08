@@ -265,7 +265,7 @@
     {
       "id": "results",
       "title": "Saved results",
-      "intro": "Every tool that produces a result \u2014 Inspector, Aligner, Expert, and Scout \u2014 downloads a portable, versioned artifact. Their analysis and source documents travel together.",
+      "intro": "Every tool that produces a result — Inspector, Aligner, Expert, and Scout — downloads a portable, versioned artifact. Their analysis and source documents travel together.",
       "content": [
         {
           "type": "definitions",
@@ -846,7 +846,7 @@
                 {
                   "id": "assess",
                   "title": "Per-question decision",
-                  "summary": "One bounded call per question, each reading the same material, returning a single three-value decision so an answer citing nothing is unrepresentable.",
+                  "summary": "One bounded call per question, each reading the same material. The questions are compound, so each is judged clause by clause: every part answered, some parts, or none.",
                   "kind": "model",
                   "layer": "Assessment",
                   "inputs": [
@@ -855,7 +855,8 @@
                     "Any pasted context, labelled"
                   ],
                   "outputs": [
-                    "Answered with its passages",
+                    "Answered, with its passages",
+                    "Partly answered, with what it still leaves open",
                     "Answered from a named context item",
                     "Not found"
                   ],
@@ -864,7 +865,7 @@
                 {
                   "id": "result",
                   "title": "Portable gate review",
-                  "summary": "Every question the gate asks, each in one of three states, with the passages behind the answers and the source documents beside them.",
+                  "summary": "Every question the gate asks, each in one of four states, with the passages behind the answers and the source documents beside them.",
                   "kind": "output",
                   "layer": "Result",
                   "inputs": [

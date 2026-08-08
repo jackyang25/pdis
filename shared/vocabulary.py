@@ -70,3 +70,21 @@ def indications_for(intervention_class: str) -> list[str]:
     """The indications declared for one intervention class, in file order."""
     values = _indications_document().get(intervention_class) or []
     return [str(value) for value in values] if isinstance(values, list) else []
+
+
+def search_term(tag: str) -> str:
+    """One config tag as it should read inside a query or a prompt sentence.
+
+    An indication tag is stored as a stable lowercase key and travels into retrieval
+    text, so the two needs collide the moment a name has more than one word:
+    `group_b_streptococcus` is a fine key and a useless search term. Attribute names
+    were already de-underscored at the point they were joined into a query while the
+    indication beside them was not, which is why the vocabulary was confined to
+    single words — and why the two multi-word names it needed became `tb` and `gbs`.
+
+    Here rather than at each call site because it has two consumers that must not
+    diverge: the query fallback that joins the tag into text, and the configuration
+    framing that substitutes it into a prompt sentence. A tag rendered one way in a
+    query and another in the instructions about that query is the drift this prevents.
+    """
+    return tag.replace("_", " ").strip()

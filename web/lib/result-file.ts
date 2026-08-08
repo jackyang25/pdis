@@ -41,7 +41,10 @@ const ANALYSIS_VERSIONS = {
   // derived from a judgment about which document could answer a question — a judgment
   // the source question bank does not contain — so a v1 file describes states this
   // code has no types for, and its counts were computed on a different denominator.
-  expert: 2,
+  // 3: `partly_answered` joined the model's vocabulary. A v2 file has no such state
+  // and its counts were computed on a binary, so its "not found" total silently
+  // includes every partial answer — a different measurement, not a missing field.
+  expert: 3,
   inspector: 2,
   scout: 1,
 } as const satisfies Record<ResultType, number>;

@@ -10,14 +10,15 @@ export const ACRONYMS = new Set([
   "tpp",
   "ipdp",
   "ppc",
-  // Indications and pathogens
+  // Indications and pathogens. Only abbreviations a reader and a literature search
+  // both use. `tb` and `gbs` were removed with the tags themselves: the vocabulary now
+  // stores `tuberculosis` and `group_b_streptococcus`, and leaving the abbreviations
+  // here would have let a future tag render as one while searching as the other.
   "hiv",
-  "tb",
   "rsv",
   "hpv",
   "cmv",
   "covid19",
-  "gbs",
   // Study and quality vocabulary
   "gcp",
   "glp",

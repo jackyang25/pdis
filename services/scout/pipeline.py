@@ -30,6 +30,7 @@ from .context import (
 )
 from .contract import validate_result_contract
 from shared.batching import budgeted_batches, fixed_batches, map_ordered
+from shared.vocabulary import search_term
 from .models import (
     Attribute,
     ConformityScore,
@@ -112,8 +113,16 @@ def run_pipeline(
         org=org,
         source_type=source_type,
         intervention_class=intervention_class,
+        # The stored tag, not the search term: blocks carry provenance, and a saved
+        # result has to keep the key its configuration was selected by.
         indication=indication,
     )
+    # From here the tag only ever becomes text — query strings, prompt sentences, and
+    # the context-validation notice a reader sees — so it is normalised once, upstream,
+    # rather than at each of the eight places a stage interpolates it. That is what let
+    # `group_b_streptococcus` reach a query as one underscored token, and what confined
+    # the vocabulary to single words until it had to spell Group B Streptococcus `gbs`.
+    indication = search_term(indication)
     # Preserve block IDs through every doc-aware stage. The model may cite only
     # these markers; each stage validates returned IDs against its input context.
     doc_text = render_document_context(blocks)
@@ -266,6 +275,10 @@ def continue_pipeline(
 ) -> ScoutResult:
     """Continue from one explicitly reviewed, portable target draft."""
     validate_result_contract(prepared)
+    # Nothing here re-stamps a block — the draft carries its own, already stamped with
+    # the stored tag — so the tag is only ever text from this point, normalised once for
+    # the same reason as in `run_pipeline`.
+    indication = search_term(indication)
     if prepared.phase != "target_review":
         raise ValueError("Scout continuation requires a target-review draft")
     blocks = prepared.blocks

@@ -46,13 +46,23 @@ bank rather than selecting which bank to read, so `find_config` takes two keys.
 Keying files by intervention class would mean editing one shared question in five
 files, which is how a bank drifts.
 
-### The three states
+### The four states
 
 | State | Decided by | Means |
 |---|---|---|
 | `not_applicable` | the question's own text | it restricts itself to another intervention class — **not a shortfall**, and no model read it |
-| `answered` | one model call | the supplied material answers it |
-| `not_found` | one model call | it was read against everything supplied and no answer was there |
+| `answered` | one model call | every part of the question is answered |
+| `partly_answered` | one model call | some parts are; `missing` names the rest |
+| `not_found` | one model call | nothing supplied addresses it |
+
+The bank's questions are compound — most ask three to five things in one sentence — so
+they are judged clause by clause. Without `partly_answered` the model had to file "four
+of five clauses answered" as if nothing were there, and a whole gate read the same
+whether the plan was thorough or blank.
+
+A partial carries `missing`: one sentence naming what the question still leaves open,
+required on that state and refused on every other. That is the sentence a PPL takes back
+to the grantee. It is never added to `answered` to imply progress, and there is no score.
 
 `not_found` is named for what stays true whatever a hint says. `absent` invites the
 reader to hear a fault, and this tool cannot tell an omission from a question no

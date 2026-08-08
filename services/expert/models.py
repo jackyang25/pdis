@@ -11,11 +11,12 @@ owning discipline, the question text, the `[PQ]` markers, and the eleven questio
 whose text states its own restriction ("For biologics:"). Everything else the bank
 carries is a tag: displayed, never gating.
 
-So a question resolves to one of three states, and every one of them is traceable:
+So a question resolves to one of four states, and every one of them is traceable:
 
     not_applicable   the question text states a class this run is not     config
-    answered         a model read the documents and found it              assess
-    not_found        a model read the documents and did not               assess
+    answered         every part of the question is answered               assess
+    partly_answered  some parts are; `missing` names the rest             assess
+    not_found        nothing supplied addresses it                        assess
 
 There used to be five. `not_answerable` and `not_assessable` were both derived from a
 judgment about which document type could answer a question — a judgment the source
@@ -64,7 +65,9 @@ class LLMClientProtocol(Protocol):
 # Vocabularies
 # ---------------------------------------------------------------------------
 
-QuestionState = Literal["not_applicable", "answered", "not_found"]
+QuestionState = Literal[
+    "not_applicable", "answered", "partly_answered", "not_found"
+]
 
 #: Every state a question can hold. Closed: the interface labels each one and the
 #: contract refuses anything else, so adding a state is one entry here plus one
@@ -76,12 +79,23 @@ QuestionState = Literal["not_applicable", "answered", "not_found"]
 QUESTION_STATES: tuple[QuestionState, ...] = (
     "not_applicable",
     "answered",
+    "partly_answered",
     "not_found",
 )
 
-#: The two states a model may return. Excludes the one the question text owns, so a
-#: model cannot declare a question inapplicable to the run.
-MODEL_STATES: tuple[QuestionState, ...] = ("answered", "not_found")
+#: The states a model may return. Excludes the one the question text owns, so a model
+#: cannot declare a question inapplicable to the run.
+#:
+#: `partly_answered` exists because the bank's questions are compound — each asks three
+#: to five things in one sentence — so a binary forced the model to file "four of five
+#: clauses answered" as if nothing were there. A whole gate then read the same whether
+#: the plan was thorough or blank, which is a number carrying no information. The three
+#: are ordered on one axis: how much of the question is closed.
+MODEL_STATES: tuple[QuestionState, ...] = (
+    "answered",
+    "partly_answered",
+    "not_found",
+)
 
 AnswerSource = Literal["document", "context"]
 
@@ -320,9 +334,14 @@ class QuestionAssessment:
     #: in. It explains where to look and which upload might help. It decided nothing
     #: about this question's state.
     likely_in: list[str] = field(default_factory=list)
-    #: Model prose. Empty for the three states config and resolve decide, because
-    #: there is nothing a model observed about them.
+    #: Model prose about what the material states or does not. Empty only for
+    #: `not_applicable`, where no model read the question.
     statement: str = ""
+    #: What the question still leaves open, on a `partly_answered` question and nowhere
+    #: else. Required rather than folded into `statement`, because this is the sentence
+    #: a PPL takes back to the grantee — leaving it to prose meant it was usually there
+    #: and never guaranteed.
+    missing: str = ""
     source: AnswerSource | None = None
     cited_block_ids: list[str] = field(default_factory=list)
     #: Which transient item answered it. Set only when `source` is "context".

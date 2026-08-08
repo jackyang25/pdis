@@ -729,9 +729,14 @@ class ExpertGatesResponse(BaseModel):
 class QuestionAssessmentOut(BaseModel):
     """One gate question and what became of it.
 
-    Three states, each traceable. `not_applicable` means the question text states a
-    class this run is not, so no model read it and it is not a shortfall of any kind.
-    `answered` and `not_found` are what a model concluded from the supplied material.
+    Four states, each traceable. `not_applicable` means the question text states a class
+    this run is not, so no model read it and it is not a shortfall of any kind. The other
+    three are what a model concluded from the supplied material, ordered by how much of
+    the question is closed: `answered`, `partly_answered`, `not_found`.
+
+    `partly_answered` exists because the bank's questions are compound. A binary made a
+    thorough plan and a blank page produce the same count, and `missing` is the sentence
+    that says what a partial still leaves open.
 
     `source` separates an answer that can be checked from one that cannot.
     `document` carries `cited_block_ids`; `context` carries the label of a
@@ -741,12 +746,14 @@ class QuestionAssessmentOut(BaseModel):
 
     id: str
     text: str
-    state: Literal["not_applicable", "answered", "not_found"]
+    state: Literal["not_applicable", "answered", "partly_answered", "not_found"]
     pq: bool = False
     # Where the answer would usually live: a hint for a reader, carried from the bank.
     # It decided nothing about this question's state.
     likely_in: list[str] = Field(default_factory=list)
     statement: str = ""
+    # What a partial answer still leaves open, and empty on every other state.
+    missing: str = ""
     source: Literal["document", "context"] | None = None
     cited_block_ids: list[str] = Field(default_factory=list)
     context_label: str = ""

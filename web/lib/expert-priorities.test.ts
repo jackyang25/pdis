@@ -29,6 +29,7 @@ function question(
     pq: false,
     likely_in: [],
     statement: "",
+    missing: "",
     source: null,
     cited_block_ids: [],
     context_label: "",
@@ -64,23 +65,54 @@ test("the counts sum to the total, so the header row checks itself", () => {
         questions: [
           question("A", "answered", { source: "document", cited_block_ids: ["b1"] }),
           question("B", "answered", { source: "context", context_label: "Report" }),
-          question("C", "not_found"),
-          question("D", "not_applicable"),
+          question("C", "partly_answered", { missing: "The rest." }),
+          question("D", "not_found"),
+          question("E", "not_applicable"),
         ],
       },
     ]),
   );
-  assert.equal(counts.total, 4);
+  assert.equal(counts.total, 5);
   assert.equal(
-    counts.answered + counts.notFound + counts.notApplicable,
+    counts.answered + counts.partlyAnswered + counts.notFound + counts.notApplicable,
     counts.total,
   );
 });
 
-test("there are only three states to count", () => {
-  // Two more used to exist, both derived from a guess about which document could
-  // answer a question. If either returns, this fails rather than the count row
-  // silently ceasing to add up.
+test("a partial is counted, and its provenance counted with the answers", () => {
+  // Whether an answer can be checked is the same question for a partial, so a partial
+  // read from a document belongs in `cited` alongside a whole one.
+  const counts = countStates(
+    review([
+      {
+        id: "cd",
+        label: "CD",
+        questions: [
+          question("A", "partly_answered", {
+            source: "document",
+            cited_block_ids: ["b1"],
+            missing: "Zone IVb data.",
+          }),
+          question("B", "partly_answered", {
+            source: "context",
+            context_label: "Report",
+            missing: "The VVM category.",
+          }),
+        ],
+      },
+    ]),
+  );
+  assert.equal(counts.partlyAnswered, 2);
+  assert.equal(counts.cited, 1);
+  assert.equal(counts.fromContext, 1);
+  assert.equal(counts.answered, 0);
+});
+
+test("the count row covers exactly the four states and nothing more", () => {
+  // Two states once existed that were derived from a guess about which document could
+  // answer a question; if either returns, this fails rather than the row silently
+  // ceasing to add up. `partlyAnswered` is not one of them — it is an observation of
+  // the supplied material, and it exists because the bank's questions are compound.
   const counts = countStates(
     review([{ id: "cd", label: "CD", questions: [question("A", "not_found")] }]),
   );
@@ -90,6 +122,7 @@ test("there are only three states to count", () => {
     "fromContext",
     "notApplicable",
     "notFound",
+    "partlyAnswered",
     "total",
   ]);
 });

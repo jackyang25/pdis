@@ -139,9 +139,12 @@ function assertExpertReadable(result: unknown): void {
       requireText("expert", held.id, "a question id");
       requireText("expert", held.text, "a question's text");
       requireText("expert", held.state, "a question state");
-      if (held.state !== "answered") {
-        // A v1 file's `absent`, `not_answerable`, or `not_assessable` reaches here as
-        // an unknown string. The version gate is what actually refuses it; this only
+      if (held.state === "partly_answered" && !held.missing?.trim()) {
+        fail("expert", "a partial answer does not say what it leaves open");
+      }
+      if (held.state !== "answered" && held.state !== "partly_answered") {
+        // An older file's `absent`, `not_answerable`, or `not_assessable` reaches here
+        // as an unknown string. The version gate is what actually refuses it; this only
         // keeps such a file from rendering blank rows if the gate is ever bypassed.
         if (!["not_applicable", "not_found"].includes(held.state)) {
           fail("expert", `it uses a question state this version cannot read: ${held.state}`);

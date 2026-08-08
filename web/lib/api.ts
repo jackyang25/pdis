@@ -684,7 +684,11 @@ export type GateSpec = {
  * There were five states; two of them rested on a judgment about which document
  * could answer a question, which the source question bank does not contain.
  */
-export type QuestionState = "not_applicable" | "answered" | "not_found";
+export type QuestionState =
+  | "not_applicable"
+  | "answered"
+  | "partly_answered"
+  | "not_found";
 
 /**
  * Where an answer came from.
@@ -709,6 +713,14 @@ export type QuestionAssessment = {
    */
   likely_in: string[];
   statement: string;
+  /**
+   * What a partial answer still leaves open, and empty on every other state.
+   *
+   * A required field on `partly_answered` rather than a sentence folded into
+   * `statement`, because this is what a PPL takes back to the grantee — left to prose
+   * it was usually there and never guaranteed.
+   */
+  missing: string;
   source: AnswerSource | null;
   cited_block_ids: string[];
   context_label: string;

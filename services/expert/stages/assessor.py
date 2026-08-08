@@ -6,9 +6,17 @@ cross-field rule the schema cannot express — nothing stops a model returning
 "absent" beside a cited block. One enum makes an incoherent answer unrepresentable
 instead of merely invalid.
 
-    answered_from_document   the documents state it; cite the blocks
-    answered_from_context    a supplied context item states it; name which
-    not_found                nothing supplied answers it
+    answered_from_document   the documents answer it fully; cite the blocks
+    partly_from_document     the documents answer part of it; cite, and name the rest
+    answered_from_context    a supplied context item answers it fully; name which
+    partly_from_context      a context item answers part of it; name which, and the rest
+    not_found                nothing supplied addresses it
+
+Completeness and source are independent, so the enum is their cross product rather
+than two fields. Five values reads wide, but the alternative is a rule no schema can
+express — nothing would stop "partly" arriving with no account of what is missing. The
+context variants are omitted entirely when no context was supplied, so a run without it
+sees three.
 
 `answered_from_context` is offered only when context items were actually supplied,
 so a model cannot attribute an answer to a source that does not exist. Both
@@ -37,8 +45,22 @@ from ..models import (
 QUESTIONS_PER_REQUEST = 1
 
 DECISION_FROM_DOCUMENT = "answered_from_document"
+DECISION_PARTLY_FROM_DOCUMENT = "partly_from_document"
 DECISION_FROM_CONTEXT = "answered_from_context"
+DECISION_PARTLY_FROM_CONTEXT = "partly_from_context"
 DECISION_NOT_FOUND = "not_found"
+
+#: How each decision maps onto the published state and source. One table rather than a
+#: branch per decision, so adding a decision is one row and nothing downstream reads
+#: the decision vocabulary at all.
+_DECISIONS: dict[str, tuple[str, str | None, bool]] = {
+    # decision: (state, source, requires `missing`)
+    DECISION_FROM_DOCUMENT: ("answered", "document", False),
+    DECISION_PARTLY_FROM_DOCUMENT: ("partly_answered", "document", True),
+    DECISION_FROM_CONTEXT: ("answered", "context", False),
+    DECISION_PARTLY_FROM_CONTEXT: ("partly_answered", "context", True),
+    DECISION_NOT_FOUND: ("not_found", None, False),
+}
 
 _SCOPE_BOUNDARY = """Scope boundary:
 - You are deciding only whether the supplied material ANSWERS the question. Do not
@@ -47,27 +69,34 @@ _SCOPE_BOUNDARY = """Scope boundary:
   here would contradict them.
 - Do not answer the question yourself from your own knowledge. A question is
   answered only when the supplied material answers it.
-- Partial is not answered. If the material addresses the subject but leaves the
-  question open, that is absent."""
+- These questions are compound: most ask three to five things in one sentence. Judge
+  them clause by clause. Every clause answered is answered; some answered is partly;
+  none is not found. Do not round a partial up or down."""
 
 
 def build_assessment_prompt(has_context: bool) -> str:
     """The system prompt for one question. Published through the prompt catalog."""
     decisions = [
-        f"- {DECISION_FROM_DOCUMENT}: the supplied document blocks answer the "
-        "question. Cite in `block_ids` every block you read to reach that.",
+        f"- {DECISION_FROM_DOCUMENT}: the supplied document blocks answer every part "
+        "of the question. Cite in `block_ids` every block you read to reach that.",
+        f"- {DECISION_PARTLY_FROM_DOCUMENT}: the documents answer some parts and leave "
+        "others open. Cite the blocks, and put in `missing` one short sentence naming "
+        "exactly what is still not stated.",
     ]
     if has_context:
-        decisions.append(
-            f"- {DECISION_FROM_CONTEXT}: the supplied context answers the question "
-            "and the documents do not. Name the exact context item in "
-            "`context_label`. Context is not chunked, so it has no block IDs."
-        )
+        decisions.extend([
+            f"- {DECISION_FROM_CONTEXT}: the supplied context answers every part and "
+            "the documents do not. Name the exact context item in `context_label`. "
+            "Context is not chunked, so it has no block IDs.",
+            f"- {DECISION_PARTLY_FROM_CONTEXT}: the supplied context answers some "
+            "parts. Name the item, and put the rest in `missing`.",
+        ])
     decisions.append(
-        f"- {DECISION_NOT_FOUND}: nothing supplied answers the question. Leave "
-        "`block_ids` empty and `context_label` blank. This is the right answer for a "
-        "question the supplied material was never going to contain — an operational "
-        "check, or a matter of judgment — as much as for one it should have."
+        f"- {DECISION_NOT_FOUND}: nothing supplied addresses the question at all. "
+        "Leave `block_ids` empty and `context_label` and `missing` blank. This is the "
+        "right answer for a question the supplied material was never going to contain "
+        "— an operational check, or a matter of judgment — as much as for one it "
+        "should have."
     )
     preference = (
         "\n\nPrefer the documents. When both a document and a context item answer "
@@ -88,9 +117,15 @@ Lineage is required, not optional. `{DECISION_FROM_DOCUMENT}` MUST cite the exac
 supplied block IDs it was read from. A citation you cannot point at is worse than
 reporting the question unanswered.
 
-`statement` is one short factual sentence (max 25 words). When answered, say what
-the material states. When absent, say what is missing. Describe the material; do
-not instruct the reader, and do not restate the question."""
+`statement` is one short factual sentence (max 25 words) saying what the material
+states, or that it states nothing on the subject.
+
+`missing` is one short sentence (max 25 words) naming only what is still not stated,
+on a partial answer and nowhere else. It is read as an instruction to whoever wrote the
+document, so name the thing, not its absence: "Zone IVb stability data and the VVM
+category" rather than "the document does not say".
+
+Describe the material; do not instruct the reader, and do not restate the question."""
 
 
 def assessment_schema(
@@ -103,17 +138,28 @@ def assessment_schema(
     cannot be returned in the first place: no context items means no context
     decision, and `block_ids` can only name blocks that exist.
     """
-    decisions = [DECISION_FROM_DOCUMENT, DECISION_NOT_FOUND]
     labels = [item.label for item in context_items]
+    decisions = [DECISION_FROM_DOCUMENT, DECISION_PARTLY_FROM_DOCUMENT]
     if labels:
-        decisions.insert(1, DECISION_FROM_CONTEXT)
+        decisions += [DECISION_FROM_CONTEXT, DECISION_PARTLY_FROM_CONTEXT]
+    decisions.append(DECISION_NOT_FOUND)
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["decision", "statement", "block_ids", "context_label"],
+        "required": [
+            "decision",
+            "statement",
+            "missing",
+            "block_ids",
+            "context_label",
+        ],
         "properties": {
             "decision": {"type": "string", "enum": decisions},
             "statement": {"type": "string"},
+            # Always present, blank unless the decision is a partial. A conditional
+            # requirement is the one thing this schema cannot express, so the decision
+            # carries the condition and code checks the pairing.
+            "missing": {"type": "string"},
             "block_ids": {
                 "type": "array",
                 "items": {"type": "string", "enum": [block.id for block in blocks]},
@@ -212,42 +258,50 @@ def _parse_payload(
     if not isinstance(payload, dict):
         raise ValueError("decision must be an object")
     decision = payload.get("decision")
+    if decision not in _DECISIONS:
+        raise ValueError(f"unknown decision {decision!r}")
+    state, source, needs_missing = _DECISIONS[str(decision)]
+
     statement = str(payload.get("statement") or "").strip()
     if not statement:
         raise ValueError("every decision must carry a statement")
 
-    # The bank's contribution comes from one place, so a field added to the question
-    # spec reaches every state rather than only the assessed ones.
-    base = question.assessment("not_found")
-    base.statement = statement
+    result = question.assessment(state)  # type: ignore[arg-type]
+    result.statement = statement
 
-    if decision == DECISION_NOT_FOUND:
-        return base
+    missing = str(payload.get("missing") or "").strip()
+    if needs_missing and not missing:
+        raise ValueError(
+            "a partial answer must name what is still not stated, because that "
+            "sentence is the only account of what the question leaves open"
+        )
+    if missing and not needs_missing:
+        raise ValueError(
+            f"{state} cannot carry a `missing` note: it is either fully answered or "
+            "not addressed at all"
+        )
+    result.missing = missing
 
-    if decision == DECISION_FROM_DOCUMENT:
+    if source == "document":
         block_ids = list(dict.fromkeys(_string_list(payload.get("block_ids"))))
         if not block_ids:
             raise ValueError("answered from a document but cited no block")
         unknown = [b for b in block_ids if b not in valid_block_ids]
         if unknown:
             raise ValueError(f"cited block(s) that were not supplied: {unknown}")
-        base.state = "answered"
-        base.source = "document"
-        base.cited_block_ids = block_ids
-        return base
+        result.source = "document"
+        result.cited_block_ids = block_ids
+        return result
 
-    if decision == DECISION_FROM_CONTEXT:
+    if source == "context":
         label = str(payload.get("context_label") or "").strip()
         if label not in valid_labels:
-            raise ValueError(
-                f"named context item {label!r}, which was not supplied"
-            )
-        base.state = "answered"
-        base.source = "context"
-        base.context_label = label
-        return base
+            raise ValueError(f"named context item {label!r}, which was not supplied")
+        result.source = "context"
+        result.context_label = label
+        return result
 
-    raise ValueError(f"unknown decision {decision!r}")
+    return result
 
 
 def _string_list(value: object) -> list[str]:

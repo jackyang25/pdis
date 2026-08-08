@@ -110,7 +110,19 @@ def _evidence_agrees_with_state(result: GateReview) -> None:
         if not item.text.strip():
             raise ValueError(f"{item.id}: a question must carry its text")
 
-        if item.state != "answered":
+        # `missing` belongs to exactly one state. Anywhere else it would be an account
+        # of a gap on a question that either has none or is entirely one.
+        if item.state == "partly_answered":
+            if not item.missing.strip():
+                raise ValueError(
+                    f"{item.id}: a partial answer must name what is still not stated"
+                )
+        elif item.missing:
+            raise ValueError(
+                f"{item.id}: state {item.state} cannot carry a `missing` note"
+            )
+
+        if item.state not in ("answered", "partly_answered"):
             if item.source is not None:
                 raise ValueError(
                     f"{item.id}: state {item.state} cannot carry an answer source"

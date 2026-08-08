@@ -17,10 +17,54 @@ import type { GateReview, QuestionAssessment, QuestionState } from "@/lib/api";
  * hint as structure would hand a guess the authority of a layout.
  */
 
+/**
+ * One question.
+ *
+ * A button only when there is somewhere to go. Every cell used to be a button with a
+ * hover state, so three quarters of the grid invited a click and did nothing — only an
+ * answer cited to a passage has anything to open. The title carries the whole claim
+ * either way, so the colour is never the only signal, which is the rule the trace
+ * emphasis follows too.
+ */
+function Cell({
+  question,
+  onSelect,
+}: {
+  question: QuestionAssessment;
+  onSelect?: (question: QuestionAssessment) => void;
+}) {
+  const tone = TONE[question.state];
+  const title = `${question.id} · ${tone.label}${
+    question.statement ? ` — ${question.statement}` : ""
+  }`;
+  const shape = `h-3.5 w-3.5 rounded-[3px] ${tone.cell}`;
+  const openable = Boolean(onSelect) && question.cited_block_ids.length > 0;
+
+  if (!openable) {
+    return <span title={title} aria-label={title} className={shape} />;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect?.(question)}
+      title={`${title} — open the passage`}
+      aria-label={`${title}. Open the passage.`}
+      className={`${shape} transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none`}
+    />
+  );
+}
+
 const TONE: Record<QuestionState, { cell: string; label: string }> = {
   answered: {
     cell: "bg-[hsl(var(--tone-success))]",
     label: "answered",
+  },
+  partly_answered: {
+    // Between the two it sits between, and on the caution token rather than a tint of
+    // either — a lighter green would read as "nearly answered", which is a judgment
+    // about progress this tool does not make.
+    cell: "bg-[hsl(var(--tone-warning))]",
+    label: "partly answered",
   },
   not_found: {
     // The strongest mark, because it is the actionable one — not because it is a
@@ -61,18 +105,7 @@ export function ExpertCoverageStrip({
             </span>
             <span className="flex flex-wrap gap-1">
               {discipline.questions.map((question) => (
-                <button
-                  key={question.id}
-                  type="button"
-                  onClick={() => onSelect?.(question)}
-                  // The title carries the whole claim, so the colour is never the
-                  // only signal — the same rule the trace emphasis follows.
-                  title={`${question.id} · ${TONE[question.state].label}${
-                    question.statement ? ` — ${question.statement}` : ""
-                  }`}
-                  aria-label={`${question.id}, ${TONE[question.state].label}`}
-                  className={`h-3.5 w-3.5 rounded-[3px] transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none ${TONE[question.state].cell}`}
-                />
+                <Cell key={question.id} question={question} onSelect={onSelect} />
               ))}
             </span>
           </li>

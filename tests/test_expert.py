@@ -334,12 +334,21 @@ class ResolveTests(unittest.TestCase):
 
 
 class VocabularyTests(unittest.TestCase):
-    def test_there_are_three_states_and_the_model_owns_two(self) -> None:
-        """Five once. The two removed both rested on a guess about documents."""
+    def test_the_model_owns_every_state_but_the_one_the_question_text_owns(self) -> None:
+        """Four states, three of them observations of the supplied material.
+
+        There were five once, and the two removed rested on a guess about which document
+        should hold an answer. `partly_answered` is not a return to that: it is an
+        observation, and the reason it exists is that the bank's questions are compound,
+        so a binary made a thorough plan and a blank page score identically.
+        """
         self.assertEqual(
-            set(QUESTION_STATES), {"not_applicable", "answered", "not_found"}
+            set(QUESTION_STATES),
+            {"not_applicable", "answered", "partly_answered", "not_found"},
         )
-        self.assertEqual(set(MODEL_STATES), {"answered", "not_found"})
+        self.assertEqual(
+            set(MODEL_STATES), {"answered", "partly_answered", "not_found"}
+        )
         self.assertNotIn("not_applicable", MODEL_STATES)
 
     def test_there_are_exactly_two_answer_sources(self) -> None:
@@ -520,6 +529,7 @@ class AssessorTests(unittest.TestCase):
             {
                 "decision": DECISION_FROM_DOCUMENT,
                 "statement": "The plan states it.",
+                "missing": "",
                 "block_ids": ["d:1"],
                 "context_label": "",
             }
@@ -541,6 +551,7 @@ class AssessorTests(unittest.TestCase):
             {
                 "decision": DECISION_FROM_CONTEXT,
                 "statement": "The report states it.",
+                "missing": "",
                 "block_ids": [],
                 "context_label": "CMC Report",
             }
@@ -556,11 +567,89 @@ class AssessorTests(unittest.TestCase):
         self.assertEqual(result.context_label, "CMC Report")
         self.assertEqual(result.cited_block_ids, [])
 
+    def test_a_partial_answer_names_what_is_still_missing(self) -> None:
+        from services.expert.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
+
+        client = FakeClient(
+            {
+                "decision": DECISION_PARTLY_FROM_DOCUMENT,
+                "statement": "The plan states annual dosing.",
+                "missing": "Zone IVb stability data and the VVM category.",
+                "block_ids": ["d:1"],
+                "context_label": "",
+            }
+        )
+        result = assess_question(
+            spec("Q1", likely_in=("ipdp",)),
+            blocks=self.BLOCKS,
+            context_items=[],
+            llm_client=client,
+            max_tokens=100,
+        )
+        self.assertEqual(result.state, "partly_answered")
+        self.assertEqual(result.source, "document")
+        self.assertEqual(result.cited_block_ids, ["d:1"])
+        self.assertIn("Zone IVb", result.missing)
+
+    def test_a_partial_answer_with_no_account_is_refused(self) -> None:
+        """That sentence is the only record of what the question leaves open."""
+        from services.expert.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
+
+        client = FakeClient(
+            {
+                "decision": DECISION_PARTLY_FROM_DOCUMENT,
+                "statement": "The plan states annual dosing.",
+                "missing": "",
+                "block_ids": ["d:1"],
+                "context_label": "",
+            }
+        )
+        with self.assertRaises(ValueError):
+            assess_question(
+                spec("Q1"),
+                blocks=self.BLOCKS,
+                context_items=[],
+                llm_client=client,
+                max_tokens=100,
+            )
+        self.assertEqual(len(client.calls), 2, "the contract failure was not retried")
+
+    def test_a_full_answer_cannot_carry_a_missing_note(self) -> None:
+        """It is either fully answered or partly. A note on a full answer is a state
+        the two disagree about."""
+        client = FakeClient(
+            {
+                "decision": DECISION_FROM_DOCUMENT,
+                "statement": "The plan states it.",
+                "missing": "something",
+                "block_ids": ["d:1"],
+                "context_label": "",
+            }
+        )
+        with self.assertRaises(ValueError):
+            assess_question(
+                spec("Q1"),
+                blocks=self.BLOCKS,
+                context_items=[],
+                llm_client=client,
+                max_tokens=100,
+            )
+
+    def test_a_partial_is_offered_even_without_context(self) -> None:
+        """Completeness is independent of source, so it is never gated on context."""
+        from services.expert.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
+
+        schema = assessment_schema(self.BLOCKS, [])
+        self.assertIn(
+            DECISION_PARTLY_FROM_DOCUMENT, schema["properties"]["decision"]["enum"]
+        )
+
     def test_a_not_found_answer_carries_nothing(self) -> None:
         client = FakeClient(
             {
                 "decision": DECISION_NOT_FOUND,
                 "statement": "No document states a dosing target.",
+                "missing": "",
                 "block_ids": [],
                 "context_label": "",
             }
@@ -580,6 +669,7 @@ class AssessorTests(unittest.TestCase):
             {
                 "decision": DECISION_FROM_DOCUMENT,
                 "statement": "The plan states it.",
+                "missing": "",
                 "block_ids": ["d:99"],
                 "context_label": "",
             }
@@ -610,7 +700,12 @@ class AssessorTests(unittest.TestCase):
         prompt = build_assessment_prompt(True)
         self.assertIn("template", prompt)
         self.assertIn("realistic", prompt)
-        self.assertIn("Partial is not answered", prompt)
+
+    def test_the_prompt_asks_for_a_clause_by_clause_judgment(self) -> None:
+        """The bank's questions are compound, so rounding one either way loses it."""
+        prompt = build_assessment_prompt(False)
+        self.assertIn("clause by clause", prompt)
+        self.assertIn("Do not round a partial", prompt)
 
     def test_the_material_precedes_the_question_so_it_can_be_cached(self) -> None:
         """Every question in a run shares the same material; only the question varies.

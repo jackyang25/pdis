@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { FileText, HelpCircle, Link2 } from "lucide-react";
+import { CircleDashed, FileText, HelpCircle, Link2 } from "lucide-react";
 
 import { DocumentTraceViewer } from "@/components/document-trace-viewer";
 import { TracePanelHeader, TracePanelSection } from "@/components/document-trace-panel";
@@ -20,12 +20,13 @@ import {
  * documents a result carries, so per-document tabs would be a second mechanism for the
  * same thing — and one that breaks when a run holds a single document.
  *
- * One layer, because Expert's citations are all the same claim. Inspector filters by
- * finding reason and Scout by evidence axis; a filter here would have nothing to
- * separate, so the selector stays out of the way rather than offering a choice of one.
+ * Two layers, so a reader can see only the passages that got part of the way — which
+ * is where the specific ask to a grantee comes from, and the most useful filter the
+ * trace has.
  */
 const TRACE_LAYERS: Array<{ value: ExpertDocumentTraceKind; label: string }> = [
   { value: "answered", label: "Answered" },
+  { value: "partly_answered", label: "Partly answered" },
 ];
 
 function ExpertTraceInspector({
@@ -39,7 +40,9 @@ function ExpertTraceInspector({
   return (
     <div>
       <TracePanelHeader
-        eyebrow={ref.pq ? "Answered · WHO prequalification" : annotation.layerLabel}
+        eyebrow={
+          ref.pq ? `${annotation.layerLabel} · WHO prequalification` : annotation.layerLabel
+        }
         title={ref.discipline}
         description={ref.questionId}
       />
@@ -52,6 +55,12 @@ function ExpertTraceInspector({
         <p className="mt-5 whitespace-pre-wrap text-sm leading-6 text-foreground/85">
           {annotation.summary}
         </p>
+
+        {ref.missing && (
+          <TracePanelSection label="Still not stated" icon={CircleDashed} className="mt-5">
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{ref.missing}</p>
+          </TracePanelSection>
+        )}
 
         <TracePanelSection
           label="Source passages"
@@ -92,7 +101,8 @@ export function ExpertDocumentTrace({
       blocks={review.blocks ?? []}
       annotations={annotations}
       layers={TRACE_LAYERS}
-      defaultLayer="answered"
+      // Partials first: they are the ones a reader can act on.
+      defaultLayer="partly_answered"
       focusBlockId={focusBlockId}
       onFocusBlockConsumed={onFocusBlockConsumed}
       renderInspector={(annotation, connection) => (

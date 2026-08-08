@@ -8,16 +8,16 @@ import type { DocumentAnnotation } from "./document-trace.ts";
  * carries; it never re-assesses, re-reads prose, or infers lineage the result does
  * not hold.
  *
- * **Only answered-from-document questions appear.** The other states have no
- * lineage to place, and each for a different reason worth stating, because the
- * temptation is to anchor them somewhere and let the viewer look complete:
+ * **Only questions cited to a document appear** — answered or partly answered. The
+ * others have no lineage to place, each for a different reason worth stating, because
+ * the temptation is to anchor them somewhere and let the viewer look complete:
  *
  *   not_found        nothing was cited, so there is no passage to attach to. It
  *                    cannot be anchored at a "probable" block either — that would
  *                    invent provenance from the `likely_in` hint, which is a guess
  *                    and the whole reason that field no longer decides anything.
  *   not_applicable   no model read the question at all.
- *   answered/context the pasted text is never chunked, so it has no blocks. Placing
+ *   from context     the pasted text is never chunked, so it has no blocks. Placing
  *                    such an answer in the document trace would show it as
  *                    checkable against a document it was not read from.
  *
@@ -28,19 +28,19 @@ import type { DocumentAnnotation } from "./document-trace.ts";
  */
 
 /**
- * One kind, because Expert has one thing to place: an answer read from a passage.
- *
- * Inspector's kinds are its finding reasons, and Scout's are its evidence axes, so
- * their traces filter by layer usefully. Expert's citations are all the same claim,
- * so a second kind would be a filter with nothing to separate.
+ * Two kinds, because a passage can carry a whole answer or part of one, and which it
+ * is changes what a reader does next. Filtering to partials is a list of the passages
+ * that got close — the most useful thing in the trace.
  */
-export type ExpertDocumentTraceKind = "answered";
+export type ExpertDocumentTraceKind = "answered" | "partly_answered";
 
 export type ExpertDocumentTraceRef = {
   questionId: string;
   discipline: string;
   question: string;
   statement: string;
+  /** What the question still leaves open. Present only on a partial. */
+  missing: string;
   pq: boolean;
 };
 
@@ -57,8 +57,8 @@ export function buildExpertDocumentAnnotations(
       .filter(citesADocument)
       .map((question) => ({
         id: question.id,
-        kind: "answered" as const,
-        layerLabel: "Answered",
+        kind: question.state as ExpertDocumentTraceKind,
+        layerLabel: question.state === "answered" ? "Answered" : "Partly answered",
         // The discipline leads, because that is what a reader scanning the gutter
         // recognises; the id qualifies it for anyone matching against the bank.
         title: `${discipline.label} · ${question.id}`,
@@ -69,12 +69,18 @@ export function buildExpertDocumentAnnotations(
         // blocks. Searching block text for a phrase to underline would invent a
         // span the model never asserted.
         spans: [],
-        emphasis: { tone: "neutral" as const, badge: "Answered" },
+        // Caution on a partial, matching the coverage strip, so one colour does not
+        // mean two things across two views of the same result.
+        emphasis:
+          question.state === "answered"
+            ? { tone: "neutral" as const, badge: "Answered" }
+            : { tone: "caution" as const, badge: "Partly answered" },
         sourceRef: {
           questionId: question.id,
           discipline: discipline.label,
           question: question.text,
           statement: question.statement,
+          missing: question.missing,
           pq: question.pq,
         },
       })),
@@ -82,8 +88,10 @@ export function buildExpertDocumentAnnotations(
 }
 
 function citesADocument(question: QuestionAssessment): boolean {
+  // A partial cites its passages too, and those are the ones worth reading: the
+  // document got part of the way there, and the trace shows how far.
   return (
-    question.state === "answered"
+    (question.state === "answered" || question.state === "partly_answered")
     && question.source === "document"
     && question.cited_block_ids.length > 0
   );

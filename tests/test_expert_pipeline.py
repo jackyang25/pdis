@@ -58,6 +58,7 @@ class ScriptedClient:
             return self.decisions.pop(0) if self.decisions else {
                 "decision": DECISION_NOT_FOUND,
                 "statement": "Nothing supplied answers this.",
+                "missing": "",
                 "block_ids": [],
                 "context_label": "",
             }
@@ -194,6 +195,7 @@ class PipelineTests(unittest.TestCase):
                 {
                     "decision": DECISION_FROM_DOCUMENT,
                     "statement": "The profile states one dose annually.",
+                    "missing": "",
                     "block_ids": [block_id],
                     "context_label": "",
                 }
@@ -214,6 +216,7 @@ class PipelineTests(unittest.TestCase):
                 {
                     "decision": DECISION_FROM_CONTEXT,
                     "statement": "The report gives USD 1.20 per dose.",
+                    "missing": "",
                     "block_ids": [],
                     "context_label": "CMC Report",
                 }

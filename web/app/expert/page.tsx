@@ -498,13 +498,27 @@ function ReviewView({
                 question, so it showed Expert's comment with the question it was about
                 missing. The panel below carries both.
               */}
+              {/*
+                Partials first. They are the only state with a specific ask attached —
+                the material got part of the way and `missing` names the rest — so this
+                is the panel a PPL acts on. Answered needs nothing, and not found is
+                either a reviewer's question or a larger conversation.
+              */}
               <StatePanel
-                title="Not found in the documents"
-                description="Assessed against everything supplied, and not answered there. Each shows the discipline that owns it."
-                state="not_found"
+                title="Partly answered"
+                description="Some of the question is answered and some is not. Each says what is still not stated."
+                state="partly_answered"
                 review={review}
                 defaultOpen
-                    emptyMessage={EXPERT_EMPTY_MESSAGE}
+                orderNote={EXPERT_ORDER_NOTE}
+              />
+
+              <StatePanel
+                title="Not found in the documents"
+                description="Nothing in the supplied material addresses these. Each shows the discipline that owns it."
+                state="not_found"
+                review={review}
+                emptyMessage={EXPERT_EMPTY_MESSAGE}
                 orderNote={EXPERT_ORDER_NOTE}
               />
 
@@ -523,10 +537,10 @@ function ReviewView({
           <TabsContent value="trace" className="m-0">
             <div className="border-b border-border px-5 py-3 sm:px-6">
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Which passages carried an answer, and what they answered — the inverse
-                of the questions view. Only answers read from a document appear here:
-                an answer from pasted context has no passage, and an unanswered
-                question has nothing to mark.
+                Which passages carried an answer — whole or partial — and what they
+                answered. The inverse of the questions view. Only answers read from a
+                document appear here: an answer from pasted context has no passage, and
+                an unanswered question has nothing to mark.
               </p>
               {/*
                 Not addable, and it says so. One question can cite passages from two
@@ -617,11 +631,12 @@ function CountRow({ counts }: { counts: ReturnType<typeof countStates> }) {
   // zero in them genuinely has nothing to report.
   const cells = [
     { label: "answered", value: counts.answered, always: true },
+    { label: "partly answered", value: counts.partlyAnswered, always: true },
     { label: "not found", value: counts.notFound, always: true },
     { label: "not applicable", value: counts.notApplicable, always: false },
   ].filter((cell) => cell.always || cell.value > 0);
 
-  const assessed = counts.answered + counts.notFound;
+  const assessed = counts.answered + counts.partlyAnswered + counts.notFound;
   return (
     <div>
       {/*
@@ -766,21 +781,36 @@ function StatePanel({
               {emptyMessage}
             </p>
           ) : (
-            <div className="border-t border-border">
+            /*
+              One collapsed card per discipline, which is what Inspector does with its
+              rubric sections. A plain heading was worse than no grouping: with nine
+              long questions under it the heading scrolled away immediately and there
+              was nothing to say which discipline you were reading until the next one,
+              seventy rows later.
+
+              Not tabs. This already sits inside the Questions tab, so a second tab
+              level would put two of them on one screen, and eight tabs labelled
+              "Preclinical Pharmacology / Toxicology / PK" do not fit a row anyway.
+            */
+            <div className="flex flex-col gap-2 border-t border-border px-4 py-4">
               {groups.map((group) => (
-                <div key={group.id}>
-                  <h4 className="flex items-baseline gap-2 border-b border-border bg-muted/25 px-4 py-2 text-xs font-medium text-foreground">
-                    {group.label}
-                    <span className="font-normal tabular-nums text-muted-foreground">
+                <CollapsibleCard
+                  key={group.id}
+                  title={group.label}
+                  defaultOpen={false}
+                  contentClassName="px-0 py-0 sm:px-0"
+                  trailing={
+                    <span className="text-xs tabular-nums text-muted-foreground">
                       {group.questions.length}
                     </span>
-                  </h4>
-                  <ul className="divide-y divide-border border-b border-border last:border-b-0">
+                  }
+                >
+                  <ul className="divide-y divide-border border-t border-border">
                     {group.questions.map((question) => (
                       <QuestionRow key={question.id} question={question} />
                     ))}
                   </ul>
-                </div>
+                </CollapsibleCard>
               ))}
             </div>
           )}
@@ -841,6 +871,17 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
       </button>
       {question.statement && (
         <p className="mt-2 text-sm leading-6 text-foreground">{question.statement}</p>
+      )}
+      {/*
+        The ask, given its own line rather than left inside the statement. On a partial
+        this is the sentence that goes back to the grantee, and burying it in prose is
+        why it was required as a field in the first place.
+      */}
+      {question.missing && (
+        <p className="mt-1.5 text-sm leading-6 text-foreground">
+          <span className="text-muted-foreground">Still not stated: </span>
+          {question.missing}
+        </p>
       )}
       {open && <Provenance question={question} />}
     </li>

@@ -5,11 +5,18 @@
 #   - Inspector (labels the inspected document)
 # Stamped on every output (block, claim, review result).
 
-# A tag travels verbatim. It is substituted into retrieval prompts, and the
-# query_extractor fallback joins it straight into query text beside an attribute
-# name that gets de-underscored while the indication does not. So a tag has to
-# read as a search term rather than as a key: one lowercase word naming the
-# pathogen or disease.
+# A tag is a stable key AND a search term, because it is stamped on every output and
+# also substituted into retrieval prompts and joined into query text. Those two jobs
+# used to conflict: the fallback de-underscored an attribute name beside an indication
+# it left alone, so a multi-word name could only reach a query as one underscored
+# token. That confined the vocabulary to single words — which is how the two names
+# needing more than one became `tb` and `gbs`, the two worst search terms here.
+#
+# `shared.vocabulary.search_term` now de-underscores the tag once, upstream in Scout's
+# pipeline, after blocks are stamped and before the tag becomes text. So a tag may be
+# several words joined by underscores: store the key, and it reads correctly wherever
+# it is used. Prefer the full name over an acronym unless the acronym is what a
+# literature search actually uses — `hiv` and `hpv` qualify; `tb` and `gbs` did not.
 #
 # Nothing else belongs here, because every other axis already has an owner:
 #   - prevention vs treatment -> intervention_class
@@ -20,7 +27,7 @@
 vaccine:
   - malaria
   - hiv
-  - tb
+  - tuberculosis
   - rsv
   - influenza
   - covid19
@@ -29,25 +36,29 @@ vaccine:
   - hpv
   - pneumococcus
   - klebsiella
-  - gbs
+  # Not `gbs`: in a vaccine context that abbreviation is both Group B Streptococcus
+  # and Guillain-Barre Syndrome, and the second is a classic vaccine adverse event of
+  # special interest — so a safety search for `gbs` could return literature about the
+  # wrong one entirely.
+  - group_b_streptococcus
   - polio
 
 drug:
   - malaria
   - hiv
-  - tb
+  - tuberculosis
 
 # A monoclonal antibody is assessed against the drug profile, so it offers the
 # same indications. See services/inspector/configs/bmgf_*_mab.yaml.
 mab:
   - malaria
   - hiv
-  - tb
+  - tuberculosis
 
 diagnostic:
   - malaria
   - hiv
-  - tb
+  - tuberculosis
 
 device:
   - malaria

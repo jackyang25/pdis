@@ -285,10 +285,26 @@ supplied material answers and which it does not.
   where the question text states the restriction, never by reading subject matter and
   inferring a class. A wrongly inapplicable question vanishes silently and reports as
   "not a shortfall", which is the least detectable error the bank can hold.
-- Three states, and every one is traceable: `not_applicable` from the question text,
-  `answered` and `not_found` from one model call. A model is offered only the last
-  two. `not_found` is named for what is true regardless of any hint — "not found in
-  what was supplied" — because `absent` invites the reader to hear a fault.
+- Four states, and every one is traceable: `not_applicable` from the question text,
+  and `answered`, `partly_answered`, `not_found` from one model call. A model is
+  offered only the last three, ordered by how much of the question is closed.
+  `not_found` is named for what is true regardless of any hint — "not found in what was
+  supplied" — because `absent` invites the reader to hear a fault.
+- `partly_answered` exists because the bank's questions are compound: each asks three
+  to five things in one sentence, so a binary forced the model to file "four of five
+  clauses answered" as if nothing were there, and a whole gate read the same whether
+  the plan was thorough or blank. That is a number carrying no information. It is not a
+  return of the two states that were removed — those came from a judgment about which
+  document should hold an answer, while this is an observation of the material.
+- A partial carries `missing`: one sentence naming what the question still leaves open,
+  required by the contract on that state and refused on every other. It is the sentence
+  a PPL takes back to the grantee, and leaving it to prose meant it was usually present
+  and never guaranteed. `partly_answered` is never presented as progress and never
+  added to `answered`: there is no score.
+- The assessor's decision enum is the cross product of completeness and source, not two
+  fields. Five values reads wide, but a conditional requirement — "`missing` is required
+  only when partial" — is the one thing the schema cannot express, so the decision
+  carries the condition and code checks the pairing.
 - **The routing is the discipline**, which the source document guarantees. Grouping
   unanswered questions by discipline is the tool's main output; a claim that no
   document could ever answer one is not.

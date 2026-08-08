@@ -153,7 +153,7 @@ disciplines:
           clinically relevant exposure — including the exposure produced by the
           worst-case DDI?
         # Omit for every class.
-        applies_to: [drug, mab]
+        applies_to: [drug, monoclonal_antibody]
         # Omit when no document could answer it.
         answerable_from: [ipdp]
         # Omit for false.
@@ -172,7 +172,7 @@ else. That is a contract check, not a translation.
 That constraint forces the authoring discipline that keeps runtime clean. The
 prose says *"For biologics:"* and there is no `biologic` in our vocabulary. The
 tempting fix is a synonym table. The correct fix is to author
-`applies_to: [mab, vaccine]` — resolved once, by a human, visibly, at
+`applies_to: [monoclonal_antibody, vaccine]` — resolved once, by a human, visibly, at
 transcription. Every place the prose names a category we do not have, it is
 resolved into ones we do. **Nothing maps anything at runtime.**
 

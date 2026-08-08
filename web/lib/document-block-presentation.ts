@@ -9,6 +9,9 @@ export type DocumentBlockPresentation =
 
 export type DocumentTraceRailMode = "inline" | "external";
 
+/** Where the trace shows a result's details: beside the document, or over it. */
+export type DocumentTracePanelMode = "aside" | "sheet";
+
 export type DocumentBlockSpacing =
   | "major"
   | "section"
@@ -96,6 +99,31 @@ export function documentTraceRailMode(
   return Number.isFinite(containerWidth) && containerWidth >= 640
     ? "external"
     : "inline";
+}
+
+/** Width of the details panel when it sits beside the document, in px (22rem). */
+const PANEL_ASIDE_WIDTH = 352;
+/** Least a document column may be reduced to and still read as prose, in px (28rem). */
+const DOCUMENT_MIN_WIDTH = 448;
+
+/**
+ * Whether the details panel fits beside the document or has to cover it.
+ *
+ * Measured against what the two columns actually need, not against a viewport
+ * breakpoint. It was `containerWidth < 1024`, and the app shell caps its content at
+ * 1120px: after the shell's padding no page can hand the trace more than about 1056px,
+ * so the threshold sat ~30px below the widest container that will ever exist. Any page
+ * differing by a scrollbar or a little padding fell on the other side of it, which is
+ * how one tool showed a bottom sheet at full screen while its neighbours showed the
+ * panel — with nothing about the window explaining the difference.
+ */
+export function documentTracePanelMode(
+  containerWidth: number,
+): DocumentTracePanelMode {
+  return Number.isFinite(containerWidth)
+    && containerWidth >= PANEL_ASIDE_WIDTH + DOCUMENT_MIN_WIDTH
+    ? "aside"
+    : "sheet";
 }
 
 export function documentBlockSpacing(

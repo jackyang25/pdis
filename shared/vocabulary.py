@@ -75,7 +75,12 @@ def indications_for(intervention_class: str) -> list[str]:
 def search_term(tag: str) -> str:
     """One config tag as it should read inside a query or a prompt sentence.
 
-    An indication tag is stored as a stable lowercase key and travels into retrieval
+    Both context tags that name subject matter need this — the indication and the
+    intervention class. A class is interpolated into eight prompt sentences and joined
+    into the fallback query beside the indication, so `monoclonal_antibody` has exactly
+    the same two jobs, and exactly the same conflict, as `group_b_streptococcus`.
+
+    A tag is stored as a stable lowercase key and travels into retrieval
     text, so the two needs collide the moment a name has more than one word:
     `group_b_streptococcus` is a fine key and a useless search term. Attribute names
     were already de-underscored at the point they were joined into a query while the

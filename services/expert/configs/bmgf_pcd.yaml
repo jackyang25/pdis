@@ -79,7 +79,7 @@ disciplines:
           For biologics and vaccines: is the two-tiered cell bank or seed lot system
           established, tested for adventitious agents and identity, with genetic
           stability demonstrated through and beyond the intended production age?
-        applies_to: [mab, vaccine]
+        applies_to: [monoclonal_antibody, vaccine]
 
       - id: CMC.PCD.8
         text: >-
@@ -167,7 +167,7 @@ disciplines:
           For biologics: has immunogenicity in the tox species been characterized,
           and does ADA-mediated clearance confound the exposure interpretation such
           that the claimed margins are unreliable in the later part of the study?
-        applies_to: [mab, vaccine]
+        applies_to: [monoclonal_antibody, vaccine]
 
       - id: NC.PCD.9
         text: >-

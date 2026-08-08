@@ -278,14 +278,14 @@ class ResolveTests(unittest.TestCase):
     """
 
     def test_a_question_whose_text_names_another_class_is_not_applicable(self) -> None:
-        config = gate(spec("Q1", applies_to=("mab",)), spec("Q2"))
+        config = gate(spec("Q1", applies_to=("monoclonal_antibody",)), spec("Q2"))
         resolved = resolve_questions(config, intervention_class="vaccine")
         self.assertEqual(resolved[0].state, "not_applicable")
         self.assertIsNone(resolved[1].state)
 
     def test_an_unqualified_question_applies_to_every_class(self) -> None:
         config = gate(spec("Q1"))
-        for intervention in ("vaccine", "drug", "device", "mab", "diagnostic"):
+        for intervention in ("vaccine", "drug", "device", "monoclonal_antibody", "diagnostic"):
             resolved = resolve_questions(config, intervention_class=intervention)
             self.assertIsNone(resolved[0].state, intervention)
 
@@ -305,7 +305,7 @@ class ResolveTests(unittest.TestCase):
         )
 
     def test_a_bank_that_applies_to_nothing_fails_loudly(self) -> None:
-        config = gate(spec("Q1", applies_to=("drug",)), spec("Q2", applies_to=("mab",)))
+        config = gate(spec("Q1", applies_to=("drug",)), spec("Q2", applies_to=("monoclonal_antibody",)))
         with self.assertRaises(ValueError) as caught:
             resolve_questions(config, intervention_class="device")
         self.assertIn("device", str(caught.exception))

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 from shared.openai_client import ModelTask
 
 from services.searcher import Finding, QueryFacets, source_keys
-from shared.vocabulary import ENTITY_TYPES, EVIDENCE_DOMAINS
+from shared.vocabulary import ENTITY_TYPES, EVIDENCE_DOMAINS, search_term
 
 if TYPE_CHECKING:
     from services.chunker import ContentBlock
@@ -1239,6 +1239,23 @@ class ScoutTypeConfig:
     evidence_framing: str = ""
     quantitative_target_framing: str = ""
     precedent_framing: str = ""
+
+    @property
+    def intervention_term(self) -> str:
+        """The class as it reads inside a query or a prompt sentence.
+
+        `intervention_class` itself is an identity, not prose: it selects this file,
+        keys the attribute vocabulary, is checked against `type_key`, and is stamped on
+        every block as provenance. So the text form is derived on read rather than
+        stored beside it, for the same reason a count is — a second field could disagree
+        with the one the configuration was selected by.
+
+        Derived here as well as normalised in the pipeline because the value reaches
+        text by two routes: stages that receive it as an argument get the pipeline's,
+        and stages holding a config read it from here. Both call `search_term`, so the
+        two routes cannot produce different words.
+        """
+        return search_term(self.intervention_class)
 
 
 def matches_to_dicts(matches: list[Match]) -> list[dict]:

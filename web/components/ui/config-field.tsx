@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { Label } from "./label";
 import {
   Select,
@@ -32,13 +33,25 @@ export function ConfigurationShell({ children }: { children: React.ReactNode }) 
 /**
  * Stacks fields in the rail, pairing them into two columns only at the narrow
  * width where the rail sits above the upload area instead of beside it.
+ *
+ * Every field in the rail belongs in here. Pairing on `sm:` alone looks right until
+ * `lg:`, where the rail becomes a 17rem column beside the uploads: two fields then
+ * share about 124px each, and a field's help text wraps into a ribbon two or three
+ * words wide. Which is why the `lg:flex` is the point of this component and not a
+ * detail — a hand-rolled `sm:grid-cols-2` has no way to know it is in a rail.
  */
 export function ConfigFieldGrid({
   children,
+  className,
   ...props
 }: React.ComponentPropsWithoutRef<"div">) {
   return (
-    <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex" {...props}>
+    <div
+      // Merged, not replaced: a caller passing spacing would otherwise drop the
+      // layout this component exists to impose.
+      className={cn("flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex", className)}
+      {...props}
+    >
       {children}
     </div>
   );

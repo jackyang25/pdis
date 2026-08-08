@@ -97,7 +97,7 @@ disciplines:
           the potency assay stable enough to demonstrate consistency when it matters —
           because a consistency lot trial with a noisy assay fails for assay reasons
           and cannot be rescued.
-        applies_to: [mab, vaccine]
+        applies_to: [monoclonal_antibody, vaccine]
 
       - id: CMC.EOP1.10
         text: >-

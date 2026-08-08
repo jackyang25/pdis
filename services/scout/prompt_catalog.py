@@ -42,7 +42,11 @@ from .stages import (
 )
 
 INDICATION = "{indication}"
-INTERVENTION_CLASS = "{intervention_class}"
+# Deliberately one word. This placeholder now passes through `search_term`, which
+# de-underscores a tag on its way into prose, so `{intervention_class}` would be
+# published as `{intervention class}` and read as a broken placeholder. It matches the
+# label a reader sees over the field in the configuration rail.
+INTERVENTION_CLASS = "{intervention}"
 SOURCE_TYPE = "{source_type}"
 
 PLACEHOLDER_ATTRIBUTE = Attribute(

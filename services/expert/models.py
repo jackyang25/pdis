@@ -118,7 +118,7 @@ class QuestionSpec:
     intervention classes and document source types — and `load_config` raises on
     anything else. That is what keeps runtime free of translation: where the source
     prose names a category the system does not have ("for biologics"), it is resolved
-    into ones it does (`[mab, vaccine]`) once, by a human, at transcription.
+    into ones it does (`[monoclonal_antibody, vaccine]`) once, by a human, at transcription.
     """
 
     id: str

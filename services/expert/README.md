@@ -124,7 +124,7 @@ a normalization layer that breaks whenever the prose is edited.
 - id: CMC.LCS.5
   text: >-
     For biologics: what are the developability metrics — expression titer…?
-  applies_to: [mab, vaccine]  # ONLY where the text states it. Eleven questions do.
+  applies_to: [monoclonal_antibody, vaccine]  # ONLY where the text states it. Eleven questions do.
   likely_in: [ipdp]           # a hint. Never gates. Omit when unclear.
   pq: false                   # omit for false
 ```
@@ -142,7 +142,7 @@ in".
 
 Both enumerated fields draw only on vocabularies the input layer already owns, and
 `load_config` raises on anything else. Where the prose names a category the system
-does not have — "for biologics" — it is resolved into ones it does, `[mab, vaccine]`,
+does not have — "for biologics" — it is resolved into ones it does, `[monoclonal_antibody, vaccine]`,
 once, by a human, at transcription. That is the whole extent of the interpretation.
 
 Two fields deliberately absent: no short-form summary, because 560 hand-written

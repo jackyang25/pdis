@@ -105,12 +105,20 @@ export type DocumentTraceConnection = {
   unavailableBlockIds?: string[];
 };
 
-export type DocumentTraceFocusTarget = {
+/**
+ * Where a block is, and what marks it.
+ *
+ * The two things revealing a passage has to know: which document to switch to, and
+ * whether the current layer filter is hiding the mark a reader is being sent to see.
+ *
+ * It used to also nominate a result to select, on the rule "select it only when the
+ * block has exactly one". Revealing no longer selects anything — landing on the
+ * passage and opening a panel about it are separate acts, and the second is the
+ * reader's — so nominating one was a decision with no consumer.
+ */
+export type DocumentTraceBlockLocation = {
   documentId: string;
-  blockId: string;
   annotationIds: string[];
-  selectedAnnotationId: string | null;
-  connection: DocumentTraceConnection | null;
 };
 
 /**
@@ -187,22 +195,6 @@ export function documentTracePassages<TKind extends string, TRef>(
 }
 
 /**
- * Which retained document holds one block, or null when none does.
- *
- * Revealing a passage has to answer this first: a result can cite passages in more
- * than one uploaded document, and the viewer shows one document at a time.
- */
-export function documentTraceDocumentIdOf<TKind extends string, TRef>(
-  trace: DocumentTrace<TKind, TRef>,
-  blockId: string,
-): string | null {
-  const document = trace.documents.find((item) =>
-    item.blocks.some((traceBlock) => traceBlock.block.id === blockId)
-  );
-  return document?.docId ?? null;
-}
-
-/**
  * A document id as a reader should see it.
  *
  * Here rather than in the viewer because the passage list names documents too, and
@@ -214,64 +206,31 @@ export function displayDocumentName(docId: string): string {
 }
 
 /**
- * Resolve a saved block reference into a navigation target without guessing
- * which connected result the user intended. A result is selected only when the
- * block has exactly one connected annotation in the current trace.
+ * Locate one block: its document, and every annotation marking it in this trace.
  */
-export function documentTraceFocusTarget<
+export function documentTraceBlockLocation<
   TKind extends string,
   TRef,
 >(
   trace: DocumentTrace<TKind, TRef>,
   blockId: string,
-): DocumentTraceFocusTarget | null {
-  const document = trace.documents.find((item) =>
-    item.blocks.some((traceBlock) => traceBlock.block.id === blockId)
-  );
-  const traceBlock = document?.blocks.find((item) => item.block.id === blockId);
-  if (!document || !traceBlock) return null;
-
-  const exactAnnotationIds = traceBlock.segments.flatMap((segment) => segment.annotationIds);
-  const markerAnnotationIds = traceBlock.markers.map((marker) => marker.annotation.id);
-  const annotationIds = [...new Set([...exactAnnotationIds, ...markerAnnotationIds])];
-  if (annotationIds.length !== 1) {
+): DocumentTraceBlockLocation | null {
+  for (const document of trace.documents) {
+    const traceBlock = document.blocks.find((item) => item.block.id === blockId);
+    if (!traceBlock) continue;
     return {
       documentId: document.docId,
-      blockId,
-      annotationIds,
-      selectedAnnotationId: null,
-      connection: null,
+      // Both kinds of mark, deduplicated: an exact span and a whole-block marker are
+      // equally a reason the reader was sent here.
+      annotationIds: [
+        ...new Set([
+          ...traceBlock.segments.flatMap((segment) => segment.annotationIds),
+          ...traceBlock.markers.map((marker) => marker.annotation.id),
+        ]),
+      ],
     };
   }
-
-  const selectedAnnotationId = annotationIds[0];
-  if (exactAnnotationIds.includes(selectedAnnotationId)) {
-    return {
-      documentId: document.docId,
-      blockId,
-      annotationIds,
-      selectedAnnotationId,
-      connection: { type: "exact", blockId },
-    };
-  }
-
-  const marker = traceBlock.markers.find(
-    (item) => item.annotation.id === selectedAnnotationId,
-  );
-  return {
-    documentId: document.docId,
-    blockId,
-    annotationIds,
-    selectedAnnotationId,
-    connection: marker
-      ? {
-          type: "block",
-          blockId,
-          markerReason: marker.reason,
-          unmatchedQuotes: [...marker.unmatchedQuotes],
-        }
-      : null,
-  };
+  return null;
 }
 
 export type DocumentTraceMarkerGroup = {

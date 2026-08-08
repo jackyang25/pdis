@@ -7,9 +7,8 @@ import type { ContentBlock } from "./api.ts";
 import {
   buildDocumentTrace,
   displayDocumentName,
-  documentTraceDocumentIdOf,
+  documentTraceBlockLocation,
   documentTracePassages,
-  documentTraceFocusTarget,
   documentTraceSegmentsInRange,
   filterDocumentAnnotations,
   groupDocumentTraceMarkers,
@@ -316,47 +315,10 @@ test("filters annotations by layer without changing source order", () => {
   );
 });
 
-test("resolves a uniquely connected exact result when focusing a block", () => {
-  const source = block("document/b-0001", 1, "Target efficacy exceeds 80%.");
-  const trace = buildDocumentTrace([source], [
-    annotation({
-      id: "field-1",
-      kind: "field",
-      blockIds: [source.id],
-      spans: [{ quote: "efficacy exceeds 80%", blockIds: [source.id] }],
-    }),
-  ]);
-
-  assert.deepEqual(documentTraceFocusTarget(trace, source.id), {
-    documentId: "document",
-    blockId: source.id,
-    annotationIds: ["field-1"],
-    selectedAnnotationId: "field-1",
-    connection: { type: "exact", blockId: source.id },
-  });
-});
-
-test("resolves a uniquely connected block-level result without inventing an exact quote", () => {
-  const source = block("document/b-0001", 1, "A retained passage.");
-  const trace = buildDocumentTrace([source], [
-    annotation({ id: "assessment-1", kind: "assessment", blockIds: [source.id] }),
-  ]);
-
-  assert.deepEqual(documentTraceFocusTarget(trace, source.id), {
-    documentId: "document",
-    blockId: source.id,
-    annotationIds: ["assessment-1"],
-    selectedAnnotationId: "assessment-1",
-    connection: {
-      type: "block",
-      blockId: source.id,
-      markerReason: "block_only",
-      unmatchedQuotes: [],
-    },
-  });
-});
-
-test("focuses an ambiguously connected block without choosing a result", () => {
+test("locating a block reports its document and every mark on it", () => {
+  // Both kinds of mark count: revealing a passage has to know whether the current
+  // layer is hiding all of them, and an exact span and a block marker are equally a
+  // reason the reader was sent here.
   const source = block("document/b-0001", 1, "Target efficacy exceeds 80%.");
   const trace = buildDocumentTrace([source], [
     annotation({
@@ -368,22 +330,38 @@ test("focuses an ambiguously connected block without choosing a result", () => {
     annotation({ id: "assessment-1", kind: "assessment", blockIds: [source.id] }),
   ]);
 
-  assert.deepEqual(documentTraceFocusTarget(trace, source.id), {
+  assert.deepEqual(documentTraceBlockLocation(trace, source.id), {
     documentId: "document",
-    blockId: source.id,
     annotationIds: ["field-1", "assessment-1"],
-    selectedAnnotationId: null,
-    connection: null,
   });
 });
 
-test("does not resolve a focus target for an unknown block", () => {
+test("locating a block names the document that holds it", () => {
+  const profile = block("profile/b-0001", 1, "Present.", "profile");
+  const plan = block("plan/b-0001", 1, "Present.", "plan");
+  const trace = buildDocumentTrace([profile, plan], [
+    annotation({ id: "a-1", kind: "field", blockIds: [profile.id, plan.id] }),
+  ]);
+  assert.equal(documentTraceBlockLocation(trace, plan.id)?.documentId, "plan");
+});
+
+test("an unmarked block is still locatable, with no marks", () => {
+  // The document is the whole document, so a reader can be sent to a passage no
+  // result cites — from a block reference, say. That is not a failure to resolve.
+  const source = block("document/b-0001", 1, "A retained passage.");
+  const trace = buildDocumentTrace([source], []);
+  assert.deepEqual(documentTraceBlockLocation(trace, source.id), {
+    documentId: "document",
+    annotationIds: [],
+  });
+});
+
+test("an unknown block has no location", () => {
   const trace = buildDocumentTrace(
     [block("document/b-0001", 1, "A retained passage.")],
     [],
   );
-
-  assert.equal(documentTraceFocusTarget(trace, "document/b-9999"), null);
+  assert.equal(documentTraceBlockLocation(trace, "document/b-9999"), null);
 });
 
 test("groups block-level connections by reason without losing result IDs", () => {
@@ -731,16 +709,6 @@ test("a cited block the document does not contain is not offered as a passage", 
     [source.id],
   );
   assert.deepEqual(trace.unresolvedBlockIdsByAnnotation["a-1"], ["document/b-9999"]);
-});
-
-test("revealing a passage can resolve which document holds it", () => {
-  const profile = block("profile/b-0001", 1, "Present.", "profile");
-  const plan = block("plan/b-0001", 1, "Present.", "plan");
-  const trace = buildDocumentTrace([profile, plan], [
-    annotation({ id: "a-1", kind: "field", blockIds: [profile.id, plan.id] }),
-  ]);
-  assert.equal(documentTraceDocumentIdOf(trace, plan.id), "plan");
-  assert.equal(documentTraceDocumentIdOf(trace, "nowhere/b-1"), null);
 });
 
 test("a document is named the same way wherever it is shown", () => {

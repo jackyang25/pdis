@@ -117,12 +117,16 @@ def run_pipeline(
         # result has to keep the key its configuration was selected by.
         indication=indication,
     )
-    # From here the tag only ever becomes text — query strings, prompt sentences, and
-    # the context-validation notice a reader sees — so it is normalised once, upstream,
-    # rather than at each of the eight places a stage interpolates it. That is what let
+    # From here both tags only ever become text — query strings, prompt sentences, and
+    # the context-validation notice a reader sees — so they are normalised once, upstream,
+    # rather than at each of the eight places a stage interpolates them. That is what let
     # `group_b_streptococcus` reach a query as one underscored token, and what confined
     # the vocabulary to single words until it had to spell Group B Streptococcus `gbs`.
+    # The class is the same kind of value and had the same fault: it reached retrieval as
+    # `mab`, which is not what a literature search uses. Stages holding a config instead
+    # of these arguments read `config.intervention_term`, which derives the same word.
     indication = search_term(indication)
+    intervention_class = search_term(intervention_class)
     # Preserve block IDs through every doc-aware stage. The model may cite only
     # these markers; each stage validates returned IDs against its input context.
     doc_text = render_document_context(blocks)
@@ -279,6 +283,7 @@ def continue_pipeline(
     # the stored tag — so the tag is only ever text from this point, normalised once for
     # the same reason as in `run_pipeline`.
     indication = search_term(indication)
+    intervention_class = search_term(intervention_class)
     if prepared.phase != "target_review":
         raise ValueError("Scout continuation requires a target-review draft")
     blocks = prepared.blocks
@@ -522,7 +527,7 @@ def _resolve_units(
     if config.unit_provider == "extract":
         return extract_units(
             doc_text,
-            intervention_class=config.intervention_class,
+            intervention_class=config.intervention_term,
             source_type=config.source_type,
             indication=indication,
             llm_client=openai_client,

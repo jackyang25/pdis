@@ -1,7 +1,7 @@
-type_key: bmgf_ctpp_mab
+type_key: bmgf_ctpp_monoclonal_antibody
 org: bmgf
 source_type: ctpp
-intervention_class: mab
+intervention_class: monoclonal_antibody
 display_name: "Monoclonal Antibody Candidate TPP"
 
 section_taxonomy:

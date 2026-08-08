@@ -6,6 +6,7 @@ import {
   documentBlockPresentation,
   documentBlockSpacing,
   documentTableCells,
+  documentTracePanelMode,
   documentTraceRailMode,
 } from "./document-block-presentation.ts";
 
@@ -146,4 +147,28 @@ test("accepts only parser-owned table cells whose offsets match canonical conten
   (invalid.structural_meta.table_cells as Array<Record<string, unknown>>)[0].value_end = 16;
   assert.equal(documentTableCells(invalid), null);
   assert.equal(documentTableCells(contentBlock("paragraph", {}, content)), null);
+});
+
+test("the details panel goes beside the document whenever both columns fit", () => {
+  // 1056px is the widest container any page can hand the trace: the app shell caps
+  // content at 1120 and spends 64 on padding. The old threshold was 1024, ~30px under
+  // that ceiling, so a scrollbar's width decided whether a full-screen window showed a
+  // panel or a bottom sheet — and two tools disagreed with nothing visible to explain
+  // it. These are the widths that actually exist.
+  assert.equal(documentTracePanelMode(1056), "aside");
+  assert.equal(documentTracePanelMode(1024), "aside");
+  assert.equal(documentTracePanelMode(1041), "aside");
+});
+
+test("it covers the document only when there is genuinely no room beside it", () => {
+  // 352 for the panel plus 448 for a readable document column.
+  assert.equal(documentTracePanelMode(800), "aside");
+  assert.equal(documentTracePanelMode(799), "sheet");
+  assert.equal(documentTracePanelMode(420), "sheet");
+});
+
+test("an unmeasured container covers the document rather than guessing", () => {
+  // Zero is what the first render reports before the observer fires.
+  assert.equal(documentTracePanelMode(0), "sheet");
+  assert.equal(documentTracePanelMode(Number.NaN), "sheet");
 });

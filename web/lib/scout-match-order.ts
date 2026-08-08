@@ -70,5 +70,36 @@ export function sortMatchesForReading(matches: Match[]): Match[] {
         // Original position last, so the order is total and stable.
         || a.index - b.index,
     )
-    .map((entry) => entry.match);
+    .map((entry) => sortSupportingFindings(entry.match));
+}
+
+/**
+ * Order one match's sources the same way the matches themselves are ordered.
+ *
+ * A match is positioned by the newest date among these, and that date is shown
+ * nowhere on the match itself. Leaving the sources in retrieval order therefore
+ * hid the sort key behind a jumble of dates, and a correct order read as an
+ * arbitrary one. Newest first puts the key on the first line, so the ordering
+ * explains itself without labelling anything.
+ *
+ * The undated rule is inherited rather than re-decided: they follow the dated
+ * sources and keep their relative order, because about half of all findings
+ * carry no date and sinking them would demote the web and Semantic Scholar lanes
+ * under the guise of sorting.
+ */
+export function sortSupportingFindings(match: Match): Match {
+  const findings = match.insight.supporting_findings ?? [];
+  if (findings.length < 2) return match;
+  const sorted = findings
+    .map((finding, index) => ({ finding, index }))
+    .sort(
+      (a, b) =>
+        Number(!a.finding.published_at) - Number(!b.finding.published_at)
+        || (a.finding.published_at && b.finding.published_at
+          ? b.finding.published_at.localeCompare(a.finding.published_at)
+          : 0)
+        || a.index - b.index,
+    )
+    .map((entry) => entry.finding);
+  return { ...match, insight: { ...match.insight, supporting_findings: sorted } };
 }

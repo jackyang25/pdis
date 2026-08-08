@@ -1,10 +1,15 @@
-"""The indication tag is a key and a search term at once.
+"""A context tag is a key and a search term at once.
 
 It is stamped on every block and result, and it is also substituted into retrieval
 prompts and joined into query text. Those two jobs pull in opposite directions the
 moment a name has more than one word, and the vocabulary lost that argument twice:
 Group B Streptococcus became `gbs`, which in a vaccine context also means
 Guillain-Barre Syndrome, and tuberculosis became `tb`, which means very little.
+
+Both tags that name subject matter are covered here, because the intervention class
+had the identical fault and it was not obvious: it reads as a label in the rail, but
+it is also interpolated into eight prompt sentences and joined into the fallback query
+beside the indication, and it reached both as `mab`.
 """
 
 from __future__ import annotations
@@ -15,7 +20,9 @@ from pathlib import Path
 
 from shared.vocabulary import indications_for, intervention_classes, search_term
 
-VOCAB = Path(__file__).resolve().parents[1] / "shared" / "indications.yaml"
+ROOT = Path(__file__).resolve().parents[1]
+VOCAB = ROOT / "shared" / "indications.yaml"
+SERVICES = ROOT / "services"
 
 
 class TagShapeTests(unittest.TestCase):
@@ -55,6 +62,59 @@ class TagShapeTests(unittest.TestCase):
         source = VOCAB.read_text(encoding="utf-8")
         self.assertIn("search_term", source)
         self.assertIn("Guillain-Barre", source)
+
+
+class InterventionClassTests(unittest.TestCase):
+    """The class is the other tag that becomes text, so it obeys the same rule."""
+
+    def test_every_class_reads_as_a_search_term(self) -> None:
+        for name in intervention_classes():
+            self.assertRegex(name, r"^[a-z0-9]+(_[a-z0-9]+)*$", name)
+            self.assertNotIn("_", search_term(name), name)
+
+    def test_no_class_is_an_acronym_a_search_would_miss(self) -> None:
+        """`mab` retrieves little; the literature says monoclonal antibody."""
+        classes = intervention_classes()
+        self.assertNotIn("mab", classes)
+        self.assertIn("monoclonal_antibody", classes)
+
+    def test_the_text_form_is_derived_from_the_tag_not_stored(self) -> None:
+        """A stored second spelling could disagree with the key it was selected by."""
+        from services.inspector.models import find_config as inspector_config
+        from services.scout.models import ScoutTypeConfig
+
+        config = inspector_config("bmgf", "itpp", "monoclonal_antibody")
+        self.assertEqual(config.intervention_class, "monoclonal_antibody")
+        self.assertEqual(config.intervention_term, "monoclonal antibody")
+        self.assertEqual(
+            ScoutTypeConfig(
+                type_key="k",
+                org="bmgf",
+                source_type="itpp",
+                intervention_class="monoclonal_antibody",
+                display_name="d",
+                query_extraction_guidance="g",
+                sources=["s"],
+            ).intervention_term,
+            "monoclonal antibody",
+        )
+
+    def test_no_prompt_interpolates_the_raw_tag(self) -> None:
+        """The tag selects configuration; only `intervention_term` may be read aloud.
+
+        A scan rather than a review because the two are one word apart, the wrong one
+        is what a stage already has in scope, and nothing about the result looks broken
+        - a query simply carries `monoclonal_antibody` and retrieves less.
+        """
+        offenders = [
+            f"{path.relative_to(ROOT)}:{number}"
+            for path in SERVICES.rglob("*.py")
+            for number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            )
+            if "{config.intervention_class}" in line
+        ]
+        self.assertEqual(offenders, [], "read config.intervention_term in prose")
 
 
 class SearchTermTests(unittest.TestCase):

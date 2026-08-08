@@ -117,6 +117,39 @@ test("every motion recipe has a consumer", () => {
   assert.deepEqual(unused, [], "delete the recipe or apply it where it belongs");
 });
 
+test("the arrival highlight is imported, never written inline", () => {
+  // Three tools jump into one document trace, and the ring is what tells a reader
+  // which block answered. Written inline it would eventually differ per tool: a
+  // different tone, a different hold, or none at all where the jump feels obvious to
+  // whoever added it. The inset foreground ring is the recipe's signature: inset
+  // because a row's paint containment clips anything drawn outside it, and foreground
+  // because every tone already means a judgement about the passage.
+  const offenders = FILES.filter(
+    ({ relative, text }) =>
+      relative !== MOTION_SOURCE && /ring-inset ring-foreground/.test(text),
+  ).map(({ relative }) => relative);
+  assert.deepEqual(
+    offenders,
+    [],
+    "import ARRIVAL_HIGHLIGHT from lib/motion.ts instead of restyling the jump",
+  );
+});
+
+test("a jump holds for the standard duration, not a hand-picked one", () => {
+  // The class carries the ring, a timeout carries how long it stays: half the signal
+  // lives in JavaScript, where no class-name rule can see it.
+  const offenders = FILES.filter(
+    ({ relative, text }) =>
+      relative !== MOTION_SOURCE
+      && /setTimeout\([^)]*,\s*\d{3,}\s*\)/.test(text.replace(/\s+/g, " ")),
+  ).map(({ relative }) => relative);
+  assert.deepEqual(
+    offenders,
+    [],
+    "hold a highlight for ARRIVAL_HIGHLIGHT_MS from lib/motion.ts",
+  );
+});
+
 test("failure signals use the danger tone, never a raw red", () => {
   // Grade F, `unsupported`, `contradicts`, `unfavorable`, and `conflict` are the
   // same judgement in four tools, so they share one themed, contrast-checked

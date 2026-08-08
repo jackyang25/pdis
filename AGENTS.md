@@ -64,6 +64,17 @@ web/ → api/ → services/ → shared/
 - Document tools use `org`, `source_type`, `intervention_class`, and
   `indication`. The first three select configuration; all four are output
   provenance. Never reintroduce `therapeutic_area`.
+- The two tags that name subject matter — `indication` and `intervention_class` — are
+  each a key **and** a search term, so the tag is spelled as the term a literature
+  search actually uses (`tuberculosis`, not `tb`; `monoclonal_antibody`, not `mab`;
+  `hiv` stays, because that is what the literature indexes). Multi-word names join
+  with underscores and pass through `shared.vocabulary.search_term` on their way into
+  text — once in Scout's pipeline for values that arrive as arguments, and via
+  `config.intervention_term` where a stage holds a config instead. The text form is
+  always derived, never a second stored field: the tag selects configuration and is
+  stamped on every block, so a stored spelling could disagree with the key it was
+  selected by. Reading `{config.intervention_class}` aloud in a prompt is what
+  `test_indication_vocabulary.py` forbids.
 - A tool's configuration rail holds three buckets, and which one a field belongs
   to is decided by a single question: **does the value leave the tool?**
   1. **Context** — `org`, `intervention_class`, `indication`. Always one each,
@@ -81,7 +92,7 @@ web/ → api/ → services/ → shared/
   not status.
 - `itpp`, `ctpp`, and `ipdp` differences belong in configuration framing and
   unit providers, not downstream conditionals.
-- A result view is read by someone who learned the previous tool, so eight things
+- A result view is read by someone who learned the previous tool, so nine things
   are the same everywhere and none of them is checkable by a type:
   1. **`PriorityPanel` is the opening panel**, and `attribution` is always
      `by <Tool>` — never a description of the ordering, which is what `orderNote`
@@ -114,11 +125,15 @@ web/ → api/ → services/ → shared/
      the other three were asserted and unreachable — a count reads as provenance while
      being the one thing a trace exists to let you check. The list carries where each
      passage sits and its opening words, names its document only when the result spans
-     more than one, and marks the passage the panel was opened from. Opening a passage
-     switches documents and scrolls; it never changes which result is selected, because
-     walking one result's citations must not swap the panel to another result that
-     happens to share a passage.
-  7. **One tab per view, not one per document**, and it is labelled **Documents**.
+     more than one, and marks the passage the panel was opened from.
+  7. **Revealing a passage centres it and selects nothing.** One path serves every
+     caller — a result row, a coverage cell, the passage list — because they are the
+     same act: switch document if the passage is elsewhere, widen the layer if its mark
+     is filtered out, scroll to the middle, ring it. Opening the details panel is a
+     second, deliberate click on the mark. Auto-opening it put a reader in front of a
+     panel restating the row they had just left, and where that panel is a sheet it
+     covered the very passage it was sent to reveal.
+  8. **One tab per view, not one per document**, and it is labelled **Documents**.
      `DocumentTraceViewer` already switches between the documents a result carries, so
      per-document tabs would be a second mechanism for the same thing and would break
      at one document. The label names what is behind it, not the mechanism: it read
@@ -126,7 +141,7 @@ web/ → api/ → services/ → shared/
      jargon a reader has to be taught. Plural everywhere rather than varying with the
      count — one string beats three, and a tool holding one document is not misled by
      it. `value="trace"` stays as the internal key.
-  8. **Weight follows consequence.** The most consequential fact in a result gets
+  9. **Weight follows consequence.** The most consequential fact in a result gets
      the strongest treatment — amber and an icon, as Scout's context-validation
      notice does — and provenance gets the weakest, at the foot of the card. A
      result whose review mostly could not be run must not read as a completed one.

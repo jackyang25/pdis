@@ -509,7 +509,7 @@ def check_cross_section(
 
 def build_cross_section_prompt(config: InspectionConfig) -> str:
     return (
-        f"You check a {config.intervention_class} product-development document for CROSS-SECTION "
+        f"You check a {config.intervention_term} product-development document for CROSS-SECTION "
         "consistency: places where TWO DIFFERENT sections state conflicting or mismatched "
         "claims about the SAME attribute - e.g. one section targets >=80% efficacy and "
         "another states 90%; the target population, dosing schedule, presentation, or "

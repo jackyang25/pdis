@@ -49,8 +49,12 @@ drug:
   - tuberculosis
 
 # A monoclonal antibody is assessed against the drug profile, so it offers the
-# same indications. See services/inspector/configs/bmgf_*_mab.yaml.
-mab:
+# same indications. See services/inspector/configs/bmgf_*_monoclonal_antibody.yaml.
+#
+# Spelled out for the reason stated above: an intervention class is a search term and a
+# prompt sentence exactly as an indication is, and `mab` is not what a literature search
+# uses. It was the only class that read as an acronym; the rest were already words.
+monoclonal_antibody:
   - malaria
   - hiv
   - tuberculosis

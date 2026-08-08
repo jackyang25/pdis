@@ -95,7 +95,7 @@ def extract_queries_for_variable(
         target_blocks=target_blocks,
         target_query_contexts=target_query_contexts,
         required_target_ids=set(target_blocks),
-        fallback_context=(indication, config.intervention_class, attribute.name),
+        fallback_context=(indication, config.intervention_term, attribute.name),
     )
 
     if config.geographic_emphasis and config.geographic_queries_per_variable > 0:
@@ -358,7 +358,7 @@ def build_system_prompt_for_variable(
         "reviewed quantitative targets.",
         "INPUT AUTHORITY\n"
         f"Field: {attribute.name}\n"
-        f"Product class: {config.intervention_class}\n"
+        f"Product class: {config.intervention_term}\n"
         f"Indication: {indication}\n"
         f"Field definition: {attribute.description.strip()}",
         "SCOPE\nEvery query must be about the specific field named above and "
@@ -465,7 +465,7 @@ def build_system_prompt_for_geographic_variable(
         "You generate ADDITIVE Global-South retrieval intents for ONE variable. "
         "These queries are added to the general query set, never substituted for it.",
         f"variable: {attribute.name}.",
-        f"Product class: {config.intervention_class}. Indication: {indication}.",
+        f"Product class: {config.intervention_term}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this "
@@ -519,7 +519,7 @@ def build_system_prompt_for_counterfactual_variable(
         "document's target for this variable. They are added to the general query set, "
         "never substituted for it.",
         f"variable: {attribute.name}.",
-        f"Product class: {config.intervention_class}. Indication: {indication}.",
+        f"Product class: {config.intervention_term}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this variable "
@@ -571,7 +571,7 @@ def build_system_prompt_for_precedent_variable(
         "target apart from one that has prior precedent. They are added to the general "
         "query set, never substituted for it.",
         f"variable: {attribute.name}.",
-        f"Product class: {config.intervention_class}. Indication: {indication}.",
+        f"Product class: {config.intervention_term}. Indication: {indication}.",
         f"What this variable covers: {attribute.description.strip()}",
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this variable "

@@ -150,7 +150,7 @@ disciplines:
           FcγR engagement and immunogenicity risk assessment support the starting dose
           and the inter-subject interval, using the assay formats that have become
           expected after the well-known FIH failures in this class?
-        applies_to: [mab]
+        applies_to: [monoclonal_antibody]
         likely_in: [ipdp]
 
       - id: NC.FIH.9

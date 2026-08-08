@@ -141,7 +141,7 @@ class PipelineTests(unittest.TestCase):
             QuestionSpec(
                 id="Q4",
                 text="For biologics: are developability metrics stated?",
-                applies_to=frozenset({"mab"}),
+                applies_to=frozenset({"monoclonal_antibody"}),
             ),
         )
         review, client = self.run_expert(config, [])
@@ -258,7 +258,7 @@ class PipelineTests(unittest.TestCase):
     def test_a_bank_that_applies_to_nothing_fails_before_parsing(self) -> None:
         config = bank(
             QuestionSpec(
-                id="Q1", text="Developability metrics?", applies_to=frozenset({"mab"})
+                id="Q1", text="Developability metrics?", applies_to=frozenset({"monoclonal_antibody"})
             )
         )
         with self.assertRaises(ValueError) as caught:

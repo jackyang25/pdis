@@ -271,7 +271,7 @@ disciplines:
           For biologics and vaccines: is the immunogenicity assessment complete — impact on
           PK, efficacy, safety and loss of response over time — with assay validation
           documentation inspection-ready?
-        applies_to: [mab, vaccine]
+        applies_to: [monoclonal_antibody, vaccine]
 
       - id: CP.DTF.8
         text: >-

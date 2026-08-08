@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 import yaml
 
 from shared.openai_client import ModelTask
+from shared.vocabulary import search_term
 
 if TYPE_CHECKING:
     from services.chunker import ContentBlock
@@ -363,6 +364,17 @@ class InspectionConfig:
     here, and `README.md` states that split once rather than repeating it per
     config.
     """
+
+    @property
+    def intervention_term(self) -> str:
+        """The class as it reads inside a prompt sentence.
+
+        `intervention_class` is an identity: it selects this file and is checked against
+        `type_key`. Derived on read rather than stored so the two cannot disagree, and
+        named as Scout names it, because a reader who learns one service should not have
+        to learn a second word for the same derivation.
+        """
+        return search_term(self.intervention_class)
 
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"

@@ -16,13 +16,13 @@ import {
   documentBlockSpacing,
   documentTableCells,
   type DocumentBlockSpacing,
+  documentTracePanelMode,
   documentTraceRailMode,
 } from "@/lib/document-block-presentation";
 import {
   buildDocumentTrace,
   displayDocumentName,
-  documentTraceDocumentIdOf,
-  documentTraceFocusTarget,
+  documentTraceBlockLocation,
   documentTracePassages,
   documentTraceSegmentsInRange,
   filterDocumentAnnotations,
@@ -34,6 +34,7 @@ import {
   type DocumentTracePassage,
   type DocumentTraceSegment,
 } from "@/lib/document-trace";
+import { ARRIVAL_HIGHLIGHT, ARRIVAL_HIGHLIGHT_MS } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -540,88 +541,59 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
   const unplacedAnnotations = trace.unplacedAnnotationIds
     .map((id) => annotationsById.get(id))
     .filter((annotation): annotation is DocumentAnnotation<TKind, TRef> => Boolean(annotation));
-  const isNarrow = containerWidth < 1024;
+  // "Does the panel fit beside the document" — decided by the two columns' own widths,
+  // not by a viewport breakpoint no page's container can clear. See the helper.
+  const isNarrow = documentTracePanelMode(containerWidth) === "sheet";
   const railMode = documentTraceRailMode(containerWidth);
 
+  /**
+   * Show one passage: switch document if it lives in another one, scroll it to the
+   * middle, and ring it. Nothing else.
+   *
+   * One path for both callers — a result row handing in `focusBlockId`, and the panel's
+   * own passage list — because they are the same act, and two paths meant one click
+   * behaved differently depending on where it came from.
+   *
+   * It deliberately selects nothing. Opening the details panel on arrival put a reader
+   * in front of a panel restating the row they had just left, and on a narrow container
+   * that panel is a sheet covering the passage it was sent to reveal. Arrival centres
+   * the block; opening its result stays a second, deliberate click on the mark.
+   */
   useEffect(() => {
-    if (!focusBlockId) return;
-    const focusTarget = documentTraceFocusTarget(fullTrace, focusBlockId);
-    if (!focusTarget) {
-      onFocusBlockConsumed?.(focusBlockId);
+    const blockId = focusBlockId ?? revealBlockId;
+    if (!blockId) return;
+    const done = () => {
+      if (focusBlockId) onFocusBlockConsumed?.(focusBlockId);
+      setRevealBlockId(null);
+    };
+    const location = documentTraceBlockLocation(fullTrace, blockId);
+    if (!location) {
+      done();
       return;
     }
-    if (focusTarget.documentId !== activeDocumentId) {
-      setDocumentId(focusTarget.documentId);
+    // A cited passage can live in another uploaded document. Switch first, then let
+    // this run again once that document's blocks are mounted.
+    if (location.documentId !== activeDocumentId) {
+      setDocumentId(location.documentId);
       return;
     }
+    // The layer filter can be hiding every mark on the block. Arriving at an
+    // apparently unmarked passage reads as a broken link, so widen to all layers.
     if (
-      focusTarget.selectedAnnotationId
-      && !annotationsById.has(focusTarget.selectedAnnotationId)
-      && layer !== "all"
+      layer !== "all"
+      && location.annotationIds.length > 0
+      && !location.annotationIds.some((id) => annotationsById.has(id))
     ) {
       setLayer("all");
       return;
     }
-    const trigger = blockRefs.current.get(focusBlockId);
-    if (!trigger) return;
-
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    trigger.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
-      block: "center",
-      inline: "nearest",
-    });
-    trigger.focus({ preventScroll: true });
-    selectionTriggerRef.current = trigger;
-    setFocusedBlockId(focusBlockId);
-    if (focusTarget.selectedAnnotationId && focusTarget.connection) {
-      setActiveAnnotationIds(focusTarget.annotationIds);
-      setSelectedAnnotationId(focusTarget.selectedAnnotationId);
-      setConnection(focusTarget.connection);
-    } else {
-      setActiveAnnotationIds([]);
-      setSelectedAnnotationId(null);
-      setConnection({ type: "block", blockId: focusBlockId });
-    }
-    onFocusBlockConsumed?.(focusBlockId);
-  }, [
-    activeDocumentId,
-    annotationsById,
-    focusBlockId,
-    fullTrace,
-    layer,
-    onFocusBlockConsumed,
-  ]);
-
-  /**
-   * Show one passage of the result already open.
-   *
-   * Kept apart from `focusBlockId`, which arrives from a result row and *selects* the
-   * connection at the block it names. Here the result is already selected and the
-   * reader is walking its citations, so this moves the document and nothing else —
-   * selecting as we went would swap the panel to a different result whenever a
-   * passage happened to carry two.
-   */
-  useEffect(() => {
-    if (!revealBlockId) return;
-    const documentId = documentTraceDocumentIdOf(fullTrace, revealBlockId);
-    if (!documentId) {
-      setRevealBlockId(null);
-      return;
-    }
-    // A cited passage can live in another uploaded document. Switch first, then let
-    // the effect run again once that document's blocks are mounted.
-    if (documentId !== activeDocumentId) {
-      setDocumentId(documentId);
-      return;
-    }
-    const target = blockRefs.current.get(revealBlockId);
-    // Cleared rather than left pending: the request is retried across the document
-    // switch above, so by here the block is either mounted or genuinely not in the
-    // document. Holding a request that can never complete would make a second click
-    // on the same passage a no-op, since the state would not change.
+    const target = blockRefs.current.get(blockId);
+    // Cleared rather than left pending: the request is retried across the switches
+    // above, so by here the block is either mounted or not in this document. Holding a
+    // request that can never complete would make a second click on the same passage a
+    // no-op, because the state would not change.
     if (!target) {
-      setRevealBlockId(null);
+      done();
       return;
     }
 
@@ -632,20 +604,25 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
       inline: "nearest",
     });
     target.focus({ preventScroll: true });
-    setFocusedBlockId(revealBlockId);
-    // On a narrow screen the panel is a sheet over the document, so it would cover
-    // the passage it just sent the reader to. Dismiss it without pulling focus back:
-    // the block keeps its mark and can be reopened from the text.
-    if (isNarrow) {
-      setActiveAnnotationIds([]);
-      setSelectedAnnotationId(null);
-    }
-    setRevealBlockId(null);
-  }, [activeDocumentId, fullTrace, isNarrow, revealBlockId]);
+    selectionTriggerRef.current = target;
+    setFocusedBlockId(blockId);
+    done();
+  }, [
+    activeDocumentId,
+    annotationsById,
+    focusBlockId,
+    fullTrace,
+    layer,
+    onFocusBlockConsumed,
+    revealBlockId,
+  ]);
 
   useEffect(() => {
     if (!focusedBlockId) return;
-    const timeout = window.setTimeout(() => setFocusedBlockId(null), 2200);
+    const timeout = window.setTimeout(
+      () => setFocusedBlockId(null),
+      ARRIVAL_HIGHLIGHT_MS,
+    );
     return () => window.clearTimeout(timeout);
   }, [focusedBlockId]);
 
@@ -852,10 +829,12 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
         // returns the width to the document rather than leaving a dead column.
         !isNarrow && (selectedAnnotationId ? "grid-cols-[minmax(0,1fr)_22rem]" : "grid-cols-1"),
       )}>
-        <div className={cn(
-          "max-h-[min(76vh,58rem)] overflow-y-auto overscroll-contain bg-muted/20 py-6",
-          isNarrow ? "px-3 sm:px-6" : "px-8",
-        )}>
+        <div
+          className={cn(
+            "max-h-[min(76vh,58rem)] overflow-y-auto overscroll-contain bg-muted/20 py-6",
+            isNarrow ? "px-3 sm:px-6" : "px-8",
+          )}
+        >
           <article
             aria-label={`Reconstructed source document: ${displayDocumentName(activeDocumentId)}`}
             className={cn(
@@ -894,11 +873,27 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                   className={cn(
                     "group/trace-block relative grid scroll-mt-6 outline-none",
                     blockIndex > 0 && blockSpacingClass(spacing),
+                    // Arrival is a transient outline, not a fill: a filled block
+                    // already means "a result marks this", and the two always coincide
+                    // — a jump can only land on a cited block. On the row rather than
+                    // its text so it rings the whole passage, gutter included, and
+                    // survives the row's own paint containment.
+                    "transition-shadow duration-slow motion-reduce:transition-none",
+                    focusedBlockId === traceBlock.block.id && ARRIVAL_HIGHLIGHT,
                     railMode === "inline"
                       ? "grid-cols-1 gap-1"
                       : "grid-cols-[6rem_minmax(0,1fr)] gap-5",
                   )}
-                  style={{ contentVisibility: "auto", containIntrinsicSize: "auto 72px" }}
+                  /* No `content-visibility: auto` here. It skips rendering an offscreen
+                     block and substitutes a fixed placeholder height, so a block that had
+                     never been painted counted as 72px however tall it really was. Every
+                     scroll position computed from that was wrong: `scrollIntoView({ block:
+                     "center" })` aimed using the estimates, the blocks above then painted
+                     at their true heights, and the target ended up near the bottom of the
+                     view — further off the deeper into the document the jump went. Its
+                     paint containment also clipped anything drawn at a row's edge. Landing
+                     on the right passage is what this view is for, and the browser gets
+                     that exactly right when nothing misreports its own height. */
                 >
                   <div className={cn(
                     "relative z-10 flex min-w-0 flex-row flex-wrap items-center gap-1",
@@ -948,11 +943,6 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                         && traceBlock.emphasis
                         && EMPHASIS_SURFACE_CLASS[traceBlock.emphasis.tone],
                       "group-hover/trace-block:bg-muted/35 group-focus-within/trace-block:bg-muted/35",
-                      // Arrival is a transient outline, not a fill: a filled block
-                      // already means "a result marks this", and the two states
-                      // regularly coincide.
-                      focusedBlockId === traceBlock.block.id
-                        && "ring-2 ring-[hsl(var(--tone-marked))]/70 ring-offset-2 ring-offset-card",
                       blockIsMarkTarget
                         && "cursor-pointer hover:bg-[hsl(var(--tone-marked))]/10 focus-within:bg-[hsl(var(--tone-marked))]/10",
                     )}

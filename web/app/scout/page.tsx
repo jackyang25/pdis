@@ -19,6 +19,7 @@ import {
 import {
   ConfigDateInput,
   ConfigField,
+  ConfigFieldGrid,
   ConfigurationShell,
 } from "@/components/ui/config-field";
 import { useHeaderStore } from "@/lib/store";
@@ -2986,7 +2987,7 @@ function ScoutConfiguration({
   return (
     <ConfigurationShell>
       <ContextFields />
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      <ConfigFieldGrid className="mt-4">
         <SourceTypeField
           value={sourceType}
           onChange={(value) => setHeader({ source_type: value })}
@@ -3003,7 +3004,7 @@ function ScoutConfiguration({
             publish no date, such as web pages, are still included.
           </p>
         </ConfigField>
-      </div>
+      </ConfigFieldGrid>
     </ConfigurationShell>
   );
 }

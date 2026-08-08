@@ -16,7 +16,7 @@
 #                 never rest on someone reading subject matter and inferring a class:
 #                 66 such inferences were removed, because a wrongly inapplicable
 #                 question disappears silently and reports as "not a shortfall".
-#                 "For biologics" is resolved into [mab, vaccine] here, once, because
+#                 "For biologics" is resolved into [monoclonal_antibody, vaccine] here, once, because
 #                 `biologic` is not in our vocabulary. That is the whole extent of
 #                 the interpretation.
 #
@@ -94,7 +94,7 @@ disciplines:
           colloidal stability, charge heterogeneity, post-translational modification
           liabilities including deamidation and oxidation hotspots in CDRs — and
           which of these will constrain the presentation?
-        applies_to: [mab, vaccine]
+        applies_to: [monoclonal_antibody, vaccine]
 
       - id: CMC.LCS.6
         text: >-

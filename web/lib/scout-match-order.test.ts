@@ -155,3 +155,66 @@ test("relation order puts the most consequential relation first", () => {
     ["contradicts", "extends", "confirms", "unrelated"],
   );
 });
+
+test("a match's own sources are ordered newest first", () => {
+  // The match is positioned by the newest of these, and that date appears
+  // nowhere on the match, so retrieval order hid the sort key behind a jumble.
+  const [sorted] = sortMatchesForReading([
+    match("confirms", "a", [
+      "2014-11-01T00:00:00+00:00",
+      "2024-09-01T00:00:00+00:00",
+      "2013-08-01T00:00:00+00:00",
+    ]),
+  ]);
+
+  assert.deepEqual(
+    sorted.insight.supporting_findings.map((f) => f.published_at),
+    [
+      "2024-09-01T00:00:00+00:00",
+      "2014-11-01T00:00:00+00:00",
+      "2013-08-01T00:00:00+00:00",
+    ],
+  );
+});
+
+test("the first source now carries the date the match was sorted by", () => {
+  const sorted = sortMatchesForReading([
+    match("confirms", "older", ["2016-10-01T00:00:00+00:00"]),
+    match("confirms", "newer", [
+      "2013-01-01T00:00:00+00:00",
+      "2024-09-01T00:00:00+00:00",
+    ]),
+  ]);
+
+  // Reading only the first source of each match reproduces the match order,
+  // which is what makes a correct order look correct.
+  assert.deepEqual(
+    sorted.map((m) => m.insight.supporting_findings[0].published_at),
+    sorted.map((m) => newestSourceDate(m)),
+  );
+  assert.deepEqual(sorted.map((m) => m.insight.statement), ["newer", "older"]);
+});
+
+test("undated sources follow the dated ones and keep their order", () => {
+  // Half of all findings carry no date; sinking them would demote the web and
+  // Semantic Scholar lanes rather than sort them.
+  const [sorted] = sortMatchesForReading([
+    match("confirms", "a", [null, "2020-01-01T00:00:00+00:00", null]),
+  ]);
+  const findings = sorted.insight.supporting_findings;
+
+  assert.equal(findings[0].published_at, "2020-01-01T00:00:00+00:00");
+  assert.deepEqual(findings.slice(1).map((f) => f.published_at), [null, null]);
+  assert.deepEqual(findings.slice(1).map((f) => f.url), ["a#0", "a#2"]);
+});
+
+test("sorting sources does not mutate the input match", () => {
+  const matches = [
+    match("confirms", "a", ["2013-01-01T00:00:00+00:00", "2024-01-01T00:00:00+00:00"]),
+  ];
+  const snapshot = structuredClone(matches);
+
+  sortMatchesForReading(matches);
+
+  assert.deepEqual(matches, snapshot, "the caller's match must be untouched");
+});

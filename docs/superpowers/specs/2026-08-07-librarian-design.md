@@ -30,7 +30,7 @@ document. No public evidence, no upload.
 
 **A note on wording.** The email says "pathogen agnostic," and that is right for
 vaccines, but a pathogen is the vaccine-shaped instance of a general rule. The
-config carries five intervention classes — `vaccine`, `mab`, `drug`, `diagnostic`,
+config carries five intervention classes — `vaccine`, `monoclonal_antibody`, `drug`, `diagnostic`,
 `device` — and a diagnostic's or device's indication may name no pathogen at all.
 The general form is **independent of the indication**, which is the field the
 system already has. The same caution applies to the attribute examples: dosing

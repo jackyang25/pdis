@@ -1,7 +1,7 @@
-type_key: bmgf_itpp_mab
+type_key: bmgf_itpp_monoclonal_antibody
 org: bmgf
 source_type: itpp
-intervention_class: mab
+intervention_class: monoclonal_antibody
 display_name: "Monoclonal Antibody Intervention TPP"
 # What this rubric's structure comes from. Nothing here can verify it:
 # it names which source to re-check when that source moves. Everything the

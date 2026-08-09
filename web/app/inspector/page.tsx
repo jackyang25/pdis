@@ -21,6 +21,7 @@ import { SectionHeading } from "@/components/ui/section-heading";
 import { LabeledItem } from "@/components/labeled-item";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
+import { RunHistory } from "@/components/run-history";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -45,13 +46,14 @@ import {
   isInspectorResultFinal,
   packInspectorResult,
   unpackInspectorResult,
+  readResultIdentity,
 } from "@/lib/result-file";
 import {
   INSPECTOR_EMPTY_MESSAGE,
   INSPECTOR_ORDER_NOTE,
   selectInspectorPriorities,
 } from "@/lib/inspector-priorities";
-import { useInspectorSession } from "@/lib/session";
+import { MAX_RESULTS_PER_TOOL, useInspectorSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 const INSPECTOR_STEPS = [
@@ -82,6 +84,11 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
     stage,
     progress,
     error,
+    results,
+    selectedId,
+    selectResult,
+    removeResult,
+    addResult,
     setResult,
     setBusy,
     setStage,
@@ -105,7 +112,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
         setStage(nextStage);
         setProgress(nextProgress ?? null);
       });
-      setResult(response);
+      addResult(response);
     } catch (runError) {
       setError((runError as Error).message);
     } finally {
@@ -115,14 +122,21 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
 
   async function handleImport(file: File) {
     setError(null);
+    if (results.length >= MAX_RESULTS_PER_TOOL) {
+      setError(
+        `Keeping ${MAX_RESULTS_PER_TOOL} runs. Remove one before importing another.`,
+      );
+      return;
+    }
     try {
-      const parsed = unpackInspectorResult(JSON.parse(await file.text()));
+      const raw = JSON.parse(await file.text());
+      const parsed = unpackInspectorResult(raw);
       if (!parsed?.inspection || !Array.isArray(parsed.inspection.sections)) {
         throw new Error("not an Inspector result file");
       }
       setStage(null);
       setProgress(null);
-      setResult(parsed);
+      addResult(parsed, readResultIdentity(raw));
     } catch (importError) {
       setError(`Could not import result: ${(importError as Error).message}`);
     }
@@ -185,6 +199,7 @@ function InspectionResultView({
   result: InspectorResponse;
   onNewAnalysis: () => void;
 }) {
+  const { results, selectedId, selectResult, removeResult } = useInspectorSession();
   const inspection = result.inspection;
   const final = isInspectorResultFinal(result);
   const [resultTab, setResultTab] = useState("trace");
@@ -215,6 +230,14 @@ function InspectionResultView({
       defaultOpen
       contentClassName="px-0 py-0 sm:px-0"
       trailing={
+        <>
+        <RunHistory
+          runs={results}
+          selectedId={selectedId}
+          onSelect={selectResult}
+          onRemove={removeResult}
+          label={(value) => value.inspection.doc_id || "Inspection"}
+        />
         <FinalResultActions
           onNewAnalysis={onNewAnalysis}
           download={final ? {
@@ -222,6 +245,7 @@ function InspectionResultView({
               data: packInspectorResult(result),
             } : undefined}
         />
+        </>
       }
     >
       {!final && (

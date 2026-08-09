@@ -27,9 +27,9 @@ function messageText(message: UIMessage): string {
 }
 
 const SUGGESTIONS: Record<string, string[]> = {
-  // Aligner reports no comparison right now, so suggesting "what changed?" would
-  // invite an answer it cannot ground. These ask only about what a run produces.
-  aligner: ["Which documents are loaded?", "Show me a passage from the reference document."],
+  // Phrased around the bar rather than around "what changed", because a comparison
+  // here runs one way and a symmetric question invites a symmetric answer.
+  aligner: ["Which requirements does the candidate fall short of?", "What is still to close?"],
   inspector: ["What needs the most attention?", "Summarize the cross-section conflicts."],
   scout: ["Which targets conflict with current evidence?", "Where is the evidence weakest?"],
   workspace: ["Which tool should I use?", "What results are available?"],

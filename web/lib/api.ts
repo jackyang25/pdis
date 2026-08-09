@@ -631,9 +631,62 @@ export type AlignmentDocument = {
  * is the reference for the IPDP.
  */
 export type AlignmentEdge = {
+  edge_id: string;
   reference_doc_id: string;
   comparison_doc_id: string;
   question: string;
+};
+
+/**
+ * What became of one requirement in the document measured against it.
+ *
+ * Ordered by distance from the bar, and asymmetric on purpose: `exceeds` and
+ * `falls_short` are the same difference read in opposite directions, and the
+ * vocabulary this replaced could not tell them apart, so a candidate that beat its
+ * target and one that missed it by years carried one label.
+ */
+export type AlignmentVerdict =
+  | "meets"
+  | "exceeds"
+  | "falls_short"
+  | "not_comparable"
+  | "not_addressed";
+
+export const ALIGNMENT_VERDICTS: AlignmentVerdict[] = [
+  "meets",
+  "exceeds",
+  "falls_short",
+  "not_comparable",
+  "not_addressed",
+];
+
+export const VERDICT_LABELS: Record<AlignmentVerdict, string> = {
+  meets: "Meets",
+  exceeds: "Exceeds",
+  falls_short: "Falls short",
+  not_comparable: "Not comparable",
+  not_addressed: "Not addressed",
+};
+
+/**
+ * One requirement, and what the document being measured does with it.
+ *
+ * Two citation lists that are not interchangeable: `reference_block_ids` is where the
+ * bar is stated, `comparison_block_ids` is what was read to judge it. The service
+ * contract checks each against its own document, so resolving either one lands a reader
+ * in the file that actually says it.
+ */
+export type AlignmentFinding = {
+  requirement_id: string;
+  edge_id: string;
+  requirement: string;
+  reference_block_ids: string[];
+  verdict: AlignmentVerdict;
+  statement: string;
+  /** What the measured document would have to close. Only on the two verdicts that
+   * have a gap — `falls_short` and `not_comparable`. */
+  gap: string;
+  comparison_block_ids: string[];
 };
 
 /** One comparison Aligner declares, by document type, before any run. */
@@ -644,13 +697,11 @@ export type AlignmentEdgeSpec = {
 };
 
 /**
- * Identified documents, the comparisons they resolve, and their parsed source.
+ * Identified documents, the comparisons they resolve, their parsed source, and findings.
  *
- * Carries no findings. Aligner's extract-and-link stages were removed because
- * their relation vocabulary was symmetric - it described how two documents
- * differed, never whether the second met the bar the first set - and the shape
- * that replaces it is not yet decided. Findings arrive as fields beside these,
- * citing `blocks` for lineage the way every other tool does.
+ * `findings` is the denominator as well as the content: every requirement read out of a
+ * reference document appears exactly once whatever its verdict, so two runs of one pair
+ * compare line by line and no count is stored beside the list it summarises.
  */
 export type AlignmentResult = {
   documents: AlignmentDocument[];
@@ -659,6 +710,7 @@ export type AlignmentResult = {
   intervention_class: string;
   indication: string;
   blocks: ContentBlock[];
+  findings: AlignmentFinding[];
 };
 
 export type AlignerResponse = { alignment: AlignmentResult };

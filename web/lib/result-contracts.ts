@@ -1,3 +1,4 @@
+import { ALIGNMENT_VERDICTS } from "./api.ts";
 import type {
   AlignerResponse,
   DisciplineReview,
@@ -83,10 +84,13 @@ function assertInspectorReadable(result: unknown): void {
 // --- Aligner -----------------------------------------------------------------
 
 /**
- * Aligner carries no findings yet, so what it checks is that the documents and the
- * comparisons between them are present and refer to each other. When findings are
- * added they are checked here, beside this - the version bump that accompanies them
- * is what actually keeps older files out.
+ * What an alignment must contain to be rendered.
+ *
+ * Documents and comparisons that refer to each other, and findings that refer to a
+ * comparison this file actually made. The service checks far more — that each side's
+ * citations land in that side's document, that a shortfall names its gap — and cannot be
+ * repeated here, because those checks read the parsed blocks. What is repeated is
+ * whatever the view would otherwise crash on, or silently render as empty.
  */
 function assertAlignerReadable(result: unknown): void {
   const alignment = (result as AlignerResponse | null)?.alignment;
@@ -98,10 +102,27 @@ function assertAlignerReadable(result: unknown): void {
   );
   const edges = requireArray("aligner", alignment.edges, "comparisons");
   if (edges.length === 0) fail("aligner", "it carries no comparison");
+  const edgeIds = new Set<string>();
   for (const edge of edges as AlignerResponse["alignment"]["edges"]) {
     if (!known.has(edge.reference_doc_id) || !known.has(edge.comparison_doc_id)) {
       fail("aligner", "a comparison names a document the file does not carry");
     }
+    edgeIds.add(edge.edge_id);
+  }
+
+  // Zero findings is not an empty result to be rendered quietly: a run that compared
+  // nothing looks identical to one that found nothing wrong, which is the confusion the
+  // whole tool exists to prevent.
+  const findings = requireArray("aligner", alignment.findings, "findings");
+  if (findings.length === 0) fail("aligner", "it carries no findings");
+  for (const finding of findings as AlignerResponse["alignment"]["findings"]) {
+    if (!edgeIds.has(finding.edge_id)) {
+      fail("aligner", "a finding names a comparison the file does not carry");
+    }
+    if (!ALIGNMENT_VERDICTS.includes(finding.verdict)) {
+      fail("aligner", `a finding carries an unknown verdict (${finding.verdict})`);
+    }
+    requireText("aligner", finding.requirement, "a finding's requirement");
   }
 }
 

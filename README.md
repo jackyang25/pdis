@@ -102,7 +102,7 @@ export/import is the durable boundary.
 | Tool                                      | Responsibility                                                      |
 | ----------------------------------------- | ------------------------------------------------------------------- |
 | [Inspector](services/inspector/README.md) | Grade document completeness, adherence, rigor, and consistency.     |
-| [Aligner](services/aligner/README.md)     | Compare two documents. Being redesigned: parses both, compares neither. |
+| [Aligner](services/aligner/README.md)     | Check one document against another's requirements, one requirement at a time. |
 | [Scout](services/scout/README.md)         | Test document targets against evidence, comparators, and precedent. |
 | [Chunker](services/chunker/README.md)     | Produce ordered, citable text, table, and image blocks.             |
 | [Searcher](services/searcher/README.md)   | Execute normalized retrieval across registered evidence sources.    |

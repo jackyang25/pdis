@@ -30,7 +30,7 @@ export default function ChunkerPage() {
 }
 
 function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
-  const { result, busy, stage, error, setResult, setBusy, setStage, setError } =
+  const { result, busy, stage, error, addResult, setResult, setBusy, setStage, setError } =
     useChunkerSession();
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -40,7 +40,7 @@ function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
     setStage(null);
     try {
       const res = await runChunker(file, header, setStage);
-      setResult(res);
+      addResult(res);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -58,7 +58,7 @@ function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
         throw new Error("not a chunker result file");
       }
       setStage(null);
-      setResult(parsed);
+      addResult(parsed);
     } catch (err) {
       setError(`Could not import result: ${(err as Error).message}`);
     }

@@ -207,6 +207,7 @@ export function SourceTypeField({
   label = "Document type",
   exclude = [],
   hint = true,
+  action,
 }: {
   value: string | undefined;
   onChange: (value: string) => void;
@@ -219,6 +220,11 @@ export function SourceTypeField({
    * than about one document.
    */
   hint?: boolean;
+  /**
+   * A control belonging to this field, on the select's own line — a tool holding
+   * several documents uses it for the row's remove button.
+   */
+  action?: React.ReactNode;
 }) {
   const header = useHeaderStore((state) => state.header);
   const { types } = useSupportedDocumentTypes();
@@ -239,14 +245,18 @@ export function SourceTypeField({
 
   const ready = Boolean(header.org && header.intervention_class);
   return (
-    <ConfigField label={label} disabled={!ready}>
+    <ConfigField
+      label={label}
+      disabled={!ready}
+      action={action}
+      note={hint ? <SourceTypeHint /> : undefined}
+    >
       <ConfigSelect
         value={value}
         options={toOptions(options)}
         disabled={!ready}
         onChange={onChange}
       />
-      {hint && <SourceTypeHint />}
     </ConfigField>
   );
 }

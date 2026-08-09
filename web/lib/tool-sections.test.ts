@@ -86,7 +86,9 @@ test("a section drops the tools an audience filter excludes without resorting", 
     sectionTools(pst, (tool) => tool.availability === "available").map(
       (tool) => tool.id,
     ),
-    ["inspector", "scout", "expert"],
+    // Librarian is the one still to come, so it is what the filter drops — and the
+    // four that remain keep the declared order rather than closing the gap.
+    ["inspector", "scout", "aligner", "expert"],
   );
 });
 

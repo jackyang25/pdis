@@ -11,13 +11,63 @@ import type {
   StageProgress,
 } from "./api";
 
+/**
+ * How many finished runs one tool keeps for the session.
+ *
+ * Not a memory limit: nothing here is persisted, so a tab holding five results
+ * is cheap. It bounds what Ask re-sends, because the assistant is stateless by
+ * design and the client submits its whole bundle with every message. Five
+ * results is five analyses per question asked.
+ *
+ * At the limit a run is refused rather than the oldest silently dropped: a user
+ * who ran six things and found the first gone would read that as a fault. The
+ * conversation attachment limit takes the same position.
+ */
+export const MAX_RESULTS_PER_TOOL = 5;
+
+export type StoredResult<TResult> = {
+  /** Stable across export and re-import, so the same file is never held twice. */
+  id: string;
+  /** ISO instant the run finished, or the moment a file was imported. */
+  created_at: string;
+  result: TResult;
+};
+
+export type AddResultOutcome =
+  | { added: true; id: string }
+  | { added: false; reason: "at_limit" | "duplicate"; id: string };
+
 type ToolSession<TResult> = {
+  /** Finished runs, newest first. */
+  results: StoredResult<TResult>[];
+  selectedId: string | null;
+  /**
+   * The run being viewed. Derived from `results` and `selectedId` and kept in
+   * step with them, so every existing reader — the tool pages, the download
+   * button, the Ask bundle — is unchanged by history existing.
+   */
   result: TResult | null;
   busy: boolean;
   stage: string | null;
   progress: StageProgress | null;
   error: string | null;
+  /**
+   * Record a finished run or an import. Mints identity when the caller has
+   * none, which is the case for a run; an imported file brings its own.
+   */
+  addResult: (
+    result: TResult,
+    identity?: { id?: string; created_at?: string },
+  ) => AddResultOutcome;
+  /**
+   * Replace what the selected run holds, in place.
+   *
+   * Review is a sequence of edits to one run — approving a target, finalizing a
+   * phase — so these must not each become a new entry in the history.
+   */
   setResult: (r: TResult | null) => void;
+  selectResult: (id: string) => void;
+  removeResult: (id: string) => void;
   setBusy: (b: boolean) => void;
   setStage: (s: string | null) => void;
   setProgress: (p: StageProgress | null) => void;
@@ -25,20 +75,92 @@ type ToolSession<TResult> = {
   reset: () => void;
 };
 
+function newId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function createToolSession<TResult>() {
-  return create<ToolSession<TResult>>((set) => ({
+  return create<ToolSession<TResult>>((set, get) => ({
+    results: [],
+    selectedId: null,
     result: null,
     busy: false,
     stage: null,
     progress: null,
     error: null,
-    setResult: (result) => set({ result }),
+
+    addResult: (result, identity) => {
+      const { results } = get();
+      const id = identity?.id ?? newId();
+      const existing = results.find((entry) => entry.id === id);
+      if (existing) {
+        // Re-importing a file already held selects it rather than duplicating
+        // it. A re-run is a different run and arrives with its own id.
+        set({ selectedId: id, result: existing.result });
+        return { added: false, reason: "duplicate", id };
+      }
+      if (results.length >= MAX_RESULTS_PER_TOOL) {
+        return { added: false, reason: "at_limit", id };
+      }
+      const entry: StoredResult<TResult> = {
+        id,
+        created_at: identity?.created_at ?? new Date().toISOString(),
+        result,
+      };
+      set({ results: [entry, ...results], selectedId: id, result });
+      return { added: true, id };
+    },
+
+    setResult: (result) => {
+      const { results, selectedId } = get();
+      if (result === null) {
+        set({ selectedId: null, result: null });
+        return;
+      }
+      if (selectedId === null) {
+        get().addResult(result);
+        return;
+      }
+      set({
+        results: results.map((entry) =>
+          entry.id === selectedId ? { ...entry, result } : entry,
+        ),
+        result,
+      });
+    },
+
+    selectResult: (id) => {
+      const entry = get().results.find((item) => item.id === id);
+      if (entry) set({ selectedId: id, result: entry.result });
+    },
+
+    removeResult: (id) => {
+      const remaining = get().results.filter((entry) => entry.id !== id);
+      const stillSelected = remaining.some((entry) => entry.id === get().selectedId);
+      const next = stillSelected
+        ? remaining.find((entry) => entry.id === get().selectedId)
+        : remaining[0];
+      set({
+        results: remaining,
+        selectedId: next?.id ?? null,
+        result: next?.result ?? null,
+      });
+    },
+
     setBusy: (busy) => set({ busy }),
     setStage: (stage) => set({ stage }),
     setProgress: (progress) => set({ progress }),
     setError: (error) => set({ error }),
     reset: () =>
-      set({ result: null, busy: false, stage: null, progress: null, error: null }),
+      set({
+        results: [],
+        selectedId: null,
+        result: null,
+        busy: false,
+        stage: null,
+        progress: null,
+        error: null,
+      }),
   }));
 }
 

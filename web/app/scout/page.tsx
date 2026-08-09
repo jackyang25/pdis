@@ -12,6 +12,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { RunPanel } from "@/components/run-panel";
+import { RunHistory } from "@/components/run-history";
 import {
   ContextFields,
   SourceTypeField,
@@ -57,7 +58,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useScoutSession } from "@/lib/session";
+import { MAX_RESULTS_PER_TOOL, useScoutSession } from "@/lib/session";
 import { useScoutReviewSession } from "@/lib/scout-review-session";
 import {
   isScoutResultFinal,
@@ -65,6 +66,7 @@ import {
   pendingQuantitativeReviewCount,
   scoutResultFilename,
   unpackScoutResult,
+  readResultIdentity,
 } from "@/lib/result-file";
 import { displayAttributeLabel, sourceDisplayLabel } from "@/lib/scout-labels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -406,6 +408,11 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     stage,
     progress,
     error,
+    results,
+    selectedId,
+    selectResult,
+    removeResult,
+    addResult,
     setResult,
     setBusy,
     setStage,
@@ -439,6 +446,12 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   }, [initializeReview, result, reviewStatus]);
 
   async function handleRun(file: File) {
+    if (results.length >= MAX_RESULTS_PER_TOOL) {
+      setError(
+        `Keeping ${MAX_RESULTS_PER_TOOL} runs. Remove one before starting another.`,
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     setStage(null);
@@ -448,7 +461,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
         setStage(s);
         setProgress(p ?? null);
       });
-      setResult(res);
+      addResult(res);
       if (res.phase === "target_review") resetReview();
       else initializeReview(!isScoutResultFinal(res));
     } catch (err) {
@@ -462,14 +475,21 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   // the current runtime contract. Import never triggers retrieval.
   async function handleImport(file: File) {
     setError(null);
+    if (results.length >= MAX_RESULTS_PER_TOOL) {
+      setError(
+        `Keeping ${MAX_RESULTS_PER_TOOL} runs. Remove one before importing another.`,
+      );
+      return;
+    }
     try {
-      const parsed = unpackScoutResult(JSON.parse(await file.text()));
+      const raw = JSON.parse(await file.text());
+      const parsed = unpackScoutResult(raw);
       if (!parsed || !Array.isArray(parsed.variables) || !Array.isArray(parsed.matches)) {
         throw new Error("not a scout result file");
       }
       setStage(null);
       setProgress(null);
-      setResult(parsed);
+      addResult(parsed, readResultIdentity(raw));
       initializeReview(!isScoutResultFinal(parsed));
     } catch (err) {
       setError(`Could not import result: ${(err as Error).message}`);
@@ -1839,6 +1859,7 @@ function FieldGrid({
   result: ScoutResponse;
   onNewAnalysis: () => void;
 }) {
+  const { results, selectedId, selectResult, removeResult } = useScoutSession();
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
   const developmentLandscape = result.development_landscape ?? [];
@@ -1930,6 +1951,14 @@ function FieldGrid({
         } insights`}
         contentClassName="p-0"
         trailing={
+          <>
+          <RunHistory
+            runs={results}
+            selectedId={selectedId}
+            onSelect={selectResult}
+            onRemove={removeResult}
+            label={(value) => value.blocks?.[0]?.doc_id || value.indication || "Scout result"}
+          />
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
             download={{
@@ -1937,6 +1966,7 @@ function FieldGrid({
               data: packScoutResult(result),
             }}
           />
+          </>
         }
       >
         <Tabs value={resultTab} onValueChange={setResultTab}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { PromptReference } from "@/components/docs/prompt-reference";
+import { ALIGNER_TOPIC_LIST } from "@/components/aligner-signal-help";
 import { EXPERT_TOPIC_LIST } from "@/components/expert-signal-help";
 import { INSPECTOR_TOPIC_LIST } from "@/components/inspector-signal-help";
 import { SCOUT_TOPIC_LIST } from "@/components/scout-signal-help";
@@ -18,16 +19,11 @@ import { toolReference, type KnowledgeBlock } from "@/lib/product-knowledge";
  * page from privileging whichever tool happened to be documented first.
  */
 
-/**
- * Tools that send model instructions of their own.
- *
- * Aligner is deliberately absent: its analysis stages were removed, so it sends
- * no prompts and the fallback below is the accurate thing to show. It returns
- * here when it declares one.
- */
+/** Tools that send model instructions of their own. */
 const PUBLISHED_TOOLS: readonly string[] = [
   "chunker",
   "inspector",
+  "aligner",
   "expert",
   "scout",
 ];
@@ -42,6 +38,7 @@ const PUBLISHED_TOOLS: readonly string[] = [
 const TOOL_TOPICS: Partial<Record<ToolKey, readonly SignalTopic[]>> = {
   scout: SCOUT_TOPIC_LIST,
   inspector: INSPECTOR_TOPIC_LIST,
+  aligner: ALIGNER_TOPIC_LIST,
   expert: EXPERT_TOPIC_LIST,
 };
 

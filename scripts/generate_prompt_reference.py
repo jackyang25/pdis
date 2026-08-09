@@ -38,14 +38,12 @@ CATALOGS = (
 
 # Where each tool's configurations come from.
 #
-# Aligner is deliberately absent: its `document_roles` slot is a mapping keyed by
-# source type rather than one text, and the package exposes no config enumerator to
-# read it from. `test_prompt_reference` names that gap explicitly, so registering
-# Aligner later is a change the test asks for rather than one nobody notices.
-#
-# Expert is absent for a different reason and permanently: its prompt has no framing
-# slot at all. The question bank supplies each question's whole text, so there is no
-# configuration field interpolated into the prompt for a reader to be shown.
+# Aligner and Expert are both absent, and for the same reason: neither prompt has a
+# framing slot. Expert's bank supplies each question's whole text, and Aligner's role
+# description and edge question travel in the user message per requirement, so in both
+# cases there is no configuration field interpolated into a system prompt for a reader
+# to be shown. A tool that grows one registers here, and
+# `test_every_declared_framing_slot_publishes_its_text` is what notices if it does not.
 CONFIG_SOURCES = {
     "chunker": chunker_configs,
     "inspector": inspector_configs,

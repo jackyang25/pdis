@@ -462,7 +462,7 @@
             {
               "id": "aligner",
               "title": "Aligner",
-              "summary": "Parses a set of product-development documents and resolves which pairs of them compare. Between designs: the extract-and-link comparison was removed and its replacement is not yet built.",
+              "summary": "Reads what one document requires and checks another against it, one requirement at a time. A comparison runs one way: the reference document sets the bar.",
               "nodes": [
                 {
                   "id": "documents",
@@ -511,15 +511,46 @@
                   "guarantee": "Every block keeps the identity of the document it came from."
                 },
                 {
+                  "id": "requirements",
+                  "title": "Requirement extraction",
+                  "summary": "One call per comparison reads the reference document and lists every requirement it states, each cited to the passage that states it.",
+                  "kind": "model",
+                  "layer": "Interpretation",
+                  "inputs": [
+                    "The reference document's blocks",
+                    "The question this comparison asks"
+                  ],
+                  "outputs": [
+                    "Atomic requirements, each with its citation"
+                  ],
+                  "guarantee": "A requirement is a quotation of a demand, never a judgement about it. Compound sentences are split, because one verdict cannot cover three separate facts."
+                },
+                {
+                  "id": "compare",
+                  "title": "Requirement verdicts",
+                  "summary": "One bounded call per requirement, each reading the document being measured: meets, exceeds, falls short, not comparable, or not addressed.",
+                  "kind": "model",
+                  "layer": "Judgement",
+                  "inputs": [
+                    "One requirement",
+                    "The measured document's blocks"
+                  ],
+                  "outputs": [
+                    "A one-way verdict, with the passages behind it",
+                    "What is still to close, where the verdict has a gap"
+                  ],
+                  "guarantee": "The schema offers only the measured document's blocks, so a verdict cannot be justified by citing the document that set the bar."
+                },
+                {
                   "id": "result",
                   "title": "Portable result",
-                  "summary": "The documents, the comparisons they resolve, and every block form one downloadable result. No findings are reported.",
+                  "summary": "Every requirement, its verdict, and the passages on both sides form one downloadable result.",
                   "kind": "output",
                   "layer": "Result",
                   "outputs": [
                     "Immutable pdis.result artifact"
                   ],
-                  "guarantee": "Anything a future analysis claims will be navigable to the documents it compared."
+                  "guarantee": "Every verdict is navigable to the passage it was read from, and every requirement to the passage that sets it."
                 }
               ],
               "edges": [
@@ -533,6 +564,14 @@
                 },
                 {
                   "source": "parse",
+                  "target": "requirements"
+                },
+                {
+                  "source": "requirements",
+                  "target": "compare"
+                },
+                {
+                  "source": "compare",
                   "target": "result"
                 }
               ]

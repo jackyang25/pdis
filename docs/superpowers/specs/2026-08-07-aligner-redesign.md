@@ -1,8 +1,8 @@
 # Aligner redesign — where it stands and what is left
 
-**Status:** input layer built and shipped. Analysis not started. The tool is
-marked `coming_soon` in `web/lib/tools.ts`; the route and page still work for
-development.
+**Status:** built and available (2026-08-09). Both stages ship, the tool is
+`available` in `web/lib/tools.ts`, and the four decisions this document left open
+were made as recorded below.
 
 This document exists so the next person to open Aligner does not have to
 reconstruct the reasoning from git history.
@@ -71,49 +71,63 @@ the iTPP and the reference for the IPDP.
 | Context documents stay out | PDSS, Business Case, Value Proposition, Stage Gate Notes, Meeting Notes make no commitments, so there is nothing to hold another document to. A PPL who needs them while reviewing drift uses Ask. |
 | Acceptance is not recorded | PDIS is stateless. When a PPL accepts a deviation they edit the document, and the next run agrees. The documents are the state. |
 
-## What is left
+## What was decided
 
-### 1. Decide the result shape — blocks everything else
+### 1. Result shape — one flat list, no `kind`
 
-The two shipped edges ask structurally different questions:
+The two edges share a shape, so findings are one list and `EdgeSpec` gained
+nothing. Both edges are answered by the same question — *what does the reference
+document require, and what does the other one do with it* — so a `kind` would have
+been a field nothing read. A third edge needing different fields is when that
+earns a place in the config.
 
-- **screening** (iTPP → cTPP): does the candidate clear the bar?
-- **derivation** (cTPP → IPDP): does the plan deliver the commitment?
+### 2. Approach — the reference document's requirements are the rubric
 
-If they need different fields, findings are per-edge and `EdgeSpec` gains a
-`kind`. If they share a shape, findings are one flat list and no `kind` is
-needed. `kind` was deliberately left out rather than added speculatively.
+Not units extracted from both sides and linked. Extraction reads **only** the
+reference document, and each requirement is then judged against the other, one
+call each. That is what makes the comparison asymmetric by construction rather
+than by a labelling convention, and it is the same shape as Inspector walking an
+authored rubric and Expert walking a question bank — a fixed list of items, one
+judgement each, against a single authority.
 
-If the two turn out to share no result shape at all, that is the signal these are
-two tools wearing one name.
+Extraction is one call per comparison, because how many requirements a document
+states is a fact about the whole document. That is the case the
+one-item-per-request rule exempts, and the shape Scout already uses for units.
 
-### 2. Choose the verdict vocabulary
+### 3. Verdict vocabulary — five values
 
-Closed, asymmetric, direction-aware — something in the shape of *meets / falls
-short / exceeds*, replacing `modified`. This is the whole reason the old
-vocabulary went; getting it wrong reproduces the original defect.
+`meets | exceeds | falls_short | not_comparable | not_addressed`.
 
-### 3. Decide whether units still exist
+`exceeds` is kept apart from `meets` because a candidate well past its target may
+mean the target is stale, or the candidate is over-specified — both decisions a
+PPL would want to make. `not_comparable` was added over a four-value set because
+the common real case is a qualitative claim against a numeric bar: "convenient
+dosing" against "annual dosing" is neither worse nor silent, and forcing it into
+`falls_short` asserts something the text does not say.
 
-The old design extracted units per document, then linked them. That was
-inherited, not re-decided. The alternative is comparing directly, item by item,
-the way Inspector walks a rubric. Worth an explicit choice.
+`falls_short` and `not_comparable` carry a required `gap`; the other three refuse
+one. Same reasoning as Expert's `missing`: the sentence a reader acts on should be
+a field the contract enforces, not a convention prose usually follows.
 
-### 4. Build the stage
+### 4. What shipped
 
-One call per item (throughput from fan-out, never packing). Closed enum. Block
-lineage on both sides. A `CatalogEntry` in `prompt_catalog.py` — currently an
-empty tuple, and `tests/test_prompt_reference.py` expects Aligner absent from the
-published tools, so that expectation moves when the first prompt lands.
+| | |
+|---|---|
+| Stages | `stages/requirements.py` (one call per comparison), `stages/assessor.py` (one per requirement, `REQUIREMENTS_PER_REQUEST = 1`) |
+| Vocabulary | `models.py` — `ALIGNMENT_VERDICTS`, `VERDICTS_REQUIRING_GAP`, `VERDICTS_REQUIRING_CITATION` |
+| Identity | `edge_id` on `AlignmentEdge`, `requirement_id` namespaced by it |
+| Contract | each side's citations checked against its own document; one verdict per requirement; the gap and citation rules enforced both ways |
+| Envelope | `ANALYSIS_VERSIONS.aligner` 2 → 3; a v2 file carries no findings, so it would render as a run that compared nothing |
+| Prompts | two `CatalogEntry` declarations, neither with a framing slot — the role and the question travel in the user message, as Expert's questions do |
+| UI | `PriorityPanel`, a five-verdict count row, per-comparison groups, a Documents trace placing **both** sides, `AlignerSignalHelp` |
+| Chain | `web/lib/aligner-chain.ts` links two comparisons at the passage they share, so a plan delivering a commitment that falls short upstream is visible without reading both lists |
+| Tests | `test_aligner.py` (57) and `test_aligner_pipeline.py` (6) |
 
-### 5. Surface it
-
-Findings on `AlignmentResult`, contract checks beside the structural ones,
-`ANALYSIS_VERSIONS.aligner` 2 → 3, the shared `PriorityPanel` for what to look at
-first, and another pass on `ALIGNER_LEGEND`, the docs graph in
-`product_knowledge.json`, and both READMEs.
-
-Flip `availability` back to `available` in `web/lib/tools.ts`.
+The trace is the one place Aligner differs from its peers: a finding has lineage on
+both sides, so each places two annotations — the requirement in the document that
+sets it, the verdict in the document measured. One annotation carrying blocks from
+two documents would let a reader open a passage in the reference document and read
+"falls short", which is a claim about the other one.
 
 ## Open product questions
 
@@ -126,10 +140,10 @@ Flip `availability` back to `available` in `web/lib/tools.ts`.
 
 | | |
 |---|---|
-| Service | `services/aligner/` — 8 files, no stages |
+| Service | `services/aligner/` — 10 files, two stages |
 | Config | `services/aligner/configs/alignment.yaml` |
 | Rules | `AGENTS.md` § Aligner |
 | Detail | `services/aligner/README.md` |
-| Tests | `tests/test_aligner.py` — 29, covering config, edge resolution, contract |
+| Tests | `tests/test_aligner.py` — 57, and `tests/test_aligner_pipeline.py` — 6 |
 | API | `api/routes/aligner.py`, including `GET /api/aligner/edges` |
 | UI | `web/app/aligner/page.tsx` |

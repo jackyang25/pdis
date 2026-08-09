@@ -50,20 +50,14 @@ class PromptReferenceTest(unittest.TestCase):
         )
 
     def test_every_tool_with_a_catalog_is_published(self) -> None:
-        """A tool that declares prompts and publishes none has an empty panel.
-
-        Aligner is absent from both sides, not one: its catalog is an empty tuple
-        because its analysis stages were removed, so it sends no prompts and has
-        nothing to publish. It is still registered in `CATALOGS`, which is what
-        makes adding a stage back a one-line change.
-        """
+        """A tool that declares prompts and publishes none has an empty panel."""
         reference = json.loads(REFERENCE.read_text())
         declared = {entry.tool for catalog in CATALOGS for entry in catalog}
         published = {prompt["tool"] for prompt in reference["prompts"]}
         self.assertEqual(declared, published)
         self.assertEqual(
             declared,
-            {"chunker", "inspector", "scout", "expert"},
+            {"chunker", "inspector", "aligner", "scout", "expert"},
             "add the new tool's catalog to CATALOGS, or remove it here deliberately",
         )
 
@@ -132,9 +126,9 @@ class PromptReferenceTest(unittest.TestCase):
 
         # Held at zero. Aligner used to sit here: its prompts declared
         # `document_roles`, a mapping keyed by source type that the generator had no
-        # enumerator for. Those prompts are gone with its analysis stages, so the
-        # exemption goes too rather than being kept warm for a design that may not
-        # want it.
+        # enumerator for. Its prompts now declare no slot at all — the role description
+        # and the edge's question travel in the user message, per requirement — so the
+        # exemption is not needed rather than merely unused.
         self.assertEqual(
             declared - published,
             set(),

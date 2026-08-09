@@ -48,6 +48,7 @@ import {
   expertResultFilename,
   packExpertResult,
   unpackExpertResult,
+  readResultIdentity,
 } from "@/lib/result-file";
 import { useExpertSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
@@ -138,7 +139,7 @@ export default function ExpertPage() {
           session.setProgress(progress ?? null);
         },
       );
-      session.setResult(result);
+      session.addResult(result);
     } catch (error) {
       session.setError((error as Error).message);
     } finally {
@@ -149,7 +150,8 @@ export default function ExpertPage() {
   async function handleImport(file: File) {
     session.setError(null);
     try {
-      session.setResult(unpackExpertResult(JSON.parse(await file.text())));
+      const raw = JSON.parse(await file.text());
+      session.addResult(unpackExpertResult(raw), readResultIdentity(raw));
     } catch (error) {
       session.setError(`Could not import result: ${(error as Error).message}`);
     }

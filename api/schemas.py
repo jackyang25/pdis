@@ -677,6 +677,7 @@ class AlignmentEdgeOut(BaseModel):
     iTPP and is the reference for the IPDP.
     """
 
+    edge_id: str
     reference_doc_id: str
     comparison_doc_id: str
     question: str
@@ -694,12 +695,37 @@ class AlignerEdgesResponse(BaseModel):
     edges: list[AlignmentEdgeSpecOut]
 
 
-class AlignmentResultOut(BaseModel):
-    """Identified documents, the comparisons they resolve, and their parsed source.
+class AlignmentFindingOut(BaseModel):
+    """What became of one requirement in the document measured against it.
 
-    Carries no findings: Aligner's extract-and-link stages were removed and the
-    shape a new design publishes is not yet decided. Findings are added as fields
-    beside these, citing `blocks` for lineage the way every other tool does.
+    Two citation lists, and they are not interchangeable: `reference_block_ids` is
+    where the bar is stated, `comparison_block_ids` is what was read to judge it. The
+    service contract checks each against its own document, so a reader resolving either
+    one lands in the file that actually says it.
+
+    `verdict` is asymmetric by design. The vocabulary this replaced described how two
+    documents differ, which gave a candidate that beat its target and one that missed it
+    by years the same label.
+    """
+
+    requirement_id: str
+    edge_id: str
+    requirement: str
+    reference_block_ids: list[str] = Field(default_factory=list)
+    verdict: str
+    statement: str = ""
+    #: What the measured document would have to close. Present only where the verdict
+    #: is `falls_short` or `not_comparable`.
+    gap: str = ""
+    comparison_block_ids: list[str] = Field(default_factory=list)
+
+
+class AlignmentResultOut(BaseModel):
+    """Identified documents, the comparisons they resolve, their source, and findings.
+
+    `findings` is the denominator as well as the content: every requirement read out of
+    a reference document appears exactly once whatever its verdict, so two runs of one
+    pair compare line by line and no count is stored beside the list it summarises.
     """
 
     documents: list[AlignmentDocumentOut]
@@ -708,6 +734,7 @@ class AlignmentResultOut(BaseModel):
     intervention_class: str
     indication: str
     blocks: list[ContentBlockOut] = Field(default_factory=list)
+    findings: list[AlignmentFindingOut] = Field(default_factory=list)
 
 
 class AlignerRunResponse(BaseModel):

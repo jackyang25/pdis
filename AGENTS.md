@@ -261,9 +261,30 @@ it. `document_findings[]` holds the conflicts no unit owns.
 
 ### Aligner
 
-- Aligner currently reports no findings. A run parses its documents and returns
-  them with the comparisons they resolve. When an analysis vocabulary is added it
-  belongs in `configs/alignment.yaml`, never in code.
+- **A comparison runs one way.** The reference document's requirements are the rubric
+  and the other document is measured against them, one requirement per call. The
+  vocabulary this replaced — `aligned | modified | conflict | missing | introduced` —
+  described how two documents *differ*, so "annual dosing" against "every 6 months" and
+  against "every 2 years" carried one label with opposite meanings for the investment.
+  Never reintroduce a symmetric relation.
+- Verdicts are `meets | exceeds | falls_short | not_comparable | not_addressed`, closed
+  and asymmetric. `exceeds` is never folded into `meets`: a candidate well past its
+  target may mean the target is stale. `not_comparable` exists so vagueness is not
+  reported as a shortfall — a qualitative claim against a numeric bar is neither worse
+  nor silent, and calling it either is a judgement the text does not support.
+- `falls_short` and `not_comparable` carry `gap`; the other three refuse it. That
+  sentence is what a PPL takes back to whoever wrote the document, so leaving it to
+  prose would make it usually present and never guaranteed.
+- A requirement is read out of the reference document, cites the passage that states it,
+  and is atomic — compound sentences are split at extraction, because one verdict cannot
+  honestly cover three facts. Aligner never decides what matters.
+- **A finding's two citation lists are not interchangeable.** `reference_block_ids` must
+  be blocks of the document that sets the bar and `comparison_block_ids` blocks of the
+  document measured; the schema offers only the latter to the model, and the contract
+  checks both. A result that mixed them would read perfectly and be unfalsifiable.
+- Extraction is one call per comparison because how many requirements a document states
+  is a fact about the whole document — the case the one-item-per-request rule exempts.
+  Judgement is one call per requirement, always.
 - **No stage knows how many documents a run holds or which types compare.**
   `document_roles` names the types and `edges` declares the ordered pairs; a run
   makes every declared comparison whose documents were both supplied, so two
@@ -276,7 +297,24 @@ it. `document_findings[]` holds the conflicts no unit owns.
   compared against the iTPP and is the reference for the IPDP.
 - Documents that resolve no declared comparison, or two documents of one type,
   fail loudly before parsing. A run that silently compares nothing is
-  indistinguishable from one that found nothing wrong.
+  indistinguishable from one that found nothing wrong — which is also why the result
+  contract refuses an alignment carrying zero findings.
+- **Two comparisons are linked at the document they share, by block id and nothing
+  else.** With three documents the middle one is measured in one comparison and
+  authoritative in the next, so a plan can faithfully deliver a commitment that itself
+  falls short — every verdict correct, and the second list all good news. `chainWarnings`
+  finds it by intersecting the upstream finding's cited passages with the downstream
+  requirement's, derived on read, no model and no stored field. It is **not** an
+  `itpp → ipdp` edge: that would re-report the same gap and blame the plan for a bar it
+  was never written against. The note claims something about the *passage*, never that
+  the two requirements are the same one, because a dense block can carry several facts —
+  and it under-reports rather than guessing, since matching requirement text would be the
+  fuzzy comparison this codebase refuses everywhere else.
+- There is no compliance score and no percentage: one figure blending "it meets this",
+  "it beats this", "it says something incomparable" and "it does not cover this" would
+  tell a committee something untrue. Totals are not comparable across comparisons
+  either, because the denominator is however many requirements that reference document
+  happens to state.
 - Aligner never grades quality and never retrieves external evidence. Those are
   Inspector's and Scout's authorities, and a tool with two authorities can
   contradict the tool that owns one.

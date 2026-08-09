@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Plus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowRight, CircleDashed, Plus, X } from "lucide-react";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ErrorMessage } from "@/components/ui/error-message";
-import { DocumentSourceProvider } from "@/components/document-source-trace";
+import {
+  DocumentSourceProvider,
+  DocumentSourceTrace,
+} from "@/components/document-source-trace";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel, type DocumentSlot } from "@/components/run-panel";
@@ -14,22 +17,47 @@ import {
   useSupportedDocumentTypes,
 } from "@/components/configuration-fields";
 import { ConfigurationShell } from "@/components/ui/config-field";
+import { AlignerDocumentTrace } from "@/components/aligner-document-trace";
+import { AlignerSignalHelp, AlignerSignalLabel } from "@/components/aligner-signal-help";
+import { PriorityPanel } from "@/components/ui/priority-panel";
+import { SectionHeading } from "@/components/ui/section-heading";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  ALIGNMENT_VERDICTS,
+  VERDICT_LABELS,
   fetchAlignerEdges,
   runAligner,
+  type AlignmentEdge,
   type AlignmentEdgeSpec,
+  type AlignmentFinding,
   type AlignmentResult,
+  type AlignmentVerdict,
 } from "@/lib/api";
+import { chainWarningText, chainWarnings, type ChainWarning } from "@/lib/aligner-chain";
+import {
+  ALIGNER_EMPTY_MESSAGE,
+  ALIGNER_ORDER_NOTE,
+  comparisonLabel,
+  countVerdicts,
+  findingsByComparison,
+  findingsWithVerdict,
+  selectAlignerPriorities,
+} from "@/lib/aligner-priorities";
 import {
   alignerResultFilename,
   packAlignerResult,
   unpackAlignerResult,
+  readResultIdentity,
 } from "@/lib/result-file";
 import { useAlignerSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
 
-const STEPS = [{ key: "parse", label: "Parsing documents" }];
+const STEPS = [
+  { key: "parse", label: "Parsing documents" },
+  { key: "requirements", label: "Reading requirements" },
+  { key: "compare", label: "Comparing" },
+];
 
 /** A document the user has added but may not have chosen a type for yet. */
 type DocumentChoice = { key: string; sourceType: string };
@@ -106,7 +134,7 @@ export default function AlignerPage() {
           session.setProgress(progress ?? null);
         },
       );
-      session.setResult(result);
+      session.addResult(result);
     } catch (error) {
       session.setError((error as Error).message);
     } finally {
@@ -117,7 +145,8 @@ export default function AlignerPage() {
   async function handleImport(file: File) {
     session.setError(null);
     try {
-      session.setResult(unpackAlignerResult(JSON.parse(await file.text())));
+      const raw = JSON.parse(await file.text());
+      session.addResult(unpackAlignerResult(raw), readResultIdentity(raw));
     } catch (error) {
       session.setError(`Could not import result: ${(error as Error).message}`);
     }
@@ -224,36 +253,38 @@ function DocumentChooser({
     <div className="mt-4">
       <div className="mt-1 flex flex-col gap-3">
         {choices.map((choice, index) => (
-          <div key={choice.key} className="flex items-end gap-1.5">
-            <div className="min-w-0 flex-1">
-              <SourceTypeField
-                label={`Document ${index + 1}`}
-                value={choice.sourceType || undefined}
-                exclude={taken}
-                // Once, under the first row: the note is about what the field does,
-                // not about one document, so repeating it per row is noise.
-                hint={index === 0}
-                onChange={(value) =>
-                  onChange(
-                    choices.map((item, position) =>
-                      position === index ? { ...item, sourceType: value } : item,
-                    ),
-                  )
+          <SourceTypeField
+            key={choice.key}
+            label={`Document ${index + 1}`}
+            value={choice.sourceType || undefined}
+            exclude={taken}
+            // Once, under the first row: the note is about what the field does,
+            // not about one document, so repeating it per row is noise.
+            hint={index === 0}
+            // Handed to the field rather than placed beside it, so it lines up with
+            // the select. Beside it, the button aligned to the bottom of the row —
+            // which on the row carrying the help text put it next to the prose.
+            action={
+              <button
+                type="button"
+                aria-label={`Remove document ${index + 1}`}
+                disabled={disabled || choices.length <= 2}
+                onClick={() =>
+                  onChange(choices.filter((_, position) => position !== index))
                 }
-              />
-            </div>
-            <button
-              type="button"
-              aria-label={`Remove document ${index + 1}`}
-              disabled={disabled || choices.length <= 2}
-              onClick={() =>
-                onChange(choices.filter((_, position) => position !== index))
-              }
-              className="mb-0.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            }
+            onChange={(value) =>
+              onChange(
+                choices.map((item, position) =>
+                  position === index ? { ...item, sourceType: value } : item,
+                ),
+              )
+            }
+          />
         ))}
       </div>
       <button
@@ -348,70 +379,272 @@ function AlignmentView({
   result: AlignmentResult;
   onNewAnalysis: () => void;
 }) {
-  const nameOf = new Map(
-    result.documents.map((document) => [document.doc_id, displayLabel(document.source_type)]),
-  );
-  const blockCount = (docId: string) =>
-    result.blocks.filter((block) => block.doc_id === docId).length;
+  // Same handoff every tool uses: a citation anywhere opens that passage in the trace,
+  // so the two views are one navigation rather than two places to look.
+  const [resultTab, setResultTab] = useState("comparisons");
+  const [traceFocusBlockId, setTraceFocusBlockId] = useState<string | null>(null);
+  const openBlockInTrace = useCallback((blockId: string) => {
+    setTraceFocusBlockId(blockId);
+    setResultTab("trace");
+  }, []);
+  const consumeTraceFocus = useCallback((blockId: string) => {
+    setTraceFocusBlockId((current) => (current === blockId ? null : current));
+  }, []);
+
+  const counts = useMemo(() => countVerdicts(result), [result]);
+  const groups = useMemo(() => findingsByComparison(result), [result]);
+  // Where two comparisons meet. Computed once per result and read per row, so the panel
+  // and the rows cannot disagree about which passages an earlier comparison flagged.
+  const warnings = useMemo(() => chainWarnings(result), [result]);
+  const subtitle = [
+    `${result.edges.length} ${result.edges.length === 1 ? "comparison" : "comparisons"}`,
+    displayLabel(result.intervention_class),
+    result.documents.map((document) => displayLabel(document.source_type)).join(", "),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <DocumentSourceProvider blocks={result.blocks}>
-      <CollapsibleCard
-        title="Parsed documents"
-        subtitle={
-          <span>
-            {result.documents.map((document) => document.doc_id).join(", ")}
-          </span>
-        }
-        trailing={
-          <FinalResultActions
-            onNewAnalysis={onNewAnalysis}
-            download={{
-              filename: alignerResultFilename({ alignment: result }),
-              data: packAlignerResult({ alignment: result }),
-            }}
-          />
-        }
-      >
-        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {result.documents.map((document) => (
-            <div key={document.doc_id} className="min-w-0">
-              <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                {displayLabel(document.source_type)}
-              </dt>
-              <dd className="mt-1 truncate text-sm font-medium">{document.doc_id}</dd>
-              <dd className="mt-0.5 text-xs text-muted-foreground">
-                {blockCount(document.doc_id)} blocks
-              </dd>
+    <CollapsibleCard
+      title="Alignment"
+      subtitle={subtitle}
+      defaultOpen
+      contentClassName="px-0 py-0 sm:px-0"
+      trailing={
+        <FinalResultActions
+          onNewAnalysis={onNewAnalysis}
+          download={{
+            filename: alignerResultFilename({ alignment: result }),
+            data: packAlignerResult({ alignment: result }),
+          }}
+        />
+      }
+    >
+      <DocumentSourceProvider blocks={result.blocks} onOpenInTrace={openBlockInTrace}>
+        <Tabs value={resultTab} onValueChange={setResultTab} className="w-full">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-5 pt-2 sm:px-6">
+            <TabsList className="justify-start border-b-0">
+              {/*
+                Comparisons first: a tool opens on what it is about. Aligner is about
+                what one document does with another's requirements, and the documents
+                are what it read to decide.
+              */}
+              <TabsTrigger value="comparisons">Comparisons</TabsTrigger>
+              <TabsTrigger value="trace">Documents</TabsTrigger>
+            </TabsList>
+            <AlignerSignalHelp />
+          </div>
+
+          <TabsContent value="comparisons" className="m-0">
+            <div className="flex flex-col gap-6 px-5 py-5 sm:px-6">
+              <CountRow counts={counts} />
+
+              <PriorityPanel
+                attribution="by Aligner"
+                items={selectAlignerPriorities(result)}
+                emptyMessage={ALIGNER_EMPTY_MESSAGE}
+                orderNote={ALIGNER_ORDER_NOTE}
+              />
+
+              <div className="space-y-3">
+                <SectionHeading
+                  title={
+                    <>
+                      Comparisons{" "}
+                      <span className="tabular-nums text-muted-foreground">
+                        {result.edges.length}
+                      </span>
+                    </>
+                  }
+                  description="Each comparison runs one way: the first document sets the requirements and the second is measured against them. Open one to see every requirement it asked, grouped by what the other document does with it."
+                />
+                {groups.map(({ edge, findings }) => (
+                  <ComparisonCard
+                    key={edge.edge_id}
+                    edge={edge}
+                    findings={findings}
+                    result={result}
+                    warnings={warnings}
+                  />
+                ))}
+              </div>
             </div>
-          ))}
-        </dl>
+          </TabsContent>
 
-        <div className="mt-5 border-t border-border pt-4">
-          <p className="text-xs font-medium">Comparisons</p>
-          <ul className="mt-2 flex flex-col gap-2.5">
-            {result.edges.map((edge) => (
-              <li key={`${edge.reference_doc_id}-${edge.comparison_doc_id}`}>
-                <p className="flex items-center gap-1.5 text-xs font-medium">
-                  <span>{nameOf.get(edge.reference_doc_id)}</span>
-                  <ArrowRight aria-label="compared against" className="h-3 w-3 text-muted-foreground" />
-                  <span>{nameOf.get(edge.comparison_doc_id)}</span>
-                </p>
-                <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-                  {edge.question}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </div>
+          <TabsContent value="trace" className="m-0">
+            <AlignerDocumentTrace
+              result={result}
+              focusBlockId={traceFocusBlockId}
+              onFocusBlockConsumed={consumeTraceFocus}
+            />
+          </TabsContent>
+        </Tabs>
+      </DocumentSourceProvider>
+    </CollapsibleCard>
+  );
+}
 
-        <p className="mt-5 border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
-          Every document is parsed and citable, and the comparisons above are the
-          ones a run will make. Aligner reports no findings against them yet: its
-          analysis was removed and the shape that replaces it is still being
-          designed.
+/**
+ * The five verdicts, always all five.
+ *
+ * Every one is a number a model produced, so a zero is information: it says the check
+ * ran and found nothing of that kind. Hiding one would make a run where nothing fell
+ * short look like a run with no such concept — and the figures would still sum to the
+ * total, so nothing would look wrong.
+ */
+function CountRow({ counts }: { counts: Record<AlignmentVerdict, number> }) {
+  const total = ALIGNMENT_VERDICTS.reduce((sum, verdict) => sum + counts[verdict], 0);
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+      <p className="text-xs">
+        <AlignerSignalLabel topic="denominator">
+          <span className="font-medium">
+            {total} {total === 1 ? "requirement" : "requirements"}
+          </span>
+        </AlignerSignalLabel>
+      </p>
+      {ALIGNMENT_VERDICTS.map((verdict) => (
+        <p key={verdict} className="text-xs text-muted-foreground">
+          <span className="tabular-nums text-foreground">{counts[verdict]}</span>{" "}
+          {VERDICT_LABELS[verdict].toLowerCase()}
         </p>
-      </CollapsibleCard>
-    </DocumentSourceProvider>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One comparison, its question, and its requirements grouped by verdict.
+ *
+ * Grouped by verdict inside the comparison rather than listed flat, because the
+ * question a reader arrives with is "what falls short here" and a flat list of forty
+ * requirements answers it only after forty reads. Shortfalls lead for the same reason.
+ */
+function ComparisonCard({
+  edge,
+  findings,
+  result,
+  warnings,
+}: {
+  edge: AlignmentEdge;
+  findings: AlignmentFinding[];
+  result: AlignmentResult;
+  warnings: Map<string, ChainWarning[]>;
+}) {
+  return (
+    <CollapsibleCard
+      title={comparisonLabel(edge, result)}
+      subtitle={edge.question}
+      // Closed, like Inspector's sections and Expert's disciplines. The panel above
+      // already carries everything a reader has to act on; this is the full
+      // enumeration, and open it puts forty requirements between them and the second
+      // comparison. The row still states which comparison it is, what it asks, and how
+      // many requirements it holds.
+      defaultOpen={false}
+      trailing={
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          {findings.length} {findings.length === 1 ? "requirement" : "requirements"}
+        </span>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {VERDICT_ORDER.map((verdict) => {
+          const inVerdict = findingsWithVerdict(findings, verdict);
+          if (inVerdict.length === 0) return null;
+          return (
+            <section key={verdict}>
+              <p className="text-xs font-medium">
+                <AlignerSignalLabel topic="verdict">
+                  {VERDICT_LABELS[verdict]}
+                </AlignerSignalLabel>{" "}
+                <span className="tabular-nums text-muted-foreground">
+                  {inVerdict.length}
+                </span>
+              </p>
+              <ul className="mt-2 flex flex-col gap-3">
+                {inVerdict.map((finding) => (
+                  <FindingRow
+                    key={finding.requirement_id}
+                    finding={finding}
+                    warnings={warnings.get(finding.requirement_id) ?? []}
+                  />
+                ))}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+    </CollapsibleCard>
+  );
+}
+
+/**
+ * Reading order inside a comparison, which is not the vocabulary's own order.
+ *
+ * What a PPL came for goes first. `ALIGNMENT_VERDICTS` is ordered by distance from the
+ * bar because that is how the vocabulary is defined; this is ordered by what is
+ * actionable, and the two are deliberately separate so neither has to compromise.
+ */
+const VERDICT_ORDER: AlignmentVerdict[] = [
+  "falls_short",
+  "not_comparable",
+  "not_addressed",
+  "exceeds",
+  "meets",
+];
+
+/** One requirement, what the measured document says about it, and both lineages. */
+function FindingRow({
+  finding,
+  warnings,
+}: {
+  finding: AlignmentFinding;
+  /** What an earlier comparison already said about the passage this delivers. */
+  warnings: ChainWarning[];
+}) {
+  return (
+    <li className="rounded-md border border-border/70 px-3 py-2.5">
+      <p className="text-xs font-medium leading-5">
+        <AlignerSignalLabel topic="requirement">{finding.requirement}</AlignerSignalLabel>
+      </p>
+      <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+        {finding.statement}
+      </p>
+      {finding.gap && (
+        <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-foreground/85">
+          <CircleDashed aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span>
+            <span className="text-muted-foreground">Still to close: </span>
+            {finding.gap}
+          </span>
+        </p>
+      )}
+      {warnings.map((warning) => (
+        <p
+          key={warning.upstreamRequirementId}
+          className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-[hsl(var(--tone-warning))]"
+        >
+          <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {/*
+            A claim about the passage, not about the requirement: the two comparisons
+            cite the same block, which does not prove they mean the same clause of it.
+            True either way, and it sends a reader to the right place.
+          */}
+          <span>{chainWarningText(warning)}</span>
+        </p>
+      ))}
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <div className="min-w-0">
+          <p className="text-[11px] text-muted-foreground">Requirement stated in</p>
+          <DocumentSourceTrace blockIds={finding.reference_block_ids} />
+        </div>
+        {finding.comparison_block_ids.length > 0 && (
+          <div className="min-w-0">
+            <p className="text-[11px] text-muted-foreground">Read from</p>
+            <DocumentSourceTrace blockIds={finding.comparison_block_ids} />
+          </div>
+        )}
+      </div>
+    </li>
   );
 }

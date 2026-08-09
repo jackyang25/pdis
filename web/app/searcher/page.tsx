@@ -17,7 +17,7 @@ export default function SearcherPage() {
   const [sources, setSources] = useState<SearchSource[]>([]);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const { result, busy, error, setResult, setBusy, setStage, setError } =
+  const { result, busy, error, addResult, setResult, setBusy, setStage, setError } =
     useSearcherSession();
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export default function SearcherPage() {
     setResult(null);
     try {
       const res = await runSearcher(query.trim(), Array.from(selected), setStage);
-      setResult(res);
+      addResult(res);
     } catch (err) {
       setError((err as Error).message);
     } finally {

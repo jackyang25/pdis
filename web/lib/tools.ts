@@ -101,7 +101,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     description:
       "One document against its rubric: what is missing, off-template, vague, or internally inconsistent.",
     capability: "Document review",
-    activity: "3–5 min",
+    activity: "~1 min",
     icon: "inspector",
     audience: "pst",
     workflow: "document_intelligence",
@@ -115,7 +115,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     description:
       "One document’s targets against external evidence: whether its numbers hold up against comparable measurements and precedent.",
     capability: "Evidence review",
-    activity: "25–30 min",
+    activity: "~15 min",
     icon: "scout",
     audience: "pst",
     workflow: "document_intelligence",
@@ -127,17 +127,17 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/aligner",
     title: "Aligner",
     description:
-      "The iTPP, cTPP, and IPDP against each other: where the candidate and the plan diverge from what was asked for.",
+      "The iTPP, cTPP, and IPDP against each other: whether the candidate and the plan deliver what was asked for.",
     capability: "Document comparison",
-    activity: "10–15 min",
+    // Same arithmetic as Expert's, one step longer: each comparison reads its
+    // reference document once, then fans out over the requirements it found. Two
+    // documents is one comparison; three is two, run in sequence.
+    activity: "~1 min",
     icon: "aligner",
     audience: "pst",
     workflow: "document_intelligence",
     delivery: "workspace",
-    // The input layer is built and the page runs, but no comparison is reported
-    // yet. `href` stays so the route remains reachable for development; the card
-    // renders unlinked until this flips back to `available`.
-    availability: "coming_soon",
+    availability: "available",
   },
   {
     id: "expert",
@@ -150,7 +150,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     // call returns one decision and one sentence — a few hundred bytes — against a
     // document context the provider caches after the first. The count of calls is not
     // what costs time here; the size of each answer is, and these are tiny.
-    activity: "1 min",
+    activity: "~1 min",
     icon: "expert",
     audience: "pst",
     workflow: "stage_gate",
@@ -188,7 +188,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     description:
       "Turn DOCX and PPTX files into ordered, citable text, table, and image blocks.",
     capability: "Document parsing",
-    activity: "On demand",
+    activity: "~1 min",
     icon: "chunker",
     audience: "shared",
     workflow: "utility",
@@ -202,7 +202,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     description:
       "Search selected evidence sources directly and review normalized findings in one place.",
     capability: "Direct search",
-    activity: "On demand",
+    activity: "~5 min",
     icon: "searcher",
     audience: "shared",
     workflow: "utility",

@@ -36,7 +36,10 @@ const ANALYSIS_VERSIONS = {
   // 2: the extract-and-link analysis was removed; a result is now two identified
   // documents and their blocks. Saved v1 files describe units and relations this
   // code no longer has types for, so they cannot be rendered.
-  aligner: 2,
+  // 3: findings returned, one per requirement, with a one-way verdict. A v2 file
+  // carries no findings at all, so it would render as a run that compared nothing —
+  // indistinguishable from a run that found nothing wrong.
+  aligner: 3,
   // 2: five states became three. `not_answerable` and `not_assessable` were both
   // derived from a judgment about which document could answer a question — a judgment
   // the source question bank does not contain — so a v1 file describes states this
@@ -60,9 +63,51 @@ type ResultFile<TResultType extends ResultType, TAnalysis> = {
   analysis_version: (typeof ANALYSIS_VERSIONS)[TResultType];
   state: "final";
   result_type: TResultType;
+  /**
+   * Who this run is, carried so a file re-imported into a workspace that already
+   * holds it is recognised rather than held twice. Two runs of the same document
+   * are different runs and get different identities.
+   *
+   * Optional on read: files written before identity existed are still readable,
+   * and are given one when imported. Always written.
+   */
+  id?: string;
+  /** ISO instant the run finished. Labels the run for a reader. */
+  created_at?: string;
   analysis: TAnalysis;
   source_documents: SourceDocument[];
 };
+
+function newRunId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.()
+    ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  );
+}
+
+/** Identity for a newly packed run. */
+function stamp(): { id: string; created_at: string } {
+  return { id: newRunId(), created_at: new Date().toISOString() };
+}
+
+/**
+ * The identity inside a result file, for a caller recording it in a workspace.
+ *
+ * Returns nothing for a file written before identity existed, so the caller
+ * mints one rather than treating every such file as the same run.
+ */
+export function readResultIdentity(
+  value: unknown,
+): { id?: string; created_at?: string } {
+  if (!value || typeof value !== "object") return {};
+  const file = value as Partial<ResultFile<ResultType, unknown>>;
+  return {
+    ...(typeof file.id === "string" && file.id ? { id: file.id } : {}),
+    ...(typeof file.created_at === "string" && file.created_at
+      ? { created_at: file.created_at }
+      : {}),
+  };
+}
 
 type ScoutAnalysis = Omit<ScoutResponse, "blocks">;
 type InspectorAnalysis = {
@@ -93,6 +138,7 @@ export function packScoutResult(result: ScoutResponse): ResultFile<"scout", Scou
     envelope_version: ENVELOPE_VERSION,
     analysis_version: ANALYSIS_VERSIONS.scout,
     state: "final",
+    ...stamp(),
     result_type: "scout",
     analysis,
     source_documents: groupDocuments(blocks),
@@ -135,6 +181,7 @@ export function packInspectorResult(
     envelope_version: ENVELOPE_VERSION,
     analysis_version: ANALYSIS_VERSIONS.inspector,
     state: "final",
+    ...stamp(),
     result_type: "inspector",
     analysis: { inspection },
     source_documents: groupDocuments(blocks),
@@ -159,6 +206,7 @@ export function packAlignerResult(
     envelope_version: ENVELOPE_VERSION,
     analysis_version: ANALYSIS_VERSIONS.aligner,
     state: "final",
+    ...stamp(),
     result_type: "aligner",
     analysis: { alignment },
     source_documents: groupDocuments(blocks),
@@ -175,6 +223,7 @@ export function packExpertResult(
     envelope_version: ENVELOPE_VERSION,
     analysis_version: ANALYSIS_VERSIONS.expert,
     state: "final",
+    ...stamp(),
     result_type: "expert",
     analysis: { review },
     source_documents: groupDocuments(blocks),

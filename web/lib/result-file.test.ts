@@ -158,8 +158,18 @@ function alignerResult(): AlignerResponse {
         { doc_id: "later", source_type: "ipdp", display_name: "IPDP" },
       ],
       edges: [
-        { reference_doc_id: "doc", comparison_doc_id: "candidate", question: "Meets the bar?" },
-        { reference_doc_id: "candidate", comparison_doc_id: "later", question: "Delivers it?" },
+        {
+          edge_id: "itpp-to-ctpp",
+          reference_doc_id: "doc",
+          comparison_doc_id: "candidate",
+          question: "Meets the bar?",
+        },
+        {
+          edge_id: "ctpp-to-ipdp",
+          reference_doc_id: "candidate",
+          comparison_doc_id: "later",
+          question: "Delivers it?",
+        },
       ],
       org: "bmgf",
       intervention_class: "vaccine",
@@ -169,6 +179,18 @@ function alignerResult(): AlignerResponse {
         { ...block, id: "candidate:1", doc_id: "candidate" },
         { ...block, id: "later:1", doc_id: "later" },
       ],
+      findings: [
+        {
+          requirement_id: "itpp-to-ctpp/r-001",
+          edge_id: "itpp-to-ctpp",
+          requirement: "Annual dosing.",
+          reference_block_ids: [block.id],
+          verdict: "falls_short",
+          statement: "The candidate states six-monthly dosing.",
+          gap: "Annual dosing against six-monthly dosing offered.",
+          comparison_block_ids: ["candidate:1"],
+        },
+      ],
     },
   };
 }
@@ -176,9 +198,9 @@ function alignerResult(): AlignerResponse {
 test("current Aligner results separate every source document", () => {
   const result = alignerResult();
   const packed = packAlignerResult(result);
-  // 2, because the extract-and-link analysis was removed: a v1 file describes
-  // units and relations this code has no types for, so it must not import.
-  assert.equal(packed.analysis_version, 2);
+  // 3, because findings returned: a v2 file carries none, so it would render as a run
+  // that compared nothing — indistinguishable from one that found nothing wrong.
+  assert.equal(packed.analysis_version, 3);
   // Three, not two: how many documents a run holds is Aligner's configuration to
   // decide, and nothing in the envelope assumes a number.
   assert.equal(packed.source_documents.length, 3);

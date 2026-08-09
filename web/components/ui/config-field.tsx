@@ -60,11 +60,29 @@ export function ConfigFieldGrid({
 export function ConfigField({
   label,
   disabled,
+  action,
+  note,
   children,
 }: {
   label: string;
   /** Dims the field while an earlier choice it depends on is unmade. */
   disabled?: boolean;
+  /**
+   * A control that acts on this field — removing its row, for instance.
+   *
+   * Rendered on the control's own line, which is the point of it existing here. A
+   * caller placing the button beside the whole field instead had it align to the
+   * bottom of the tallest thing in the row, so on a field carrying help text the
+   * button floated down beside the prose it has nothing to do with.
+   */
+  action?: React.ReactNode;
+  /**
+   * Help text beneath the control.
+   *
+   * Its own slot rather than part of `children`, so `action` can sit on the control's
+   * line without the note lengthening the row it aligns to.
+   */
+  note?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -72,7 +90,15 @@ export function ConfigField({
       <div className="mb-1.5">
         <Label>{label}</Label>
       </div>
-      {children}
+      {action ? (
+        <div className="flex items-center gap-1.5">
+          <div className="min-w-0 flex-1">{children}</div>
+          <div className="shrink-0">{action}</div>
+        </div>
+      ) : (
+        children
+      )}
+      {note}
     </div>
   );
 }

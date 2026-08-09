@@ -506,6 +506,48 @@
       "tool": "inspector"
     },
     {
+      "builder": "build_requirements_prompt",
+      "framing_slot": null,
+      "id": "requirements.extract",
+      "produces": {
+        "result_fields": [
+          "findings[].requirement",
+          "findings[].reference_block_ids"
+        ],
+        "ui_labels": [
+          "requirement"
+        ]
+      },
+      "stage": "requirements",
+      "text": "You are reading one product-development document and listing every requirement it states, so that a second document can be measured against them.\n\nScope boundary:\n- List only what this document requires, commits to, or targets. Background, rationale,\n  descriptions of the disease, and statements about other organisations make no demand\n  on another document, so they are not requirements.\n- Do not judge, rank, or improve anything. You are recording the bar, not assessing it.\n- Do not invent a requirement the document implies but does not state. If a target has\n  no number, record it as the document words it \u2014 a later stage decides whether the\n  other document can be measured against it, and that decision needs the real wording.\n- One requirement per fact. A sentence setting a shelf life, a storage temperature and a\n  presentation states three requirements; split it into three. A single item carrying\n  several facts cannot be met or missed as one thing, and forcing one verdict onto it\n  loses the part that matters.\n\nReturn ONLY valid JSON. No markdown fences, no preamble, no explanation.\n\nFor each requirement:\n- `text` is one short sentence (max 30 words) stating the requirement in the document's\n  own terms, including any number, unit, population, or timeframe it gives. Write it so\n  it stands alone: a reader who cannot see the document must know what is being asked.\n- `block_ids` MUST cite the exact supplied blocks the requirement was read from. A\n  requirement with no citation cannot be checked, and an uncheckable bar is worse than\n  a missing one.\n\nList them in the order the document states them. Do not merge two requirements because\nthey are adjacent, and do not repeat one because it is mentioned twice \u2014 cite both\nblocks on the single requirement instead.",
+      "title": "Reference document requirements",
+      "tool": "aligner"
+    },
+    {
+      "builder": "build_assessment_prompt",
+      "framing_slot": null,
+      "id": "assessor.requirement",
+      "produces": {
+        "result_fields": [
+          "findings[].verdict",
+          "findings[].statement",
+          "findings[].gap",
+          "findings[].comparison_block_ids"
+        ],
+        "ui_labels": [
+          "meets",
+          "exceeds",
+          "falls short",
+          "not comparable",
+          "not addressed"
+        ]
+      },
+      "stage": "compare",
+      "text": "You are checking one product-development document against a single requirement taken from another document.\n\nScope boundary:\n- Decide only what this document does with this requirement. Do not judge how well\n  either document is written, whether it follows a template, or whether the requirement\n  itself is sensible. Those are other tools' jobs and a verdict here would contradict\n  them.\n- Do not use your own knowledge of the field to fill either side. The requirement is\n  whatever the reference document asked for; the answer is whatever this document\n  states. If it does not state it, that is the finding.\n- The comparison runs one way. You are not describing how the two documents differ; you\n  are deciding whether this one meets a bar the other one set.\n\nReturn ONLY valid JSON. No markdown fences, no preamble, no explanation.\n\nVerdicts:\n- meets: this document states something that satisfies the requirement. Cite the blocks.\n- exceeds: it states something better than the requirement asks \u2014 sooner, cheaper,\n  longer, broader. Cite the blocks, and say in `gap` nothing at all.\n- falls_short: it addresses the requirement and states less than it asks. Cite the\n  blocks, and put in `gap` one short sentence naming the distance \u2014 what the\n  requirement asks for against what this document offers.\n- not_comparable: it addresses the same subject but not in terms that can be measured\n  against the requirement \u2014 a qualitative claim against a numeric bar, a different\n  population, a different endpoint. Cite the blocks, and put in `gap` one short\n  sentence naming what would have to be stated for the two to be comparable. Use this\n  rather than guessing: reporting `falls_short` here would assert this document is\n  worse, which it does not say.\n- not_addressed: nothing in this document speaks to the requirement. Leave `block_ids`\n  empty and `gap` blank. This is the right answer for a requirement this document was\n  never meant to carry as much as for one it should have.\n\nLineage is required, not optional. Every verdict except `not_addressed` MUST cite the\nexact supplied block IDs it was read from. A citation you cannot point at is worse than\nreporting the requirement unaddressed.\n\n`statement` is one short factual sentence (max 25 words) saying what this document\nstates on the subject, or that it states nothing. Describe the document; do not instruct\nthe reader, and do not restate the requirement.\n\n`gap` is one short sentence (max 25 words), on `falls_short` and `not_comparable` and\nnowhere else. It is read as the thing to take back to whoever wrote this document, so\nname what is needed rather than what is absent: \"24-month shelf life against the 36\nmonths required\" rather than \"the shelf life is not good enough\".",
+      "title": "Requirement verdict",
+      "tool": "aligner"
+    },
+    {
       "builder": "build_system_prompt",
       "framing_slot": null,
       "id": "context_validator.validate",

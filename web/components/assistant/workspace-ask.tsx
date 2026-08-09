@@ -42,16 +42,23 @@ type WorkspaceResult = {
  */
 export function WorkspaceAsk() {
   const pathname = usePathname();
-  const chunker = useChunkerSession((state) => state.result);
-  const inspector = useInspectorSession((state) => state.result);
-  const aligner = useAlignerSession((state) => state.result);
-  const expert = useExpertSession((state) => state.result);
-  const scout = useScoutSession((state) => state.result);
-  const searcher = useSearcherSession((state) => state.result);
+  const chunker = useChunkerSession((state) => state.results);
+  const inspector = useInspectorSession((state) => state.results);
+  const aligner = useAlignerSession((state) => state.results);
+  const expert = useExpertSession((state) => state.results);
+  const scout = useScoutSession((state) => state.results);
+  const searcher = useSearcherSession((state) => state.results);
 
   const bundle = useMemo(() => {
     const results: WorkspaceResult[] = [];
     const blocks = new Map<string, ContentBlock>();
+
+    function runLabel(name: string, createdAt: string): string {
+      const day = new Date(createdAt);
+      return Number.isNaN(day.getTime())
+        ? name
+        : `${name} · ${day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+    }
 
     function addResult(
       id: string,
@@ -74,67 +81,72 @@ export function WorkspaceAsk() {
       });
     }
 
-    if (inspector && isInspectorResultFinal(inspector)) {
+    for (const entry of inspector) {
+      if (!isInspectorResultFinal(entry.result)) continue;
       addResult(
-        "inspector-current",
+        entry.id,
         "inspector",
-        inspector.inspection.doc_id || "Inspector result",
-        inspector.inspection,
+        runLabel(entry.result.inspection.doc_id || "Inspector result", entry.created_at),
+        entry.result.inspection,
       );
     }
 
-    if (chunker) {
+    for (const entry of chunker) {
       addResult(
-        "chunker-current",
+        entry.id,
         "chunker",
-        chunker.doc_id || "Parsed document",
-        chunker,
+        runLabel(entry.result.doc_id || "Parsed document", entry.created_at),
+        entry.result,
       );
     }
 
-    if (aligner) {
+    for (const entry of aligner) {
+      const aligner = entry.result;
       // Named by the documents rather than by the comparisons: a run holds any
       // number of either, and the documents are what the user recognises.
       const names = aligner.alignment.documents
         .map((document) => document.doc_id)
         .filter(Boolean);
       addResult(
-        "aligner-current",
+        entry.id,
         "aligner",
-        names.join(" · ") || "Documents",
+        runLabel(names.join(" · ") || "Documents", entry.created_at),
         aligner.alignment,
       );
     }
 
-    if (expert) {
+    for (const entry of expert) {
+      const expert = entry.result;
       // Named by the gate, because the same documents are triaged again at every one
       // and the gate is what distinguishes two reviews of the same set.
       addResult(
-        "expert-current",
+        entry.id,
         "expert",
-        expert.review.gate_label || "Gate review",
+        runLabel(expert.review.gate_label || "Gate review", entry.created_at),
         expert.review,
       );
     }
 
-    if (scout && isScoutResultFinal(scout)) {
+    for (const entry of scout) {
+      const scout = entry.result;
+      if (!isScoutResultFinal(scout)) continue;
       const documentIds = Array.from(
         new Set(scout.blocks.map((block) => block.doc_id).filter(Boolean)),
       );
       addResult(
-        "scout-current",
+        entry.id,
         "scout",
-        documentIds[0] || scout.indication || "Scout result",
+        runLabel(documentIds[0] || scout.indication || "Scout result", entry.created_at),
         scout,
       );
     }
 
-    if (searcher) {
+    for (const entry of searcher) {
       addResult(
-        "searcher-current",
+        entry.id,
         "searcher",
-        "Current evidence search",
-        searcher,
+        runLabel("Evidence search", entry.created_at),
+        entry.result,
       );
     }
 

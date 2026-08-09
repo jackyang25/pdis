@@ -14,6 +14,7 @@ import test from "node:test";
 import {
   ATTACHMENT_ACCEPT,
   ATTACHMENT_FORMAT_HINT,
+  attachablePaste,
   ATTACHMENT_MEDIA_PREFIXES,
   DOCUMENT_ACCEPT,
   DOCUMENT_FORMAT_HINT,
@@ -107,4 +108,75 @@ test("no component restates a document extension", () => {
     [],
     "import DOCUMENT_ACCEPT or DOCUMENT_SUFFIXES from lib/document-formats.ts",
   );
+});
+
+
+/**
+ * A clipboard or a drag, filtered to what may actually be attached.
+ *
+ * `DataTransfer` is not constructible in this runtime, so these stand one in: the
+ * function reads only `getData` and `files`, and the point of the tests is the decision,
+ * not the DOM.
+ */
+function transfer(
+  { text = "", files = [] as { name: string; type: string }[] } = {},
+): DataTransfer {
+  return {
+    getData: (format: string) => (format === "text/plain" ? text : ""),
+    files: files as unknown as FileList,
+  } as unknown as DataTransfer;
+}
+
+test("a pasted screenshot is attachable", () => {
+  const { files, textWon } = attachablePaste(
+    transfer({ files: [{ name: "image.png", type: "image/png" }] }),
+  );
+  assert.equal(files.length, 1);
+  assert.equal(textWon, false);
+});
+
+test("a pasted document is attachable", () => {
+  // The picker accepts DOCX and PPTX, so a paste that carries one accepts it too:
+  // filtering differently here would advertise one set and accept another.
+  const { files } = attachablePaste(
+    transfer({ files: [{ name: "profile.docx", type: "" }] }),
+  );
+  assert.equal(files.length, 1);
+});
+
+test("a paste carrying text is left alone, even when it also carries a picture", () => {
+  // Copying a table from a spreadsheet puts plain text, HTML and an image of itself on
+  // the clipboard at once. Attaching the image would silently replace a paste the user
+  // meant as text.
+  const { files, textWon } = attachablePaste(
+    transfer({
+      text: "Measure\tTarget\nEfficacy\t80%",
+      files: [{ name: "image.png", type: "image/png" }],
+    }),
+  );
+  assert.deepEqual(files, []);
+  // Reported, not swallowed: the caller says the file did not come with the text, so a
+  // dropped figure is a visible choice rather than a silent one.
+  assert.equal(textWon, true);
+});
+
+test("a plain text paste reports nothing to say", () => {
+  // No file was carried, so there is nothing the text took precedence over.
+  const { files, textWon } = attachablePaste(transfer({ text: "just words" }));
+  assert.deepEqual(files, []);
+  assert.equal(textWon, false);
+});
+
+test("an unsupported file is not attached", () => {
+  const { files, textWon } = attachablePaste(
+    transfer({ files: [{ name: "notes.pdf", type: "application/pdf" }] }),
+  );
+  assert.deepEqual(files, []);
+  // Nothing to report either: an unsupported file is not something text won over.
+  assert.equal(textWon, false);
+});
+
+test("nothing at all is handled without throwing", () => {
+  assert.deepEqual(attachablePaste(null), { files: [], textWon: false });
+  assert.deepEqual(attachablePaste(transfer()), { files: [], textWon: false });
 });

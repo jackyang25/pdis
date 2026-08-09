@@ -13,7 +13,11 @@ import {
   type AssistantContext,
 } from "@/lib/api";
 import { splitResultContext } from "@/lib/result-file";
-import { ATTACHMENT_ACCEPT, ATTACHMENT_FORMAT_HINT } from "@/lib/document-formats";
+import {
+  ATTACHMENT_ACCEPT,
+  ATTACHMENT_FORMAT_HINT,
+  attachablePaste,
+} from "@/lib/document-formats";
 import { STREAM_CARET_MOTION } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
@@ -54,6 +58,10 @@ export function Ask({
   const [attachments, setAttachments] = useState<AssistantContext[]>([]);
   const [attaching, setAttaching] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  // Set when a paste carried a file that text took precedence over. Not an error — the
+  // paste did exactly what it should — so it is said in the muted voice, beside the
+  // attachments it is about.
+  const [pasteNote, setPasteNote] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -124,19 +132,22 @@ export function Ask({
     const text = question.trim();
     if (!text || busy || attaching || !hasResult) return;
     clearError();
+    setPasteNote(null);
     setInput("");
     await sendMessage({ text });
   }
 
-  async function attachFiles(fileList: FileList | null) {
-    if (!fileList?.length || attaching) return;
-    const files = Array.from(fileList).slice(0, Math.max(0, 5 - attachments.length));
+  async function attachFiles(incoming: FileList | readonly File[] | null) {
+    const picked = incoming ? Array.from(incoming) : [];
+    if (!picked.length || attaching) return;
+    const files = picked.slice(0, Math.max(0, 5 - attachments.length));
     if (!files.length) {
       setAttachmentError("Remove an attachment before adding another.");
       return;
     }
     setAttaching(true);
     setAttachmentError(null);
+    setPasteNote(null);
     const settled = await Promise.allSettled(files.map(uploadAssistantContext));
     const accepted = settled.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
     const rejected = settled.find((item) => item.status === "rejected");
@@ -384,7 +395,41 @@ export function Ask({
             )}
           </div>
         )}
-        <div className="flex items-end gap-2 rounded-2xl border border-input bg-card/95 p-2 shadow-[0_12px_36px_rgba(15,23,42,0.10)] backdrop-blur focus-within:ring-2 focus-within:ring-ring/20">
+        <div
+          /*
+            On the composer rather than the textarea: both events bubble from whatever
+            has focus, so one handler covers the field and the buttons beside it. A
+            screenshot is the commonest thing anyone wants to show the assistant, and
+            saving it to disk first to pick it back up is the step this removes.
+          */
+          onPaste={(event) => {
+            const { files, textWon } = attachablePaste(event.clipboardData);
+            if (textWon) {
+              // The text still pastes. This only says what did not come with it, so a
+              // dropped figure is a visible choice rather than a silent one.
+              setPasteNote(
+                "That paste also held a file. Text was used; copy the file on its own to attach it.",
+              );
+              return;
+            }
+            if (!files.length) return;
+            // Only now: a paste carrying text is a text paste, and preventing it
+            // unconditionally would swallow the ordinary case to serve the rare one.
+            event.preventDefault();
+            setPasteNote(null);
+            void attachFiles(files);
+          }}
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            const { files } = attachablePaste(event.dataTransfer);
+            if (!files.length) return;
+            event.preventDefault();
+            void attachFiles(files);
+          }}
+          className="flex items-end gap-2 rounded-2xl border border-input bg-card/95 p-2 shadow-[0_12px_36px_rgba(15,23,42,0.10)] backdrop-blur focus-within:ring-2 focus-within:ring-ring/20"
+        >
           <input
             ref={fileInputRef}
             type="file"
@@ -437,8 +482,11 @@ export function Ask({
           )}
         </div>
         {attachmentError && <p className="mt-1.5 px-2 text-[10px] text-destructive">{attachmentError}</p>}
+        {pasteNote && !attachmentError && (
+          <p className="mt-1.5 px-2 text-[10px] text-muted-foreground">{pasteNote}</p>
+        )}
         <p className="mt-1.5 text-center text-[9px] text-muted-foreground/70">
-          Attach up to 5 {ATTACHMENT_FORMAT_HINT} · Enter to send
+          Attach up to 5 {ATTACHMENT_FORMAT_HINT} · paste or drop one here · Enter to send
         </p>
         </div>
       </div>

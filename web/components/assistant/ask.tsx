@@ -19,6 +19,10 @@ import {
   attachablePaste,
 } from "@/lib/document-formats";
 import { STREAM_CARET_MOTION } from "@/lib/motion";
+import { readAssistantStream } from "@/lib/assistant-stream";
+import { parseCitation } from "@/lib/citation";
+import { BlockCitation } from "./block-citation";
+import { DocumentSourceProvider } from "@/components/document-source-trace";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import { PdisIcon } from "../ui/pdis-icon";
@@ -208,7 +212,11 @@ export function Ask({
     : attachments.length > 0
       ? ["Summarize the attached context.", "What important details does it contain?"]
       : resultType === "workspace" && resultCount > 1
-        ? ["Summarize my available results.", "Where do the results agree or differ?"]
+        // Workflows are the reason to hold more than one result, and they are
+        // invisible until asked for. The prompt is generic on purpose: the agent
+        // lists what exists and what each still needs, so this text does not have
+        // to be kept in step with the skills that ship.
+        ? ["What can you do with my results together?", "Where do the results agree or differ?"]
         : resultType === "workspace" && resultCount === 1
           ? ["Summarize the available result.", "What source context can I inspect?"]
       : SUGGESTIONS[resultType] ?? ["Summarize these results."];
@@ -273,6 +281,10 @@ export function Ask({
         </div>
       </div>
 
+      {/* The same provider the tool pages use, so a block ID cited in an answer
+          resolves to the passage the trace viewer would show. Includes attached
+          files, which are document context too. */}
+      <DocumentSourceProvider blocks={documentContext}>
       <div
         ref={scrollRef}
         className={pageDisplay
@@ -315,7 +327,9 @@ export function Ask({
         )}
 
         {messages.map((message, index) => {
-          const text = messageText(message);
+          // The agent announces silent tool work in the same stream; the answer
+          // is what remains once those lines are taken out.
+          const { text, activity } = readAssistantStream(messageText(message));
           const isStreaming =
             status === "streaming" &&
             message.role === "assistant" &&
@@ -330,7 +344,13 @@ export function Ask({
               }
             >
               <Markdown text={text} />
-              {isStreaming && (
+              {isStreaming && activity && !text && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  {activity}
+                </p>
+              )}
+              {isStreaming && !(activity && !text) && (
                 <span className={cn("mt-1 inline-block h-3.5 w-0.5 bg-foreground/50", STREAM_CARET_MOTION)} />
               )}
               {message.role === "assistant" && text && !isStreaming && (
@@ -359,6 +379,7 @@ export function Ask({
         )}
         {error && <p className="text-xs text-destructive">{error.message}</p>}
       </div>
+      </DocumentSourceProvider>
 
       <div className={pageDisplay
         ? "absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background to-transparent px-5 pb-5 pt-10 sm:px-8"
@@ -576,11 +597,21 @@ const LINK_CLASS =
  * model output cannot inject markup.
  */
 const MARKDOWN_ELEMENTS = {
-  a: ({ children, href }) => (
-    <a href={href} target="_blank" rel="noreferrer" className={LINK_CLASS}>
-      {children}
-    </a>
-  ),
+  a: ({ children, href }) => {
+    const citation = parseCitation(href);
+    if (citation.kind === "block") {
+      return <BlockCitation blockId={citation.blockId}>{children}</BlockCitation>;
+    }
+    if (citation.kind === "external") {
+      return (
+        <a href={citation.href} target="_blank" rel="noreferrer" className={LINK_CLASS}>
+          {children}
+        </a>
+      );
+    }
+    // An unrecognised scheme is prose, not a broken control.
+    return <>{children}</>;
+  },
   ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
   ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
   h1: ({ children }) => <h3 className="text-sm font-semibold">{children}</h3>,

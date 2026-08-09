@@ -19,6 +19,8 @@ from typing import Any, Iterator, Protocol
 from . import document as document_reader
 from . import knowledge
 from . import navigator
+from . import skills
+from . import resources
 from .legends import legend_for
 
 logger = logging.getLogger(__name__)
@@ -52,119 +54,25 @@ class StreamingChatLLMProtocol(ChatLLMProtocol, Protocol):
     ) -> Iterator[Any]:
         ...
 
+# A reader waiting on a silent tool turn is told what is happening. The label comes
+# from the verb that declared it, so a capability added later cannot ship without
+# one, and the line can never claim work that is not running.
+#
+# Framed with ASCII record separators rather than the SDK's data-stream protocol:
+# the tool loop lives here, so speaking that protocol would mean hand-writing a
+# TypeScript library's wire format in Python and re-checking it on every upgrade.
+# This is a protocol we own, and web/lib/assistant-stream.ts is its only reader.
+ACTIVITY_DELIMITER = "\x1e"
 
-TOOLS: list[dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "find_product_docs",
-            "description": "Find canonical PDIS documentation about tools, workflows, architecture, results, or terminology. Use this for questions about how PDIS itself works.",
-            "parameters": {
-                "type": "object",
-                "properties": {"keyword": {"type": "string"}},
-                "required": ["keyword"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_product_docs",
-            "description": "Read complete canonical PDIS documentation sections by stable section ID. Section IDs are listed in the product-documentation map.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "section_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "minItems": 1,
-                        "maxItems": 4,
-                    }
-                },
-                "required": ["section_ids"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get",
-            "description": "Return the JSON subtree at a dotted/indexed path, e.g. 'matches[3].insight' or 'sections[2].units[0].findings[0]'. Use the overview to find paths.",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string", "description": "Path into the result, '' for the whole result."}},
-                "required": ["path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "find_document",
-            "description": "Find source-document blocks whose heading or content contains a keyword. Returns exact block IDs and snippets; use before read_document when you do not know the block IDs.",
-            "parameters": {
-                "type": "object",
-                "properties": {"keyword": {"type": "string"}},
-                "required": ["keyword"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_document",
-            "description": "Read exact parsed source-document blocks by ID. For a very large block, follow the returned next start_char to continue reading it.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "block_ids": {"type": "array", "items": {"type": "string"}},
-                    "start_char": {"type": "integer", "minimum": 0},
-                },
-                "required": ["block_ids"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_document_range",
-            "description": "Read an ordered range of blocks from one source document. Use for broad review or summarization; follow the returned next start value to continue.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "doc_id": {"type": "string"},
-                    "start": {"type": "integer", "minimum": 0},
-                    "count": {"type": "integer", "minimum": 1, "maximum": 25},
-                },
-                "required": ["doc_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "find",
-            "description": "Return paths whose key or value contains a keyword (case-insensitive). Use to locate where something lives before get().",
-            "parameters": {
-                "type": "object",
-                "properties": {"keyword": {"type": "string"}},
-                "required": ["keyword"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "fetch_source",
-            "description": "Open the FULL text behind a source URL that is ALREADY cited in the result (the stored excerpt is capped). Only URLs present in the result are allowed; this never runs a new web search.",
-            "parameters": {
-                "type": "object",
-                "properties": {"url": {"type": "string"}},
-                "required": ["url"],
-            },
-        },
-    },
-]
+
+def activity_line(text: str) -> str:
+    return f"{ACTIVITY_DELIMITER}{text}{ACTIVITY_DELIMITER}"
+
+
+from .registry import REGISTRY, TOOLS, ToolContext, _VERBS, held_result_types
+
+
+
 
 
 def answer_stream(
@@ -183,6 +91,12 @@ def answer_stream(
     Text-only turns are forwarded immediately to the caller.
     """
     allowed_urls = navigator.collect_urls(result)
+    context = ToolContext(
+        result=result,
+        allowed_urls=allowed_urls,
+        document=document,
+        held_result_types=held_result_types(result),
+    )
     work = _initial_messages(result, result_type, messages, document)
 
     for _ in range(MAX_STEPS):
@@ -240,11 +154,12 @@ def answer_stream(
             )
         )
         for call in tool_calls:
+            yield activity_line(resources.activity_for(REGISTRY, call.function.name))
             work.append(
                 {
                     "role": "tool",
                     "tool_call_id": call.id,
-                    "content": _run_tool(call, result, allowed_urls, document),
+                    "content": _run_tool(call, context),
                 }
             )
 
@@ -278,56 +193,18 @@ def _assembled_tool_calls(parts: dict[int, dict[str, str]]) -> list[Any]:
     ]
 
 
-def _run_tool(
-    call: Any,
-    result: dict[str, Any],
-    allowed_urls: set[str],
-    document: list[dict[str, Any]] | None = None,
-) -> str:
-    name = call.function.name
+def _run_tool(call: Any, context: ToolContext) -> str:
+    """Route one model tool call to the verb that declared it."""
+    verb = _VERBS.get(call.function.name)
+    if verb is None:
+        return f"Unknown tool: {call.function.name}"
     try:
         args = json.loads(call.function.arguments or "{}")
     except json.JSONDecodeError:
         return "Invalid tool arguments."
-    if name == "find_product_docs":
-        return knowledge.find(str(args.get("keyword", "")))
-    if name == "read_product_docs":
-        raw_ids = args.get("section_ids", [])
-        section_ids = [str(value) for value in raw_ids] if isinstance(raw_ids, list) else []
-        return knowledge.read(section_ids)
-    if name == "get":
-        return navigator.get(result, str(args.get("path", "")))
-    if name == "find":
-        return navigator.find(result, str(args.get("keyword", "")))
-    if name == "find_document":
-        if not document:
-            return "Source document unavailable."
-        return document_reader.find(document, str(args.get("keyword", "")))
-    if name == "read_document":
-        if not document:
-            return "Source document unavailable."
-        raw_ids = args.get("block_ids", [])
-        block_ids = raw_ids if isinstance(raw_ids, list) else []
-        start_char = args.get("start_char", 0)
-        return document_reader.get(
-            document,
-            block_ids,
-            start_char=start_char if isinstance(start_char, int) else 0,
-        )
-    if name == "read_document_range":
-        if not document:
-            return "Source document unavailable."
-        start = args.get("start", 0)
-        count = args.get("count", 25)
-        return document_reader.get_range(
-            document,
-            str(args.get("doc_id", "")),
-            start=start if isinstance(start, int) else 0,
-            count=count if isinstance(count, int) else 25,
-        )
-    if name == "fetch_source":
-        return navigator.fetch_source(str(args.get("url", "")), allowed_urls)
-    return f"Unknown tool: {name}"
+    if not isinstance(args, dict):
+        return "Invalid tool arguments."
+    return verb.handler(context, args)
 
 
 def _assistant_msg(message: Any, tool_calls: Any) -> dict[str, Any]:
@@ -404,6 +281,13 @@ def _system_prompt(
     result_type: str,
     document: list[dict[str, Any]] | None = None,
 ) -> str:
+    """Assemble the agent's instructions as named sections.
+
+    Built as a list rather than one concatenation with inline conditionals: a
+    reader can see what the agent is told and in what order, and a section can be
+    changed without editing the middle of an expression. Empty sections drop out,
+    so an absent document leaves no blank heading behind.
+    """
     has_doc = bool(document)
     is_workspace = result_type == "workspace"
     subject = (
@@ -415,8 +299,34 @@ def _system_prompt(
         "the canonical public PDIS product documentation, the full text behind sources it already cites"
         + (", and every parsed text or visual block in the SOURCE DOCUMENT" if has_doc else "")
     )
-    two_sources = (
-        "\n\nDOCUMENT ACCESS - IMPORTANT:\n"
+
+    role = (
+        "You are Ask: a read-only assistant that answers questions about "
+        f"{subject}. You are grounded: answer ONLY from this submitted context and "
+        f"{grounding}. You never run new web searches and never change anything."
+    )
+
+    context_meaning = f"WHAT THIS CONTEXT IS:\n{legend_for(result_type)}"
+
+    # Generated from the registry: a hand-written list here once named tools that
+    # had been renamed, so the agent was told about a world it did not have.
+    reach = (
+        "WHAT YOU CAN REACH:\n"
+        f"{resources.inventory(REGISTRY)}\n"
+        "- Don't guess paths; use the OVERVIEW below and find_result to locate things.\n"
+        "- A workflow is a procedure you follow, never a finding you report. Read one "
+        "when a question needs more than one analysis. If it needs a result this "
+        "workspace does not hold, say which run is missing and ask the user to run it; "
+        "you cannot run anything yourself."
+        + (
+            " Use the document map and document tools whenever the answer depends on the upload."
+            if has_doc
+            else ""
+        )
+    )
+
+    document_access = (
+        "DOCUMENT ACCESS - IMPORTANT:\n"
         "- You DO have direct access to every parsed source-document block through "
         "find_document and read_document.\n"
         "- You may inspect, quote, compare, and cite parsed text and retained visuals using their block IDs.\n"
@@ -429,45 +339,70 @@ def _system_prompt(
         "- The SOURCE DOCUMENT is the author's CLAIMS: what the document asserts, NOT verified. "
         "Never treat a document claim as established fact - attribute it ('the document states...').\n"
         "- Cross-comparison is the point: line the document's claims up against the result's "
-        "evidence and say where they agree, differ, or go unaddressed.\n"
+        "evidence and say where they agree, differ, or go unaddressed."
         if has_doc
         else ""
     )
-    document_section = (
-        "\n\nSOURCE DOCUMENT MAP (the author's claims; cite exact block IDs):\n"
-        f"{document_reader.overview(document or [])}"
-        if has_doc
-        else ""
-    )
-    product_docs_section = (
-        "\n\nPRODUCT DOCUMENTATION MAP (public PDIS behavior and architecture; not analysis evidence):\n"
-        f"{knowledge.overview()}"
-    )
-    return (
-        "You are Ask: a read-only assistant that answers questions about "
-        f"{subject}. You are grounded: answer ONLY from this submitted context and "
-        f"{grounding}. You never run new web searches and never change anything.\n\n"
-        f"WHAT THIS CONTEXT IS:\n{legend_for(result_type)}\n\n"
-        "HOW TO READ IT - use the tools:\n"
-        "- find_product_docs(keyword): locate canonical PDIS documentation. "
-        "read_product_docs(section_ids): read the relevant complete sections.\n"
-        "- get(path): read a result subtree. find(keyword): locate result paths. "
-        "find_document(keyword): locate document blocks. read_document(block_ids): read exact "
-        "document text. read_document_range(doc_id): scan an ordered document. "
-        "fetch_source(url): open the "
-        "FULL text of an already-cited URL when the stored excerpt is not enough.\n"
-        "- Don't guess paths; use the OVERVIEW below and find() to locate things."
-        + (" Use the document map and document tools whenever the answer depends on the upload." if has_doc else "")
-        + two_sources
-        + "\n\nRULES:\n"
+
+    grounding_rules = (
+        "GROUNDING:\n"
         "- Use product documentation for questions about PDIS tools, process, architecture, results, and terminology. "
         "Never present product documentation as evidence about an analyzed health product.\n"
         "- Ground every claim in product documentation, the result, or a fetched cited source"
         + (", or the source document" if has_doc else "")
         + ". If something isn't there, say so plainly - do not invent it.\n"
-        "- Cite the source URL(s) for evidence-based answers so the user can click through.\n"
-        "- Be concise and specific; quote the relevant values/paths.\n\n"
-        f"OVERVIEW OF THIS CONTEXT:\n{navigator.overview(result)}"
-        + product_docs_section
-        + document_section
+        # Every citation is a markdown link, so the renderer never has to recognise
+        # one in prose. The scheme decides what it becomes: an external link, an
+        # openable passage, or - for anything it does not know - plain text.
+        "- Cite what a reader can check, always as a markdown link:\n"
+        "    evidence: [what it shows](https://the-source-url)\n"
+        "    a document passage: [what it says](block:EXACT-BLOCK-ID)\n"
+        "    a place in an analysis: `matches[3].insight` in backticks, not a link.\n"
+        "  Use the exact block ID as it appears in the context; never invent or shorten one."
     )
+
+    answering = (
+        "ANSWERING:\n"
+        # "Be concise" is unfalsifiable; leading with the answer is not.
+        "- Lead with the answer, then its support. Never open by restating the question "
+        "or explaining what a tool is.\n"
+        # Only worth saying now that the assistant renders GitHub-flavoured markdown;
+        # before that a table arrived as raw pipes.
+        "- Use a table when comparing the same fields across several items (variables, "
+        "sections, runs, documents). Use prose for a single finding or an explanation.\n"
+        "- Be specific: quote the actual values rather than describing them."
+    )
+
+    workflows = (
+        "WORKFLOWS AVAILABLE:\n"
+        f"{skills.catalog(held_result_types(result))}\n"
+        "Read one with read_skill before answering a question it covers."
+    )
+
+    overview = f"OVERVIEW OF THIS CONTEXT:\n{navigator.overview(result)}"
+
+    product_docs = (
+        "PRODUCT DOCUMENTATION MAP (public PDIS behavior and architecture; not analysis evidence):\n"
+        f"{knowledge.overview()}"
+    )
+
+    document_map = (
+        "SOURCE DOCUMENT MAP (the author's claims; cite exact block IDs):\n"
+        f"{document_reader.overview(document or [])}"
+        if has_doc
+        else ""
+    )
+
+    sections = [
+        role,
+        context_meaning,
+        reach,
+        document_access,
+        grounding_rules,
+        answering,
+        workflows,
+        overview,
+        product_docs,
+        document_map,
+    ]
+    return "\n\n".join(section for section in sections if section)

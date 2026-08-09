@@ -22,7 +22,8 @@ type DocumentSourceContextValue = {
   onOpenInTrace?: (blockId: string) => void;
 };
 
-const DocumentSourceContext = createContext<DocumentSourceContextValue>({
+/** Exported so any surface resolving a block ID resolves it the same way. */
+export const DocumentSourceContext = createContext<DocumentSourceContextValue>({
   blocks: [],
 });
 

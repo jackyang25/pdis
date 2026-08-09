@@ -34,14 +34,36 @@ function messageText(message: UIMessage): string {
     .join("");
 }
 
+/**
+ * Two openers per result type: one broad enough to work on any run, one for the
+ * thing only that tool can answer.
+ *
+ * The second is where a suggestion earns its place — a reader already knows to
+ * ask "summarize this", and would not know Inspector can find a conflict that
+ * spans sections, or that Scout separates a weak evidence base from a conflicting
+ * one. Anything narrower would go stale as a result shape changes.
+ */
 const SUGGESTIONS: Record<string, string[]> = {
   // Phrased around the bar rather than around "what changed", because a comparison
   // here runs one way and a symmetric question invites a symmetric answer.
   aligner: ["Which requirements does the candidate fall short of?", "What is still to close?"],
   inspector: ["What needs the most attention?", "Summarize the cross-section conflicts."],
   scout: ["Which targets conflict with current evidence?", "Where is the evidence weakest?"],
-  workspace: ["Which tool should I use?", "What results are available?"],
+  // Expert reports only whether the supplied material answers each gate question,
+  // so both openers stay on that axis rather than implying a verdict.
+  expert: ["Which gate questions are unanswered?", "What evidence is still needed?"],
+  // Chunker and Searcher produce material rather than judgments; asking either
+  // "what needs attention" would invite an assessment neither one made.
+  chunker: ["What is in this document?", "How is it structured?"],
+  searcher: ["What did this search turn up?", "Which sources look most relevant?"],
+  workspace: ["Which tool should I use?", "What workflows can you run?"],
 };
+
+/** For a result type with no openers of its own: neither assumes a verdict. */
+const DEFAULT_SUGGESTIONS = [
+  "What should I look at first?",
+  "What can't I conclude from this?",
+];
 
 /** Read-only, submitted-context-grounded chat. AI SDK owns streaming and request state;
  * the existing FastAPI agent still owns navigation, tools, and grounding. */
@@ -212,14 +234,12 @@ export function Ask({
     : attachments.length > 0
       ? ["Summarize the attached context.", "What important details does it contain?"]
       : resultType === "workspace" && resultCount > 1
-        // Workflows are the reason to hold more than one result, and they are
-        // invisible until asked for. The prompt is generic on purpose: the agent
-        // lists what exists and what each still needs, so this text does not have
-        // to be kept in step with the skills that ship.
-        ? ["What can you do with my results together?", "Where do the results agree or differ?"]
+        // Asked as a question, never as a list: the agent answers from the
+        // catalog in its own prompt, so adding a workflow changes no UI text.
+        ? ["What workflows can you run?", "Where do the results agree or differ?"]
         : resultType === "workspace" && resultCount === 1
-          ? ["Summarize the available result.", "What source context can I inspect?"]
-      : SUGGESTIONS[resultType] ?? ["Summarize these results."];
+          ? ["Summarize the available result.", "What workflows can you run?"]
+      : SUGGESTIONS[resultType] ?? DEFAULT_SUGGESTIONS;
 
   return (
     <div

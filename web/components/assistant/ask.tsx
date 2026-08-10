@@ -391,11 +391,16 @@ export function Ask({
           );
         })}
 
+        {/* The gap between sending and the first byte, when nothing has happened
+            yet to name. Deliberately says only that: the previous text here
+            claimed to be reading a result, which was untrue whenever the answer
+            came from documentation, and untrue always when no result was loaded.
+            Every status after this one is emitted by the verb that is running. */}
         {status === "submitted" && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Reading the result…
-          </div>
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            Working…
+          </p>
         )}
         {error && <p className="text-xs text-destructive">{error.message}</p>}
       </div>

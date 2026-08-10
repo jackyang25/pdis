@@ -34,6 +34,12 @@ export class AssistantSseTransport<
     return new ReadableStream<UIMessageChunk>({
       async start(controller) {
         const reader = stream.getReader();
+        // The SDK builds a message from an envelope, not from deltas alone:
+        // without start/start-step the deltas belong to nothing and the answer
+        // renders blank. Mirrors `transformTextToUiMessageStream`, which is the
+        // reference implementation for a transport that carries only text.
+        controller.enqueue({ type: "start" });
+        controller.enqueue({ type: "start-step" });
         try {
           for (;;) {
             const { done, value } = await reader.read();
@@ -68,6 +74,8 @@ export class AssistantSseTransport<
             }
           }
           if (started) controller.enqueue({ type: "text-end", id });
+          controller.enqueue({ type: "finish-step" });
+          controller.enqueue({ type: "finish" });
           controller.close();
         } catch (error) {
           controller.error(error);

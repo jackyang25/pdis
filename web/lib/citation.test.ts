@@ -21,9 +21,35 @@ test("the scheme matches the one the agent is told to write", () => {
   const prompt = readFileSync(AGENT, "utf8");
   assert.match(
     prompt,
-    /\(block:EXACT-BLOCK-ID\)/,
+    /\(<block:EXACT-BLOCK-ID>\)/,
     "agent.py no longer instructs the block: scheme this file parses",
   );
+});
+
+test("the agent is told to bracket the destination", () => {
+  // A block ID carries the document name, and a name with spaces is not a valid
+  // link destination unbracketed: markdown renders the raw syntax as text, which
+  // is exactly what a reader saw. Brackets are stripped before the href reaches
+  // parseCitation, so nothing downstream changes.
+  const prompt = readFileSync(AGENT, "utf8");
+  assert.match(prompt, /in angle brackets, never shortened/);
+});
+
+test("the label and the destination are told apart", () => {
+  // Why the destination broke: repeating a full block ID through a table is
+  // unreadable, so the model shortened both. A link already separates the two,
+  // and saying so lets it keep the answer readable without breaking the target.
+  const prompt = readFileSync(AGENT, "utf8");
+  assert.match(prompt, /visible text is for the reader/);
+  assert.match(prompt, /destination is what opens/);
+});
+
+test("a bracketed destination arrives here already unwrapped", () => {
+  // remark strips the brackets, so the parser sees the same href either way.
+  assert.deepEqual(parseCitation("block:DRAFT AIV iTPP v1 13July2016/b-0080"), {
+    kind: "block",
+    blockId: "DRAFT AIV iTPP v1 13July2016/b-0080",
+  });
 });
 
 test("a cited passage is recognised", () => {

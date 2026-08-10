@@ -359,9 +359,18 @@ def _system_prompt(
         # openable passage, or - for anything it does not know - plain text.
         "- Cite what a reader can check, always as a markdown link:\n"
         "    evidence: [what it shows](https://the-source-url)\n"
-        "    a document passage: [what it says](block:EXACT-BLOCK-ID)\n"
+        # Angle brackets are required, not stylistic: a block ID carries the
+        # document name, and a name with spaces is not a valid link destination
+        # without them - markdown renders the raw syntax instead of a link.
+        "    a document passage: [what it says](<block:EXACT-BLOCK-ID>)\n"
         "    a place in an analysis: `matches[3].insight` in backticks, not a link.\n"
-        "  Use the exact block ID as it appears in the context; never invent or shorten one."
+        # The label and the destination do different jobs, and saying so works with
+        # the model rather than against it: repeating a full block ID through a
+        # table is unreadable, so it shortened both and the destination stopped
+        # resolving. Naming a section is the readable choice and always was.
+        "  The visible text is for the reader, so keep it short - a section or "
+        "variable name. The destination is what opens, so it must be the exact ID "
+        "as it appears in the context, in angle brackets, never shortened."
     )
 
     answering = (

@@ -10,6 +10,15 @@ types is not offered when the workspace holds one of them, and the same
 declaration is what tells the user which run is missing. Without it, both would be
 prose repeated in every skill and true only until a result shape changed.
 
+`requires_any` is the other half of that, and it is not a convenience. Two kinds of
+workflow exist: one needs a specific combination — an alignment *and* a gate review, to
+say something neither says alone — and one applies to whatever a reader happens to hold,
+like turning a result into a paragraph safe to put in front of a committee. Declaring the
+second with `requires` would force a choice between naming one tool arbitrarily, so the
+workflow disappears for the others, and writing near-identical files per tool, each
+costing a line of the resident index. So a skill is offered when every `requires` entry is
+held and at least one `requires_any` entry is.
+
 Adding a skill is one file. No agent change, no registry edit.
 """
 
@@ -40,19 +49,40 @@ class Skill:
     description: str
     requires: tuple[str, ...]
     body: str
+    #: Result types of which at least one must be held. Every entry of `requires` is
+    #: needed; one entry of this is enough.
+    requires_any: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.name:
             raise ValueError("a skill must declare a name")
         if not self.description:
             raise ValueError(f"skill {self.name} must declare a description")
-        unknown = [item for item in self.requires if item not in KNOWN_RESULT_TYPES]
+        unknown = [
+            item
+            for item in (*self.requires, *self.requires_any)
+            if item not in KNOWN_RESULT_TYPES
+        ]
         if unknown:
             raise ValueError(
                 f"skill {self.name} requires unknown result type(s): {', '.join(unknown)}"
             )
+        if not self.requires and not self.requires_any:
+            raise ValueError(
+                f"skill {self.name} declares nothing it needs; a workflow offered "
+                "against a workspace holding nothing it can read is a dead end"
+            )
         if not self.body.strip():
             raise ValueError(f"skill {self.name} has no body")
+
+    def missing_from(self, held: frozenset[str]) -> list[str]:
+        """What a workspace lacks before this workflow can run, in reading order."""
+        absent = [item for item in self.requires if item not in held]
+        if self.requires_any and not any(item in held for item in self.requires_any):
+            # One entry, so the caller phrases it as one requirement: any of these will do.
+            absent.append(", ".join(self.requires_any[:-1]) + f" or {self.requires_any[-1]}"
+                          if len(self.requires_any) > 1 else self.requires_any[0])
+        return absent
 
 
 def _parse(path: Path) -> Skill:
@@ -62,11 +92,11 @@ def _parse(path: Path) -> Skill:
     meta = yaml.safe_load(match.group(1)) or {}
     if not isinstance(meta, dict):
         raise ValueError(f"{path.name} frontmatter is not a mapping")
-    requires = meta.get("requires") or []
     return Skill(
         name=str(meta.get("name", path.stem)).strip(),
         description=str(meta.get("description", "")).strip(),
-        requires=tuple(str(item).strip() for item in requires),
+        requires=tuple(str(item).strip() for item in meta.get("requires") or []),
+        requires_any=tuple(str(item).strip() for item in meta.get("requires_any") or []),
         body=match.group(2).strip(),
     )
 
@@ -103,14 +133,29 @@ def catalog(held_result_types: frozenset[str] | set[str] | None = None) -> str:
     held = frozenset(held_result_types or frozenset())
     lines: list[str] = []
     for skill in skills:
-        missing = [item for item in skill.requires if item not in held]
+        missing = skill.missing_from(held)
         state = (
-            f" — needs a {', '.join(missing)} result the workspace does not hold"
+            f" — needs {_name_runs(missing)} the workspace does not hold"
             if missing
             else " — ready"
         )
         lines.append(f"- {skill.name}: {skill.description}{state}")
     return "\n".join(lines)
+
+
+def _name_runs(missing: list[str]) -> str:
+    """The absent runs as a reader should see them.
+
+    Worth the few lines because this sentence is the whole of what a user is told when a
+    workflow cannot run, and "needs a aligner, scout result" reads as a bug in the tool
+    rather than as a missing run.
+    """
+    parts = [
+        f"a result from {item}" if " or " in item
+        else f"{'an' if item[0] in 'aeiou' else 'a'} {item} result"
+        for item in missing
+    ]
+    return " and ".join(parts)
 
 
 def read_skill(name: str) -> str:

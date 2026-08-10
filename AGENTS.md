@@ -566,6 +566,19 @@ supplied material answers and which it does not.
   cited by an analysis. Transient conversation attachments use the same block
   contract and remain user-supplied context; Ask never runs a new evidence
   search.
+- A cross-tool synthesis lives in a skill, never in a service. Each tool judges
+  against one authority and reads no other tool's output, so the only place two results
+  may be combined is a reader that issues no verdict of its own: one markdown file in
+  `services/assistant/skills/`, cited on both sides. `requires` names result types that
+  must all be held; `requires_any` names types of which one is enough, which is what
+  distinguishes a pairing from a workflow that applies to whatever a reader holds.
+  Adding one is a file — no agent, registry, or schema change.
+- A skill's prose is an untyped reader of a result contract, and nothing breaks when the
+  contract moves. `compare-drift-against-evidence` went on instructing the model to read
+  Aligner's deleted `links` and `modified` relations for a whole redesign, because no
+  import, type, or test touched it. `test_assistant_resources` now fails on retired
+  vocabulary in backticks; extend that list whenever a published state or field is
+  renamed, in the same change.
 - Assistant conversation state shares the in-memory lifecycle of its submitted
   workspace bundle. Do not persist chat separately from results, parsed blocks,
   review state, or attachments. Final-result export/import is the durable seam.

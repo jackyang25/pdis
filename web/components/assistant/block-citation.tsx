@@ -4,6 +4,7 @@ import { useContext, useMemo } from "react";
 
 import { DocumentSourceContext } from "@/components/document-source-trace";
 import { BlockReferenceId } from "@/components/block-reference";
+import { resolveBlock } from "@/lib/block-reference";
 import {
   Popover,
   PopoverContent,
@@ -25,6 +26,7 @@ import {
  * outlive the run it came from, and a control that opens nothing is worse than
  * no control.
  */
+
 export function BlockCitation({
   blockId,
   children,
@@ -33,10 +35,7 @@ export function BlockCitation({
   children: React.ReactNode;
 }) {
   const { blocks } = useContext(DocumentSourceContext);
-  const block = useMemo(
-    () => blocks.find((item) => item.id === blockId) ?? null,
-    [blocks, blockId],
-  );
+  const block = useMemo(() => resolveBlock(blocks, blockId), [blocks, blockId]);
 
   if (!block) return <>{children}</>;
 

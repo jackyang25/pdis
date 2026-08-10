@@ -228,6 +228,10 @@
               "description": "Assistant receives current tool names, responsibilities, audiences, availability, and external-provider labels."
             },
             {
+              "term": "Workflows",
+              "description": "Declared procedures Assistant can follow: reading two results together, or turning one into a list of requests or a passage safe to quote. Each names the results it needs and is offered only when the workspace holds them; one that cannot run is still listed, with the run that is missing."
+            },
+            {
               "term": "Final results",
               "description": "Assistant can navigate eligible current analyses and direct utility outputs submitted by the client."
             },
@@ -259,6 +263,11 @@
           "type": "warning",
           "title": "Workspace boundary",
           "text": "Assistant cannot inspect an active review draft, mutate a result, run a tool workflow, or retrieve uncited evidence. An absent result means that no eligible current final result was submitted."
+        },
+        {
+          "type": "note",
+          "title": "A workflow composes results; it does not judge them",
+          "text": "Each tool judges against one authority and never reads another tool's output, which is what stops two of them contradicting each other. A workflow is a reader: it holds finished results, states which finding on each side a claim rests on, and issues no verdict of its own. So it can say that a candidate falls short of a target the evidence disputes — something neither result says alone — without either result changing."
         }
       ]
     },
@@ -1198,6 +1207,22 @@
                   "guarantee": "Product documentation remains separate from product evidence."
                 },
                 {
+                  "id": "procedures",
+                  "title": "Declared procedures",
+                  "summary": "Named workflows for reading two results together, or turning one into something sendable. An index of names is always present; a procedure's steps are read only once chosen.",
+                  "kind": "deterministic",
+                  "layer": "Indexing",
+                  "inputs": [
+                    "Which result types the workspace holds",
+                    "One file per declared procedure"
+                  ],
+                  "outputs": [
+                    "A resident index, marking which can run",
+                    "The full steps of the one chosen"
+                  ],
+                  "guarantee": "A procedure whose results are absent is listed as unavailable rather than hidden, so a reader learns which run to make. Every claim a procedure produces cites a finding on each side; none of them issues a verdict of its own or changes a result."
+                },
+                {
                   "id": "navigation",
                   "title": "Bounded navigation loop",
                   "summary": "The model chooses narrow read tools to gather only the context needed for the answer.",
@@ -1210,7 +1235,7 @@
                   "outputs": [
                     "Targeted documentation, result, block, image, or cited-source reads"
                   ],
-                  "guarantee": "Assistant cannot mutate analyses, run workflows, or start a new evidence search.",
+                  "guarantee": "Assistant cannot mutate analyses, run a tool pipeline, or start a new evidence search.",
                   "children": [
                     {
                       "id": "docs",
@@ -1276,6 +1301,10 @@
                 },
                 {
                   "source": "maps",
+                  "target": "procedures"
+                },
+                {
+                  "source": "procedures",
                   "target": "navigation"
                 },
                 {

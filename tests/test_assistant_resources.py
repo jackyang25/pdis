@@ -72,15 +72,81 @@ class SkillContractTests(unittest.TestCase):
     def test_a_skill_declares_what_it_needs(self) -> None:
         for skill in skills.available_skills():
             with self.subTest(skill=skill.name):
-                self.assertTrue(skill.requires, f"{skill.name} requires nothing")
-                for required in skill.requires:
+                self.assertTrue(
+                    skill.requires or skill.requires_any,
+                    f"{skill.name} declares nothing it needs",
+                )
+                for required in (*skill.requires, *skill.requires_any):
                     self.assertIn(required, skills.KNOWN_RESULT_TYPES)
+
+    def test_a_skill_needing_nothing_at_all_fails_at_load(self) -> None:
+        """A workflow offered against a workspace it cannot read is a dead end."""
+        with self.assertRaisesRegex(ValueError, "declares nothing it needs"):
+            skills.Skill(name="x", description="d", requires=(), body="do it")
+
+    def test_requires_is_every_one_and_requires_any_is_one_of(self) -> None:
+        """Two kinds of workflow: a specific combination, and whatever is held.
+
+        A pairing says something neither result says alone, so it needs both. A workflow
+        that turns a result into a paragraph applies to any of them, and declaring that
+        with `requires` would mean naming one tool arbitrarily or writing near-identical
+        files per tool, each costing a line of the always-resident index.
+        """
+        pairing = skills.Skill(
+            name="pairing", description="d", requires=("aligner", "scout"), body="b"
+        )
+        self.assertEqual(pairing.missing_from(frozenset({"aligner"})), ["scout"])
+        self.assertEqual(pairing.missing_from(frozenset({"aligner", "scout"})), [])
+
+        general = skills.Skill(
+            name="general",
+            description="d",
+            requires=(),
+            body="b",
+            requires_any=("inspector", "expert"),
+        )
+        self.assertEqual(general.missing_from(frozenset({"expert"})), [])
+        self.assertEqual(
+            general.missing_from(frozenset({"scout"})), ["inspector or expert"]
+        )
 
     def test_an_unknown_result_type_fails_at_load(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown result type"):
             skills.Skill(
                 name="x", description="d", requires=("nosuchtool",), body="do it"
             )
+
+    def test_no_skill_names_a_vocabulary_that_was_retired(self) -> None:
+        """A skill is prose, so a moved contract does not break it — it misleads.
+
+        `compare-drift-against-evidence` went on instructing the model to read Aligner's
+        `links` and filter for `modified` relations for a whole redesign after both were
+        deleted. Nothing failed: no import, no type, no test touched it, and every other
+        dependency of that redesign was caught because code referenced it.
+
+        Only backticked words are checked. In a skill body those are identifiers, where
+        the same words in a sentence are ordinary English — `missing` and `conflict` are
+        live Inspector reasons and are deliberately absent from this list.
+        """
+        retired = {
+            "links": "Aligner returns `findings`, one per requirement",
+            "aligned": "Aligner's verdicts are meets/exceeds/falls_short/"
+            "not_comparable/not_addressed",
+            "modified": "a symmetric relation; the verdicts replaced it",
+            "introduced": "a symmetric relation; the verdicts replaced it",
+            "not_answerable": "Expert's states are answered/partly_answered/"
+            "not_found/not_applicable",
+            "not_assessable": "Expert's states are answered/partly_answered/"
+            "not_found/not_applicable",
+        }
+        for skill in skills.available_skills():
+            for token, replacement in retired.items():
+                with self.subTest(skill=skill.name, token=token):
+                    self.assertNotIn(
+                        f"`{token}`",
+                        skill.body,
+                        f"{skill.name} names retired `{token}`: {replacement}",
+                    )
 
     def test_the_catalog_says_which_run_is_missing(self) -> None:
         # A user asking for a workflow they cannot run should be told what to
@@ -91,6 +157,14 @@ class SkillContractTests(unittest.TestCase):
 
     def test_the_catalog_marks_a_workflow_ready(self) -> None:
         self.assertIn("ready", skills.catalog({"aligner", "scout"}))
+
+    def test_the_catalog_offers_a_general_workflow_on_one_result(self) -> None:
+        listing = skills.catalog({"inspector"})
+        self.assertIn("write-the-review-summary: ", listing)
+        self.assertNotIn("write-the-review-summary: <", listing)
+        for line in listing.splitlines():
+            if line.startswith("- write-the-review-summary"):
+                self.assertIn("ready", line)
 
     def test_reading_an_unknown_workflow_names_the_real_ones(self) -> None:
         message = skills.read_skill("no-such-workflow")
@@ -147,9 +221,13 @@ class SystemPromptTests(unittest.TestCase):
         prompt = _system_prompt({"results": []}, "workspace")
         self.assertIn("always as a markdown link", prompt)
         self.assertIn("(https://the-source-url)", prompt)
-        self.assertIn("(block:EXACT-BLOCK-ID)", prompt)
+        # Bracketed: a block ID carries the document name, and a name with
+        # spaces is not a valid link destination without them.
+        self.assertIn("(<block:EXACT-BLOCK-ID>)", prompt)
         # A result path is not openable, so it is quoted rather than linked.
         self.assertIn("in backticks, not a link", prompt)
+        # The label is the readable part, the destination the exact one.
+        self.assertIn("visible text is for the reader", prompt)
 
 
 class EveryVerbRunsTests(unittest.TestCase):

@@ -296,6 +296,17 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
   },
 ] as const;
 
+/**
+ * A tool's own sentence: what it reads, and the authority it judges against.
+ *
+ * The catalog description is that sentence — every tool's was rewritten to that shape —
+ * so anything needing to state a tool's authority reads it from here rather than writing
+ * a second version that could disagree.
+ */
+export function toolAuthority(id: string): string {
+  return WORKSPACE_TOOLS.find((tool) => tool.id === id)?.description ?? "";
+}
+
 export function toolForPath(pathname: string | null) {
   return WORKSPACE_TOOLS.find(
     (tool) => tool.href

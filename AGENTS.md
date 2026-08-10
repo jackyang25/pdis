@@ -92,7 +92,7 @@ web/ → api/ → services/ → shared/
   not status.
 - `itpp`, `ctpp`, and `ipdp` differences belong in configuration framing and
   unit providers, not downstream conditionals.
-- A result view is read by someone who learned the previous tool, so nine things
+- A result view is read by someone who learned the previous tool, so ten things
   are the same everywhere and none of them is checkable by a type:
   1. **`PriorityPanel` is the opening panel**, and `attribution` is always
      `by <Tool>` — never a description of the ordering, which is what `orderNote`
@@ -100,40 +100,50 @@ web/ → api/ → services/ → shared/
      `PriorityItem`; Expert is the one case, because a 40–60 word gate question has
      nowhere to go in that shape and the panel would restate a list already flat.
      Record the reason at the call site, as Expert does.
-  2. **One count grammar per page:** `<title> <count>`, the count in muted
+  2. **The priority panel is three layers, and they stay apart.** The deterministic list
+     answers what qualifies and in what order; the `digest` says what that list amounts
+     to and may introduce nothing and re-rank nothing; `nominations` are items the
+     selector excluded, each citing a passage. A digest that named a new item, or a
+     nomination repeating a listed one, would make `orderNote` false — so the second is
+     enforced in `services/assistant/priorities.py`, not left to the prompt. Both are
+     derived on read and never stored: they describe a list the browser computes when a
+     result is opened, so a stored digest would outlive the list it summarises. One
+     prompt serves every tool, handed the authority sentence from the tool catalog and
+     the context tags the result carries; adding a tool changes neither.
+  3. **One count grammar per page:** `<title> <count>`, the count in muted
      tabular figures beside the heading. Not `Title · 7`, and never both on one
      screen. `SectionHeading` takes a node rather than a string so a caller does
      not have to pre-format one into the other.
-  3. **A number the model produced is shown even at zero**, because zero means the
+  4. **A number the model produced is shown even at zero**, because zero means the
      check ran and found nothing. A number config or the inputs produced is hidden
      at zero, because there is nothing to report. Hiding `0 answered` once made a
      run that assessed almost nothing look like a run with no such concept, and the
      figures still summed to the total, so nothing looked wrong.
-  4. **`SignalHelp` is an affordance, not a section.** It sits right-aligned on the
+  5. **`SignalHelp` is an affordance, not a section.** It sits right-aligned on the
      control row beside what it explains — Inspector's and Scout's tab rows, Expert's
      count row — never as its own left-aligned block in the vertical stack, where a
      reader takes it for a heading.
-  5. **A trace places only lineage the result carries.** An annotation with no cited
+  6. **A trace places only lineage the result carries.** An annotation with no cited
      passage does not get anchored at a probable block to make the viewer look
      complete: that would turn a hint into provenance. Expert places answers read from
      a document and nothing else — an unanswered question has no passage, and an answer
      from pasted context was never chunked. A document with no marks is accounted for in
      the panels, not papered over in the trace.
-  6. **Lineage is listed, never counted.** A trace inspector shows every passage its
+  7. **Lineage is listed, never counted.** A trace inspector shows every passage its
      result was read from, each one openable, via the shared `TracePassageList`. Three
      tools printed "4 source passages" beside the one passage the reader arrived at, so
      the other three were asserted and unreachable — a count reads as provenance while
      being the one thing a trace exists to let you check. The list carries where each
      passage sits and its opening words, names its document only when the result spans
      more than one, and marks the passage the panel was opened from.
-  7. **Revealing a passage centres it and selects nothing.** One path serves every
+  8. **Revealing a passage centres it and selects nothing.** One path serves every
      caller — a result row, a coverage cell, the passage list — because they are the
      same act: switch document if the passage is elsewhere, widen the layer if its mark
      is filtered out, scroll to the middle, ring it. Opening the details panel is a
      second, deliberate click on the mark. Auto-opening it put a reader in front of a
      panel restating the row they had just left, and where that panel is a sheet it
      covered the very passage it was sent to reveal.
-  8. **One tab per view, not one per document**, and it is labelled **Documents**.
+  9. **One tab per view, not one per document**, and it is labelled **Documents**.
      `DocumentTraceViewer` already switches between the documents a result carries, so
      per-document tabs would be a second mechanism for the same thing and would break
      at one document. The label names what is behind it, not the mechanism: it read
@@ -141,7 +151,7 @@ web/ → api/ → services/ → shared/
      jargon a reader has to be taught. Plural everywhere rather than varying with the
      count — one string beats three, and a tool holding one document is not misled by
      it. `value="trace"` stays as the internal key.
-  9. **Weight follows consequence.** The most consequential fact in a result gets
+  10. **Weight follows consequence.** The most consequential fact in a result gets
      the strongest treatment — amber and an icon, as Scout's context-validation
      notice does — and provenance gets the weakest, at the foot of the card. A
      result whose review mostly could not be run must not read as a completed one.

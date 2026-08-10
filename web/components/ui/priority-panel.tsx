@@ -4,6 +4,8 @@ import { useState } from "react";
 import { ChevronUp } from "lucide-react";
 
 import { DocumentSourceTrace } from "@/components/document-source-trace";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { PriorityNomination } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,6 +24,17 @@ import { cn } from "@/lib/utils";
  * `statement` below is model-written prose. What is *not* the model's is the order,
  * so `orderNote` states the rule rather than letting the glyph imply the ranking was
  * a judgment too.
+ *
+ * Three layers, and each answers a different question. They are kept visibly apart
+ * because the moment they blur, the panel stops being checkable:
+ *
+ *   the list          what qualifies, and in what order — the tool's own rule, no model
+ *   `digest`          what the list amounts to — describes only what is already listed
+ *   `nominations`     what the rule left out — new items, each citing a passage
+ *
+ * A digest may not introduce an item and may not re-rank; a nomination may not repeat a
+ * listed one. The first is a prompt rule, the second is enforced in the service, so a
+ * model restating the list cannot produce a second copy of it here.
  */
 
 /**
@@ -51,6 +64,9 @@ export function PriorityPanel({
   items,
   emptyMessage,
   orderNote,
+  digest,
+  nominations = [],
+  digestLoading = false,
   title = "Priorities",
   defaultOpen = true,
 }: {
@@ -69,6 +85,17 @@ export function PriorityPanel({
   emptyMessage: string;
   /** How the order was decided. Stated because the sparkle does not cover it. */
   orderNote: string;
+  /**
+   * A short passage about the list, when one has been read.
+   *
+   * Optional in every sense: the panel is complete without it, so a tool that does not
+   * ask for one, or a read that failed, changes nothing else on the page.
+   */
+  digest?: string;
+  /** Items the tool's rule excluded that were nominated for a second look. */
+  nominations?: PriorityNomination[];
+  /** A read is in flight. Space is held so the list below does not jump when it lands. */
+  digestLoading?: boolean;
   /**
    * Overridden only by a tool whose own published vocabulary names this list
    * better than "Priorities" does. No tool currently does: Inspector's "Findings"
@@ -107,6 +134,19 @@ export function PriorityPanel({
       </div>
       {open && (
         <div className="border-t border-border px-5 py-4 sm:px-6">
+          {/* Above the list, because it is about the list. Below the list it would read
+              as a conclusion drawn from it, which is a different claim. */}
+          {digestLoading && !digest && (
+            <div className="mb-4 space-y-1.5">
+              <Skeleton className="h-3.5 w-full" />
+              <Skeleton className="h-3.5 w-[88%]" />
+            </div>
+          )}
+          {digest && (
+            <p className="mb-4 whitespace-pre-line text-sm leading-6 text-foreground/85">
+              {digest}
+            </p>
+          )}
           {items.length > 0 ? (
             <ul className="space-y-3">
               {items.map((item) => (
@@ -141,6 +181,33 @@ export function PriorityPanel({
           ) : (
             <p className="text-sm text-muted-foreground">{emptyMessage}</p>
           )}
+          {nominations.length > 0 && (
+            /* Its own section, under its own heading. Inside the list it would become a
+               priority the tool's rule never selected, and the panel could no longer say
+               its order was decided by a stated rule. */
+            <section className="mt-4 border-t border-border pt-3.5">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                <PriorityGlyph className="h-3.5 w-3.5" />
+                Also worth looking at
+                <span className="font-normal text-muted-foreground">
+                  not selected by the rule above
+                </span>
+              </p>
+              <ul className="mt-2 space-y-2.5">
+                {nominations.map((nomination) => (
+                  <li key={nomination.label} className="text-sm leading-6">
+                    <p className="font-medium">{nomination.label}</p>
+                    <p className="mt-0.5 text-muted-foreground">{nomination.statement}</p>
+                    {nomination.cited_block_ids.length > 0 && (
+                      <div className="mt-1.5">
+                        <DocumentSourceTrace blockIds={nomination.cited_block_ids} />
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <p className="mt-4 border-t border-border pt-2.5 text-xs leading-5 text-muted-foreground">
             {orderNote}
           </p>
@@ -156,12 +223,12 @@ export function PriorityPanel({
  * `lucide-react`'s Sparkles, inlined rather than imported per page so the marker for
  * "a model wrote this" has exactly one definition.
  */
-function PriorityGlyph() {
+function PriorityGlyph({ className }: { className?: string } = {}) {
   return (
     <svg
       aria-hidden
       viewBox="0 0 24 24"
-      className="h-4 w-4 shrink-0 fill-none stroke-current stroke-2"
+      className={cn("h-4 w-4 shrink-0 fill-none stroke-current stroke-2", className)}
       strokeLinecap="round"
       strokeLinejoin="round"
     >

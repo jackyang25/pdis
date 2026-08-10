@@ -46,9 +46,12 @@ import {
 import {
   alignerResultFilename,
   packAlignerResult,
+  splitResultContext,
   unpackAlignerResult,
   readResultIdentity,
 } from "@/lib/result-file";
+import { usePriorityDigest } from "@/lib/priority-digest";
+import { toolAuthority } from "@/lib/tools";
 import { useAlignerSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
@@ -393,6 +396,23 @@ function AlignmentView({
 
   const counts = useMemo(() => countVerdicts(result), [result]);
   const groups = useMemo(() => findingsByComparison(result), [result]);
+  const priorities = useMemo(() => selectAlignerPriorities(result), [result]);
+  const selectedId = useAlignerSession((state) => state.selectedId);
+  const digest = usePriorityDigest(
+    selectedId
+      ? {
+          resultId: selectedId,
+          authority: toolAuthority("aligner"),
+          orderNote: ALIGNER_ORDER_NOTE,
+          items: priorities,
+          analysis: splitResultContext(result).analysis,
+          blockIds: result.blocks.map((block) => block.id),
+          org: result.org,
+          interventionClass: result.intervention_class,
+          indication: result.indication,
+        }
+      : null,
+  );
   // Where two comparisons meet. Computed once per result and read per row, so the panel
   // and the rows cannot disagree about which passages an earlier comparison flagged.
   const warnings = useMemo(() => chainWarnings(result), [result]);
@@ -441,9 +461,12 @@ function AlignmentView({
 
               <PriorityPanel
                 attribution="by Aligner"
-                items={selectAlignerPriorities(result)}
+                items={priorities}
                 emptyMessage={ALIGNER_EMPTY_MESSAGE}
                 orderNote={ALIGNER_ORDER_NOTE}
+                digest={digest?.state === "ready" ? digest.digest.digest : undefined}
+                nominations={digest?.state === "ready" ? digest.digest.nominations : []}
+                digestLoading={digest?.state === "loading"}
               />
 
               <div className="space-y-3">

@@ -844,3 +844,54 @@ class AssistantContextResponse(BaseModel):
     filename: str
     doc_id: str
     blocks: list[ContentBlockOut]
+
+
+class PriorityItemIn(BaseModel):
+    """One priority exactly as the panel rendered it.
+
+    The panel's own shape, so a tool sends what a reader is looking at rather than a
+    second projection of its result that could describe a different list.
+    """
+
+    id: str
+    label: str
+    qualifier: str = ""
+    statement: str = ""
+    recommendation: str = ""
+
+
+class PriorityDigestRequest(BaseModel):
+    """What a digest reads: the list on screen, and the analysis behind it.
+
+    `authority` is the tool's own catalog sentence — what it reads and what it judges
+    against — passed in rather than looked up, so neither this route nor the service
+    holds a table of tools. A tool added later is served without either changing.
+    """
+
+    authority: str
+    order_note: str = ""
+    items: list[PriorityItemIn]
+    #: The result's analysis without its blocks, as the assistant already receives it.
+    analysis: Any
+    #: Every block ID the result carries, so a nomination's citation can be checked.
+    block_ids: list[str] = Field(default_factory=list)
+    org: str = ""
+    intervention_class: str = ""
+    indication: str = ""
+
+
+class PriorityNominationOut(BaseModel):
+    label: str
+    statement: str
+    cited_block_ids: list[str] = Field(default_factory=list)
+
+
+class PriorityDigestResponse(BaseModel):
+    """One passage about the list, and what the list leaves out.
+
+    Never part of a result: it describes a list that is itself derived when a result is
+    opened, so storing it would let a paragraph outlive the list it summarises.
+    """
+
+    digest: str
+    nominations: list[PriorityNominationOut] = Field(default_factory=list)

@@ -17,7 +17,8 @@ import {
   useScoutSession,
 } from "@/lib/session";
 import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
-import type { ContentBlock } from "@/lib/api";
+import type { ContentBlock, PriorityDigest } from "@/lib/api";
+import { usePriorityDigestStore } from "@/lib/priority-digest";
 
 type WorkspaceResult = {
   id: string;
@@ -34,6 +35,24 @@ type WorkspaceResult = {
   label: string;
   analysis: unknown;
   document_block_ids: string[];
+  /**
+   * What the priority panel is showing for this run, when a digest has been read.
+   *
+   * Not part of the analysis, because it is not part of the result: it describes a list
+   * the browser derives. It travels here so the assistant and the screen cannot disagree
+   * about what a reader is looking at — the nominations are findings the result does not
+   * contain, and an assistant blind to them would answer about a panel it half sees.
+   */
+  priority_digest?: PriorityDigest;
+  /**
+   * The IDs the tool's selector chose for its priority panel, in its order.
+   *
+   * Sent as IDs alone: the items themselves are in `analysis`, so this adds only the two
+   * facts that are not — which findings were selected, and their order. Without it the
+   * assistant can see every finding but not the list a reader is actually looking at, and
+   * would answer "what is third" with a list of its own.
+   */
+  priority_item_ids?: string[];
 };
 
 /**
@@ -49,6 +68,10 @@ export function WorkspaceAsk() {
   const scout = useScoutSession((state) => state.results);
   const searcher = useSearcherSession((state) => state.results);
 
+  // Subscribed rather than read once: a digest lands after the result does, and the
+  // bundle has to pick it up when it arrives.
+  const digests = usePriorityDigestStore((state) => state.entries);
+  const selected = usePriorityDigestStore((state) => state.selected);
   const bundle = useMemo(() => {
     const results: WorkspaceResult[] = [];
     const blocks = new Map<string, ContentBlock>();
@@ -78,6 +101,13 @@ export function WorkspaceAsk() {
         label,
         analysis: context.analysis,
         document_block_ids: documentBlockIds,
+        // What the priority panel is showing for this run, when it has been read. The
+        // nominations especially: they are findings on screen that the result does not
+        // contain, so an assistant without them would answer about this panel while
+        // missing part of what the reader is looking at.
+        priority_digest:
+          digests[id]?.state === "ready" ? digests[id].digest : undefined,
+        priority_item_ids: selected[id],
       });
     }
 
@@ -172,7 +202,7 @@ export function WorkspaceAsk() {
       },
       resultCount: results.length,
     };
-  }, [aligner, chunker, expert, inspector, scout, searcher]);
+  }, [aligner, chunker, digests, expert, inspector, scout, searcher, selected]);
 
   return (
     <Ask

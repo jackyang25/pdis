@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ErrorMessage } from "@/components/ui/error-message";
@@ -45,6 +45,7 @@ import {
   inspectorResultFilename,
   isInspectorResultFinal,
   packInspectorResult,
+  splitResultContext,
   unpackInspectorResult,
   readResultIdentity,
 } from "@/lib/result-file";
@@ -54,6 +55,8 @@ import {
   selectInspectorPriorities,
 } from "@/lib/inspector-priorities";
 import { MAX_RESULTS_PER_TOOL, useInspectorSession } from "@/lib/session";
+import { usePriorityDigest } from "@/lib/priority-digest";
+import { toolAuthority } from "@/lib/tools";
 import { cn } from "@/lib/utils";
 
 const INSPECTOR_STEPS = [
@@ -297,13 +300,37 @@ function SectionsList({
   sections: SectionAssessment[];
   inspection: InspectionResult;
 }) {
+  const items = useMemo(() => selectInspectorPriorities(inspection), [inspection]);
+  // Read here rather than passed down: the store is the session's, and threading a
+  // digest through the view would make every intermediate component know about it.
+  const selectedId = useInspectorSession((state) => state.selectedId);
+  const digest = usePriorityDigest(
+    selectedId
+      ? {
+          resultId: selectedId,
+          // The tool's own catalog sentence, so nothing here restates its authority.
+          authority: toolAuthority("inspector"),
+          orderNote: INSPECTOR_ORDER_NOTE,
+          items,
+          analysis: splitResultContext(inspection).analysis,
+          blockIds: (inspection.blocks ?? []).map((block) => block.id),
+          org: inspection.org ?? "",
+          interventionClass: inspection.intervention_class ?? "",
+          indication: inspection.indication ?? "",
+        }
+      : null,
+  );
+
   return (
     <div className="space-y-6">
       <PriorityPanel
         attribution="by Inspector"
-        items={selectInspectorPriorities(inspection)}
+        items={items}
         emptyMessage={INSPECTOR_EMPTY_MESSAGE}
         orderNote={INSPECTOR_ORDER_NOTE}
+        digest={digest?.state === "ready" ? digest.digest.digest : undefined}
+        nominations={digest?.state === "ready" ? digest.digest.nominations : []}
+        digestLoading={digest?.state === "loading"}
       />
       <div className="space-y-3">
         <SectionHeading

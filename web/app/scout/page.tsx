@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import dynamic from "next/dynamic";
 import {
   AlertTriangle,
@@ -59,11 +66,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MAX_RESULTS_PER_TOOL, useScoutSession } from "@/lib/session";
+import { usePriorityDigest } from "@/lib/priority-digest";
+import { toolAuthority } from "@/lib/tools";
 import { useScoutReviewSession } from "@/lib/scout-review-session";
 import {
   isScoutResultFinal,
   packScoutResult,
   pendingQuantitativeReviewCount,
+  splitResultContext,
   scoutResultFilename,
   unpackScoutResult,
   readResultIdentity,
@@ -1860,6 +1870,22 @@ function FieldGrid({
   onNewAnalysis: () => void;
 }) {
   const { results, selectedId, selectResult, removeResult } = useScoutSession();
+  const priorities = useMemo(() => selectScoutPriorities(result), [result]);
+  const digest = usePriorityDigest(
+    selectedId
+      ? {
+          resultId: selectedId,
+          authority: toolAuthority("scout"),
+          orderNote: SCOUT_ORDER_NOTE,
+          items: priorities,
+          analysis: splitResultContext(result).analysis,
+          blockIds: (result.blocks ?? []).map((block) => block.id),
+          org: result.org ?? "",
+          interventionClass: result.intervention_class ?? "",
+          indication: result.indication ?? "",
+        }
+      : null,
+  );
   const matches = result.matches ?? [];
   const variables = result.variables ?? [];
   const developmentLandscape = result.development_landscape ?? [];
@@ -2021,9 +2047,12 @@ function FieldGrid({
             <div className="px-5 pt-5 sm:px-6">
               <PriorityPanel
                 attribution="by Scout"
-                items={selectScoutPriorities(result)}
+                items={priorities}
                 emptyMessage={SCOUT_EMPTY_MESSAGE}
                 orderNote={SCOUT_ORDER_NOTE}
+                digest={digest?.state === "ready" ? digest.digest.digest : undefined}
+                nominations={digest?.state === "ready" ? digest.digest.nominations : []}
+                digestLoading={digest?.state === "loading"}
               />
             </div>
             <div className="flex flex-col gap-2 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">

@@ -715,6 +715,58 @@ export type AlignmentResult = {
 
 export type AlignerResponse = { alignment: AlignmentResult };
 
+// --- Priority digest ---------------------------------------------------------
+
+/**
+ * One thing the tool's selector left out, and where to look at it.
+ *
+ * Never a repeat of a listed priority — the service drops those — and never unsourced:
+ * a nomination the reader cannot open is dropped rather than shown.
+ */
+export type PriorityNomination = {
+  label: string;
+  statement: string;
+  cited_block_ids: string[];
+};
+
+/**
+ * A short passage about a tool's priorities, and what they miss.
+ *
+ * Derived on read and held for the session only. It describes a list the browser computes
+ * when a result is opened, so it is never part of a result and never exported.
+ */
+export type PriorityDigest = {
+  digest: string;
+  nominations: PriorityNomination[];
+};
+
+export type PriorityDigestRequest = {
+  authority: string;
+  order_note: string;
+  items: Array<{
+    id: string;
+    label: string;
+    qualifier: string;
+    statement: string;
+    recommendation: string;
+  }>;
+  analysis: unknown;
+  block_ids: string[];
+  org: string;
+  intervention_class: string;
+  indication: string;
+};
+
+export async function fetchPriorityDigest(
+  request: PriorityDigestRequest,
+): Promise<PriorityDigest> {
+  return jsonRequest<PriorityDigest>("/api/assistant/priority-digest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+}
+
 // --- Expert ------------------------------------------------------------------
 
 /** One declared stage gate, for a selector that has not chosen one yet. */

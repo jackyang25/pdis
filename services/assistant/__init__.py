@@ -1,11 +1,30 @@
-"""Ask - a read-only, grounded chat assistant over any result object.
+"""Reads over finished results: a grounded chat assistant, and one bounded digest.
 
-Public contract: consumers import from this package root only. The assistant is
-result-agnostic - it navigates a result as a JSON tree (navigator) and reads its
-meaning from a per-type legend (legends), so new doc types plug in with only a
-legend entry. It never mutates state or runs fresh web searches.
+Public contract: consumers import from this package root only. Both readers are
+result-agnostic — chat navigates a result as a JSON tree (navigator) and reads its meaning
+from a per-type legend (legends), and the priority digest is handed the authority sentence
+its caller already publishes. Neither mutates state, runs a tool, or searches the web.
 """
 
 from .agent import Chunk, ChatLLMProtocol, StreamingChatLLMProtocol, answer_stream
+from .priorities import (
+    MAX_NOMINATIONS,
+    Nomination,
+    PriorityDigest,
+    PriorityItemInput,
+    PriorityRequest,
+    read_priorities,
+)
 
-__all__ = ["Chunk", "ChatLLMProtocol", "StreamingChatLLMProtocol", "answer_stream"]
+__all__ = [
+    "Chunk",
+    "ChatLLMProtocol",
+    "MAX_NOMINATIONS",
+    "Nomination",
+    "PriorityDigest",
+    "PriorityItemInput",
+    "PriorityRequest",
+    "StreamingChatLLMProtocol",
+    "answer_stream",
+    "read_priorities",
+]

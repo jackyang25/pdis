@@ -20,11 +20,24 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from services.assistant import Chunk, answer_stream as assistant_answer_stream
+from services.assistant import (
+    Chunk,
+    PriorityItemInput,
+    PriorityRequest,
+    answer_stream as assistant_answer_stream,
+    read_priorities,
+)
 from services.chunker import parse_context_file
 
 from api.deps import MissingCredentialError, get_openai_client
-from api.schemas import AssistantContextResponse, AskRequest, ContentBlockOut
+from api.schemas import (
+    AskRequest,
+    AssistantContextResponse,
+    ContentBlockOut,
+    PriorityDigestRequest,
+    PriorityDigestResponse,
+    PriorityNominationOut,
+)
 
 router = APIRouter()
 MAX_CONTEXT_FILE_BYTES = 25 * 1024 * 1024
@@ -81,6 +94,61 @@ def sse(chunks: Iterator[Chunk]) -> Iterator[str]:
     for chunk in chunks:
         prefix = "" if chunk.kind == "text" else f"event: {chunk.kind}\n"
         yield f"{prefix}data: {json.dumps(chunk.text)}\n\n"
+
+
+@router.post("/priority-digest", response_model=PriorityDigestResponse)
+async def priority_digest(request: PriorityDigestRequest) -> PriorityDigestResponse:
+    """Read one tool's selected priorities: what they amount to, and what they miss.
+
+    Not part of any result. The digest describes a list the browser derives when a result
+    is opened, so it is derived the same way and travels nowhere — no analysis version
+    moves, and an exported result is unchanged.
+
+    The route holds no tool table. Everything that differs between tools arrives in the
+    request: the authority sentence, the ordering rule, the items as rendered.
+    """
+    try:
+        llm_client = get_openai_client()
+    except MissingCredentialError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    read = PriorityRequest(
+        authority=request.authority.strip(),
+        order_note=request.order_note.strip(),
+        items=tuple(
+            PriorityItemInput(
+                id=item.id,
+                label=item.label,
+                qualifier=item.qualifier,
+                statement=item.statement,
+                recommendation=item.recommendation,
+            )
+            for item in request.items
+        ),
+        analysis=request.analysis,
+        block_ids=frozenset(request.block_ids),
+        org=request.org,
+        intervention_class=request.intervention_class,
+        indication=request.indication,
+    )
+    try:
+        result = await run_in_threadpool(read_priorities, read, llm_client=llm_client)
+    except ValueError as exc:
+        # A digest is an addition to a panel that already works, so a failure is a 502
+        # the client can ignore rather than an error that hides the priorities.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return PriorityDigestResponse(
+        digest=result.digest,
+        nominations=[
+            PriorityNominationOut(
+                label=item.label,
+                statement=item.statement,
+                cited_block_ids=item.cited_block_ids,
+            )
+            for item in result.nominations
+        ],
+    )
 
 
 @router.post("/ask/stream")

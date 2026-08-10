@@ -212,6 +212,9 @@ class SystemPromptTests(unittest.TestCase):
         # Only safe to ask for a table since the assistant renders GFM; before
         # that it arrived as raw pipes.
         self.assertIn("Use a table when comparing", prompt)
+        # The citation rule governs backing a claim; a list of blocks backs
+        # nothing, so naming one has to be its own instruction.
+        self.assertIn("Any time you name a document block", prompt)
         self.assertNotIn("Be concise and specific", prompt)
 
     def test_every_citation_kind_is_expressed_one_way(self) -> None:
@@ -314,6 +317,39 @@ class WorkflowVisibilityTests(unittest.TestCase):
         for skill in skills.available_skills():
             with self.subTest(skill=skill.name):
                 self.assertNotIn(skill.body, prompt)
+
+
+class SkillPrecedenceTests(unittest.TestCase):
+    """A skill may contradict the general shape rules, and one of them has to win.
+
+    `write-the-review-summary` forbids citations because its output is a passage
+    meant to be pasted into someone else's document; ANSWERING requires block IDs
+    to be links. Both are right for their scope, so leaving precedence unstated
+    left the agent holding two instructions and picking by weight.
+    """
+
+    def test_a_skill_governs_the_answer_it_produces(self) -> None:
+        prompt = _system_prompt({"results": []}, "workspace")
+        self.assertIn("the skill wins for the answer it governs", prompt)
+
+    def test_grounding_is_never_overridable(self) -> None:
+        # The one rule a workflow must not be able to relax: a skill that
+        # licensed stating what the context does not support would be a way to
+        # write invention into a file and have it obeyed.
+        prompt = _system_prompt({"results": []}, "workspace")
+        self.assertIn("never overrides GROUNDING", prompt)
+
+    def test_the_conflict_this_exists_for_is_real(self) -> None:
+        # Not hypothetical: a shipped skill contradicts a shipped rule.
+        summary = next(
+            (item for item in skills.available_skills()
+             if item.name == "write-the-review-summary"),
+            None,
+        )
+        if summary is None:
+            self.skipTest("the summary workflow is no longer shipped")
+        self.assertIn("no citations", summary.body.casefold())
+        self.assertIn("write it as a link", _system_prompt({"results": []}, "workspace"))
 
 if __name__ == "__main__":
     unittest.main()

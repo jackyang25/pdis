@@ -84,14 +84,16 @@ Order by what a reader would act on differently:
 4. Everything else.
 
 One short paragraph each: the requirement and its verdict, the question and its state,
-then the citation on both sides. Open with how many pairs you formed out of how many
+then the passages on both sides. Open with how many pairs you formed out of how many
 findings and how many open questions, so a reader knows whether this is a thorough pairing
 or a coincidence.
 
 ## Rules
 
-Cite both sides, and name which side each sentence came from. A claim you cannot cite on
-both sides is a claim this workflow cannot make.
+Cite both sides as document passages, and name which side each sentence came from: the
+Aligner finding's blocks and the question's `cited_block_ids`. A result path locates a
+finding for you and shows a reader nothing. A claim you cannot cite on both sides is a
+claim this skill cannot make.
 
 Never overturn either tool, and never merge their vocabularies. A verdict is about two
 documents; a state is about a question. Saying a requirement is `not_found` or a question

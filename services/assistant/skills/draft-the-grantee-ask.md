@@ -72,5 +72,9 @@ Say what is not in it. Name the tools that did run and the ones that did not, be
 reader will otherwise take this list as everything outstanding rather than everything these
 runs found.
 
-Keep the citation on every line. An ask a recipient cannot trace to a passage in their own
-document is one they can dispute forever.
+Point every line at the recipient's own document, and do it in their terms: name the
+section or heading the passage sits under, because a block ID means nothing to someone who
+has never seen our parse. Keep the block as an openable link beside it so you can check
+the line yourself, and never cite a result path — that locates a finding in our analysis,
+which is not something they can look at. An ask a recipient cannot trace to a place in
+their own document is one they can dispute forever.

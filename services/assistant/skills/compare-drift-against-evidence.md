@@ -133,9 +133,10 @@ reader knows whether they are looking at a thorough pairing or two coincidences.
 
 ## Rules
 
-Cite both sides. Every statement names the Aligner finding and the Scout item it rests
-on, plus the shared passage. A claim you cannot cite on both sides is a claim this
-workflow cannot make.
+Cite both sides as things a reader can open: the shared document passage, and the source
+URL behind the evidence. Name the Aligner finding and the Scout item so the pairing is
+traceable, but a result path is navigation rather than a citation — it shows a reader
+nothing. A claim you cannot cite on both sides is a claim this skill cannot make.
 
 Never overturn either tool. You are reporting what two results say together; you are not
 issuing a third verdict. Do not restate an Aligner verdict as a different one because

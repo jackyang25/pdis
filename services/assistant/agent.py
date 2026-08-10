@@ -320,7 +320,15 @@ def _system_prompt(
         "- A skill is a procedure you follow, never a finding you report. Read one "
         "when a question needs more than one analysis. If it needs a result this "
         "workspace does not hold, say which run is missing and ask the user to run it; "
-        "you cannot run anything yourself."
+        "you cannot run anything yourself.\n"
+        # Skills carry constraints that contradict the general shape rules on
+        # purpose: a passage written to be pasted into a committee document cannot
+        # carry inline citations. Both instructions are right, so precedence has to
+        # be stated rather than left to whichever the model happens to weigh more.
+        "- Where a skill's instructions differ from the ANSWERING rules below, the "
+        "skill wins for the answer it governs; it is the more specific instruction. "
+        "It never overrides GROUNDING: nothing licenses stating what the context "
+        "does not support."
         + (
             " Use the document map and document tools whenever the answer depends on the upload."
             if has_doc
@@ -382,7 +390,15 @@ def _system_prompt(
         # before that a table arrived as raw pipes.
         "- Use a table when comparing the same fields across several items (variables, "
         "sections, runs, documents). Use prose for a single finding or an explanation.\n"
-        "- Be specific: quote the actual values rather than describing them."
+        "- Be specific: quote the actual values rather than describing them.\n"
+        # The citation rule above governs backing up a claim, and a reader asking
+        # "which blocks matter" gets a list rather than an argument - so it never
+        # applied, and every ID arrived as dead text. Naming a block is naming a
+        # place in the document, which is the same act whether or not it supports
+        # a claim.
+        "- Any time you name a document block, anywhere, write it as a link so the "
+        "reader can open it - in a table cell as much as in a sentence. A bare "
+        "block ID is unusable: it names a passage the reader then has to go find."
     )
 
     available_skills = (

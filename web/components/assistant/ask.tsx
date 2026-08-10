@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { TextStreamChatTransport, type UIMessage } from "ai";
+import { type UIMessage } from "ai";
+import { AssistantSseTransport } from "@/lib/assistant-transport";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy, FileText, Image as ImageIcon, Loader2, Maximize2, Minimize2, Paperclip, Plus, Send, Square, X } from "lucide-react";
@@ -19,7 +20,6 @@ import {
   attachablePaste,
 } from "@/lib/document-formats";
 import { STREAM_CARET_MOTION } from "@/lib/motion";
-import { readAssistantStream } from "@/lib/assistant-stream";
 import { parseCitation } from "@/lib/citation";
 import { BlockCitation } from "./block-citation";
 import { DocumentSourceProvider } from "@/components/document-source-trace";
@@ -43,6 +43,18 @@ function messageText(message: UIMessage): string {
  * spans sections, or that Scout separates a weak evidence base from a conflicting
  * one. Anything narrower would go stale as a result shape changes.
  */
+/** The most recent thing the agent said it was doing, if it has said anything. */
+function latestActivity(message: UIMessage): string | null {
+  for (let index = message.parts.length - 1; index >= 0; index -= 1) {
+    const part = message.parts[index];
+    if (part.type === "data-activity" && typeof part.data === "string") {
+      return part.data;
+    }
+  }
+  return null;
+}
+
+
 const SUGGESTIONS: Record<string, string[]> = {
   // Phrased around the bar rather than around "what changed", because a comparison
   // here runs one way and a symmetric question invites a symmetric answer.
@@ -109,7 +121,7 @@ export function Ask({
 
   const transport = useMemo(
     () =>
-      new TextStreamChatTransport({
+      new AssistantSseTransport({
         api: `${API_BASE}/api/assistant/ask/stream`,
         prepareSendMessagesRequest: ({ messages }) => ({
           body: {
@@ -347,9 +359,9 @@ export function Ask({
         )}
 
         {messages.map((message, index) => {
-          // The agent announces silent tool work in the same stream; the answer
-          // is what remains once those lines are taken out.
-          const { text, activity } = readAssistantStream(messageText(message));
+          const text = messageText(message);
+          // Announced on its own channel, so the answer never carries it.
+          const activity = latestActivity(message);
           const isStreaming =
             status === "streaming" &&
             message.role === "assistant" &&

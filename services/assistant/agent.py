@@ -14,7 +14,8 @@ from __future__ import annotations
 import json
 import logging
 from types import SimpleNamespace
-from typing import Any, Iterator, Protocol
+from dataclasses import dataclass
+from typing import Any, Iterator, Literal, Protocol
 
 from . import document as document_reader
 from . import knowledge
@@ -54,19 +55,21 @@ class StreamingChatLLMProtocol(ChatLLMProtocol, Protocol):
     ) -> Iterator[Any]:
         ...
 
-# A reader waiting on a silent tool turn is told what is happening. The label comes
-# from the verb that declared it, so a capability added later cannot ship without
-# one, and the line can never claim work that is not running.
-#
-# Framed with ASCII record separators rather than the SDK's data-stream protocol:
-# the tool loop lives here, so speaking that protocol would mean hand-writing a
-# TypeScript library's wire format in Python and re-checking it on every upgrade.
-# This is a protocol we own, and web/lib/assistant-stream.ts is its only reader.
-ACTIVITY_DELIMITER = "\x1e"
+@dataclass(frozen=True)
+class Chunk:
+    """One piece of the answer, and what kind it is.
 
+    A reader waiting on a silent tool turn is told what is happening, and that
+    is not part of the answer. Tagging it here rather than marking it inside the
+    text means the two never have to be separated again downstream: the route
+    frames each kind as its own event, and the client reads them apart.
 
-def activity_line(text: str) -> str:
-    return f"{ACTIVITY_DELIMITER}{text}{ACTIVITY_DELIMITER}"
+    The label comes from the verb that declared it, so a capability added later
+    cannot ship without one, and the line can never claim work that is not running.
+    """
+
+    kind: Literal["text", "activity"]
+    text: str
 
 
 from .registry import REGISTRY, TOOLS, ToolContext, _VERBS, held_result_types
@@ -83,7 +86,7 @@ def answer_stream(
     *,
     document: list[dict[str, Any]] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> Iterator[str]:
+) -> Iterator[Chunk]:
     """Stream the final grounded answer while keeping tool turns server-side.
 
     OpenAI emits function-call deltas before their arguments. Those turns are
@@ -137,12 +140,12 @@ def answer_stream(
                 # preferable to delaying every normal answer until completion.
                 if not tool_parts:
                     emitted_text = True
-                    yield content
+                    yield Chunk('text', content)
 
         tool_calls = _assembled_tool_calls(tool_parts)
         if not tool_calls:
             if not emitted_text:
-                yield "Sorry - I couldn't generate a response."
+                yield Chunk("text", "Sorry - I couldn't generate a response.")
             return
 
         if emitted_text:
@@ -154,7 +157,7 @@ def answer_stream(
             )
         )
         for call in tool_calls:
-            yield activity_line(resources.activity_for(REGISTRY, call.function.name))
+            yield Chunk('activity', resources.activity_for(REGISTRY, call.function.name))
             work.append(
                 {
                     "role": "tool",
@@ -173,9 +176,9 @@ def answer_stream(
         content = getattr(delta, "content", None) if delta else None
         if content:
             emitted_text = True
-            yield content
+            yield Chunk('text', content)
     if not emitted_text:
-        yield "Sorry - I couldn't generate a response."
+        yield Chunk("text", "Sorry - I couldn't generate a response.")
 
 
 def _assembled_tool_calls(parts: dict[int, dict[str, str]]) -> list[Any]:

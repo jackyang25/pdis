@@ -9,16 +9,18 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
+from typing import Iterator
 import tempfile
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from services.assistant import answer_stream as assistant_answer_stream
+from services.assistant import Chunk, answer_stream as assistant_answer_stream
 from services.chunker import parse_context_file
 
 from api.deps import MissingCredentialError, get_openai_client
@@ -66,6 +68,21 @@ async def add_context(file: UploadFile = File(...)) -> AssistantContextResponse:
     )
 
 
+def sse(chunks: Iterator[Chunk]) -> Iterator[str]:
+    """Frame the answer as server-sent events, one event kind per chunk kind.
+
+    Activity travels on its own event rather than inside the text with a marker
+    to separate it: the format already distinguishes kinds, so doing it twice
+    would be two mechanisms for one job.
+
+    Each payload is JSON-encoded so a newline inside it cannot end the event.
+    SSE is line-delimited and model prose contains newlines constantly.
+    """
+    for chunk in chunks:
+        prefix = "" if chunk.kind == "text" else f"event: {chunk.kind}\n"
+        yield f"{prefix}data: {json.dumps(chunk.text)}\n\n"
+
+
 @router.post("/ask/stream")
 def ask_stream(request: AskRequest) -> StreamingResponse:
     """Stream a grounded answer as plain text for AI SDK UI consumers.
@@ -89,11 +106,17 @@ def ask_stream(request: AskRequest) -> StreamingResponse:
         document=document,
     )
     return StreamingResponse(
-        stream,
-        media_type="text/plain; charset=utf-8",
+        sse(stream),
+        # Server-sent events, not plain text: Cloudflare fronts this service and
+        # buffers a text/plain response to completion, so a 30-second answer
+        # arrived all at once in production while streaming perfectly in local
+        # development. `text/event-stream` is the one media type a proxy must
+        # pass through unbuffered. `X-Accel-Buffering` is an nginx directive
+        # Cloudflare ignores, and it was being stripped from the response.
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
             "X-Content-Type-Options": "nosniff",
-            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
         },
     )

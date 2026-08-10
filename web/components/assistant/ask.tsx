@@ -20,7 +20,7 @@ import {
   attachablePaste,
 } from "@/lib/document-formats";
 import { STREAM_CARET_MOTION } from "@/lib/motion";
-import { parseCitation } from "@/lib/citation";
+import { parseCitation, transformCitationUrl } from "@/lib/citation";
 import { BlockCitation } from "./block-citation";
 import { DocumentSourceProvider } from "@/components/document-source-trace";
 import { cn } from "@/lib/utils";
@@ -688,7 +688,18 @@ function Markdown({ text }: { text: string }) {
   if (!text) return null;
   return (
     <div className="space-y-2 leading-relaxed">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_ELEMENTS}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={MARKDOWN_ELEMENTS}
+        // react-markdown blanks any URL whose scheme is not http/https/mailto/tel,
+        // to stop `javascript:` arriving in model output. Correct by default and
+        // wrong for a scheme this app defines: `block:` was emptied before the
+        // renderer saw it, so every citation fell back to plain text while each
+        // layer looked right on its own. Kept strict by keeping the same
+        // allowlist and adding only the one internal scheme, which opens a local
+        // passage and never navigates.
+        urlTransform={transformCitationUrl}
+      >
         {text}
       </ReactMarkdown>
     </div>

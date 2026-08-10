@@ -26,20 +26,19 @@ test("an exact id resolves", () => {
   assert.equal(resolveBlock(blocks, `${DOC}/b-0080`)?.id, `${DOC}/b-0080`);
 });
 
-test("a shortened id resolves when only one block ends with it", () => {
-  // What the model actually writes, and what a reader sees on screen.
-  assert.equal(resolveBlock(blocks, "b-0080")?.id, `${DOC}/b-0080`);
+test("a shortened id does not resolve", () => {
+  // The model writes the full ID; a tolerant match was added for a failure that
+  // turned out to be percent-encoding, and it hid whether the real form worked.
+  assert.equal(resolveBlock(blocks, "b-0080"), null);
 });
 
 test("surrounding whitespace does not prevent a match", () => {
-  assert.equal(resolveBlock(blocks, "  b-0080  ")?.id, `${DOC}/b-0080`);
+  assert.equal(resolveBlock(blocks, `  ${DOC}/b-0080  `)?.id, `${DOC}/b-0080`);
 });
 
-test("a tail shared by two documents resolves to neither", () => {
-  // Genuinely ambiguous, so it renders as text rather than opening the wrong
-  // passage — a citation pointing at the wrong evidence is worse than none.
+test("an id from another document does not resolve", () => {
   const twoDocs = [{ id: "one/b-0080" }, { id: "two/b-0080" }];
-  assert.equal(resolveBlock(twoDocs, "b-0080"), null);
+  assert.equal(resolveBlock(twoDocs, "three/b-0080"), null);
 });
 
 test("an id the workspace does not hold resolves to nothing", () => {
@@ -47,7 +46,6 @@ test("an id the workspace does not hold resolves to nothing", () => {
   assert.equal(resolveBlock(blocks, ""), null);
 });
 
-test("a partial tail is not a match", () => {
-  // Only a whole trailing segment counts, so "080" never resolves "b-0080".
-  assert.equal(resolveBlock(blocks, "080"), null);
+test("a partial id is not a match", () => {
+  assert.equal(resolveBlock(blocks, `${DOC}/b-008`), null);
 });

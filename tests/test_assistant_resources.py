@@ -212,9 +212,12 @@ class SystemPromptTests(unittest.TestCase):
         # Only safe to ask for a table since the assistant renders GFM; before
         # that it arrived as raw pipes.
         self.assertIn("Use a table when comparing", prompt)
-        # The citation rule governs backing a claim; a list of blocks backs
-        # nothing, so naming one has to be its own instruction.
-        self.assertIn("Any time you name a document block", prompt)
+        # Pointing at a passage is linked; reciting identifiers is not an
+        # answer at all. "Link every block you name" produced rows of thirty-four
+        # IDs to link, which the model was right to disregard.
+        self.assertIn("Point at a passage, never at an identifier", prompt)
+        self.assertIn("say how many and link the first", prompt)
+        self.assertNotIn("Any time you name a document block", prompt)
         self.assertNotIn("Be concise and specific", prompt)
 
     def test_every_citation_kind_is_expressed_one_way(self) -> None:
@@ -227,8 +230,10 @@ class SystemPromptTests(unittest.TestCase):
         # Bracketed: a block ID carries the document name, and a name with
         # spaces is not a valid link destination without them.
         self.assertIn("(<block:EXACT-BLOCK-ID>)", prompt)
-        # A result path is not openable, so it is quoted rather than linked.
-        self.assertIn("in backticks, not a link", prompt)
+        # There is no third kind: a result path is an internal address, and
+        # printing one put results[0].analysis.sections[4] in front of a reader.
+        self.assertIn("Never print a result path", prompt)
+        self.assertNotIn("in backticks, not a link", prompt)
         # The label is the readable part, the destination the exact one.
         self.assertIn("visible text is for the reader", prompt)
 
@@ -349,7 +354,7 @@ class SkillPrecedenceTests(unittest.TestCase):
         if summary is None:
             self.skipTest("the summary workflow is no longer shipped")
         self.assertIn("no citations", summary.body.casefold())
-        self.assertIn("write it as a link", _system_prompt({"results": []}, "workspace"))
+        self.assertIn("link it and give it a readable name", _system_prompt({"results": []}, "workspace"))
 
 if __name__ == "__main__":
     unittest.main()

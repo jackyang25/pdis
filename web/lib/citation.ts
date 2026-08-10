@@ -1,3 +1,5 @@
+import { defaultUrlTransform } from "react-markdown";
+
 /**
  * What a citation in an assistant answer points at.
  *
@@ -21,11 +23,45 @@ const BLOCK_SCHEME = "block:";
 export function parseCitation(href: string | undefined): Citation {
   if (!href) return { kind: "plain" };
   if (href.startsWith(BLOCK_SCHEME)) {
-    const blockId = href.slice(BLOCK_SCHEME.length).trim();
+    // Percent-decoded, because a URL is what arrives here: the renderer encodes
+    // spaces, and a block ID carries the document name. `DRAFT AIV iTPP v1
+    // 13July2016/b-0010` reached this function as `DRAFT%20AIV%20...`, matched no
+    // block, and every citation rendered as plain text.
+    const blockId = decodeBlockId(href.slice(BLOCK_SCHEME.length).trim());
     // A scheme with nothing after it cites nothing; render the text plainly
     // rather than a control that resolves to no passage.
     return blockId ? { kind: "block", blockId } : { kind: "plain" };
   }
   if (/^https?:\/\//i.test(href)) return { kind: "external", href };
   return { kind: "plain" };
+}
+
+/**
+ * Which URLs survive into the rendered answer.
+ *
+ * `react-markdown` blanks any scheme outside http/https/mailto/tel, so model
+ * output cannot smuggle `javascript:`. That default also blanked `block:`, the
+ * scheme this app defines, which is why a correctly written citation rendered as
+ * plain text with nothing to click.
+ *
+ * The allowlist is kept, not replaced: only `block:` is added, and it resolves to
+ * a passage already held in the browser rather than navigating anywhere.
+ */
+export function transformCitationUrl(url: string): string {
+  if (url.startsWith(BLOCK_SCHEME)) return url;
+  return defaultUrlTransform(url);
+}
+
+/**
+ * The block ID inside a citation URL.
+ *
+ * Malformed encoding keeps the raw text rather than throwing: a citation that
+ * cannot be decoded should cost its own link, not the answer around it.
+ */
+function decodeBlockId(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }

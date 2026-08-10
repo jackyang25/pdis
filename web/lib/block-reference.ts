@@ -14,14 +14,11 @@ export function sourcePassageAriaLabel(count: number): string {
 /**
  * The block a citation refers to, or null.
  *
- * Exact first. Failing that, a unique suffix match: a block ID carries the
- * document name, so the full form is long and the model routinely cites the
- * short tail instead. That reference is unambiguous whenever exactly one block
- * ends with it, and resolving it is deterministic rather than a guess.
- *
- * Two documents sharing a tail make the reference genuinely ambiguous, so
- * nothing is resolved and the citation renders as text — the same as a block
- * the workspace does not hold.
+ * Exact match only. A tolerant version briefly accepted a unique trailing
+ * segment, on the belief that the model shortened destinations — it did not.
+ * It wrote the full ID and the renderer percent-encoded it, which is fixed where
+ * the URL is read. Forgiving a shorter form was answering a question nobody
+ * asked, and it masked whether the real form worked.
  */
 export function resolveBlock<TBlock extends { id: string }>(
   blocks: TBlock[],
@@ -29,10 +26,5 @@ export function resolveBlock<TBlock extends { id: string }>(
 ): TBlock | null {
   const wanted = blockId.trim();
   if (!wanted) return null;
-  const exact = blocks.find((item) => item.id === wanted);
-  if (exact) return exact;
-  const suffix = blocks.filter(
-    (item) => item.id.endsWith(`/${wanted}`) || item.id === wanted,
-  );
-  return suffix.length === 1 ? suffix[0] : null;
+  return blocks.find((item) => item.id === wanted) ?? null;
 }

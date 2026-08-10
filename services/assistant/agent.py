@@ -371,7 +371,14 @@ def _system_prompt(
         # document name, and a name with spaces is not a valid link destination
         # without them - markdown renders the raw syntax instead of a link.
         "    a document passage: [what it says](<block:EXACT-BLOCK-ID>)\n"
-        "    a place in an analysis: `matches[3].insight` in backticks, not a link.\n"
+        # No third kind. A result path is an internal address: it locates a finding
+        # for whoever is reading the JSON, and the reader is not. Printing one put
+        # `results[0].analysis.sections[4].units[4].findings[0]` in front of a
+        # programme lead, and set the tone for an answer that then listed bare
+        # block IDs as data too. A finding is named by what it is; the thing a
+        # reader can actually check is the passage it was read from.
+        "    a finding in an analysis: name it - \"Executive Summary -> Efficacy\" - "
+        "and link the document block it cites. Never print a result path.\n"
         # The label and the destination do different jobs, and saying so works with
         # the model rather than against it: repeating a full block ID through a
         # table is unreadable, so it shortened both and the destination stopped
@@ -391,14 +398,16 @@ def _system_prompt(
         "- Use a table when comparing the same fields across several items (variables, "
         "sections, runs, documents). Use prose for a single finding or an explanation.\n"
         "- Be specific: quote the actual values rather than describing them.\n"
-        # The citation rule above governs backing up a claim, and a reader asking
-        # "which blocks matter" gets a list rather than an argument - so it never
-        # applied, and every ID arrived as dead text. Naming a block is naming a
-        # place in the document, which is the same act whether or not it supports
-        # a claim.
-        "- Any time you name a document block, anywhere, write it as a link so the "
-        "reader can open it - in a table cell as much as in a sentence. A bare "
-        "block ID is unusable: it names a passage the reader then has to go find."
+        # A block ID is an internal identifier. Reciting one answers nothing, and
+        # "link every block you name" produced rows of thirty-four IDs to link -
+        # an instruction the model was right to disregard, because obeying it made
+        # the answer worse. What a reader wants is the passage, named and openable.
+        "- Point at a passage, never at an identifier. When a passage matters, link "
+        "it and give it a readable name - [Target User Group](<block:EXACT-ID>) - so "
+        "the reader can open it where they are reading.\n"
+        "- When several passages back one finding, say how many and link the first "
+        "rather than listing IDs. A row of bare block IDs is not an answer: it "
+        "names places the reader then has to go find."
     )
 
     available_skills = (

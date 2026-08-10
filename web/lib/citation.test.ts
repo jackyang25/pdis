@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { parseCitation } from "./citation.ts";
+import { parseCitation, transformCitationUrl } from "./citation.ts";
 
 const REPO = path.resolve(import.meta.dirname, "..", "..");
 const AGENT = path.join(REPO, "services", "assistant", "agent.py");
@@ -33,6 +33,13 @@ test("the agent is told to bracket the destination", () => {
   // parseCitation, so nothing downstream changes.
   const prompt = readFileSync(AGENT, "utf8");
   assert.match(prompt, /in angle brackets, never shortened/);
+});
+
+test("there are two citation kinds, both openable", () => {
+  // A third kind printed a raw JSON path at the reader. Every citation now
+  // resolves to something clickable, or it is not a citation.
+  const prompt = readFileSync(AGENT, "utf8");
+  assert.match(prompt, /Never print a result path/);
 });
 
 test("the label and the destination are told apart", () => {
@@ -84,4 +91,50 @@ test("only http and https are followed", () => {
   // not made clickable at all.
   assert.equal(parseCitation("ftp://example.org/x").kind, "plain");
   assert.equal(parseCitation("//example.org").kind, "plain");
+});
+
+test("the block scheme survives the renderer's URL sanitiser", () => {
+  // The failure every other layer hid: react-markdown blanks any scheme outside
+  // http/https/mailto/tel, so `block:` arrived as "" and parseCitation correctly
+  // saw nothing to open. API, bundle, parser and resolver all checked out alone.
+  assert.equal(
+    transformCitationUrl("block:DRAFT AIV iTPP v1 13July2016/b-0010"),
+    "block:DRAFT AIV iTPP v1 13July2016/b-0010",
+  );
+});
+
+test("ordinary links still pass", () => {
+  assert.equal(
+    transformCitationUrl("https://example.org/paper"),
+    "https://example.org/paper",
+  );
+});
+
+test("the sanitiser is extended, not replaced", () => {
+  // The reason it exists: model output must not be able to smuggle a script URL.
+  assert.equal(transformCitationUrl("javascript:alert(1)"), "");
+  assert.equal(transformCitationUrl("data:text/html,<script>"), "");
+  assert.equal(transformCitationUrl("vbscript:msgbox"), "");
+});
+
+test("a percent-encoded block id is decoded back to the real one", () => {
+  // What the renderer actually delivers: it encodes spaces, and a block ID
+  // carries the document name. Undecoded, this matched no block and every
+  // citation fell back to plain text while each layer tested green alone.
+  assert.deepEqual(
+    parseCitation("block:DRAFT%20AIV%20iTPP%20v1%2013July2016/b-0010"),
+    { kind: "block", blockId: "DRAFT AIV iTPP v1 13July2016/b-0010" },
+  );
+});
+
+test("an unencoded id is unchanged", () => {
+  assert.deepEqual(parseCitation("block:document/b-0010"), {
+    kind: "block",
+    blockId: "document/b-0010",
+  });
+});
+
+test("malformed encoding costs its own link, not the answer", () => {
+  // A stray % is not valid encoding; keep the raw text rather than throwing.
+  assert.equal(parseCitation("block:doc%ZZ/b-1").kind, "block");
 });

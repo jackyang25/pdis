@@ -317,7 +317,7 @@ def _system_prompt(
         "WHAT YOU CAN REACH:\n"
         f"{resources.inventory(REGISTRY)}\n"
         "- Don't guess paths; use the OVERVIEW below and find_result to locate things.\n"
-        "- A workflow is a procedure you follow, never a finding you report. Read one "
+        "- A skill is a procedure you follow, never a finding you report. Read one "
         "when a question needs more than one analysis. If it needs a result this "
         "workspace does not hold, say which run is missing and ask the user to run it; "
         "you cannot run anything yourself."
@@ -385,8 +385,8 @@ def _system_prompt(
         "- Be specific: quote the actual values rather than describing them."
     )
 
-    workflows = (
-        "WORKFLOWS AVAILABLE:\n"
+    available_skills = (
+        "SKILLS AVAILABLE:\n"
         f"{skills.catalog(held_result_types(result))}\n"
         "Read one with read_skill before answering a question it covers."
     )
@@ -412,7 +412,7 @@ def _system_prompt(
         document_access,
         grounding_rules,
         answering,
-        workflows,
+        available_skills,
         overview,
         product_docs,
         document_map,

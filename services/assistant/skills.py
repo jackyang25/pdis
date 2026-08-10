@@ -1,7 +1,13 @@
-"""Workflows the assistant can follow, declared as files rather than prompt text.
+"""Procedures the assistant can follow, declared as files rather than prompt text.
+
+Called skills, never pipelines. "Workflow" is the umbrella: a tool's workflow is a
+pipeline it executes stage by stage, and the assistant's are these — procedures read over
+results a pipeline already produced. Using one word for both made the boundary
+unreadable, because a reader met "the assistant cannot run workflows" beside a list of
+workflows it does run. It runs no pipeline; it follows skills.
 
 A skill is bespoke: its own procedure, its own synthesis rules, its own output
-shape. Embedding those in the system prompt would pay for every workflow on every
+shape. Embedding those in the system prompt would pay for every skill on every
 message and put unrelated instructions in one another's way. So the index is
 resident and cheap — a name and a line each — and a body is read only once chosen.
 
@@ -11,11 +17,11 @@ declaration is what tells the user which run is missing. Without it, both would 
 prose repeated in every skill and true only until a result shape changed.
 
 `requires_any` is the other half of that, and it is not a convenience. Two kinds of
-workflow exist: one needs a specific combination — an alignment *and* a gate review, to
+skill exist: one needs a specific combination — an alignment *and* a gate review, to
 say something neither says alone — and one applies to whatever a reader happens to hold,
 like turning a result into a paragraph safe to put in front of a committee. Declaring the
 second with `requires` would force a choice between naming one tool arbitrarily, so the
-workflow disappears for the others, and writing near-identical files per tool, each
+skill disappears for the others, and writing near-identical files per tool, each
 costing a line of the resident index. So a skill is offered when every `requires` entry is
 held and at least one `requires_any` entry is.
 
@@ -43,7 +49,7 @@ _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.S)
 
 @dataclass(frozen=True)
 class Skill:
-    """One declared workflow."""
+    """One declared skill."""
 
     name: str
     description: str
@@ -69,14 +75,14 @@ class Skill:
             )
         if not self.requires and not self.requires_any:
             raise ValueError(
-                f"skill {self.name} declares nothing it needs; a workflow offered "
+                f"skill {self.name} declares nothing it needs; a skill offered "
                 "against a workspace holding nothing it can read is a dead end"
             )
         if not self.body.strip():
             raise ValueError(f"skill {self.name} has no body")
 
     def missing_from(self, held: frozenset[str]) -> list[str]:
-        """What a workspace lacks before this workflow can run, in reading order."""
+        """What a workspace lacks before this skill can run, in reading order."""
         absent = [item for item in self.requires if item not in held]
         if self.requires_any and not any(item in held for item in self.requires_any):
             # One entry, so the caller phrases it as one requirement: any of these will do.
@@ -102,7 +108,7 @@ def _parse(path: Path) -> Skill:
 
 
 def available_skills() -> list[Skill]:
-    """Every declared workflow, in stable order.
+    """Every declared skill, in stable order.
 
     Mirrors `available_configs` in the services: what exists is decided by what
     loads, not by a list someone has to remember to update.
@@ -125,11 +131,11 @@ def catalog(held_result_types: frozenset[str] | set[str] | None = None) -> str:
 
     Unavailable skills are listed rather than hidden. A user asking to compare
     drift against evidence should be told a Scout run is missing, not told the
-    workflow does not exist.
+    skill does not exist.
     """
     skills = available_skills()
     if not skills:
-        return "No workflows are available."
+        return "No skills are available."
     held = frozenset(held_result_types or frozenset())
     lines: list[str] = []
     for skill in skills:
@@ -147,7 +153,7 @@ def _name_runs(missing: list[str]) -> str:
     """The absent runs as a reader should see them.
 
     Worth the few lines because this sentence is the whole of what a user is told when a
-    workflow cannot run, and "needs a aligner, scout result" reads as a bug in the tool
+    skill cannot run, and "needs a aligner, scout result" reads as a bug in the tool
     rather than as a missing run.
     """
     parts = [
@@ -163,5 +169,5 @@ def read_skill(name: str) -> str:
     skill = find_skill(name)
     if skill is None:
         known = ", ".join(item.name for item in available_skills()) or "none"
-        return f"No workflow named {name!r}. Available: {known}."
+        return f"No skill named {name!r}. Available: {known}."
     return skill.body

@@ -68,7 +68,7 @@ const SUGGESTIONS: Record<string, string[]> = {
   // "what needs attention" would invite an assessment neither one made.
   chunker: ["What is in this document?", "How is it structured?"],
   searcher: ["What did this search turn up?", "Which sources look most relevant?"],
-  workspace: ["Which tool should I use?", "What workflows can you run?"],
+  workspace: ["Which tool should I use?", "What skills can you use here?"],
 };
 
 /** For a result type with no openers of its own: neither assumes a verdict. */
@@ -247,10 +247,10 @@ export function Ask({
       ? ["Summarize the attached context.", "What important details does it contain?"]
       : resultType === "workspace" && resultCount > 1
         // Asked as a question, never as a list: the agent answers from the
-        // catalog in its own prompt, so adding a workflow changes no UI text.
-        ? ["What workflows can you run?", "Where do the results agree or differ?"]
+        // catalog in its own prompt, so adding a skill changes no UI text.
+        ? ["What skills can you use here?", "Where do the results agree or differ?"]
         : resultType === "workspace" && resultCount === 1
-          ? ["Summarize the available result.", "What workflows can you run?"]
+          ? ["Summarize the available result.", "What skills can you use here?"]
       : SUGGESTIONS[resultType] ?? DEFAULT_SUGGESTIONS;
 
   return (
@@ -340,7 +340,7 @@ export function Ask({
               {resultCount > 0
                 ? "Navigate current results, compare tool outputs, or inspect their cited document context."
                 : attachments.length > 0
-                  ? "Ask about the attached context or explore which PDIS workflow should use it."
+                  ? "Ask about the attached context or explore which PDIS tool should read it."
                   : "Explore what each tool does. Final results will appear here automatically when they are available."}
             </p>
             <div className={pageDisplay ? "mt-6 grid w-full max-w-xl gap-2.5" : "mt-5 grid w-full gap-2"}>

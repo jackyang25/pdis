@@ -859,5 +859,46 @@
       "tool": "expert"
     }
   ],
+  "skills": [
+    {
+      "description": "Read where a candidate misses its profile against what current evidence says about that target",
+      "name": "compare-drift-against-evidence",
+      "requires": [
+        "aligner",
+        "scout"
+      ],
+      "requires_any": []
+    },
+    {
+      "description": "Turn the open items in a result into one consolidated list of requests to send",
+      "name": "draft-the-grantee-ask",
+      "requires": [],
+      "requires_any": [
+        "expert",
+        "aligner",
+        "inspector"
+      ]
+    },
+    {
+      "description": "Read where the candidate misses its profile against what the gate will actually ask about",
+      "name": "separate-gate-blockers-from-document-gaps",
+      "requires": [
+        "aligner",
+        "expert"
+      ],
+      "requires_any": []
+    },
+    {
+      "description": "Write a short passage about a result that survives being quoted out of context",
+      "name": "write-the-review-summary",
+      "requires": [],
+      "requires_any": [
+        "inspector",
+        "aligner",
+        "scout",
+        "expert"
+      ]
+    }
+  ],
   "version": 3
 }

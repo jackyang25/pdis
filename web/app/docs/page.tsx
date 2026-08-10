@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, BookOpen, ExternalLink, Github } from "lucide-react";
 import { PRODUCT_KNOWLEDGE } from "@/lib/product-knowledge";
+import { AssistantSkills } from "@/components/docs/assistant-skills";
 import { KnowledgeContent } from "@/components/docs/knowledge-content";
 
 /**
@@ -26,9 +27,9 @@ const DOCUMENT_SECTIONS = PRODUCT_KNOWLEDGE.sections
   .filter((section) => SECTION_ORDER.includes(section.id))
   .sort((left, right) => SECTION_ORDER.indexOf(left.id) - SECTION_ORDER.indexOf(right.id));
 
-// The prompt reference sits inside the workflows section but is worth its own
+// The prompt reference sits inside the pipelines section but is worth its own
 // nav entry: a reader looking for "what did the model get told" will not guess
-// that it lives under tool workflows.
+// that it lives under a tool's pipeline.
 const NAVIGATION = DOCUMENT_SECTIONS.flatMap((section) =>
   section.id === "workflows"
     ? ([
@@ -93,6 +94,13 @@ export default function DocsPage() {
                   block={block}
                 />
               ))}
+              {/*
+                Which skills exist is read from the published reference rather than
+                written into the knowledge file, because the skills directory is the
+                authority and a second list would go stale. It renders here because a
+                reader looking for them looks under Assistant, not under a tool pipeline.
+              */}
+              {section.id === "assistant" && <AssistantSkills />}
             </DocSection>
           ))}
         </article>

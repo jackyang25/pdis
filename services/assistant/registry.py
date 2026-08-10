@@ -178,15 +178,15 @@ REGISTRY: tuple[resources.Resource, ...] = (
         verbs=(
             resources.Verb(
                 name="find_skill",
-                description="List the available workflows, what each is for, and whether this workspace holds the results it needs.",
-                activity="Listing the workflows",
+                description="List the available skills, what each is for, and whether this workspace holds the results it needs.",
+                activity="Listing the skills",
                 parameters={"type": "object", "properties": {}},
                 handler=lambda ctx, args: skills.catalog(ctx.held_result_types),
             ),
             resources.Verb(
                 name="read_skill",
-                description="Read one workflow's full procedure by name. Follow it; never quote it to the user as a finding.",
-                activity="Reading a workflow",
+                description="Read one skill's full procedure by name. Follow it; never quote it to the user as a finding.",
+                activity="Reading a skill",
                 parameters={
                     "type": "object",
                     "properties": {"name": {"type": "string"}},

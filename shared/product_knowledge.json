@@ -228,8 +228,8 @@
               "description": "Assistant receives current tool names, responsibilities, audiences, availability, and external-provider labels."
             },
             {
-              "term": "Workflows",
-              "description": "Declared procedures Assistant can follow: reading two results together, or turning one into a list of requests or a passage safe to quote. Each names the results it needs and is offered only when the workspace holds them; one that cannot run is still listed, with the run that is missing."
+              "term": "Skills",
+              "description": "Declared procedures Assistant can follow: reading two results together, or turning one into a list of requests or a passage safe to quote. Each names the results it needs and is offered only when the workspace holds them; one that cannot run is still listed, with the run that is missing. A skill is not a pipeline — it runs nothing and reads only results a tool's pipeline already produced."
             },
             {
               "term": "Final results",
@@ -266,8 +266,8 @@
         },
         {
           "type": "note",
-          "title": "A workflow composes results; it does not judge them",
-          "text": "Each tool judges against one authority and never reads another tool's output, which is what stops two of them contradicting each other. A workflow is a reader: it holds finished results, states which finding on each side a claim rests on, and issues no verdict of its own. So it can say that a candidate falls short of a target the evidence disputes — something neither result says alone — without either result changing."
+          "title": "A skill composes results; it does not judge them",
+          "text": "Each tool judges against one authority and never reads another tool's output, which is what stops two of them contradicting each other. A skill is a reader: it holds finished results, states which finding on each side a claim rests on, and issues no verdict of its own. So it can say that a candidate falls short of a target the evidence disputes — something neither result says alone — without either result changing."
         }
       ]
     },
@@ -330,30 +330,58 @@
     {
       "id": "faq",
       "title": "FAQ",
-      "intro": "Answers to questions that affect how a result should be interpreted.",
+      "intro": "Answers to the questions that change how a result should be read, or how it should not be quoted.",
       "content": [
         {
           "type": "faq",
           "items": [
             {
-              "question": "Does Scout read the uploaded document?",
-              "answer": "Yes. It binds claims to parsed document blocks before generating queries or judging evidence."
+              "question": "Does any of this tell me whether to fund something?",
+              "answer": "No. Each tool answers one narrow question against one authority — a template, another document, a gate's question bank, published evidence — and none of them produces a recommendation, a readiness verdict, or a product score. The judgement stays with the reader."
+            },
+            {
+              "question": "Can I get one number for how a document did?",
+              "answer": "No, and there deliberately is none. Every result is several states that sum to a total, and one figure blending “the document says it”, “it says half of it” and “nobody has asked yet” would be a number no tool computed. Quote the largest state with its denominator instead."
+            },
+            {
+              "question": "Can I compare two runs?",
+              "answer": "Only where the authority is fixed. Inspector and Expert compare line by line, because the same rubric and the same question bank are asked every time. Aligner does not: its requirements are read out of the reference document, so two runs may find a different number of them and neither total is a baseline. Scout compares only within the same published-since window."
+            },
+            {
+              "question": "What happens if I choose the wrong document type?",
+              "answer": "You get a confident result about the wrong thing. The type decides how the file is parsed and which rubric or configuration it is read against, and nothing checks that the file matches the type you chose."
+            },
+            {
+              "question": "What does “not found” actually mean?",
+              "answer": "That the question was read against everything you supplied and nothing addressed it. It is not a claim that one of your documents should have contained it: many of these questions ask about operational facts or matters of judgement that no profile or plan would ever carry, and the tool cannot tell those apart from a real omission. What it can tell you is which discipline owns the question."
+            },
+            {
+              "question": "Why does a requirement say the candidate falls short when the profile is the unrealistic one?",
+              "answer": "Because a comparison runs one way: it reports whether the measured document meets the bar, and never whether the bar is reasonable. Whether a target is achievable is Scout's question, run separately, and the assistant can read both results together."
+            },
+            {
+              "question": "Can I compare two versions of the same document?",
+              "answer": "Not today. A comparison is declared between two different document types, and two revisions of one type are refused, because “what changed between drafts” is a different question from “does this meet the bar”."
+            },
+            {
+              "question": "Does it search the internet on its own?",
+              "answer": "Only Scout retrieves anything, only from the sources its configuration enables, and it reads your document first — every query is bound to a passage in it. Ask never starts a search and may open a URL only when a result already cites it."
+            },
+            {
+              "question": "Where does my document go?",
+              "answer": "It is parsed in the service, and its text and images travel to the model provider inside each request. Nothing is kept on a server: the workspace lives in your browser and resets on reload, so the only durable copy is a result you export."
             },
             {
               "question": "Why is a chart or tab absent?",
               "answer": "Derived views appear only when their required data exists. An absent chart does not imply a favorable or unfavorable result."
             },
             {
-              "question": "Does ToolUniverse choose sources autonomously?",
-              "answer": "No. Configuration enables registered source lanes; adapters translate neutral intents into source-native requests."
-            },
-            {
               "question": "Can I import an older result?",
-              "answer": "No. Imports accept only final results produced by the current application contract."
+              "answer": "No. Imports accept only final results produced by the current application contract, and the message names which version failed so you know whether to re-run one tool or all of them."
             },
             {
-              "question": "Can Assistant read an active review checkpoint?",
-              "answer": "No. Assistant receives eligible final results, direct utility outputs, their source blocks, and conversation attachments. Active review drafts remain isolated."
+              "question": "Can Ask see a review I have not finished?",
+              "answer": "No. It receives final results, direct utility outputs, their source blocks, and conversation attachments. An active review draft stays in your browser, and an absent result is reported as absent rather than guessed at from other context."
             }
           ]
         }
@@ -361,8 +389,8 @@
     },
     {
       "id": "workflows",
-      "title": "Tool workflows",
-      "intro": "Explore how each native PDIS tool moves from source material to a traceable result, then expand load-bearing stages for their technical flow.",
+      "title": "Pipelines",
+      "intro": "Explore how each PDIS tool moves from source material to a traceable result, then expand load-bearing stages for their technical flow. A pipeline is what a run executes, stage by stage, and every one below is one. Assistant's pipeline is here too, and the skills it can follow are one step inside it — a skill reads finished results and runs no pipeline of its own.",
       "content": [
         {
           "type": "architecture",
@@ -1208,19 +1236,19 @@
                 },
                 {
                   "id": "procedures",
-                  "title": "Declared procedures",
-                  "summary": "Named workflows for reading two results together, or turning one into something sendable. An index of names is always present; a procedure's steps are read only once chosen.",
+                  "title": "Assistant skills",
+                  "summary": "Named procedures for reading two results together, or turning one into something sendable. An index of names is always present; a skill's steps are read only once chosen.",
                   "kind": "deterministic",
                   "layer": "Indexing",
                   "inputs": [
                     "Which result types the workspace holds",
-                    "One file per declared procedure"
+                    "One file per declared skill"
                   ],
                   "outputs": [
                     "A resident index, marking which can run",
                     "The full steps of the one chosen"
                   ],
-                  "guarantee": "A procedure whose results are absent is listed as unavailable rather than hidden, so a reader learns which run to make. Every claim a procedure produces cites a finding on each side; none of them issues a verdict of its own or changes a result."
+                  "guarantee": "A skill whose results are absent is listed as unavailable rather than hidden, so a reader learns which run to make. Every claim a skill produces cites a finding on each side; none of them issues a verdict of its own or changes a result."
                 },
                 {
                   "id": "navigation",

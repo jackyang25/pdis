@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 from services.aligner.prompt_catalog import PROMPT_CATALOG as ALIGNER_CATALOG
+from services.assistant.skills import available_skills
 from services.chunker import available_configs as chunker_configs
 from services.chunker.prompt_catalog import PROMPT_CATALOG as CHUNKER_CATALOG
 from services.expert.prompt_catalog import PROMPT_CATALOG as EXPERT_CATALOG
@@ -121,7 +122,26 @@ def build_reference() -> dict:
         )
     )
 
-    return {"version": VERSION, "prompts": prompts, "configurations": configurations}
+    # The assistant's skills are instructions to a model exactly as the stage prompts
+    # are, so they are published from the same generator and drift-tested by the same
+    # test. Bodies are deliberately absent: a skill is a procedure a reader follows in
+    # chat, and publishing several pages of it here would bury the prompts.
+    declared_skills = [
+        {
+            "name": skill.name,
+            "description": skill.description,
+            "requires": list(skill.requires),
+            "requires_any": list(skill.requires_any),
+        }
+        for skill in available_skills()
+    ]
+
+    return {
+        "version": VERSION,
+        "prompts": prompts,
+        "configurations": configurations,
+        "skills": declared_skills,
+    }
 
 
 def main() -> None:

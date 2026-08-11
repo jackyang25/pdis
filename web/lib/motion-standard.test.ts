@@ -98,6 +98,35 @@ test("only the skeleton primitive animates a wait with a shimmer or pulse", () =
   );
 });
 
+test("every motion recipe carries its own reduced-motion companion", () => {
+  /*
+    `lib/motion.ts` is exempt from the check above, so that it can state durations
+    directly — and that exemption let a recipe ship without an opt-out, which is the worst
+    place for one to be missing: a recipe is reused everywhere by definition. Found by
+    deleting the companion from `CARD_LIFT_MOTION` and watching nothing fail.
+
+    `STREAM_CARET_MOTION` is the one exception and is meant to be: like a spinner, its
+    movement *is* the status, so stopping it would remove the only signal that generation
+    is still going.
+  */
+  const motion = FILES.find(({ relative }) => relative === MOTION_SOURCE);
+  assert.ok(motion, "lib/motion.ts is missing");
+
+  const offenders: string[] = [];
+  for (const [, name, value] of motion.text.matchAll(
+    /export const (\w+)\s*(?:=|:[^=]*=)\s*((?:"[^"]*"\s*\+?\s*)+);/g,
+  )) {
+    if (name === "STREAM_CARET_MOTION") continue;
+    if (!/\b(?:transition|animate)-(?!none\b)/.test(value)) continue;
+    if (!/motion-reduce:/.test(value)) offenders.push(name);
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "a recipe every surface imports must say what it does under reduced motion",
+  );
+});
+
 test("every motion recipe has a consumer", () => {
   const motion = FILES.find(({ relative }) => relative === MOTION_SOURCE);
   assert.ok(motion, "lib/motion.ts is missing");

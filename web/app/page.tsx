@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ExternalLink } from "lucide-react";
+import { CARD_AFFORDANCE_MOTION, CARD_LIFT_MOTION } from "@/lib/motion";
 import { PdisIcon } from "@/components/ui/pdis-icon";
 import {
   type ExternalToolDefinition,
@@ -130,6 +131,16 @@ function ToolCard({ tool, compact = false }: { tool: ToolDefinition; compact?: b
     : <ExternalToolCard tool={tool} />;
 }
 
+/**
+ * An unavailable card, dimmed as a whole.
+ *
+ * The tint alone left the title and description at full strength, so a tool nobody can
+ * open competed with four that they can. Dimming the card rather than each line keeps one
+ * rule here instead of a muted variant of every part. Not in `lib/motion.ts`: nothing
+ * about it moves.
+ */
+const CARD_UNAVAILABLE = "bg-card/70 opacity-65";
+
 function WorkspaceToolCard({
   tool,
   compact = false,
@@ -145,7 +156,17 @@ function WorkspaceToolCard({
         icon={tool.icon}
         trailing={comingSoon
           ? <AvailabilityBadge />
-          : <ArrowUpRight className="h-4 w-4" aria-hidden="true" />}
+          : (
+            /*
+              The arrow is what says the card opens something, so it is what moves. Along
+              its own diagonal, a pixel each way: enough to read as a response, not enough
+              to reflow anything around it.
+            */
+            <ArrowUpRight
+              className={`h-4 w-4 ${CARD_AFFORDANCE_MOTION}`}
+              aria-hidden="true"
+            />
+          )}
       />
       <CardBody title={tool.title} description={tool.description} />
       <div className="mt-auto pt-5">
@@ -156,17 +177,14 @@ function WorkspaceToolCard({
 
   if (comingSoon || !tool.href) {
     return (
-      <article aria-disabled="true" className={`${className} bg-card/70`}>
+      <article aria-disabled="true" className={`${className} ${CARD_UNAVAILABLE}`}>
         {content}
       </article>
     );
   }
 
   return (
-    <Link
-      href={tool.href}
-      className={`${className} transition-[border-color,box-shadow] duration-base hover:border-foreground/20 hover:shadow-[0_10px_28px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25`}
-    >
+    <Link href={tool.href} className={`${className} ${CARD_LIFT_MOTION}`}>
       {content}
     </Link>
   );
@@ -178,7 +196,7 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
   return (
     <article
       aria-disabled={comingSoon ? "true" : undefined}
-      className={`flex min-h-[232px] flex-col rounded-lg border border-border bg-card p-5 ${comingSoon ? "bg-card/70" : ""}`}
+      className={`flex min-h-[232px] flex-col rounded-lg border border-border bg-card p-5 ${comingSoon ? CARD_UNAVAILABLE : ""}`}
     >
       <CardHeader
         icon={tool.icon}

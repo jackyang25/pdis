@@ -25,6 +25,33 @@ export const SURFACE_ENTRY_MOTION =
   "animate-in fade-in duration-slow ease-enter motion-reduce:animate-none";
 
 /**
+ * A card answering the cursor: it is a target, and hovering says so.
+ *
+ * A recipe rather than a class string on each card, for the reason the others are: two
+ * card kinds use it, and "how a card responds" should not be two answers. It was a border
+ * one shade darker plus a 5%-opacity shadow, which on a near-white background is
+ * invisible — the cards looked flat because they did not visibly respond, not because they
+ * lacked ornament.
+ *
+ * A lift and a shadow, and nothing that runs on its own. A perpetually animating border —
+ * the fashionable version of this — is decoration rather than a state change, so it has no
+ * honest reduced-motion companion: half the readers would see the flat card and the other
+ * half would see chrome on a tool whose credibility rests on restraint.
+ */
+export const CARD_LIFT_MOTION =
+  "transition-[border-color,box-shadow,transform] duration-base ease-enter hover:-translate-y-px hover:border-foreground/25 hover:shadow-[0_2px_4px_hsl(var(--foreground)/0.04),0_12px_28px_hsl(var(--foreground)/0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 motion-reduce:transition-none motion-reduce:hover:translate-y-0";
+
+/**
+ * The affordance inside a lifting card: the arrow that says it opens something.
+ *
+ * Along its own diagonal, a pixel each way — enough to read as a response, not enough to
+ * reflow anything around it. Separate from the lift because it is on a child element and
+ * keyed off the card's hover group.
+ */
+export const CARD_AFFORDANCE_MOTION =
+  "transition-[transform,color] duration-base ease-enter group-hover:-translate-y-px group-hover:translate-x-px group-hover:text-foreground motion-reduce:transition-none motion-reduce:group-hover:translate-x-0 motion-reduce:group-hover:translate-y-0";
+
+/**
  * Where a jump landed.
  *
  * A reader sent from a result row, a coverage cell, or a passage in the panel needs

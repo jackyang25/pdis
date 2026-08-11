@@ -290,9 +290,16 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     icon: "stage-gate",
     audience: "ghide",
     workflow: "stage_gate",
-    availability: "coming_soon",
+    availability: "available",
     delivery: "external",
-    shortcuts: [],
+    // Claude only for now. The other GHIDE tools list both providers; this one
+    // lists what exists rather than leaving a dead ChatGPT entry beside it.
+    shortcuts: [
+      {
+        label: "Claude",
+        url: "https://claude.ai/project/019f6bf2-9fa2-77f9-a6c3-01e29385fb64",
+      },
+    ],
   },
 ] as const;
 

@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { WORKSPACE_TOOLS } from "./tools.ts";
+import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "./tools.ts";
 
 /** Approximate minutes, rounded to what a reader should budget. */
 const DURATION = /^~\d+ min$/;
@@ -48,4 +48,45 @@ test("the estimate is a budget, so it rounds up rather than to the middle", () =
   // upper ends rather than averages.
   const scout = WORKSPACE_TOOLS.find((tool) => tool.id === "scout");
   assert.equal(scout?.activity, "~15 min");
+});
+
+test("an available external tool offers somewhere to go", () => {
+  // The stage gate evaluator sat as coming_soon with an empty shortcut list.
+  // Marking one available without a link would render a card that says it is
+  // ready and gives no way to reach it.
+  for (const tool of EXTERNAL_TOOLS) {
+    if (tool.availability !== "available") continue;
+    assert.ok(
+      tool.shortcuts.length > 0,
+      `${tool.id} is available but links nowhere`,
+    );
+  }
+});
+
+test("a tool that is not built yet links nowhere", () => {
+  for (const tool of EXTERNAL_TOOLS) {
+    if (tool.availability === "available") continue;
+    assert.equal(
+      tool.shortcuts.length,
+      0,
+      `${tool.id} is ${tool.availability} but offers a link`,
+    );
+  }
+});
+
+test("every shortcut points at the provider it names", () => {
+  // A mislabelled link sends someone to the wrong assistant, which looks like
+  // the tool being broken rather than the label being wrong.
+  const host: Record<string, string> = {
+    ChatGPT: "chatgpt.com",
+    Claude: "claude.ai",
+  };
+  for (const tool of EXTERNAL_TOOLS) {
+    for (const shortcut of tool.shortcuts) {
+      assert.ok(
+        shortcut.url.includes(host[shortcut.label]),
+        `${tool.id}: a ${shortcut.label} link points at ${shortcut.url}`,
+      );
+    }
+  }
 });

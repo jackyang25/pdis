@@ -69,9 +69,30 @@ _SCOPE_BOUNDARY = """Scope boundary:
   here would contradict them.
 - Do not answer the question yourself from your own knowledge. A question is
   answered only when the supplied material answers it.
-- These questions are compound: most ask three to five things in one sentence. Judge
+- These questions are compound: many ask two or three things in one sentence. Judge
   them clause by clause. Every clause answered is answered; some answered is partly;
-  none is not found. Do not round a partial up or down."""
+  none is not found. Do not round a partial up or down.
+
+How to read one of these questions:
+- A list in parentheses tells you what counts as addressing the term in front of it. It
+  is not a checklist of separate demands. "the physicochemical properties (crystallinity,
+  solubility/pKa, LogP/LogD, permeability, Lipinski)" asks about the properties, and the
+  list is how you recognise material that addresses them. Material that covers the term
+  substantively is answered. It is partly only when it addresses the term and visibly
+  leaves out something the question singles out — and then `missing` names that thing.
+- A list after a dash or a colon is different: there the author is enumerating what they
+  want, so each item is its own clause and an omission is a partial.
+- A question asking whether something is planned, being initiated, being scoped, under
+  way or under consideration is answered when the material states that it is. It does
+  not require the plan to be finished or the activity to be complete — that is what a
+  later gate asks.
+- A question asking whether something has been assessed, evaluated, screened or
+  characterised is answered when the material carries the substance of it. A document
+  states findings; it rarely narrates who produced them, and requiring it to name the
+  people or the process would make almost everything partial.
+- Judge the question in front of you, not the one you would have asked. Where the
+  question is looser than you would like, it is answered by material that satisfies it as
+  written."""
 
 
 def build_assessment_prompt(has_context: bool) -> str:
@@ -117,15 +138,26 @@ Lineage is required, not optional. `{DECISION_FROM_DOCUMENT}` MUST cite the exac
 supplied block IDs it was read from. A citation you cannot point at is worse than
 reporting the question unanswered.
 
-`statement` is one short factual sentence (max 25 words) saying what the material
-states, or that it states nothing on the subject. When the answer came from a context item
-that shows page markers, name the page in it — that is the nearest thing to a citation
-context can carry, and a reader who has the file can then find it.
+`statement` is one short factual sentence (max 25 words) saying what the material states,
+or that it states nothing on the subject. Say what it holds, not how much of the question
+it covers — the state already says that, and `missing` says the rest.
 
-`missing` is one short sentence (max 25 words) naming only what is still not stated,
-on a partial answer and nowhere else. It is read as an instruction to whoever wrote the
+On a partial, `statement` and `missing` divide the question between them and must not
+overlap: `statement` is the part that IS addressed and `missing` is the part that is not,
+so a reader can see both halves without opening the document. Name the specific thing in
+each. "Stability is partly covered" tells a reader nothing; "Zones I and II are covered"
+plus "Zone IVb data and the VVM category" tells them what to ask for.
+
+When the answer came from a context item that shows page markers, name the page in it —
+that is the nearest thing to a citation context can carry, and a reader who has the file
+can then find it.
+
+`missing` is one short sentence (max 25 words) naming only what is still not stated, on a
+partial answer and nowhere else. It is read as an instruction to whoever wrote the
 document, so name the thing, not its absence: "Zone IVb stability data and the VVM
-category" rather than "the document does not say".
+category" rather than "the document does not say". Never restate the whole question there:
+if every part is missing the answer is not_found, and if the missing part cannot be named
+specifically then the question is answered.
 
 Describe the material; do not instruct the reader, and do not restate the question."""
 

@@ -733,11 +733,17 @@ function CountRow({
       */}
       {requiredOpen > 0 && (
         <p className="mt-2 text-xs text-foreground">
-          <span className="font-semibold tabular-nums">{requiredOpen}</span>{" "}
+          {/* The whole sentence is the label, not a clause inside it: SignalLabel
+              puts its help icon after its children, so wrapping the middle left
+              the icon standing between "are" and "still unanswered". */}
           <ExpertSignalLabel topic="requirement">
-            {requiredOpen === 1 ? "question this gate requires is" : "questions this gate requires are"}
-          </ExpertSignalLabel>{" "}
-          still unanswered.
+            <span>
+              <span className="font-semibold tabular-nums">{requiredOpen}</span>{" "}
+              {requiredOpen === 1
+                ? "question this gate requires is still unanswered."
+                : "questions this gate requires are still unanswered."}
+            </span>
+          </ExpertSignalLabel>
         </p>
       )}
       <p className="mt-2 border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">

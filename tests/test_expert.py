@@ -822,3 +822,74 @@ class PromptCatalogTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReadingRuleTests(unittest.TestCase):
+    """The prompt has to answer the questions the bank's own wording raises.
+
+    Left unanswered, the model chose the strictest reading available and a five-item
+    parenthetical became five independent judgements: at a 70% chance each of appearing in
+    a document, a question like that comes back fully answered 17% of the time. The grid
+    went amber, and not because anything was missing.
+
+    These pin the readings rather than the wording, so the prompt can be rephrased without
+    the rules quietly going with it.
+    """
+
+    def prompt(self) -> str:
+        """The prompt as one line, because it is wrapped for reading and these probes
+        are about what it says rather than where it breaks."""
+        from services.expert.stages.assessor import build_assessment_prompt
+
+        return " ".join(build_assessment_prompt(True).lower().split())
+
+    def test_a_parenthetical_is_scope_rather_than_a_checklist(self) -> None:
+        prompt = self.prompt()
+        self.assertIn("parentheses tells you what counts", prompt)
+        self.assertIn("not a checklist", prompt)
+
+    def test_a_dash_or_colon_list_stays_a_checklist(self) -> None:
+        """A parenthesis glosses a term; a dash enumerates what the author wants. 23
+        questions use the second form and must not be loosened with the first."""
+        self.assertIn("after a dash or a colon", self.prompt())
+
+    def test_work_under_way_answers_a_question_about_work_under_way(self) -> None:
+        prompt = self.prompt()
+        self.assertIn("under way", prompt)
+        self.assertIn("does not require the plan to be finished", prompt)
+
+    def test_substance_answers_a_question_about_assessment(self) -> None:
+        """A document states findings; it rarely narrates who produced them."""
+        self.assertIn("narrates who produced them", self.prompt())
+
+    def test_the_two_halves_of_a_partial_are_told_apart(self) -> None:
+        """`statement` is the part that is addressed and `missing` is the part that is
+        not, so a reader sees both halves without opening the document."""
+        prompt = self.prompt()
+        self.assertIn("divide the question between them", prompt)
+        self.assertIn("must not overlap", prompt)
+
+    def test_a_partial_that_cannot_name_what_is_missing_is_not_a_partial(self) -> None:
+        """Otherwise `missing` becomes a restatement of the question, which is the
+        black box the field was added to prevent."""
+        self.assertIn("cannot be named", self.prompt())
+
+    def test_the_shipped_bank_is_what_these_rules_are_for(self) -> None:
+        """A guard on the reason, not the rule: if the wording that made these necessary
+        ever leaves the bank, the rules are carrying no weight and should be revisited.
+        """
+        import re
+
+        questions = [
+            question.text
+            for gate in available_gates("bmgf")
+            for _, question in find_config("bmgf", gate.id).questions()
+        ]
+        parenthetical = [q for q in questions if re.search(r"\([^)]{12,}\)", q)]
+        under_way = [
+            q
+            for q in questions
+            if re.search(r"\b(being|planned|scoped|initiated|considered)\b", q, re.I)
+        ]
+        self.assertGreater(len(parenthetical), len(questions) // 4)
+        self.assertGreater(len(under_way), 20)

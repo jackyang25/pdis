@@ -64,6 +64,31 @@ A partial carries `missing`: one sentence naming what the question still leaves 
 required on that state and refused on every other. That is the sentence a PPL takes back
 to the grantee. It is never added to `answered` to imply progress, and there is no score.
 
+`statement` and `missing` divide a partial between them and must not overlap — the first
+is the part the documents cover, the second is the part they do not — so a reader sees
+both halves without opening the document. A partial whose gap cannot be named specifically
+is reported as answered instead: `missing` restating the question is the black box the
+field was added to prevent.
+
+### How a question is read
+
+The bank's own wording raises questions the prompt has to answer, or the model answers
+them itself and answers them strictly. A five-item parenthetical read as five independent
+judgements comes back fully answered about 17% of the time at a 70% chance each — an amber
+grid caused by punctuation rather than by anything missing. So the prompt states the
+readings:
+
+| the bank writes | it is read as |
+|---|---|
+| `properties (crystallinity, solubility/pKa, LogP/LogD…)` | the parenthetical says what counts as addressing *the properties* — not five demands |
+| `documentation final - stability reports, batch record…` | a dash or colon enumerates what the author wants, so each item is its own clause |
+| `Is a plan being initiated…` | answered when the material says it is under way; a finished plan is a later gate's question |
+| `Have CMC experts assessed…` | answered when the substance is there; a document states findings and rarely narrates who produced them |
+
+`test_expert.py` pins each reading, and pins that the bank still contains the wording that
+made them necessary — so if the source is ever rewritten, the rules stop carrying weight
+visibly rather than silently.
+
 `not_found` is named for what stays true whatever a hint says. `absent` invites the
 reader to hear a fault, and this tool cannot tell an omission from a question no
 profile or plan was ever going to carry. What it can say is which discipline owns it,

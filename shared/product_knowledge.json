@@ -344,6 +344,10 @@
               "answer": "No, and there deliberately is none. Every result is several states that sum to a total, and one figure blending “the document says it”, “it says half of it” and “nobody has asked yet” would be a number no tool computed. Quote the largest state with its denominator instead."
             },
             {
+              "question": "I ran the same document twice and the findings are not identical. Is something wrong?",
+              "answer": "No, and it is worth knowing which half moved. Identical on every run: which questions are asked, the denominator they are counted against, which blocks a finding is allowed to cite, and what is excluded and why — those are fixed by the rubric, the question bank, and deterministic checks, not by the model. What varies: which findings surface first, how each is worded, and, for Scout, which sources a search happens to reach. So a second run may order or phrase things differently while the ledger it was judged against is unchanged. Read a difference as a difference in emphasis, not as a change in what the document contains — and if you need the two side by side, see “Can I compare two runs?”."
+            },
+            {
               "question": "Can I compare two runs?",
               "answer": "Only where the authority is fixed. Inspector and Expert compare line by line, because the same rubric and the same question bank are asked every time. Aligner does not: its requirements are read out of the reference document, so two runs may find a different number of them and neither total is a baseline. Scout compares only within the same published-since window."
             },

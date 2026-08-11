@@ -357,6 +357,21 @@ supplied material answers and which it does not.
   nine questions where every other cell holds ten; a tenth typed to tidy the grid would
   put a question in the bank that no reviewer wrote, which is the worst error this file
   can hold. `test_expert.py` pins the exception.
+- **The prompt states how to read the bank's own wording, or the model decides and decides
+  strictly.** A five-item parenthetical read as five independent judgements comes back
+  fully answered about 17% of the time at a 70% chance each — an amber grid produced by
+  punctuation rather than by anything missing. So: a parenthetical says what counts as
+  addressing the term in front of it and is not a checklist; a dash or colon list *is* one,
+  because there the author is enumerating what they want; a question about work being
+  planned or under way is answered when the material says it is; and a question about
+  something being assessed is answered by the substance, not by the document narrating who
+  produced it. `test_expert.py` pins each reading and pins that the bank still contains the
+  wording that made it necessary.
+- `statement` and `missing` divide a partial between them and must not overlap: the first
+  is the part the documents cover, the second the part they do not, so both halves are
+  visible without opening the document. A partial whose gap cannot be named specifically is
+  reported as answered — `missing` restating the question is the black box the field exists
+  to prevent.
 - `requirement` never gates and never reaches the model: a model told a question is only
   anticipatory reads the material less carefully for it, and the same triage has to run
   either way. It is carried onto the result because it is what separates a gate blocker

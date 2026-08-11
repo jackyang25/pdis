@@ -784,7 +784,8 @@ export type GateSpec = {
  * model concluded from the material supplied.
  *
  * `not_found` rather than `absent`: the claim has to hold whether or not the bank's
- * `likely_in` hint was right, and "not found in what was supplied" always does.
+ * "not found in what was supplied" is what the run establishes, whatever anyone expected
+ * the documents to hold.
  * There were five states; two of them rested on a judgment about which document
  * could answer a question, which the source question bank does not contain.
  */
@@ -809,13 +810,14 @@ export type QuestionAssessment = {
   id: string;
   text: string;
   state: QuestionState;
-  pq: boolean;
   /**
-   * Where the answer would usually live — a hint carried from the bank, so a reader
-   * can see which document to open or upload. It decided nothing about this
-   * question's state, and is absent from the source question bank entirely.
+   * Whether this gate requires the question answered now, or expects it to be forming.
+   *
+   * From the bank, on every question. It is what makes a count actionable: an unanswered
+   * `required` question holds a gate up, and an unanswered `anticipatory` one is early
+   * warning rather than a shortfall.
    */
-  likely_in: string[];
+  requirement: "required" | "anticipatory";
   statement: string;
   /**
    * What a partial answer still leaves open, and empty on every other state.
@@ -1071,9 +1073,21 @@ export async function runAligner(
   return streamRequest("/api/aligner/run", form, onStage);
 }
 
-export async function fetchExpertGates(org: string): Promise<GateSpec[]> {
+/**
+ * The gates Expert can review for this org and intervention.
+ *
+ * Filtered by intervention on the service side, because a bank is written for the
+ * modalities it names — the current ones derive from a drug milestone dictionary and ask
+ * about synthetic routes and salt forms. So a modality no bank covers offers no gate,
+ * which is the honest thing to show at the point of choosing.
+ */
+export async function fetchExpertGates(
+  org: string,
+  interventionClass: string,
+): Promise<GateSpec[]> {
   const data = await jsonRequest<{ gates: GateSpec[] }>(
-    `/api/expert/gates?org=${encodeURIComponent(org)}`,
+    `/api/expert/gates?org=${encodeURIComponent(org)}`
+      + `&intervention=${encodeURIComponent(interventionClass)}`,
   );
   return data.gates;
 }

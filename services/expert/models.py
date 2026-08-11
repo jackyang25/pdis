@@ -7,9 +7,9 @@ a normalization layer that breaks every time the document is edited. The prose i
 what the config was checked against; this is the source.
 
 **Only what the source document guarantees decides anything.** That is the gate, the
-owning discipline, the question text, the `[PQ]` markers, and the eleven questions
-whose text states its own restriction ("For biologics:"). Everything else the bank
-carries is a tag: displayed, never gating.
+owning discipline, the question text, the required/anticipatory column, and any question
+whose text states its own restriction ("For biologics:"), plus the intervention classes
+the whole bank is written for. Nothing else, and nothing inferred.
 
 So a question resolves to one of four states, and every one of them is traceable:
 
@@ -23,8 +23,9 @@ judgment about which document type could answer a question — a judgment the so
 document does not contain, since it is a list of questions for SMEs to ask people and
 has no notion of an iTPP, cTPP or IPDP. A wrong judgment there produced a confident
 wrong state: a question withheld from assessment, or a gap attributed to a grantee for
-something no document was ever meant to hold. That judgment now lives in `likely_in`,
-where being wrong costs a misleading hint instead.
+something no document was ever meant to hold. Nothing replaced it: the bank states which
+questions a gate requires now, which is a fact from the source and answers the same
+question without a guess.
 """
 
 from __future__ import annotations
@@ -73,9 +74,9 @@ QuestionState = Literal[
 #: contract refuses anything else, so adding a state is one entry here plus one
 #: label in `web/lib/api.ts`.
 #:
-#: `not_found` rather than `absent`, because the claim has to survive a wrong hint.
-#: "Not found in the documents supplied" is true whatever `likely_in` says; "absent"
-#: invites the reader to hear "missing", which is a judgment about whose fault it is.
+#: `not_found` rather than `absent`: "not found in the documents supplied" is what the
+#: run actually establishes, where "absent" invites the reader to hear "missing", which is
+#: a judgment about whose fault it is.
 QUESTION_STATES: tuple[QuestionState, ...] = (
     "not_applicable",
     "answered",
@@ -110,36 +111,44 @@ ANSWER_SOURCES: tuple[AnswerSource, ...] = ("document", "context")
 # ---------------------------------------------------------------------------
 
 
+#: Whether a gate expects a question answered now, or only being thought about.
+#:
+#: The source states one of these for every question, and it is the axis that makes a
+#: count mean something: an unanswered `required` question is what holds a gate up, and an
+#: unanswered `anticipatory` one is early warning rather than a shortfall. Nothing here is
+#: inferred — the document says which.
+Requirement = Literal["required", "anticipatory"]
+
+REQUIREMENTS: tuple[Requirement, ...] = ("required", "anticipatory")
+
+
 @dataclass(frozen=True)
 class QuestionSpec:
     """One question from the bank.
 
-    Both enumerated fields draw only on vocabularies the input layer already owns —
-    intervention classes and document source types — and `load_config` raises on
-    anything else. That is what keeps runtime free of translation: where the source
-    prose names a category the system does not have ("for biologics"), it is resolved
-    into ones it does (`[monoclonal_antibody, vaccine]`) once, by a human, at transcription.
+    Every field is transcribed from the source and nothing is inferred. `applies_to`
+    draws only on the intervention-class vocabulary the input layer already owns, and
+    `load_config` raises on anything else — so where source prose names a category the
+    system does not have, it is resolved into ones it does once, by a human, at
+    transcription, rather than translated at runtime.
     """
 
     id: str
     text: str
+    #: Whether the gate requires this now or expects it to be forming. Stated for every
+    #: question in the source, so it has no default: a bank that omitted it would report
+    #: an anticipatory question as a blocker, or the reverse.
+    requirement: Requirement = "required"
     #: Intervention classes the question text itself restricts itself to. Empty means
-    #: every class, which is the normal case: only eleven of 560 questions say so.
+    #: every class this bank serves, which is the normal case.
     #:
     #: This is the one field that removes a question from a run, so it is set only
     #: where the text states the restriction — never by reading subject matter and
     #: inferring a class. A wrongly inapplicable question vanishes silently and
     #: reports as "not a shortfall", which is the least detectable error the bank can
-    #: hold.
+    #: hold. The current banks state no per-question restriction; the whole document is
+    #: a drug document, which is a fact about the bank and lives on `GateConfig`.
     applies_to: frozenset[str] = frozenset()
-    #: Where the answer would usually live. **A tag.** Never consulted when deciding
-    #: whether to assess a question, never sent to the model, and absent from the
-    #: source document entirely — it exists so a reader can see which document to
-    #: open or upload. Being wrong costs a misleading hint, not a wrong answer.
-    likely_in: tuple[str, ...] = ()
-    #: Carried from the bank's `[PQ]` marker: a WHO prequalification question.
-    #: Display only — nothing in resolution or assessment reads it.
-    pq: bool = False
 
     def applies(self, intervention_class: str) -> bool:
         return not self.applies_to or intervention_class in self.applies_to
@@ -156,8 +165,7 @@ class QuestionSpec:
             id=self.id,
             text=self.text,
             state=state,
-            pq=self.pq,
-            likely_in=list(self.likely_in),
+            requirement=self.requirement,
         )
 
 
@@ -179,14 +187,21 @@ class DisciplineSpec:
 class GateConfig:
     """One gate's bank: every discipline, every question, in authored order.
 
-    Keyed by `(org, gate)` and not by intervention class, because most questions
-    are shared across classes with per-question exceptions. Keying files by class
-    would mean editing one question in five files, which is the drift.
+    Keyed by `(org, gate)` and not by intervention class. `intervention_classes` says
+    which classes the bank serves instead, because that is a fact about the whole
+    document rather than about a question: the current banks derive from a drug milestone
+    dictionary and ask about synthetic routes, salt forms and BCS class, none of which a
+    vaccine or a mAb has. Keying the files by class would mean editing one question in
+    five files, which is the drift; declaring the scope once does not.
     """
 
     org: str
     gate_id: str
     gate_label: str
+    #: Intervention classes this bank is written for. A run for any other class is
+    #: refused rather than returned with every question marked inapplicable: a review
+    #: of nothing reads exactly like a review that found nothing wrong.
+    intervention_classes: frozenset[str]
     #: Position in the development sequence. Gate selectors list gates in this
     #: order; nothing derives it from the id.
     ordinal: int
@@ -203,6 +218,10 @@ class GateConfig:
             if any(q.id == question_id for q in discipline.questions):
                 return discipline
         raise KeyError(f"no discipline owns question {question_id!r}")
+
+    def serves(self, intervention_class: str) -> bool:
+        """Whether this bank is written for the class a run configured."""
+        return intervention_class in self.intervention_classes
 
     def questions(self) -> list[tuple[DisciplineSpec, QuestionSpec]]:
         """Every question with its discipline, in authored order."""
@@ -328,12 +347,11 @@ class QuestionAssessment:
     id: str
     text: str
     state: QuestionState
-    pq: bool = False
-    #: Where the answer would usually live — the bank's hint, carried for the same
-    #: reason as `text`: a reader needs it and a saved file has no bank to look it up
-    #: in. It explains where to look and which upload might help. It decided nothing
-    #: about this question's state.
-    likely_in: list[str] = field(default_factory=list)
+    #: Whether this gate requires the question answered now or expects it to be forming.
+    #: Carried for the same reason as `text` — a saved file has no bank to look it up in —
+    #: and it is what makes a count actionable: an unanswered `required` question holds
+    #: the gate up, and an unanswered `anticipatory` one is early warning.
+    requirement: Requirement = "required"
     #: Model prose about what the material states or does not. Empty only for
     #: `not_applicable`, where no model read the question.
     statement: str = ""
@@ -438,12 +456,28 @@ def _load_config_cached(path: str, _mtime_ns: int) -> GateConfig:
     if not isinstance(ordinal, int) or isinstance(ordinal, bool) or ordinal < 1:
         raise ValueError(f"{path}: gate 'ordinal' must be a positive integer")
 
+    valid_classes = intervention_classes()
+    served = _string_list(raw.get("intervention_classes"), "intervention_classes", path)
+    if not served:
+        raise ValueError(
+            f"{path}: 'intervention_classes' must name at least one class this bank is "
+            "written for. A bank that does not say is one that will be asked about a "
+            "modality it has no questions for."
+        )
+    unknown_served = set(served) - valid_classes
+    if unknown_served:
+        raise ValueError(
+            f"{path}: intervention_classes names unknown class(es) "
+            f"{sorted(unknown_served)}. The vocabulary is {sorted(valid_classes)}."
+        )
+
     disciplines = _disciplines(raw.get("disciplines"), path)
     return GateConfig(
         org=org,
         gate_id=gate_id,
         gate_label=gate_label,
         ordinal=ordinal,
+        intervention_classes=frozenset(served),
         mirrors=_required_text(raw, "mirrors", path),
         disciplines=disciplines,
     )
@@ -454,7 +488,6 @@ def _disciplines(raw: object, path: str) -> tuple[DisciplineSpec, ...]:
         raise ValueError(f"{path}: 'disciplines' must be a non-empty list")
 
     valid_classes = intervention_classes()
-    valid_source_types = _known_source_types()
 
     disciplines: list[DisciplineSpec] = []
     seen_disciplines: set[str] = set()
@@ -492,26 +525,21 @@ def _disciplines(raw: object, path: str) -> tuple[DisciplineSpec, ...]:
                     "'biologics' into these at transcription."
                 )
 
-            likely_in = _string_list(item.get("likely_in"), "likely_in", path)
-            unknown_types = set(likely_in) - valid_source_types
-            if unknown_types:
+            requirement = item.get("requirement")
+            if requirement not in REQUIREMENTS:
                 raise ValueError(
-                    f"{path}: {question_id} likely_in names document type(s) "
-                    f"{sorted(unknown_types)} that no chunker configuration "
-                    f"declares. Known types: {sorted(valid_source_types)}."
+                    f"{path}: {question_id} 'requirement' must be one of "
+                    f"{list(REQUIREMENTS)}. The source states it for every question, so "
+                    "a missing value would report an anticipatory question as a blocker "
+                    "or a required one as early warning."
                 )
-
-            pq = item.get("pq", False)
-            if not isinstance(pq, bool):
-                raise ValueError(f"{path}: {question_id} 'pq' must be true or false")
 
             questions.append(
                 QuestionSpec(
                     id=question_id,
                     text=_required_text(item, "text", path),
+                    requirement=requirement,
                     applies_to=frozenset(applies_to),
-                    likely_in=tuple(dict.fromkeys(likely_in)),
-                    pq=pq,
                 )
             )
         disciplines.append(
@@ -522,19 +550,6 @@ def _disciplines(raw: object, path: str) -> tuple[DisciplineSpec, ...]:
             )
         )
     return tuple(disciplines)
-
-
-@lru_cache(maxsize=1)
-def _known_source_types() -> frozenset[str]:
-    """Document types the system can actually parse.
-
-    Read from chunker's public surface rather than restated here: a bank naming a type
-    nothing can parse would offer a hint pointing at a document the system cannot read,
-    and that is better caught at load than at a gate review.
-    """
-    from services.chunker import available_configs
-
-    return frozenset(config.source_type for config in available_configs())
 
 
 def _required_text(source: dict[str, Any], key: str, path: str) -> str:
@@ -554,8 +569,15 @@ def _string_list(value: object, key: str, path: str) -> list[str]:
     return [item.strip() for item in value]
 
 
-def available_gates(org: str) -> list[GateSpec]:
+def available_gates(org: str, intervention_class: str | None = None) -> list[GateSpec]:
     """Every gate declared for an org, in development order.
+
+    Filtered by intervention class when one is given, because a bank is written for the
+    modalities it names: the current ones derive from a drug milestone dictionary. Offered
+    unfiltered, a vaccine review would be asked ten CMC questions about synthetic routes
+    and salt forms and report every one as not found — a shortfall attributed to a profile
+    that was never going to answer them. Surfaced where the gate is chosen rather than as
+    an error after choosing.
 
     Which gates exist is Expert's fact. Callers that present them read this rather
     than the config directory, and rather than a copy in TypeScript that could
@@ -568,14 +590,17 @@ def available_gates(org: str) -> list[GateSpec]:
     gates: list[GateSpec] = []
     for path in sorted(CONFIGS_DIR.glob("*.yaml")):
         config = load_config(str(path))
-        if config.org == org:
-            gates.append(
-                GateSpec(
-                    id=config.gate_id,
-                    label=config.gate_label,
-                    ordinal=config.ordinal,
-                )
+        if config.org != org:
+            continue
+        if intervention_class and not config.serves(intervention_class):
+            continue
+        gates.append(
+            GateSpec(
+                id=config.gate_id,
+                label=config.gate_label,
+                ordinal=config.ordinal,
             )
+        )
     return sorted(gates, key=lambda gate: (gate.ordinal, gate.id))
 
 

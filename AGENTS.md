@@ -331,7 +331,7 @@ it. `document_findings[]` holds the conflicts no unit owns.
 
 ### Expert
 
-Expert's authority is one stage gate's SME question bank. It reads several documents at
+Expert's authority is one stage gate's question bank. It reads several documents at
 once and **renders no verdict on them**: it reports which of the gate's questions the
 supplied material answers and which it does not.
 
@@ -341,19 +341,33 @@ supplied material answers and which it does not.
   question. The resemblance is structural — a list of sections holding units, one call
   per unit — and structural only.
 - The bank is **transcribed** into `services/expert/configs/*.yaml`, never parsed from
-  the SME document. A reader for someone else's prose format is a normalization layer
-  that breaks whenever that document is edited.
+  the authored document. A reader for someone else's prose format is a normalization
+  layer that breaks whenever that document is edited.
 - **Only what the source document guarantees may decide anything.** That is the gate,
-  the owning discipline, the question text, the `[PQ]` markers, and the eleven
-  questions whose own text states a class restriction. Everything else the bank
-  carries is a tag: displayed, never gating. This is the invariant the tool exists
-  under, and it was learned by violating it — a per-question judgment about which
-  document type could answer a question drove two of five states, so a wrong judgment
-  withheld a question from assessment or attributed a gap to a grantee for something no
-  document was ever meant to hold.
-- `likely_in` is that judgment, demoted. It never reaches resolution, never reaches
-  the model, and is presented as "usually answered in". A wrong value costs a
-  misleading hint.
+  the owning discipline, the question text, whether the gate states the question as
+  `required` or `anticipatory`, and any question whose own text states a class
+  restriction. Nothing else. This is the invariant the tool exists under, and it was
+  learned by violating it — a per-question judgment about which document type could
+  answer a question once drove two of five states, so a wrong judgment withheld a
+  question from assessment or attributed a gap to a grantee for something no document
+  was ever meant to hold. That judgment was demoted to a hint, and then removed:
+  the current bank states which questions a gate requires, which answers the same
+  reader's question from the source.
+- Transcribed counts come from the source and are never rounded. LCS Regulatory holds
+  nine questions where every other cell holds ten; a tenth typed to tidy the grid would
+  put a question in the bank that no reviewer wrote, which is the worst error this file
+  can hold. `test_expert.py` pins the exception.
+- `requirement` never gates and never reaches the model: a model told a question is only
+  anticipatory reads the material less carefully for it, and the same triage has to run
+  either way. It is carried onto the result because it is what separates a gate blocker
+  from early warning, and it is the one figure worth quoting — *how many questions this
+  gate requires are still unanswered* — where a percentage would not be.
+- `intervention_classes` is declared per bank, not per question, because the scope is a
+  fact about the whole document: these banks derive from a drug milestone dictionary and
+  ask about synthetic routes, salt forms and BCS class. A run for another modality is
+  refused, and the gate picker offers nothing for one — rather than returning a review
+  in which every question is inapplicable, which reads exactly like a review that found
+  nothing wrong.
 - `applies_to` is the one field that removes a question from a run, so it is set only
   where the question text states the restriction, never by reading subject matter and
   inferring a class. A wrongly inapplicable question vanishes silently and reports as
@@ -574,6 +588,13 @@ supplied material answers and which it does not.
   another tool. Every selector returns the same `PriorityItem`, and each states how
   its order was decided, because the AI glyph marks the wording as the model's and
   says nothing about the ranking.
+- A tool that keeps runs renders the run picker and reports its own limit. Which runs a
+  tool holds is one store for all of them, and `run-history-coverage.test.ts` fails if a
+  page records a run without offering a way to switch or remove one — removing is the only
+  route back under the limit. The refusal itself lives in `addResult`, not at the call
+  site: `AddResultOutcome` is a return value a page may discard, and four of six did, so a
+  fifth run finished, cost its time, and then silently failed to appear. A page may still
+  check the limit *before* running, which saves the run, but the message is the store's.
 - Review drafts are portable client state but are not downloadable final results.
   Final results are immutable: import, export, and Ask never recalculate them.
 - Imports accept only the current final-result envelope, and report which version

@@ -14,8 +14,8 @@ import type { DocumentAnnotation } from "./document-trace.ts";
  *
  *   not_found        nothing was cited, so there is no passage to attach to. It
  *                    cannot be anchored at a "probable" block either — that would
- *                    invent provenance from the `likely_in` hint, which is a guess
- *                    and the whole reason that field no longer decides anything.
+ *                    invent provenance from an expectation about where an answer
+ *                    ought to live, which nothing in the bank states.
  *   not_applicable   no model read the question at all.
  *   from context     the pasted text is never chunked, so it has no blocks. Placing
  *                    such an answer in the document trace would show it as
@@ -41,7 +41,7 @@ export type ExpertDocumentTraceRef = {
   statement: string;
   /** What the question still leaves open. Present only on a partial. */
   missing: string;
-  pq: boolean;
+  requirement: QuestionAssessment["requirement"];
 };
 
 export type ExpertDocumentAnnotation = DocumentAnnotation<
@@ -63,17 +63,20 @@ export function buildExpertDocumentAnnotations(
         // recognises; the id qualifies it for anyone matching against the bank.
         title: `${discipline.label} · ${question.id}`,
         summary: question.statement,
-        statusLabel: question.pq ? "WHO prequalification" : undefined,
+        // Only the required ones are badged. Badging both would put a label on every
+        // row, which marks nothing.
+        statusLabel: question.requirement === "required" ? "Required at this gate" : undefined,
         blockIds: question.cited_block_ids,
         // Expert carries no quotes, only block ids, so annotations claim whole
         // blocks. Searching block text for a phrase to underline would invent a
         // span the model never asserted.
         spans: [],
-        // Caution on a partial, matching the coverage strip, so one colour does not
-        // mean two things across two views of the same result.
+        // The same tones the coverage strip uses, so one colour does not mean two
+        // things across two views of one result — and the same tones every other tool's
+        // trace uses, so it does not mean two things across two tools either.
         emphasis:
           question.state === "answered"
-            ? { tone: "neutral" as const, badge: "Answered" }
+            ? { tone: "success" as const, badge: "Answered" }
             : { tone: "caution" as const, badge: "Partly answered" },
         sourceRef: {
           questionId: question.id,
@@ -81,7 +84,7 @@ export function buildExpertDocumentAnnotations(
           question: question.text,
           statement: question.statement,
           missing: question.missing,
-          pq: question.pq,
+          requirement: question.requirement,
         },
       })),
   );

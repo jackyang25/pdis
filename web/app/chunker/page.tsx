@@ -10,6 +10,7 @@ import { HeaderGuard } from "@/components/header-guard";
 import { Badge } from "@/components/ui/badge";
 import { DownloadButton } from "@/components/download-button";
 import { RunHistory } from "@/components/run-history";
+import { runFilename, runLabel } from "@/lib/result-file";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { runChunker, type ContentBlock, type Header } from "@/lib/api";
 import { useChunkerSession, type ChunkerResult } from "@/lib/session";
@@ -145,10 +146,10 @@ function BlocksList({ result }: { result: ChunkerResult }) {
           selectedId={selectedId}
           onSelect={selectResult}
           onRemove={removeResult}
-          label={(value) => value.doc_id || "Parsed document"}
+          label={(value) => runLabel(value, "chunker")}
         />
         <DownloadButton
-          filename={`${result.doc_id || "chunker"}-result.json`}
+          filename={runFilename(result, "chunker")}
           data={result}
           format="json"
           label="Download JSON"

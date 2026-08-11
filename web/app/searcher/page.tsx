@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { fetchSearchSources, runSearcher, type SearchSource } from "@/lib/api";
 import { RunHistory } from "@/components/run-history";
+import { runLabel } from "@/lib/result-file";
 import { useSearcherSession } from "@/lib/session";
 import { SourceAttributions } from "@/components/source-attributions";
 import type { Finding } from "@/lib/api";
@@ -170,7 +171,7 @@ function Findings({ result, sources }: { result: { query: string; findings: Find
             selectedId={selectedId}
             onSelect={selectResult}
             onRemove={removeResult}
-            label={(value) => value.query || "Search"}
+            label={(value) => runLabel(value, "searcher")}
           />
         </span>
       </div>

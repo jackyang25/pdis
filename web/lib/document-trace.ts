@@ -7,9 +7,22 @@ import type { ContentBlock } from "./api.ts";
  * contains. `tone` is semantic rather than a numeric severity because a numeric
  * range would encode one tool's grading scale into a contract every tool shares.
  * Colour is never the only signal — `badge` carries the precise claim as text.
+ *
+ * Four tones, and the set is deliberately small: a reader learns them once and carries
+ * them between tools, so the same meaning must take the same colour everywhere and two
+ * shades of one colour must never mean two things.
+ *
+ *   success   the thing asked for is there — answered, met, exceeded, confirmed
+ *   caution   partly there, or there in terms that cannot be compared
+ *   danger    contradicted, or a shortfall the tool grades as blocking
+ *   neutral   nothing was found, or nothing is claimed about it
+ *
+ * `neutral` is the one to be careful with. It reads as "ignored", so it belongs only
+ * where nothing is being said — an unmarked citation, an absence. An answered passage
+ * shown in grey looked like a passage nobody had looked at.
  */
 export type DocumentAnnotationEmphasis = {
-  tone: "neutral" | "caution" | "danger";
+  tone: "success" | "caution" | "danger" | "neutral";
   /** Short text, e.g. a grade letter. */
   badge?: string;
 };
@@ -610,17 +623,26 @@ export function buildDocumentTrace<
   };
 }
 
+/**
+ * Which tone wins when several annotations claim one block.
+ *
+ * Ordered by how much a reader needs to know, not by how good the news is: a passage that
+ * answers one question and contradicts another must show the contradiction. `success`
+ * outranks `neutral` because "this was found" is a claim and "nothing was found" is the
+ * absence of one, so the claim is the more informative of the two.
+ */
 const TONE_WEIGHT: Record<DocumentAnnotationEmphasis["tone"], number> = {
   neutral: 1,
-  caution: 2,
-  danger: 3,
+  success: 2,
+  caution: 3,
+  danger: 4,
 };
 
 /**
  * Resolve one emphasis for a block that several annotations claim.
  *
- * `danger > caution > neutral`, with the badge taken from the strongest claim and
- * ties broken by declaration order. This is precedence, not domain knowledge: the
+ * `danger > caution > success > neutral`, with the badge taken from the strongest claim
+ * and ties broken by declaration order. This is precedence, not domain knowledge: the
  * shared layer never learns what produced a tone.
  */
 export function strongestEmphasis<TKind extends string, TRef>(

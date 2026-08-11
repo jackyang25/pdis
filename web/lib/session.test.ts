@@ -12,7 +12,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { MAX_RESULTS_PER_TOOL, useScoutSession } from "./session.ts";
+import {
+  MAX_RESULTS_PER_TOOL,
+  RESULT_LIMIT_MESSAGE,
+  useScoutSession,
+} from "./session.ts";
 
 type Scout = { doc_id: string; phase?: string };
 
@@ -121,4 +125,35 @@ test("each run records when it happened", () => {
   get().addResult({ doc_id: "polio" } as never);
 
   assert.match(get().results[0].created_at, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test("a run that cannot be kept says so, without the caller having to", () => {
+  // `AddResultOutcome` is a return value a page can discard, and four of six did — so a
+  // fifth run on those finished, cost its time, and then silently failed to appear. The
+  // store is the only thing that knows the result was dropped, so it is what reports it.
+  const get = store();
+  for (let index = 0; index < MAX_RESULTS_PER_TOOL; index += 1) {
+    get().addResult({ doc_id: `run-${index}` } as never);
+  }
+  assert.equal(get().error, null);
+
+  const refused = get().addResult({ doc_id: "one too many" } as never);
+  assert.equal(refused.added, false);
+  assert.equal(get().results.length, MAX_RESULTS_PER_TOOL);
+  assert.equal(get().error, RESULT_LIMIT_MESSAGE);
+  // The run being viewed is untouched: a refusal must not also change what is on screen.
+  assert.equal((get().result as unknown as Scout).doc_id, "run-4");
+});
+
+test("re-importing a file already held is not an error", () => {
+  // It selects the run instead. Reporting that as a failure would tell a reader
+  // something went wrong when the file they wanted is now open.
+  const get = store();
+  const first = get().addResult({ doc_id: "held" } as never, { id: "fixed" });
+  get().addResult({ doc_id: "other" } as never);
+
+  const again = get().addResult({ doc_id: "held" } as never, { id: "fixed" });
+  assert.equal(again.added, false);
+  assert.equal(get().error, null);
+  assert.equal(get().selectedId, first.id);
 });

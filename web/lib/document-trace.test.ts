@@ -789,3 +789,65 @@ test("no inspector renders a passage count in place of the passages", () => {
     );
   }
 });
+
+test("one meaning takes one tone, and every tool draws from the same four", () => {
+  // The point of a shared vocabulary is that a reader learns it once. Two tools using
+  // different colours for "the thing asked for is there", or one tool using two shades of
+  // the same colour for two meanings, both break that — and neither is visible from
+  // inside a single tool's file.
+  const sources = [
+    "lib/expert-document-trace.ts",
+    "lib/aligner-document-trace.ts",
+    "lib/inspector-document-trace.ts",
+  ].map((module) => readFileSync(path.join(WEB_ROOT, module), "utf8"));
+
+  const allowed = new Set(["success", "caution", "danger", "neutral"]);
+  for (const source of sources) {
+    for (const [, tone] of source.matchAll(/tone: "(\w+)"/g)) {
+      assert.ok(allowed.has(tone), `${tone} is not one of the shared tones`);
+    }
+  }
+
+  // "The thing asked for is there" is success everywhere it appears.
+  const [expert, aligner] = sources;
+  assert.match(expert, /question\.state === "answered"\s*\n?\s*\? \{ tone: "success"/);
+  assert.match(aligner, /meets: "success"/);
+  assert.match(aligner, /exceeds: "success"/);
+});
+
+test("a block claimed twice shows the tone a reader most needs", () => {
+  // A passage that answers one question and contradicts another has to show the
+  // contradiction, and a claim outranks the absence of one.
+  const source = block("document/b-0001", 1, "A retained passage.");
+  const trace = buildDocumentTrace([source], [
+    annotation({
+      id: "a-1",
+      kind: "assessment",
+      blockIds: [source.id],
+      emphasis: { tone: "success", badge: "Answered" },
+    }),
+    annotation({
+      id: "a-2",
+      kind: "assessment",
+      blockIds: [source.id],
+      emphasis: { tone: "danger", badge: "Not met" },
+    }),
+  ]);
+  assert.equal(trace.documents[0].blocks[0].emphasis?.tone, "danger");
+
+  const quieter = buildDocumentTrace([source], [
+    annotation({
+      id: "a-1",
+      kind: "assessment",
+      blockIds: [source.id],
+      emphasis: { tone: "neutral", badge: "Requirement" },
+    }),
+    annotation({
+      id: "a-2",
+      kind: "assessment",
+      blockIds: [source.id],
+      emphasis: { tone: "success", badge: "Meets" },
+    }),
+  ]);
+  assert.equal(quieter.documents[0].blocks[0].emphasis?.tone, "success");
+});

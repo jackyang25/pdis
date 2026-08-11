@@ -13,8 +13,9 @@ import type { GateReview, QuestionAssessment, QuestionState } from "@/lib/api";
  *
  * Nothing here is a second opinion. Every cell reads the state the result carries, in
  * bank order, so the strip cannot disagree with the panels or the counts — and there
- * is deliberately no cell for "probably in the IPDP", because drawing the `likely_in`
- * hint as structure would hand a guess the authority of a layout.
+ * is deliberately no cell for "probably in the IPDP": no source states where an answer
+ * ought to live, and drawing such a guess as structure would hand it the authority of a
+ * layout.
  */
 
 /**

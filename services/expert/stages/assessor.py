@@ -185,9 +185,10 @@ def build_user_message(
     question. With the question first — as this was — every call had a different first
     line and shared nothing.
 
-    The bank's `likely_in` hint is deliberately absent. Telling the model where the
-    answer supposedly lives would let a guess steer the search, which is exactly what
-    demoting that field to a tag was meant to stop.
+    The bank's `requirement` is deliberately absent. Whether a gate requires this now or
+    expects it to be forming is a fact about the review, not about the documents, and a
+    model told a question is only "anticipatory" would read the material less carefully
+    for it. The same triage runs either way; the distinction is for the reader.
     """
     parts = ["Supplied document blocks:\n" + _format_blocks(blocks)]
     for item in context_items:

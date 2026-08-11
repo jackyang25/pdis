@@ -13,8 +13,8 @@ import type { GateReview, QuestionAssessment } from "./api.ts";
 import {
   countStates,
   groupedByDiscipline,
+  countRequiredInState,
   questionsInState,
-  suggestedDocuments,
 } from "./expert-priorities.ts";
 
 function question(
@@ -26,8 +26,7 @@ function question(
     id,
     text: `Question ${id}?`,
     state,
-    pq: false,
-    likely_in: [],
+    requirement: "required",
     statement: "",
     missing: "",
     source: null,
@@ -42,9 +41,9 @@ function review(
   overrides: Partial<GateReview> = {},
 ): GateReview {
   return {
-    gate_id: "eop1",
+    gate_id: "ep1",
     gate_label: "End of Phase 1",
-    bank_source: "Stage Gate Question Bank — SME Edition v5, test fixture",
+    bank_source: "Stage Gate Questions - All Gates.docx, test fixture",
     documents: [{ doc_id: "profile", source_type: "itpp" }],
     disciplines,
     context_labels: [],
@@ -192,43 +191,32 @@ test("groups keep bank order, and so do the questions inside them", () => {
   );
 });
 
-test("suggested documents come from the hint on unanswered questions", () => {
-  const suggested = suggestedDocuments(
-    review(
-      [
-        {
-          id: "cd",
-          label: "CD",
-          questions: [
-            question("A", "not_found", { likely_in: ["ipdp"] }),
-            question("B", "not_found", { likely_in: ["ipdp", "ctpp"] }),
-            // Already uploaded, so suggesting it would be noise.
-            question("C", "not_found", { likely_in: ["itpp"] }),
-            // Answered, so there is nothing to suggest for it.
-            question("D", "answered", {
-              source: "document",
-              cited_block_ids: ["b"],
-              likely_in: ["ipdp"],
-            }),
-          ],
-        },
+test("the required count is the number that can hold a gate", () => {
+  // The bank states `required` or `anticipatory` for every question, so this is read
+  // from the source rather than judged. An unanswered anticipatory question is early
+  // warning about the next gate, not a shortfall at this one.
+  const held = review([
+    {
+      id: "cp",
+      label: "Clinical Pharmacology",
+      questions: [
+        question("A", "not_found"),
+        question("B", "not_found", { requirement: "anticipatory" }),
+        question("C", "not_found", { requirement: "anticipatory" }),
+        question("D", "answered", { source: "document", cited_block_ids: ["b1"] }),
       ],
-      { documents: [{ doc_id: "profile", source_type: "itpp" }] },
-    ),
-  );
-  assert.deepEqual(suggested, [
-    { sourceType: "ipdp", count: 2 },
-    { sourceType: "ctpp", count: 1 },
+    },
   ]);
+  assert.equal(countRequiredInState(held, "not_found"), 1);
+  assert.equal(questionsInState(held, "not_found").length, 3);
+  assert.equal(countRequiredInState(held, "answered"), 1);
 });
 
-test("a question with no hint suggests nothing", () => {
-  // The hint is optional and absent on most questions, so its absence has to be
-  // silent rather than producing an empty suggestion.
-  const suggested = suggestedDocuments(
-    review([{ id: "cd", label: "CD", questions: [question("A", "not_found")] }]),
-  );
-  assert.deepEqual(suggested, []);
+test("a state nothing is in counts zero rather than throwing", () => {
+  const held = review([
+    { id: "cp", label: "Clinical Pharmacology", questions: [question("A", "answered")] },
+  ]);
+  assert.equal(countRequiredInState(held, "partly_answered"), 0);
 });
 
 test("only questions in the asked-for state are returned", () => {

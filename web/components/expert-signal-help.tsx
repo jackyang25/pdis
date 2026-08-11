@@ -10,14 +10,17 @@ import {
  * Expert's vocabulary. The wording is Expert's; the popover behaviour is shared
  * with Inspector and Scout through `ui/signal-help`.
  *
- * Five topics, and each exists because a reader can otherwise draw the wrong
- * conclusion from something on the page: that a question the documents do not answer
- * is a fault, that every answer can be checked, that a hint is a finding, that a count
- * can be blended into a score, or — the one that is simply an acronym — that `PQ` is
- * self-explanatory.
+ * Four topics, and each exists because a reader can otherwise draw the wrong conclusion
+ * from something on the page: that a question the documents do not answer is a fault,
+ * that every answer can be checked, that every open question weighs the same, or that a
+ * count can be blended into a score.
  */
 
-export type ExpertSignalTopic = "state" | "source" | "hint" | "pq" | "denominator";
+export type ExpertSignalTopic =
+  | "state"
+  | "source"
+  | "requirement"
+  | "denominator";
 
 const TOPICS: Record<ExpertSignalTopic, SignalTopic> = {
   state: {
@@ -35,27 +38,19 @@ const TOPICS: Record<ExpertSignalTopic, SignalTopic> = {
     detail:
       "This applies to a partial answer exactly as it does to a whole one. An answer read from an uploaded document cites the exact passage, so you can open it and confirm it. An answer read from context you attached for the run names which item it came from and nothing more, because that text is never stored — the file is read once, goes into the request, and is gone. So the label is the whole record: reopening this result later shows the name with nothing behind it. Both are genuinely answered and both are counted the same way; what differs is whether anyone can verify it afterwards. A run answered mostly from attached context is a different situation from one answered from the documents, which is why the two are counted separately.",
   },
-  pq: {
-    // No promptRef: the marker is transcribed from the question bank, not produced
-    // by a model, and `SignalHelp` omits the instructions link when a value is
-    // deterministic rather than authored.
-    title: "PQ",
+  requirement: {
+    // No promptRef: the bank states it for every question and no model reads it.
+    title: "Required at this gate",
     summary:
-      "A WHO prequalification question, carried inside its discipline's ten at Decision to Launch.",
+      "Whether this gate expects the question answered now, or expects it to be forming.",
     detail:
-      "Prequalification is WHO's own assessment, separate from the reference agency's approval, and for most of the world it is the actual launch gate: most donor-funded procurement is contractually contingent on the listing rather than on registration. So a launch review that looks settled on registration can still be blocked on procurement, and these are the questions that decide which. They appear only at Decision to Launch, because that is where the source bank places them, and they are not a separate list — each sits inside its discipline's ten and is triaged like any other question.",
-  },
-  hint: {
-    title: "Usually answered in",
-    summary: "Where an answer of this kind normally lives. A hint, and it may be wrong.",
-    detail:
-      "The question bank is a list of questions for reviewers to ask people. It says nothing about iTPPs, cTPPs or IPDPs, so this hint is not from your source document — it is a judgment about where an answer of this kind usually sits. It is shown so you can decide which document to open, or which one to upload next. It decided nothing: the question was read against everything you supplied regardless, and a wrong hint costs you a misleading suggestion rather than a wrong result. Nothing tells the model about it either, so it cannot steer the search.",
+      "The source states one of these for every question, and it is what makes an open question actionable. A required question the documents do not answer is what holds a gate up. An anticipatory one is early warning: the gate expects thinking to be under way, not a finished answer, so an unanswered anticipatory question is a prompt for the next conversation rather than a shortfall. Only required questions carry the badge — labelling both would put a mark on every row, which marks nothing. It changes nothing about how a question is read: the model is never told which kind it is, because a model told a question is only anticipatory would read the material less carefully for it.",
   },
   denominator: {
     title: "The count",
     summary: "Every question the gate asks appears, in every run.",
     detail:
-      "The states sum to the total, so the row of counts checks itself. Nothing is filtered out of the denominator, which is what lets two runs on one gate be compared line by line and what makes a count safe to quote in a review. There is no combined coverage figure, and no way to add the states into a score: one number blending 'the document says it', 'it says half of it', and 'nobody has asked yet' would tell a committee something untrue.",
+      "The states sum to the total, so the row of counts checks itself. Nothing is filtered out of the denominator, which is what lets two runs on one gate be compared line by line and what makes a count safe to quote in a review. There is no combined coverage figure, and no way to add the states into a score: one number blending 'the document says it', 'it says half of it', and 'nobody has asked yet' would tell a committee something untrue. Where a single number is wanted, the one worth quoting is how many of the questions this gate *requires* are still unanswered.",
   },
 };
 

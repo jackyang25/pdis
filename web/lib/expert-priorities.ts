@@ -120,29 +120,22 @@ export function groupedByDiscipline(
 }
 
 /**
- * Documents not uploaded that unanswered questions are usually answered by.
+ * How many questions in one state the gate requires answered now.
  *
- * A suggestion, not an accounting. It reads the bank's `likely_in` hint, which is a
- * judgment rather than something the source document states, so it says "usually" and
- * never claims a question would have been answered. Every one of these questions *was*
- * assessed against what was supplied, and genuinely was not answered there.
+ * The number that decides whether a gate can be held. The bank states `required` or
+ * `anticipatory` for every question, so this is read from the source rather than judged:
+ * an unanswered required question holds the review up, and an unanswered anticipatory one
+ * is early warning about the next gate.
  *
- * Read off the questions rather than from a list of document types this module knows,
- * which would put a copy of the source-type vocabulary in the web layer where it could
- * disagree with the configs that own it.
+ * There used to be a panel here suggesting which document to upload next, built from a
+ * per-question guess about where each answer usually lives. No source stated it, and the
+ * bank this tool now carries states something better in its place.
  */
-export function suggestedDocuments(
+export function countRequiredInState(
   review: GateReview,
-): { sourceType: string; count: number }[] {
-  const uploaded = new Set(review.documents.map((document) => document.source_type));
-  const counts = new Map<string, number>();
-  for (const { question } of questionsInState(review, "not_found")) {
-    for (const sourceType of question.likely_in) {
-      if (uploaded.has(sourceType)) continue;
-      counts.set(sourceType, (counts.get(sourceType) ?? 0) + 1);
-    }
-  }
-  return [...counts.entries()]
-    .map(([sourceType, count]) => ({ sourceType, count }))
-    .sort((a, b) => b.count - a.count || a.sourceType.localeCompare(b.sourceType));
+  state: QuestionAssessment["state"],
+): number {
+  return questionsInState(review, state).filter(
+    ({ question }) => question.requirement === "required",
+  ).length;
 }

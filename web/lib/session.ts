@@ -25,6 +25,21 @@ import type {
  */
 export const MAX_RESULTS_PER_TOOL = 5;
 
+/**
+ * What a reader is told when a run cannot be kept.
+ *
+ * Owned here rather than written at each call site. Two of six tools used to check the
+ * limit before running and four did not, so a fifth run on those finished, cost its time,
+ * and then silently failed to appear — the history simply did not grow. The refusal is now
+ * the store's own, because the store is the only thing that knows it happened.
+ */
+export const RESULT_LIMIT_MESSAGE =
+  `Keeping ${MAX_RESULTS_PER_TOOL} runs. Remove one before starting another.`;
+
+/** The same refusal, for an import rather than a run. */
+export const IMPORT_LIMIT_MESSAGE =
+  `Keeping ${MAX_RESULTS_PER_TOOL} runs. Remove one before importing another.`;
+
 export type StoredResult<TResult> = {
   /** Stable across export and re-import, so the same file is never held twice. */
   id: string;
@@ -100,6 +115,10 @@ function createToolSession<TResult>() {
         return { added: false, reason: "duplicate", id };
       }
       if (results.length >= MAX_RESULTS_PER_TOOL) {
+        // Reported here, not left to the caller. `AddResultOutcome` is a return value a
+        // page can discard without TypeScript minding, and four of six did — so the one
+        // place that can tell the result was dropped is the one that says so.
+        set({ error: RESULT_LIMIT_MESSAGE });
         return { added: false, reason: "at_limit", id };
       }
       const entry: StoredResult<TResult> = {

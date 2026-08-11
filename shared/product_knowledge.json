@@ -875,7 +875,7 @@
             {
               "id": "expert",
               "title": "Expert",
-              "summary": "Sorts one stage gate's question bank against a set of documents: what they answer, cited to the passage, and what they do not, alongside the discipline that owns it. Only the gate, the discipline and the question text decide anything — everything else the bank carries is a hint.",
+              "summary": "Sorts one stage gate's question bank against a set of documents: what they answer, cited to the passage, and what they do not, alongside the discipline that owns it. Only the gate, the discipline and the question text decide anything. The bank also states whether each question is required at this gate or anticipatory, which is what separates a blocker from early warning.",
               "nodes": [
                 {
                   "id": "inputs",
@@ -897,7 +897,7 @@
                 {
                   "id": "resolve",
                   "title": "Applicability",
-                  "summary": "The one state config owns, and the question's own text is what states it: eleven of 560 questions restrict themselves to an intervention class.",
+                  "summary": "The one state config owns, and the question's own text is what states it. The shipped banks state no per-question restriction; each bank instead names the intervention classes it is written for, and a run for another modality is refused.",
                   "kind": "deterministic",
                   "layer": "Triage",
                   "inputs": [

@@ -63,29 +63,28 @@ def spec(
     question_id: str,
     *,
     applies_to: tuple[str, ...] = (),
-    likely_in: tuple[str, ...] = (),
-    pq: bool = False,
+    requirement: str = "required",
 ) -> QuestionSpec:
     return QuestionSpec(
         id=question_id,
         text=f"Question {question_id}?",
+        requirement=requirement,  # type: ignore[arg-type]
         applies_to=frozenset(applies_to),
-        likely_in=likely_in,
-        pq=pq,
     )
 
 
-BANK_SOURCE = "Stage Gate Question Bank — SME Edition v5, test fixture"
+BANK_SOURCE = "Stage Gate Questions - All Gates.docx, test fixture"
 
 
 def gate(*questions: QuestionSpec) -> GateConfig:
     return GateConfig(
         org="bmgf",
         gate_id="lcs",
-        gate_label="Lead Candidate Selection",
+        gate_label="Lead Chemical Series Selection",
         ordinal=1,
+        intervention_classes=frozenset({"drug"}),
         mirrors=BANK_SOURCE,
-        disciplines=(DisciplineSpec(id="cd", label="Clinical Development", questions=questions),),
+        disciplines=(DisciplineSpec(id="cp", label="Clinical Pharmacology", questions=questions),),
     )
 
 
@@ -101,14 +100,16 @@ class BankTests(unittest.TestCase):
     def test_every_shipped_bank_names_the_document_it_transcribes(self) -> None:
         """The whole tool is a transcription, so a bank must say what it transcribes.
 
-        Version included: a bank taken from v5 is stale the moment v6 publishes, and
-        this line is the only thing that says which one produced a saved review.
+        Both links in the chain: the document these questions were typed from, and the
+        guidance that document was built on. A saved review is only auditable if it says
+        which source produced it, and "is this current" is only answerable against a
+        named document.
         """
         for path in sorted(CONFIGS.glob("*.yaml")):
             config = load_config(str(path))
             self.assertTrue(config.mirrors.strip(), f"{path.name} names no source")
-            self.assertIn("v5", config.mirrors, path.name)
-            self.assertIn("http", config.mirrors, f"{path.name} links nothing")
+            self.assertIn("Stage Gate Questions", config.mirrors, path.name)
+            self.assertIn("Milestone Dictionary", config.mirrors, path.name)
 
     def test_a_bank_without_a_source_is_refused(self) -> None:
         directory = TemporaryDirectory()
@@ -116,22 +117,29 @@ class BankTests(unittest.TestCase):
         path = Path(directory.name) / "bank.yaml"
         path.write_text(
             "org: bmgf\ngate:\n  id: g\n  label: G\n  ordinal: 1\n"
-            "disciplines:\n  - id: cd\n    label: CD\n    questions:\n"
-            "      - id: Q1\n        text: t\n",
+            "intervention_classes: [drug]\n"
+            "disciplines:\n  - id: cp\n    label: CP\n    questions:\n"
+            "      - id: Q1\n        text: t\n        requirement: required\n",
             encoding="utf-8",
         )
         with self.assertRaises(ValueError) as caught:
             load_config(str(path))
         self.assertIn("mirrors", str(caught.exception))
 
-    def test_a_shipped_bank_declares_ten_questions_per_discipline(self) -> None:
-        """The matrix is 8 x 10 per gate. A short cell is a transcription slip."""
+    def test_a_shipped_bank_carries_what_the_source_carries(self) -> None:
+        """Ten per discipline at every gate but one, and that one is not rounded up.
+
+        LCS Regulatory has nine in the source. Transcribing a tenth to make the grid
+        tidy would put a question in the bank that no reviewer wrote, which is the worst
+        error this file can hold — so the exception is pinned here rather than smoothed.
+        """
+        expected = {("bmgf_lcs.yaml", "ra"): 9}
         for path in sorted(CONFIGS.glob("*.yaml")):
             config = load_config(str(path))
             for discipline in config.disciplines:
                 self.assertEqual(
                     len(discipline.questions),
-                    10,
+                    expected.get((path.name, discipline.id), 10),
                     f"{path.name}: {discipline.id} has {len(discipline.questions)}",
                 )
 
@@ -142,33 +150,55 @@ class BankTests(unittest.TestCase):
             self.assertEqual(len(ids), len(set(ids)), path.name)
 
     def test_the_matrix_is_complete(self) -> None:
-        """7 gates x 8 disciplines x 10 questions. A short cell is a lost question."""
+        """7 gates x 5 disciplines x 10 questions, less the one cell the source shorts.
+
+        Counted rather than asserted per file so a whole gate cannot go missing: 349 is
+        the source's own total, and any transcription slip in either direction moves it.
+        """
         gates = available_gates("bmgf")
         self.assertEqual(len(gates), 7, [gate.id for gate in gates])
         total = sum(
             len(find_config("bmgf", gate.id).questions()) for gate in gates
         )
-        self.assertEqual(total, 560)
+        self.assertEqual(total, 349)
 
-    def test_every_gate_declares_the_same_eight_disciplines(self) -> None:
+    def test_every_gate_declares_the_same_five_disciplines(self) -> None:
         """Routing depends on the owning discipline existing at every gate."""
         expected = None
         for gate in available_gates("bmgf"):
             ids = [d.id for d in find_config("bmgf", gate.id).disciplines]
-            self.assertEqual(len(ids), 8, f"{gate.id}: {ids}")
+            self.assertEqual(len(ids), 5, f"{gate.id}: {ids}")
             if expected is None:
                 expected = ids
             self.assertEqual(ids, expected, f"{gate.id} orders disciplines differently")
 
-    def test_prequalification_questions_appear_only_at_launch(self) -> None:
-        """`[PQ]` questions are carried inside the DTL ten and nowhere else."""
+    def test_every_question_states_whether_the_gate_requires_it(self) -> None:
+        """The source states it for every question, and it is what makes a count mean
+        something: an unanswered `required` question holds the gate up."""
         for gate in available_gates("bmgf"):
             config = find_config("bmgf", gate.id)
-            marked = [q.id for _, q in config.questions() if q.pq]
-            if gate.id == "dtl":
-                self.assertTrue(marked, "DTL carries no prequalification question")
-            else:
-                self.assertEqual(marked, [], f"{gate.id} marks a question pq")
+            for _, question in config.questions():
+                self.assertIn(question.requirement, ("required", "anticipatory"), question.id)
+
+    def test_expectation_hardens_as_the_programme_advances(self) -> None:
+        """A sanity check on the transcription rather than a rule about the source: the
+        earliest gate asks mostly what should be forming, and the filing gates require
+        everything. A bank transcribed with the column mis-read would not show this."""
+        first = find_config("bmgf", "lcs").questions()
+        last = find_config("bmgf", "pq_lr").questions()
+        anticipatory = sum(1 for _, q in first if q.requirement == "anticipatory")
+        self.assertGreater(anticipatory, len(first) / 2)
+        self.assertTrue(all(q.requirement == "required" for _, q in last))
+
+    def test_every_bank_declares_the_classes_it_serves(self) -> None:
+        """These banks derive from a drug milestone dictionary and ask about synthetic
+        routes and salt forms, so a vaccine run would be asked questions it cannot have
+        an answer to."""
+        for gate in available_gates("bmgf"):
+            config = find_config("bmgf", gate.id)
+            self.assertEqual(config.intervention_classes, frozenset({"drug"}), gate.id)
+            self.assertTrue(config.serves("drug"))
+            self.assertFalse(config.serves("vaccine"))
 
     def test_a_question_id_names_its_discipline_and_gate(self) -> None:
         """`CP.EOP1.6` — the id is how a reviewer finds it in the source bank."""
@@ -223,7 +253,10 @@ class BankValidationTests(unittest.TestCase):
         path.write_text(body, encoding="utf-8")
         return str(path)
 
-    HEAD = "org: bmgf\ngate:\n  id: g\n  label: G\n  ordinal: 1\n"
+    HEAD = (
+        "org: bmgf\ngate:\n  id: g\n  label: G\n  ordinal: 1\n"
+        "intervention_classes: [drug]\n"
+    )
 
     def test_an_unknown_intervention_class_is_refused(self) -> None:
         """`biologic` is prose, not vocabulary. It must be resolved at authoring."""
@@ -236,15 +269,38 @@ class BankValidationTests(unittest.TestCase):
             load_config(path)
         self.assertIn("biologic", str(caught.exception))
 
-    def test_an_unparseable_document_type_is_refused(self) -> None:
+    def test_a_question_without_a_requirement_is_refused(self) -> None:
+        """Defaulting it would report an anticipatory question as a gate blocker."""
         path = self.write(
             self.HEAD
-            + "disciplines:\n  - id: cd\n    label: CD\n    questions:\n"
-            + "      - id: Q1\n        text: t\n        likely_in: [pdss]\n"
+            + "disciplines:\n  - id: cp\n    label: CP\n    questions:\n"
+            + "      - id: Q1\n        text: t\n"
         )
         with self.assertRaises(ValueError) as caught:
             load_config(path)
-        self.assertIn("pdss", str(caught.exception))
+        self.assertIn("requirement", str(caught.exception))
+
+    def test_an_unknown_requirement_is_refused(self) -> None:
+        path = self.write(
+            self.HEAD
+            + "disciplines:\n  - id: cp\n    label: CP\n    questions:\n"
+            + "      - id: Q1\n        text: t\n        requirement: maybe\n"
+        )
+        with self.assertRaises(ValueError):
+            load_config(path)
+
+    def test_a_bank_that_names_no_intervention_class_is_refused(self) -> None:
+        """A bank that does not say is one that will be asked about a modality it has no
+        questions for."""
+        head = self.HEAD.replace("intervention_classes: [drug]\n", "")
+        path = self.write(
+            head
+            + "disciplines:\n  - id: cp\n    label: CP\n    questions:\n"
+            + "      - id: Q1\n        text: t\n        requirement: required\n"
+        )
+        with self.assertRaises(ValueError) as caught:
+            load_config(path)
+        self.assertIn("intervention_classes", str(caught.exception))
 
     def test_a_repeated_question_id_is_refused(self) -> None:
         path = self.write(
@@ -289,10 +345,11 @@ class ResolveTests(unittest.TestCase):
             resolved = resolve_questions(config, intervention_class=intervention)
             self.assertIsNone(resolved[0].state, intervention)
 
-    def test_the_hint_never_withholds_a_question(self) -> None:
-        """`likely_in` is a tag. A question with none is still assessed."""
-        config = gate(spec("Q1"), spec("Q2", likely_in=("ipdp",)))
-        resolved = resolve_questions(config, intervention_class="vaccine")
+    def test_an_anticipatory_question_is_assessed_like_any_other(self) -> None:
+        """The distinction is for the reader. It never withholds a question, and the
+        model is not told which kind it is."""
+        config = gate(spec("Q1"), spec("Q2", requirement="anticipatory"))
+        resolved = resolve_questions(config, intervention_class="drug")
         self.assertEqual([item.state for item in resolved], [None, None])
 
     def test_resolution_does_not_depend_on_which_documents_were_uploaded(self) -> None:
@@ -312,19 +369,25 @@ class ResolveTests(unittest.TestCase):
 
     def test_every_question_is_resolved_exactly_once_in_bank_order(self) -> None:
         config = find_config("bmgf", "lcs")
-        resolved = resolve_questions(config, intervention_class="vaccine")
+        resolved = resolve_questions(config, intervention_class="drug")
         self.assertEqual(len(resolved), len(config.questions()))
         self.assertEqual(
             [item.question.id for item in resolved],
             [question.id for _, question in config.questions()],
         )
 
-    def test_almost_every_shipped_question_reaches_the_model(self) -> None:
-        """Only the eleven questions whose own text restricts a class are withheld."""
+    def test_every_shipped_question_reaches_the_model(self) -> None:
+        """No question in these banks restricts itself to a class, so none is withheld.
+
+        The mechanism stays because a future bank may need it, and because the way it can
+        go wrong is invisible: a wrongly inapplicable question vanishes and reports as
+        "not a shortfall".
+        """
         for gate_spec in available_gates("bmgf"):
             config = find_config("bmgf", gate_spec.id)
-            resolved = resolve_questions(config, intervention_class="vaccine")
+            resolved = resolve_questions(config, intervention_class="drug")
             withheld = [i.question.id for i in resolved if not i.queued]
+            self.assertEqual(withheld, [], gate_spec.id)
             for question_id in withheld:
                 question = next(q for _, q in config.questions() if q.id == question_id)
                 self.assertTrue(
@@ -359,20 +422,24 @@ class VocabularyTests(unittest.TestCase):
 def review(*questions: QuestionAssessment, blocks=None, labels=None) -> GateReview:
     return GateReview(
         gate_id="lcs",
-        gate_label="Lead Candidate Selection",
+        gate_label="Lead Chemical Series Selection",
         bank_source=BANK_SOURCE,
         documents=[ReviewDocument(doc_id="d", source_type="itpp")],
-        disciplines=[DisciplineReview(id="cd", label="Clinical Development", questions=list(questions))],
+        disciplines=[
+            DisciplineReview(
+                id="cp", label="Clinical Pharmacology", questions=list(questions)
+            )
+        ],
         context_labels=list(labels or []),
         org="bmgf",
-        intervention_class="vaccine",
+        intervention_class="drug",
         indication="malaria",
         blocks=list(blocks or []),
     )
 
 
 class ContractTests(unittest.TestCase):
-    CONFIG = gate(spec("Q1", likely_in=("itpp",)), spec("Q2"))
+    CONFIG = gate(spec("Q1"), spec("Q2"))
 
     def answered(self, **overrides) -> QuestionAssessment:
         defaults = dict(
@@ -489,7 +556,7 @@ class ContractTests(unittest.TestCase):
 
     def test_a_review_for_another_gate_is_refused(self) -> None:
         result = review(self.answered(), self.excluded(), blocks=[block("d:1", "d", "itpp")])
-        result.gate_id = "eop1"
+        result.gate_id = "ep1"
         with self.assertRaises(ValueError):
             validate_result_contract(result, self.CONFIG)
 
@@ -535,7 +602,7 @@ class AssessorTests(unittest.TestCase):
             }
         )
         result = assess_question(
-            spec("Q1", likely_in=("ipdp",)),
+            spec("Q1"),
             blocks=self.BLOCKS,
             context_items=[],
             llm_client=client,
@@ -557,7 +624,7 @@ class AssessorTests(unittest.TestCase):
             }
         )
         result = assess_question(
-            spec("Q1", likely_in=("ipdp",)),
+            spec("Q1"),
             blocks=self.BLOCKS,
             context_items=[ContextItem(label="CMC Report", text="COGS is $1.20")],
             llm_client=client,
@@ -580,7 +647,7 @@ class AssessorTests(unittest.TestCase):
             }
         )
         result = assess_question(
-            spec("Q1", likely_in=("ipdp",)),
+            spec("Q1"),
             blocks=self.BLOCKS,
             context_items=[],
             llm_client=client,
@@ -655,7 +722,7 @@ class AssessorTests(unittest.TestCase):
             }
         )
         result = assess_question(
-            spec("Q1", likely_in=("ipdp",)),
+            spec("Q1"),
             blocks=self.BLOCKS,
             context_items=[],
             llm_client=client,
@@ -676,7 +743,7 @@ class AssessorTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             assess_question(
-                spec("Q1", likely_in=("ipdp",)),
+                spec("Q1"),
                 blocks=self.BLOCKS,
                 context_items=[],
                 llm_client=client,
@@ -716,7 +783,7 @@ class AssessorTests(unittest.TestCase):
         from services.expert.stages.assessor import build_user_message
 
         message = build_user_message(
-            spec("Q1", likely_in=("ipdp",)),
+            spec("Q1"),
             self.BLOCKS,
             [ContextItem(label="CMC Report", text="COGS is $1.20")],
         )
@@ -733,7 +800,7 @@ class AssessorTests(unittest.TestCase):
         from services.expert.stages.assessor import build_user_message
 
         message = build_user_message(
-            spec("Q1", likely_in=("ctpp",)),
+            spec("Q1"),
             [block("d:1", "d", "ipdp", "The plan states annual dosing.")],
             [],
         )

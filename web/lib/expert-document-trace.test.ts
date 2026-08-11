@@ -3,8 +3,8 @@
  *
  * The pressure this resists is making the viewer look complete. An unanswered
  * question has no passage; anchoring it at a "probable" block would invent
- * provenance out of the `likely_in` hint, which is exactly the guess that no longer
- * decides anything. These tests are what keeps that from creeping back.
+ * provenance out of an expectation about where an answer ought to live, which no source
+ * states. These tests are what keeps that from creeping back.
  */
 
 import assert from "node:assert/strict";
@@ -39,8 +39,7 @@ function question(
     id,
     text: `Question ${id}?`,
     state,
-    pq: false,
-    likely_in: [],
+    requirement: "required",
     statement: "",
     missing: "",
     source: null,
@@ -55,9 +54,9 @@ function review(
   overrides: Partial<GateReview> = {},
 ): GateReview {
   return {
-    gate_id: "eop2",
+    gate_id: "ep2",
     gate_label: "End of Phase 2",
-    bank_source: "Stage Gate Question Bank — SME Edition v5, test fixture",
+    bank_source: "Stage Gate Questions - All Gates.docx, test fixture",
     documents: [{ doc_id: "profile", source_type: "itpp" }],
     disciplines: [{ id: "cmc", label: "CMC", questions }],
     context_labels: [],
@@ -96,12 +95,20 @@ test("a partial is placed too, and carries what it leaves open", () => {
   assert.equal(annotation.sourceRef.missing, "Zone IVb stability data.");
 });
 
-test("a whole answer is neutral, so one colour never means two things", () => {
-  const [annotation] = buildExpertDocumentAnnotations(
+test("a whole answer is success and a partial is caution, in the shared tones", () => {
+  // Not grey: a passage that answered a question in grey reads as one nobody looked at.
+  // And the same tone every other tool uses for "the thing asked for is there", so a
+  // reader carries the colours between tools rather than relearning them.
+  const [answered] = buildExpertDocumentAnnotations(
     review([cited("A", ["profile:1"])]),
   );
-  assert.equal(annotation.emphasis?.tone, "neutral");
-  assert.equal(annotation.sourceRef.missing, "");
+  assert.equal(answered.emphasis?.tone, "success");
+  assert.equal(answered.sourceRef.missing, "");
+
+  const [partial] = buildExpertDocumentAnnotations(
+    review([partly("B", ["profile:1"])]),
+  );
+  assert.equal(partial.emphasis?.tone, "caution");
 });
 
 test("only answers read from a document are placed", () => {
@@ -129,7 +136,7 @@ test("an unanswered question is never anchored to a probable block", () => {
   // The hint names a document. If it ever became a display anchor, the viewer would
   // show a guess as provenance.
   const annotations = buildExpertDocumentAnnotations(
-    review([question("A", "not_found", { likely_in: ["itpp"] })]),
+    review([question("A", "not_found", { })]),
   );
   assert.deepEqual(annotations, []);
 });
@@ -173,12 +180,12 @@ test("annotations keep bank order across disciplines", () => {
   );
 });
 
-test("a prequalification question is labelled as one", () => {
+test("a question the gate requires is labelled as one", () => {
   const [annotation] = buildExpertDocumentAnnotations(
-    review([{ ...cited("A", ["profile:1"]), pq: true }]),
+    review([cited("A", ["profile:1"])]),
   );
-  assert.equal(annotation.statusLabel, "WHO prequalification");
-  assert.equal(annotation.sourceRef.pq, true);
+  assert.equal(annotation.statusLabel, "Required at this gate");
+  assert.equal(annotation.sourceRef.requirement, "required");
 });
 
 test("the per-document counts come from the same annotations the trace renders", () => {

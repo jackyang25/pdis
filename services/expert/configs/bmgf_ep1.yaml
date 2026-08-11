@@ -1,0 +1,337 @@
+# End of Phase 1 — the stage-gate question bank, transcribed.
+#
+# Transcribed by hand from the source named in `mirrors`, not parsed from it.
+# That document is what this file was checked against; this file is the source
+# everything downstream reads.
+#
+# The source guarantees three axes and this file carries exactly those three: the
+# gate, the owning discipline, and whether the gate requires a question answered
+# now (`required`) or expects it to be forming (`anticipatory`). Nothing else is
+# transcribed and nothing is inferred — an earlier bank carried a hint about which
+# document usually answers a question, which no source states, and it was removed.
+#
+# `intervention_classes` is a fact about the whole document rather than about any
+# question: it derives from a drug milestone dictionary and asks about synthetic
+# routes, salt and polymorph selection and BCS class, so a vaccine or a mAb has no
+# answer to give. A run for another class is refused rather than returned with every
+# question inapplicable, because a review of nothing reads like a review that found
+# nothing wrong.
+
+org: bmgf
+gate:
+  id: ep1
+  label: End of Phase 1
+  ordinal: 4
+
+intervention_classes: [drug]
+
+mirrors: >-
+  Stage Gate Questions - All Gates.docx, developed from the Drug Development Milestone
+  Dictionary (PDID). LCS questions reviewed by the Certara team, 7/13.
+
+disciplines:
+  - id: pds
+    label: Product Development Strategy
+    questions:
+      - id: PDS.EP1.1
+        requirement: required
+        text: >-
+          Has the probability of the candidate meeting the target product profile been
+          assessed given Phase 1 / PoC data?
+
+      - id: PDS.EP1.2
+        requirement: required
+        text: >-
+          Is the Global Access Agreement updated to reflect Phase 1 progress and commitments?
+
+      - id: PDS.EP1.3
+        requirement: anticipatory
+        text: >-
+          Does the business case still hold given Phase 1 safety/PK/PoC data (value
+          proposition, market viability)?
+
+      - id: PDS.EP1.4
+        requirement: anticipatory
+        text: >-
+          Is the deliverability assessment being refined as clinical and market understanding
+          mature?
+
+      - id: PDS.EP1.5
+        requirement: anticipatory
+        text: >-
+          Is the strategic demand forecast progressing from methodology toward a quantified
+          forecast?
+
+      - id: PDS.EP1.6
+        requirement: anticipatory
+        text: >-
+          Is the COGS build-up advancing against the aspirational target set at FIH?
+
+      - id: PDS.EP1.7
+        requirement: anticipatory
+        text: >-
+          Is the cost-effectiveness analysis advancing with emerging clinical data?
+
+      - id: PDS.EP1.8
+        requirement: anticipatory
+        text: >-
+          Is the candidate TPP still current and agreed with partners after Phase 1?
+
+      - id: PDS.EP1.9
+        requirement: required
+        text: >-
+          Do clinical data, market assumptions, and deliverability risks still favor the
+          candidate's viability and business value?
+
+      - id: PDS.EP1.10
+        requirement: anticipatory
+        text: >-
+          Are strategic risks (market, access, funding, competition) updated for the next
+          phase?
+
+  - id: cmc
+    label: Chemistry, Manufacturing and Controls (CMC)
+    questions:
+      - id: CMC.EP1.1
+        requirement: required
+        text: >-
+          Has the DS salt/form been finalized (amorphous vs. crystalline, polymorph ID) and
+          structural characterization (enantiomers/diastereomers) completed?
+
+      - id: CMC.EP1.2
+        requirement: required
+        text: >-
+          Are DS chemical purity and impurity characterization established with finalized
+          analytical methods?
+
+      - id: CMC.EP1.3
+        requirement: required
+        text: >-
+          Do DS stability and shelf-life studies (T, pH, humidity, light) support clinical
+          use, and have cold-chain requirements been defined?
+
+      - id: CMC.EP1.4
+        requirement: required
+        text: >-
+          Has the DS process been developed to kilo-scale with acceptable yield?
+
+      - id: CMC.EP1.5
+        requirement: required
+        text: >-
+          Is reproducibility confirmed for stoichiometry, stable DS physical form, and
+          required particle size, with an acceptable impurity profile at scale?
+
+      - id: CMC.EP1.6
+        requirement: required
+        text: >-
+          Is the DP delivery & formulation strategy defined under a light-touch QbD approach
+          for the intended dosage form (including any pediatric form), with excipients
+          selected and characterized?
+
+      - id: CMC.EP1.7
+        requirement: required
+        text: >-
+          Are DP particle-size/formulation dependency and form-specific physicochemical
+          properties (densities, flowability, compressibility, pXRD, dissolution,
+          disintegration) characterized?
+
+      - id: CMC.EP1.8
+        requirement: required
+        text: >-
+          Are DP chemical purity, impurity characterization, and form-/formulation-specific
+          stability established with associated analytical methods?
+
+      - id: CMC.EP1.9
+        requirement: required
+        text: >-
+          Has kilo-lab GMP DS and Phase 2 DP been released with a Certificate of Analysis?
+
+      - id: CMC.EP1.10
+        requirement: required
+        text: >-
+          Is the CMC plan updated with process-optimization activities, full-scale
+          manufacturing feasibility, and a tech-transfer-readiness assessment to commercial
+          scale, with risks to PQ and an IPDP?
+
+  - id: cp
+    label: Clinical Pharmacology
+    questions:
+      - id: CP.EP1.1
+        requirement: required
+        text: >-
+          Are validated bioanalytical measurements of drug exposure and relevant biomarker
+          concentrations available from Phase 1?
+
+      - id: CP.EP1.2
+        requirement: required
+        text: >-
+          Have preliminary exposure-response relationships been established from biomarker
+          data?
+
+      - id: CP.EP1.3
+        requirement: required
+        text: >-
+          Is a recommended Phase 2 dose defined with a clear PK/PD rationale?
+
+      - id: CP.EP1.4
+        requirement: required
+        text: >-
+          Is exposure-response characterized well enough to select the optimal dosage,
+          regimen, and route for Phase 2?
+
+      - id: CP.EP1.5
+        requirement: required
+        text: >-
+          Have dose, regimen, and route-of-administration studies been completed to support
+          Phase 2 design?
+
+      - id: CP.EP1.6
+        requirement: required
+        text: >-
+          Is observed human PK (exposure, half-life, clearance) consistent with the TPP and
+          the preclinical projection?
+
+      - id: CP.EP1.7
+        requirement: required
+        text: >-
+          Does the safety/tolerability and PK profile not preclude further development
+          relative to the TPP?
+
+      - id: CP.EP1.8
+        requirement: required
+        text: >-
+          Is the Phase 2 dose range and target clinical exposure rationale documented in the
+          updated clinical plan?
+
+      - id: CP.EP1.9
+        requirement: required
+        text: >-
+          Are dosing and dose-modeling strategies (e.g., population PK, model-informed)
+          updated with Phase 1 data?
+
+      - id: CP.EP1.10
+        requirement: anticipatory
+        text: >-
+          Are emerging DDI or special-population signals flagged for study before or within
+          Phase 2?
+
+  - id: ns
+    label: Nonclinical Safety
+    questions:
+      - id: NS.EP1.1
+        requirement: required
+        text: >-
+          Do existing toxicology and toxicokinetic data support the doses and dosing duration
+          planned for Phase 2?
+
+      - id: NS.EP1.2
+        requirement: required
+        text: >-
+          Is a plan for long-term repeat-dose toxicity studies defined, scoped to the
+          indication, dosing duration, and clinical-trial scope?
+
+      - id: NS.EP1.3
+        requirement: required
+        text: >-
+          Is an outline of follow-on, longer-term nonclinical studies in place to support
+          later phases?
+
+      - id: NS.EP1.4
+        requirement: required
+        text: >-
+          Is the toxicology plan to support Phase 3 defined?
+
+      - id: NS.EP1.5
+        requirement: required
+        text: >-
+          Have any clinical safety signals from Phase 1 been reconciled against the
+          nonclinical tox findings?
+
+      - id: NS.EP1.6
+        requirement: required
+        text: >-
+          Does repeat-dose tox duration support the intended Phase 2 treatment duration (ICH
+          M3-type expectation)?
+
+      - id: NS.EP1.7
+        requirement: anticipatory
+        text: >-
+          Are reproductive / developmental toxicity needs assessed for the Phase 2 population
+          (e.g., women of child-bearing potential)?
+
+      - id: NS.EP1.8
+        requirement: required
+        text: >-
+          Is the Investigator's Brochure updated with current nonclinical and Phase 1 safety
+          data?
+
+      - id: NS.EP1.9
+        requirement: required
+        text: >-
+          Do toxicokinetic exposures at NOAEL still provide adequate margins over Phase 2
+          clinical exposures?
+
+      - id: NS.EP1.10
+        requirement: required
+        text: >-
+          Are tox-related risks and mitigations updated in the development plan for subsequent
+          phases?
+
+  - id: ra
+    label: Regulatory
+    questions:
+      - id: RA.EP1.1
+        requirement: required
+        text: >-
+          Is the regulatory strategy plan updated with Phase 1 learnings and any pathway
+          changes?
+
+      - id: RA.EP1.2
+        requirement: required
+        text: >-
+          Is an End of Phase 1 meeting with the NRA scheduled (or a documented rationale if
+          not needed)?
+
+      - id: RA.EP1.3
+        requirement: required
+        text: >-
+          Is the End of Phase 1 briefing package prepared, summarizing Phase 1 results and the
+          proposed Phase 2 study design/scope?
+
+      - id: RA.EP1.4
+        requirement: required
+        text: >-
+          Does the package set out the proposed clinical development path, including any
+          request for alternate/expedited authorization pathways with rationale?
+
+      - id: RA.EP1.5
+        requirement: required
+        text: >-
+          Are plans for additional nonclinical studies (if any) included for agency alignment?
+
+      - id: RA.EP1.6
+        requirement: required
+        text: >-
+          Are pediatric study plans (or waiver/deferral requests with timeline) addressed?
+
+      - id: RA.EP1.7
+        requirement: required
+        text: >-
+          Are NRA engagement and country-specific requirements still current for the target
+          markets?
+
+      - id: RA.EP1.8
+        requirement: required
+        text: >-
+          Have End of Phase 1 meeting outcomes (agreed minutes, next steps) been documented
+          and the development plan revised?
+
+      - id: RA.EP1.9
+        requirement: required
+        text: >-
+          Is the WHO PQ engagement plan (by end of Phase 2) on track?
+
+      - id: RA.EP1.10
+        requirement: required
+        text: >-
+          Are regulatory risks and mitigations updated for subsequent phases?

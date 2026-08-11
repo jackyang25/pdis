@@ -1,564 +1,348 @@
-# Decision to File — the SME question bank, transcribed.
+# Decision to File — the stage-gate question bank, transcribed.
 #
-# `bmgf_lcs.yaml` is the reference bank and documents the field rules: only the
-# gate, the discipline, the question text and the `[PQ]` markers come from the
-# source document, and only those decide anything. `applies_to` appears solely
-# where the question text states the restriction; `likely_in` is a hint and never
-# gates a question.
+# Transcribed by hand from the source named in `mirrors`, not parsed from it.
+# That document is what this file was checked against; this file is the source
+# everything downstream reads.
 #
-# Almost everything at this gate asks whether a dossier module, report, validation
-# or inspection readiness exists, which no TPP or IPDP carries. The routed share is
-# correspondingly high, and that is the honest answer: at DTF the documents in scope
-# are the submission, and the submission is not among Expert's inputs.
+# The source guarantees three axes and this file carries exactly those three: the
+# gate, the owning discipline, and whether the gate requires a question answered
+# now (`required`) or expects it to be forming (`anticipatory`). Nothing else is
+# transcribed and nothing is inferred — an earlier bank carried a hint about which
+# document usually answers a question, which no source states, and it was removed.
+#
+# `intervention_classes` is a fact about the whole document rather than about any
+# question: it derives from a drug milestone dictionary and asks about synthetic
+# routes, salt and polymorph selection and BCS class, so a vaccine or a mAb has no
+# answer to give. A run for another class is refused rather than returned with every
+# question inapplicable, because a review of nothing reads like a review that found
+# nothing wrong.
+
 org: bmgf
-
-# What this bank is a transcription of. Nothing here can verify it: the source lives
-# outside the repository and is access-controlled. It names which document to
-# re-check when that document moves, and the version is the load-bearing part —
-# a bank transcribed from v5 is stale the moment v6 is published, and only this
-# line says which one produced a saved review.
-mirrors: >-
-  Stage Gate Question Bank — SME Edition v5 (TOC corrected): the Decision to File
-  section, its eight disciplines and their ten questions each, transcribed
-  verbatim. Held in the GHIDE Product Development Support SharePoint site —
-  https://bmgf.sharepoint.com/:w:/r/sites/GHIDEProductDevelopmentSupport/_layouts/15/Doc.aspx?sourcedoc=%7BB962E8DB-8422-4810-9AFD-334876DE515F%7D&file=Stage_Gate_Question_Bank_v5_TOC%20corrected.docx&action=default&mobileredirect=true
-
 gate:
   id: dtf
   label: Decision to File
   ordinal: 6
 
+intervention_classes: [drug]
+
+mirrors: >-
+  Stage Gate Questions - All Gates.docx, developed from the Drug Development Milestone
+  Dictionary (PDID). LCS questions reviewed by the Certara team, 7/13.
+
 disciplines:
+  - id: pds
+    label: Product Development Strategy
+    questions:
+      - id: PDS.DTF.1
+        requirement: required
+        text: >-
+          Is the delivery plan complete with operational launch and post-launch plans (roll-
+          out, country decision support, supply chain, provider training, government
+          partnerships)?
+
+      - id: PDS.DTF.2
+        requirement: required
+        text: >-
+          Does the final strategic demand forecast confirm a viable market and support pricing
+          agreements (refined countries/populations/coverage/volumes/pricing/sensitivity)?
+
+      - id: PDS.DTF.3
+        requirement: required
+        text: >-
+          Is the final COGS in line with launch and pricing goals, with expected price aligned
+          to the TPP and BMGF strategy?
+
+      - id: PDS.DTF.4
+        requirement: required
+        text: >-
+          Are policymakers supportive of the final cost-effectiveness analysis?
+
+      - id: PDS.DTF.5
+        requirement: required
+        text: >-
+          Is pricing, supply, and financing secured for launch?
+
+      - id: PDS.DTF.6
+        requirement: required
+        text: >-
+          Is the updated candidate TPP complete (indication, impact, manufacturability,
+          formulation/dosing/stability, route, shelf-life, cost & delivery, registration
+          strategy, partner alignment)?
+
+      - id: PDS.DTF.7
+        requirement: required
+        text: >-
+          Is the refined launch budget a detailed, accurate estimate of launch support and
+          uptake costs?
+
+      - id: PDS.DTF.8
+        requirement: required
+        text: >-
+          Is the Coverage & Financial Tracker established with target metrics (countries
+          launched, coverage, average procurement price, incremental cost to deliver)?
+
+      - id: PDS.DTF.9
+        requirement: required
+        text: >-
+          Is a viable delivery partnership assembled, and is the Global Access Agreement
+          updated?
+
+      - id: PDS.DTF.10
+        requirement: required
+        text: >-
+          Do country implementation plans address all risks and stakeholders (MoHs, health
+          workers, suppliers), and are coverage/pricing metrics set (M&E)?
+
   - id: cmc
-    label: CMC
+    label: Chemistry, Manufacturing and Controls (CMC)
     questions:
       - id: CMC.DTF.1
+        requirement: required
         text: >-
-          Is process validation complete with the PPQ batches meeting predetermined
-          criteria — and did any batch require a deviation, presented with its
-          investigation and impact assessment rather than as a footnote?
+          Is the commercial launch strategy in place for each country market, with a product
+          expiry-date proposal/strategy for regulatory submission?
 
       - id: CMC.DTF.2
+        requirement: required
         text: >-
-          Are commercial specifications justified against the full batch history with a
-          documented statistical basis, and are they identical across the dossier, the
-          batch records, the certificates of analysis and the stability protocols?
+          Is the finished-product warehouse qualified and operational, and is shipping
+          validation complete?
 
       - id: CMC.DTF.3
+        requirement: required
         text: >-
-          Does the stability package support the claimed shelf life and storage
-          statement, with the extrapolation justified, the Zone IVb dataset complete for
-          the markets that require it, and the ongoing stability commitment stated?
-        likely_in: [itpp, ctpp]
+          Are QA/compliance activities complete - product registration, facility audit
+          reports, audit-observation compliance (CAPA), and a pre-approval inspection strategy
+          with clear partner/CRO/CMO roles?
 
       - id: CMC.DTF.4
+        requirement: required
         text: >-
-          Can a reviewer follow the comparability chain from the pivotal clinical lots to
-          the commercial product without asking a question, across every process, scale
-          and site change in the program's history?
+          If the clinical-development form and commercial form differ, has bioequivalence been
+          established?
 
       - id: CMC.DTF.5
+        requirement: required
         text: >-
-          Is the control strategy complete under ICH Q8–Q11 — CQAs justified, CPPs with
-          proven acceptable ranges, methods validated and transferred, reference standard
-          chain unbroken — with the elemental impurity, nitrosamine and
-          extractables/leachables assessments current?
+          Is an ongoing-CMC-support plan in place - CMO supply-chain monitoring, quality-
+          incident review, deviation/excursion evaluation, raw-material change control, and
+          commercial-stability monitoring?
 
       - id: CMC.DTF.6
+        requirement: required
         text: >-
-          Is Module 3 complete and internally consistent, and has someone read it end to
-          end as a document rather than as a set of separately authored sections?
+          Does the plan cover timely periodic regulatory reporting and the impact of demand-
+          forecast changes on the need for additional sites or suppliers?
 
       - id: CMC.DTF.7
+        requirement: required
         text: >-
-          Are all manufacturing and testing sites — including contract and sub-contract
-          sites you have never audited — listed correctly, GMP-current, and confirmed
-          available for inspection throughout the review window?
+          Is tech transfer and validation of raw-material/DS/DP analytical and functional
+          release testing complete, with validation packages (specificity, sensitivity,
+          reproducibility)?
 
       - id: CMC.DTF.8
+        requirement: required
         text: >-
-          Is the supply chain resilient for launch — qualified alternates for critical
-          materials, defined inventory buffers, a documented assessment of a six-month
-          interruption at each single point — and is the launch supply plan quantified by
-          market, presentation and month?
-        likely_in: [ipdp]
+          Is tech transfer and validation of DS/DP manufacturing and packaging complete - SOP-
+          driven protocols, a control strategy for ongoing production, and three validation
+          batches on stability?
 
       - id: CMC.DTF.9
+        requirement: required
         text: >-
-          Is the post-approval change strategy defined — established conditions, PACMPs,
-          reporting categories — to permit scale-up, second sourcing and technology
-          transfer without a year-long variation in every market?
-        likely_in: [ipdp]
+          Are commercial-scale facilities qualified - site master plan, cGMP certification,
+          FDA/NRA and client audits, change-control strategy, and an inspection-response
+          action plan?
 
       - id: CMC.DTF.10
+        requirement: required
         text: >-
-          Are the LMIC presentations in this filing or deferred, and if deferred, what is
-          the incremental timeline to their availability, stated in months, on the record?
-        likely_in: [ipdp]
-
-  - id: nc
-    label: Preclinical Pharmacology / Toxicology / PK
-    questions:
-      - id: NC.DTF.1
-        text: >-
-          Is every study required for the filing complete with final audited reports —
-          and is any study still running whose result could change the benefit-risk, with
-          each agency's written agreement to that and a defined submission point?
-        likely_in: [ipdp]
-
-      - id: NC.DTF.2
-        text: >-
-          Are carcinogenicity results available and interpreted, does any finding require
-          a labeling statement, class warning or restriction, and is the mechanistic
-          relevance argument prepared if the finding is rodent-specific?
-
-      - id: NC.DTF.3
-        text: >-
-          Do the DART findings support the pregnancy and lactation labeling sought,
-          expressed in the current structured labeling format rather than legacy category
-          language?
-
-      - id: NC.DTF.4
-        text: >-
-          Are juvenile data adequate for the pediatric indications sought, and consistent
-          with the exposure targets the pediatric dosing proposal relies on?
-
-      - id: NC.DTF.5
-        text: >-
-          Has every clinical safety signal been addressed nonclinically where a mechanism
-          could be established, with an integrated narrative coherent across Modules 2.4,
-          2.6 and 2.7 rather than merely consistent in its tables?
-
-      - id: NC.DTF.6
-        text: >-
-          Is the nonclinical dossier complete with Modules 2.4, 2.6 and 4 finalised and
-          consistent with the clinical modules, and is the environmental risk assessment
-          included where required?
-
-      - id: NC.DTF.7
-        text: >-
-          Do the nonclinical conclusions support the proposed labeling exactly — no claim
-          unsupported, no finding unaddressed — and is the proposed language the language
-          we want rather than the language the data force?
-
-      - id: NC.DTF.8
-        text: >-
-          Are safety margins stated accurately against the final proposed commercial dose
-          and consistently everywhere they appear across the dossier, because inconsistent
-          margin statements across modules are a reliable source of avoidable questions?
-
-      - id: NC.DTF.9
-        text: >-
-          Is there any nonclinical finding a reviewer could use to justify a
-          post-marketing requirement, and have we pre-empted it with a commitment of our
-          own choosing rather than accepting an assigned one?
-
-      - id: NC.DTF.10
-        text: >-
-          Are reports, raw data, specimens and audit trails retained and inspection-ready,
-          including at CROs that have merged, closed or moved facilities since the studies
-          were run?
-
-  - id: tm
-    label: Translational Medicine
-    questions:
-      - id: TM.DTF.1
-        text: >-
-          Do the Phase 3 biomarker data confirm the mechanism, and is the
-          exposure–biomarker–outcome relationship consistent across the whole program —
-          or does Phase 3 contradict Phase 2 in a way the efficacy result is masking?
-
-      - id: TM.DTF.2
-        text: >-
-          Do the translational data support the label, subgroup, durability and
-          differentiation claims intended, at the evidentiary level each claim requires —
-          and have the unsupported ones been struck rather than reworded?
-
-      - id: TM.DTF.3
-        text: >-
-          If a surrogate or correlate underpinned the program, is the validation package
-          sufficient for registration, for WHO policy recommendation and for HTA — three
-          audiences with three standards — and is it packaged for each?
-        likely_in: [ipdp]
-
-      - id: TM.DTF.4
-        text: >-
-          Is subgroup heterogeneity consistent with the mechanism, or is there unexplained
-          variation by region, population or background therapy that we should explain
-          before a reviewer asks?
-
-      - id: TM.DTF.5
-        text: >-
-          Did the product behave the same way in LMIC populations, and if not, is the
-          difference understood mechanistically — because an unexplained regional
-          difference in effect is one of the more damaging findings a dossier can contain?
-
-      - id: TM.DTF.6
-        text: >-
-          Is the mechanistic and biomarker narrative consistent throughout the dossier,
-          and does it strengthen the efficacy argument rather than open a second front?
-
-      - id: TM.DTF.7
-        text: >-
-          Is the companion diagnostic validated, submitted and synchronised for
-          simultaneous approval — and available at a price and in a format the intended
-          markets can actually use?
-        likely_in: [ipdp]
-
-      - id: TM.DTF.8
-        text: >-
-          Are exploratory analyses framed as hypothesis-generating everywhere they appear,
-          including in the publications reviewers will read, and is the disclosure plan
-          sequenced so it neither prejudices the review nor creates a public record
-          inconsistent with the dossier?
-        likely_in: [ipdp]
-
-      - id: TM.DTF.9
-        text: >-
-          Do we have what is needed to bridge to populations not directly studied, and has
-          that bridging argument been made explicitly rather than left implicit?
-        likely_in: [ipdp]
-
-      - id: TM.DTF.10
-        text: >-
-          Are samples and data retained and governed so that a post-approval question can
-          actually be answered — what remains unanalysed, is there budget, and could
-          anything in it surprise us after approval?
+          Is required documentation final - ongoing stability program/reports, process
+          qualification reports, master batch record, vendor qualification, commercial SOPs,
+          container/labeling/shipping stability studies - and is the CMC plan finalized with
+          PQ/LR activities and risks?
 
   - id: cp
     label: Clinical Pharmacology
     questions:
       - id: CP.DTF.1
+        requirement: required
         text: >-
-          Is the final popPK and exposure–response analysis complete, and does every dosing
-          statement in the proposed label trace to a specific analysis — with that trace
-          verified statement by statement rather than assumed?
+          Are drug-drug interactions fully characterized for the filing?
 
       - id: CP.DTF.2
+        requirement: required
         text: >-
-          Has the exposure–response analysis been prepared specifically to answer the
-          question "would a lower dose have worked?" — because it will be asked, and an
-          unprepared answer costs a review cycle.
+          Does the candidate's safety profile (including labs) align with the TPP from the
+          pivotal-trial analysis?
 
       - id: CP.DTF.3
+        requirement: required
         text: >-
-          Are dose adjustments for intrinsic and extrinsic factors defined, justified and
-          drafted into labeling language that a prescriber in a resource-limited setting
-          could actually follow?
+          Is the final dose/regimen supported by the totality of exposure-response and
+          population-PK evidence?
 
       - id: CP.DTF.4
+        requirement: required
         text: >-
-          Are all special population studies — including pediatric — complete or
-          appropriately bridged by modeling, documented to the standard required for a
-          labeling claim rather than for internal decision-making, with any extrapolation
-          framework accepted by the agency in writing?
-        likely_in: [ipdp]
+          Is the drug-interaction profile prepared for the NRA filing package and proposed
+          label?
 
       - id: CP.DTF.5
+        requirement: required
         text: >-
-          Is the DDI section complete and consistent with the co-medications the target
-          populations actually take, and does it avoid contraindicating the product out of
-          its own indication?
+          Are special-population data (renal/hepatic, pediatric, pregnancy, age/weight)
+          adequate to support labeling?
 
       - id: CP.DTF.6
+        requirement: required
         text: >-
-          Is the cardiac assessment final and consistent across the dossier, at the highest
-          clinically relevant exposure including the worst-case DDI and organ impairment
-          combination?
+          Are clinical PK and exposure-response summaries (clinical study reports / data
+          listings) complete for submission?
 
       - id: CP.DTF.7
+        requirement: required
         text: >-
-          For biologics and vaccines: is the immunogenicity assessment complete — impact on
-          PK, efficacy, safety and loss of response over time — with assay validation
-          documentation inspection-ready?
-        applies_to: [monoclonal_antibody, vaccine]
+          Is the proposed dosing for the target population (incl. weight-band / fixed dosing)
+          justified for field use?
 
       - id: CP.DTF.8
+        requirement: required
         text: >-
-          Is the BE bridge between the clinical and commercial formulations complete and
-          within limits, and if the result is marginal, what is the plan?
+          Are pediatric and post-marketing (Phase 4) PK commitments defined?
 
       - id: CP.DTF.9
+        requirement: required
         text: >-
-          Is the biopharmaceutics package structured to support post-approval changes
-          without new clinical studies — discriminatory dissolution method, biowaiver
-          eligibility, well-chosen established conditions — because this is where a decade
-          of manufacturing flexibility is won or lost?
-        likely_in: [ipdp]
+          Is bioequivalence between clinical and commercial forms established where they
+          differ (to support the marketed dose)?
 
       - id: CP.DTF.10
+        requirement: required
         text: >-
-          Are all bioanalytical validation reports and study sample analysis reports
-          complete and inspection-ready, including from laboratories no longer under
-          contract?
+          Are unresolved clin-pharm questions (e.g., DDIs needing post-approval study)
+          identified with a plan for agency interactions?
 
-  - id: cd
-    label: Clinical Development
+  - id: ns
+    label: Nonclinical Safety
     questions:
-      - id: CD.DTF.1
+      - id: NS.DTF.1
+        requirement: required
         text: >-
-          Did the trial meet its primary endpoint in the prespecified analysis population,
-          and does the result survive the prespecified sensitivity analyses and the
-          intercurrent event strategies not chosen?
+          Is the full nonclinical toxicology package complete for filing - chronic toxicity,
+          carcinogenicity, and reproductive/developmental toxicology (as applicable)?
 
-      - id: CD.DTF.2
+      - id: NS.DTF.2
+        requirement: required
         text: >-
-          Are the key secondaries supportive and internally coherent, or does the totality
-          of evidence contain contradictions a reviewer will read as a fragile result?
+          Are metabolite safety assessments (active / major metabolites) complete and
+          reconciled with human metabolism?
 
-      - id: CD.DTF.3
+      - id: NS.DTF.3
+        requirement: required
         text: >-
-          Is the effect consistent across regions, sites, subgroups and time — and where it
-          is not, do we have the explanation we would offer at an advisory committee?
+          Do the nonclinical safety summaries for the filing reconcile with the clinical
+          safety profile?
 
-      - id: CD.DTF.4
+      - id: NS.DTF.4
+        requirement: required
         text: >-
-          Was trial conduct of inspection quality: protocol deviation rates, missing data
-          patterns, unblinding events, site performance outliers, data integrity signals,
-          and any site whose results differ implausibly from the rest?
+          Are nonclinical safety margins for the to-be-marketed dose adequate and clearly
+          documented for the submission?
 
-      - id: CD.DTF.5
+      - id: NS.DTF.5
+        requirement: required
         text: >-
-          Are data from LMIC sites of equivalent quality and fully interpretable, with
-          source data verification complete — because these sites are disproportionately
-          selected for inspection and a finding there can invalidate the contribution of a
-          whole region?
+          Have all genotoxicity, safety pharmacology, and toxicokinetic conclusions been
+          finalized for the dossier?
 
-      - id: CD.DTF.6
+      - id: NS.DTF.6
+        requirement: required
         text: >-
-          Is the clinical dossier complete — all CSRs final, ISS and ISE written with a
-          defensible pooling strategy — and is the benefit-risk articulated for the specific
-          indication and population sought?
+          Is impurity qualification (including absence of genotoxic impurities) supported by
+          toxicology where needed?
 
-      - id: CD.DTF.7
+      - id: NS.DTF.7
+        requirement: required
         text: >-
-          Is the proposed indication wording justified by the data, or are we asking for
-          more than we proved and planning to negotiate down? Decide deliberately; the
-          negotiating strategy has a cost in review time.
-        likely_in: [ipdp]
+          Are juvenile-animal / pediatric nonclinical studies addressed if a pediatric
+          indication or population is intended?
 
-      - id: CD.DTF.8
+      - id: NS.DTF.8
+        requirement: required
         text: >-
-          Is the benefit-risk favourable in each subgroup the label will cover, not only in
-          the population overall — and where a subgroup differs, does the label proposal
-          reflect that rather than the aggregate result?
+          Are any outstanding or post-approval nonclinical commitments identified with a plan?
 
-      - id: CD.DTF.9
+      - id: NS.DTF.9
+        requirement: required
         text: >-
-          Are ongoing studies accurately represented with a plan for submitting emerging
-          data during the review, and are post-approval studies planned, budgeted and
-          staffed — with the confirmatory trial already enrolling if the pathway requires
-          it?
-        likely_in: [ipdp]
+          Is the nonclinical contribution to benefit-risk and labeling (pregnancy,
+          carcinogenicity statements) finalized?
 
-      - id: CD.DTF.10
+      - id: NS.DTF.10
+        requirement: required
         text: >-
-          Is there a gap between what we proved and what the commercial and access
-          strategies assume we will be able to say — and is there anything in this dossier
-          that would embarrass us if it were read aloud at an advisory committee?
-
-  - id: pv
-    label: Drug Safety and Pharmacovigilance
-    questions:
-      - id: PV.DTF.1
-        text: >-
-          Is the safety database complete, locked and reconciled with the clinical database,
-          with the discrepancy log closed rather than carried forward as a difference nobody
-          can explain?
-
-      - id: PV.DTF.2
-        text: >-
-          Is the integrated summary of safety coherent — pooling strategy defensible,
-          exposure denominators correct — and does it support the benefit-risk actually
-          being claimed, with the uncertainties stated plainly rather than minimised?
-
-      - id: PV.DTF.3
-        text: >-
-          Have all deaths, serious adverse events and discontinuations been narrated,
-          investigated to outcome and consistently coded — and would the coding survive a
-          reviewer re-coding a sample of cases?
-
-      - id: PV.DTF.4
-        text: >-
-          Are the important identified risks, important potential risks and missing
-          information final, with each tracing to specific data rather than to a drafting
-          convention?
-        likely_in: [ipdp]
-
-      - id: PV.DTF.5
-        text: >-
-          Is causality and expectedness assessment consistent across the whole program, and
-          were assessments made against superseded reference safety information versions
-          identified and corrected on the record?
-
-      - id: PV.DTF.6
-        text: >-
-          Does any safety finding require a contraindication, restriction or monitoring
-          requirement — and has the access consequence been assessed, since a monitoring
-          requirement can exclude the product from its intended setting in practice?
-        likely_in: [itpp, ipdp]
-
-      - id: PV.DTF.7
-        text: >-
-          Is the risk management plan or REMS final, with routine and additional risk
-          minimisation distinguished, every measure operable in every market where we will
-          register, and an effectiveness evaluation defined for each?
-        likely_in: [ipdp]
-
-      - id: PV.DTF.8
-        text: >-
-          Is the pharmacovigilance system inspection-ready: system master file current,
-          qualified person and deputy named and actually performing the role, CAPAs closed,
-          audit findings addressed, vendors qualified and their oversight documented?
-
-      - id: PV.DTF.9
-        text: >-
-          Are post-approval obligations mapped and resourced — aggregate reporting formats
-          and clocks, signal detection method, cadence and thresholds, and safety data
-          exchange agreements with every partner, licensee and distributor who will handle
-          the product?
-        likely_in: [ipdp]
-
-      - id: PV.DTF.10
-        text: >-
-          Are the post-authorisation safety studies we have proposed feasible in the
-          settings where the product will actually be used, or have we committed to designs
-          that only execute in high-income markets?
-        likely_in: [ipdp]
+          Is the Investigator's Brochure / safety documentation final and consistent with the
+          dossier?
 
   - id: ra
-    label: Regulatory Affairs
+    label: Regulatory
     questions:
       - id: RA.DTF.1
+        requirement: required
         text: >-
-          Do the results meet the evidentiary standard agreed with each regulator, or will
-          any market require additional studies — and is that in the plan or a surprise?
-        likely_in: [ipdp]
+          Is the regulatory strategy and plan finalized for filing, reflecting the complete
+          data package?
 
       - id: RA.DTF.2
+        requirement: required
         text: >-
-          Are pre-submission meetings held or scheduled with each agency, with the
-          contentious issues identified, our positions pre-drafted, and all prior
-          commitments closed with documentation?
-        likely_in: [ipdp]
+          Is a pre-licensure meeting in the country of manufacture scheduled, with its
+          briefing package prepared?
 
       - id: RA.DTF.3
+        requirement: required
         text: >-
-          Is the submission complete and validated against each agency's technical and
-          format requirements, with the eCTD validated and the regional modules correct?
+          Does the package present safety and efficacy data from all clinical trials and
+          product release specifications (incl. pre-approval inspection)?
 
       - id: RA.DTF.4
+        requirement: required
         text: >-
-          Is the filing sequence defined, with the LMIC and WHO submissions in parallel
-          rather than sequenced behind the commercially attractive markets? If sequenced
-          behind, state the delay in months and who authorised it.
-        likely_in: [ipdp]
+          Are stability data supporting expiration dating and the proposed claims/indication
+          label statements included?
 
       - id: RA.DTF.5
+        requirement: required
         text: >-
-          Are reliance and collaborative registration applications prepared, with the
-          reference agency's written consent to share the full assessment report obtained —
-          not assumed?
-        likely_in: [ipdp]
+          Is there agreement (or a request) on deferral/waiver of pediatric studies, where
+          applicable?
 
       - id: RA.DTF.6
+        requirement: required
         text: >-
-          Is the WHO prequalification dossier ready, and does it require anything not in the
-          primary filing: programmatic suitability data, presentation detail, manufacturing
-          site inspection availability, producing-country NRA status?
-        likely_in: [ipdp]
+          Are plans for post-approval clinical studies and the pharmacovigilance plan defined?
 
       - id: RA.DTF.7
+        requirement: required
         text: >-
-          Is the labeling strategy defined — core data sheet plus regional variants — with
-          each contested claim identified, its evidence indexed, a fallback position agreed,
-          and the difference between the best and worst plausible label understood
-          commercially and programmatically?
-        likely_in: [ipdp]
+          Is the clinical-to-commercial manufacturing transition and comparability addressed
+          for the filing?
 
       - id: RA.DTF.8
+        requirement: required
         text: >-
-          Is inspection readiness confirmed for every site an agency might inspect, with a
-          mock inspection run at the two highest-risk sites and the inspection support team
-          available throughout the review window?
+          Are application content/format (paper vs. electronic) and submission type planned,
+          and is the need for an advisory committee determined?
 
       - id: RA.DTF.9
+        requirement: required
         text: >-
-          Is the review clock mapped with question-response capacity resourced, and are
-          patent term extension, data protection and exclusivity filings prepared for
-          submission at the correct moment, since several are time-barred?
-        likely_in: [ipdp]
+          Is the schedule/route of communications with the NRA during review agreed?
 
       - id: RA.DTF.10
+        requirement: required
         text: >-
-          Across the whole dossier, what are the three questions we cannot answer well, does
-          the team agree on them, and has governance explicitly accepted in the minutes the
-          risk of filing with any known deficiency?
-
-  - id: ax
-    label: LMIC Access
-    questions:
-      - id: AX.DTF.1
-        text: >-
-          Do the Phase 3 data support use in the populations and settings of greatest
-          burden, or only in the populations that were convenient to enrol — and if the
-          latter, what is the bridging argument and has any NRA accepted it?
-        likely_in: [ipdp]
-
-      - id: AX.DTF.2
-        text: >-
-          Is efficacy and safety established in the comorbidity contexts that will
-          characterise real use — HIV, TB, malaria, malnutrition, anaemia, helminth
-          co-infection, sickle cell?
-
-      - id: AX.DTF.3
-        text: >-
-          Is the price position for each market segment final, publishable and binding
-          rather than aspirational — and does it survive the scrutiny that follows a
-          high-profile approval?
-        likely_in: [itpp]
-
-      - id: AX.DTF.4
-        text: >-
-          Is manufacturing capacity, including regional capacity, contracted against the
-          forecast, with an allocation commitment that holds under constraint rather than an
-          intention that does not?
-        likely_in: [ipdp]
-
-      - id: AX.DTF.5
-        text: >-
-          Is technology transfer underway with named partners, milestones and a
-          first-regional-supply date that falls within the product's relevance window?
-        likely_in: [ipdp]
-
-      - id: AX.DTF.6
-        text: >-
-          Are LMIC submissions filed in parallel with the reference filing, with the
-          registration plan mapped country by country and regulatory staff actually assigned
-          rather than notionally allocated?
-        likely_in: [ipdp]
-
-      - id: AX.DTF.7
-        text: >-
-          Is the WHO prequalification submission on the same timeline as the main filing —
-          and does donor procurement depend on it, as most donor-funded procurement does?
-        likely_in: [ipdp]
-
-      - id: AX.DTF.8
-        text: >-
-          Is the WHO policy evidence dossier submitted or scheduled, recognising that policy
-          bodies meet on fixed calendars that do not accommodate our timelines?
-        likely_in: [ipdp]
-
-      - id: AX.DTF.9
-        text: >-
-          Are procurers and financiers aligned on timing, with funding decisions sequenced
-          against expected approval and PQ dates and a contingency for slippage in either?
-        likely_in: [ipdp]
-
-      - id: AX.DTF.10
-        text: >-
-          Is the pediatric and pregnancy filing part of this submission or a later one, and
-          what is the resulting delay for those populations, stated in months, in the
-          minutes?
-        likely_in: [ipdp]
+          Have pre-licensure meeting outcomes been documented and an action plan set to
+          resolve issues before filing?

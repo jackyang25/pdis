@@ -1,672 +1,351 @@
-# Lead Candidate Selection — the SME question bank, transcribed.
+# Lead Chemical Series Selection — the stage-gate question bank, transcribed.
 #
-# Transcribed by hand from "Stage Gate Question Bank — SME Edition (v5)", not
-# parsed from it. That document is what this file was checked against; this file is
-# the source everything downstream reads.
+# Transcribed by hand from the source named in `mirrors`, not parsed from it.
+# That document is what this file was checked against; this file is the source
+# everything downstream reads.
 #
-# WHAT DECIDES ANYTHING, AND WHAT IS ONLY A TAG
+# The source guarantees three axes and this file carries exactly those three: the
+# gate, the owning discipline, and whether the gate requires a question answered
+# now (`required`) or expects it to be forming (`anticipatory`). Nothing else is
+# transcribed and nothing is inferred — an earlier bank carried a hint about which
+# document usually answers a question, which no source states, and it was removed.
 #
-# The source document guarantees two axes: the gate and the owning discipline. Those
-# two, plus the question text and the `[PQ]` markers, are the only things transcribed
-# from it — and the only things Expert triages on.
-#
-#   applies_to    Set ONLY where the question text itself states the restriction
-#                 ("For biologics:", "For vaccines:"). Eleven questions across all
-#                 seven gates do. It removes a question from the run, so it must
-#                 never rest on someone reading subject matter and inferring a class:
-#                 66 such inferences were removed, because a wrongly inapplicable
-#                 question disappears silently and reports as "not a shortfall".
-#                 "For biologics" is resolved into [monoclonal_antibody, vaccine] here, once, because
-#                 `biologic` is not in our vocabulary. That is the whole extent of
-#                 the interpretation.
-#
-#   likely_in     A TAG, and nothing else. Where the answer would usually live, as a
-#                 hint for a reader deciding which document to open or upload. It is
-#                 NOT in the source document — the bank is a list of questions for
-#                 SMEs to ask people and has no notion of an iTPP, cTPP or IPDP — so
-#                 it never decides whether a question is assessed, never reaches the
-#                 model, and a wrong value costs a misleading hint rather than a
-#                 wrong answer.
-#
-#   pq            Transcribed from the source's `[PQ]` markers. Display only.
-#
-# Every question that applies is read against every document uploaded. Nothing is
-# withheld from assessment on a guess.
+# `intervention_classes` is a fact about the whole document rather than about any
+# question: it derives from a drug milestone dictionary and asks about synthetic
+# routes, salt and polymorph selection and BCS class, so a vaccine or a mAb has no
+# answer to give. A run for another class is refused rather than returned with every
+# question inapplicable, because a review of nothing reads like a review that found
+# nothing wrong.
+
 org: bmgf
-
-# What this bank is a transcription of. Nothing here can verify it: the source lives
-# outside the repository and is access-controlled. It names which document to
-# re-check when that document moves, and the version is the load-bearing part —
-# a bank transcribed from v5 is stale the moment v6 is published, and only this
-# line says which one produced a saved review.
-mirrors: >-
-  Stage Gate Question Bank — SME Edition v5 (TOC corrected): the Lead Candidate Selection
-  section, its eight disciplines and their ten questions each, transcribed
-  verbatim. Held in the GHIDE Product Development Support SharePoint site —
-  https://bmgf.sharepoint.com/:w:/r/sites/GHIDEProductDevelopmentSupport/_layouts/15/Doc.aspx?sourcedoc=%7BB962E8DB-8422-4810-9AFD-334876DE515F%7D&file=Stage_Gate_Question_Bank_v5_TOC%20corrected.docx&action=default&mobileredirect=true
-
 gate:
   id: lcs
-  label: Lead Candidate Selection
+  label: Lead Chemical Series Selection
   ordinal: 1
 
+intervention_classes: [drug]
+
+mirrors: >-
+  Stage Gate Questions - All Gates.docx, developed from the Drug Development Milestone
+  Dictionary (PDID). LCS questions reviewed by the Certara team, 7/13.
+
 disciplines:
+  - id: pds
+    label: Product Development Strategy
+    questions:
+      - id: PDS.LCS.1
+        requirement: anticipatory
+        text: >-
+          Does the lead series align with the Foundation's disease strategy and the intended
+          Intervention TPP (iTPP)?
+
+      - id: PDS.LCS.2
+        requirement: anticipatory
+        text: >-
+          Is there a clearly defined unmet need and use case that the product would address
+          for the target population?
+
+      - id: PDS.LCS.3
+        requirement: anticipatory
+        text: >-
+          Does the series offer a credible improvement over the current standard of care? Is
+          there a defensible basis for differentiation?
+
+      - id: PDS.LCS.4
+        requirement: anticipatory
+        text: >-
+          Is there a preliminary view of the full development pathway from LCS to
+          registration? Or to FIH?
+
+      - id: PDS.LCS.5
+        requirement: anticipatory
+        text: >-
+          Are the early differentiating attributes (efficacy, safety, dosing, route) being
+          optimized toward a profile that can realistically be delivered?
+
+      - id: PDS.LCS.6
+        requirement: anticipatory
+        text: >-
+          Is there an early view whether the series can meet an affordable target cost for the
+          population?
+
+      - id: PDS.LCS.7
+        requirement: anticipatory
+        text: >-
+          Does the candidate series fit the portfolio strategy (complement vs. duplicate
+          existing efforts/partnerships)?
+
+      - id: PDS.LCS.8
+        requirement: anticipatory
+        text: >-
+          Are key market and access assumptions (who pays, how delivered) being surfaced
+          early?
+
+      - id: PDS.LCS.9
+        requirement: anticipatory
+        text: >-
+          Are strategic risks (deliverability, competition, funding) flagged in the lead-
+          optimization plan?
+
+      - id: PDS.LCS.10
+        requirement: anticipatory
+        text: >-
+          Have internal capability gaps been assessed, and is there a clear plan to engage
+          partner organizations where needed?
+
   - id: cmc
-    label: CMC
+    label: Chemistry, Manufacturing and Controls (CMC)
     questions:
       - id: CMC.LCS.1
+        requirement: required
         text: >-
-          Is the synthetic route (or expression construct and process) one that a
-          commercial manufacturer would actually run at scale, or does it retain a
-          chiral chromatographic separation, a cryogenic step, a hazardous reagent,
-          or a low-yielding late-stage convergent step that will force a route
-          change and a comparability exercise after pivotal material is made?
+          Have CMC experts assessed the physicochemical properties (crystallinity,
+          solubility/pKa, LogP/LogD, permeability, Lipinski) of the lead series, and do they
+          support a developable, adequately bioavailable candidate?
 
-      # VERIFY AGAINST SOURCE. The supplied document ran CMC.LCS.2 and CMC.LCS.3
-      # together mid-sentence, so the tail of this question and the head of the next
-      # were lost. Both are transcribed from the surviving fragments and should be
-      # checked against the SME original before this bank is relied on.
       - id: CMC.LCS.2
+        requirement: anticipatory
         text: >-
-          What is the bottom-up cost of goods model at commercial scale — step
-          yields, cycle time, material costs, occupancy, fill-finish, QC release —
-          and what is the sensitivity to the two most expensive inputs?
+          Is the synthetic route feasible and scalable beyond bench quantities? Any cost,
+          yield, hazardous-reagent, or step-count concerns that could block kilo-scale supply
+          at PCD and later? Are any advanced intermediates with significant lead times
+          required? Is OEB (occupational exposure band) known for the series and does it
+          require specialized CDMOs for manufacture?
 
       - id: CMC.LCS.3
+        requirement: anticipatory
         text: >-
-          Is the selected form the thermodynamically stable one under the
-          conditions of manufacture, storage and Zone IVb distribution?
-          Late-appearing disappearing polymorphs are a supply-interruption class of
-          event, not a CMC inconvenience.
+          Has preliminary salt/solid-form thinking been done (crystalline vs. amorphous,
+          polymorph risk, hygroscopicity risk), and does any series member show form-related
+          developability red flags?
 
       - id: CMC.LCS.4
+        requirement: anticipatory
         text: >-
-          What are the intrinsic solubility, pKa, logP, permeability and
-          BCS/BDDCS classification, and does the resulting biopharmaceutics profile
-          permit the dosage form and dosing frequency in the TPP without an enabling
-          technology (amorphous solid dispersion, lipid formulation, nanomilling)
-          that adds cost and a bioequivalence liability?
+          What is known about drug-substance stability (solid state, solution, and under
+          T/pH/humidity/light), and are any chemical instability liabilities likely to limit
+          formulation or shelf life?
 
       - id: CMC.LCS.5
+        requirement: anticipatory
         text: >-
-          For biologics: what are the developability metrics — expression titer,
-          aggregation propensity, viscosity at target concentration, thermal and
-          colloidal stability, charge heterogeneity, post-translational modification
-          liabilities including deamidation and oxidation hotspots in CDRs — and
-          which of these will constrain the presentation?
-        applies_to: [monoclonal_antibody, vaccine]
+          Have impurity profiles and the feasibility of suitable analytical methods (identity,
+          assay, purity) been evaluated across the series?
 
       - id: CMC.LCS.6
+        requirement: anticipatory
         text: >-
-          Which raw materials, resins, single-use components, adjuvants, cell banks,
-          plasmids or viral seeds are single-sourced or geographically concentrated,
-          and what is the qualification lead time for an alternate? Supply
-          concentration discovered at Phase 3 is a two-year problem.
+          Does the anticipated formulation strategy and route of administration align with the
+          target product profile, and is bioavailability achievable without complex enabling
+          technology? Does the series exhibit suitable properties for meeting formulation
+          requirements for alternate routes (e.g. parenteral, topical, intranasal) if needed?
 
       - id: CMC.LCS.7
+        requirement: required
         text: >-
-          Are there structural alerts requiring control under ICH M7 — mutagenic
-          impurities against the staged TTC, nitrosamine-forming amine and nitrite
-          combinations in the route or excipients — and does the control strategy
-          exist or is it aspirational?
+          Across the candidate series, which members rank highest on developability - and are
+          we weighting CMC risk alongside potency and selectivity in the selection?
 
       - id: CMC.LCS.8
+        requirement: anticipatory
         text: >-
-          What is the freedom-to-operate position on the composition of matter, the
-          manufacturing route, the expression system, the adjuvant, the formulation
-          platform and the delivery device — and specifically, does any encumbrance
-          restrict manufacture in the geographies where regional production is
-          intended?
+          Are projected dose, presentation, and cost of goods consistent with the low-
+          resource-setting TPP, or do they signal an unmanufacturable or unaffordable product?
 
       - id: CMC.LCS.9
+        requirement: required
         text: >-
-          Which critical quality attributes currently have no analytical method,
-          and what is the development and qualification timeline for each against
-          the date GLP tox material must be released?
+          Is a CMC development plan being initiated, with the activities and data defined to
+          reach Initial DS/DP characterization by the PCD gate?
 
       - id: CMC.LCS.10
+        requirement: required
         text: >-
-          If this is a platform product, what specifically is leverageable — cell
-          line, viral clearance, adjuvant safety, container-closure, prior platform
-          master file — and what is emphatically not, because reviewers do not
-          accept platform arguments for product-specific attributes?
-
-  - id: nc
-    label: Preclinical Pharmacology / Toxicology / PK
-    questions:
-      - id: NC.LCS.1
-        text: >-
-          What is the human validation for this target — Mendelian genetics, GWAS
-          with a coding variant, loss-of-function carriers with a protective
-          phenotype, clinical precedent from another agent — and if the evidence is
-          animal-model-only, what is the honest probability that the model is the
-          disease?
-
-      - id: NC.LCS.2
-        text: >-
-          What are the potency, selectivity ratio against the nearest structural and
-          functional off-targets, target occupancy required for effect, and the
-          kinetics of binding? A program that cannot state the occupancy-effect
-          relationship cannot set a dose rationally later.
-
-      - id: NC.LCS.3
-        text: >-
-          What does the in vitro ADME package predict for human clearance, and by
-          which method — allometry, IVIVE from hepatocytes, PBPK — and what is the
-          spread between methods? Convergent predictions are informative; a single
-          method quoted as a point estimate is not.
-
-      - id: NC.LCS.4
-        text: >-
-          Is in vivo efficacy demonstrated in a disease-relevant model with a
-          characterized exposure-response relationship, blinded assessment, adequate
-          group sizes and an independent replication — or is it a single unblinded
-          experiment with n=8 and a p-value just under 0.05?
-
-      - id: NC.LCS.5
-        text: >-
-          What is the projected human efficacious exposure, and what preliminary
-          tolerability data bound the therapeutic index? A program should be able to
-          state the expected margin at LCS and be held to it.
-
-      - id: NC.LCS.6
-        text: >-
-          What did the off-target panel, hERG (and ideally the full CiPA ion channel
-          set), and CNS/cardiovascular/respiratory safety pharmacology show, and are
-          any hits monitorable, reversible or designable-out — or are they
-          mechanism-linked and therefore not escapable by the backup?
-
-      - id: NC.LCS.7
-        text: >-
-          Which anticipated toxicities are target-mediated rather than
-          compound-mediated? This is the single most important discriminator at LCS,
-          because it determines whether a backup molecule is a genuine hedge or a
-          duplicate of the same risk.
-
-      - id: NC.LCS.8
-        text: >-
-          What is the metabolic profile — fraction metabolized by each route,
-          reactive metabolite potential, CYP and UGT inhibition and induction
-          including time-dependent inhibition, and transporter interactions per the
-          applicable DDI guidance — and how does that intersect with the
-          co-medication landscape in the target population, including
-          antiretrovirals, rifamycins and azoles?
-
-      - id: NC.LCS.9
-        text: >-
-          Which species are pharmacologically relevant, evidenced by target sequence
-          homology, receptor binding and functional cross-reactivity — and if
-          neither rodent nor non-rodent is relevant, is the strategy a homologous
-          molecule, a transgenic model, or a single-species justification that the
-          agency has accepted for this class before?
-
-      - id: NC.LCS.10
-        text: >-
-          On the three attributes that genuinely differentiate this product from
-          standard of care and from the leading competitor, what are the head-to-head
-          data for lead versus backup versus comparator — and if there are none, why
-          are we selecting?
-
-  - id: tm
-    label: Translational Medicine
-    questions:
-      - id: TM.LCS.1
-        text: >-
-          What is the specific unmet need, in which patient segment, defined
-          precisely enough that a clinician could identify the patient and a payer
-          could count them — and what is the size of that population in the
-          geographies where the burden actually sits?
-        likely_in: [itpp, ipdp]
-
-      - id: TM.LCS.2
-        text: >-
-          What is the causal chain from target engagement through proximal
-          pharmacology to clinical benefit, and which link has the weakest evidence?
-          Name it explicitly; that link is the program's actual risk.
-        likely_in: [ipdp]
-
-      - id: TM.LCS.3
-        text: >-
-          Is there a measurable human target-engagement biomarker — receptor
-          occupancy, enzyme inhibition, pathway readout, PET ligand — and if not,
-          what will constitute evidence that we dosed high enough when the Phase 2
-          fails?
-        likely_in: [ipdp]
-
-      - id: TM.LCS.4
-        text: >-
-          Is there a pharmacodynamic biomarker, surrogate endpoint or, for vaccines,
-          a plausible correlate of protection — and is it mechanistic or merely
-          statistically associated? The distinction determines whether regulators and
-          WHO will accept it as a basis for bridging.
-        likely_in: [itpp, ipdp]
-
-      - id: TM.LCS.5
-        text: >-
-          What human evidence exists beyond animal models — human tissue, ex vivo
-          challenge, organoid, controlled human infection model, natural history
-          cohort, prior clinical experience with a related agent?
-
-      - id: TM.LCS.6
-        text: >-
-          What is the expected effect size, and is it large enough to be detectable,
-          clinically meaningful, and sufficient to change guidelines and secure
-          procurement? Products that are statistically significant and
-          programmatically irrelevant are a recurring category of failure.
-        likely_in: [itpp, ctpp]
-
-      - id: TM.LCS.7
-        text: >-
-          What enrichment strategies are available — biomarker, disease severity,
-          genotype, exposure risk, incidence density — and what is the trade-off
-          between the enriched population's higher effect size and the label's
-          narrower reach?
-        likely_in: [ipdp]
-
-      - id: TM.LCS.8
-        text: >-
-          What is the full failure history of this target and mechanism, across
-          companies and indications, including unpublished failures known through
-          the network — and what specifically is different here? "We have a better
-          molecule" is the answer given by every program that subsequently failed
-          for target reasons.
-
-      - id: TM.LCS.9
-        text: >-
-          Which assays must be developed, analytically validated, transferred and
-          run under GCLP at clinical sites — including LMIC sites where sample
-          stability, cold chain and shipping permits are non-trivial — and what is
-          the lead time against first patient in?
-        likely_in: [ipdp]
-
-      - id: TM.LCS.10
-        text: >-
-          What is the cheapest, fastest experiment that could kill this program, and
-          is it scheduled before or after the money is spent? If after, why?
+          Have CMC partner needs (CMO/CRO capabilities, capacity, gaps) been identified, and
+          are anticipated CMC risks captured with mitigations in the partner selection plan?
 
   - id: cp
     label: Clinical Pharmacology
     questions:
       - id: CP.LCS.1
+        requirement: required
         text: >-
-          What is the predicted human PK — clearance, volume, half-life,
-          bioavailability — with an explicit uncertainty range and the method used,
-          and does the prediction support once-daily or better dosing without
-          relying on optimistic assumptions about absorption?
+          Have target binding affinity, dose and/or concentration-response, and specificity
+          been described using validated assays?
 
       - id: CP.LCS.2
+        requirement: required
         text: >-
-          What is the anticipated starting dose and by what basis — NOAEL-derived
-          HED with the standard safety factor, or MABEL where the mechanism is
-          immunostimulatory, agonistic or otherwise high-risk per the revised EMA
-          first-in-human guidance — and how many escalation steps separate start from
-          the predicted efficacious dose? A 6-log gap is a schedule problem disguised
-          as a safety plan.
-        likely_in: [ipdp]
+          Has a PK/PD relationship been established in vitro and/or in preclinical species? Is
+          this relationship time dependent?
 
       - id: CP.LCS.3
+        requirement: required
         text: >-
-          Is the predicted efficacious exposure achievable within an acceptable dose
-          burden — tablet count, injection volume and viscosity, infusion duration,
-          dose volume for pediatric administration — in the setting of intended use?
-        likely_in: [itpp, ctpp]
+          Has free fraction and protein binding been characterized, and does the unbound
+          exposure at the target site support the intended pharmacology?
 
       - id: CP.LCS.4
+        requirement: required
         text: >-
-          What drives PK variability in the target population, and does it include
-          factors underrepresented in Western Phase 1 populations: CYP2B6, CYP2C19
-          and NAT2 polymorphism frequencies, hypoalbuminemia, malnutrition, hepatic
-          schistosomiasis, or high co-infection burden?
+          Have drug-drug interaction considerations (e.g., CYP/transporter liability) been
+          factored into series selection?
 
       - id: CP.LCS.5
+        requirement: required
         text: >-
-          What is the DDI liability against the actual co-medication landscape — ART
-          regimens including dolutegravir and efavirenz, rifampicin, azoles,
-          hormonal contraception, antimalarials, TB regimens — and would a
-          clinically important interaction restrict the product out of the population
-          it was designed for?
+          Does the lead-optimization strategy define the preclinical DMPK/PK parameters
+          (clearance, half-life, volume of distribution) across at least 2 species?
 
       - id: CP.LCS.6
+        requirement: anticipatory
         text: >-
-          Does the mechanism, chemotype or predicted exposure raise a cardiac
-          liability requiring the integrated ICH E14/S7B assessment, and is a
-          concentration-QTc analysis from early clinical data planned in lieu of a
-          standalone thorough QT study?
-        likely_in: [ipdp]
+          For phenotypic hits, is the mechanism of action defined, and is a target-engagement
+          biomarker strategy emerging?
 
       - id: CP.LCS.7
+        requirement: anticipatory
         text: >-
-          What is the plan and sequencing for pediatric, pregnancy/lactation,
-          hepatic and renal impairment pharmacokinetic characterisation, and does it
-          position those dosing recommendations at approval or five years later?
-        likely_in: [ipdp]
+          Do preliminary ADME properties, including BCS classification, suggest the series can
+          achieve the exposures the TPP implies, and are solubility and permeability
+          limitations understood?
 
       - id: CP.LCS.8
+        requirement: anticipatory
         text: >-
-          Is there a model-informed drug development strategy specifying which model
-          supports which decision, or is modeling being budgeted as retrospective
-          description of results already obtained?
-        likely_in: [ipdp]
+          Is there plan for predicting human PK from preclinical PK and an early view of the
+          likely human dose range and route sufficient to judge developability?
 
       - id: CP.LCS.9
+        requirement: anticipatory
         text: >-
-          What bioanalytical methods are required, in which matrices, at what LLOQ,
-          and can they be validated and run in the countries where the pivotal
-          trials will enroll — or does the plan assume sample export that customs and
-          material transfer agreements may not permit?
-        likely_in: [ipdp]
+          Are bioanalytical assay approaches feasible for the chemotype to support later PK/PD
+          work?
 
       - id: CP.LCS.10
+        requirement: anticipatory
         text: >-
-          Does the projected regimen survive the real-world setting: no
-          refrigeration, no reliable food, no directly observed therapy, intermittent
-          supply? A regimen that requires conditions the setting cannot supply is a
-          design defect, not an adherence problem.
-        likely_in: [itpp, ctpp]
+          Are clin-pharm risks (narrow therapeutic index, high DDI potential, poor predicted
+          exposure) captured in the lead-optimization plan?
 
-  - id: cd
-    label: Clinical Development
+  - id: ns
+    label: Nonclinical Safety
     questions:
-      - id: CD.LCS.1
+      - id: NS.LCS.1
+        requirement: required
         text: >-
-          Has the TPP been written with explicit minimum-acceptable and aspirational
-          columns, and endorsed in writing by clinicians, regulators and procurers in
-          the target markets — or does it reflect only internal opinion?
-        likely_in: [itpp, ctpp]
+          Has off-target / secondary pharmacology screening been performed (e.g., Eurofins
+          Safety Screening, cardiovascular ion channel, panels) to flag early safety
+          liabilities?
 
-      - id: CD.LCS.2
+      - id: NS.LCS.2
+        requirement: required
         text: >-
-          What is the first indication, and is the choice driven by probability of
-          success, speed, commercial return or public health impact? Say which.
-          Programs that will not name the trade-off have usually made it implicitly
-          and badly.
-        likely_in: [itpp, ipdp]
+          Has reactive-metabolite liability been assessed across the series?
 
-      - id: CD.LCS.3
+      - id: NS.LCS.3
+        requirement: required
         text: >-
-          What will the standard of care be at the time of launch, not today —
-          accounting for the competitors currently in Phase 3 — and does the
-          candidate beat that moving target on the attributes that drive prescribing
-          and procurement?
-        likely_in: [ipdp]
+          Has a rationale for nonclinical species selection been considered with supportive
+          data (cross-species target homology, expression, binding affinity, metabolism)?
 
-      - id: CD.LCS.4
+      - id: NS.LCS.4
+        requirement: anticipatory
         text: >-
-          What is the outline development plan, its cost, its duration, and which two
-          activities sit on the critical path such that a three-month slip in either
-          moves launch?
-        likely_in: [ipdp]
+          Have early genotoxicity alerts (structural / in silico, e.g., Ames-predictive) been
+          screened across the chemotype?
 
-      - id: CD.LCS.5
+      - id: NS.LCS.5
+        requirement: anticipatory
         text: >-
-          What are the candidate primary endpoints, are they accepted by every
-          regulator we will file with, and are they measurable in the settings
-          carrying the disease burden — or do they require imaging, central
-          laboratory or specialist assessment unavailable there?
-        likely_in: [ipdp]
+          Does the lead-optimization strategy include go/no-go safety criteria (selectivity
+          windows, structural alerts)?
 
-      - id: CD.LCS.6
+      - id: NS.LCS.6
+        requirement: anticipatory
         text: >-
-          Is the intended population enrollable at the required rate, based on actual
-          epidemiology, competing trials and site capacity — and has anyone asked an
-          investigator rather than a business case?
-        likely_in: [ipdp]
+          Are potential on-target (mechanism-related) toxicity risks considered for the
+          series?
 
-      - id: CD.LCS.7
+      - id: NS.LCS.7
+        requirement: anticipatory
         text: >-
-          What safety monitoring does the mechanism demand during the trials, and can
-          the intended trial settings deliver it — cardiac telemetry, hepatic
-          monitoring, imaging, specialist adjudication? Whether the eventual market
-          can deliver it is a separate question and belongs to Drug Safety.
-        likely_in: [ipdp]
+          Is a preliminary safety-margin view (predicted efficacious vs. toxic exposure)
+          emerging to guide selection?
 
-      - id: CD.LCS.8
+      - id: NS.LCS.8
+        requirement: anticipatory
         text: >-
-          What reads out before we do, and for each competitor outcome — positive,
-          negative, safety event — what is our response? A plan that has one branch is
-          not a plan.
+          Are metabolite-related safety concerns (reactive / major metabolites) flagged for
+          follow-up?
 
-      - id: CD.LCS.9
+      - id: NS.LCS.9
+        requirement: anticipatory
         text: >-
-          What is the probability of technical and regulatory success, benchmarked to
-          published phase-transition rates for this modality, indication and mechanism
-          class, and what specifically justifies deviation from the benchmark in
-          either direction?
-        likely_in: [ipdp]
+          Have phototoxicity, mutagenicity, or other structural-class liabilities relevant to
+          the chemotype been considered?
 
-      - id: CD.LCS.10
+      - id: NS.LCS.10
+        requirement: anticipatory
         text: >-
-          What are the quantitative stopping criteria for the next three gates,
-          agreed now while nobody is invested in the answer?
-        likely_in: [ipdp]
-
-  - id: pv
-    label: Drug Safety and Pharmacovigilance
-    questions:
-      - id: PV.LCS.1
-        text: >-
-          What is the full safety history of this target, mechanism and chemical or
-          platform class — including withdrawn products, boxed warnings, referral
-          procedures and class labeling — and what specifically about this candidate
-          prevents a recurrence rather than merely postponing it?
-
-      - id: PV.LCS.2
-        text: >-
-          What is the first draft of the safety specification: the important
-          identified risks we already expect from the class, the important potential
-          risks the mechanism implies, and the missing information the development
-          plan will create by design?
-        likely_in: [ipdp]
-
-      - id: PV.LCS.3
-        text: >-
-          Is any anticipated risk unmonitorable in the setting of intended use —
-          requiring laboratory monitoring, imaging, ECG or specialist assessment that
-          a district hospital or rural clinic cannot deliver? A risk that requires
-          monitoring the setting cannot supply is an access exclusion, not a labeling
-          problem.
-        likely_in: [itpp, ipdp]
-
-      - id: PV.LCS.4
-        text: >-
-          What are the background incidence rates of the anticipated adverse events in
-          the target population, and do usable denominators exist there — because
-          every observed-versus-expected analysis after launch depends on a background
-          rate somebody has to have measured.
-
-      - id: PV.LCS.5
-        text: >-
-          Does the anticipated profile imply additional risk minimisation — a REMS,
-          controlled distribution, prescriber certification, pregnancy prevention
-          programme — and can those measures actually be operated in every market in
-          the access strategy?
-        likely_in: [ipdp]
-
-      - id: PV.LCS.6
-        text: >-
-          For vaccines: what is the anticipated adverse event of special interest
-          list, do validated case definitions exist for each, and does the platform or
-          adjuvant carry a class-level safety concern from prior products that will be
-          raised again here?
-        applies_to: [vaccine]
-        likely_in: [ipdp]
-
-      - id: PV.LCS.7
-        text: >-
-          Will this product be safe-able by spontaneous reporting, or will it require
-          active surveillance — cohort event monitoring, sentinel sites, registry — in
-          the markets carrying the volume, and has anyone costed that?
-        likely_in: [ipdp]
-
-      - id: PV.LCS.8
-        text: >-
-          Does the anticipated risk profile exclude pregnancy, lactation, pediatrics or
-          a comorbid group that constitutes a large share of the intended population —
-          and is that exclusion being accepted as a decision rather than inherited as a
-          default?
-        likely_in: [itpp, ipdp]
-
-      - id: PV.LCS.9
-        text: >-
-          What would a serious safety signal in this class do to the wider portfolio
-          and to the credibility of the delivery platform — because in immunization
-          particularly, a safety event attaches to the programme rather than to the
-          product?
-
-      - id: PV.LCS.10
-        text: >-
-          What is the safety governance model — who decides a signal is real, who can
-          halt dosing, and is that authority structurally independent of the person
-          accountable for the program timeline?
-        likely_in: [ipdp]
+          Are non-clinical-safety risks captured in the lead-optimization plan with screening
+          to de-risk them?
 
   - id: ra
-    label: Regulatory Affairs
+    label: Regulatory
     questions:
       - id: RA.LCS.1
+        requirement: anticipatory
         text: >-
-          What is the intended pathway in each region — standard, accelerated approval
-          with a confirmatory trial underway at approval, conditional marketing
-          authorization, EU-M4all, WHO prequalification, Emergency Use Listing — and
-          what evidentiary standard does each impose that the others do not?
-        likely_in: [ipdp]
+          Is the intended indication and likely regulatory approach (e.g., pathways for
+          approval of a new chemical entity, or pathways allowing reliance on data from
+          approved products with the same API) understood for the lead series?
 
       - id: RA.LCS.2
+        requirement: anticipatory
         text: >-
-          Which agency is the reference for the assessment that LMIC regulators will
-          rely on, and does that agency's assessment actually travel through the WHO
-          Collaborative Registration Procedure and the regional joint-review
-          mechanisms we intend to use?
-        likely_in: [ipdp]
+          Are likely target markets / countries for introduction being considered to
+          anticipate regulatory requirements?
 
       - id: RA.LCS.3
+        requirement: anticipatory
         text: >-
-          For which expedited designations do we plausibly qualify, when is the
-          optimal filing moment for each, and what obligations does each create?
-          Breakthrough and PRIME buy interaction, not evidentiary relief.
-        likely_in: [ipdp]
+          Is there awareness of relevant regulatory precedence for the target therapeutic area
+          and/or product class that may help identify regulatory risks and/or potential areas
+          for efficiencies in development?
 
       - id: RA.LCS.4
+        requirement: anticipatory
         text: >-
-          Is there approved precedent for this mechanism, endpoint, platform or
-          adjuvant — and where the precedent is a failure or a complete response
-          letter, do we know the reason?
+          Has the potential applicability of expedited or special pathways (orphan, tropical-
+          disease voucher, WHO PQ) been considered?
 
       - id: RA.LCS.5
+        requirement: anticipatory
         text: >-
-          Does the intended nonclinical package meet ICH M3(R2), S6(R1) or S9 as
-          applicable — and where we intend to deviate, has the deviation been
-          discussed rather than assumed?
-        likely_in: [ipdp]
+          Are potential chemical, class or mechanism-specific regulatory liabilities (class
+          warnings, controlled-substance scheduling) flagged early?
 
       - id: RA.LCS.6
+        requirement: anticipatory
         text: >-
-          What is the composition-of-matter patent expiry, the achievable regulatory
-          exclusivity in each region, and the expected generic or biosimilar entry
-          date — and does the development timeline leave a commercially and
-          programmatically coherent life?
+          Is WHO PQ / programmatic-suitability potential being kept in view given the target
+          population?
 
       - id: RA.LCS.7
+        requirement: anticipatory
         text: >-
-          Do we hold or can we reference a platform master file, prior adjuvant safety
-          package, or cell substrate file that materially reduces the required package
-          — and have we confirmed that the referenced agency will permit the
-          cross-reference?
+          Are IP / data-exclusivity considerations that affect regulatory strategy noted?
 
       - id: RA.LCS.8
+        requirement: anticipatory
         text: >-
-          What is the pediatric obligation in each region — the EU PIP agreed with
-          PDCO at the end of Phase 1, the US initial PSP timing — and does it constrain
-          the adult critical path?
-        likely_in: [ipdp]
+          Are questions being identified for which Regulatory input is needed and
+          considerations being given to planning and timing for regulatory interactions to
+          address these questions?
 
       - id: RA.LCS.9
+        requirement: anticipatory
         text: >-
-          What is the first formal agency interaction, when, with whom, and which
-          specific question must it settle? A pre-IND meeting spent on general
-          orientation is a wasted meeting.
-        likely_in: [ipdp]
-
-      - id: RA.LCS.10
-        text: >-
-          In the target LMIC markets, what are the country-specific requirements —
-          local clinical data, local batch testing, import licensing, NRA maturity
-          level under the WHO Global Benchmarking Tool, registration timelines — and
-          which of these must shape the development plan rather than be discovered
-          after approval?
-        likely_in: [ipdp]
-
-  - id: ax
-    label: LMIC Access
-    questions:
-      - id: AX.LCS.1
-        text: >-
-          Is the TPP written for the setting of intended use — ambient storage,
-          intermittent power, no cold chain at the last mile, limited diagnostics,
-          community health worker administration, single patient contact — or is it a
-          high-income TPP with an aspiration attached?
-        likely_in: [itpp, ctpp]
-
-      - id: AX.LCS.2
-        text: >-
-          What is the maximum acceptable price per course or dose, derived from what
-          payer's willingness and what budget impact analysis — and does the bottom-up
-          COGS leave a sustainable margin below it at realistic volumes?
-        likely_in: [itpp]
-
-      - id: AX.LCS.3
-        text: >-
-          Who is the payer, and what does that payer specifically require: Gavi's
-          Vaccine Investment Strategy evidence and timing, Global Fund and country
-          allocation cycles, national budget processes, or out-of-pocket
-          affordability?
-        likely_in: [ipdp]
-
-      - id: AX.LCS.4
-        text: >-
-          What is the projected LMIC annual volume, and does any manufacturing
-          strategy under consideration reach that scale at that price? A process
-          designed for 50,000 patients cannot be retrofitted to 50 million.
-        likely_in: [ipdp]
-
-      - id: AX.LCS.5
-        text: >-
-          Are access obligations — pricing, territory, sublicensing, technology
-          transfer, non-assert, supply commitments — agreed in binding form now,
-          before the molecule is selected and leverage disappears?
-
-      - id: AX.LCS.6
-        text: >-
-          Is regional or second-source manufacturing intended, and does the process
-          being locked now — proprietary resins, licensed platform, single-source
-          components, containment requirements — actually permit transfer to a partner
-          in Africa, India or Southeast Asia?
-        likely_in: [ipdp]
-
-      - id: AX.LCS.7
-        text: >-
-          Do the countries carrying the disease burden appear in the clinical,
-          regulatory and manufacturing plan as designed-in, or are they a phase-4
-          aspiration?
-        likely_in: [ipdp]
-
-      - id: AX.LCS.8
-        text: >-
-          Does the delivery format integrate with an existing platform — EPI schedule
-          and co-administration, mass drug administration, ANC contact, community case
-          management, existing FDC regimen — or does it require a new delivery channel
-          that no one has funded?
-        likely_in: [itpp, ctpp]
-
-      - id: AX.LCS.9
-        text: >-
-          Which equity risks are being created by design: pediatric formulation
-          deferred, pregnancy excluded, diagnostic dependency, device cost, cold chain
-          requirement, weight-band dosing complexity? List them, and record who
-          accepted each.
-        likely_in: [itpp, ipdp]
-
-      - id: AX.LCS.10
-        text: >-
-          Who owns the access plan, do they have authority to block candidate
-          selection, and are they in the room today?
+          Are regulatory risks captured in the lead-optimization plan for the candidate
+          series?

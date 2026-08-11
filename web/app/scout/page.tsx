@@ -65,13 +65,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { MAX_RESULTS_PER_TOOL, useScoutSession } from "@/lib/session";
+import {
+  IMPORT_LIMIT_MESSAGE,
+  MAX_RESULTS_PER_TOOL,
+  RESULT_LIMIT_MESSAGE,
+  useScoutSession,
+} from "@/lib/session";
 import { usePriorityDigest } from "@/lib/priority-digest";
 import { toolAuthority } from "@/lib/tools";
 import { useScoutReviewSession } from "@/lib/scout-review-session";
 import {
   isScoutResultFinal,
   packScoutResult,
+  runLabel,
   pendingQuantitativeReviewCount,
   splitResultContext,
   scoutResultFilename,
@@ -457,9 +463,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
 
   async function handleRun(file: File) {
     if (results.length >= MAX_RESULTS_PER_TOOL) {
-      setError(
-        `Keeping ${MAX_RESULTS_PER_TOOL} runs. Remove one before starting another.`,
-      );
+      setError(RESULT_LIMIT_MESSAGE);
       return;
     }
     setBusy(true);
@@ -486,9 +490,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   async function handleImport(file: File) {
     setError(null);
     if (results.length >= MAX_RESULTS_PER_TOOL) {
-      setError(
-        `Keeping ${MAX_RESULTS_PER_TOOL} runs. Remove one before importing another.`,
-      );
+      setError(IMPORT_LIMIT_MESSAGE);
       return;
     }
     try {
@@ -1983,7 +1985,7 @@ function FieldGrid({
             selectedId={selectedId}
             onSelect={selectResult}
             onRemove={removeResult}
-            label={(value) => value.blocks?.[0]?.doc_id || value.indication || "Scout result"}
+            label={(value) => runLabel(value, "scout")}
           />
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}

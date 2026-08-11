@@ -1,6 +1,9 @@
 import type { AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.ts";
 import { VERDICT_LABELS } from "./api.ts";
-import type { DocumentAnnotation } from "./document-trace.ts";
+import type {
+  DocumentAnnotation,
+  DocumentAnnotationEmphasis,
+} from "./document-trace.ts";
 
 /**
  * Projects a finished alignment into shared document annotations.
@@ -50,14 +53,20 @@ export type AlignerDocumentAnnotation = DocumentAnnotation<
   AlignerDocumentTraceRef
 >;
 
-/** Verdicts a reader should see marked, and how strongly. */
-const TONE: Record<AlignmentVerdict, "neutral" | "caution" | "danger"> = {
-  meets: "neutral",
-  exceeds: "neutral",
-  // Caution, not danger: falling short of a target is the tool's central finding and a
-  // normal state of an in-progress programme, not a failure. Danger is reserved for
-  // Inspector's blocking grades, and reusing it here would make one colour mean two
-  // things across two tools.
+/**
+ * Which tone each verdict takes, from the set every tool's trace shares.
+ *
+ * `meets` and `exceeds` are `success` for the same reason Expert's `answered` is: the
+ * thing asked for is there. Grey would read as "nobody looked".
+ *
+ * `falls_short` and `not_comparable` are caution, not danger: falling short of a target
+ * is this tool's central finding and a normal state of an in-progress programme, not a
+ * failure. Danger stays with a contradiction or a grade a tool calls blocking, and
+ * reusing it here would make one colour mean two things across two tools.
+ */
+const TONE: Record<AlignmentVerdict, DocumentAnnotationEmphasis["tone"]> = {
+  meets: "success",
+  exceeds: "success",
   falls_short: "caution",
   not_comparable: "caution",
   not_addressed: "neutral",
@@ -103,6 +112,8 @@ export function buildAlignerDocumentAnnotations(
         // Aligner records block lineage, not quotations. Searching a block for a phrase
         // to underline would invent a span the model never asserted.
         spans: [],
+        // Neutral: the requirement side states what was asked, and claims nothing about
+        // whether it was met. The verdict on the other document carries that.
         emphasis: { tone: "neutral", badge: "Requirement" },
         sourceRef: ref("reference"),
       });

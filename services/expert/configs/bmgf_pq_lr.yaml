@@ -1,0 +1,346 @@
+# Prequalification / Local Registration — the stage-gate question bank, transcribed.
+#
+# Transcribed by hand from the source named in `mirrors`, not parsed from it.
+# That document is what this file was checked against; this file is the source
+# everything downstream reads.
+#
+# The source guarantees three axes and this file carries exactly those three: the
+# gate, the owning discipline, and whether the gate requires a question answered
+# now (`required`) or expects it to be forming (`anticipatory`). Nothing else is
+# transcribed and nothing is inferred — an earlier bank carried a hint about which
+# document usually answers a question, which no source states, and it was removed.
+#
+# `intervention_classes` is a fact about the whole document rather than about any
+# question: it derives from a drug milestone dictionary and asks about synthetic
+# routes, salt and polymorph selection and BCS class, so a vaccine or a mAb has no
+# answer to give. A run for another class is refused rather than returned with every
+# question inapplicable, because a review of nothing reads like a review that found
+# nothing wrong.
+
+org: bmgf
+gate:
+  id: pq_lr
+  label: Prequalification / Local Registration
+  ordinal: 7
+
+intervention_classes: [drug]
+
+mirrors: >-
+  Stage Gate Questions - All Gates.docx, developed from the Drug Development Milestone
+  Dictionary (PDID). LCS questions reviewed by the Certara team, 7/13.
+
+disciplines:
+  - id: pds
+    label: Product Development Strategy
+    questions:
+      - id: PDS.PQ_LR.1
+        requirement: required
+        text: >-
+          Is the delivery plan updated and ready to execute for first-wave country launch and
+          uptake?
+
+      - id: PDS.PQ_LR.2
+        requirement: required
+        text: >-
+          Is the strategic demand forecast updated for confirmed launch markets and timing?
+
+      - id: PDS.PQ_LR.3
+        requirement: required
+        text: >-
+          Is the launch budget prediction updated to a final, accurate estimate of launch and
+          uptake support?
+
+      - id: PDS.PQ_LR.4
+        requirement: required
+        text: >-
+          Is the Coverage & Financial Tracker in place with refined target metrics (countries
+          launched, coverage, average procurement price, incremental cost to deliver)?
+
+      - id: PDS.PQ_LR.5
+        requirement: required
+        text: >-
+          Is pricing, supply, and financing secured and consistent with the access commitments
+          for launch markets?
+
+      - id: PDS.PQ_LR.6
+        requirement: required
+        text: >-
+          Has the candidate TPP been reviewed against the final product and approved
+          indication?
+
+      - id: PDS.PQ_LR.7
+        requirement: required
+        text: >-
+          Are country implementation plans and decision support in place to drive favorable
+          introduction decisions?
+
+      - id: PDS.PQ_LR.8
+        requirement: required
+        text: >-
+          Is the COGS / price still aligned with the TPP target and affordability for the
+          population at launch scale?
+
+      - id: PDS.PQ_LR.9
+        requirement: required
+        text: >-
+          Are coverage, uptake, and pricing metrics set up for monitoring and evaluation post-
+          launch?
+
+      - id: PDS.PQ_LR.10
+        requirement: required
+        text: >-
+          Are government and global-policy partnerships secured to support uptake and
+          sustained access?
+
+  - id: cmc
+    label: Chemistry, Manufacturing and Controls (CMC)
+    questions:
+      - id: CMC.PQ_LR.1
+        requirement: required
+        text: >-
+          Are product release specifications finalized, supported by pre-approval inspection
+          of the manufacturing facilities?
+
+      - id: CMC.PQ_LR.2
+        requirement: required
+        text: >-
+          Do stability data support the proposed expiration dating - cold-chain requirements,
+          suitability under field conditions, shelf life, and remaining shelf life at time of
+          shipment?
+
+      - id: CMC.PQ_LR.3
+        requirement: required
+        text: >-
+          Is the available clinical data relevant to the UN target population, and have the
+          specific requirements of UN procurers been met?
+
+      - id: CMC.PQ_LR.4
+        requirement: required
+        text: >-
+          Have any required advisory-group recommendations been documented and addressed?
+
+      - id: CMC.PQ_LR.5
+        requirement: required
+        text: >-
+          Does packaging meet WHO tender specs - cold-space volume, primary/secondary
+          packaging characteristics, and presentation suitability (tablets, vials, ampoules,
+          prefilled auto-dispensable syringes)?
+
+      - id: CMC.PQ_LR.6
+        requirement: required
+        text: >-
+          Is labeling adequate - all relevant information stated, insert consistent with WHO
+          model inserts and policies, and available in all required languages?
+
+      - id: CMC.PQ_LR.7
+        requirement: required
+        text: >-
+          Is tertiary packaging prepared according to WHO shipping guidelines and properly
+          validated?
+
+      - id: CMC.PQ_LR.8
+        requirement: required
+        text: >-
+          Is a pharmacovigilance plan in place - key identified/potential risks, an action
+          plan for ADR collection and active monitoring, and PSUR/ADR reporting (especially
+          where passive PV is insufficient)?
+
+      - id: CMC.PQ_LR.9
+        requirement: required
+        text: >-
+          Is the full-scale post-launch manufacturing strategy updated for the confirmed
+          commercial partners, launch markets, and manufacturing scale per the latest demand
+          forecast?
+
+      - id: CMC.PQ_LR.10
+        requirement: required
+        text: >-
+          Is the ongoing-CMC-support plan current - CMO supply-chain monitoring,
+          deviation/stability/raw-material change handling, regulatory reporting, and
+          assessment of demand-forecast changes for additional sites/suppliers?
+
+  - id: cp
+    label: Clinical Pharmacology
+    questions:
+      - id: CP.PQ_LR.1
+        requirement: required
+        text: >-
+          Is the clinical safety and efficacy dataset (including PK / exposure-response)
+          complete and submission-ready for WHO PQ?
+
+      - id: CP.PQ_LR.2
+        requirement: required
+        text: >-
+          Is the approved dose/regimen relevant and justified for the UN target population and
+          field conditions?
+
+      - id: CP.PQ_LR.3
+        requirement: required
+        text: >-
+          Are dosing recommendations adequate for special and field populations (pediatric,
+          malnourished, co-infected, pregnant) where applicable?
+
+      - id: CP.PQ_LR.4
+        requirement: required
+        text: >-
+          Have specific requirements of UN procurers regarding dosing and presentation been
+          met?
+
+      - id: CP.PQ_LR.5
+        requirement: required
+        text: >-
+          Does the pharmacovigilance plan capture key identified/potential risks, including
+          DDIs and exposure-related safety in real-world use?
+
+      - id: CP.PQ_LR.6
+        requirement: required
+        text: >-
+          Is there an action plan for collecting, evaluating, and reporting adverse drug
+          reactions (PSURs/ADRs) post-launch?
+
+      - id: CP.PQ_LR.7
+        requirement: required
+        text: >-
+          Is dosing/label information accurate, consistent with WHO model inserts/policies,
+          and available in required languages?
+
+      - id: CP.PQ_LR.8
+        requirement: required
+        text: >-
+          Are any required advisory-group recommendations on dosing/safety documented and
+          addressed?
+
+      - id: CP.PQ_LR.9
+        requirement: required
+        text: >-
+          Are post-approval clin-pharm commitments (pediatric studies, DDI follow-up,
+          additional subpopulation PK) planned and resourced?
+
+      - id: CP.PQ_LR.10
+        requirement: required
+        text: >-
+          Is real-world adherence / mass-administration dosing supported by the exposure-
+          response and safety margin established in development?
+
+  - id: ns
+    label: Nonclinical Safety
+    questions:
+      - id: NS.PQ_LR.1
+        requirement: required
+        text: >-
+          Is the complete nonclinical safety package included and internally consistent within
+          the WHO PQ / registration dossier?
+
+      - id: NS.PQ_LR.2
+        requirement: required
+        text: >-
+          Do nonclinical findings (carcinogenicity, reproductive, genotoxicity) support the
+          labeling and risk statements for the target population?
+
+      - id: NS.PQ_LR.3
+        requirement: required
+        text: >-
+          Are nonclinical safety considerations for special / field populations (e.g.,
+          pregnancy, pediatrics) reflected in the dossier and label?
+
+      - id: NS.PQ_LR.4
+        requirement: required
+        text: >-
+          Does the pharmacovigilance plan incorporate nonclinical-identified potential risks
+          (target-organ toxicity, class effects)?
+
+      - id: NS.PQ_LR.5
+        requirement: required
+        text: >-
+          Are any post-approval nonclinical commitments (ongoing carcinogenicity, metabolite
+          follow-up) tracked?
+
+      - id: NS.PQ_LR.6
+        requirement: required
+        text: >-
+          Is the nonclinical overview consistent with WHO PQ expectations and any QSS /
+          advisory recommendations?
+
+      - id: NS.PQ_LR.7
+        requirement: required
+        text: >-
+          Have nonclinical data gaps relevant to the field setting (e.g., co-administration,
+          combination products) been addressed?
+
+      - id: NS.PQ_LR.8
+        requirement: required
+        text: >-
+          Are excipient / impurity safety qualifications adequate for the to-be-marketed
+          formulation?
+
+      - id: NS.PQ_LR.9
+        requirement: required
+        text: >-
+          Is the safety information in the product label / insert scientifically supported by
+          the nonclinical record?
+
+      - id: NS.PQ_LR.10
+        requirement: required
+        text: >-
+          Are nonclinical safety responses prepared for any regulator / WHO PQ questions
+          during review?
+
+  - id: ra
+    label: Regulatory
+    questions:
+      - id: RA.PQ_LR.1
+        requirement: required
+        text: >-
+          Is the NRA filing package prepared, aligned with each agency's requirements, and
+          submitted?
+
+      - id: RA.PQ_LR.2
+        requirement: required
+        text: >-
+          Does the dossier include the full module set - DS/DP properties, stability,
+          efficacy/safety summaries, clinical study reports, drug-interaction profile, CMC,
+          and proposed label?
+
+      - id: RA.PQ_LR.3
+        requirement: required
+        text: >-
+          Is the WHO PQ dossier submitted, with the PQ/QSS meeting outcomes incorporated?
+
+      - id: RA.PQ_LR.4
+        requirement: required
+        text: >-
+          Has confirmation of application receipt by the NRA(s) been obtained?
+
+      - id: RA.PQ_LR.5
+        requirement: required
+        text: >-
+          Is a plan in place to maintain communications with the agency and prepare answers to
+          questions during review?
+
+      - id: RA.PQ_LR.6
+        requirement: required
+        text: >-
+          Is the team prepared for any advisory-committee meeting/presentation?
+
+      - id: RA.PQ_LR.7
+        requirement: required
+        text: >-
+          Are the proposed label and indication consistent with the clinical data and WHO
+          model/policies, in all required languages?
+
+      - id: RA.PQ_LR.8
+        requirement: required
+        text: >-
+          Are responses and next steps tracked against the NRA decision?
+
+      - id: RA.PQ_LR.9
+        requirement: required
+        text: >-
+          Is local registration (where required) being pursued in parallel with WHO PQ per the
+          country plan?
+
+      - id: RA.PQ_LR.10
+        requirement: required
+        text: >-
+          Are post-approval regulatory commitments (PV, post-approval studies, variations)
+          defined and resourced?

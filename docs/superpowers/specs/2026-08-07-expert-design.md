@@ -1,4 +1,14 @@
-# Expert — stage-gate question triage
+# Expert
+
+> **Superseded on the bank (2026-08-10).** The 560-question document this was designed
+> against was the wrong source. The shipped bank is now *Stage Gate Questions - All
+> Gates.docx*, developed from the Drug Development Milestone Dictionary (PDID): 349
+> questions, 5 disciplines, 7 gates, each question stating `required` or `anticipatory`,
+> and every bank scoped to `drug`. The architecture below stands unchanged — that is the
+> point of it — but the counts, the discipline list, the `[PQ]` marker and the `likely_in`
+> hint no longer describe what ships.
+
+Expert — stage-gate question triage
 
 **Status: built and available.** Service, route, web page, result contract, Ask
 legend, docs graph, published prompt, and tests are all in place. All seven gates are

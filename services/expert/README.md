@@ -10,13 +10,13 @@ questions the supplied material answers, cited to the passage, and which it does
 each of those alongside the discipline that owns it.
 
 **Only what the source question bank guarantees decides anything.** That is the gate,
-the owning discipline, the question text, the `[PQ]` markers, and the eleven questions
+the owning discipline, the question text, whether the gate states it as required or anticipatory, and any question
 whose own text restricts them to an intervention class. Everything else the bank
 carries is a tag: displayed, never gating. Two states used to be derived from a
 per-question judgment about which document type could answer a question — a judgment
 the source document does not contain, since it is a list of questions for reviewers to
 ask people and has no notion of an iTPP, cTPP or IPDP. That judgment now lives in
-`likely_in`, where being wrong costs a misleading hint rather than a wrong answer.
+the bank's own required/anticipatory column, which answers the same reader's question from the source instead of from a judgment.
 
 The value is not the question list, which is a document you could email. Hand a PPL
 eighty questions they cannot answer sixty of and you have produced noise. The value
@@ -71,7 +71,7 @@ and that is the routing.
 
 Every applicable question is read against **everything supplied**. Nothing is withheld
 because of an assumption about where an answer ought to live — that assumption is
-`likely_in`, and it is a hint.
+the bank's required/anticipatory column, and it is stated by the source.
 
 The denominator never shrinks: every question appears with a state, every run. No count
 is stored, because a carried count is a second authority that can disagree with the
@@ -115,7 +115,7 @@ disagrees with the config that produced it.
 
 ### How it is written
 
-Transcribed into `configs/*.yaml` by hand from the SME question document, never
+Transcribed into `configs/*.yaml` by hand from the authored question document, never
 parsed from it. That document is what the config was checked against; the config is
 the source everything downstream reads. A reader for someone else's prose format is
 a normalization layer that breaks whenever the prose is edited.
@@ -125,7 +125,7 @@ a normalization layer that breaks whenever the prose is edited.
   text: >-
     For biologics: what are the developability metrics — expression titer…?
   applies_to: [monoclonal_antibody, vaccine]  # ONLY where the text states it. Eleven questions do.
-  likely_in: [ipdp]           # a hint. Never gates. Omit when unclear.
+  requirement: required       # or `anticipatory`. Stated for every question.
   pq: false                   # omit for false
 ```
 
@@ -135,7 +135,7 @@ inferring a class. 66 such inferences were removed: a wrongly inapplicable quest
 vanishes silently and reports as "not a shortfall", which is the least detectable
 error a bank can hold.
 
-`likely_in` is not in the source document at all. It says where an answer of that kind
+`requirement` is stated by the source for every question. It says whether this gate
 usually lives, so a reader knows which document to open or upload. It never reaches
 resolution, never reaches the model, and appears in the interface as "usually answered
 in".

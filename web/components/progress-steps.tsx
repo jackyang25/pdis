@@ -1,8 +1,10 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { QUEUED_STAGE } from "@/lib/api";
+import { formatElapsed } from "@/lib/elapsed";
 import { cn } from "@/lib/utils";
 
 export type Step = { key: string; label: string };
@@ -17,6 +19,8 @@ type Props = {
 };
 
 export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
+  const elapsed = useElapsedWhile(busy);
+
   if (!busy) return null;
 
   // A queued run has not started. Unknown stage names fall back to the first
@@ -58,6 +62,15 @@ export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
             · {progress.completed}/{progress.total}
           </span>
         )}
+        {/* Hidden from assistive technology on purpose: a number changing every
+            second inside a live region is announced every second. The stage name
+            beside it already reports what is happening. */}
+        <span
+          aria-hidden="true"
+          className="ml-auto shrink-0 tabular-nums text-muted-foreground"
+        >
+          {formatElapsed(elapsed)}
+        </span>
       </div>
       {/* The text above already announces progress, so the bar is decorative
           to assistive technology rather than a second source of chatter. */}
@@ -75,4 +88,28 @@ export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
       </div>
     </div>
   );
+}
+
+/**
+ * Milliseconds since `busy` became true, ticking once a second.
+ *
+ * Read from the clock rather than counted from ticks: a background tab throttles
+ * timers, and a counter would quietly under-report exactly when someone leaves a
+ * long analysis running and comes back to check on it.
+ */
+function useElapsedWhile(busy: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!busy) {
+      setElapsed(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setElapsed(0);
+    const timer = window.setInterval(() => setElapsed(Date.now() - startedAt), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy]);
+
+  return elapsed;
 }

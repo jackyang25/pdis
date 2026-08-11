@@ -774,10 +774,11 @@ class QuestionAssessmentOut(BaseModel):
     id: str
     text: str
     state: Literal["not_applicable", "answered", "partly_answered", "not_found"]
-    pq: bool = False
+    #: Whether the gate requires this answered now or expects it to be forming. From the
+    #: bank, on every question.
+    requirement: str = "required"
     # Where the answer would usually live: a hint for a reader, carried from the bank.
     # It decided nothing about this question's state.
-    likely_in: list[str] = Field(default_factory=list)
     statement: str = ""
     # What a partial answer still leaves open, and empty on every other state.
     missing: str = ""

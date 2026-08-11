@@ -83,11 +83,12 @@ def bank(*questions: QuestionSpec) -> GateConfig:
     return GateConfig(
         org="bmgf",
         gate_id="lcs",
-        gate_label="Lead Candidate Selection",
+        gate_label="Lead Chemical Series Selection",
         ordinal=1,
-        mirrors="Stage Gate Question Bank — SME Edition v5, test fixture",
+        intervention_classes=frozenset({"drug"}),
+        mirrors="Stage Gate Questions - All Gates.docx, test fixture",
         disciplines=(
-            DisciplineSpec(id="cd", label="Clinical Development", questions=questions),
+            DisciplineSpec(id="cp", label="Clinical Pharmacology", questions=questions),
         ),
     )
 
@@ -122,7 +123,7 @@ class PipelineTests(unittest.TestCase):
                 )
             ],
             org="bmgf",
-            intervention_class="vaccine",
+            intervention_class="drug",
             indication="malaria",
             config=config,
             llm_client=client,
@@ -131,12 +132,15 @@ class PipelineTests(unittest.TestCase):
         return review, client
 
     def test_every_applicable_question_reaches_the_model(self) -> None:
-        """Nothing is withheld on a hint. Only the question's own text excludes it."""
+        """Only a question whose own text restricts a class is withheld.
+
+        Not whether the gate requires it now: an anticipatory question is read against
+        the material exactly like a required one, because the distinction is about the
+        review rather than about the documents.
+        """
         config = bank(
-            QuestionSpec(id="Q1", text="Is dosing stated?", likely_in=("itpp",)),
-            # Hints at a document that was not uploaded. Assessed anyway.
-            QuestionSpec(id="Q2", text="Is the plan costed?", likely_in=("ipdp",)),
-            # No hint at all. Assessed anyway.
+            QuestionSpec(id="Q1", text="Is dosing stated?"),
+            QuestionSpec(id="Q2", text="Is the plan costed?", requirement="anticipatory"),
             QuestionSpec(id="Q3", text="Has the procedure been tested?"),
             QuestionSpec(
                 id="Q4",
@@ -153,20 +157,31 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(review.assessments()), 4)
         self.assertEqual(len(client.triage_calls), 3)
 
-    def test_the_hint_survives_onto_the_result_without_having_gated(self) -> None:
+    def test_the_requirement_survives_onto_the_result(self) -> None:
+        """Carried for the same reason as the text: a saved file has no bank to look it
+        up in, and it is what separates a gate blocker from early warning."""
         config = bank(
-            QuestionSpec(id="Q1", text="Is the plan costed?", likely_in=("ipdp",))
+            QuestionSpec(id="Q1", text="Is the plan costed?", requirement="anticipatory")
         )
         review, _ = self.run_expert(config, [])
         assessment = review.assessments()[0]
         self.assertEqual(assessment.state, "not_found")
-        self.assertEqual(assessment.likely_in, ["ipdp"])
+        self.assertEqual(assessment.requirement, "anticipatory")
+
+    def test_the_model_is_not_told_whether_a_question_is_required(self) -> None:
+        """A model told a question is only anticipatory would read the material less
+        carefully for it, and the same triage has to run either way."""
+        config = bank(
+            QuestionSpec(id="Q1", text="Is dosing stated?", requirement="anticipatory")
+        )
+        _, client = self.run_expert(config, [])
+        self.assertNotIn("anticipatory", client.triage_calls[0].lower())
 
     def test_every_question_sees_the_same_material(self) -> None:
         """Identical context per call is what makes the prompt prefix cacheable."""
         config = bank(
-            QuestionSpec(id="Q1", text="Is dosing stated?", likely_in=("itpp",)),
-            QuestionSpec(id="Q2", text="Is the plan costed?", likely_in=("ipdp",)),
+            QuestionSpec(id="Q1", text="Is dosing stated?"),
+            QuestionSpec(id="Q2", text="Is the plan costed?"),
         )
         _, client = self.run_expert(config, [])
         self.assertEqual(len(client.triage_calls), 2)
@@ -181,7 +196,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_an_answer_carries_the_blocks_the_document_produced(self) -> None:
         config = bank(
-            QuestionSpec(id="Q1", text="Is dosing stated?", likely_in=("itpp",))
+            QuestionSpec(id="Q1", text="Is dosing stated?")
         )
         # Discover the real block ids by running once, then answer citing one.
         first, _ = self.run_expert(config, [])
@@ -208,7 +223,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_context_answers_carry_a_label_and_no_lineage(self) -> None:
         config = bank(
-            QuestionSpec(id="Q1", text="What is the COGS?", likely_in=("itpp",))
+            QuestionSpec(id="Q1", text="What is the COGS?")
         )
         review, _ = self.run_expert(
             config,
@@ -232,7 +247,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_the_context_text_is_never_carried_on_the_result(self) -> None:
         config = bank(
-            QuestionSpec(id="Q1", text="What is the COGS?", likely_in=("itpp",))
+            QuestionSpec(id="Q1", text="What is the COGS?")
         )
         secret = "COGS is USD 1.20 and this string must not survive"
         review, _ = self.run_expert(
@@ -263,14 +278,14 @@ class PipelineTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError) as caught:
             self.run_expert(config, [])
-        self.assertIn("vaccine", str(caught.exception))
+        self.assertIn("drug", str(caught.exception))
 
     def test_a_run_without_documents_is_refused(self) -> None:
         with self.assertRaises(ValueError):
             run_pipeline(
                 [],
                 org="bmgf",
-                intervention_class="vaccine",
+                intervention_class="drug",
                 indication="malaria",
                 config=bank(QuestionSpec(id="Q1", text="t")),
                 llm_client=ScriptedClient([]),

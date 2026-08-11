@@ -47,6 +47,7 @@ import {
 import {
   alignerResultFilename,
   packAlignerResult,
+  runLabel,
   splitResultContext,
   unpackAlignerResult,
   readResultIdentity,
@@ -444,12 +445,7 @@ function AlignmentView({
           selectedId={selectedRunId}
           onSelect={selectResult}
           onRemove={removeResult}
-          label={(value) =>
-            value.alignment.documents
-              .map((document) => document.doc_id)
-              .filter(Boolean)
-              .join(" · ") || "Comparison"
-          }
+          label={(value) => runLabel(value, "aligner")}
         />
         <FinalResultActions
           onNewAnalysis={onNewAnalysis}

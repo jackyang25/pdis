@@ -50,7 +50,9 @@ function ExpertTraceInspector({
     <div>
       <TracePanelHeader
         eyebrow={
-          ref.pq ? `${annotation.layerLabel} · WHO prequalification` : annotation.layerLabel
+          ref.requirement === "required"
+            ? `${annotation.layerLabel} · required at this gate`
+            : annotation.layerLabel
         }
         title={ref.discipline}
         description={ref.questionId}

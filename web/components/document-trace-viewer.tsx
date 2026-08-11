@@ -117,15 +117,29 @@ function markerGroupLabel(
  * the grade itself is carried as text in the badge rather than by colour.
  */
 const EMPHASIS_SURFACE_CLASS: Record<DocumentAnnotationEmphasis["tone"], string> = {
-  neutral: "bg-[hsl(var(--tone-neutral))]/[0.05]",
+  success: "bg-[hsl(var(--tone-success))]/[0.07]",
   caution: "bg-[hsl(var(--tone-warning))]/[0.07]",
   danger: "bg-[hsl(var(--tone-danger))]/[0.07]",
+  neutral: "bg-[hsl(var(--tone-neutral))]/[0.05]",
 };
 
+/**
+ * The badge over a marked block.
+ *
+ * Opaque, not translucent. It sits in the bottom corner of the block, so a tinted
+ * background let the block's own text show through the label and the two competed at
+ * exactly the point a reader was trying to read one of them. Solid means the label wins
+ * while it is there — and it stops being there on hover, which is when the reader wants
+ * the sentence underneath instead. That is the same trade the block tint already makes.
+ */
 const EMPHASIS_BADGE_CLASS: Record<DocumentAnnotationEmphasis["tone"], string> = {
-  neutral: "border-border/70 bg-background text-muted-foreground",
-  caution: "border-[hsl(var(--tone-warning))]/40 bg-[hsl(var(--tone-warning))]/10 text-[hsl(var(--tone-warning))]",
-  danger: "border-[hsl(var(--tone-danger))]/40 bg-[hsl(var(--tone-danger))]/10 text-[hsl(var(--tone-danger))]",
+  success:
+    "border-[hsl(var(--tone-success))]/45 bg-[hsl(var(--tone-success))] text-white dark:text-background",
+  caution:
+    "border-[hsl(var(--tone-warning))]/45 bg-[hsl(var(--tone-warning))] text-white dark:text-background",
+  danger:
+    "border-[hsl(var(--tone-danger))]/45 bg-[hsl(var(--tone-danger))] text-white dark:text-background",
+  neutral: "border-border bg-muted text-foreground",
 };
 
 /**
@@ -531,6 +545,13 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
     () => new Map(visibleAnnotations.map((annotation) => [annotation.id, annotation])),
     [visibleAnnotations],
   );
+  // Every annotation, not just the visible ones: the reveal below has to look up the
+  // layer of a mark the current filter is hiding, which is precisely the case it exists
+  // to handle.
+  const allAnnotationsById = useMemo(
+    () => new Map(annotations.map((annotation) => [annotation.id, annotation])),
+    [annotations],
+  );
   const activeDocumentId = trace.documents.some((document) => document.docId === documentId)
     ? documentId
     : trace.documents[0]?.docId ?? "";
@@ -577,14 +598,26 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
       setDocumentId(location.documentId);
       return;
     }
-    // The layer filter can be hiding every mark on the block. Arriving at an
-    // apparently unmarked passage reads as a broken link, so widen to all layers.
+    // The layer filter can be hiding every mark on the block, and arriving at an
+    // apparently unmarked passage reads as a broken link. So the view moves to where the
+    // passage lives: to its own layer when its marks are all of one kind, which is the
+    // common case and the more useful landing — a reader sent to an answered passage
+    // wants the answered view, not every layer at once. Only a passage marked by two
+    // different kinds falls back to `all`, because there is no single right layer for it.
     if (
       layer !== "all"
       && location.annotationIds.length > 0
       && !location.annotationIds.some((id) => annotationsById.has(id))
     ) {
-      setLayer("all");
+      const kinds = new Set(
+        location.annotationIds
+          .map((id) => allAnnotationsById.get(id)?.kind)
+          .filter((kind): kind is TKind => Boolean(kind)),
+      );
+      const [only] = [...kinds];
+      setLayer(kinds.size === 1 && layers.some((option) => option.value === only)
+        ? only
+        : "all");
       return;
     }
     const target = blockRefs.current.get(blockId);
@@ -609,10 +642,12 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
     done();
   }, [
     activeDocumentId,
+    allAnnotationsById,
     annotationsById,
     focusBlockId,
     fullTrace,
     layer,
+    layers,
     onFocusBlockConsumed,
     revealBlockId,
   ]);
@@ -977,7 +1012,13 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                           group.annotationIds.some((id) => activeAnnotationIds.includes(id)))}
                         aria-label={`View the result marking source passage ${traceBlock.block.id}, graded ${traceBlock.emphasis.badge ?? "unrated"}`}
                         className={cn(
-                          "absolute bottom-1.5 right-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px] font-semibold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none",
+                          "absolute bottom-1.5 right-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px] font-semibold tabular-nums transition-opacity duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none",
+                          // Hidden while the block is hovered or focused, so the text it
+                          // covers is readable without moving the label somewhere it
+                          // would no longer read as belonging to this block. Kept
+                          // visible on keyboard focus of the badge itself, or it would
+                          // vanish under the cursor that is about to click it.
+                          "group-hover/trace-block:opacity-0 group-focus-within/trace-block:opacity-0 focus-visible:!opacity-100",
                           EMPHASIS_BADGE_CLASS[traceBlock.emphasis.tone],
                         )}
                       >

@@ -45,6 +45,7 @@ import {
   inspectorResultFilename,
   isInspectorResultFinal,
   packInspectorResult,
+  runLabel,
   splitResultContext,
   unpackInspectorResult,
   readResultIdentity,
@@ -54,7 +55,12 @@ import {
   INSPECTOR_ORDER_NOTE,
   selectInspectorPriorities,
 } from "@/lib/inspector-priorities";
-import { MAX_RESULTS_PER_TOOL, useInspectorSession } from "@/lib/session";
+import {
+  IMPORT_LIMIT_MESSAGE,
+  MAX_RESULTS_PER_TOOL,
+  RESULT_LIMIT_MESSAGE,
+  useInspectorSession,
+} from "@/lib/session";
 import { usePriorityDigest } from "@/lib/priority-digest";
 import { toolAuthority } from "@/lib/tools";
 import { cn } from "@/lib/utils";
@@ -126,9 +132,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
   async function handleImport(file: File) {
     setError(null);
     if (results.length >= MAX_RESULTS_PER_TOOL) {
-      setError(
-        `Keeping ${MAX_RESULTS_PER_TOOL} runs. Remove one before importing another.`,
-      );
+      setError(IMPORT_LIMIT_MESSAGE);
       return;
     }
     try {
@@ -239,7 +243,7 @@ function InspectionResultView({
           selectedId={selectedId}
           onSelect={selectResult}
           onRemove={removeResult}
-          label={(value) => value.inspection.doc_id || "Inspection"}
+          label={(value) => runLabel(value, "inspector")}
         />
         <FinalResultActions
           onNewAnalysis={onNewAnalysis}

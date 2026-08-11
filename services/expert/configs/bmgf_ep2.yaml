@@ -1,0 +1,342 @@
+# End of Phase 2 — the stage-gate question bank, transcribed.
+#
+# Transcribed by hand from the source named in `mirrors`, not parsed from it.
+# That document is what this file was checked against; this file is the source
+# everything downstream reads.
+#
+# The source guarantees three axes and this file carries exactly those three: the
+# gate, the owning discipline, and whether the gate requires a question answered
+# now (`required`) or expects it to be forming (`anticipatory`). Nothing else is
+# transcribed and nothing is inferred — an earlier bank carried a hint about which
+# document usually answers a question, which no source states, and it was removed.
+#
+# `intervention_classes` is a fact about the whole document rather than about any
+# question: it derives from a drug milestone dictionary and asks about synthetic
+# routes, salt and polymorph selection and BCS class, so a vaccine or a mAb has no
+# answer to give. A run for another class is refused rather than returned with every
+# question inapplicable, because a review of nothing reads like a review that found
+# nothing wrong.
+
+org: bmgf
+gate:
+  id: ep2
+  label: End of Phase 2
+  ordinal: 5
+
+intervention_classes: [drug]
+
+mirrors: >-
+  Stage Gate Questions - All Gates.docx, developed from the Drug Development Milestone
+  Dictionary (PDID). LCS questions reviewed by the Certara team, 7/13.
+
+disciplines:
+  - id: pds
+    label: Product Development Strategy
+    questions:
+      - id: PDS.EP2.1
+        requirement: required
+        text: >-
+          Does the deliverability assessment / delivery plan set viable launch & uptake
+          strategies for first-wave countries (roll-out, country decision support, supply
+          chain, user targeting)?
+
+      - id: PDS.EP2.2
+        requirement: required
+        text: >-
+          Does the detailed strategic demand forecast confirm a viable market (target
+          countries/populations, timing, coverage, volumes & pricing, sensitivity)?
+
+      - id: PDS.EP2.3
+        requirement: required
+        text: >-
+          Is the detailed COGS in line with launch and pricing goals, with projected price
+          within 30% of the TPP target?
+
+      - id: PDS.EP2.4
+        requirement: required
+        text: >-
+          Will the cost-effectiveness analysis be compelling to policymakers (comparators,
+          sub-populations, equity impacts)?
+
+      - id: PDS.EP2.5
+        requirement: required
+        text: >-
+          Is a commercial partner identified for launch and full-scale manufacturing?
+
+      - id: PDS.EP2.6
+        requirement: required
+        text: >-
+          Are global-access agreements progressing for pricing, supply, and PQ?
+
+      - id: PDS.EP2.7
+        requirement: required
+        text: >-
+          Is the candidate TPP updated to reflect Phase 2 results?
+
+      - id: PDS.EP2.8
+        requirement: required
+        text: >-
+          Is the global policy pathway to critical registration (PQ, EMA) identified, with
+          policy/initiative partnerships?
+
+      - id: PDS.EP2.9
+        requirement: required
+        text: >-
+          Is the draft launch budget (pre-launch detailed, launch high-level) practical and
+          sufficient?
+
+      - id: PDS.EP2.10
+        requirement: required
+        text: >-
+          Do clinical data, market assumptions, and deliverability risks still favor the
+          product's viability and business value?
+
+  - id: cmc
+    label: Chemistry, Manufacturing and Controls (CMC)
+    questions:
+      - id: CMC.EP2.1
+        requirement: required
+        text: >-
+          Is manufacturing process optimization complete using design-of-experiments/QbD
+          aligned with ICH Q8, Q9, and Q10?
+
+      - id: CMC.EP2.2
+        requirement: required
+        text: >-
+          Have DS and DP processes been optimized through scale-up and pilot studies
+          (synthetic pathway, intermediate selection, unit operations, purification,
+          blending)?
+
+      - id: CMC.EP2.3
+        requirement: required
+        text: >-
+          Has packaging-line equipment been selected, trialed, and optimized, and are process
+          flow diagrams and draft operating parameters defined?
+
+      - id: CMC.EP2.4
+        requirement: required
+        text: >-
+          Are operating-parameter relationships (yield, purity, form) understood, and have
+          waste-reduction, end-of-life, and re-packaging (distribution vs. end-use)
+          considerations been addressed?
+
+      - id: CMC.EP2.5
+        requirement: required
+        text: >-
+          Is the commercial-scale feasibility assessment complete - pilot-plant evaluation,
+          process economics/COGS, and a safety and ecological assessment of processing and
+          effluents?
+
+      - id: CMC.EP2.6
+        requirement: required
+        text: >-
+          Is DP package characterization complete - leachable/extractable, child-
+          resistant/senior-friendly, tamper evidence, and product compatibility?
+
+      - id: CMC.EP2.7
+        requirement: required
+        text: >-
+          Has GMP Phase 3 DS and DP been released with a Certificate of Analysis?
+
+      - id: CMC.EP2.8
+        requirement: required
+        text: >-
+          Is tech-transfer readiness confirmed - scalable DS/DP/packaging finalized to the
+          latest demand forecast, salt/form and starting-material sourcing fixed, and Phase 3
+          dosage-form bridging completed with PKDM/Clin Pharm?
+
+      - id: CMC.EP2.9
+        requirement: required
+        text: >-
+          Has long-term stability of the final DS and DP been initiated, and are DS/DP cost of
+          goods, IP, and absence of genotoxic impurities confirmed?
+
+      - id: CMC.EP2.10
+        requirement: required
+        text: >-
+          Are SOP-driven tech-transfer and validation plans in place for analytical/release
+          methods (specificity, sensitivity, reproducibility) and for DS/DP manufacturing &
+          packaging, plus a commercial-facility qualification plan (site master plan,
+          deviation reporting, inspection response)?
+
+  - id: cp
+    label: Clinical Pharmacology
+    questions:
+      - id: CP.EP2.1
+        requirement: required
+        text: >-
+          Is there a detailed, data-driven rationale for the Phase 3 dose selection?
+
+      - id: CP.EP2.2
+        requirement: required
+        text: >-
+          Is exposure-response characterized to support the optimal dosage, regimen, and route
+          for Phase 3?
+
+      - id: CP.EP2.3
+        requirement: required
+        text: >-
+          Have dose, regimen, and route-of-administration studies been completed with
+          recommendations for Phase 3?
+
+      - id: CP.EP2.4
+        requirement: required
+        text: >-
+          Are drug-drug interaction studies complete (or planned and in place)?
+
+      - id: CP.EP2.5
+        requirement: required
+        text: >-
+          Are special-population assessments (e.g., hepatic/renal impairment, pediatrics,
+          pregnancy as relevant) in place?
+
+      - id: CP.EP2.6
+        requirement: required
+        text: >-
+          Have population PK/PD analyses of Phase 2 data been completed to inform dosing?
+
+      - id: CP.EP2.7
+        requirement: required
+        text: >-
+          Do toxicology / toxicokinetic results support the doses and dosing duration intended
+          for Phase 3?
+
+      - id: CP.EP2.8
+        requirement: required
+        text: >-
+          Is the dosing / dose-modeling strategy (model-informed) updated with Phase 2
+          exposure-response?
+
+      - id: CP.EP2.9
+        requirement: required
+        text: >-
+          Is the probability of meeting the cTPP reassessed given Phase 2 PK/PD and efficacy?
+
+      - id: CP.EP2.10
+        requirement: required
+        text: >-
+          Are mass-administration / field-use considerations (fixed dosing, food effect,
+          adherence) factored into the Phase 3 design?
+
+  - id: ns
+    label: Nonclinical Safety
+    questions:
+      - id: NS.EP2.1
+        requirement: required
+        text: >-
+          Have longer-term nonclinical toxicology studies been initiated (e.g., chronic
+          toxicity, carcinogenicity, QWBA)?
+
+      - id: NS.EP2.2
+        requirement: required
+        text: >-
+          Is the toxicology plan to support submission defined, including carcinogenicity and
+          reproductive toxicology?
+
+      - id: NS.EP2.3
+        requirement: required
+        text: >-
+          Are reproductive and developmental toxicity studies (segments I-III as applicable)
+          planned or underway?
+
+      - id: NS.EP2.4
+        requirement: required
+        text: >-
+          Have in vitro studies on active metabolites and safety testing of metabolites been
+          planned / initiated (MIST-type assessment)?
+
+      - id: NS.EP2.5
+        requirement: required
+        text: >-
+          Are long-term toxicity studies being finalized to support the regulatory filing?
+
+      - id: NS.EP2.6
+        requirement: required
+        text: >-
+          Do toxicology and toxicokinetic results support the doses and dosing duration
+          intended for Phase 3?
+
+      - id: NS.EP2.7
+        requirement: required
+        text: >-
+          Is tissue distribution (e.g., QWBA) characterized to support carcinogenicity/repro
+          design and human risk assessment?
+
+      - id: NS.EP2.8
+        requirement: required
+        text: >-
+          Are nonclinical safety margins re-evaluated against observed Phase 2 clinical
+          exposures?
+
+      - id: NS.EP2.9
+        requirement: required
+        text: >-
+          Are additional nonclinical studies required for the filing identified and scheduled?
+
+      - id: NS.EP2.10
+        requirement: required
+        text: >-
+          Is the Investigator's Brochure updated with the latest nonclinical and Phase 2
+          safety data?
+
+  - id: ra
+    label: Regulatory
+    questions:
+      - id: RA.EP2.1
+        requirement: required
+        text: >-
+          Is the regulatory strategy plan updated with Phase 2 data, confirming the pathway to
+          filing?
+
+      - id: RA.EP2.2
+        requirement: required
+        text: >-
+          Is an End of Phase 2 meeting with the NRA(s) planned or scheduled?
+
+      - id: RA.EP2.3
+        requirement: required
+        text: >-
+          Is the End of Phase 2 briefing package prepared, with Phase 1/2 results and the
+          proposed Phase 3 protocol design and scope?
+
+      - id: RA.EP2.4
+        requirement: required
+        text: >-
+          Does the package include the planned label, highlighting the desired indication
+          wording and any safety claims?
+
+      - id: RA.EP2.5
+        requirement: required
+        text: >-
+          Are product/manufacturing issues (commercial scale-up, comparability vs. Phase 1/2
+          material) identified for the agency?
+
+      - id: RA.EP2.6
+        requirement: required
+        text: >-
+          Are pediatric study plans reviewed/updated (or waiver/deferral requests) for the
+          filing?
+
+      - id: RA.EP2.7
+        requirement: required
+        text: >-
+          If a Special Protocol Assessment (US) is desired, are detailed protocol design,
+          data-analysis plan, and study role prepared?
+
+      - id: RA.EP2.8
+        requirement: required
+        text: >-
+          Is WHO PQ engagement initiated by end of Phase 2 (incl. the PQ meeting with QSS)
+          where applicable?
+
+      - id: RA.EP2.9
+        requirement: required
+        text: >-
+          Have End of Phase 2 meeting outcomes (minutes, agreements) been documented and the
+          Phase 3 plan revised?
+
+      - id: RA.EP2.10
+        requirement: required
+        text: >-
+          Are country-specific requirements (e.g., China/India if target markets) and
+          regulatory risks updated for Phase 3 and filing?

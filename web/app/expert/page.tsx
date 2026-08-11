@@ -43,11 +43,12 @@ import {
   EXPERT_ORDER_NOTE,
   countStates,
   groupedByDiscipline,
-  suggestedDocuments,
+  countRequiredInState,
 } from "@/lib/expert-priorities";
 import {
   expertResultFilename,
   packExpertResult,
+  runLabel,
   unpackExpertResult,
   readResultIdentity,
 } from "@/lib/result-file";
@@ -89,14 +90,14 @@ export default function ExpertPage() {
   }, [session.result]);
 
   useEffect(() => {
-    if (!header.org) {
+    if (!header.org || !header.intervention_class) {
       setGates([]);
       return;
     }
     let live = true;
     // Surfaced rather than swallowed: without the declared gates there is nothing
     // to select, so Run would gate with no way for the user to learn why.
-    fetchExpertGates(header.org)
+    fetchExpertGates(header.org, header.intervention_class)
       .then((loaded) => live && setGates(loaded))
       .catch(
         (error: Error) =>
@@ -106,7 +107,7 @@ export default function ExpertPage() {
     return () => {
       live = false;
     };
-  }, [header.org, session.setError]);
+  }, [header.intervention_class, header.org, session.setError]);
 
   // A type chosen under one context does not exist under another, so changing
   // either clears the rows rather than leaving a stale selection.
@@ -193,7 +194,27 @@ export default function ExpertPage() {
               <ConfigurationShell>
                 <ContextFields />
                 <div className="mt-4">
-                  <ConfigField label="Stage gate" disabled={!header.org}>
+                  <ConfigField
+                    label="Stage gate"
+                    disabled={!header.org}
+                    note={
+                      /*
+                        An empty list is explained rather than left empty. It happened
+                        once for a different reason — a renamed field emptied this picker
+                        with no error anywhere — and a reader cannot tell "no bank for
+                        this modality" from "something is broken" without being told.
+                      */
+                      header.org && header.intervention_class && gates.length === 0 ? (
+                        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                          No stage-gate bank covers{" "}
+                          {displayLabel(header.intervention_class)}. The banks are written
+                          for small-molecule drug programs — they ask about synthetic
+                          routes, salt forms and BCS class — so a review here would ask
+                          questions this modality has no answer to.
+                        </p>
+                      ) : undefined
+                    }
+                  >
                     <ConfigSelect
                       value={gate || undefined}
                       // Already in development order from the service, which owns
@@ -202,7 +223,7 @@ export default function ExpertPage() {
                         value: item.id,
                         label: item.label,
                       }))}
-                      disabled={!header.org}
+                      disabled={!header.org || gates.length === 0}
                       onChange={setGate}
                     />
                   </ConfigField>
@@ -446,7 +467,6 @@ function ReviewView({
   const { results, selectedId, selectResult, removeResult } = useExpertSession();
   const review = result.review;
   const counts = useMemo(() => countStates(review), [review]);
-  const suggested = useMemo(() => suggestedDocuments(review), [review]);
   const answersByDocument = useMemo(() => answersPerDocument(review), [review]);
 
   // Same handoff Inspector uses: a citation anywhere opens that passage in the trace,
@@ -482,7 +502,7 @@ function ReviewView({
           selectedId={selectedId}
           onSelect={selectResult}
           onRemove={removeResult}
-          label={(value) => value.review.gate_label || "Gate review"}
+          label={(value) => runLabel(value, "expert")}
         />
         <FinalResultActions
           onNewAnalysis={onNewAnalysis}
@@ -512,7 +532,13 @@ function ReviewView({
 
           <TabsContent value="questions" className="m-0">
             <div className="flex flex-col gap-6 px-5 py-5 sm:px-6">
-              <CountRow counts={counts} />
+              <CountRow
+                counts={counts}
+                requiredOpen={
+                  countRequiredInState(review, "not_found")
+                  + countRequiredInState(review, "partly_answered")
+                }
+              />
               <ExpertCoverageStrip
                 review={review}
                 onSelect={(question) => {
@@ -522,7 +548,6 @@ function ReviewView({
                   if (blockId) openBlockInTrace(blockId);
                 }}
               />
-              {suggested.length > 0 && <SuggestedDocuments suggested={suggested} />}
 
               {/*
                 Expert does not use the shared `PriorityPanel`, and that is a deliberate
@@ -657,7 +682,14 @@ function splitTrailingUrl(source: string): [string, string | null] {
  * "an SME will answer it" would tell a governance committee something untrue,
  * which is the same reason Scout refuses to blend its axes into a score.
  */
-function CountRow({ counts }: { counts: ReturnType<typeof countStates> }) {
+function CountRow({
+  counts,
+  requiredOpen,
+}: {
+  counts: ReturnType<typeof countStates>;
+  /** Questions this gate requires answered now that nothing supplied answers. */
+  requiredOpen: number;
+}) {
   // `answered` and `gaps` are always shown, even at zero, because those two are the
   // only states a model decides: a zero there says the check ran and found nothing,
   // which is information. Hiding it made a run that assessed almost nothing look
@@ -691,11 +723,28 @@ function CountRow({ counts }: { counts: ReturnType<typeof countStates> }) {
           </div>
         ))}
       </dl>
+      {/*
+        Said as a sentence rather than added to the row above, because it is not a sixth
+        state — it is a cut across two of them, and standing beside the states it would
+        break the rule that the row sums to the total. It is the one figure worth quoting
+        in a review: the bank says which questions this gate requires, so an unanswered
+        required question is what holds the gate, and an unanswered anticipatory one is
+        early warning about the next.
+      */}
+      {requiredOpen > 0 && (
+        <p className="mt-2 text-xs text-foreground">
+          <span className="font-semibold tabular-nums">{requiredOpen}</span>{" "}
+          <ExpertSignalLabel topic="requirement">
+            {requiredOpen === 1 ? "question this gate requires is" : "questions this gate requires are"}
+          </ExpertSignalLabel>{" "}
+          still unanswered.
+        </p>
+      )}
       <p className="mt-2 border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">
         {counts.total} questions in this gate. Every one is counted, so the figures
         above sum to that.{" "}
         {assessed === 0
-          ? "None was read: the question bank states that every question here applies to another intervention class."
+          ? "None was read: every question in this bank states that it applies to another intervention class."
           : `${assessed} ${assessed === 1 ? "was" : "were"} read against everything supplied. Any remainder is a question whose own text states it applies to another intervention class.`}
       </p>
     </div>
@@ -707,42 +756,6 @@ function CountRow({ counts }: { counts: ReturnType<typeof countStates> }) {
  *
  * Absent entirely when nothing is missing, so a complete run gains no chrome.
  */
-/**
- * Documents worth uploading next.
- *
- * A suggestion, and worded as one. Every question counted here *was* assessed against
- * what was supplied and was not answered there — the bank's hint about where such an
- * answer usually lives is a judgment, not something the source question bank states,
- * so this cannot promise the question would have been answered. Amber because it is
- * the most actionable thing on the page, not because anything failed.
- */
-function SuggestedDocuments({
-  suggested,
-}: {
-  suggested: { sourceType: string; count: number }[];
-}) {
-  return (
-    <div
-      role="status"
-      className="flex items-start gap-2.5 rounded-lg border border-amber-300/60 bg-amber-50/60 px-3.5 py-3 text-xs text-amber-950 dark:border-amber-400/30 dark:bg-amber-400/[0.06] dark:text-amber-200"
-    >
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-      <div className="min-w-0">
-        <p className="font-medium">Another document may answer some of these</p>
-        <ul className="mt-1 space-y-0.5 leading-relaxed opacity-80">
-          {suggested.map((entry) => (
-            <li key={entry.sourceType}>
-              {entry.count} unanswered question{entry.count === 1 ? " is" : "s are"}{" "}
-              usually answered in {displayLabel(entry.sourceType)}, which was not
-              uploaded.
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
 /**
  * One state's questions, grouped by the discipline that owns them.
  *
@@ -886,10 +899,10 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
               question mark. Every other label in this result is explainable, and
               this was the only one a reader could not ask about.
             */}
-            {question.pq && (
-              <ExpertSignalLabel topic="pq">
+            {question.requirement === "required" && (
+              <ExpertSignalLabel topic="requirement">
                 <span className="rounded border border-border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  PQ
+                  Required
                 </span>
               </ExpertSignalLabel>
             )}
@@ -931,18 +944,9 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
  * the file. The text behind it was never stored, so this label is the whole record.
  */
 function Provenance({ question }: { question: QuestionAssessment }) {
-  if (question.state !== "answered") {
-    if (question.likely_in.length === 0) return null;
-    // "Usually", because this is the bank's hint rather than something the source
-    // question bank states. It says where to look; it does not claim the answer is
-    // there, and it played no part in this question's state.
-    return (
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        Usually answered in{" "}
-        {question.likely_in.map((type) => displayLabel(type)).join(" or ")}
-      </p>
-    );
-  }
+  // Nothing to show for a question no answer was found for. There used to be a line
+  // here naming the document such an answer usually lives in, which no source states.
+  if (question.state !== "answered") return null;
   if (question.source === "context") {
     return (
       <p className="mt-2 text-[11px] text-muted-foreground">

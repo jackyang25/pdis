@@ -1,586 +1,344 @@
-# First in Human — the SME question bank, transcribed.
+# First in Human — the stage-gate question bank, transcribed.
 #
-# `bmgf_lcs.yaml` is the reference bank and documents the field rules: only the
-# gate, the discipline, the question text and the `[PQ]` markers come from the
-# source document, and only those decide anything. `applies_to` appears solely
-# where the question text states the restriction; `likely_in` is a hint and never
-# gates a question.
+# Transcribed by hand from the source named in `mirrors`, not parsed from it.
+# That document is what this file was checked against; this file is the source
+# everything downstream reads.
 #
-# This gate skews heavily toward routed questions, and correctly so: most of it asks
-# whether something has been done, released, trained, tested or rehearsed. Those are
-# operational facts a person confirms, not statements a TPP or a plan carries.
+# The source guarantees three axes and this file carries exactly those three: the
+# gate, the owning discipline, and whether the gate requires a question answered
+# now (`required`) or expects it to be forming (`anticipatory`). Nothing else is
+# transcribed and nothing is inferred — an earlier bank carried a hint about which
+# document usually answers a question, which no source states, and it was removed.
+#
+# `intervention_classes` is a fact about the whole document rather than about any
+# question: it derives from a drug milestone dictionary and asks about synthetic
+# routes, salt and polymorph selection and BCS class, so a vaccine or a mAb has no
+# answer to give. A run for another class is refused rather than returned with every
+# question inapplicable, because a review of nothing reads like a review that found
+# nothing wrong.
+
 org: bmgf
-
-# What this bank is a transcription of. Nothing here can verify it: the source lives
-# outside the repository and is access-controlled. It names which document to
-# re-check when that document moves, and the version is the load-bearing part —
-# a bank transcribed from v5 is stale the moment v6 is published, and only this
-# line says which one produced a saved review.
-mirrors: >-
-  Stage Gate Question Bank — SME Edition v5 (TOC corrected): the First in Human
-  section, its eight disciplines and their ten questions each, transcribed
-  verbatim. Held in the GHIDE Product Development Support SharePoint site —
-  https://bmgf.sharepoint.com/:w:/r/sites/GHIDEProductDevelopmentSupport/_layouts/15/Doc.aspx?sourcedoc=%7BB962E8DB-8422-4810-9AFD-334876DE515F%7D&file=Stage_Gate_Question_Bank_v5_TOC%20corrected.docx&action=default&mobileredirect=true
-
 gate:
   id: fih
   label: First in Human
   ordinal: 3
 
+intervention_classes: [drug]
+
+mirrors: >-
+  Stage Gate Questions - All Gates.docx, developed from the Drug Development Milestone
+  Dictionary (PDID). LCS questions reviewed by the Certara team, 7/13.
+
 disciplines:
+  - id: pds
+    label: Product Development Strategy
+    questions:
+      - id: PDS.FIH.1
+        requirement: required
+        text: >-
+          Is the candidate TPP agreed, covering drug need, use case, market, global-health
+          impact, and required product characteristics?
+
+      - id: PDS.FIH.2
+        requirement: required
+        text: >-
+          Is there a clear business case - value proposition vs. the disease strategy and
+          alternatives, with estimated costs to launch and drive uptake?
+
+      - id: PDS.FIH.3
+        requirement: required
+        text: >-
+          Is the market understood (size, segments, user needs)?
+
+      - id: PDS.FIH.4
+        requirement: required
+        text: >-
+          Has a deliverability assessment identified key risks/opportunities (improvement vs.
+          SoC, financing, policy/regulatory pathway, supply chain, delivery mode,
+          provider/user issues)?
+
+      - id: PDS.FIH.5
+        requirement: required
+        text: >-
+          Is the strategic-demand-forecast methodology agreed (aligned to the BMGF valuation
+          model)?
+
+      - id: PDS.FIH.6
+        requirement: required
+        text: >-
+          Is the COGS methodology agreed, and has an initial aspirational COGS been set to
+          drive the TPP and cost goals?
+
+      - id: PDS.FIH.7
+        requirement: required
+        text: >-
+          Is the cost-effectiveness methodology agreed (aligned to the BMGF valuation model)?
+
+      - id: PDS.FIH.8
+        requirement: required
+        text: >-
+          Are Global Access commitments in place (affordable price, sufficient supply for
+          developing countries, data access, license, publication/open access)?
+
+      - id: PDS.FIH.9
+        requirement: required
+        text: >-
+          Is the candidate TPP aligned with partner organizations?
+
+      - id: PDS.FIH.10
+        requirement: required
+        text: >-
+          Do clinical data, market assumptions, and deliverability risks still favor the
+          candidate's market need, viability, and business value?
+
   - id: cmc
-    label: CMC
+    label: Chemistry, Manufacturing and Controls (CMC)
     questions:
       - id: CMC.FIH.1
+        requirement: required
         text: >-
-          Has the clinical batch been released against agreed specifications, with a
-          certificate of analysis reviewed against the specification line by line,
-          and QP certification or the regional equivalent in place?
+          Is the delivery & formulation strategy for animal and human studies defined (IV,
+          injection, tablet, capsule, oral strip, inhalant, prodrug, etc.), and has IP space
+          been assessed if a special delivery system is needed?
 
       - id: CMC.FIH.2
+        requirement: required
         text: >-
-          Is the documented linkage between the tox lot and the clinical batch
-          complete, and has any deviation in the clinical batch been assessed for its
-          effect on that linkage?
+          For injectables, have hemolysis, drug adhesion to syringes/tubing/equipment, and
+          precipitation at the injection site been evaluated in vitro?
 
       - id: CMC.FIH.3
+        requirement: required
         text: >-
-          Do stability data cover the intended period of use with an approved
-          shelf-life extension protocol, and is there a defined procedure for
-          extending expiry mid-study without interrupting supply?
+          For a prodrug, has in vitro and in vivo conversion to the active form been
+          characterized?
 
       - id: CMC.FIH.4
+        requirement: required
         text: >-
-          Is the potency assay's variability characterized well enough that a trend
-          on stability can be distinguished from assay noise — and is there a plan for
-          what happens if a stability timepoint falls out of specification?
+          Have particle-size considerations and formulation dependency been assessed
+          (including any need for milling/micronization), and have excipients been selected
+          and characterized?
 
       - id: CMC.FIH.5
+        requirement: required
         text: >-
-          For parenterals: are sterility assurance, endotoxin, particulate matter and
-          container-closure integrity acceptable under the current sterile
-          manufacturing expectations, including the contamination control strategy
-          under the revised EU GMP Annex 1 if EU sites or filings are involved?
+          Are form-specific physicochemical properties characterized - bulk/tap density,
+          flowability, compressibility, pXRD, IR, dissolution, disintegration?
 
       - id: CMC.FIH.6
+        requirement: required
         text: >-
-          Is the randomization, labeling, packaging and blinding supply chain
-          validated end to end, and has the blinding been assessed for whether it
-          actually blinds — appearance, taste, injection-site reaction, PD effect?
+          Are form- and formulation-specific in-use stability studies complete, and has the
+          need to 'blind' the clinical formulation been determined from bioavailability/PK for
+          the dosing regimen?
 
       - id: CMC.FIH.7
+        requirement: required
         text: >-
-          Are shipping lanes qualified for the actual routes and seasons, with a
-          temperature excursion management procedure and a pre-agreed disposition
-          decision tree — not an ad hoc investigation each time?
+          Is the initial cGMP process defined for DS and DP (synthetic pathways, intermediate
+          selection, unit operations, equipment)?
 
       - id: CMC.FIH.8
+        requirement: required
         text: >-
-          What deviations and investigations exist on the clinical batch, and does any
-          of them bear on subject safety or on the interpretability of the dose
-          administered?
+          Are reference standards and GMP analytical methods for DS/DP release and stability
+          in place, with impurity specifications set for both DS and DP?
 
       - id: CMC.FIH.9
+        requirement: required
         text: >-
-          What is the supply risk over the next 18 months — CMO slot availability,
-          campaign scheduling, single-source materials, comparator availability — and
-          what is the buffer stock against a two-month slip?
-        likely_in: [ipdp]
+          Has GMP DS and Phase 1 DP been manufactured and released with a Certificate of
+          Analysis?
 
       - id: CMC.FIH.10
+        requirement: required
         text: >-
-          Is the Phase 2/3 process development plan defined, including the changes
-          already known to be required, and is a Q5E-compliant comparability protocol
-          drafted for each?
-        likely_in: [ipdp]
-
-  - id: nc
-    label: Preclinical Pharmacology / Toxicology / PK
-    questions:
-      - id: NC.FIH.1
-        text: >-
-          Is every pivotal study finalized in an audited GLP report — not a draft
-          report, not a summary table — and has QA sign-off been obtained?
-
-      - id: NC.FIH.2
-        text: >-
-          Does the completed repeat-dose duration support the maximum clinical dosing
-          duration in the protocol, with no reliance on studies that will only report
-          later?
-        likely_in: [ipdp]
-
-      - id: NC.FIH.3
-        text: >-
-          Has every target organ finding been characterized for reversibility,
-          monitorability and human relevance, and does each have a corresponding
-          clinical monitoring parameter written into the protocol schedule of
-          assessments?
-        likely_in: [ipdp]
-
-      - id: NC.FIH.4
-        text: >-
-          Are the safety margins at the maximum planned clinical exposure stated
-          explicitly on AUC and Cmax, in the most sensitive relevant species, using
-          the actual toxicokinetic exposures rather than administered doses?
-
-      - id: NC.FIH.5
-        text: >-
-          Has anything emerged since PCD — a late histopathology finding, a peer
-          review disagreement, a signal in a non-pivotal study — that changes the risk
-          assessment?
-
-      - id: NC.FIH.6
-        text: >-
-          Are the clinical monitoring parameters derived from the specific nonclinical
-          findings, or is the protocol running a generic safety panel that would miss
-          the finding we actually predicted?
-        likely_in: [ipdp]
-
-      - id: NC.FIH.7
-        text: >-
-          Is the reproductive toxicology status exactly consistent with the
-          contraception, pregnancy testing and eligibility language in the protocol —
-          including the duration of contraception after last dose, derived from the
-          terminal half-life?
-        likely_in: [ipdp]
-
-      - id: NC.FIH.8
-        text: >-
-          For biologics: does the cytokine release assessment, complement activation,
-          FcγR engagement and immunogenicity risk assessment support the starting dose
-          and the inter-subject interval, using the assay formats that have become
-          expected after the well-known FIH failures in this class?
-        applies_to: [monoclonal_antibody]
-        likely_in: [ipdp]
-
-      - id: NC.FIH.9
-        text: >-
-          Has any external expert, DSMB member or regulator raised a nonclinical
-          concern that remains open, and what is our written position?
-
-      - id: NC.FIH.10
-        text: >-
-          What nonclinical work remains, and at what point does each item become
-          rate-limiting — specifically, when does the absence of a 6-month tox study
-          or a DART package start constraining the clinical plan?
-        likely_in: [ipdp]
-
-  - id: tm
-    label: Translational Medicine
-    questions:
-      - id: TM.FIH.1
-        text: >-
-          Are all assays validated, sample handling instructions written into the lab
-          manual, sites trained, and has a dry run with real sample logistics been
-          performed before the first subject is dosed?
-
-      - id: TM.FIH.2
-        text: >-
-          What is the minimum PD effect at what exposure that confirms target
-          engagement in humans, defined now, before the data can influence the
-          definition?
-        likely_in: [ipdp]
-
-      - id: TM.FIH.3
-        text: >-
-          Is the PK/PD sampling schedule adequate to construct an exposure–response
-          relationship, or will it produce isolated timepoints from which no
-          relationship can be estimated?
-        likely_in: [ipdp]
-
-      - id: TM.FIH.4
-        text: >-
-          Are exploratory endpoints prespecified in the statistical analysis plan so
-          that any positive finding is credible rather than a post hoc rescue
-          narrative?
-        likely_in: [ipdp]
-
-      - id: TM.FIH.5
-        text: >-
-          Are consent, biobanking, ethics approval and export permits in place for
-          every sample type planned, including the future-use consent that determines
-          what can be analyzed later?
-
-      - id: TM.FIH.6
-        text: >-
-          What PD result would cause us to stop escalation and reconsider the
-          mechanism, as distinct from what result lets us continue?
-        likely_in: [ipdp]
-
-      - id: TM.FIH.7
-        text: >-
-          Who reviews the translational data, on what cadence, with what authority to
-          alter the escalation plan — and is that separate from the safety review
-          function or conflated with it?
-        likely_in: [ipdp]
-
-      - id: TM.FIH.8
-        text: >-
-          Does the FIH population have enough of the relevant biology that PD findings
-          will extrapolate to patients, or are we measuring a pathway that is
-          quiescent in healthy volunteers?
-        likely_in: [ipdp]
-
-      - id: TM.FIH.9
-        text: >-
-          Are the assays and their reference ranges appropriate for the populations
-          studied later, where baseline immune activation, nutritional status,
-          helminth or malaria co-infection and chronic inflammation shift the normal
-          range?
-        likely_in: [ipdp]
-
-      - id: TM.FIH.10
-        text: >-
-          If the biomarker moves and the clinic does not, what is our prospective
-          interpretation — and if the biomarker does not move but the clinic does,
-          what then? Decide before the data arrive.
-        likely_in: [ipdp]
+          Is the CMC development plan updated with a scale-up plan to kilo-scale for Phase 2,
+          identified risks to PQ with mitigations, and an IPDP provided one month before the
+          gate?
 
   - id: cp
     label: Clinical Pharmacology
     questions:
       - id: CP.FIH.1
+        requirement: required
         text: >-
-          Is the starting dose justification written into the protocol with the
-          explicit calculation, the safety factor and its rationale, and has the
-          agency concurred in writing?
-        likely_in: [ipdp]
+          Is there a detailed rationale for the Phase 1 dose range and target clinical
+          exposures?
 
       - id: CP.FIH.2
+        requirement: required
         text: >-
-          Are escalation increments, exposure caps, and the definition of the maximum
-          tolerated or maximum feasible dose prespecified, with the increments
-          justified against the steepness of the anticipated exposure–toxicity
-          relationship rather than by default multiples?
-        likely_in: [ipdp]
+          Are nonclinical PK/PD/ADME data (biomarker ID, in vitro vs. in vivo, animal model,
+          modeling) sufficient to project human exposure?
 
       - id: CP.FIH.3
+        requirement: required
         text: >-
-          Is the real-time PK turnaround — shipping, assay, QC, report — actually
-          achievable within the escalation interval, and has that been demonstrated
-          end to end rather than assumed from the lab's stated turnaround?
+          Is bioavailability / distribution characterized (tissue, serum, CSF, blood-brain as
+          relevant to the indication)?
 
       - id: CP.FIH.4
+        requirement: required
         text: >-
-          Are the bioanalytical laboratories qualified, contracted, validated for
-          each matrix, and is there a contingency if the primary lab fails an audit
-          mid-study?
+          Have supporting bioanalytical methods (e.g., LC-MS/MS) been developed and qualified
+          for both animal and human application?
 
       - id: CP.FIH.5
+        requirement: required
         text: >-
-          Does the modeling plan specify which model, updated at which point,
-          informing which decision, with named accountability — or is a
-          pharmacometrician being invited to the escalation meeting as an observer?
-        likely_in: [ipdp]
+          Is the FIH starting dose justified from NOAEL / safety margins together with PK-PD
+          modeling?
 
       - id: CP.FIH.6
+        requirement: required
         text: >-
-          Does the protocol collect what is needed for food effect, formulation
-          performance, accumulation ratio, and time-invariance of clearance — the last
-          being the early signal of autoinduction or time-dependent inhibition?
-        likely_in: [ipdp]
+          Is the dose formulation and regimen defined for the Phase 1 study?
 
       - id: CP.FIH.7
+        requirement: required
         text: >-
-          Is there a prospective plan for interpreting non-linear PK, saturable
-          clearance or target-mediated drug disposition if it appears, given that TMDD
-          fundamentally changes the escalation logic for a biologic?
-        likely_in: [ipdp]
+          Do toxicokinetic results support the doses and dosing duration anticipated for Phase
+          2?
 
       - id: CP.FIH.8
+        requirement: required
         text: >-
-          Is the ECG collection design — timing relative to Cmax, replicate ECGs,
-          matched PK samples, central reading — adequate to support a
-          concentration-QTc analysis of the quality regulators expect if we intend to
-          avoid a dedicated thorough QT study?
-        likely_in: [ipdp]
+          Is a drug-combination assessment and plan included where the product will be used in
+          combination?
 
       - id: CP.FIH.9
+        requirement: required
         text: >-
-          Are DDI, hepatic and renal impairment studies sequenced against the point at
-          which their results are needed for eligibility and dosing decisions, not
-          merely for the eventual label?
-        likely_in: [ipdp]
+          Has the formulation's bioavailability / PK for the clinical dosing regimen been
+          assessed (including any blinding need)?
 
       - id: CP.FIH.10
+        requirement: required
         text: >-
-          Is there a defined threshold of PK deviation from prediction that triggers a
-          formal reassessment of the escalation plan rather than an informal
-          discussion?
-        likely_in: [ipdp]
+          Is the argument for an acceptable drug-interaction profile (and any prior human
+          exposure) documented for the pre-IND/IND?
 
-  - id: cd
-    label: Clinical Development
+  - id: ns
+    label: Nonclinical Safety
     questions:
-      - id: CD.FIH.1
+      - id: NS.FIH.1
+        requirement: required
         text: >-
-          Are all approvals in place — competent authority, every ethics committee,
-          all conditions formally closed — with documentation, not verbal assurance?
+          Are acute and subchronic (repeat-dose) GLP animal toxicology studies completed in
+          the appropriate species?
 
-      - id: CD.FIH.2
+      - id: NS.FIH.2
+        requirement: required
         text: >-
-          Have sites been initiated, investigators trained on the specific escalation
-          and stopping rules, and has the first-dose day been rehearsed including the
-          emergency pathway and the availability of the specific reversal or
-          supportive interventions the mechanism might require?
+          Has the genotoxicity battery (in vitro and in vivo as appropriate) been completed?
 
-      - id: CD.FIH.3
+      - id: NS.FIH.3
+        requirement: required
         text: >-
-          Is the consent document accurate about the state of knowledge,
-          comprehensible at an appropriate reading level, correctly translated with
-          back-translation, and does it describe the actual risks the nonclinical
-          package identified?
+          Is a NOAEL established in each species, with safety margins relative to projected
+          human exposure?
 
-      - id: CD.FIH.4
+      - id: NS.FIH.4
+        requirement: required
         text: >-
-          Is the safety review committee constituted, quorate, independent where
-          required, with a charter specifying decision rules and the authority to
-          halt?
-        likely_in: [ipdp]
+          Are dose-response relationships for toxicity characterized to inform the clinical
+          starting dose and escalation?
 
-      - id: CD.FIH.5
+      - id: NS.FIH.5
+        requirement: required
         text: >-
-          Are stopping rules defined at individual, cohort and study level with
-          unambiguous triggers, and does everyone in the room agree on what
-          "unambiguous" means for the borderline case?
-        likely_in: [ipdp]
+          Is the FIH safe starting dose and Phase 1 dose range justified from NOAEL / MABEL
+          and exposure margins?
 
-      - id: CD.FIH.6
+      - id: NS.FIH.6
+        requirement: required
         text: >-
-          Are site staff trained and resourced for the real visit burden, and has
-          anyone confirmed that the schedule of assessments is executable within a
-          single visit window rather than only on paper?
+          Are toxicokinetic data integrated with the tox studies to establish exposure at the
+          NOAEL?
 
-      - id: CD.FIH.7
+      - id: NS.FIH.7
+        requirement: required
         text: >-
-          Is there an emergency unblinding procedure that works at 3am, tested?
+          Has safety pharmacology (CV/hERG, CNS, respiratory) been completed to support FIH?
 
-      - id: CD.FIH.8
+      - id: NS.FIH.8
+        requirement: required
         text: >-
-          Has enrollment feasibility been validated against actual screening data at
-          the initiated sites, and what is the plan if the first cohort takes three
-          times as long as projected?
-        likely_in: [ipdp]
+          Are supporting bioanalytical methods qualified for tox species and human
+          application?
 
-      - id: CD.FIH.9
+      - id: NS.FIH.9
+        requirement: required
         text: >-
-          Is the EOP1 go/no-go documented, quantitative, and endorsed by the
-          governance body before any human data exist?
-        likely_in: [ipdp]
+          Do toxicology and toxicokinetic results support the doses and dosing duration
+          anticipated for Phase 2, with a tox plan to support Phase 2?
 
-      - id: CD.FIH.10
+      - id: NS.FIH.10
+        requirement: required
         text: >-
-          What is the pre-agreed communication plan — internal escalation, regulator
-          notification, partner notification, investigator community, and public — for
-          a serious adverse event, and who has authority to speak?
-        likely_in: [ipdp]
-
-  - id: pv
-    label: Drug Safety and Pharmacovigilance
-    questions:
-      - id: PV.FIH.1
-        text: >-
-          Have all sites been trained on expedited reporting obligations and
-          timelines, and does each hold the current RSI version — verified by document
-          control rather than by assurance?
-
-      - id: PV.FIH.2
-        text: >-
-          Does the medical monitor have genuinely continuous coverage across the
-          relevant time zones during dosing, with a named and briefed backup, and has
-          the escalation path been tested out of hours?
-
-      - id: PV.FIH.3
-        text: >-
-          Has a test case been processed end to end — intake, assessment, coding,
-          transmission, acknowledgement — through the live system to every
-          destination, including the gateway?
-
-      - id: PV.FIH.4
-        text: >-
-          Are SUSAR and expedited reporting obligations mapped for every regulator and
-          ethics committee involved, including the differing clocks for fatal or
-          life-threatening cases and the differing formats?
-        likely_in: [ipdp]
-
-      - id: PV.FIH.5
-        text: >-
-          Is the causality assessment methodology agreed in advance and applied
-          consistently between investigator and sponsor, with the documented process
-          for the case where they disagree — because inconsistent causality across a
-          program is a finding, not a nuance?
-        likely_in: [ipdp]
-
-      - id: PV.FIH.6
-        text: >-
-          Is reconciliation between the clinical database and the safety database
-          scheduled from the start rather than performed once at lock, when
-          discrepancies are expensive and the explanations have been forgotten?
-
-      - id: PV.FIH.7
-        text: >-
-          Are the protocol's safety assessments derived from the specific target organ
-          findings in the nonclinical package, with a defined action for each abnormal
-          result rather than an undefined 'investigator discretion'?
-        likely_in: [ipdp]
-
-      - id: PV.FIH.8
-        text: >-
-          Does the independent monitoring committee charter specify what triggers an
-          unscheduled review, and does the pharmacovigilance function have visibility
-          of what the committee sees?
-        likely_in: [ipdp]
-
-      - id: PV.FIH.9
-        text: >-
-          Is there a written and rehearsed process for the first serious unexpected
-          event: case assessment, expedited notification to each regulator and ethics
-          committee, investigator brochure and RSI update, and re-assessment of
-          expectedness for cases already reported under the superseded version?
-
-      - id: PV.FIH.10
-        text: >-
-          Has anyone verified that a serious case reported on a Friday evening in the
-          jurisdiction where dosing occurs actually reaches the gateway inside the
-          clock, rather than on Monday?
+          Is the Investigator's Brochure / Core Safety Information assembled from the
+          toxicology studies for the IND?
 
   - id: ra
-    label: Regulatory Affairs
+    label: Regulatory
     questions:
       - id: RA.FIH.1
+        requirement: required
         text: >-
-          Is authorization in force in every jurisdiction where dosing occurs, with no
-          outstanding hold, grounds for non-acceptance, or unaddressed condition?
+          Is the proposed regulatory path through the product life-cycle defined (clinical
+          development, licensure, WHO PQ, post-authorization safety)?
 
       - id: RA.FIH.2
+        requirement: required
         text: >-
-          Are all agency commitments logged with owners and dates in a system someone
-          will actually maintain for the next eight years?
+          Is there a prioritized list of target countries with an understanding of country-
+          specific regulatory requirements?
 
       - id: RA.FIH.3
+        requirement: required
         text: >-
-          Is the investigator brochure submitted, current and version-controlled in
-          every jurisdiction, and does each competent authority and ethics committee
-          hold the version the sites are actually working to?
+          Is there a plan for NRA engagement during development to gain agreement on
+          development and filing strategy?
 
       - id: RA.FIH.4
+        requirement: required
         text: >-
-          Are the sponsor's obligations to notify each competent authority and ethics
-          committee mapped — substantial amendments, urgent safety measures, temporary
-          halts, early termination and end of trial — with the statutory clock and
-          format for each jurisdiction? Case-level expedited reporting belongs to Drug
-          Safety; this is the authorisation channel.
-        likely_in: [ipdp]
+          Are key regulatory risks identified with mitigation plans?
 
       - id: RA.FIH.5
+        requirement: required
         text: >-
-          Is the trial registered in all required registries before first enrollment,
-          with the correct primary endpoint — because registry-protocol discrepancies
-          are now systematically examined by journals and reviewers?
+          Does the plan ensure the proposed indication and labeling align with the TPP and
+          donor/utilization requirements?
 
       - id: RA.FIH.6
+        requirement: required
         text: >-
-          When the protocol is amended, is the substantial-versus-non-substantial
-          determination made consistently across jurisdictions, and does the amendment
-          strategy avoid re-opening an authorisation in a market where doing so
-          restarts the statutory clock?
-        likely_in: [ipdp]
+          Have alternative pathways (conditional, accelerated, breakthrough, Article 58,
+          tropical voucher, orphan) been evaluated where relevant?
 
       - id: RA.FIH.7
+        requirement: required
         text: >-
-          Do we have written agency feedback on the elements most likely to be
-          contested at the pivotal stage — dose selection, endpoint, comparator,
-          population — or are we deferring those conversations until they are
-          expensive?
-        likely_in: [ipdp]
+          Is WHO PQ applicability / programmatic suitability assessed, with a plan and
+          engagement timeline (by end of Phase 2)?
 
       - id: RA.FIH.8
+        requirement: required
         text: >-
-          Has engagement with WHO and with target-country NRAs begun, and do we know
-          their maturity level, review timelines, local data requirements and reliance
-          posture?
-        likely_in: [ipdp]
+          Is the pre-IND (or NRA-equivalent) briefing package prepared, with specific
+          questions for the agency and supporting drug/nonclinical/clinical summaries?
 
       - id: RA.FIH.9
+        requirement: required
         text: >-
-          Are import permits, biosafety and GMO approvals, and MTAs in place for both
-          product and samples, in every direction they need to travel?
+          Is the ethics-committee review process and its interplay with the pre-IND/IND
+          understood for the trial countries?
 
       - id: RA.FIH.10
+        requirement: required
         text: >-
-          Is the regulatory strategy document current, version-controlled, and does it
-          say what the clinical and CMC teams believe it says? Check by asking them
-          separately.
-        likely_in: [ipdp]
-
-  - id: ax
-    label: LMIC Access
-    questions:
-      - id: AX.FIH.1
-        text: >-
-          Are LMIC investigators, institutions and regulators involved substantively —
-          as protocol co-authors, steering committee members, or scientific advisors —
-          rather than as sites to be activated later?
-        likely_in: [ipdp]
-
-      - id: AX.FIH.2
-        text: >-
-          Does the current TPP still reflect implementer requirements, and has any
-          drift been surfaced to governance with an explicit accept/reject decision?
-        likely_in: [itpp, ctpp]
-
-      - id: AX.FIH.3
-        text: >-
-          What is the current COGS estimate against the affordability ceiling, and
-          what specific process improvements are on the roadmap to close any gap, with
-          owners and dates?
-        likely_in: [ipdp]
-
-      - id: AX.FIH.4
-        text: >-
-          Is capacity building at future LMIC trial sites underway with funding
-          committed — laboratory accreditation, GCP training, pharmacovigilance
-          systems, ethics committee throughput — on a timeline that has them ready when
-          needed rather than when convenient?
-        likely_in: [ipdp]
-
-      - id: AX.FIH.5
-        text: >-
-          Is there an agreed plan for conducting trials in the highest-burden
-          countries, and have the relevant NRAs been consulted on what they will
-          require to register on the basis of that data?
-        likely_in: [ipdp]
-
-      - id: AX.FIH.6
-        text: >-
-          Have volume forecasts been shared with potential manufacturing partners, and
-          has anyone confirmed that the required capacity can be built or reserved in
-          the required timeframe?
-        likely_in: [ipdp]
-
-      - id: AX.FIH.7
-        text: >-
-          Are IP and licensing arrangements consistent with the access commitments
-          made to funders — and has anyone confirmed there is no conflict between a
-          platform license, a component license and a funder's access clause?
-
-      - id: AX.FIH.8
-        text: >-
-          Is there a written position on data ownership, sample ownership, authorship
-          and benefit-sharing with LMIC collaborators, agreed with those collaborators
-          rather than drafted for them?
-        likely_in: [ipdp]
-
-      - id: AX.FIH.9
-        text: >-
-          What health economic, epidemiological and burden-of-disease evidence will
-          Gavi, the Global Fund, WHO or national governments require, when do they need
-          it, and who is generating it?
-        likely_in: [ipdp]
-
-      - id: AX.FIH.10
-        text: >-
-          Are pregnancy, lactation and pediatric populations on a timeline that
-          delivers labeling within a year or two of the adult indication, and if not,
-          is that being accepted explicitly by someone with authority?
-        likely_in: [ipdp]
+          Is the IND (or NRA clinical-trial) application prepared, submitted, and
+          acknowledged, with a plan to address agency responses?

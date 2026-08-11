@@ -47,7 +47,11 @@ const ANALYSIS_VERSIONS = {
   // 3: `partly_answered` joined the model's vocabulary. A v2 file has no such state
   // and its counts were computed on a binary, so its "not found" total silently
   // includes every partial answer — a different measurement, not a missing field.
-  expert: 3,
+  // 4: the question bank was replaced. A v3 file was triaged against a different set of
+  // questions under different gate ids, with a per-question WHO-PQ marker and a hint
+  // about where an answer usually lives, neither of which exists now — so it is not a
+  // stale version of this review, it is a review of something else.
+  expert: 4,
   inspector: 2,
   scout: 1,
 } as const satisfies Record<ResultType, number>;
@@ -147,16 +151,105 @@ export function packScoutResult(result: ScoutResponse): ResultFile<"scout", Scou
 
 /** Stable, filesystem-safe name derived from the analyzed source document. */
 export function scoutResultFilename(result: ScoutResponse): string {
-  const documentIds = Array.from(
-    new Set((result.blocks ?? []).map((block) => block.doc_id.trim()).filter(Boolean)),
-  );
-  const fallback = [result.indication, result.source_type].filter(Boolean).join("-") || "analysis";
-  const primary = safeFilenamePart(documentIds[0] || fallback);
-  const scope = documentIds.length > 1
-    ? `${primary}-plus-${documentIds.length - 1}-more`
-    : primary;
-  return `${scope}-scout.json`;
+  return runFilename(result, "scout");
 }
+
+/**
+ * Every tool that keeps finished runs.
+ *
+ * Wider than `ResultType`, which is the set that exports a portable file: Chunker and
+ * Searcher keep runs a reader switches between without producing one.
+ */
+export type RunKeepingTool = ResultType | "chunker" | "searcher";
+
+/**
+ * What identifies one run, in the order a reader recognises it.
+ *
+ * One list per tool, feeding two things that must agree: the row in the run picker and
+ * the name of the exported file. They were written separately — a lambda in the page and
+ * a function here — so they drifted, and the drift was invisible from either side.
+ * Expert's picker showed only the gate, so two runs of one gate on different documents
+ * were two identical rows while their files differed; Aligner's picker named documents
+ * and its file named types.
+ *
+ * The parts are readable text. `runLabel` joins them for the eye and `runFilename`
+ * slugs them for a filesystem, so the two can differ in punctuation and never in
+ * substance.
+ */
+export function runIdentity(result: unknown, type: RunKeepingTool): string[] {
+  switch (type) {
+    case "inspector": {
+      const inspection = (result as InspectorResponse).inspection;
+      return [inspection.doc_id].filter(Boolean);
+    }
+    case "scout": {
+      const scout = result as ScoutResponse;
+      const documents = Array.from(
+        new Set((scout.blocks ?? []).map((block) => block.doc_id.trim()).filter(Boolean)),
+      );
+      if (documents.length > 1) {
+        return [documents[0], `plus ${documents.length - 1} more`];
+      }
+      return documents.length > 0
+        ? documents
+        : [scout.indication, scout.source_type].filter(Boolean);
+    }
+    case "expert": {
+      const review = (result as ExpertResponse).review;
+      // The gate first, then the documents: the same set is triaged again at every gate,
+      // and the same gate is run against different sets. Either alone collides.
+      return [
+        review.gate_label || review.gate_id,
+        ...review.documents.map((document) => document.source_type || document.doc_id),
+      ].filter(Boolean);
+    }
+    case "aligner": {
+      const alignment = (result as AlignerResponse).alignment;
+      // The documents, not the comparisons: a run holds any number of either, and the
+      // documents are what a reader recognises.
+      return alignment.documents
+        .map((document) => document.source_type || document.doc_id)
+        .filter(Boolean);
+    }
+    case "chunker": {
+      const parsed = result as { doc_id?: string };
+      return [parsed.doc_id].filter(Boolean) as string[];
+    }
+    case "searcher": {
+      // The query is the run. Searcher exports no file, so nothing here has a filename
+      // to agree with — it is on this path because a picker row is a picker row, and one
+      // page naming its runs its own way is how the last inconsistency started.
+      return [(result as { query?: string }).query].filter(Boolean) as string[];
+    }
+  }
+}
+
+/** One run named for the eye: the picker row, and nothing else. */
+export function runLabel(result: unknown, type: RunKeepingTool): string {
+  const parts = runIdentity(result, type);
+  return parts.length > 0 ? parts.join(" · ") : FALLBACK_LABEL[type];
+}
+
+/** The same run named for a filesystem, with the tool that produced it. */
+export function runFilename(result: unknown, type: RunKeepingTool): string {
+  const parts = runIdentity(result, type).map(safeFilenamePart).filter(Boolean);
+  return `${parts.join("-") || type}-${type}.json`;
+}
+
+/**
+ * What to call a run that identifies itself with nothing.
+ *
+ * Per tool, because "Inspection" and "Gate review" are what the tool calls its own work
+ * and a shared word for all of them would be less use than the tool's own.
+ */
+const FALLBACK_LABEL: Record<RunKeepingTool, string> = {
+  inspector: "Inspection",
+  scout: "Scout result",
+  expert: "Gate review",
+  aligner: "Alignment",
+  chunker: "Parsed document",
+  searcher: "Search",
+};
 
 function safeFilenamePart(value: string): string {
   const normalized = value
@@ -193,7 +286,7 @@ export function isInspectorResultFinal(result: InspectorResponse): boolean {
 }
 
 export function inspectorResultFilename(result: InspectorResponse): string {
-  return `${safeFilenamePart(result.inspection.doc_id || "document")}-inspector.json`;
+  return runFilename(result, "inspector");
 }
 
 export function packAlignerResult(
@@ -231,22 +324,11 @@ export function packExpertResult(
 }
 
 export function expertResultFilename(result: ExpertResponse): string {
-  // Named by the gate and the documents read, because the same document set is
-  // triaged again at every gate and the gate is what distinguishes the files.
-  const parts = result.review.documents.map((document) =>
-    safeFilenamePart(document.source_type || document.doc_id),
-  );
-  const gate = safeFilenamePart(result.review.gate_id || "gate");
-  return `${[gate, ...parts].join("-")}-expert.json`;
+  return runFilename(result, "expert");
 }
 
 export function alignerResultFilename(result: AlignerResponse): string {
-  // Named by the documents rather than by the comparisons, because a run holds
-  // any number of either and the documents are what a reader recognises.
-  const parts = result.alignment.documents.map((document) =>
-    safeFilenamePart(document.source_type || document.doc_id),
-  );
-  return `${parts.join("-") || "aligner"}-aligner.json`;
+  return runFilename(result, "aligner");
 }
 
 /** Read a final result produced by the current application contract. */

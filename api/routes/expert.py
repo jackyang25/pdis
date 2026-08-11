@@ -45,17 +45,20 @@ DEFAULT_MAX_TOKENS = 16000
 
 
 @router.get("/gates", response_model=ExpertGatesResponse)
-def list_gates(org: str = "bmgf") -> ExpertGatesResponse:
-    """The gates Expert declares, in development order.
+def list_gates(org: str = "bmgf", intervention: str | None = None) -> ExpertGatesResponse:
+    """The gates Expert declares for this org and intervention, in development order.
 
     Published rather than mirrored in the web app: the banks are the one place that
     decides which gates exist, and a copy in TypeScript would be a second answer
     that could disagree with them.
+
+    Filtered by intervention when one is given, so a modality no bank covers offers no
+    gate rather than offering one that would ask it about synthetic routes.
     """
     return ExpertGatesResponse(
         gates=[
             GateSpecOut(id=gate.id, label=gate.label, ordinal=gate.ordinal)
-            for gate in available_gates(org)
+            for gate in available_gates(org, intervention)
         ]
     )
 
@@ -107,6 +110,20 @@ async def run_expert(
         config = find_config(org, gate)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # Checked here as well as filtered from the picker: a stale page could still post a
+    # gate whose bank has nothing to ask this modality, and a review of questions none of
+    # which apply reads exactly like a review that found nothing.
+    if not config.serves(intervention_class):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The {config.gate_label} question bank is written for "
+                f"{', '.join(sorted(config.intervention_classes))} programs, not for "
+                f"{intervention_class}. Its questions ask about matters this modality "
+                "does not have, so every one would report as unanswered."
+            ),
+        )
 
     try:
         for _, source_type, _, _ in uploads:

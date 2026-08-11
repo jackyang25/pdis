@@ -19,7 +19,9 @@ def form(**overrides) -> dict:
         "source_types": ["itpp"],
         "gate": ["lcs"],
         "org": ["bmgf"],
-        "intervention_class": ["vaccine"],
+        # `drug`, because that is what these banks are written for. A vaccine request is
+        # refused by the guard below, which would otherwise mask every later guard.
+        "intervention_class": ["drug"],
         "indication": ["malaria"],
     }
     for key, value in overrides.items():
@@ -99,6 +101,24 @@ class RunGuardTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("different type", response.json()["detail"])
+
+    def test_a_modality_the_bank_does_not_serve_is_refused(self) -> None:
+        """These banks ask about synthetic routes and salt forms. Returning a review in
+        which every question is inapplicable would read like a review that found nothing
+        wrong."""
+        response = self.post([docx()], intervention_class=["vaccine"])
+        self.assertEqual(response.status_code, 400)
+        detail = response.json()["detail"]
+        self.assertIn("drug", detail)
+        self.assertIn("vaccine", detail)
+
+    def test_the_gate_list_offers_nothing_for_a_modality_no_bank_covers(self) -> None:
+        """Surfaced where the gate is chosen, so the refusal above is a backstop rather
+        than the first a reader hears of it."""
+        drug = self.client.get("/api/expert/gates", params={"intervention": "drug"})
+        vaccine = self.client.get("/api/expert/gates", params={"intervention": "vaccine"})
+        self.assertTrue(drug.json()["gates"])
+        self.assertEqual(vaccine.json()["gates"], [])
 
     def test_an_unknown_gate_is_refused(self) -> None:
         response = self.post([docx()], gate=["no-such-gate"])

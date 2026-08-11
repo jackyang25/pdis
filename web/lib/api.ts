@@ -1091,7 +1091,12 @@ export async function runExpert(
     intervention_class: string;
     indication: string;
   },
-  contextItems: { label: string; text: string }[],
+  /**
+   * Transient context: one attachment per item, with the name an answer is attributed
+   * to. The service reads each file into text; nothing here parses one, so a format it
+   * accepts is added in one place rather than two.
+   */
+  contextItems: { label: string; file: File }[],
   onStage?: (stage: string, progress?: StageProgress) => void,
 ): Promise<ExpertResponse> {
   const form = new FormData();
@@ -1100,9 +1105,9 @@ export async function runExpert(
     form.append("source_types", sourceType);
   });
   Object.entries(configuration).forEach(([key, value]) => form.append(key, value));
-  contextItems.forEach(({ label, text }) => {
+  contextItems.forEach(({ label, file }) => {
     form.append("context_labels", label);
-    form.append("context_texts", text);
+    form.append("context_files", file);
   });
   return streamRequest("/api/expert/run", form, onStage);
 }

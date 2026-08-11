@@ -83,7 +83,7 @@ fails loudly.
 Canonical documents are DOCX and PPTX, parsed by chunker into blocks with stable
 IDs, and an answer read from one cites the exact passages.
 
-A `ContextItem` is transient: pasted for one run, put into the prompt, and never
+A `ContextItem` is transient: attached for one run, read into text, put into the prompt, and never
 stored. Only its `label` reaches the result, so an answer sourced from it carries
 attribution — *which* source — without lineage, and can never be presented as
 cited. The label is free text the user typed, never a `source_type`; the moment it

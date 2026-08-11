@@ -41,6 +41,11 @@ def docx(name: str = "profile.docx") -> tuple[str, tuple[str, io.BytesIO, str]]:
     )
 
 
+def context(name: str = "notes.md", body: bytes = b"Agreed 24 months.") -> tuple:
+    """One context attachment. Markdown, so the guard under test is the one that runs."""
+    return ("context_files", (name, io.BytesIO(body), "text/markdown"))
+
+
 class GatesEndpointTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
@@ -104,19 +109,45 @@ class RunGuardTests(unittest.TestCase):
         response = self.post([docx()], source_types=["pdss"])
         self.assertEqual(response.status_code, 404)
 
-    def test_mismatched_context_lists_are_refused(self) -> None:
-        response = self.post([docx()], context_labels=["CMC Report"])
+    def test_a_context_attachment_without_a_label_is_refused(self) -> None:
+        """The label is what an answer is attributed to, so it cannot be absent."""
+        response = self.post([docx(), context()])
         self.assertEqual(response.status_code, 400)
-        self.assertIn("label and text", response.json()["detail"])
+        self.assertIn("label", response.json()["detail"])
 
     def test_two_context_items_sharing_a_label_are_refused(self) -> None:
         response = self.post(
-            [docx()],
+            [docx(), context("a.md"), context("b.md")],
             context_labels=["Report", "Report"],
-            context_texts=["one", "two"],
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("share a label", response.json()["detail"])
+
+    def test_a_context_format_the_reader_refuses_fails_before_the_stream(self) -> None:
+        """A PPTX is a fine document and not context: it would be read as flat prose,
+        losing the structure that makes it citable in the first place."""
+        response = self.post(
+            [docx(), context("deck.pptx")],
+            context_labels=["Deck"],
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("deck.pptx", response.json()["detail"])
+
+    def test_a_scanned_pdf_is_refused_with_the_reason(self) -> None:
+        """Silence here would be a named source that answers nothing."""
+        response = self.post(
+            [docx(), context("scan.pdf", b"not a pdf at all")],
+            context_labels=["Scan"],
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("scan.pdf", response.json()["detail"])
+
+    def test_an_empty_context_attachment_is_refused(self) -> None:
+        response = self.post(
+            [docx(), context("empty.md", b"")],
+            context_labels=["Empty"],
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_a_missing_gate_field_is_refused(self) -> None:
         response = self.post([docx()], gate=None)

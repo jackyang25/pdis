@@ -9,6 +9,7 @@ import { ConfigurationFields } from "@/components/configuration-fields";
 import { HeaderGuard } from "@/components/header-guard";
 import { Badge } from "@/components/ui/badge";
 import { DownloadButton } from "@/components/download-button";
+import { RunHistory } from "@/components/run-history";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { runChunker, type ContentBlock, type Header } from "@/lib/api";
 import { useChunkerSession, type ChunkerResult } from "@/lib/session";
@@ -130,6 +131,7 @@ function MetaLine({ label, meta }: { label: string; meta: Record<string, unknown
 }
 
 function BlocksList({ result }: { result: ChunkerResult }) {
+  const { results, selectedId, selectResult, removeResult } = useChunkerSession();
   const blocks = result.blocks;
   const labeledCount = blocks.filter((b) => b.section_label).length;
   return (
@@ -137,12 +139,21 @@ function BlocksList({ result }: { result: ChunkerResult }) {
       title={`${blocks.length} blocks`}
       subtitle={`${labeledCount} labeled`}
       trailing={
+        <>
+        <RunHistory
+          runs={results}
+          selectedId={selectedId}
+          onSelect={selectResult}
+          onRemove={removeResult}
+          label={(value) => value.doc_id || "Parsed document"}
+        />
         <DownloadButton
           filename={`${result.doc_id || "chunker"}-result.json`}
           data={result}
           format="json"
           label="Download JSON"
         />
+        </>
       }
     >
       <ul className="-mx-5 divide-y divide-border">

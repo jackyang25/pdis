@@ -19,11 +19,15 @@ from fastapi.responses import StreamingResponse
 from services.chunker import DOCUMENT_SUFFIXES, find_config as find_chunker_config
 from services.expert import (
     ContextItem,
+    ContextReadError,
     DocumentInput,
+    MAX_TOTAL_CONTEXT_CHARACTERS,
     available_gates,
     find_config,
+    read_context_text,
     resolve_questions,
     run_pipeline,
+    total_context_length,
 )
 
 from api.deps import MissingCredentialError, get_openai_client
@@ -64,16 +68,16 @@ async def run_expert(
     org: str = Form(...),
     intervention_class: str = Form(...),
     indication: str = Form(...),
+    context_files: list[UploadFile] = File(default_factory=list),
     context_labels: list[str] = Form(default_factory=list),
-    context_texts: list[str] = Form(default_factory=list),
 ) -> StreamingResponse:
     if len(files) != len(source_types):
         raise HTTPException(
             status_code=400, detail="Each document must be given a document type."
         )
-    if len(context_labels) != len(context_texts):
+    if len(context_labels) != len(context_files):
         raise HTTPException(
-            status_code=400, detail="Each context item must have a label and text."
+            status_code=400, detail="Each context attachment must have a label."
         )
 
     uploads: list[tuple[UploadFile, str, str, str]] = []
@@ -117,11 +121,46 @@ async def run_expert(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    context_items = [
-        ContextItem(label=label.strip(), text=text)
-        for label, text in zip(context_labels, context_texts)
-        if label.strip() and text.strip()
-    ]
+    # Read here rather than in the pipeline: a file that cannot be read is a 400 the
+    # user can fix, and finding that out after the stream opens would report it as a
+    # failed review instead. The label is the reader's, never the filename — it is what
+    # an answer is attributed to, and `AIV_CMC_final_v3` is not an attribution.
+    context_items: list[ContextItem] = []
+    for upload, label in zip(context_files, context_labels):
+        name = Path(upload.filename or "attachment").name
+        if not label.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=f"{name}: name this context so an answer can be attributed to it.",
+            )
+        payload = await upload.read()
+        if not payload:
+            raise HTTPException(status_code=400, detail=f"{name}: the file is empty.")
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=Path(name).suffix.lower()
+        ) as temp_file:
+            temp_file.write(payload)
+            context_path = temp_file.name
+        try:
+            text = read_context_text(context_path, filename=name)
+        except ContextReadError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            if os.path.exists(context_path):
+                os.unlink(context_path)
+        context_items.append(ContextItem(label=label.strip(), text=text))
+
+    total = total_context_length([item.text for item in context_items])
+    if total > MAX_TOTAL_CONTEXT_CHARACTERS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{total:,} characters of context in total, over the "
+                f"{MAX_TOTAL_CONTEXT_CHARACTERS:,} limit. Every question in the gate is "
+                "read against all of it, so attach the parts that bear on this review."
+            ),
+        )
+
     labels = [item.label for item in context_items]
     if len(set(labels)) != len(labels):
         raise HTTPException(

@@ -38,6 +38,26 @@ export const ATTACHMENT_ACCEPT = [
 export const ATTACHMENT_FORMAT_HINT = `${DOCUMENT_FORMAT_HINT}, or image files`;
 
 /**
+ * Formats a transient context attachment may carry.
+ *
+ * Wider than the analysis path, and the gap is the point: an uploaded document becomes
+ * citable blocks, so its structure has to be declared in the file. Context is read once
+ * into a prompt and never chunked, cited, or quote-checked, so a format that declares
+ * nothing loses nothing. `services/expert/context.py` owns the same list; the test keeps
+ * the two agreeing.
+ */
+export const CONTEXT_SUFFIXES = [".pdf", ".docx", ".txt", ".md"] as const;
+
+/** Value for a context `<input type="file">` accept attribute. */
+export const CONTEXT_ACCEPT = CONTEXT_SUFFIXES.join(",");
+
+/** Reader-facing context list, e.g. `PDF, DOCX, TXT, or MD`. */
+export const CONTEXT_FORMAT_HINT = (() => {
+  const names = CONTEXT_SUFFIXES.map((suffix) => suffix.replace(".", "").toUpperCase());
+  return `${names.slice(0, -1).join(", ")}, or ${names[names.length - 1]}`;
+})();
+
+/**
  * What a clipboard or a drag holds that could be attached, and what won.
  *
  * A clipboard can carry several representations of one copy at once: a table copied

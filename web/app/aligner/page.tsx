@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, CircleDashed, Plus, X } from "lucide-react";
+import { RunHistory } from "@/components/run-history";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ErrorMessage } from "@/components/ui/error-message";
 import {
@@ -382,6 +383,12 @@ function AlignmentView({
   result: AlignmentResult;
   onNewAnalysis: () => void;
 }) {
+  const {
+    results,
+    selectedId: selectedRunId,
+    selectResult,
+    removeResult,
+  } = useAlignerSession();
   // Same handoff every tool uses: a citation anywhere opens that passage in the trace,
   // so the two views are one navigation rather than two places to look.
   const [resultTab, setResultTab] = useState("comparisons");
@@ -431,6 +438,19 @@ function AlignmentView({
       defaultOpen
       contentClassName="px-0 py-0 sm:px-0"
       trailing={
+        <>
+        <RunHistory
+          runs={results}
+          selectedId={selectedRunId}
+          onSelect={selectResult}
+          onRemove={removeResult}
+          label={(value) =>
+            value.alignment.documents
+              .map((document) => document.doc_id)
+              .filter(Boolean)
+              .join(" · ") || "Comparison"
+          }
+        />
         <FinalResultActions
           onNewAnalysis={onNewAnalysis}
           download={{
@@ -438,6 +458,7 @@ function AlignmentView({
             data: packAlignerResult({ alignment: result }),
           }}
         />
+        </>
       }
     >
       <DocumentSourceProvider blocks={result.blocks} onOpenInTrace={openBlockInTrace}>

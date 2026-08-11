@@ -11,6 +11,15 @@ template; Expert asks whether the evidence exists anywhere in the set for a
 reviewer to close a question. Neither substitutes for the other.
 """
 
+from .context import (
+    CONTEXT_FORMAT_HINT,
+    CONTEXT_SUFFIXES,
+    MAX_CONTEXT_CHARACTERS,
+    MAX_TOTAL_CONTEXT_CHARACTERS,
+    ContextReadError,
+    read_context_text,
+    total_context_length,
+)
 from .contract import validate_result_contract
 from .models import (
     ANSWER_SOURCES,
@@ -40,6 +49,11 @@ from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, run_pipeline
 
 __all__ = [
     "ANSWER_SOURCES",
+    "CONTEXT_FORMAT_HINT",
+    "CONTEXT_SUFFIXES",
+    "ContextReadError",
+    "MAX_CONTEXT_CHARACTERS",
+    "MAX_TOTAL_CONTEXT_CHARACTERS",
     "AnswerSource",
     "ContextItem",
     "DEFAULT_MAX_OUTPUT_TOKENS",
@@ -60,6 +74,8 @@ __all__ = [
     "available_gates",
     "find_config",
     "has_config",
+    "read_context_text",
+    "total_context_length",
     "load_config",
     "resolve_questions",
     "run_pipeline",

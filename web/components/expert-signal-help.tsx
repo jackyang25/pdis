@@ -33,7 +33,7 @@ const TOPICS: Record<ExpertSignalTopic, SignalTopic> = {
     title: "Source",
     summary: "Whether an answer can be checked, or only attributed.",
     detail:
-      "This applies to a partial answer exactly as it does to a whole one. An answer read from an uploaded document cites the exact passage, so you can open it and confirm it. An answer read from context you pasted for the run names which item it came from and nothing more, because that text is never stored — it goes into the request and is gone. So the label is the whole record: reopening this result later shows the name with nothing behind it. Both are genuinely answered and both are counted the same way; what differs is whether anyone can verify it afterwards. A run answered mostly from pasted context is a different situation from one answered from the documents, which is why the two are counted separately.",
+      "This applies to a partial answer exactly as it does to a whole one. An answer read from an uploaded document cites the exact passage, so you can open it and confirm it. An answer read from context you attached for the run names which item it came from and nothing more, because that text is never stored — the file is read once, goes into the request, and is gone. So the label is the whole record: reopening this result later shows the name with nothing behind it. Both are genuinely answered and both are counted the same way; what differs is whether anyone can verify it afterwards. A run answered mostly from attached context is a different situation from one answered from the documents, which is why the two are counted separately.",
   },
   pq: {
     // No promptRef: the marker is transcribed from the question bank, not produced

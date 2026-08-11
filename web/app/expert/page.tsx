@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, Plus, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Paperclip, Plus, X } from "lucide-react";
+import { RunHistory } from "@/components/run-history";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import {
   DocumentSourceProvider,
@@ -53,6 +54,7 @@ import {
 import { useExpertSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
+import { CONTEXT_ACCEPT, CONTEXT_FORMAT_HINT } from "@/lib/document-formats";
 
 const STEPS = [
   { key: "resolve", label: "Resolving the question bank" },
@@ -61,7 +63,14 @@ const STEPS = [
 ];
 
 type DocumentChoice = { key: string; sourceType: string };
-type ContextRow = { key: string; label: string; text: string };
+/**
+ * One transient context item: a file, and the name an answer is attributed to.
+ *
+ * The label is the reader's, not the filename. It is what appears beside an answer read
+ * from this source, and `AIV_CMC_final_v3` is not an attribution — so the filename is
+ * only a starting point, editable before the run.
+ */
+type ContextRow = { key: string; label: string; file: File | null };
 
 const INITIAL_CHOICES: DocumentChoice[] = [{ key: "d1", sourceType: "" }];
 
@@ -112,9 +121,13 @@ export default function ExpertPage() {
   }));
   const contextReady = isContextComplete(header);
   const configured = contextReady && Boolean(gate) && chosen.length > 0;
-  const contextItems = contextRows
-    .map((row) => ({ label: row.label.trim(), text: row.text.trim() }))
-    .filter((row) => row.label && row.text);
+  // A row with a file but no name is dropped rather than sent: the label is what an
+  // answer is attributed to, so an unnamed source could be attributed to nothing.
+  const contextItems = contextRows.flatMap((row) =>
+    row.file && row.label.trim()
+      ? [{ label: row.label.trim(), file: row.file }]
+      : [],
+  );
 
   async function handleRun(files: Record<string, File>) {
     if (!configured || !contextReady) return;
@@ -330,10 +343,15 @@ function DocumentChooser({
 /**
  * Material the gate asks about that no TPP or plan carries.
  *
- * Pasted rather than uploaded, and deliberately so: a file would need parsing,
- * which would drag in the format rules canonical documents follow. This text goes
- * into the request and is never stored, so an answer from it names this label and
- * carries no passage — which is why the label is required.
+ * Attached rather than pasted: nobody has the text of a CMC report to hand, and everybody
+ * has the file. The service reads it into prose and discards it, so this path stays
+ * separate from the canonical one in every way that matters — the text is never chunked,
+ * never cited, and never stored, so an answer from it names this label and carries no
+ * passage. Which is why the label is required and why it is the reader's own words rather
+ * than the filename: it is the whole of the attribution.
+ *
+ * Its accepted formats are wider than an upload's for that same reason. An upload becomes
+ * citable blocks and needs declared structure; this becomes a paragraph in a prompt.
  */
 function ContextChooser({
   rows,
@@ -342,13 +360,19 @@ function ContextChooser({
   rows: ContextRow[];
   onChange: (next: ContextRow[]) => void;
 }) {
+  function update(index: number, patch: Partial<ContextRow>) {
+    onChange(
+      rows.map((item, position) => (position === index ? { ...item, ...patch } : item)),
+    );
+  }
+
   return (
     <div className="mt-5 border-t border-border pt-4">
       <p className="text-xs font-medium text-foreground">Additional context</p>
       <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-        Paste material the documents do not contain — a CMC summary, meeting
-        minutes. It is used for this run only and never saved, so an answer read
-        from it names the source and cites no passage.
+        Attach material the documents do not contain — a CMC summary, meeting minutes.
+        Its text is read for this run only and never saved, so an answer from it names the
+        source and cites no passage. {CONTEXT_FORMAT_HINT}.
       </p>
       <div className="mt-3 flex flex-col gap-3">
         {rows.map((row, index) => (
@@ -357,48 +381,47 @@ function ContextChooser({
               <input
                 value={row.label}
                 placeholder="Name this source, e.g. CMC Development Report"
-                onChange={(event) =>
-                  onChange(
-                    rows.map((item, position) =>
-                      position === index
-                        ? { ...item, label: event.target.value }
-                        : item,
-                    ),
-                  )
-                }
+                onChange={(event) => update(index, { label: event.target.value })}
                 className="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring/20"
               />
               <button
                 type="button"
                 aria-label={`Remove context item ${index + 1}`}
-                onClick={() =>
-                  onChange(rows.filter((_, position) => position !== index))
-                }
+                onClick={() => onChange(rows.filter((_, position) => position !== index))}
                 className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground motion-reduce:transition-none"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-            <textarea
-              value={row.text}
-              rows={3}
-              placeholder="Paste the text"
-              onChange={(event) =>
-                onChange(
-                  rows.map((item, position) =>
-                    position === index ? { ...item, text: event.target.value } : item,
-                  ),
-                )
-              }
-              className="mt-2 w-full resize-y rounded-md border border-input bg-card px-2.5 py-2 text-xs leading-relaxed text-foreground focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
+            <label className="mt-2 flex min-h-9 cursor-pointer items-center gap-2 rounded-md border border-dashed border-input px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/25 hover:text-foreground motion-reduce:transition-none">
+              <Paperclip aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {row.file ? row.file.name : "Choose a file"}
+              </span>
+              <input
+                type="file"
+                accept={CONTEXT_ACCEPT}
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  // The filename starts the label off, because most of the time it is
+                  // close enough to edit; an empty field is one more thing to type.
+                  update(index, {
+                    file,
+                    label: row.label.trim() || file.name.replace(/\.[^.]+$/, ""),
+                  });
+                  event.target.value = "";
+                }}
+              />
+            </label>
           </div>
         ))}
       </div>
       <button
         type="button"
         onClick={() =>
-          onChange([...rows, { key: `c${Date.now()}`, label: "", text: "" }])
+          onChange([...rows, { key: `c${Date.now()}`, label: "", file: null }])
         }
         className="mt-2.5 inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors hover:text-primary/80 motion-reduce:transition-none"
       >
@@ -420,6 +443,7 @@ function ReviewView({
   result: { review: GateReview };
   onNewAnalysis: () => void;
 }) {
+  const { results, selectedId, selectResult, removeResult } = useExpertSession();
   const review = result.review;
   const counts = useMemo(() => countStates(review), [review]);
   const suggested = useMemo(() => suggestedDocuments(review), [review]);
@@ -452,6 +476,14 @@ function ReviewView({
       defaultOpen
       contentClassName="px-0 py-0 sm:px-0"
       trailing={
+        <>
+        <RunHistory
+          runs={results}
+          selectedId={selectedId}
+          onSelect={selectResult}
+          onRemove={removeResult}
+          label={(value) => value.review.gate_label || "Gate review"}
+        />
         <FinalResultActions
           onNewAnalysis={onNewAnalysis}
           download={{
@@ -459,6 +491,7 @@ function ReviewView({
             data: packExpertResult(result),
           }}
         />
+        </>
       }
     >
       <DocumentSourceProvider blocks={review.blocks} onOpenInTrace={openBlockInTrace}>
@@ -541,7 +574,7 @@ function ReviewView({
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Which passages carried an answer — whole or partial — and what they
                 answered. The inverse of the questions view. Only answers read from a
-                document appear here: an answer from pasted context has no passage, and
+                document appear here: an answer from attached context has no passage, and
                 an unanswered question has nothing to mark.
               </p>
               {/*

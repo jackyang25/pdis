@@ -118,7 +118,9 @@ supplied block IDs it was read from. A citation you cannot point at is worse tha
 reporting the question unanswered.
 
 `statement` is one short factual sentence (max 25 words) saying what the material
-states, or that it states nothing on the subject.
+states, or that it states nothing on the subject. When the answer came from a context item
+that shows page markers, name the page in it — that is the nearest thing to a citation
+context can carry, and a reader who has the file can then find it.
 
 `missing` is one short sentence (max 25 words) naming only what is still not stated,
 on a partial answer and nowhere else. It is read as an instruction to whoever wrote the

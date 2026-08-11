@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { fetchSearchSources, runSearcher, type SearchSource } from "@/lib/api";
+import { RunHistory } from "@/components/run-history";
 import { useSearcherSession } from "@/lib/session";
 import { SourceAttributions } from "@/components/source-attributions";
 import type { Finding } from "@/lib/api";
@@ -146,6 +147,7 @@ export default function SearcherPage() {
 }
 
 function Findings({ result, sources }: { result: { query: string; findings: Finding[] }; sources: SearchSource[] }) {
+  const { results, selectedId, selectResult, removeResult } = useSearcherSession();
   const labels = new Map(sources.map((source) => [source.key, source.label]));
   const counts = result.findings.reduce<Record<string, number>>((acc, f) => {
     acc[f.source] = (acc[f.source] ?? 0) + 1;
@@ -161,7 +163,16 @@ function Findings({ result, sources }: { result: { query: string; findings: Find
         <p>
           {result.findings.length} finding{result.findings.length === 1 ? "" : "s"} for &quot;{result.query}&quot;
         </p>
-        {breakdown && <span className="text-xs">{breakdown}</span>}
+        <span className="flex items-center gap-2">
+          {breakdown && <span className="text-xs">{breakdown}</span>}
+          <RunHistory
+            runs={results}
+            selectedId={selectedId}
+            onSelect={selectResult}
+            onRemove={removeResult}
+            label={(value) => value.query || "Search"}
+          />
+        </span>
       </div>
       {result.findings.map((finding) => (
         <article key={finding.url} className="rounded-lg border border-border bg-card p-4">

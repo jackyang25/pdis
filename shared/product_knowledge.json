@@ -352,6 +352,10 @@
               "answer": "You get a confident result about the wrong thing. The type decides how the file is parsed and which rubric or configuration it is read against, and nothing checks that the file matches the type you chose."
             },
             {
+              "question": "Why can I attach a PDF as context but not upload one for review?",
+              "answer": "Because the two are read differently. An uploaded document becomes citable blocks, and every citation depends on structure being read from the file — which a PDF does not declare, so a table rebuilt from where glyphs landed can merge unrelated columns and still look correct. Context is read once into a prompt: never chunked, never cited, never checked against a quote. So a format that declares no structure loses nothing there, and an answer from it says so by naming its source instead of a passage."
+            },
+            {
               "question": "What does “not found” actually mean?",
               "answer": "That the question was read against everything you supplied and nothing addressed it. It is not a claim that one of your documents should have contained it: many of these questions ask about operational facts or matters of judgement that no profile or plan would ever carry, and the tool cannot tell those apart from a real omission. What it can tell you is which discipline owns the question."
             },
@@ -369,7 +373,7 @@
             },
             {
               "question": "Where does my document go?",
-              "answer": "It is parsed in the service, and its text and images travel to the model provider inside each request. Nothing is kept on a server: the workspace lives in your browser and resets on reload, so the only durable copy is a result you export."
+              "answer": "It is parsed in the service, and its text and images travel to the model provider inside each request. Nothing is kept on a server: the workspace lives in your browser and resets on reload, so the only durable copy is a result you export. A file attached as context is read into text once, used for that run, and discarded — it is never stored and never becomes part of a result."
             },
             {
               "question": "Why is a chart or tab absent?",
@@ -883,7 +887,7 @@
                     "One or more product-development documents",
                     "The stage gate under preparation",
                     "Organization, intervention, and indication",
-                    "Optional pasted context, used for this run only"
+                    "Optional attached context (PDF, DOCX, TXT, MD), used for this run only"
                   ],
                   "outputs": [
                     "The gate's question bank",
@@ -909,7 +913,7 @@
                 {
                   "id": "parse",
                   "title": "Document parsing",
-                  "summary": "Canonical documents become ordered, citable blocks. Pasted context is never parsed and never stored.",
+                  "summary": "Canonical documents become ordered, citable blocks. Attached context is read into text once, never chunked, and never stored.",
                   "kind": "integration",
                   "layer": "Source",
                   "inputs": [
@@ -928,7 +932,7 @@
                   "inputs": [
                     "One question",
                     "Every document supplied",
-                    "Any pasted context, labelled"
+                    "Any attached context, as text, labelled"
                   ],
                   "outputs": [
                     "Answered, with its passages",

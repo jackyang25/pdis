@@ -127,7 +127,7 @@ web/ → api/ → services/ → shared/
      passage does not get anchored at a probable block to make the viewer look
      complete: that would turn a hint into provenance. Expert places answers read from
      a document and nothing else — an unanswered question has no passage, and an answer
-     from pasted context was never chunked. A document with no marks is accounted for in
+     from attached context was never chunked. A document with no marks is accounted for in
      the panels, not papered over in the trace.
   7. **Lineage is listed, never counted.** A trace inspector shows every passage its
      result was read from, each one openable, via the shared `TracePassageList`. Three
@@ -394,7 +394,16 @@ supplied material answers and which it does not.
 - The denominator never shrinks, and counts are derived by readers rather than carried:
   a stored count is a second authority that can disagree with its own list. Never
   publish a combined coverage figure.
-- Transient context is prompt-only: pasted, never chunked, never stored. Only its label
+- Transient context is prompt-only: attached, read into text once, never chunked, never
+  stored. It arrives as a file — PDF, DOCX, TXT, or MD — and the reader that flattens it
+  lives in `services/expert/context.py`, never in Chunker: Chunker's contract is declared
+  structure in and citable blocks out, and this produces a string that becomes neither.
+  That is also why the two format allowlists differ and must not be merged. An upload
+  becomes citable blocks whose meaning depends on structure being read rather than
+  inferred, so it stays DOCX/PPTX; context is read once into a prompt, so a format that
+  declares nothing loses nothing. The reader claims no structure beyond the page markers
+  a PDF actually declares, and a PDF with no text layer fails loudly rather than becoming
+  a named source that answers nothing. Only its label
   reaches the result, so an answer sourced from it carries attribution without lineage
   and can never be presented as cited. A label is free text the user typed, never a
   `source_type`.

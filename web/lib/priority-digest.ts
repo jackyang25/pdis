@@ -26,7 +26,7 @@ import type { PriorityItem } from "@/components/ui/priority-panel";
 type Entry =
   | { state: "loading" }
   | { state: "ready"; digest: PriorityDigest }
-  | { state: "failed" };
+  | { state: "failed"; reason: string };
 
 type DigestStore = {
   entries: Record<string, Entry>;
@@ -63,10 +63,17 @@ export const usePriorityDigestStore = create<DigestStore>((set, get) => ({
           entries: { ...current.entries, [key]: { state: "ready", digest } },
         })),
       )
-      // Silent: the panel is complete without it. A failure banner over a working list
-      // would report the absence of an addition as a fault in the result.
-      .catch(() =>
-        set((current) => ({ entries: { ...current.entries, [key]: { state: "failed" } } })),
+      // The reason is kept, not discarded. Silence made a failure indistinguishable from
+      // a tool that has no summary: a skeleton appeared, then nothing, and no surface said
+      // why. It is still not a banner — the panel is complete without a digest, so a
+      // failure is reported quietly where the digest would have been.
+      .catch((error: Error) =>
+        set((current) => ({
+          entries: {
+            ...current.entries,
+            [key]: { state: "failed", reason: error.message },
+          },
+        })),
       );
   },
 }));

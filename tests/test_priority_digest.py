@@ -156,6 +156,70 @@ class DigestTests(unittest.TestCase):
         self.assertEqual(len(result.nominations), 1)
 
 
+class BoundsTests(unittest.TestCase):
+    """The two inputs that were unbounded, and the failure that hid it.
+
+    Both are the same shape of bug: a limit nothing stated, hit only by the largest
+    results — the ones with the most to say — and reported as a skeleton followed by
+    nothing.
+    """
+
+    def test_a_result_with_many_blocks_still_produces_a_schema(self) -> None:
+        """Structured outputs cap an enum past 250 values at 7,500 characters of total
+        string length. A block ID runs about fifteen characters, so a few hundred blocks
+        made the schema itself invalid and the provider rejected the whole request."""
+        from services.assistant.priorities import MAX_ENUMERATED_BLOCK_IDS
+
+        many = [f"doc/b-{index:04d}" for index in range(MAX_ENUMERATED_BLOCK_IDS + 400)]
+        cited = digest_schema(many)["properties"]["nominations"]["items"]["properties"][
+            "cited_block_ids"
+        ]["items"]
+        self.assertNotIn("enum", cited)
+        self.assertEqual(cited["type"], "string")
+
+    def test_a_small_result_still_gets_the_closed_enum(self) -> None:
+        """Where it fits, it stays: the model cannot then name a block that does not
+        exist, which is a better guarantee than checking afterwards."""
+        cited = digest_schema(["doc/b-0001", "doc/b-0002"])["properties"]["nominations"][
+            "items"
+        ]["properties"]["cited_block_ids"]["items"]
+        self.assertEqual(cited["enum"], ["doc/b-0001", "doc/b-0002"])
+
+    def test_an_unenumerated_citation_is_still_checked(self) -> None:
+        """The enum was belt to existing braces, not the guarantee itself."""
+        blocks = frozenset(f"doc/b-{index:04d}" for index in range(600))
+        result, _ = DigestTests.read(
+            DigestTests(),
+            payload([
+                {
+                    "label": "Invented",
+                    "statement": "Worth a look.",
+                    "cited_block_ids": ["doc/b-9999"],
+                }
+            ]),
+            block_ids=blocks,
+        )
+        self.assertEqual(result.nominations, [])
+
+    def test_an_oversized_analysis_stands_the_nominations_down(self) -> None:
+        """Rather than truncating it. A model handed half an analysis with no note would
+        nominate from the half it saw and present it as a reading of the whole."""
+        from services.assistant.priorities import MAX_ANALYSIS_CHARACTERS
+
+        message = build_user_message(
+            request(analysis="x" * (MAX_ANALYSIS_CHARACTERS + 1))
+        )
+        self.assertIn("too large to include", message)
+        self.assertIn("empty `nominations`", message)
+        # The list is still there, because the digest describes the list and nothing else.
+        self.assertIn("Priorities already selected", message)
+
+    def test_an_analysis_within_the_bound_is_sent_whole(self) -> None:
+        message = build_user_message(request(analysis={"sections": ["one"]}))
+        self.assertIn("The full analysis", message)
+        self.assertNotIn("too large", message)
+
+
 class PromptTests(unittest.TestCase):
     def test_the_prompt_names_no_tool_and_no_domain(self) -> None:
         """One prompt serves every tool; a fifth is served by it unchanged."""

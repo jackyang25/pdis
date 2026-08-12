@@ -42,6 +42,19 @@ MAX_NOMINATIONS = 3
 #: Longest digest, in words. Enough for two short paragraphs.
 MAX_DIGEST_WORDS = 130
 
+#: Most block IDs that may be offered as a closed enum.
+#:
+#: Structured outputs cap an enum past 250 values at 7,500 characters of total string
+#: length, and a block ID runs about fifteen characters, so a result holding more than a
+#: few hundred blocks makes the schema itself invalid and the provider rejects the whole
+#: request. That is not a degraded answer, it is no answer: the panel showed a skeleton
+#: and then nothing, on exactly the results that have the most to say.
+#:
+#: Above the bound the IDs are left unenumerated and `_parse_payload` does the checking it
+#: already did — a citation naming a block the result does not hold is dropped either way,
+#: so the enum was belt to that braces rather than the guarantee itself.
+MAX_ENUMERATED_BLOCK_IDS = 240
+
 
 class LLMClientProtocol(Protocol):
     def call_structured(
@@ -150,6 +163,18 @@ Scope boundary:
   neither the analysis nor its documents make."""
 
 
+#: Longest the analysis may be inside the prompt, in characters.
+#:
+#: The digest half needs only the list it describes; the nomination half needs the
+#: analysis, and analyses differ by an order of magnitude between tools — a rubric
+#: assessment against a run holding matches, insights, precedents and a landscape. Rather
+#: than project each tool's result into a shape this file would have to know about, the
+#: bound is stated once and the nomination half stands down when a result exceeds it. A
+#: digest that describes the list is still worth having; nominations invented from a
+#: truncated view are not.
+MAX_ANALYSIS_CHARACTERS = 120_000
+
+
 def build_user_message(request: PriorityRequest) -> str:
     """Context, then the list, then the analysis.
 
@@ -185,16 +210,30 @@ def build_user_message(request: PriorityRequest) -> str:
         for item in request.items
     ) or "(the tool selected nothing)"
 
+    analysis = str(request.analysis)
+    if len(analysis) > MAX_ANALYSIS_CHARACTERS:
+        # Said plainly rather than truncated. A model handed half an analysis with no note
+        # would nominate from the half it saw and present it as a reading of the whole.
+        return "\n\n".join([
+            "\n".join(context),
+            f"Priorities already selected and shown to the reader ({len(request.items)}):\n{listed}",
+            "The full analysis is too large to include, so return an empty `nominations` "
+            "array: you have not seen enough to say what the list leaves out. Write the "
+            "digest from the list above, which is all it describes.",
+        ])
     return "\n\n".join([
         "\n".join(context),
         f"Priorities already selected and shown to the reader ({len(request.items)}):\n{listed}",
-        f"The full analysis:\n{request.analysis}",
+        f"The full analysis:\n{analysis}",
     ])
 
 
 def digest_schema(block_ids: Sequence[str]) -> dict[str, Any]:
     """The closed shape, with citations restricted to blocks that exist."""
     ids = list(dict.fromkeys(block_ids))
+    # Enumerated only while the enum is small enough to be valid. Empty is excluded for
+    # the same reason from the other end: no provider accepts an empty enum.
+    enumerable = 0 < len(ids) <= MAX_ENUMERATED_BLOCK_IDS
     return {
         "type": "object",
         "additionalProperties": False,
@@ -212,10 +251,10 @@ def digest_schema(block_ids: Sequence[str]) -> dict[str, Any]:
                         "statement": {"type": "string"},
                         "cited_block_ids": {
                             "type": "array",
-                            # Empty when the result retains no blocks: the enum would be
-                            # empty too, which no provider accepts.
                             "items": (
-                                {"type": "string", "enum": ids} if ids else {"type": "string"}
+                                {"type": "string", "enum": ids}
+                                if enumerable
+                                else {"type": "string"}
                             ),
                         },
                     },

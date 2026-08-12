@@ -484,6 +484,7 @@ function AlignmentView({
                 digest={digest?.state === "ready" ? digest.digest.digest : undefined}
                 nominations={digest?.state === "ready" ? digest.digest.nominations : []}
                 digestLoading={digest?.state === "loading"}
+                digestError={digest?.state === "failed" ? digest.reason : undefined}
               />
 
               <div className="space-y-3">

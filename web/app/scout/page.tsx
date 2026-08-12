@@ -2055,6 +2055,7 @@ function FieldGrid({
                 digest={digest?.state === "ready" ? digest.digest.digest : undefined}
                 nominations={digest?.state === "ready" ? digest.digest.nominations : []}
                 digestLoading={digest?.state === "loading"}
+                digestError={digest?.state === "failed" ? digest.reason : undefined}
               />
             </div>
             <div className="flex flex-col gap-2 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">

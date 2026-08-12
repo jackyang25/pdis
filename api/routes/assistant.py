@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -38,6 +39,8 @@ from api.schemas import (
     PriorityDigestResponse,
     PriorityNominationOut,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 MAX_CONTEXT_FILE_BYTES = 25 * 1024 * 1024
@@ -133,9 +136,15 @@ async def priority_digest(request: PriorityDigestRequest) -> PriorityDigestRespo
     )
     try:
         result = await run_in_threadpool(read_priorities, read, llm_client=llm_client)
-    except ValueError as exc:
-        # A digest is an addition to a panel that already works, so a failure is a 502
-        # the client can ignore rather than an error that hides the priorities.
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        # Everything, not just ValueError. A provider rejecting the request raises its own
+        # SDK error, which slipped past a ValueError handler and became a 500 with the
+        # reason only in the server log — so the panel showed a skeleton, then nothing,
+        # and no surface said why. A digest is an addition to a panel that already works,
+        # so this stays a 502 the client can degrade around, but the reason travels with it.
+        logger.warning("Priority digest failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return PriorityDigestResponse(

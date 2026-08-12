@@ -67,6 +67,7 @@ export function PriorityPanel({
   digest,
   nominations = [],
   digestLoading = false,
+  digestError,
   title = "Priorities",
   defaultOpen = true,
 }: {
@@ -96,6 +97,14 @@ export function PriorityPanel({
   nominations?: PriorityNomination[];
   /** A read is in flight. Space is held so the list below does not jump when it lands. */
   digestLoading?: boolean;
+  /**
+   * Why no digest arrived, when a read was attempted and failed.
+   *
+   * Said quietly rather than swallowed. A skeleton followed by nothing is
+   * indistinguishable from a tool that never had a summary, and that ambiguity cost a
+   * reader more than the missing paragraph did.
+   */
+  digestError?: string;
   /**
    * Overridden only by a tool whose own published vocabulary names this list
    * better than "Priorities" does. No tool currently does: Inspector's "Findings"
@@ -145,6 +154,11 @@ export function PriorityPanel({
           {digest && (
             <p className="mb-4 whitespace-pre-line text-sm leading-6 text-foreground/85">
               {digest}
+            </p>
+          )}
+          {!digest && !digestLoading && digestError && (
+            <p className="mb-4 text-xs leading-5 text-muted-foreground">
+              No summary for this run. {digestError}
             </p>
           )}
           {items.length > 0 ? (

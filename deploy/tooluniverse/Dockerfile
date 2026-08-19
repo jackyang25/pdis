@@ -2,7 +2,7 @@
 
 FROM python:3.11-slim AS builder
 
-ARG TOOLUNIVERSE_VERSION=1.3.1
+ARG TOOLUNIVERSE_VERSION=1.4.1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \

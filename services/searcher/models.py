@@ -452,6 +452,47 @@ def merge_findings(existing: Finding, incoming: Finding) -> Finding:
     return existing
 
 
+@dataclass
+class SearchReport:
+    """What one free-text search produced, and what every lane did to produce it.
+
+    Two fields because a reader needs both and they answer different questions.
+    `findings` is the deduplicated union, which is what there is to read. `outcomes`
+    is one entry per native request, which is the only place an empty lane, a skipped
+    lane and a failed lane stay distinguishable — they are identical in `findings`,
+    where all three are absence.
+
+    Kept together rather than returned separately so a caller cannot render the
+    findings while dropping the outcomes, which is exactly what happened before.
+    """
+
+    findings: list["Finding"] = field(default_factory=list)
+    outcomes: list["SearchOutcome"] = field(default_factory=list)
+
+
+def outcomes_to_dicts(outcomes: list["SearchOutcome"]) -> list[dict]:
+    """Project outcomes to what a reader needs: which lane, what it asked, what it got.
+
+    The native query, not the text a user typed. They differ for every field-addressed
+    source — a typed sentence reaches ClinicalTrials.gov as `condition:<that sentence>`
+    and returns nothing, and no reader could diagnose that from the sentence alone.
+
+    `returned` counts what the request itself returned, before cross-lane deduplication.
+    So the per-lane numbers may exceed the number of findings shown, and that is the
+    honest reading: two lanes that both found one URL each did each return one.
+    """
+    return [
+        {
+            "source": outcome.request.source,
+            "query": outcome.request.query,
+            "status": outcome.status,
+            "error": outcome.error,
+            "returned": len(outcome.findings),
+        }
+        for outcome in outcomes
+    ]
+
+
 def findings_to_dicts(findings: list[Finding]) -> list[dict]:
     """Convert Finding objects to plain dictionaries (datetimes -> ISO strings)."""
     out: list[dict] = []

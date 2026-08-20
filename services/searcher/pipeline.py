@@ -6,6 +6,7 @@ from .controller import plan_requests, run_requests, validate_source_keys
 from .models import (
     Finding,
     RetrievalIntent,
+    SearchReport,
     SearchRuntime,
     SourceQueryIntent,
     merge_findings,
@@ -24,8 +25,8 @@ def run_pipeline(
     intervention: str | None = None,
     raise_source_errors: bool = False,
     progress_callback=None,
-) -> list[Finding]:
-    """Run registered retrieval sources for `query` and return deduped Findings.
+) -> SearchReport:
+    """Run registered retrieval sources for `query` and report findings and lanes.
 
     Args:
         query: Free-text question or topic to search for.
@@ -34,17 +35,22 @@ def run_pipeline(
         max_uses: Max number of web_search tool invocations the model
             may make per query.
         sources: Registered source adapter keys to union. Defaults to web.
-        condition: Optional condition/disease for the ClinicalTrials.gov
-            structured search. Ignored by other sources.
-        intervention: Optional intervention term for the ClinicalTrials.gov
-            structured search. Ignored by other sources.
+        condition: Optional condition/disease, the anchor every field-addressed
+            source builds its request around. Left blank, each such adapter falls
+            back to `query` itself, which for a multi-word question is a field
+            value the provider's index will not hold. Ignored by plain-text
+            grammars, which read `query` directly.
+        intervention: Optional intervention term, the narrowing field a
+            field-addressed source adds to its anchor. Ignored by sources whose
+            grammar has no such field.
         raise_source_errors: Re-raise any adapter failures. Defaults to the
             standalone Searcher's graceful partial-result behavior.
         progress_callback: Optional callable for streaming progress
             (matches the convention used by other services' pipelines).
 
     Returns:
-        list[Finding] - empty list if no sources were returned.
+        SearchReport - the deduplicated findings, and one outcome per native
+        request so an empty lane stays distinguishable from a failed one.
 
     Adapter failures are isolated as outcomes. They raise only when
     `raise_source_errors` is true.
@@ -96,4 +102,4 @@ def run_pipeline(
             continue
         by_url[finding.url] = finding
         out.append(finding)
-    return out
+    return SearchReport(findings=out, outcomes=list(outcomes))

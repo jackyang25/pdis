@@ -247,9 +247,27 @@ export type SourceAttribution = {
   prefix: string;
 };
 
+/**
+ * One native request one lane made.
+ *
+ * `query` is what the provider received, which for a field-addressed source is not the
+ * text a reader typed: a typed sentence reaches ClinicalTrials.gov as
+ * `condition:<that sentence>`. `returned` counts the request's own findings, before
+ * cross-lane deduplication, so lane numbers can exceed the number of findings shown.
+ */
+export type SearchLane = {
+  source: string;
+  query: string;
+  status: "complete" | "failed" | "skipped";
+  error: string;
+  returned: number;
+};
+
 export type SearcherResponse = {
   query: string;
   findings: Finding[];
+  /** Every request every selected lane made, including the ones that returned nothing. */
+  lanes: SearchLane[];
 };
 
 export type SearchSource = {
@@ -996,11 +1014,16 @@ export async function runInspector(
 export async function runSearcher(
   query: string,
   sources: string[],
+  // The two facets the field-addressed lanes anchor on. Blank is allowed and means the
+  // adapter falls back to the query text itself, which is what happens today.
+  facets: { condition?: string; intervention?: string } = {},
   onStage?: (stage: string) => void,
 ): Promise<SearcherResponse> {
   const form = new FormData();
   form.append("query", query);
   form.append("sources", sources.join(","));
+  form.append("condition", facets.condition ?? "");
+  form.append("intervention", facets.intervention ?? "");
   return streamRequest("/api/searcher/run", form, onStage);
 }
 

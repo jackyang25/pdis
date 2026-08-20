@@ -47,7 +47,7 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
     // against; none of them repeats this. Keep the clauses in the same order as
     // `toolIds` above - the sentence is what the cards read as.
     description:
-      "Between stage gates these documents drift apart. Keep each one true to its rubric, its targets true to the evidence, and the documents true to each other — then bundle for the next gate. When there is no profile yet, read what comparable programs asked for.",
+      "Hold each document to its rubric, its targets to the evidence, and the documents to each other, then bundle for the gate. With no profile yet, start from what comparable programs asked for.",
   },
   {
     id: "ghide-workflows",
@@ -62,14 +62,17 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
       "Evaluate investments, prepare stage-gate decisions, and turn findings into leadership-ready outputs.",
   },
   {
-    id: "building-blocks",
+    id: "shared-utilities",
     toolIds: ["chunker", "searcher"],
     // Not a subsection of the tools above, though every one of them parses through
     // Chunker and Scout searches through Searcher: these sit under those tools
     // rather than beside them, and nesting would read as a step in the sequence.
-    title: "Building blocks",
+    // Named by audience like the two sections above, because that is the axis this file
+    // groups on and both tools carry `audience: "shared"`. The description carries what
+    // they are and when to reach for one, which is where a second axis belongs.
+    title: "Shared utilities",
     description:
-      "The parsing and retrieval layers the tools above are built on, usable directly.",
+      "Every tool above parses through Chunker, and Scout searches through Searcher. Run either directly when you want the parsed blocks or the raw findings without an analysis around them.",
     compact: true,
   },
 ];

@@ -6,8 +6,9 @@ import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { fetchSearchSources, runSearcher, type SearchSource } from "@/lib/api";
+import { fetchSearchSources, runSearcher, type SearchLane, type SearchSource } from "@/lib/api";
 import { RunHistory } from "@/components/run-history";
 import { runLabel } from "@/lib/result-file";
 import { useSearcherSession } from "@/lib/session";
@@ -16,6 +17,8 @@ import type { Finding } from "@/lib/api";
 
 export default function SearcherPage() {
   const [query, setQuery] = useState("");
+  const [condition, setCondition] = useState("");
+  const [intervention, setIntervention] = useState("");
   const [sources, setSources] = useState<SearchSource[]>([]);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -65,7 +68,12 @@ export default function SearcherPage() {
     setStage("search");
     setResult(null);
     try {
-      const res = await runSearcher(query.trim(), Array.from(selected), setStage);
+      const res = await runSearcher(
+        query.trim(),
+        Array.from(selected),
+        { condition: condition.trim(), intervention: intervention.trim() },
+        setStage,
+      );
       addResult(res);
     } catch (err) {
       setError((err as Error).message);
@@ -102,6 +110,50 @@ export default function SearcherPage() {
                 "Search"
               )}
             </Button>
+          </div>
+          {/*
+            The two facets the field-addressed sources anchor on. Styled like the query
+            input above rather than through the rail primitives, because this card is not
+            a configuration rail and `ConfigFieldGrid` exists to solve the rail's 17rem
+            problem, which does not apply here. The notes are not decoration: left blank,
+            an adapter anchors on the query text itself, and a reader who does not know
+            that reads six empty lanes as an absence of evidence.
+          */}
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="min-w-0">
+              <div className="mb-1.5">
+                <Label>Condition</Label>
+              </div>
+              <input
+                type="text"
+                value={condition}
+                onChange={(e) => setCondition(e.target.value)}
+                placeholder="e.g. resected melanoma"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={busy}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Anchors every registry and database request. Left blank, they anchor on the
+                query text instead, which rarely matches a condition field.
+              </p>
+            </div>
+            <div className="min-w-0">
+              <div className="mb-1.5">
+                <Label>Intervention</Label>
+              </div>
+              <input
+                type="text"
+                value={intervention}
+                onChange={(e) => setIntervention(e.target.value)}
+                placeholder="e.g. pembrolizumab"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={busy}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Narrows those requests to one product. Ignored by sources whose grammar has
+                no intervention field.
+              </p>
+            </div>
           </div>
           <div className="mt-4 flex min-h-8 flex-wrap items-center gap-2">
             <span className="mr-1 text-xs text-muted-foreground">Sources</span>
@@ -147,16 +199,15 @@ export default function SearcherPage() {
   );
 }
 
-function Findings({ result, sources }: { result: { query: string; findings: Finding[] }; sources: SearchSource[] }) {
+function Findings({
+  result,
+  sources,
+}: {
+  result: { query: string; findings: Finding[]; lanes?: SearchLane[] };
+  sources: SearchSource[];
+}) {
   const { results, selectedId, selectResult, removeResult } = useSearcherSession();
   const labels = new Map(sources.map((source) => [source.key, source.label]));
-  const counts = result.findings.reduce<Record<string, number>>((acc, f) => {
-    acc[f.source] = (acc[f.source] ?? 0) + 1;
-    return acc;
-  }, {});
-  const breakdown = Object.entries(counts)
-    .map(([src, n]) => `${labels.get(src) ?? humanizeSource(src)} ${n}`)
-    .join(" · ");
 
   return (
     <div className="space-y-3">
@@ -165,7 +216,6 @@ function Findings({ result, sources }: { result: { query: string; findings: Find
           {result.findings.length} finding{result.findings.length === 1 ? "" : "s"} for &quot;{result.query}&quot;
         </p>
         <span className="flex items-center gap-2">
-          {breakdown && <span className="text-xs">{breakdown}</span>}
           <RunHistory
             runs={results}
             selectedId={selectedId}
@@ -175,6 +225,7 @@ function Findings({ result, sources }: { result: { query: string; findings: Find
           />
         </span>
       </div>
+      <Lanes lanes={result.lanes ?? []} labels={labels} />
       {result.findings.map((finding) => (
         <article key={finding.url} className="rounded-lg border border-border bg-card p-4">
           <div className="flex items-start gap-3">
@@ -200,6 +251,69 @@ function Findings({ result, sources }: { result: { query: string; findings: Find
         </article>
       ))}
       <SourceAttributions findings={result.findings} />
+    </div>
+  );
+}
+
+/**
+ * What every selected source did, including the ones that produced nothing.
+ *
+ * The counted breakdown this replaced was derived from the findings, so a source that
+ * returned nothing, was skipped, or failed outright did not appear at all — all three
+ * rendered as absence, and absence read as "no evidence exists". These rows come from
+ * the run's outcomes instead, which keep the three distinct.
+ *
+ * The query shown is the native one the provider received. For a field-addressed source
+ * that is not the text typed into the box, and the difference is usually the explanation
+ * for a zero.
+ *
+ * Counts are per request, before cross-lane deduplication, so they can add up to more
+ * than the number of findings shown. Labelled "returned" for that reason: the header
+ * above owns the number of findings, and these rows own what each source sent back.
+ */
+function Lanes({
+  lanes,
+  labels,
+}: {
+  lanes: SearchLane[];
+  labels: Map<string, string>;
+}) {
+  if (lanes.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-border bg-card">
+      <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
+        Sources searched
+      </p>
+      <ul className="divide-y divide-border">
+        {lanes.map((lane, at) => (
+          <li
+            key={`${lane.source}-${at}`}
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5 text-xs"
+          >
+            <span className="min-w-[8rem] font-medium text-foreground">
+              {labels.get(lane.source) ?? humanizeSource(lane.source)}
+            </span>
+            <code className="min-w-0 flex-1 break-all font-mono text-[10px] text-muted-foreground">
+              {lane.query}
+            </code>
+            {lane.status === "complete" ? (
+              <span
+                className={cn(
+                  "shrink-0 tabular-nums",
+                  lane.returned === 0 ? "text-muted-foreground" : "text-foreground",
+                )}
+              >
+                {lane.returned} returned
+              </span>
+            ) : (
+              <span className="shrink-0 text-destructive">
+                {lane.status}
+                {lane.error ? `: ${lane.error}` : ""}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

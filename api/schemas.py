@@ -128,9 +128,25 @@ class FindingOut(BaseModel):
     published_source_lane: str = ""
 
 
+class SearchLaneOut(BaseModel):
+    """One native request a lane made, so absence can be read for what it was."""
+
+    source: str
+    #: The query the provider actually received, not the text the reader typed.
+    query: str
+    status: Literal["complete", "failed", "skipped"] = "complete"
+    error: str = ""
+    #: What this request returned, before cross-lane deduplication.
+    returned: int = 0
+
+
 class SearcherRunResponse(BaseModel):
     query: str
     findings: list[FindingOut]
+    #: Every request every selected lane made. A lane returning nothing appears here
+    #: with `returned: 0`; it cannot appear in `findings` at all, which is why a run
+    #: that reported only findings could not distinguish a true null from a failure.
+    lanes: list[SearchLaneOut] = Field(default_factory=list)
 
 
 class SearchSourceOut(BaseModel):

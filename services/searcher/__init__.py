@@ -20,6 +20,7 @@ from .models import (
     RetrievalIntent,
     RetrievalPath,
     SearchOutcome,
+    SearchReport,
     SearchRequest,
     SearchRuntime,
     SearcherLLMClientProtocol,
@@ -32,6 +33,7 @@ from .models import (
     SourceSpec,
     findings_to_dicts,
     merge_findings,
+    outcomes_to_dicts,
 )
 from .connectors import ToolUniverseHTTPConnector
 from .controller import (
@@ -65,6 +67,7 @@ __all__ = [
     "RetrievalIntent",
     "RetrievalPath",
     "SearchOutcome",
+    "SearchReport",
     "SearchRequest",
     "SearchRuntime",
     "SearcherLLMClientProtocol",
@@ -79,6 +82,7 @@ __all__ = [
     "findings_to_dicts",
     "integration_operations",
     "merge_findings",
+    "outcomes_to_dicts",
     "plan_requests",
     "run_requests",
     "run_pipeline",

@@ -14,14 +14,22 @@ and response normalization.
 from services.searcher import SearchRuntime, run_pipeline
 from shared.openai_client import OpenAIClient
 
-findings = run_pipeline(
+report = run_pipeline(
     "recent RSV vaccine efficacy review",
     runtime=SearchRuntime(llm_client=OpenAIClient()),
     sources=("web", "pubmed"),
+    condition="respiratory syncytial virus infection",
 )
 ```
 
-Direct callers default to `sources=("web",)`. Import registry metadata,
+Direct callers default to `sources=("web",)`. The report carries the
+deduplicated `findings` and one `outcomes` entry per native request, which is the
+only place an empty lane stays distinguishable from a skipped or failed one.
+
+`condition` and `intervention` are the facets a field-addressed source anchors on.
+Omitted, each such adapter falls back to the intent's own scope, so a free-text
+question becomes the value of a structured field and matches nothing. A caller with
+a condition to state should state it. Import registry metadata,
 planning and execution helpers, connectors, models, and serializers from
 `services.searcher`.
 

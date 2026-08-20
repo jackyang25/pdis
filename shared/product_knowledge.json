@@ -1098,14 +1098,16 @@
                 {
                   "id": "intent",
                   "title": "Retrieval intent",
-                  "summary": "Free text or typed source-neutral intents enter with requested source keys.",
+                  "summary": "Free text or typed source-neutral intents enter with requested source keys and the facets the caller can state.",
                   "kind": "input",
                   "layer": "Input",
                   "inputs": [
                     "Intent IDs and text",
+                    "Stated condition and intervention",
                     "Target and query lineage",
                     "Enabled adapter keys"
                   ],
+                  "guarantee": "A stated condition anchors every field-addressed request; unstated, an adapter falls back to the intent's own scope rather than parsing the text.",
                   "outputs": [
                     "Source-agnostic retrieval workload"
                   ]
@@ -1179,12 +1181,14 @@
                 {
                   "id": "result",
                   "title": "Search outcomes",
-                  "summary": "Direct callers receive ordered outcomes or URL-deduplicated findings.",
+                  "summary": "Direct callers receive URL-deduplicated findings together with one outcome per native request.",
                   "kind": "output",
                   "layer": "Output",
                   "outputs": [
-                    "Normalized findings and isolated failure traces"
-                  ]
+                    "Normalized findings and isolated failure traces",
+                    "Per-request lane report with the native query sent"
+                  ],
+                  "guarantee": "A lane that returned nothing, a lane that was skipped and a lane that failed stay distinguishable, so absence is never read as absence of evidence."
                 }
               ],
               "edges": [

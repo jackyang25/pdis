@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from services.searcher import (
     findings_to_dicts,
+    outcomes_to_dicts,
     run_pipeline,
     source_specs,
     unconfigured_source_keys,
@@ -20,6 +21,7 @@ from api.deps import (
 )
 from api.schemas import (
     FindingOut,
+    SearchLaneOut,
     SearcherRunResponse,
     SearchSourceOut,
     SourceAttributionOut,
@@ -59,6 +61,11 @@ def list_sources() -> list[SearchSourceOut]:
 async def run_searcher(
     query: str = Form(...),
     sources: str = Form(""),
+    # Forwarded, not dropped. These are `run_pipeline` parameters, so leaving them
+    # unwired made the interface narrower than the function it calls: a field-addressed
+    # source fell back to anchoring on `query` itself and returned nothing.
+    condition: str = Form(""),
+    intervention: str = Form(""),
 ) -> StreamingResponse:
     requested = tuple(source.strip() for source in sources.split(",") if source.strip())
     try:
@@ -79,15 +86,18 @@ async def run_searcher(
         )
 
     def work(progress):
-        findings = run_pipeline(
+        report = run_pipeline(
             query,
             runtime=runtime,
             sources=selected,
+            condition=condition.strip() or None,
+            intervention=intervention.strip() or None,
             progress_callback=progress,
         )
         return SearcherRunResponse(
             query=query,
-            findings=[FindingOut(**d) for d in findings_to_dicts(findings)],
+            findings=[FindingOut(**d) for d in findings_to_dicts(report.findings)],
+            lanes=[SearchLaneOut(**d) for d in outcomes_to_dicts(report.outcomes)],
         ).model_dump()
 
     return StreamingResponse(run_with_progress(work), media_type="application/x-ndjson")

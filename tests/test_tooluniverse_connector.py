@@ -147,20 +147,6 @@ class _MultiSourceToolUniverse:
             }
         if tool_name == "ChEMBL_search_targets":
             return {"status": "success", "data": {"targets": []}}
-        if tool_name == "UniProt_search":
-            return {
-                "status": "success",
-                "data": {
-                    "results": [
-                        {
-                            "accession": "P13815",
-                            "protein_name": "Circumsporozoite protein",
-                            "organism": "Plasmodium falciparum",
-                            "gene_names": "CSP",
-                        }
-                    ]
-                },
-            }
         if tool_name == "FDA_get_warnings_by_drug_name":
             return {
                 "results": [
@@ -400,10 +386,14 @@ class ToolUniverseConnectorTests(unittest.TestCase):
                 "CTIS_search_trials_filtered",
                 "ISRCTN_search_trials_fielded",
                 "SemanticScholar_search_papers",
+                "EuropePMC_search_articles",
+                "WHO_Guidelines_Search",
+                "WHO_Guideline_Full_Text",
+                "WHOGHO_search_indicators",
+                "WHOGHO_get_indicator_data",
                 "OpenTargets_get_evidence_by_datasource",
                 "ChEMBL_search_drugs",
                 "ChEMBL_search_targets",
-                "UniProt_search",
                 "FDA_search_drug_labels",
                 "OpenFDA_search_device_510k",
                 "FDA_get_warnings_by_drug_name",
@@ -429,7 +419,6 @@ class ToolUniverseConnectorTests(unittest.TestCase):
                     "semantic_scholar",
                     "open_targets",
                     "chembl",
-                    "uniprot",
                     "fda",
                 ),
                 runtime,
@@ -440,7 +429,6 @@ class ToolUniverseConnectorTests(unittest.TestCase):
                 "semantic_scholar",
                 "open_targets",
                 "chembl",
-                "uniprot",
                 "fda",
             ),
         )
@@ -467,7 +455,7 @@ class ToolUniverseConnectorTests(unittest.TestCase):
 
         requests = plan_requests(
             [intent],
-            sources=("web", "clinicaltrials", "fda", "open_targets", "chembl", "uniprot"),
+            sources=("web", "clinicaltrials", "fda", "open_targets", "chembl"),
         )
         by_source: dict[str, list[SearchRequest]] = {}
         for request in requests:
@@ -476,7 +464,6 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         self.assertEqual(by_source["web"][0].applicability, "applicable")
         self.assertEqual(by_source["open_targets"][0].applicability, "applicable")
         self.assertEqual(by_source["chembl"][0].applicability, "applicable")
-        self.assertEqual(by_source["uniprot"][0].applicability, "applicable")
         for source in ("clinicaltrials", "fda"):
             skipped = by_source[source][0]
             self.assertEqual(skipped.applicability, "not_applicable")
@@ -525,7 +512,7 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         )
         requests = plan_requests(
             [intent],
-            sources=("open_targets", "chembl", "uniprot"),
+            sources=("open_targets", "chembl"),
         )
 
         outcomes = run_requests(
@@ -545,10 +532,9 @@ class ToolUniverseConnectorTests(unittest.TestCase):
             any(url.startswith("https://platform.opentargets.org/evidence/") for url in {f.url for f in findings})
         )
         self.assertIn("https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL76", {f.url for f in findings})
-        self.assertIn("https://www.uniprot.org/uniprotkb/P13815/entry", {f.url for f in findings})
         self.assertEqual(
             {finding.source_labels[finding.source] for finding in findings},
-            {"Open Targets", "ChEMBL", "UniProtKB"},
+            {"Open Targets", "ChEMBL"},
         )
         self.assertTrue(
             all(finding.retrieval_paths[-1].operation for finding in findings)
@@ -556,7 +542,6 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         roles = {finding.source: finding.evidence_role for finding in findings}
         self.assertEqual(roles["open_targets"], "evidence")
         self.assertEqual(roles["chembl"], "reference")
-        self.assertEqual(roles["uniprot"], "reference")
         chembl = next(finding for finding in findings if finding.source == "chembl")
         self.assertEqual(chembl.development_records[0].phase, "Phase 4")
         open_targets_call = next(

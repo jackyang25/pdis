@@ -9,7 +9,16 @@ from .planning import request_lineage
 
 
 class PubMedSource:
-    spec = SourceSpec(key="pubmed", label="PubMed", worker_limit=8)
+    spec = SourceSpec(
+        key="pubmed",
+        label="PubMed",
+        worker_limit=8,
+        evidence_class="literature",
+        jurisdiction="global",
+        reads=("text", "condition", "intervention", "product", "population", "outcome", "subject"),
+        feeds=("insights",),
+        honors_date_bound=True,
+    )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
         requests: list[SearchRequest] = []
@@ -25,6 +34,9 @@ class PubMedSource:
                     document_refs=document_refs,
                     intent_ids=intent_ids,
                     input_queries=input_queries,
+                    options=(("published_since", intent.published_since),)
+                    if intent.published_since
+                    else (),
                 )
             )
         return requests
@@ -33,4 +45,5 @@ class PubMedSource:
         return search_pubmed(
             request.query,
             api_key=runtime.ncbi_api_key,
+            published_since=request.option("published_since"),
         )

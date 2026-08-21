@@ -7,9 +7,14 @@ import { ErrorMessage } from "@/components/ui/error-message";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { ConfigSelect } from "@/components/ui/config-field";
+import { ConfigDateInput, ConfigSelect } from "@/components/ui/config-field";
 import { cn } from "@/lib/utils";
-import { fetchSearchSources, runSearcher, type SearchLane, type SearchSource } from "@/lib/api";
+import {
+  fetchSearchSources,
+  runSearcher,
+  type SearchLane,
+  type SearchSource,
+} from "@/lib/api";
 import { RunHistory } from "@/components/run-history";
 import { runLabel } from "@/lib/result-file";
 import { useSearcherSession } from "@/lib/session";
@@ -23,14 +28,24 @@ export default function SearcherPage() {
   const [product, setProduct] = useState("");
   const [population, setPopulation] = useState("");
   const [outcome, setOutcome] = useState("");
+  const [region, setRegion] = useState("");
+  const [publishedSince, setPublishedSince] = useState("");
   const [entities, setEntities] = useState<StatedEntity[]>([]);
   const [entityName, setEntityName] = useState("");
   const [entityType, setEntityType] = useState("");
   const [sources, setSources] = useState<SearchSource[]>([]);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const { result, busy, error, addResult, setResult, setBusy, setStage, setError } =
-    useSearcherSession();
+  const {
+    result,
+    busy,
+    error,
+    addResult,
+    setResult,
+    setBusy,
+    setStage,
+    setError,
+  } = useSearcherSession();
 
   useEffect(() => {
     let active = true;
@@ -40,7 +55,9 @@ export default function SearcherPage() {
         setSources(available);
         setSelected(
           new Set(
-            available.filter((source) => source.default_enabled).map((source) => source.key),
+            available
+              .filter((source) => source.default_enabled)
+              .map((source) => source.key),
           ),
         );
       })
@@ -72,6 +89,14 @@ export default function SearcherPage() {
     .map((source) => source.label);
   // Only the types a registered source can actually address. Derived from the same
   // `/sources` payload the toggles read, so the page holds no list of its own.
+  // Named from the lanes' own declaration, so the note cannot claim a narrowing a
+  // provider never applies.
+  const regionLabels = sources
+    .filter((source) => selected.has(source.key) && source.reads.includes("region"))
+    .map((source) => source.label);
+  const dateBoundLabels = sources
+    .filter((source) => selected.has(source.key) && source.honors_date_bound)
+    .map((source) => source.label);
   const addressableTypes = Array.from(
     new Set(sources.flatMap((source) => source.required_entity_types)),
   ).sort();
@@ -95,7 +120,9 @@ export default function SearcherPage() {
     const name = entityName.trim();
     if (!name || !entityType) return;
     setEntities((previous) =>
-      previous.some((entity) => entity.name === name && entity.type === entityType)
+      previous.some(
+        (entity) => entity.name === name && entity.type === entityType,
+      )
         ? previous
         : [...previous, { name, type: entityType }],
     );
@@ -116,10 +143,14 @@ export default function SearcherPage() {
         {
           condition: condition.trim(),
           intervention: intervention.trim(),
-          entities: entities.map((entity) => `${entity.name}:${entity.type}`).join(","),
+          entities: entities
+            .map((entity) => `${entity.name}:${entity.type}`)
+            .join(","),
           product: product.trim(),
           population: population.trim(),
           outcome: outcome.trim(),
+          region: region.trim(),
+          publishedSince,
         },
         setStage,
       );
@@ -134,9 +165,15 @@ export default function SearcherPage() {
 
   return (
     <>
-      <PageHeader title="Searcher" description="Search registered evidence sources through one normalized workspace." />
+      <PageHeader
+        title="Searcher"
+        description="Search registered evidence sources through one normalized workspace."
+      />
       <div className="flex flex-col gap-6">
-        <form onSubmit={onSubmit} className="rounded-lg border border-border bg-card p-5">
+        <form
+          onSubmit={onSubmit}
+          className="rounded-lg border border-border bg-card p-5"
+        >
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -182,8 +219,9 @@ export default function SearcherPage() {
                 disabled={busy}
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Anchors every registry and database request. Left blank, they anchor on the
-                query text instead, which rarely matches a condition field.
+                Anchors every registry and database request. Left blank, they
+                anchor on the query text instead, which rarely matches a
+                condition field.
               </p>
             </div>
             <div className="min-w-0">
@@ -199,8 +237,9 @@ export default function SearcherPage() {
                 disabled={busy}
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                The kind of intervention, which is what Scout carries here. Scopes the
-                request. Ignored by sources with no intervention field.
+                The kind of intervention, which is what Scout carries here.
+                Scopes the request. Ignored by sources with no intervention
+                field.
               </p>
             </div>
             <div className="min-w-0">
@@ -216,9 +255,9 @@ export default function SearcherPage() {
                 disabled={busy}
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                One named product. Added as a second, narrower request beside the class
-                rather than replacing it, so a name a registry files differently still
-                returns the broader result.
+                One named product. Added as a second, narrower request beside
+                the class rather than replacing it, so a name a registry files
+                differently still returns the broader result.
               </p>
             </div>
             <div className="min-w-0">
@@ -234,8 +273,8 @@ export default function SearcherPage() {
                 disabled={busy}
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Who the question is about. Becomes the phrase PubMed and Semantic Scholar
-                search for, in place of the whole query.
+                Who the question is about. Becomes the phrase PubMed and
+                Semantic Scholar search for, in place of the whole query.
               </p>
             </div>
             <div className="min-w-0">
@@ -251,8 +290,42 @@ export default function SearcherPage() {
                 disabled={busy}
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                What is measured. Takes precedence over Population as that phrase, since it
-                names the question more precisely.
+                What is measured. Takes precedence over Population as that
+                phrase, since it names the question more precisely.
+              </p>
+            </div>
+            <div className="min-w-0">
+              <div className="mb-1.5">
+                <Label>Region</Label>
+              </div>
+              <input
+                type="text"
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                placeholder="e.g. Kenya"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={busy}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {regionLabels.length > 0
+                  ? `Restricts ${regionLabels.join(", ")} to trials running there. Other sources ignore it.`
+                  : "No selected source can filter by location, so this changes nothing."}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <div className="mb-1.5">
+                <Label>Published since</Label>
+              </div>
+              <ConfigDateInput
+                value={publishedSince}
+                onChange={setPublishedSince}
+                max={new Date().toISOString().slice(0, 10)}
+                disabled={busy}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {dateBoundLabels.length > 0
+                  ? `Asked of ${dateBoundLabels.join(", ")} directly, so the window changes what they rank. Other sources ignore it.`
+                  : "No selected source can filter by date, so this changes nothing."}
               </p>
             </div>
           </div>
@@ -294,7 +367,9 @@ export default function SearcherPage() {
               );
             })}
             {sourcesLoaded && selected.size === 0 && (
-              <span className="text-xs text-destructive">Select at least one source.</span>
+              <span className="text-xs text-destructive">
+                Select at least one source.
+              </span>
             )}
           </div>
           {/*
@@ -353,7 +428,8 @@ export default function SearcherPage() {
                       setEntities((previous) =>
                         previous.filter(
                           (held) =>
-                            held.name !== entity.name || held.type !== entity.type,
+                            held.name !== entity.name ||
+                            held.type !== entity.type,
                         ),
                       )
                     }
@@ -361,7 +437,10 @@ export default function SearcherPage() {
                   >
                     <span>
                       {entity.name}
-                      <span className="text-muted-foreground"> · {entity.type}</span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {entity.type}
+                      </span>
                     </span>
                     <X className="h-3 w-3 text-muted-foreground group-hover/entity:text-foreground" />
                   </button>
@@ -391,14 +470,17 @@ function Findings({
   result: { query: string; findings: Finding[]; lanes?: SearchLane[] };
   sources: SearchSource[];
 }) {
-  const { results, selectedId, selectResult, removeResult } = useSearcherSession();
+  const { results, selectedId, selectResult, removeResult } =
+    useSearcherSession();
   const labels = new Map(sources.map((source) => [source.key, source.label]));
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 pb-1 text-sm text-muted-foreground">
         <p>
-          {result.findings.length} finding{result.findings.length === 1 ? "" : "s"} for &quot;{result.query}&quot;
+          {result.findings.length} finding
+          {result.findings.length === 1 ? "" : "s"} for &quot;{result.query}
+          &quot;
         </p>
         <span className="flex items-center gap-2">
           <RunHistory
@@ -410,11 +492,16 @@ function Findings({
           />
         </span>
       </div>
-      <Lanes lanes={result.lanes ?? []} labels={labels} />
+      <Lanes lanes={result.lanes ?? []} sources={sources} />
       {result.findings.map((finding) => (
-        <article key={finding.url} className="rounded-lg border border-border bg-card p-4">
+        <article
+          key={finding.url}
+          className="rounded-lg border border-border bg-card p-4"
+        >
           <div className="flex items-start gap-3">
-            <Badge variant="muted">{labels.get(finding.source) ?? humanizeSource(finding.source)}</Badge>
+            <Badge variant="muted">
+              {labels.get(finding.source) ?? humanizeSource(finding.source)}
+            </Badge>
             <a
               href={finding.url}
               target="_blank"
@@ -425,9 +512,13 @@ function Findings({
             </a>
             <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           </div>
-          <p className="mt-2 truncate font-mono text-[10px] text-muted-foreground/70">{finding.url}</p>
+          <p className="mt-2 truncate font-mono text-[10px] text-muted-foreground/70">
+            {finding.url}
+          </p>
           {finding.excerpt ? (
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{finding.excerpt}</p>
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">
+              {finding.excerpt}
+            </p>
           ) : (
             <p className="mt-3 text-xs italic text-muted-foreground">
               No cited excerpt - model did not quote this source.
@@ -458,53 +549,79 @@ function Findings({
  */
 function Lanes({
   lanes,
-  labels,
+  sources,
 }: {
   lanes: SearchLane[];
-  labels: Map<string, string>;
+  sources: SearchSource[];
 }) {
   if (lanes.length === 0) return null;
+  const labels = new Map(sources.map((source) => [source.key, source.label]));
+  const classOf = new Map(sources.map((source) => [source.key, source.evidence_class]));
+  // Grouped by what each lane is responsible for, in the order the lanes ran. A flat
+  // list answers "did this source return anything"; the grouping answers the question a
+  // reader actually has, which is whether a kind of evidence came back at all - one
+  // registry returning nothing reads very differently from every registry returning
+  // nothing. Read from each lane's own declaration, so a new lane groups itself.
+  const groups: { name: string; lanes: SearchLane[] }[] = [];
+  for (const lane of lanes) {
+    const name = classOf.get(lane.source) ?? "general";
+    const group = groups.find((candidate) => candidate.name === name);
+    if (group) group.lanes.push(lane);
+    else groups.push({ name, lanes: [lane] });
+  }
   return (
     <div className="rounded-lg border border-border bg-card">
       <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
         Sources searched
       </p>
-      <ul className="divide-y divide-border">
-        {lanes.map((lane, at) => (
-          <li
-            key={`${lane.source}-${at}`}
-            className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5 text-xs"
-          >
-            <span className="min-w-[8rem] font-medium text-foreground">
-              {labels.get(lane.source) ?? humanizeSource(lane.source)}
-            </span>
-            <code className="min-w-0 flex-1 break-all font-mono text-[10px] text-muted-foreground">
-              {/* A ruled-out lane never built a request, so there is no query to show. */}
-              {lane.query || (lane.status === "skipped" ? "no request sent" : "")}
-            </code>
-            {lane.status === "complete" ? (
-              <span
-                className={cn(
-                  "shrink-0 tabular-nums",
-                  lane.returned === 0 ? "text-muted-foreground" : "text-foreground",
-                )}
+      {groups.map((group) => (
+        <div key={group.name}>
+          <p className="border-b border-border bg-muted/30 px-4 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {group.name}
+          </p>
+          <ul className="divide-y divide-border">
+            {group.lanes.map((lane, at) => (
+              <li
+                key={`${lane.source}-${at}`}
+                className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5 text-xs"
               >
-                {lane.returned} returned
-              </span>
-            ) : (
-              <span
-                className={cn(
-                  "shrink-0",
-                  lane.status === "failed" ? "text-destructive" : "text-muted-foreground",
+                <span className="min-w-[8rem] font-medium text-foreground">
+                  {labels.get(lane.source) ?? humanizeSource(lane.source)}
+                </span>
+                <code className="min-w-0 flex-1 break-all font-mono text-[10px] text-muted-foreground">
+                  {/* A ruled-out lane built no request, so there is no query to show. */}
+                  {lane.query ||
+                    (lane.status === "skipped" ? "no request sent" : "")}
+                </code>
+                {lane.status === "complete" ? (
+                  <span
+                    className={cn(
+                      "shrink-0 tabular-nums",
+                      lane.returned === 0
+                        ? "text-muted-foreground"
+                        : "text-foreground",
+                    )}
+                  >
+                    {lane.returned} returned
+                  </span>
+                ) : (
+                  <span
+                    className={cn(
+                      "shrink-0",
+                      lane.status === "failed"
+                        ? "text-destructive"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {lane.status}
+                    {lane.detail ? `: ${lane.detail}` : ""}
+                  </span>
                 )}
-              >
-                {lane.status}
-                {lane.detail ? `: ${lane.detail}` : ""}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 }
@@ -530,7 +647,9 @@ type StatedEntity = { name: string; type: string };
  */
 function reachable(source: SearchSource, entities: StatedEntity[]): boolean {
   if (source.required_entity_types.length === 0) return true;
-  return entities.some((entity) => source.required_entity_types.includes(entity.type));
+  return entities.some((entity) =>
+    source.required_entity_types.includes(entity.type),
+  );
 }
 
 function humanizeSource(source: string): string {

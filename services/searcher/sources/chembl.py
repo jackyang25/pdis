@@ -46,6 +46,11 @@ class ChEMBLSource:
             url="https://www.ebi.ac.uk/chembl/",
             prefix="Compound and target data provided by",
         ),
+        evidence_class="molecular",
+        jurisdiction="global",
+        reads=("subject",),
+        feeds=("landscape",),
+        max_results=MAX_RESULTS,
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:

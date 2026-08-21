@@ -13,8 +13,10 @@ from .fda_safety import FDASafetySource
 from .isrctn import ISRCTNSource
 from .open_targets import OpenTargetsSource
 from .pubmed import PubMedSource
+from .europepmc import EuropePMCSource
 from .semantic_scholar import SemanticScholarSource
-from .uniprot import UniProtSource
+from .who_gho import WHOGHOSource
+from .who_guidelines import WHOGuidelinesSource
 from .web import WebSource
 
 _SOURCES: tuple[SourceAdapter, ...] = (
@@ -24,9 +26,11 @@ _SOURCES: tuple[SourceAdapter, ...] = (
     CTISSource(),
     ISRCTNSource(),
     SemanticScholarSource(),
+    EuropePMCSource(),
+    WHOGuidelinesSource(),
+    WHOGHOSource(),
     OpenTargetsSource(),
     ChEMBLSource(),
-    UniProtSource(),
     FDASource(),
     FDASafetySource(),
 )

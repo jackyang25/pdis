@@ -121,6 +121,55 @@ def context_validation(allowed_block_ids: list[str]) -> AIContract:
         ),
     )
 
+def run_scope_value(allowed_block_ids: list[str]) -> AIContract:
+    """Constrain one run-scope value to a phrase a provider field could index.
+
+    `found` is separate from `value` because "the document does not narrow this" is a
+    real answer and the only safe one when a document speaks generally. A stage that
+    read a blank value as absence could not tell it from a failed reading, and a stage
+    that demanded a value would get an invented country.
+    """
+    exact_ids = list(dict.fromkeys(allowed_block_ids))
+    return AIContract(
+        "scout_run_scope_value",
+        _object(
+            {
+                "found": _string(enum=["yes", "no"]),
+                "value": _string(),
+                "reason": _string(),
+                "block_ids": _array(_string(enum=exact_ids)),
+            }
+        ),
+    )
+
+
+def announcement_record() -> AIContract:
+    """Constrain one announcement to the program it names, and nothing more.
+
+    `names_program` is separate from `program_name` because "this announcement is about a
+    pipeline, a quarter, or a company" is the common answer and a correct one. A schema
+    demanding a name gets an invented one, and a stage reading a blank name as absence
+    could not tell it from a failed reading.
+
+    Every other field is optional in the same way the record is: a development record may
+    not infer a missing sponsor, phase or status, so the schema asks for them and accepts
+    blank rather than pressing for a guess.
+    """
+    return AIContract(
+        "scout_announcement_record",
+        _object(
+            {
+                "names_program": _string(enum=["yes", "no"]),
+                "program_name": _string(),
+                "sponsor": _string(),
+                "phase": _string(),
+                "status": _string(),
+                "reason": _string(),
+            }
+        ),
+    )
+
+
 def target_binding_batch(
     allowed_block_ids: list[str],
     allowed_attribute_refs: list[str] | None = None,

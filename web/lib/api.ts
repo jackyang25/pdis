@@ -191,6 +191,7 @@ export type Finding = {
   evidence_role?: "evidence" | "reference";
   development_records?: DevelopmentRecord[];
   safety_observations?: SafetyObservationRecord[];
+  indicator_records?: IndicatorRecord[];
   queries?: string[];
   source_lanes?: string[];
   source_labels?: Record<string, string>;
@@ -225,6 +226,18 @@ export type SafetyObservationRecord = {
   report_count: number | null;
   qualification: string;
   source_role: SourceRole;
+};
+
+/** One measured quantity for one place in one year, as an adapter normalized it. */
+export type IndicatorRecord = {
+  indicator_code: string;
+  indicator_name: string;
+  place: string;
+  spatial_type: string;
+  year: number;
+  value: number | null;
+  value_text: string;
+  parent_place: string;
 };
 
 export type SourceRole =
@@ -278,6 +291,13 @@ export type SearchSource = {
   configured: boolean;
   evidence_domains: string[];
   required_entity_types: string[];
+  /** What this lane is responsible for, and whose setting it describes. */
+  evidence_class: string;
+  jurisdiction: string;
+  /** Scope dimensions this lane can act on, so a control can say who will use it. */
+  reads: string[];
+  /** Whether a date bound narrows this lane at the provider, or only after retrieval. */
+  honors_date_bound: boolean;
   attribution?: SourceAttribution | null;
 };
 
@@ -326,6 +346,15 @@ export type FunnelStats = {
   insights: number;
   matches: number;
   assessments: number;
+  /**
+   * Announcements read for a program name, and how many named one.
+   *
+   * A pair, because the second alone is unreadable: an announcement naming no program
+   * leaves no row in the landscape, so without the attempts a weak reading and a quiet
+   * week look identical. Optional so a result saved before this existed still loads.
+   */
+  announcements_read?: number;
+  announcements_named?: number;
 };
 
 export type SearchTrace = {
@@ -492,6 +521,32 @@ export type SafetyObservation = {
   supporting_findings: Finding[];
 };
 
+/** One place's reading of one indicator, exactly as the provider stated it. */
+export type IndicatorReading = {
+  place: string;
+  spatial_type: string;
+  year: number;
+  value: number | null;
+  value_text: string;
+  parent_place: string;
+};
+
+/**
+ * One health indicator and every reading retrieved for it.
+ *
+ * Deliberately unsummarised: no total across countries and no single headline number. A
+ * total over whichever countries happened to be retrieved would read as a total for the
+ * disease.
+ */
+export type BurdenIndicator = {
+  projection_id: string;
+  indicator_code: string;
+  indicator_name: string;
+  readings: IndicatorReading[];
+  attribute_refs: string[];
+  supporting_findings: Finding[];
+};
+
 export type Variable = {
   name: string;
   description: string;
@@ -631,6 +686,8 @@ export type ScoutResponse = {
   precedents: PrecedentSignal[];
   development_landscape: DevelopmentProgram[];
   safety_observations: SafetyObservation[];
+  /** Optional so a result saved before this projection existed still loads. */
+  burden_indicators?: BurdenIndicator[];
   stats: FunnelStats;
   // The parsed source document behind the analysis (for the Ask assistant).
   blocks: ContentBlock[];
@@ -1024,6 +1081,8 @@ export async function runSearcher(
     entities?: string;
     product?: string;
     population?: string;
+    region?: string;
+    publishedSince?: string;
     outcome?: string;
   } = {},
   onStage?: (stage: string) => void,
@@ -1037,6 +1096,8 @@ export async function runSearcher(
   form.append("product", facets.product ?? "");
   form.append("population", facets.population ?? "");
   form.append("outcome", facets.outcome ?? "");
+  form.append("region", facets.region ?? "");
+  form.append("published_since", facets.publishedSince ?? "");
   return streamRequest("/api/searcher/run", form, onStage);
 }
 

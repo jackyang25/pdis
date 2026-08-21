@@ -8,7 +8,15 @@ from .planning import request_lineage
 
 
 class WebSource:
-    spec = SourceSpec(key="web", label="Web", worker_limit=32)
+    spec = SourceSpec(
+        key="web",
+        label="Web",
+        worker_limit=32,
+        evidence_class="general",
+        jurisdiction="global",
+        reads=("text",),
+        feeds=("insights",),
+    )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
         requests: list[SearchRequest] = []

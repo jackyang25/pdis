@@ -44,6 +44,11 @@ class CTISSource:
             url="https://euclinicaltrials.eu/",
             prefix="Trial data provided by",
         ),
+        evidence_class="registry",
+        jurisdiction="eu",
+        reads=("text", "condition"),
+        feeds=("insights", "landscape"),
+        max_results=MAX_RESULTS,
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:

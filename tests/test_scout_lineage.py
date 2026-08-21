@@ -21,6 +21,7 @@ from services.scout.projections import (
     build_safety_observations,
 )
 from services.scout.models import (
+    RetrievalScopeLedger,
     EVIDENCE_DOMAINS,
     Attribute,
     ComparisonRule,
@@ -961,13 +962,13 @@ class RetrievalPlanningTests(unittest.TestCase):
             )
         )
 
-        self.assertTrue({"open_targets", "chembl", "uniprot"}.issubset(drug.sources))
+        # UniProt is gone: it was `reference`, so insight extraction filtered its
+        # findings out, and it built no records, so no projection read them. A lane
+        # feeding nothing is now unregistrable - see test_retrieval_coverage.
+        self.assertTrue({"open_targets", "chembl"}.issubset(drug.sources))
         self.assertNotIn("open_targets", vaccine.sources)
         self.assertNotIn("chembl", vaccine.sources)
-        self.assertIn("uniprot", vaccine.sources)
-        self.assertTrue(
-            {"open_targets", "chembl", "uniprot"}.isdisjoint(device.sources)
-        )
+        self.assertTrue({"open_targets", "chembl"}.isdisjoint(device.sources))
         self.assertIn("fda_safety", drug.sources)
         self.assertIn("fda_safety", vaccine.sources)
         self.assertIn("fda_safety", device.sources)
@@ -995,8 +996,10 @@ class RetrievalPlanningTests(unittest.TestCase):
         retrieval_intents = build_retrieval_intents(
             {attribute.name: intents},
             [attribute],
-            indication="malaria",
-            intervention_class="vaccine",
+            scope=RetrievalScopeLedger.of(
+                condition=("malaria", "header"),
+                intervention=("vaccine", "header"),
+            ),
         )
         tasks = plan_requests(
             retrieval_intents,
@@ -1073,8 +1076,10 @@ class RetrievalPlanningTests(unittest.TestCase):
         intents = build_retrieval_intents(
             {attribute.name: queries},
             [attribute],
-            indication="tb",
-            intervention_class="drug",
+            scope=RetrievalScopeLedger.of(
+                condition=("tb", "header"),
+                intervention=("drug", "header"),
+            ),
         )
 
         requests = plan_requests(
@@ -1174,6 +1179,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             config,
             StaticClient([{"query": "general efficacy evidence", "doc_block_ids": []}]),
             indication="malaria",
+            scope=RetrievalScopeLedger.of(condition=("malaria", "header")),
             queries_per_variable=1,
             document_context=(
                 "[block:doc/b-0002]\nAt least 80% at 6 months.\n\n"
@@ -1212,8 +1218,10 @@ class RetrievalPlanningTests(unittest.TestCase):
             build_retrieval_intents(
                 {attribute.name: queries},
                 [attribute],
-                indication="malaria",
-                intervention_class="vaccine",
+                scope=RetrievalScopeLedger.of(
+                    condition=("malaria", "header"),
+                    intervention=("vaccine", "header"),
+                ),
             ),
             sources=("semantic_scholar",),
         )
@@ -1381,6 +1389,7 @@ class RetrievalPlanningTests(unittest.TestCase):
                 }],
             ]),
             indication="example condition",
+            scope=RetrievalScopeLedger.of(condition=("malaria", "header")),
             queries_per_variable=1,
             document_context="[block:document/b-0004]\nTemperature tolerance greater than 8°C.",
         )
@@ -1434,6 +1443,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             config,
             SequenceClient([invalid, invalid]),
             indication="example condition",
+            scope=RetrievalScopeLedger.of(condition=("malaria", "header")),
             queries_per_variable=1,
             document_context="[block:document/b-0005]\nDose volume below 0.5 mL/dose.",
         )
@@ -1454,8 +1464,10 @@ class RetrievalPlanningTests(unittest.TestCase):
         retrieval_intents = build_retrieval_intents(
             {attribute.name: variants},
             [attribute],
-            indication="malaria",
-            intervention_class="vaccine",
+            scope=RetrievalScopeLedger.of(
+                condition=("malaria", "header"),
+                intervention=("vaccine", "header"),
+            ),
         )
 
         requests = plan_requests(

@@ -20,6 +20,7 @@ from ..models import (
     LLMClientProtocol,
     QuantitativeTarget,
     QueryIntent,
+    RetrievalScopeLedger,
     ScoutTypeConfig,
 )
 from ..prompt_primitives import COMPARATOR_POLICY_PRIMITIVE, SEMANTIC_DIMENSIONS_PRIMITIVE
@@ -52,6 +53,7 @@ def extract_queries_for_variable(
     llm_client: LLMClientProtocol,
     *,
     indication: str,
+    scope: RetrievalScopeLedger,
     queries_per_variable: int,
     document_context: str = "",
     max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -105,6 +107,7 @@ def extract_queries_for_variable(
                 indication=indication,
                 attribute=attribute,
                 geographic_queries_per_variable=config.geographic_queries_per_variable,
+                region=scope.value("region"),
             ),
             user_message,
             llm_client,
@@ -460,7 +463,25 @@ def build_system_prompt_for_geographic_variable(
     indication: str,
     attribute: Attribute,
     geographic_queries_per_variable: int,
+    region: str = "",
 ) -> str:
+    """The one track that is about place, so the only one the run's region reaches.
+
+    Two halves, and both are needed. The config's institutions and languages are the
+    comparator set - a declared statement of which settings this programme is judged
+    against, stable across runs. `region` is what the document itself states, read from
+    the attribute declaring `supplies_scope` and cited to its blocks.
+
+    Given only the first half, this track asked about China and Indonesia for a
+    sub-Saharan Africa programme, because the config list is the same for every run. Given
+    only the second, it would lose the comparators, and a programme has to be judged
+    against settings other than its own. So the region is additive here exactly as this
+    track is additive to the general one.
+
+    The region is not passed to the other tracks on purpose. `general`, `counterfactual`
+    and `precedent` are broad by design, and narrowing them to one geography would answer
+    a smaller question than the one asked.
+    """
     parts = [
         "You generate ADDITIVE Global-South retrieval intents for ONE variable. "
         "These queries are added to the general query set, never substituted for it.",
@@ -481,6 +502,20 @@ def build_system_prompt_for_geographic_variable(
         "Return the Global-South queries only; the caller appends them after the "
         "general queries.",
     ]
+    if region:
+        parts.append(
+            "THE DOCUMENT'S OWN GEOGRAPHY\n"
+            f"This programme states its geography as: {region}. Spend most of this "
+            "track's queries there - that is the setting the document will be judged "
+            "in. Keep some for the comparator institutions listed below, because a "
+            "target has to be read against settings other than its own; a region "
+            "returning nothing on its own says little without one that returns "
+            "something.\n"
+            "Where the configured languages include ones spoken in that geography, "
+            "prefer those for the native-language queries. Do not use a configured "
+            "language that has no reach there, and do not introduce a language the "
+            "configuration does not list."
+        )
     if config.geographic_emphasis:
         parts.append("Configured geographic emphasis: " + ", ".join(config.geographic_emphasis) + ".")
     if config.priority_institutions:

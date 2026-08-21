@@ -47,7 +47,37 @@ export const OUTCOME_LABEL: Record<PrecedentSignal["outcome"], string> = {
 };
 
 /** Present one field ref, dropping its namespace and titling each word. */
+/**
+ * What a development row rests on, in a reader's words.
+ *
+ * Rendered because the type is how a row is judged: "Phase 3" from a registry and
+ * "Phase 3" from a company announcement are the same string and not equally checkable.
+ * Mirrors `DEVELOPMENT_RECORD_TYPES` in `services/searcher/models.py`.
+ */
+const RECORD_TYPE_LABELS: Record<string, string> = {
+  clinical_trial: "Trial registry",
+  compound_catalog: "Compound catalog",
+  regulatory_label: "Regulatory label",
+  regulatory_clearance: "Regulatory clearance",
+  announcement: "Announcement",
+};
+
+export function displayRecordTypeLabel(recordType: string): string {
+  return RECORD_TYPE_LABELS[recordType] ?? displayAttributeLabel(recordType);
+}
+
+/**
+ * The one scope that is not a document variable.
+ *
+ * Mirrors `PROGRAM_SCOPE_KEY` in `services/scout/models.py`. Findings retrieved by the
+ * run's own questions carry it, and they reach the development landscape beside findings
+ * retrieved for a variable. Left to the generic label it renders as "Program" in a list
+ * of variable names, reading as a variable the document does not have.
+ */
+const PROGRAM_SCOPE_REF = "program";
+
 export function displayAttributeLabel(ref: string): string {
+  if (ref === PROGRAM_SCOPE_REF) return "Program-wide";
   const local = ref.includes(".") ? ref.split(".").slice(1).join(".") : ref;
   return local
     .replace(/[._-]+/g, " ")

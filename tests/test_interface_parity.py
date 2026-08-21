@@ -112,6 +112,8 @@ EXPOSED_AS = {
     "facets.intervention": "product",
     "facets.population": "population",
     "facets.outcome": "outcome",
+    "published_since": "published_since",
+    "region": "region",
 }
 
 #: Bookkeeping the caller never states: it identifies a request, it does not shape one.
@@ -321,7 +323,7 @@ class StatedEntityTests(unittest.TestCase):
             RetrievalEntity(name="BRAF", entity_type="gene"),
             RetrievalEntity(name="pembrolizumab", entity_type="drug"),
         )
-        for key in ("open_targets", "chembl", "uniprot", "fda_safety"):
+        for key in ("open_targets", "chembl", "fda_safety"):
             with self.subTest(source=key):
                 requests = plan_requests(
                     [_free_text_intent(entities=stated)], sources=(key,)

@@ -44,6 +44,10 @@ class SemanticScholarSource:
             url="https://www.semanticscholar.org/?utm_source=api",
             prefix="Academic metadata provided by",
         ),
+        evidence_class="literature",
+        jurisdiction="global",
+        reads=("text", "condition", "intervention", "product", "population", "outcome", "subject"),
+        feeds=("insights",),
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:

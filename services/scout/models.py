@@ -16,7 +16,12 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 from shared.openai_client import ModelTask
 
 from services.searcher import Finding, QueryFacets, source_keys
-from shared.vocabulary import ENTITY_TYPES, EVIDENCE_DOMAINS, search_term
+from shared.vocabulary import (
+    ENTITY_TYPES,
+    EVIDENCE_DOMAINS,
+    SCOPE_PROVENANCE,
+    search_term,
+)
 
 if TYPE_CHECKING:
     from services.chunker import ContentBlock
@@ -266,6 +271,13 @@ class Attribute:
     target_resolved: bool = False
     target_resolution_reason: str = ""
     evidence_domain: str = "general"
+    #: The run-scope dimension this attribute's document target supplies, if any.
+    #:
+    #: Declared on the attribute rather than matched by name in a stage, so the vocabulary
+    #: stays the one place that knows which variable states the run's geography. A stage
+    #: looking for `*.target_countries` would work until an intervention class named it
+    #: something else, and then fail silently by finding nothing.
+    supplies_scope: str = ""
     entities: list[EvidenceEntity] = field(default_factory=list)
     # Independently qualified numeric claims extracted once before retrieval.
     # Qualitative stages continue to use the canonical document_target binding.
@@ -283,6 +295,12 @@ class Attribute:
             raise ValueError("definition_mode must be 'fixed' or 'dynamic'")
         if self.evidence_domain not in EVIDENCE_DOMAINS:
             raise ValueError(f"unknown evidence domain: {self.evidence_domain}")
+        self.supplies_scope = self.supplies_scope.strip().lower()
+        if self.supplies_scope and self.supplies_scope not in RUN_SCOPE_DIMENSIONS:
+            raise ValueError(
+                f"{self.name}: supplies_scope must be a run scope dimension, "
+                f"got {self.supplies_scope!r}"
+            )
         if self.quantitative_target_status not in QUANTITATIVE_TARGET_STATUSES:
             raise ValueError("invalid quantitative target status")
         self.name = self.name.strip()
@@ -379,6 +397,7 @@ def load_attributes(intervention_class: str) -> list[Attribute]:
             description=item["description"],
             definition_mode="fixed",
             evidence_domain=item.get("evidence_domain", "general"),
+            supplies_scope=item.get("supplies_scope", ""),
         )
         for item in items
     ]
@@ -895,6 +914,230 @@ class QuantitativeStatementDisposition:
             raise ValueError("quantitative statement disposition requires cited reasoning")
 
 
+#: Scope dimensions a run supplies once, for every intent it builds.
+#:
+#: A subset of `SCOPE_DIMENSIONS`, and the subset is the point. `text` is an intent's
+#: own subject, `population` and `outcome` vary between the queries of one intent, and
+#: `product` narrows a single request - none of them is a property of the run. These
+#: four are, so a run states them once and every intent inherits them.
+RUN_SCOPE_DIMENSIONS = ("condition", "intervention", "region")
+
+
+#: The scope_ref for intents that belong to the run rather than to one variable.
+#:
+#: `findings_by_attribute` is keyed by `scope_ref`, and an insight naming a scope that is
+#: not a real attribute already raises, so this key cannot leak into per-variable
+#: reasoning by accident. It reaches the development landscape instead, which groups by
+#: program name and ignores attributes entirely.
+PROGRAM_SCOPE_KEY = "program"
+
+
+@dataclass(frozen=True)
+class ProgramQuerySet:
+    """One question about the run rather than about any one variable."""
+
+    #: Event subjects, as things to search for rather than as recency words. The query
+    #: extractor is forbidden from writing "recent" or a year because an index reads
+    #: those as terms to match; the same rule holds here, so an announcement is reached
+    #: by naming the kind of event, not by asking for newness.
+    subjects: tuple[str, ...]
+    #: Lanes this set is planned against, and why only these.
+    lanes: tuple[str, ...]
+    reason: str
+
+
+#: Query sets that belong to the run, with the test each one had to pass.
+#:
+#: The test: **does the answer change if you ask it about a different variable?** If yes,
+#: the question is per-variable and belongs to an attribute's tracks. If no, it belongs
+#: here. That test is what keeps this from becoming a bucket for anything that feels
+#: broad.
+#:
+#: Deliberately rejected, each for the same reason - the answer does change per variable:
+#:
+#:     competitor sweep    ClinicalTrials receives an identical request for every
+#:                         attribute, so it looks run-level. But the provider is hit once
+#:                         and each attribute ranks the same candidates against its own
+#:                         queries, so the twenty it keeps differ. Per-variable.
+#:     regulatory approvals Same shape, same reason.
+#:     precedent           It is the precedent for one variable, not for the program.
+#:     safety signals      Driven by each attribute's own stated entities.
+PROGRAM_QUERY_SETS = {
+    "burden": ProgramQuerySet(
+        # No subject to name. The lane's request is built from the run's condition alone,
+        # so the set exists to say which lane runs and at what scope rather than to
+        # supply query text.
+        subjects=(),
+        lanes=("who_gho",),
+        reason=(
+            "How much of the disease there is does not change with the variable being "
+            "read, so it is asked once for the run. The lane is reached only from here: "
+            "planned per attribute it would repeat one answer for every variable, and "
+            "each repetition costs two provider calls."
+        ),
+    ),
+    "events": ProgramQuerySet(
+        subjects=(
+            "phase 3 trial results",
+            "regulatory approval decision",
+            "clinical trial readout",
+            "licensing or development partnership",
+        ),
+        lanes=("web",),
+        reason=(
+            "Only the web lane can reach an announcement. The registries already receive "
+            "this program's sweep once per attribute, and a literature index does not "
+            "hold press releases, so planning this set against them would repeat one "
+            "request and add nothing."
+        ),
+    ),
+}
+
+
+#: How many queries each coverage track gets per variable, and why that many.
+#:
+#: One table rather than four numbers repeated in every config. All eleven configs held
+#: the identical split with nothing stating it, so the balance was a coincidence eleven
+#: files agreed on rather than a decision anyone could review or change once.
+#:
+#: The tracks are additive, never substituted, so these are shares of attention rather
+#: than a budget being divided. The shape follows what the tool is for: find what is
+#: known, then whether it holds where the programme is aimed, then whether it holds at
+#: all, then whether it has been tried before.
+#:
+#:     general        8  The baseline, and the only track that must cover the variable's
+#:                       core question across content, source and language at once. Half
+#:                       again the next largest, because every other track qualifies what
+#:                       this one establishes.
+#:     geographic     6  The stated mission. Raised above a token share because it is now
+#:                       informed by the document's own region rather than a fixed list,
+#:                       so its queries are about where this programme actually is.
+#:     counterfactual 4  The check that stops an optimistic reading. A competitive
+#:                       assessment that only finds supporting evidence reads as a strong
+#:                       position, and it is the one failure the reader cannot see.
+#:     precedent      3  Prior attempts. Real value and the least time-sensitive of the
+#:                       four, so it takes the smallest share.
+#:
+#: A config may override any of these; nothing does today. Overriding one is a statement
+#: that a document type needs a different balance, which is exactly when a number should
+#: live in a config rather than here.
+QUERY_TRACK_BUDGET = {
+    "general": 8,
+    "geographic": 6,
+    "counterfactual": 4,
+    "precedent": 3,
+}
+
+
+@dataclass(frozen=True)
+class ScopeEntry:
+    """One scope dimension's value for a run, and where the value came from."""
+
+    dimension: str
+    value: str = ""
+    provenance: str = "unset"
+    #: Blocks a document-derived value is traceable to. Required for `document`, for the
+    #: same reason `QuantitativeLedgerReview` requires a quote: a value read out of a
+    #: document that cannot be pointed at is indistinguishable from one invented.
+    block_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "dimension", self.dimension.strip())
+        object.__setattr__(self, "value", " ".join(self.value.split()))
+        object.__setattr__(self, "provenance", self.provenance.strip().lower())
+        if self.dimension not in RUN_SCOPE_DIMENSIONS:
+            raise ValueError(f"not a run scope dimension: {self.dimension!r}")
+        if self.provenance not in SCOPE_PROVENANCE:
+            raise ValueError(f"unknown scope provenance: {self.provenance!r}")
+        if self.provenance == "unset" and self.value:
+            raise ValueError(
+                f"{self.dimension}: a value with no supplier cannot be recorded as unset"
+            )
+        if self.provenance != "unset" and not self.value:
+            raise ValueError(
+                f"{self.dimension}: {self.provenance} supplied no value; record it unset"
+            )
+        if self.provenance == "document" and not self.block_ids:
+            raise ValueError(
+                f"{self.dimension}: a document-derived value must cite its blocks"
+            )
+        if self.provenance != "document" and self.block_ids:
+            raise ValueError(
+                f"{self.dimension}: only a document-derived value cites blocks"
+            )
+
+
+@dataclass(frozen=True)
+class RetrievalScopeLedger:
+    """The one authoritative statement of what a run is about.
+
+    The sibling of `QuantitativeLedger`, and deliberately separate from it. That one
+    holds what the document claims numerically and is read by the stages that judge;
+    this one holds what the run is searching for and is read by the stage that builds
+    intents. Getting a number wrong produces a wrong verdict on the right evidence.
+    Getting the scope wrong produces a confident verdict on the wrong evidence.
+
+    Every dimension in `RUN_SCOPE_DIMENSIONS` has an entry, including the ones nothing
+    supplies. An absent entry and an unset one are the same value and opposite facts:
+    one is a dimension nobody has wired, the other is a reader deliberately widening the
+    search. Requiring the entry is what makes the first case visible.
+    """
+
+    entries: tuple[ScopeEntry, ...] = ()
+
+    def __post_init__(self) -> None:
+        by_dimension = {entry.dimension: entry for entry in self.entries}
+        if len(by_dimension) != len(self.entries):
+            raise ValueError("retrieval scope ledger states a dimension twice")
+        missing = [d for d in RUN_SCOPE_DIMENSIONS if d not in by_dimension]
+        if missing:
+            raise ValueError(
+                f"retrieval scope ledger omits: {', '.join(missing)}. Record an unset "
+                "entry rather than leaving the dimension out."
+            )
+
+    @classmethod
+    def of(
+        cls,
+        **supplied: tuple[str, str] | tuple[str, str, tuple[str, ...]],
+    ) -> "RetrievalScopeLedger":
+        """Build a complete ledger from the dimensions a caller can supply.
+
+        Each value is `(value, provenance)`, or `(value, provenance, block_ids)` when a
+        document supplied it. Anything not named is recorded `unset`, so a caller cannot
+        half-fill a ledger and a new dimension shows up as unsupplied rather than absent.
+        """
+        entries = []
+        for dimension in RUN_SCOPE_DIMENSIONS:
+            stated = supplied.get(dimension, ("", "unset"))
+            value, provenance = stated[0], stated[1]
+            block_ids = stated[2] if len(stated) > 2 else ()
+            entries.append(
+                ScopeEntry(
+                    dimension=dimension,
+                    value=value,
+                    provenance=provenance,
+                    block_ids=tuple(block_ids),
+                )
+            )
+        return cls(entries=tuple(entries))
+
+    def entry(self, dimension: str) -> ScopeEntry:
+        for entry in self.entries:
+            if entry.dimension == dimension:
+                return entry
+        raise KeyError(f"not a run scope dimension: {dimension!r}")
+
+    def value(self, dimension: str) -> str:
+        return self.entry(dimension).value
+
+    def supplied(self) -> tuple[str, ...]:
+        """Dimensions with a supplier, in declared order."""
+        return tuple(
+            entry.dimension for entry in self.entries if entry.provenance != "unset"
+        )
+
+
 @dataclass
 class QuantitativeLedgerReview:
     """One non-overlapping document statement reviewed by the numeric ledger."""
@@ -958,6 +1201,50 @@ class QuantitativeLedger:
         target_ids = [target.id for target in self.targets]
         if len(target_ids) != len(set(target_ids)):
             raise ValueError("quantitative ledger contains duplicate targets")
+
+
+@dataclass
+class IndicatorReading:
+    """One place's reading of one indicator, as the provider stated it."""
+
+    place: str
+    spatial_type: str
+    year: int
+    value: float | None = None
+    value_text: str = ""
+    parent_place: str = ""
+
+
+@dataclass
+class BurdenIndicator:
+    """One health indicator and every reading retrieved for it.
+
+    The third projection, beside `DevelopmentProgram` and `SafetyObservation`, and grouped
+    the same way: by the thing itself rather than by the variable that happened to
+    retrieve it. A reader asking how much malaria there is wants one row per indicator
+    with its places beneath, not the same indicator repeated under every attribute.
+
+    Deliberately not summarised. No total across countries, no average, no most-recent
+    single number - each of those is an answer to a question the reader did not ask, and
+    a total over an incomplete set of countries is worse than the set.
+    """
+
+    indicator_code: str
+    indicator_name: str
+    projection_id: str = ""
+    readings: list[IndicatorReading] = field(default_factory=list)
+    attribute_refs: list[str] = field(default_factory=list)
+    supporting_findings: list[Finding] = field(default_factory=list)
+
+    @property
+    def latest_year(self) -> int | None:
+        """The most recent year any place reported, for ordering and for a heading."""
+        years = [reading.year for reading in self.readings]
+        return max(years) if years else None
+
+    @property
+    def place_count(self) -> int:
+        return len({reading.place for reading in self.readings})
 
 
 @dataclass
@@ -1112,6 +1399,14 @@ class FunnelStats:
     insights: int
     matches: int
     assessments: int
+    #: Announcements read for a program name, and how many named one.
+    #:
+    #: A pair, because the second number alone is unreadable. An announcement that names
+    #: no program leaves no row in the landscape, so without the count of attempts a weak
+    #: reading and a quiet week look identical. Defaulted so a saved result from before
+    #: this existed still loads.
+    announcements_read: int = 0
+    announcements_named: int = 0
 
 
 @dataclass
@@ -1182,6 +1477,9 @@ class ScoutResult:
     search_plan: list[SearchTrace] = field(default_factory=list)
     development_landscape: list[DevelopmentProgram] = field(default_factory=list)
     safety_observations: list[SafetyObservation] = field(default_factory=list)
+    #: Disease-burden readings retrieved for the run. Defaulted so a result saved before
+    #: this projection existed still loads.
+    burden_indicators: list[BurdenIndicator] = field(default_factory=list)
     # Canonical, document-bound units actually investigated this run. Consumers
     # read this rather than re-deriving provider-specific definitions.
     variables: list[Attribute] = field(default_factory=list)
@@ -1218,14 +1516,14 @@ class ScoutTypeConfig:
     display_name: str
     query_extraction_guidance: str
     sources: list[str]
-    queries_per_variable: int = 1
+    queries_per_variable: int = QUERY_TRACK_BUDGET["general"]
     priority_institutions: list[str] = field(default_factory=list)
     modalities: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
     geographic_emphasis: list[str] = field(default_factory=list)
-    geographic_queries_per_variable: int = 0
-    counterfactual_queries_per_variable: int = 0
-    precedent_queries_per_variable: int = 0
+    geographic_queries_per_variable: int = QUERY_TRACK_BUDGET["geographic"]
+    counterfactual_queries_per_variable: int = QUERY_TRACK_BUDGET["counterfactual"]
+    precedent_queries_per_variable: int = QUERY_TRACK_BUDGET["precedent"]
     # Where the units to investigate come from:
     #   "vocabulary" - the fixed shared attribute list (TPP).
     #   "extract"    - an LLM pulls units (claims/targets) from the document (e.g. IPDP).
@@ -1339,6 +1637,13 @@ def safety_observations_to_dicts(
     ]
 
 
+def burden_indicators_to_dicts(indicators: list[BurdenIndicator]) -> list[dict]:
+    """Convert burden projections to plain dictionaries."""
+    return [
+        _serialize_finding_datetimes(asdict(indicator)) for indicator in indicators
+    ]
+
+
 def _serialize_finding_datetimes(value: dict) -> dict:
     for finding in value.get("supporting_findings", []):
         if finding.get("retrieved_at") is not None and not isinstance(
@@ -1408,19 +1713,27 @@ def load_config(config_path: str) -> ScoutTypeConfig:
     unknown_sources = sorted(set(sources) - set(source_keys()))
     if unknown_sources:
         raise ValueError(f"Unknown Scout source(s): {', '.join(unknown_sources)}")
-    geographic_queries_per_variable = int(data.get("geographic_queries_per_variable", 0))
+    geographic_queries_per_variable = int(
+        data.get("geographic_queries_per_variable", QUERY_TRACK_BUDGET["geographic"])
+    )
     if geographic_queries_per_variable < 0:
         raise ValueError("geographic_queries_per_variable must be >= 0")
-    counterfactual_queries_per_variable = int(data.get("counterfactual_queries_per_variable", 0))
+    counterfactual_queries_per_variable = int(
+        data.get("counterfactual_queries_per_variable", QUERY_TRACK_BUDGET["counterfactual"])
+    )
     if counterfactual_queries_per_variable < 0:
         raise ValueError("counterfactual_queries_per_variable must be >= 0")
-    precedent_queries_per_variable = int(data.get("precedent_queries_per_variable", 0))
+    precedent_queries_per_variable = int(
+        data.get("precedent_queries_per_variable", QUERY_TRACK_BUDGET["precedent"])
+    )
     if precedent_queries_per_variable < 0:
         raise ValueError("precedent_queries_per_variable must be >= 0")
     unit_provider = str(data.get("unit_provider", "vocabulary")).strip().lower()
     if unit_provider not in {"vocabulary", "extract"}:
         raise ValueError("unit_provider must be 'vocabulary' or 'extract'")
-    queries_per_variable = int(data.get("queries_per_variable", 1))
+    queries_per_variable = int(
+        data.get("queries_per_variable", QUERY_TRACK_BUDGET["general"])
+    )
     if queries_per_variable < 0:
         raise ValueError("queries_per_variable must be >= 0")
     framing_fields = (

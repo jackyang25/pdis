@@ -43,6 +43,11 @@ class ISRCTNSource:
             url="https://www.isrctn.com/",
             prefix="Trial data provided by",
         ),
+        evidence_class="registry",
+        jurisdiction="uk",
+        reads=("text", "condition", "intervention", "product", "region"),
+        feeds=("insights", "landscape"),
+        max_results=MAX_RESULTS,
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:
@@ -63,25 +68,35 @@ class ISRCTNSource:
             native_query = f"condition:{condition}"
             if intervention:
                 native_query += f" AND intervention:{intervention}"
-            requests.append(
-                SearchRequest(
-                    scope_ref=intent.scope_ref,
-                    source=self.spec.key,
-                    query=native_query,
-                    tracks=tuple(active_tracks(intent)),
-                    document_refs=document_refs,
-                    intent_ids=intent_ids,
-                    input_queries=input_queries,
-                    connector=TOOLUNIVERSE_INTEGRATION,
-                    operation=SEARCH_TOOL,
-                    options=(
-                        ("condition", condition),
-                        ("intervention", intervention),
-                        ("limit", str(MAX_CANDIDATES)),
-                        ("ranking", "all_input_queries"),
-                    ),
+            region = intent.scope("region")
+            # Unscoped first, then the region-narrowed twin, never instead of it. ISRCTN
+            # compiles `country` to `recruitmentCountry`, so the narrowed request asks
+            # where a trial actually recruited rather than where its text mentions.
+            for location in ("", region) if region else ("",):
+                requests.append(
+                    SearchRequest(
+                        scope_ref=intent.scope_ref,
+                        source=self.spec.key,
+                        query=(
+                            f"{native_query} AND recruitmentCountry:{location}"
+                            if location
+                            else native_query
+                        ),
+                        tracks=tuple(active_tracks(intent)),
+                        document_refs=document_refs,
+                        intent_ids=intent_ids,
+                        input_queries=input_queries,
+                        connector=TOOLUNIVERSE_INTEGRATION,
+                        operation=SEARCH_TOOL,
+                        options=(
+                            ("condition", condition),
+                            ("intervention", intervention),
+                            ("region", location),
+                            ("limit", str(MAX_CANDIDATES)),
+                            ("ranking", "all_input_queries"),
+                        ),
+                    )
                 )
-            )
         return requests
 
     def search(
@@ -98,6 +113,8 @@ class ISRCTNSource:
         }
         if intervention := request.option("intervention"):
             arguments["intervention"] = intervention
+        if region := request.option("region"):
+            arguments["country"] = region
         result = run_tool(runtime, SEARCH_TOOL, arguments)
         records = ranked_records(
             result_records(result, "data"),

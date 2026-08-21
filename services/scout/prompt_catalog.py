@@ -26,6 +26,7 @@ from .models import (
     SemanticSlot,
 )
 from .stages import (
+    announcement_reader,
     context_validator,
     conformity,
     evidence_reviewer,
@@ -36,12 +37,16 @@ from .stages import (
     precedent_classifier,
     projection_classifier,
     query_extractor,
+    scope_resolver,
     target_resolver,
     target_reviewer,
     unit_extractor,
 )
 
 INDICATION = "{indication}"
+#: The run's stated geography, read from the document. A visible slot for the same reason
+#: the others are: the published prompt should show the section a run actually sends.
+REGION = "{region}"
 # Deliberately one word. This placeholder now passes through `search_term`, which
 # de-underscores a tag on its way into prose, so `{intervention_class}` would be
 # published as `{intervention class}` and read as a broken placeholder. It matches the
@@ -104,6 +109,28 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         render=lambda: context_validator.build_system_prompt(INDICATION),
         framing_slot=None,
         result_fields=("context_validation.status",),
+        ui_labels=(),
+    ),
+    CatalogEntry(
+        tool=TOOL,
+        id="announcement_reader.read",
+        stage="announcement_reader",
+        title="Program named in an announcement",
+        builder_name="build_system_prompt",
+        render=lambda: announcement_reader.build_system_prompt(),
+        framing_slot=None,
+        result_fields=("development_landscape[].record_types",),
+        ui_labels=(),
+    ),
+    CatalogEntry(
+        tool=TOOL,
+        id="scope_resolver.run_scope",
+        stage="scope_resolver",
+        title="Run geography from the document",
+        builder_name="build_system_prompt",
+        render=lambda: scope_resolver.build_system_prompt("region"),
+        framing_slot=None,
+        result_fields=("retrieval_scope.region",),
         ui_labels=(),
     ),
     CatalogEntry(
@@ -193,6 +220,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
             indication=INDICATION,
             attribute=PLACEHOLDER_ATTRIBUTE,
             geographic_queries_per_variable=1,
+            region=REGION,
         ),
         framing_slot=None,
         result_fields=("stats.queries",),

@@ -8,15 +8,35 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from datetime import datetime
 from typing import Any, Mapping, Protocol
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
-from shared.vocabulary import ENTITY_TYPES, EVIDENCE_DOMAINS
+from shared.vocabulary import (
+    DOWNSTREAM_OUTPUTS,
+    ENTITY_TYPES,
+    EVIDENCE_CLASSES,
+    EVIDENCE_DOMAINS,
+    JURISDICTIONS,
+    SCOPE_DIMENSIONS,
+)
 
 FINDING_ROLES = frozenset({"evidence", "reference"})
+#: What kind of source stated a development fact.
+#:
+#: Rendered per program, because the type is how a reader judges the row: "Phase 3" from
+#: a registry and "Phase 3" from a company announcement are the same string and not
+#: equally checkable. The four structured types come from provider fields; `announcement`
+#: comes from prose a stage read, and it is the one a reader should weigh differently.
 DEVELOPMENT_RECORD_TYPES = frozenset(
-    {"clinical_trial", "compound_catalog", "regulatory_label", "regulatory_clearance"}
+    {
+        "clinical_trial",
+        "compound_catalog",
+        "regulatory_label",
+        "regulatory_clearance",
+        "announcement",
+    }
 )
 SAFETY_RECORD_TYPES = frozenset(
     {"label_warning", "reported_event", "device_event", "recall"}
@@ -58,10 +78,64 @@ class SourceSpec:
     attribution: SourceAttribution | None = None
     evidence_domains: tuple[str, ...] = ()
     required_entity_types: tuple[str, ...] = ()
+    # What this source is responsible for, whose setting it describes, and what its
+    # output reaches. Required rather than optional: these three are how coverage is
+    # judged, and a source that may omit them is a source that can be added without
+    # anyone noticing which hole it was meant to fill or whether it fills one.
+    evidence_class: str = ""
+    jurisdiction: str = ""
+    #: Scope dimensions this source can act on. Empty is invalid: every lane reads at
+    #: least the query text, so a lane declaring nothing is a lane whose request is
+    #: unrelated to what the caller asked. Paired with `feeds` on purpose - what a lane
+    #: consumes and what it produces are the two ends of one wire, and reading them in
+    #: two places is how a dimension the document states can reach no lane at all.
+    reads: tuple[str, ...] = ()
+    #: Downstream outputs this source's findings reach. Empty is invalid.
+    feeds: tuple[str, ...] = ()
+    #: Whether this source can bound results by publication date at the provider.
+    #:
+    #: Declared because the alternative is invisible: a caller asking for the last year
+    #: from a source that cannot bound gets the provider's most relevant results overall,
+    #: and the window is then applied by discarding them - so the request was spent on
+    #: findings that were never eligible. A lane declaring False is not broken; it means
+    #: its window is enforced after retrieval, and a reader can see which is which.
+    honors_date_bound: bool = False
+    #: Most findings one request returns. Declared here rather than as a constant in
+    #: the adapter, because a limit is a share of a budget and a share can only be
+    #: judged against the others. 0 defers to the provider's own default.
+    max_results: int = 0
 
     def __post_init__(self) -> None:
         if self.worker_limit < 1:
             raise ValueError("source worker_limit must be positive")
+        if self.evidence_class not in EVIDENCE_CLASSES:
+            raise ValueError(
+                f"{self.key}: unknown evidence class {self.evidence_class!r}"
+            )
+        if self.jurisdiction not in JURISDICTIONS:
+            raise ValueError(f"{self.key}: unknown jurisdiction {self.jurisdiction!r}")
+        unknown_reads = set(self.reads) - SCOPE_DIMENSIONS
+        if unknown_reads:
+            raise ValueError(
+                f"{self.key}: unknown scope dimension(s): "
+                f"{', '.join(sorted(unknown_reads))}"
+            )
+        if not self.reads:
+            raise ValueError(f"{self.key}: declares no scope dimension it reads")
+        unknown_feeds = set(self.feeds) - DOWNSTREAM_OUTPUTS
+        if unknown_feeds:
+            raise ValueError(
+                f"{self.key}: unknown downstream output(s): "
+                f"{', '.join(sorted(unknown_feeds))}"
+            )
+        if not self.feeds:
+            # A source reaching nothing is the one failure this file can catch alone.
+            # UniProt was registered, enabled in a config, and consumed a request per
+            # run while its findings were filtered out of reasoning and built no
+            # records - so a reader could turn it on, wait, and be told nothing.
+            raise ValueError(f"{self.key}: declares no downstream output")
+        if self.max_results < 0:
+            raise ValueError(f"{self.key}: max_results cannot be negative")
         if self.request_interval_seconds < 0:
             raise ValueError("source request interval cannot be negative")
         unknown_domains = set(self.evidence_domains) - EVIDENCE_DOMAINS
@@ -164,8 +238,62 @@ class RetrievalIntent:
     queries: tuple[SourceQueryIntent, ...]
     evidence_domain: str = ""
     entities: tuple[RetrievalEntity, ...] = ()
+    #: Countries or WHO regions the caller is deciding for, as one indexable phrase.
+    #:
+    #: Run scope rather than a per-query facet, for the same reason `indication` is: it
+    #: qualifies every query in the run, so stating it once is what lets an attribute
+    #: whose own text never mentions a country still be searched in the right one. A
+    #: per-query facet could only be stated by whichever query happened to be about
+    #: geography.
+    region: str = ""
+    #: ISO date, or "" for no bound. Stated by the caller alongside the query rather
+    #: than applied to the results, because a bound the provider knows about changes
+    #: which records it ranks; a bound applied afterwards only changes which of its
+    #: answers survive. Sources declaring `honors_date_bound` pass it through; the
+    #: rest ignore it and the caller's own filter remains their backstop.
+    published_since: str = ""
+
+    #: Where each declared scope dimension is stored on this packet.
+    #:
+    #: One table, so a dimension's name in `SCOPE_DIMENSIONS`, its name on a lane's
+    #: `reads`, and its storage here cannot drift into three different words. Before
+    #: this, `condition` was stored as `indication`, subjects as `entities`, and region
+    #: nowhere - three vocabularies for one idea, which is why the missing one was
+    #: invisible.
+    #:
+    #: Intent level, not run level: an intent is one unit of retrieval, and `text` is
+    #: that unit's own subject. `condition`, `intervention` and `region` happen to hold
+    #: the same value across a run because a run-level supplier fills them, but the
+    #: packet does not know that and must not assume it.
+    #:
+    #: Dimensions absent from this table are stated per query instead: `population` and
+    #: `outcome` vary between the queries of one intent, and `product` narrows a single
+    #: request rather than scoping the intent.
+    _INTENT_SCOPE_FIELDS = {
+        "text": "topic",
+        "condition": "indication",
+        "intervention": "intervention_class",
+        "region": "region",
+    }
+
+    def scope(self, dimension: str) -> str:
+        """The value this packet states for one scope dimension, by its declared name.
+
+        Adapters read scope through here so the name in a lane's `reads` is the name it
+        asks for. A dimension this packet does not carry raises rather than returning
+        "": an adapter silently receiving a blank for a dimension it declared would
+        narrow nothing and report success.
+        """
+        if dimension not in self._INTENT_SCOPE_FIELDS:
+            raise KeyError(
+                f"{dimension!r} is not carried on the intent; intent scope is "
+                f"{', '.join(sorted(self._INTENT_SCOPE_FIELDS))}"
+            )
+        return str(getattr(self, self._INTENT_SCOPE_FIELDS[dimension]) or "").strip()
 
     def __post_init__(self) -> None:
+        if self.published_since:
+            date.fromisoformat(self.published_since)
         if self.evidence_domain and self.evidence_domain not in EVIDENCE_DOMAINS:
             raise ValueError(f"unknown retrieval evidence domain: {self.evidence_domain}")
 
@@ -251,6 +379,62 @@ class DevelopmentRecord:
             raise ValueError(f"unknown source role: {self.source_role}")
 
 
+#: Spatial dimensions a WHO GHO row can carry. A row is only usable when it names a
+#: place: a global aggregate answers a different question from a country reading, and
+#: mixing the two in one table produces a total nobody asked for.
+INDICATOR_SPATIAL_TYPES = frozenset({"COUNTRY", "REGION"})
+
+
+@dataclass(frozen=True)
+class IndicatorRecord:
+    """One measured quantity, for one place, in one year.
+
+    The third member of the record family, beside `DevelopmentRecord` and
+    `SafetyObservationRecord`, and the same contract: an adapter populates only what the
+    provider stated. No interpolation between years, no aggregation across countries, no
+    filling a missing value from a neighbouring one. A statistics database is exact about
+    what it does not have, and a record that smooths over that is worse than a gap.
+    """
+
+    indicator_code: str
+    indicator_name: str
+    #: ISO3 country code, or a WHO region code. `spatial_type` says which.
+    place: str
+    spatial_type: str
+    year: int
+    #: The provider's own numeric reading. `None` when the row carries a value that is
+    #: not a number, which GHO does for suppressed and not-applicable readings.
+    value: float | None = None
+    #: The provider's own text for the value, kept because it may say "<0.1" or "No data"
+    #: where the numeric field is empty, and that is a fact rather than an absence.
+    value_text: str = ""
+    #: WHO region the place sits in, when the row states it.
+    parent_place: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "indicator_code", self.indicator_code.strip())
+        object.__setattr__(self, "indicator_name", " ".join(self.indicator_name.split()))
+        object.__setattr__(self, "place", self.place.strip().upper())
+        object.__setattr__(self, "spatial_type", self.spatial_type.strip().upper())
+        object.__setattr__(self, "value_text", " ".join(self.value_text.split()))
+        object.__setattr__(self, "parent_place", " ".join(self.parent_place.split()))
+        if not self.indicator_code:
+            raise ValueError("indicator record requires an indicator code")
+        if not self.place:
+            raise ValueError("indicator record requires a place")
+        if self.spatial_type not in INDICATOR_SPATIAL_TYPES:
+            raise ValueError(
+                f"unknown indicator spatial type: {self.spatial_type!r}"
+            )
+        if self.year < 1900 or self.year > 2100:
+            raise ValueError(f"implausible indicator year: {self.year}")
+        if self.value is None and not self.value_text:
+            raise ValueError(
+                "an indicator record with neither a number nor the provider's own text "
+                "records nothing"
+            )
+
+
 @dataclass(frozen=True)
 class SafetyObservationRecord:
     """One structured, non-causal safety observation from a source record."""
@@ -305,6 +489,7 @@ class Finding:
     evidence_role: str = "evidence"  # evidence | reference
     development_records: list[DevelopmentRecord] = field(default_factory=list)
     safety_observations: list[SafetyObservationRecord] = field(default_factory=list)
+    indicator_records: list[IndicatorRecord] = field(default_factory=list)
     # URL deduplication must not erase how a source was discovered. ``query``
     # and ``source`` remain the primary values for compatibility; these lists
     # retain every retrieval path merged into the Finding.
@@ -323,6 +508,7 @@ class Finding:
             raise ValueError(f"unknown finding evidence role: {self.evidence_role}")
         self.development_records = list(dict.fromkeys(self.development_records))
         self.safety_observations = list(dict.fromkeys(self.safety_observations))
+        self.indicator_records = list(dict.fromkeys(self.indicator_records))
         if self.query and self.query not in self.queries:
             self.queries.insert(0, self.query)
         if self.source and self.source not in self.source_lanes:

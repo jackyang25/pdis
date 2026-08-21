@@ -43,6 +43,11 @@ class OpenTargetsSource:
             url="https://platform.opentargets.org/",
             prefix="Target-disease evidence provided by",
         ),
+        evidence_class="molecular",
+        jurisdiction="global",
+        reads=("subject", "condition"),
+        feeds=("insights",),
+        max_results=MAX_RESULTS,
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:

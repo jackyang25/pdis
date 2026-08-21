@@ -25,6 +25,96 @@ VOCAB = ROOT / "shared" / "indications.yaml"
 SERVICES = ROOT / "services"
 
 
+#: Classes whose indication set is narrower than every other non-vaccine class, and the
+#: question that raises.
+#:
+#: `drug`, `diagnostic` and `monoclonal_antibody` all declare exactly malaria, HIV and
+#: tuberculosis. `device` declares malaria alone, while carrying a full set of Inspector
+#: and Scout configs - so a device run can only ever be about malaria however the
+#: document is written.
+#:
+#: Recorded rather than filled in. Which indications a class serves is a statement about
+#: the portfolio, and nothing in this repository states it: the device configs describe
+#: how to judge a device and never name a disease. Inventing two entries here would put
+#: an unsourced claim about the portfolio into the vocabulary every output is stamped
+#: with.
+NARROWER_THAN_PEERS = {
+    "device": "declares malaria alone where drug, diagnostic and monoclonal_antibody share malaria, HIV and tuberculosis",
+}
+
+#: What the non-vaccine classes share, and the baseline `NARROWER_THAN_PEERS` is measured
+#: against. Vaccine is deliberately excluded: its set is a superset, which is a portfolio
+#: fact rather than an inconsistency.
+PEER_BASELINE = ("malaria", "hiv", "tuberculosis")
+
+
+def _configured_intervention_classes() -> set[str]:
+    """Classes a tool can actually be run for, read from the config filenames.
+
+    `bmgf_<source_type>_<intervention_class>.yaml`, and the class may itself contain an
+    underscore, so it is everything after the second one.
+    """
+    classes: set[str] = set()
+    for service in ("inspector", "scout"):
+        for config in (SERVICES / service / "configs").glob("bmgf_*.yaml"):
+            parts = config.stem.split("_", 2)
+            if len(parts) == 3:
+                classes.add(parts[2])
+    return classes
+
+
+class CoverageTests(unittest.TestCase):
+    """A class a tool can be run for needs indications, or the run cannot be configured."""
+
+    def test_every_configured_class_has_at_least_one_indication(self) -> None:
+        for intervention_class in sorted(_configured_intervention_classes()):
+            with self.subTest(intervention_class=intervention_class):
+                self.assertTrue(
+                    indications_for(intervention_class),
+                    f"{intervention_class} has configs but no indication, so its "
+                    "dropdown is empty and no run can be started",
+                )
+
+    def test_every_declared_class_is_one_a_tool_can_run(self) -> None:
+        """An indication set for a class with no config is a dropdown to nowhere."""
+        configured = _configured_intervention_classes()
+        self.assertEqual(sorted(intervention_classes() - configured), [])
+
+    def test_the_peer_baseline_is_what_the_peers_actually_share(self) -> None:
+        """So the baseline cannot drift from the file it describes."""
+        peers = [
+            intervention_class
+            for intervention_class in intervention_classes()
+            if intervention_class not in {"vaccine"} | set(NARROWER_THAN_PEERS)
+        ]
+        self.assertTrue(peers)
+        for intervention_class in peers:
+            with self.subTest(intervention_class=intervention_class):
+                self.assertEqual(
+                    sorted(indications_for(intervention_class)), sorted(PEER_BASELINE)
+                )
+
+    def test_a_narrower_class_is_still_narrower(self) -> None:
+        for intervention_class in NARROWER_THAN_PEERS:
+            with self.subTest(intervention_class=intervention_class):
+                self.assertLess(
+                    len(indications_for(intervention_class)), len(PEER_BASELINE)
+                )
+
+    def test_a_class_that_caught_up_leaves_the_list(self) -> None:
+        """So the note cannot outlive the gap and understate what a run can cover."""
+        stale = [
+            intervention_class
+            for intervention_class in NARROWER_THAN_PEERS
+            if len(indications_for(intervention_class)) >= len(PEER_BASELINE)
+        ]
+        self.assertEqual(stale, [])
+
+    def test_vaccine_is_a_superset_of_the_baseline(self) -> None:
+        """A broader set is a portfolio fact; a set missing the baseline is a gap."""
+        self.assertLessEqual(set(PEER_BASELINE), set(indications_for("vaccine")))
+
+
 class TagShapeTests(unittest.TestCase):
     def tags(self) -> set[str]:
         return {

@@ -297,6 +297,8 @@ function hasCompleteProjectionRoleContract(value: unknown): boolean {
   const relationships = new Set([
     "direct", "analogous", "adjacent", "unrelated", "unknown",
   ]);
+  // Burden indicators are deliberately absent: a disease reading is not experimental or
+  // comparator, and not direct or analogous to a target. It carries no role to check.
   const projections = [result?.development_landscape, result?.safety_observations];
   return projections.every((items) => Array.isArray(items) && items.every((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return false;

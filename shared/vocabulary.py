@@ -22,6 +22,112 @@ import yaml
 
 INDICATIONS_VOCAB = Path(__file__).resolve().parent / "indications.yaml"
 
+#: What kind of evidence a retrieval source owns.
+#:
+#: One class per source, and the class is the source's responsibility rather than a
+#: description of it: two sources in one class are alternatives, and a class with no
+#: source is a hole a reader cannot see. Declared here because coverage is judged
+#: across sources and no single source can state it.
+#:
+#: `epidemiology` is how much of the problem there is, and where. It answers a different
+#: question from every other class: the rest report what someone did, claimed or
+#: recommended, while this reports a measured quantity in a place. A target profile saying
+#: "reduce cases by thirty per cent in sub-Saharan Africa" states a claim about that
+#: quantity, and nothing else here supplies the number it is measured against.
+#:
+#: `guidance` is an authority's normative position - what should be done - as distinct
+#: from `regulatory`, which is what has been permitted. The test that separates them: a
+#: reader asking what a label allows would not accept what WHO recommends, and vice
+#: versa. Two sources in one class have to be alternatives.
+#:
+#: `general` is the web, which is not a class so much as the absence of one - it is
+#: whatever the classes below do not reach, which is exactly why a gap in them shows
+#: up as web prose rather than as an absence.
+EVIDENCE_CLASSES = frozenset(
+    {
+        "general",
+        "literature",
+        "registry",
+        "regulatory",
+        "access",
+        "molecular",
+        "news",
+        "guidance",
+        "epidemiology",
+    }
+)
+
+#: Whose evidence a source holds.
+#:
+#: Not a country list: the question a reader asks is whether a finding describes the
+#: setting they are deciding for, and "US" and "LMIC" answer that where "openFDA"
+#: does not. `multi` is a source spanning several jurisdictions without aggregating
+#: them into one; `global` is a source with no jurisdiction of its own.
+JURISDICTIONS = frozenset({"global", "multi", "us", "eu", "uk", "lmic"})
+
+#: What a request can state about the search, beyond its text.
+#:
+#: The other half of the wire. `DOWNSTREAM_OUTPUTS` says where a lane's findings go;
+#: this says what a lane can be told. Both are declared on the same spec so a lane's
+#: place in the pipeline is one thing to read rather than two to infer.
+#:
+#: Named as one vocabulary because the alternative is what it replaced: `condition`
+#: lived on the intent, `population` on a query facet, subjects in `entities`, and the
+#: region a document states lived nowhere. Four mechanisms for one idea, and the one
+#: that was missing was invisible because nothing enumerated the set.
+#:
+#:     text          the query prose itself; every lane reads this
+#:     condition     the disease or health problem, the anchor of a field-addressed request
+#:     intervention  the class of intervention - drug, vaccine, monoclonal antibody
+#:     product       one named product, narrowing the class rather than replacing it
+#:     population    who a result must describe
+#:     outcome        the property or endpoint measured
+#:     subject       a named gene, protein, compound or drug a lane addresses its API by
+#:     region        the countries or WHO regions a programme targets
+#:
+#: A dimension earns a place here once some lane can act on it. The document also states
+#: an epidemiological setting - endemic or epidemic, high or low transmission - and it is
+#: deliberately absent: no source has such a field, so naming it here would add a
+#: dimension nothing supplies and nothing consumes, kept alive by two entries in two gap
+#: lists. Add it when a lane can use it.
+SCOPE_DIMENSIONS = frozenset(
+    {
+        "text",
+        "condition",
+        "intervention",
+        "product",
+        "population",
+        "outcome",
+        "subject",
+        "region",
+    }
+)
+
+#: Where a scope value came from.
+#:
+#: Recorded per dimension because the alternative is a bag of strings nobody can audit.
+#: A blank condition chosen by a reader and a blank condition nothing ever supplied look
+#: identical in the value and mean opposite things: one is a deliberate widening, the
+#: other is a wire that was never connected.
+#:
+#:     header          a field the reader set for the run
+#:     document        derived from the uploaded document, and traceable to its blocks
+#:     config_default  supplied by the document type's configuration
+#:     unset           no supplier. The dimension widens the search rather than narrowing it
+SCOPE_PROVENANCE = frozenset({"header", "document", "config_default", "unset"})
+
+#: What a source's output reaches downstream.
+#:
+#: The wire, stated by the source that carries it. A source declaring nothing here
+#: produces findings that no consumer reads, which is not a small inefficiency: it is
+#: a lane a reader can enable, wait for, and be told nothing by.
+#:
+#:     insights   passages enter semantic reasoning (requires evidence_role "evidence")
+#:     landscape  structured development records enter the development landscape
+#:     safety     structured safety observations enter the safety projection
+#:     burden     structured indicator readings enter the disease-burden projection
+DOWNSTREAM_OUTPUTS = frozenset({"insights", "landscape", "safety", "burden"})
+
 EVIDENCE_DOMAINS = frozenset(
     {
         "general",

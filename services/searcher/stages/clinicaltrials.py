@@ -62,6 +62,7 @@ def fetch_clinicaltrials_studies(
     intervention: str,
     term: str,
     max_results: int,
+    region: str = "",
 ) -> list[dict]:
     """Return a bounded structured candidate set.
 
@@ -70,7 +71,7 @@ def fetch_clinicaltrials_studies(
     the first request should reach the provider.
     """
     with _FETCH_LOCK:
-        return _fetch_studies(condition, intervention, term, max_results)
+        return _fetch_studies(condition, intervention, term, max_results, region)
 
 
 @lru_cache(maxsize=512)
@@ -79,6 +80,7 @@ def _fetch_studies(
     intervention: str,
     term: str,
     max_results: int,
+    region: str = "",
 ) -> list[dict]:
     """Fetch raw studies for a structured (condition/intervention) or free-text
     query. Memoized by the full structured request.
@@ -92,6 +94,10 @@ def _fetch_studies(
         params["query.intr"] = intervention
     if term:
         params["query.term"] = term
+    if region:
+        # The provider's own location field. A region in `query.term` would match
+        # studies that mention the place, not studies running there.
+        params["query.locn"] = region
     url = f"{API_URL}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(
         url,

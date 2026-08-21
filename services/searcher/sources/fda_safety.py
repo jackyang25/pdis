@@ -69,6 +69,11 @@ class FDASafetySource:
             url="https://open.fda.gov/",
             prefix="Safety data provided by",
         ),
+        evidence_class="regulatory",
+        jurisdiction="us",
+        reads=("subject",),
+        feeds=("safety",),
+        max_results=MAX_RESULTS,
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:

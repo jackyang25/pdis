@@ -35,6 +35,18 @@ def source_keys() -> tuple[str, ...]:
     return tuple(SOURCE_REGISTRY)
 
 
+def lane_class(source_key: str) -> str:
+    """The evidence class one lane owns, or "general" for a lane not registered.
+
+    Exposed because two consumers group by it and neither may keep its own table: a
+    lane's class is declared once, on its spec, and read from here. An unregistered key
+    falls back rather than raising, since a consumer grouping historical findings may
+    hold a lane that has since been removed.
+    """
+    adapter = SOURCE_REGISTRY.get(source_key)
+    return adapter.spec.evidence_class if adapter else "general"
+
+
 def integration_operations(integration_key: str) -> tuple[str, ...]:
     """Return the stable allowlist declared by adapters using an integration."""
     return tuple(

@@ -67,6 +67,10 @@ def list_sources() -> list[SearchSourceOut]:
             configured=(not source.integration_key or source.integration_key in integrations),
             evidence_domains=list(source.evidence_domains),
             required_entity_types=list(source.required_entity_types),
+            reads=list(source.reads),
+            evidence_class=source.evidence_class,
+            jurisdiction=source.jurisdiction,
+            honors_date_bound=source.honors_date_bound,
             attribution=(
                 SourceAttributionOut(
                     label=source.attribution.label,
@@ -92,7 +96,7 @@ async def run_searcher(
     intervention: str = Form(""),
     # The fourth slot of the one request. Sent as `name:type` pairs so a caller states
     # the type rather than the server guessing it: `BRAF` is a gene here and a protein
-    # there, and which one decides whether Open Targets or UniProt can address it.
+    # there, and which one decides whether Open Targets or ChEMBL can address it.
     entities: str = Form(""),
     # One named product, narrowing the request the intervention class scopes. Distinct
     # from `intervention`, which is the class: a source issues both requests.
@@ -101,6 +105,12 @@ async def run_searcher(
     # phrase a query asks about; the structured sources have no such field.
     population: str = Form(""),
     outcome: str = Form(""),
+    # The window, stated to the provider rather than applied to its answer. Only lanes
+    # declaring `honors_date_bound` can act on it; the rest ignore it.
+    # Scopes the run, not one query, so a source with a location field can restrict on
+    # it rather than matching the place name as text.
+    region: str = Form(""),
+    published_since: str = Form(""),
 ) -> StreamingResponse:
     requested = tuple(source.strip() for source in sources.split(",") if source.strip())
     try:
@@ -133,6 +143,8 @@ async def run_searcher(
             intervention=intervention.strip() or None,
             entities=stated_entities,
             product=product.strip() or None,
+            region=region.strip(),
+            published_since=published_since.strip(),
             population=population.strip() or None,
             outcome=outcome.strip() or None,
             progress_callback=progress,

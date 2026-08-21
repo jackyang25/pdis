@@ -53,6 +53,168 @@ benchmark read without it answers a different question, and each
 `SearchTrace.excluded_before_window` names the subset of that trace's
 `source_urls` the window held out.
 
+## Retrieval coverage
+
+Twelve lanes across six evidence classes, declared on each `SourceSpec` and checked in
+`tests/test_retrieval_coverage.py`. Two classes have no lane and are declared gaps:
+`access`, because the ToolUniverse catalogue exposes no procurement or financing tool,
+and `news`, which the web lane's program query set reaches instead. No lane holds `lmic`
+jurisdiction, for the same reason - no WHO ICTRP, CTRI, ChiCTR, ReBEC or PACTR tool is
+exposed, and no national regulator outside the US. WHO Guidelines covers the normative
+half of that gap at global scope, which is what LMIC ministries and procurement bodies
+actually follow.
+
+## Two ledgers
+
+A run derives two authoritative statements from its document, and they are separate
+because their consumers and their failure modes are.
+
+Three projections group findings by the thing itself rather than by the variable that
+retrieved them: `development_landscape` by program, `safety_observations` by observation,
+and `burden_indicators` by indicator. Each is fed by a typed record an adapter built from
+provider fields, never by a model reading prose - the one exception is
+`announcement_reader`, which exists because a press release has no fields to map.
+
+Burden indicators are the only projection that is not role-classified. A disease reading
+is not experimental or comparator, and not direct or analogous to a target; it is a
+measured quantity, so what it owes is identity, traceable readings and sources.
+
+| Ledger | Answers | Read by | A wrong value gives you |
+|---|---|---|---|
+| `QuantitativeLedger` | what the document claims numerically | conformity, assessment | a wrong verdict on the right evidence |
+| `RetrievalScopeLedger` | what the run is about | intent building, retrieval | a confident verdict on the wrong evidence |
+
+Both record provenance per item rather than a bare value. The numeric ledger requires a
+traced quote; the scope ledger requires a `provenance` of `header`, `document`,
+`config_default` or `unset`, and a `document` value must cite the blocks it was read
+from. An untraceable reading is not a reading.
+
+The scope ledger states every dimension in `RUN_SCOPE_DIMENSIONS`, including the ones
+nothing supplies. An absent entry and an `unset` one carry the same empty value and mean
+opposite things: one is a dimension nobody wired, the other is a reader deliberately
+widening the search. Requiring the entry is what keeps the first case visible.
+
+`region` is supplied by the document, not the run header. Whichever attribute declares
+`supplies_scope: region` in `shared/attributes.yaml` is the supplier, and
+`scope_resolver` normalises its bound `document_target` into a phrase a provider's
+location field can index. The declaration matters: a stage matching `*.target_countries`
+by name works until an intervention class names it something else, and then finds nothing
+and reports success.
+
+That stage is a normalisation, not an extraction - the geography is already bound and
+cited by the target resolver. What it decides is narrower: whether the text names an
+indexable place. "LMIC focus, Gavi-eligible countries" is a real document target and not
+a location any registry holds, so the honest answer is that this document narrows nothing
+and `region` stays `unset`. Diagnostic has no geography variable at all, so its region is
+always unset - a vocabulary gap left as a finding, since adding a variable changes what
+every diagnostic run analyses.
+
+`build_retrieval_intents` takes the ledger rather than a parameter per dimension. Loose
+parameters are how `region` went missing - adding a dimension meant adding an argument,
+threading it through the caller, and remembering both, and nothing failed when you did
+neither. A ledger is complete by construction.
+
+Which dimensions are run scope and which are not is itself a decision: `text` is an
+intent's own subject, `population` and `outcome` vary between the queries of one intent,
+and `product` narrows a single request. None of them is a property of the run.
+`tests/test_retrieval_coverage.py` closes the loop from both ends - a dimension supplied
+but readable by no lane, and a dimension readable but supplied by nothing, both fail.
+
+## Program scope
+
+Every query belongs to a document variable, and every finding is filed under one. One
+kind of question does not fit: "has anything been announced about this program" gives the
+same answer whether you asked it while reading efficacy or cold chain. Asked as a track
+it would be asked once per variable, twenty times, for one answer.
+
+Those intents carry `scope_ref = PROGRAM_SCOPE_KEY` instead. The seam needs no new
+structure, and each claim it rests on is checked in
+`tests/test_scout_program_scope.py`:
+
+- `findings_by_attribute` is keyed by `scope_ref`, so the key is simply another key.
+- Insight extraction excludes it, because an insight is a statement about one variable.
+  The result assembly already refuses an insight naming an unknown field, so the filter
+  turns a runtime failure into a stated rule rather than adding a new guarantee.
+- The development landscape groups by program name and ignores the key, so these findings
+  reach it unchanged.
+- The label layer names it "Program-wide", so it does not read as a variable the document
+  does not have.
+
+An announcement arrives as prose, and the landscape groups by program name, so
+`announcement_reader` reads the name out of it - one call per announcement, since it is a
+per-item decision. It cannot be the adapter's job: Searcher fetches, Scout interprets, and
+a model call inside an adapter would erase that line.
+
+News is not a second surface. `DevelopmentProgram` is a grouping of source-normalized
+records, and a press release states the same kind of fact about the same programs: name,
+sponsor, phase. The difference is reliability, not kind, and `evidence_role` already
+carries reliability. A reader asking what competitors are doing should look in one place.
+
+So the row shows what it rests on. `record_types` is rendered per program, because "Phase
+3" from a registry and "Phase 3" from a company announcement are the same string and not
+equally checkable. The reader also reports a pair - announcements read, and how many named
+a program - because an announcement naming none leaves no row, so without the attempts a
+weak reading and a quiet week produce the same empty view.
+
+The only required field is the program name. A record may not infer a missing sponsor,
+phase or status, so a release naming only a candidate yields a row with that candidate and
+dashes in the rest.
+
+`PROGRAM_QUERY_SETS` declares what qualifies, and the test each entry had to pass:
+**does the answer change if you ask it about a different variable?** The competitor sweep
+fails that test and stays per-variable - ClinicalTrials receives an identical request for
+every attribute, but the provider is hit once and each attribute ranks the same candidates
+against its own queries, so the twenty it keeps differ. Regulatory approvals, precedent
+and safety signals fail it for the same reason.
+
+Each set also declares which lanes it is planned against. `events` targets the web lane
+alone: the registries already receive this program's sweep once per attribute, and a
+literature index does not hold press releases.
+
+## Coverage tracks
+
+The geographic track is the one that is about place, so it is the only one the scope
+ledger reaches. It takes two halves and needs both: the config's `priority_institutions`
+and `languages` are the **comparator set**, a declared statement of which settings this
+programme is judged against and stable across runs; `region` is what the **document
+itself** states, read from the attribute declaring `supplies_scope` and cited to its
+blocks.
+
+Given only the first half - which is what it had - this track asked about China, India,
+Indonesia and Brazil for a sub-Saharan Africa programme, and wrote its native-language
+queries in Chinese and Indonesian. Given only the second it would lose the comparators,
+and a target has to be read against settings other than its own. So the region is
+additive here exactly as this track is additive to the general one.
+
+Languages stay declared. The region narrows which configured languages to spend budget
+on; it never licenses one the configuration does not list. A language list is domain
+knowledge, and letting a model choose freely would change the query set between runs.
+
+`general`, `counterfactual` and `precedent` do not receive the region on purpose: they are
+broad by design, and narrowing them to one geography answers a smaller question than the
+one asked.
+
+The ledger is resolved **before** query generation for this reason. Two layers read it -
+the query prompts and the source adapters - and resolving it beside retrieval reached only
+the second. That was the shape of the bug: the filters worked, the tests passed, and the
+queries were aimed at the wrong places.
+
+
+Four tracks per variable, additive rather than substituted, and the split is declared
+once in `QUERY_TRACK_BUDGET` with the reasoning for each share:
+
+| Track | Queries | Axis | Why this share |
+|---|---|---|---|
+| general | 8 | what is known | The baseline every other track qualifies, and the only one covering content, source and language at once |
+| geographic | 6 | where it holds | The stated mission, and now informed by the document's own region rather than a fixed list |
+| counterfactual | 4 | whether it holds at all | The check that stops an optimistic reading, which is the failure a reader cannot see |
+| precedent | 3 | whether it was tried | Real value, least time-sensitive of the four |
+
+All eleven configs previously held the same four numbers with nothing stating them, so
+the balance was a coincidence eleven files agreed on rather than a decision anyone could
+review. A config may still override a share, and doing so now means something: that this
+document type needs a different balance.
+
 ## Request scope
 
 `batching.py` owns one rule for every model stage: a request may contain several

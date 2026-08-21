@@ -31,6 +31,8 @@ def run_pipeline(
     product: str | None = None,
     population: str | None = None,
     outcome: str | None = None,
+    region: str = "",
+    published_since: str = "",
     raise_source_errors: bool = False,
     progress_callback=None,
 ) -> SearchReport:
@@ -69,6 +71,12 @@ def run_pipeline(
         outcome: What is being measured. Read before `population` when a
             literature adapter picks the one phrase a query asks about, because
             it names the question more specifically than its subjects do.
+        region: Countries or WHO regions the caller is deciding for. Scopes the whole
+            run rather than one query, and reaches a provider's own location field
+            where it has one. Sources without such a field ignore it.
+        published_since: ISO date bound, or "" for none. Passed to the provider by
+            sources declaring `honors_date_bound`, which is the only place a bound
+            changes what gets ranked rather than only what survives.
         raise_source_errors: Re-raise any adapter failures. Defaults to the
             standalone Searcher's graceful partial-result behavior.
         progress_callback: Optional callable for streaming progress
@@ -89,6 +97,8 @@ def run_pipeline(
         indication=condition or "",
         intervention_class=intervention or "",
         entities=tuple(entities),
+        region=region,
+        published_since=published_since,
         queries=(
             SourceQueryIntent(
                 text=query,

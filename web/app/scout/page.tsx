@@ -39,7 +39,9 @@ import {
   continueScout,
   runScout,
   type Conformity,
+  type BurdenIndicator,
   type DevelopmentProgram,
+  type FunnelStats,
   type EvidenceAssessment,
   type Finding,
   type Header,
@@ -84,7 +86,11 @@ import {
   unpackScoutResult,
   readResultIdentity,
 } from "@/lib/result-file";
-import { displayAttributeLabel, sourceDisplayLabel } from "@/lib/scout-labels";
+import {
+  displayAttributeLabel,
+  displayRecordTypeLabel,
+  sourceDisplayLabel,
+} from "@/lib/scout-labels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScoutDocumentTrace } from "@/components/scout-document-trace";
 import {
@@ -1892,6 +1898,7 @@ function FieldGrid({
   const variables = result.variables ?? [];
   const developmentLandscape = result.development_landscape ?? [];
   const safetyObservations = result.safety_observations ?? [];
+  const burdenIndicators = result.burden_indicators ?? [];
   const [query, setQuery] = useState("");
   const [relationFilter, setRelationFilter] = useState<"all" | Match["relation"]>("all");
   const [resultTab, setResultTab] = useState("fields");
@@ -2007,6 +2014,9 @@ function FieldGrid({
               {safetyObservations.length > 0 && (
                 <TabsTrigger value="safety">Safety</TabsTrigger>
               )}
+              {burdenIndicators.length > 0 && (
+                <TabsTrigger value="burden">Burden</TabsTrigger>
+              )}
               <TabsTrigger value="map">Evidence map</TabsTrigger>
               <TabsTrigger value="trace">Documents</TabsTrigger>
             </TabsList>
@@ -2117,12 +2127,20 @@ function FieldGrid({
           </TabsContent>
           {developmentLandscape.length > 0 && (
             <TabsContent value="landscape" className="mt-0">
-              <DevelopmentLandscape programs={developmentLandscape} />
+              <DevelopmentLandscape
+                programs={developmentLandscape}
+                stats={result.stats}
+              />
             </TabsContent>
           )}
           {safetyObservations.length > 0 && (
             <TabsContent value="safety" className="mt-0">
               <SafetyObservations observations={safetyObservations} />
+            </TabsContent>
+          )}
+          {burdenIndicators.length > 0 && (
+            <TabsContent value="burden" className="mt-0">
+              <BurdenIndicators indicators={burdenIndicators} />
             </TabsContent>
           )}
           <TabsContent value="map" className="mt-0">
@@ -2257,7 +2275,152 @@ function ContextualProjectionNote({
   );
 }
 
-function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) {
+/**
+ * How many announcements were read, and how many named a program.
+ *
+ * Stated because the landscape cannot say it. An announcement naming no program leaves no
+ * row, so a weak reading and a quiet week produce the same empty view. The pair separates
+ * them: "18 announcements read, 4 named a program" is a different fact from "4 read, 4
+ * named", and only one of them means the retrieval found little.
+ */
+function AnnouncementReading({ stats }: { stats?: FunnelStats }) {
+  const read = stats?.announcements_read ?? 0;
+  if (read === 0) return null;
+  const named = stats?.announcements_named ?? 0;
+  return (
+    <p className="px-5 pb-4 text-[11px] text-muted-foreground sm:px-6">
+      {read.toLocaleString()} announcement{read === 1 ? "" : "s"} read,{" "}
+      {named.toLocaleString()} named a program. An announcement naming none has no row
+      here.
+    </p>
+  );
+}
+
+/**
+ * Disease burden: one row per indicator, its readings beneath.
+ *
+ * No total and no headline number. The readings are whichever countries the provider
+ * returned within the row budget, so a sum would read as a total for the disease and a
+ * single "current" figure would hide which country it came from. What a reader gets is
+ * the indicator, how many places reported, the latest year, and every reading.
+ *
+ * Values are the provider's own text rather than the parsed number: GHO writes
+ * "10 638 498" and also writes "<0.1" and "No data", and re-formatting the first would
+ * mean choosing a rendering for the others.
+ */
+function BurdenIndicators({ indicators }: { indicators: BurdenIndicator[] }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const visible = indicators.filter(
+    (indicator) =>
+      !normalizedQuery ||
+      [indicator.indicator_name, indicator.indicator_code]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery) ||
+      indicator.readings.some((reading) =>
+        `${reading.place} ${reading.parent_place}`
+          .toLowerCase()
+          .includes(normalizedQuery),
+      ),
+  );
+  return (
+    <section>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/80 px-5 py-3 sm:px-6">
+        <input
+          type="text"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Find an indicator or a country…"
+          aria-label="Search burden indicators"
+          className="h-9 w-full max-w-sm rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20"
+        />
+        <span className="text-[11px] text-muted-foreground">
+          {visible.length} of {indicators.length} indicators
+        </span>
+      </div>
+      {visible.map((indicator) => (
+        <details
+          key={indicator.projection_id}
+          className="group/indicator border-b border-border/80 last:border-b-0"
+        >
+          <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/indicator:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold leading-snug text-foreground">
+                {indicator.indicator_name || indicator.indicator_code}
+              </h3>
+              <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                {indicator.indicator_code}
+              </p>
+              <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-3">
+                <SignalSummary
+                  label="Places reporting"
+                  value={String(
+                    new Set(indicator.readings.map((reading) => reading.place)).size,
+                  )}
+                />
+                <SignalSummary
+                  label="Latest year"
+                  value={String(
+                    indicator.readings.reduce(
+                      (latest, reading) => Math.max(latest, reading.year),
+                      0,
+                    ) || "—",
+                  )}
+                />
+                <SignalSummary
+                  label="Readings"
+                  value={String(indicator.readings.length)}
+                />
+              </div>
+            </div>
+            <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/indicator:rotate-180 motion-reduce:transition-none" />
+          </summary>
+          <div
+            className={cn(
+              "border-t border-border/70 bg-muted/15 px-5 py-4 sm:px-6",
+              DISCLOSURE_MOTION,
+            )}
+          >
+            <ul className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+              {indicator.readings.map((reading) => (
+                <li
+                  key={`${reading.place}-${reading.year}`}
+                  className="flex items-baseline justify-between gap-3 text-xs"
+                >
+                  <span className="text-muted-foreground">
+                    <span className="font-mono text-foreground">{reading.place}</span>
+                    {reading.parent_place ? ` · ${reading.parent_place}` : ""}
+                    {` · ${reading.year}`}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-foreground">
+                    {reading.value_text || "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4">
+              <SourceList findings={indicator.supporting_findings} />
+            </div>
+          </div>
+        </details>
+      ))}
+      {visible.length === 0 && (
+        <p className="px-6 py-10 text-center text-sm text-muted-foreground">
+          No indicators match this view.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function DevelopmentLandscape({
+  programs,
+  stats,
+}: {
+  programs: DevelopmentProgram[];
+  stats?: FunnelStats;
+}) {
   const [query, setQuery] = useState("");
   const [relationship, setRelationship] =
     useState<ProjectionRelationshipFilter>("all");
@@ -2293,10 +2456,21 @@ function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) 
                 relationship={program.target_relationship}
                 sourceRole={program.source_role}
               />
-              <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-3">
+              <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-4">
                 <SignalSummary label="Sponsor" value={program.sponsors.join(" · ") || "—"} />
                 <SignalSummary label="Phase" value={program.phases.join(" · ") || "—"} />
                 <SignalSummary label="Status" value={program.statuses.join(" · ") || "—"} />
+                {/*
+                  What the row rests on. Without it, a phase a registry holds and a phase
+                  a company announced read identically, and they are not equally
+                  checkable.
+                */}
+                <SignalSummary
+                  label="From"
+                  value={
+                    program.record_types.map(displayRecordTypeLabel).join(" · ") || "—"
+                  }
+                />
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-3">
@@ -2330,6 +2504,7 @@ function DevelopmentLandscape({ programs }: { programs: DevelopmentProgram[] }) 
           No development records match this view.
         </p>
       )}
+      <AnnouncementReading stats={stats} />
     </section>
   );
 }
@@ -3061,9 +3236,10 @@ function ScoutConfiguration({
             max={new Date().toISOString().slice(0, 10)}
           />
           <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-            Only evidence published on or after this date enters the run. Anything
-            older is dropped, so no count or benchmark includes it. Sources that
-            publish no date, such as web pages, are still included.
+            Only evidence published on or after this date enters the run, so no count or
+            benchmark includes anything older. Sources that can filter by date ask for the
+            window directly, which changes what they rank rather than only what survives.
+            Sources that publish no date, such as web pages, are still included.
           </p>
         </ConfigField>
       </ConfigFieldGrid>

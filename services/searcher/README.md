@@ -36,6 +36,13 @@ they do different work: the class scopes the request, and the product is added b
 as a narrower one, so a name a registry files differently still returns the broader
 result. Passing a product in place of a class loses that broader request.
 
+A date bound is stated on the intent, not written into the query. An index reads a
+year as a term to match, so `2026` in a query finds records that mention it rather
+than records published in it; `published_since` reaches a source's own date parameter
+instead. A source declares `honors_date_bound` when it can apply the bound at the
+provider, which changes what gets ranked; the rest are filtered after retrieval, which
+only changes what survives. The caller's own filter stays as the backstop for both.
+
 `entities` are the named subjects a source may address its API by. A source declaring
 `required_entity_types` plans nothing without one, because it has no subject to name,
 so a caller passing none is limited to the sources that read prose. Scout takes these
@@ -88,15 +95,106 @@ follows what its grammar expresses losslessly rather than how many queries arriv
 
 ## Sources
 
-| Boundary | Sources |
-|---|---|
-| Direct | OpenAI web search, PubMed/PMC, ClinicalTrials.gov |
-| ToolUniverse literature and trials | CTIS, ISRCTN, Semantic Scholar |
-| ToolUniverse biological and regulatory | Open Targets, ChEMBL, UniProt, FDA, FDA Safety |
+Every lane declares what it is responsible for, whose setting it describes, and
+what its output reaches. The declaration is on its `SourceSpec`, and
+`tests/test_retrieval_coverage.py` checks each declaration against its adapter. The
+table below restates those fields for a reader, so it can fall behind them - the specs
+are the authority, and the tests are what keep them honest.
 
-Specialized sources declare supported evidence domains and entity requirements.
-Reference-only catalog records remain available for deterministic views but do
-not enter Scout evidence reasoning.
+| Lane | Class | Jurisdiction | Reads | Feeds |
+|---|---|---|---|---|
+| Web | general | global | text | insights |
+| PubMed | literature | global | text, condition, intervention, product, population, outcome, subject | insights |
+| Semantic Scholar | literature | global | same as PubMed | insights |
+| Europe PMC | literature | global | same as PubMed | insights |
+| WHO Guidelines | guidance | global | text, condition | insights |
+| ClinicalTrials.gov | registry | us | text, condition, intervention, product, region | insights, landscape |
+| EU CTIS | registry | eu | text, condition | insights, landscape |
+| ISRCTN | registry | uk | text, condition, intervention, product, region | insights, landscape |
+| FDA Regulatory | regulatory | us | text, condition, intervention | insights, landscape |
+| FDA Safety | regulatory | us | subject | safety |
+| ChEMBL | molecular | global | subject | landscape |
+| Open Targets | molecular | global | subject, condition | insights |
+| WHO GHO | epidemiology | multi | text, condition | burden |
+
+`reads` and `feeds` are the two ends of one wire, and both may not be empty. `reads`
+is what a lane can be told; `feeds` is where its findings go. Declaring them together
+is what makes a hole visible from either side: a lane nothing reads, or a dimension no
+lane can act on.
+
+Europe PMC is a third literature lane and not a redundant one: it indexes what PubMed
+does and adds preprints from bioRxiv and medRxiv plus open-access full text. A trial
+result reaches a preprint server before a journal, so a set of lanes that sees only
+journals sees the competitive landscape late.
+
+WHO Guidelines is the only lane in the `guidance` class, which is separate from
+`regulatory` for a reason a reader can check: someone asking what a label permits would
+not accept a WHO recommendation, and someone asking what the recommended regimen is would
+not accept an FDA label. Sources in one class have to be alternatives.
+
+WHO GHO is the only lane in the `epidemiology` class, and it answers a different question
+from every other lane: not what someone did or claimed, but how much of the problem there
+is and where. That is what makes it worth a class - a profile stating "reduce cases by
+thirty per cent in sub-Saharan Africa" makes a claim about a quantity, and nothing else
+retrieved supplies the number the claim is measured against.
+
+It produces `IndicatorRecord`s rather than a passage, and feeds `burden` rather than
+`insights`. Nothing is interpolated: a country with no row for a year has no row, and a
+suppressed value keeps the provider's own text rather than becoming a zero. It is reached
+only from Scout's program scope, because how much disease there is does not change with
+the variable being read - planned per attribute it would repeat one answer for every
+variable, at two provider calls each.
+
+It is also the one lane that makes two calls per result. Its search returns a title and a
+URL and no text at all, so a finding built from that alone would be a title - and a lane
+whose findings carry no passage feeds nothing while declaring that it does. `MAX_RESULTS`
+is correspondingly small: WHO's guideline set for one condition is a curated handful
+rather than a corpus. A page that will not load degrades that finding to its title rather
+than failing the request.
+
+PubMed and Europe PMC declare `honors_date_bound`. The rest have the window applied after
+retrieval.
+
+`feeds` is the wire, and it may not be empty. A lane whose findings no consumer
+reads is a lane a reader can enable, wait for, and be told nothing by: UniProt was
+registered and enabled in seven configs while its `reference` findings were filtered
+out of insight extraction and it built no records, so it reached nothing. It has been
+removed, and `SourceSpec` now refuses a lane that declares no output.
+
+Reference-only records stay available to deterministic views but do not enter Scout
+evidence reasoning, so a lane whose every finding is `reference` must declare
+`landscape` or `safety` rather than `insights`.
+
+A narrowing adds a request beside the broad one and never replaces it. That is already
+`facet_groups`' rule for query facets, and it holds identically for a run-scope
+narrowing: a stated region produces the unscoped request *and* a region-restricted twin,
+because a programme aimed at one geography still has to be judged against trials run
+elsewhere. `tests/test_retrieval_coverage.py` holds this as a standard for every
+narrowing dimension rather than as a fact about one adapter.
+
+`region` is run scope, not a per-query facet, for the same reason `condition` is: it
+qualifies every query in a run, so stating it once is what lets an attribute whose own
+text never names a country still be searched in the right one. ClinicalTrials.gov reads
+it through the provider's own `query.locn`, and ISRCTN through `country`, which its tool
+compiles to `recruitmentCountry` - so the narrowed request asks where a trial recruited
+rather than where its text happens to mention a place. CTIS cannot: its `country`
+parameter takes Member State Concerned codes, so the only geographies it can be asked
+about are EU member states, and a programme's region usually is not one. That is a
+difference in kind rather than unfinished work, and it is declared in
+`REGION_UNWIRED_REGISTRIES`.
+
+Every dimension a caller can state now reaches at least one lane, so
+`MISSING_SCOPE_CONSUMERS` is empty. The document also states an epidemiological setting,
+and it is deliberately absent from `SCOPE_DIMENSIONS`: no source has such a field, so
+naming it would add a dimension nothing supplies and nothing consumes, kept alive by two
+gap entries. It goes in when a lane can use it.
+
+Two evidence classes have no lane and are declared as gaps in
+`tests/test_retrieval_coverage.py`: **access** (procurement and financing bodies) and
+**news** (company announcements). No lane holds `lmic` jurisdiction. These are the
+classes the Scout configs name as priority institutions, so today those queries reach
+only the web lane, whose excerpts are model-written and cannot support a quantitative
+claim. Closing a gap means deleting a line from that test.
 
 ## Development
 

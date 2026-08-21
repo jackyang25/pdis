@@ -52,6 +52,11 @@ class FDASource:
             url="https://open.fda.gov/",
             prefix="Regulatory data provided by",
         ),
+        evidence_class="regulatory",
+        jurisdiction="us",
+        reads=("text", "condition", "intervention"),
+        feeds=("insights", "landscape"),
+        max_results=MAX_RESULTS,
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:

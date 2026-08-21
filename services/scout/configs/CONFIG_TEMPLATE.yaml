@@ -13,7 +13,8 @@ sources:
   - ctis
   - isrctn
   - semantic_scholar
-  - uniprot
+  - europepmc
+  - who_guidelines
   - fda
   - fda_safety
 
@@ -51,12 +52,14 @@ languages:
   - zh
   - id
 
-queries_per_variable: 8
+# Queries per variable per coverage track. Omitted here on purpose: the split is
+# declared once in `QUERY_TRACK_BUDGET` with the reasoning for each share. Set one
+# of `queries_per_variable`, `geographic_queries_per_variable`,
+# `counterfactual_queries_per_variable` or `precedent_queries_per_variable` only to
+# state that this document type needs a different balance.
+
 geographic_emphasis:
   - global_south
-geographic_queries_per_variable: 4
-counterfactual_queries_per_variable: 3
-precedent_queries_per_variable: 3
 unit_provider: vocabulary  # vocabulary = fixed shared attribute list; extract = pull units from the document
 
 # Responsibility-specific document framing. Keep each focused on the named

@@ -16,6 +16,7 @@ from typing import Callable, TypeVar
 from services.chunker import ContentBlock, run_pipeline as chunker_run
 from services.searcher import (
     Finding,
+    lane_class,
     SearchRequest,
     SearchRuntime,
     merge_findings,
@@ -32,6 +33,8 @@ from .contract import validate_result_contract
 from shared.batching import budgeted_batches, fixed_batches, map_ordered
 from shared.vocabulary import search_term
 from .models import (
+    PROGRAM_SCOPE_KEY,
+    RetrievalScopeLedger,
     Attribute,
     ConformityScore,
     DocumentContextValidation,
@@ -49,7 +52,11 @@ from .models import (
     SearchTrace,
     load_attributes,
 )
-from .projections import build_development_landscape, build_safety_observations
+from .projections import (
+    build_burden_indicators,
+    build_development_landscape,
+    build_safety_observations,
+)
 from .stages.conformity import (
     assemble_quantitative_document_ledger,
     empty_conformity_scores,
@@ -67,8 +74,10 @@ from .stages.insight_extractor import extract_insights, merge_duplicate_insights
 from .stages.insight_reconciler import reconcile_duplicate_insights
 from .stages.precedent_classifier import classify_precedent
 from .stages.projection_classifier import classify_projection_relationships
+from .stages.announcement_reader import read_announcements
+from .stages.scope_resolver import resolve_retrieval_scope
 from .stages.query_extractor import extract_queries_for_variable
-from .stages.intent_builder import build_retrieval_intents
+from .stages.intent_builder import build_program_intents, build_retrieval_intents
 from .stages.target_resolver import resolve_document_targets
 from .stages.target_reviewer import prefill_target_review
 from .stages.unit_extractor import extract_units
@@ -314,6 +323,23 @@ def continue_pipeline(
     }
     attribute_images = _images_for_contexts(attribute_contexts, blocks)
 
+    # One statement of what this run is about, recorded with where each value came from.
+    # The header supplies the condition and class; the document supplies the geography,
+    # read from whichever attribute declares `supplies_scope` for it. A dimension nobody
+    # supplies is recorded unset rather than omitted, so it stays distinguishable from a
+    # reader who deliberately widened the search.
+    #
+    # Resolved here rather than beside retrieval, because two layers read it and both are
+    # downstream of this point: query generation, which needs the geography to write
+    # queries about the right places, and the adapters, which need it to filter. Resolved
+    # after retrieval it would reach only the second, which is what it used to do.
+    retrieval_scope = resolve_retrieval_scope(
+        prepared.variables,
+        openai_client,
+        condition=indication,
+        intervention_class=intervention_class,
+    )
+
     if progress_callback:
         progress_callback("queries")
     attribute_queries = _extract_queries_all_variables(
@@ -323,6 +349,7 @@ def continue_pipeline(
         openai_client,
         query_contexts=attribute_contexts,
         indication=indication,
+        scope=retrieval_scope,
         progress=progress_callback,
     )
     flat: list[tuple[str, QueryIntent]] = [
@@ -344,10 +371,18 @@ def continue_pipeline(
     retrieval_intents = build_retrieval_intents(
         attribute_queries,
         searchable_attributes,
-        indication=indication,
-        intervention_class=intervention_class,
+        scope=retrieval_scope,
+        published_since=prepared.published_since,
     )
     search_tasks = plan_requests(retrieval_intents, sources=config.sources)
+    # The run's own questions, planned against the lanes each set declares rather than
+    # against every configured source. Appended to the same task list so they share one
+    # execution, one date window and one deduplication pass - they are ordinary requests
+    # that happen to carry a different scope.
+    for program_intent, lanes in build_program_intents(
+        retrieval_scope, published_since=prepared.published_since
+    ):
+        search_tasks += plan_requests([program_intent], sources=lanes)
     findings_by_attribute, total_findings, search_plan = _search_all(
         search_tasks,
         retrieval_runtime,
@@ -367,8 +402,15 @@ def continue_pipeline(
 
     # Adapters own source-specific parsing. These views consume only normalized
     # records and therefore add no new model judgment or provider branch here.
+    # Program-scoped findings are prose, so the record the landscape groups by has to be
+    # read out of them. Before the landscape is built, and only for findings that carry
+    # no record yet.
+    announcements = read_announcements(
+        findings_by_attribute.get(PROGRAM_SCOPE_KEY, []), openai_client
+    )
     development_landscape = build_development_landscape(findings_by_attribute)
     safety_observations = build_safety_observations(findings_by_attribute)
+    burden_indicators = build_burden_indicators(findings_by_attribute)
     development_landscape, safety_observations = classify_projection_relationships(
         searchable_attributes,
         development_landscape,
@@ -486,6 +528,8 @@ def continue_pipeline(
         insights=len(insights),
         matches=len(matches),
         assessments=len(assessments),
+        announcements_read=announcements.read,
+        announcements_named=announcements.named,
     )
     has_evidence_review = any(
         measurement.admission_status == "needs_review"
@@ -501,6 +545,7 @@ def continue_pipeline(
         search_plan=search_plan,
         development_landscape=development_landscape,
         safety_observations=safety_observations,
+        burden_indicators=burden_indicators,
         context_validation=context_validation,
         quantitative_ledger=quantitative_ledger,
         variables=attributes,
@@ -618,6 +663,7 @@ def _extract_queries_all_variables(
     *,
     query_contexts: dict[str, str],
     indication: str,
+    scope: RetrievalScopeLedger,
     progress: ProgressFn | None = None,
 ) -> dict[str, list[QueryIntent]]:
     """Run query extraction across attribute variables with bounded concurrency."""
@@ -631,6 +677,7 @@ def _extract_queries_all_variables(
             config,
             openai_client,
             indication=indication,
+            scope=scope,
             queries_per_variable=config.queries_per_variable,
             document_context=query_contexts.get(attribute.name, ""),
         )
@@ -711,9 +758,17 @@ def _extract_insights_all_variables(
         return []
 
     # Flatten to independent (attribute_ref, batch) units in document-variable order.
+    #
+    # Program-scoped findings are excluded, not merely absent: an insight is a statement
+    # about one document variable, and these findings belong to no variable. Letting them
+    # through would produce an insight whose `attribute_ref` names no attribute, which
+    # the result assembly refuses outright - so the filter turns a runtime failure into a
+    # stated rule. Their route downstream is the development landscape, which groups by
+    # program name and does not read this key.
     batch_tasks: list[tuple[str, list[Finding]]] = [
         (attribute_ref, batch)
         for attribute_ref, findings in items
+        if attribute_ref != PROGRAM_SCOPE_KEY
         for batch in _finding_batches(
             [finding for finding in findings if finding.evidence_role == "evidence"]
         )
@@ -750,6 +805,37 @@ def _extract_insights_all_variables(
     )
 
 
+def _interleave_by_evidence_class(findings: list[Finding]) -> list[Finding]:
+    """Round-robin findings across the evidence classes present, in arrival order.
+
+    Retrieval returns lane by lane, so a batch built straight from arrival order holds
+    one class: a prompt of twenty abstracts, then a prompt of twenty trial records.
+    Nothing is lost that way - `budgeted_batches` keeps every finding - but no prompt
+    ever holds a registry record beside the literature it should be read against, and
+    a comparison the model cannot see in one prompt is one it cannot make.
+
+    Round-robin rather than a share: a share would have to decide how much each class
+    deserves, and that is a judgement no batcher can make. Alternating spends the same
+    budget on the same findings and only changes which ones arrive together, so a class
+    returning two findings is not thereby ranked below one returning twenty.
+
+    Order within a class is preserved, so each lane's own relevance ranking survives.
+    """
+    by_class: dict[str, list[Finding]] = {}
+    for finding in findings:
+        by_class.setdefault(lane_class(finding.source), []).append(finding)
+    if len(by_class) < 2:
+        return list(findings)
+    queues = list(by_class.values())
+    interleaved: list[Finding] = []
+    while queues:
+        for queue in list(queues):
+            interleaved.append(queue.pop(0))
+            if not queue:
+                queues.remove(queue)
+    return interleaved
+
+
 def _finding_batches(findings: list[Finding]) -> list[list[Finding]]:
     """Partition findings without dropping any source or overfilling one prompt."""
     def rendered_size(finding: Finding) -> int:
@@ -761,7 +847,7 @@ def _finding_batches(findings: list[Finding]) -> list[list[Finding]]:
         )
 
     return budgeted_batches(
-        findings,
+        _interleave_by_evidence_class(findings),
         max_items=FINDINGS_PER_REQUEST,
         max_chars=FINDINGS_CHARS_PER_REQUEST,
         size_of=rendered_size,

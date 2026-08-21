@@ -1106,6 +1106,7 @@
                     "Stated condition and intervention",
                     "Named subjects a source may address its API by",
                     "Stated population and outcome facets",
+                    "A publication-date bound, passed to sources that can apply it",
                     "Target and query lineage",
                     "Enabled adapter keys"
                   ],
@@ -1117,7 +1118,7 @@
                 {
                   "id": "adapters",
                   "title": "Adapter planning",
-                  "summary": "Each registered source owns its grammar, applicability, credentials, and budget.",
+                  "summary": "Each registered source declares what evidence it owns, whose setting it describes, and what its output feeds, then owns its own grammar, applicability, credentials, and budget.",
                   "kind": "integration",
                   "layer": "Source boundary",
                   "inputs": [
@@ -1127,7 +1128,7 @@
                   "outputs": [
                     "Source-native requests or traced skips"
                   ],
-                  "guarantee": "Unknown source keys fail explicitly; ToolUniverse remains an injected connector, not a router. A source needing a named entity is ruled out with its reason rather than failing the run, and becomes plannable as soon as any caller states one.",
+                  "guarantee": "Unknown source keys fail explicitly; ToolUniverse remains an injected connector, not a router. A source needing a named entity is ruled out with its reason rather than failing the run, and becomes plannable as soon as any caller states one. A source must declare both what it can be told and a downstream output it reaches, so a lane a reader can enable cannot be one nothing reads, and a dimension a caller can state cannot be one no lane can act on.",
                   "children": [
                     {
                       "id": "applicability",
@@ -1169,7 +1170,7 @@
                 {
                   "id": "normalize",
                   "title": "Finding normalization",
-                  "summary": "Source responses converge to one finding contract and URL duplicates retain every path.",
+                  "summary": "Source responses converge to one finding contract, URL duplicates retain every path, and each finding keeps the class of evidence its lane owns.",
                   "kind": "integration",
                   "layer": "Normalization",
                   "inputs": [
@@ -1178,7 +1179,7 @@
                   "outputs": [
                     "Findings with evidence role and complete retrieval trace"
                   ],
-                  "guarantee": "Reference-only records remain distinguishable from evidence-bearing passages."
+                  "guarantee": "Reference-only records remain distinguishable from evidence-bearing passages, and findings are read in a mix of evidence classes rather than one class per model call, so a registry record and the literature it should be judged against reach the same prompt."
                 },
                 {
                   "id": "result",

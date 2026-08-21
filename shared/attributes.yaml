@@ -20,6 +20,7 @@ vaccine:
     Demographic and clinical characteristics of intended recipients — age range, geography (LMIC vs. global), pregnancy status, comorbidities, risk factors.
 - name: vaccine.target_countries
   evidence_domain: commercial_access
+  supplies_scope: region
   description: |
     Geographic markets and tiers (LMIC focus, WHO regions, Gavi-eligible countries, specific country lists).
 - name: vaccine.target_setting
@@ -169,6 +170,7 @@ drug:
     Demographic and clinical characteristics of patients. Preserve every explicitly included population segment, age range, geography, disease stage, and risk factor; do not replace a broad population with one highlighted subgroup.
 - name: drug.target_countries
   evidence_domain: commercial_access
+  supplies_scope: region
   description: |
     Geographic markets and tiers (LMIC focus). Should reference WHO regions or specific country lists with rationale.
 - name: drug.efficacy
@@ -277,6 +279,11 @@ diagnostic:
   evidence_domain: clinical
   description: |
     Population for which the test is intended. Should specify demographics and clinical criteria.
+- name: diagnostic.target_countries
+  evidence_domain: commercial_access
+  supplies_scope: region
+  description: |
+    Geographic markets and tiers. Should reference WHO regions or specific country lists with rationale.
 - name: diagnostic.actionable_result
   evidence_domain: clinical
   description: |
@@ -385,6 +392,7 @@ device:
     Patient populations or segments unlikely to be treated, including device contraindications.
 - name: device.target_countries
   evidence_domain: commercial_access
+  supplies_scope: region
   description: |
     Geographic markets and tiers. Should reference WHO regions or specific country lists with rationale.
 - name: device.efficacy

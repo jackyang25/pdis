@@ -12,7 +12,7 @@ import unittest
 
 from services.searcher import QueryFacets
 from services.scout.ai_contracts import query_batch
-from services.scout.models import Attribute, QueryIntent
+from services.scout.models import Attribute, QueryIntent, RetrievalScopeLedger
 from services.scout.stages.intent_builder import build_retrieval_intents
 from services.scout.stages.query_extractor import _parse_queries
 
@@ -78,8 +78,10 @@ class IntentHandoffTests(unittest.TestCase):
                 ]
             },
             [attribute],
-            indication="malaria",
-            intervention_class="vaccine",
+            scope=RetrievalScopeLedger.of(
+                condition=("malaria", "header"),
+                intervention=("vaccine", "header"),
+            ),
         )
 
         self.assertEqual(len(intents), 1)

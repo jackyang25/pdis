@@ -15,6 +15,8 @@ from .models import (
     ENTITY_TYPES,
     FINDING_ROLES,
     Finding,
+    INDICATOR_SPATIAL_TYPES,
+    IndicatorRecord,
     QueryFacets,
     RetrievalEntity,
     RetrievalIntent,
@@ -38,6 +40,7 @@ from .models import (
 from .connectors import ToolUniverseHTTPConnector
 from .controller import (
     integration_operations,
+    lane_class,
     plan_requests,
     run_requests,
     source_keys,
@@ -62,6 +65,8 @@ __all__ = [
     "ENTITY_TYPES",
     "FINDING_ROLES",
     "Finding",
+    "INDICATOR_SPATIAL_TYPES",
+    "IndicatorRecord",
     "QueryFacets",
     "RetrievalEntity",
     "RetrievalIntent",
@@ -81,6 +86,7 @@ __all__ = [
     "ToolUniverseHTTPConnector",
     "findings_to_dicts",
     "integration_operations",
+    "lane_class",
     "merge_findings",
     "outcomes_to_dicts",
     "plan_requests",

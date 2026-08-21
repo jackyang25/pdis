@@ -72,6 +72,7 @@ def search_pubmed(
     *,
     max_results: int = 20,
     api_key: str | None = None,
+    published_since: str = "",
 ) -> list[Finding]:
     """Search PubMed and enrich open-access PMC records with full text.
 
@@ -82,7 +83,12 @@ def search_pubmed(
     if not query:
         return []  # query was only web operators - nothing to search on PubMed
     try:
-        pmids = _esearch(query, max_results=max_results, api_key=api_key)
+        pmids = _esearch(
+            query,
+            max_results=max_results,
+            api_key=api_key,
+            published_since=published_since,
+        )
         if not pmids:
             return []
         records = _efetch_pubmed(pmids, api_key=api_key)
@@ -126,18 +132,33 @@ def _esearch(
     *,
     max_results: int,
     api_key: str | None,
+    published_since: str = "",
 ) -> list[str]:
-    root = _request_xml(
-        "esearch.fcgi",
-        {
-            "db": "pubmed",
-            "term": query,
-            "retmax": str(max_results),
-            "sort": "relevance",
-            "retmode": "xml",
-        },
-        api_key=api_key,
-    )
+    """Ask for the window, rather than asking for everything and discarding.
+
+    `mindate` and `datetype` are E-utilities parameters, not query terms, which is the
+    whole reason the bound belongs here: putting a year in `term` would match records
+    that mention the year, while `datetype=pdat` bounds the ones published in it. The
+    ranking is `relevance` within the window, so a narrow window returns the most
+    relevant recent work instead of the most relevant work of all time, filtered down.
+    """
+    parameters = {
+        "db": "pubmed",
+        "term": query,
+        "retmax": str(max_results),
+        "sort": "relevance",
+        "retmode": "xml",
+    }
+    if published_since:
+        parameters.update(
+            {
+                "datetype": "pdat",
+                "mindate": published_since.replace("-", "/"),
+                # An open upper bound still needs a value; NCBI reads 3000 as "now".
+                "maxdate": "3000",
+            }
+        )
+    root = _request_xml("esearch.fcgi", parameters, api_key=api_key)
     return [
         (node.text or "").strip()
         for node in root.findall(".//IdList/Id")

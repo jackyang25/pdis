@@ -6,6 +6,8 @@ from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import StreamingResponse
 
 from services.searcher import (
+    ENTITY_TYPES,
+    RetrievalEntity,
     findings_to_dicts,
     outcomes_to_dicts,
     run_pipeline,
@@ -29,6 +31,28 @@ from api.schemas import (
 from api.streaming import run_with_progress
 
 router = APIRouter()
+
+
+def _parse_entities(raw: str) -> tuple[RetrievalEntity, ...]:
+    """Read `name:type` pairs, refusing an unknown type rather than dropping it.
+
+    A dropped entity is the failure this whole field exists to end: the run would
+    proceed, the source needing that entity would report a skip, and nothing would say
+    the caller had named it. So a bad type is a 422 with the accepted list.
+    """
+    stated: list[RetrievalEntity] = []
+    for part in (piece.strip() for piece in raw.split(",")):
+        if not part:
+            continue
+        name, _, entity_type = part.rpartition(":")
+        name, entity_type = name.strip(), entity_type.strip().lower()
+        if not name or entity_type not in ENTITY_TYPES:
+            raise ValueError(
+                f"{part!r} is not a `name:type` pair. Accepted types: "
+                f"{', '.join(sorted(ENTITY_TYPES))}"
+            )
+        stated.append(RetrievalEntity(name=name, entity_type=entity_type))
+    return tuple(stated)
 
 
 @router.get("/sources", response_model=list[SearchSourceOut])
@@ -66,12 +90,27 @@ async def run_searcher(
     # source fell back to anchoring on `query` itself and returned nothing.
     condition: str = Form(""),
     intervention: str = Form(""),
+    # The fourth slot of the one request. Sent as `name:type` pairs so a caller states
+    # the type rather than the server guessing it: `BRAF` is a gene here and a protein
+    # there, and which one decides whether Open Targets or UniProt can address it.
+    entities: str = Form(""),
+    # One named product, narrowing the request the intervention class scopes. Distinct
+    # from `intervention`, which is the class: a source issues both requests.
+    product: str = Form(""),
+    # The remaining two subject facets. Read by the literature grammars to pick the one
+    # phrase a query asks about; the structured sources have no such field.
+    population: str = Form(""),
+    outcome: str = Form(""),
 ) -> StreamingResponse:
     requested = tuple(source.strip() for source in sources.split(",") if source.strip())
     try:
         selected = validate_source_keys(requested) if requested else tuple(
             source.key for source in source_specs() if source.default_enabled
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        stated_entities = _parse_entities(entities)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
@@ -92,6 +131,10 @@ async def run_searcher(
             sources=selected,
             condition=condition.strip() or None,
             intervention=intervention.strip() or None,
+            entities=stated_entities,
+            product=product.strip() or None,
+            population=population.strip() or None,
+            outcome=outcome.strip() or None,
             progress_callback=progress,
         )
         return SearcherRunResponse(

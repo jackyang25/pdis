@@ -1,12 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { ExternalLink, Loader2, Search } from "lucide-react";
+import { ExternalLink, Loader2, Search, X } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { ConfigSelect } from "@/components/ui/config-field";
 import { cn } from "@/lib/utils";
 import { fetchSearchSources, runSearcher, type SearchLane, type SearchSource } from "@/lib/api";
 import { RunHistory } from "@/components/run-history";
@@ -19,6 +20,12 @@ export default function SearcherPage() {
   const [query, setQuery] = useState("");
   const [condition, setCondition] = useState("");
   const [intervention, setIntervention] = useState("");
+  const [product, setProduct] = useState("");
+  const [population, setPopulation] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [entities, setEntities] = useState<StatedEntity[]>([]);
+  const [entityName, setEntityName] = useState("");
+  const [entityType, setEntityType] = useState("");
   const [sources, setSources] = useState<SearchSource[]>([]);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -50,7 +57,7 @@ export default function SearcherPage() {
 
   function toggle(id: string) {
     const source = sources.find((candidate) => candidate.key === id);
-    if (!source?.configured || !reachable(source)) return;
+    if (!source?.configured || !reachable(source, entities)) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -61,8 +68,39 @@ export default function SearcherPage() {
 
   const canRun = query.trim().length > 0 && selected.size > 0 && !busy;
   const unreachableLabels = sources
-    .filter((source) => source.configured && !reachable(source))
+    .filter((source) => source.configured && !reachable(source, entities))
     .map((source) => source.label);
+  // Only the types a registered source can actually address. Derived from the same
+  // `/sources` payload the toggles read, so the page holds no list of its own.
+  const addressableTypes = Array.from(
+    new Set(sources.flatMap((source) => source.required_entity_types)),
+  ).sort();
+
+  // A source selected while it was reachable must not stay selected once the entity that
+  // made it reachable is removed: the run would send a request the planner then rules
+  // out, and the reader would read the skip as a fault rather than as their own edit.
+  useEffect(() => {
+    setSelected((previous) => {
+      const next = new Set(
+        Array.from(previous).filter((key) => {
+          const source = sources.find((candidate) => candidate.key === key);
+          return !source || reachable(source, entities);
+        }),
+      );
+      return next.size === previous.size ? previous : next;
+    });
+  }, [entities, sources]);
+
+  function addEntity() {
+    const name = entityName.trim();
+    if (!name || !entityType) return;
+    setEntities((previous) =>
+      previous.some((entity) => entity.name === name && entity.type === entityType)
+        ? previous
+        : [...previous, { name, type: entityType }],
+    );
+    setEntityName("");
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -75,7 +113,14 @@ export default function SearcherPage() {
       const res = await runSearcher(
         query.trim(),
         Array.from(selected),
-        { condition: condition.trim(), intervention: intervention.trim() },
+        {
+          condition: condition.trim(),
+          intervention: intervention.trim(),
+          entities: entities.map((entity) => `${entity.name}:${entity.type}`).join(","),
+          product: product.trim(),
+          population: population.trim(),
+          outcome: outcome.trim(),
+        },
         setStage,
       );
       addResult(res);
@@ -143,19 +188,71 @@ export default function SearcherPage() {
             </div>
             <div className="min-w-0">
               <div className="mb-1.5">
-                <Label>Intervention</Label>
+                <Label>Intervention class</Label>
               </div>
               <input
                 type="text"
                 value={intervention}
                 onChange={(e) => setIntervention(e.target.value)}
-                placeholder="e.g. pembrolizumab"
+                placeholder="e.g. vaccine"
                 className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={busy}
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Narrows those requests to one product. Ignored by sources whose grammar has
-                no intervention field.
+                The kind of intervention, which is what Scout carries here. Scopes the
+                request. Ignored by sources with no intervention field.
+              </p>
+            </div>
+            <div className="min-w-0">
+              <div className="mb-1.5">
+                <Label>Product</Label>
+              </div>
+              <input
+                type="text"
+                value={product}
+                onChange={(e) => setProduct(e.target.value)}
+                placeholder="e.g. intismeran autogene"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={busy}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                One named product. Added as a second, narrower request beside the class
+                rather than replacing it, so a name a registry files differently still
+                returns the broader result.
+              </p>
+            </div>
+            <div className="min-w-0">
+              <div className="mb-1.5">
+                <Label>Population</Label>
+              </div>
+              <input
+                type="text"
+                value={population}
+                onChange={(e) => setPopulation(e.target.value)}
+                placeholder="e.g. resected stage III"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={busy}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Who the question is about. Becomes the phrase PubMed and Semantic Scholar
+                search for, in place of the whole query.
+              </p>
+            </div>
+            <div className="min-w-0">
+              <div className="mb-1.5">
+                <Label>Outcome</Label>
+              </div>
+              <input
+                type="text"
+                value={outcome}
+                onChange={(e) => setOutcome(e.target.value)}
+                placeholder="e.g. overall survival"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={busy}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                What is measured. Takes precedence over Population as that phrase, since it
+                names the question more precisely.
               </p>
             </div>
           </div>
@@ -170,7 +267,7 @@ export default function SearcherPage() {
             )}
             {sources.map((source) => {
               const on = selected.has(source.key);
-              const unreachable = !reachable(source);
+              const unreachable = !reachable(source, entities);
               return (
                 <button
                   key={source.key}
@@ -181,7 +278,7 @@ export default function SearcherPage() {
                     !source.configured
                       ? "Backend connector not configured"
                       : unreachable
-                        ? `Needs a document-stated ${source.required_entity_types.join(" or ")}, which a free-text search has none of. Reachable from Scout, which reads a profile.`
+                        ? `Name a ${source.required_entity_types.join(" or ")} below to reach this source.`
                         : undefined
                   }
                   aria-pressed={on}
@@ -201,15 +298,82 @@ export default function SearcherPage() {
             )}
           </div>
           {/*
-            Stated rather than left to a tooltip. A dimmed control with no visible reason
-            is the same defect as a lane that returns nothing without saying why.
+            The fourth slot of the request. Here rather than beside Condition because it
+            reads as a consequence of the source row above it: these are the sources that
+            were dim a moment ago, and this is what un-dims them.
           */}
-          {unreachableLabels.length > 0 && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {unreachableLabels.join(", ")} address their API by a named gene, protein or
-              compound, which comes from a parsed document. Reach them through Scout.
+          <div className="mt-4">
+            <div className="mb-1.5">
+              <Label>Named subject</Label>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="text"
+                value={entityName}
+                onChange={(e) => setEntityName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  // Enter adds the subject rather than submitting the form, which would
+                  // run a search that does not yet include what was just typed.
+                  e.preventDefault();
+                  addEntity();
+                }}
+                placeholder="e.g. BRAF"
+                className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={busy}
+              />
+              <div className="sm:w-44">
+                <ConfigSelect
+                  value={entityType || undefined}
+                  options={addressableTypes.map((type) => ({
+                    value: type,
+                    label: type.replace(/^\w/, (c) => c.toUpperCase()),
+                  }))}
+                  disabled={busy}
+                  onChange={setEntityType}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy || !entityName.trim() || !entityType}
+                onClick={addEntity}
+              >
+                Add
+              </Button>
+            </div>
+            {entities.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {entities.map((entity) => (
+                  <button
+                    key={`${entity.name}:${entity.type}`}
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      setEntities((previous) =>
+                        previous.filter(
+                          (held) =>
+                            held.name !== entity.name || held.type !== entity.type,
+                        ),
+                      )
+                    }
+                    className="group/entity flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs text-foreground disabled:opacity-50"
+                  >
+                    <span>
+                      {entity.name}
+                      <span className="text-muted-foreground"> · {entity.type}</span>
+                    </span>
+                    <X className="h-3 w-3 text-muted-foreground group-hover/entity:text-foreground" />
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {unreachableLabels.length > 0
+                ? `${unreachableLabels.join(", ")} address their API by a named subject rather than a phrase. Name one to reach them.`
+                : "Every source can now build a request from what you have stated."}
             </p>
-          )}
+          </div>
         </form>
 
         {error && <ErrorMessage>{error}</ErrorMessage>}
@@ -345,22 +509,28 @@ function Lanes({
   );
 }
 
+/** One named subject the request states, and what kind of thing it is. */
+type StatedEntity = { name: string; type: string };
+
 /**
- * Whether this source can be searched from a free-text query at all.
+ * Whether the request as composed can reach this source.
  *
- * A source declaring `required_entity_types` addresses its API by a named subject - a
- * gene, a protein, a compound - and those come from a parsed document. This page has no
- * document, so such a source can never build a request here. The planner rules it out
- * and reports the reason, but offering a control whose only outcome is a skip row states
- * something untrue about what this interface accepts.
+ * A source declaring `required_entity_types` addresses its API by a named subject, so it
+ * plans nothing until the request names one: Open Targets asks
+ * `target_disease:<gene>|<disease>` and has no query without the gene.
  *
- * Read from the source's own declaration rather than a list kept here, so adding a
- * document-addressed source needs no change on this page. The decision is still the
- * planner's: this only declines to offer a button for an outcome the planner has
- * already determined.
+ * A property of the request, not of the source. The first version of this read only the
+ * declaration and disabled those sources permanently, which said the wrong thing - it
+ * looked like a fact about the source when it was a missing field on this page. Now the
+ * toggle follows what the reader has stated, so naming a gene lights up the sources that
+ * can use one.
+ *
+ * Read from the source's own declaration rather than a list kept here, so a new
+ * subject-addressed source needs no change on this page.
  */
-function reachable(source: SearchSource): boolean {
-  return source.required_entity_types.length === 0;
+function reachable(source: SearchSource, entities: StatedEntity[]): boolean {
+  if (source.required_entity_types.length === 0) return true;
+  return entities.some((entity) => source.required_entity_types.includes(entity.type));
 }
 
 function humanizeSource(source: string): string {

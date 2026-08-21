@@ -16,6 +16,7 @@ one of them, so adding one without deciding whether a reader can reach it fails 
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import pathlib
 import unittest
@@ -23,6 +24,8 @@ from datetime import datetime, timezone
 
 from services.chunker import run_pipeline as chunker_run_pipeline
 from services.searcher import (
+    QueryFacets,
+    RetrievalEntity,
     RetrievalIntent,
     SearchReport,
     SourceQueryIntent,
@@ -73,16 +76,106 @@ def _outcome(source: str, query: str, **kwargs) -> SearchOutcome:
     )
 
 
-def _free_text_intent(text: str = "resected melanoma") -> RetrievalIntent:
-    """What the Searcher page sends: prose, no facets, no document entities."""
+def _free_text_intent(
+    text: str = "resected melanoma",
+    entities: tuple[RetrievalEntity, ...] = (),
+) -> RetrievalIntent:
+    """What the Searcher page sends: prose, and whatever the reader stated."""
     return RetrievalIntent(
         scope_ref="query",
         topic=text,
         description="",
-        indication="",
+        indication=text,
         intervention_class="",
+        entities=entities,
         queries=(SourceQueryIntent(text=text, tracks=("general",)),),
     )
+
+
+#: Every field of Searcher's input contract, and how the interface accounts for it.
+#:
+#: Anchored on the model rather than on `run_pipeline`, which is the correction this
+#: table exists to make. The first version of these tests compared the route to that
+#: function and passed, while the function itself could not express `entities` - so four
+#: sources were unreachable, and the page blamed the sources rather than the missing
+#: field. A convenience function is a caller like any other. What an adapter can be told
+#: is the contract.
+#:
+#: Three buckets and no fourth: a field is offered, or carried as lineage, or declined
+#: for a stated reason. A new field on the model belongs to one of them before it ships.
+EXPOSED_AS = {
+    "topic": "query",
+    "indication": "condition",
+    "intervention_class": "intervention",
+    "entities": "entities",
+    "queries": "query",
+    "facets.intervention": "product",
+    "facets.population": "population",
+    "facets.outcome": "outcome",
+}
+
+#: Bookkeeping the caller never states: it identifies a request, it does not shape one.
+LINEAGE = {
+    "scope_ref": "names the intent, assigned by the caller's own structure",
+    "intent_id": "derived from the query's own material",
+    "document_refs": "which parsed blocks a query came from, and a free-text query came from none",
+    "target_refs": "which quantitative targets a query serves, and this page has no targets",
+    "text": "the query itself, already offered as `query`",
+}
+
+#: Declined, with the reason. Absent from the interface on purpose, not by omission.
+NOT_EXPOSED = {
+    "description": "no adapter reads it; Scout passes it for its own prompts",
+    "evidence_domain": "the source toggles already choose which lanes run, more directly",
+    "tracks": "Scout's multi-angle fan-out over one topic, not a statement about the subject",
+    "facets.condition": "every field-addressed source declares condition its anchor, and an anchor always takes the intent's value, so a query-level condition narrows nothing",
+}
+
+
+class InputContractTests(unittest.TestCase):
+    """Every field an adapter can be told is offered, carried, or declined by name."""
+
+    def _contract_fields(self) -> set[str]:
+        fields = {field.name for field in dataclasses.fields(RetrievalIntent)}
+        fields |= {field.name for field in dataclasses.fields(SourceQueryIntent)}
+        fields -= {"facets"}
+        fields |= {
+            f"facets.{field.name}" for field in dataclasses.fields(QueryFacets)
+        }
+        return fields
+
+    def test_every_contract_field_is_accounted_for(self) -> None:
+        accounted = set(EXPOSED_AS) | set(LINEAGE) | set(NOT_EXPOSED)
+        unaccounted = sorted(self._contract_fields() - accounted)
+        self.assertEqual(
+            unaccounted,
+            [],
+            f"input-contract fields in no bucket: {unaccounted}. Offer them, or add "
+            "them to LINEAGE or NOT_EXPOSED with a reason.",
+        )
+
+    def test_the_buckets_describe_real_fields(self) -> None:
+        """A stale entry would let a real field hide behind a name that no longer exists."""
+        accounted = set(EXPOSED_AS) | set(LINEAGE) | set(NOT_EXPOSED)
+        self.assertEqual(sorted(accounted - self._contract_fields()), [])
+
+    def test_the_buckets_do_not_overlap(self) -> None:
+        buckets = (set(EXPOSED_AS), set(LINEAGE), set(NOT_EXPOSED))
+        for first in range(len(buckets)):
+            for second in range(first + 1, len(buckets)):
+                self.assertEqual(buckets[first] & buckets[second], set())
+
+    def test_everything_exposed_is_reachable_from_the_route(self) -> None:
+        accepted = set(inspect.signature(searcher_route.run_searcher).parameters)
+        missing = sorted(set(EXPOSED_AS.values()) - accepted)
+        self.assertEqual(
+            missing, [], f"claimed exposed but the route has no such field: {missing}"
+        )
+
+    def test_a_declined_field_has_a_reason(self) -> None:
+        for field, reason in NOT_EXPOSED.items():
+            with self.subTest(field=field):
+                self.assertGreater(len(reason.split()), 4, field)
 
 
 class ParameterParityTests(unittest.TestCase):
@@ -114,10 +207,17 @@ class ParameterParityTests(unittest.TestCase):
             accepted = set(inspect.signature(route).parameters)
             self.assertEqual(accepted & set(OPERATIONAL), set(), route.__name__)
 
-    def test_searcher_forwards_both_query_facets(self) -> None:
-        """Named outright, so deleting the wiring fails here rather than in a run."""
+    def test_searcher_forwards_every_slot_of_the_one_request(self) -> None:
+        """Named outright, so deleting any slot's wiring fails here, not in a run.
+
+        The four slots an adapter unpacks its own part of. A page offering three of them
+        cannot reach the sources that read the fourth, and the missing field looked like
+        a property of those sources instead of a hole in the form.
+        """
         accepted = set(inspect.signature(searcher_route.run_searcher).parameters)
-        self.assertLessEqual({"query", "sources", "condition", "intervention"}, accepted)
+        self.assertLessEqual(
+            {"query", "sources", "condition", "intervention", "entities"}, accepted
+        )
 
 
 class UploadParityTests(unittest.TestCase):
@@ -213,8 +313,81 @@ class LaneReportingTests(unittest.TestCase):
         self.assertEqual([row["returned"] for row in rows], [1, 1])
 
 
+class StatedEntityTests(unittest.TestCase):
+    """A named subject reaches the sources that address their API by one."""
+
+    def test_a_stated_entity_makes_its_sources_plannable(self) -> None:
+        stated = (
+            RetrievalEntity(name="BRAF", entity_type="gene"),
+            RetrievalEntity(name="pembrolizumab", entity_type="drug"),
+        )
+        for key in ("open_targets", "chembl", "uniprot", "fda_safety"):
+            with self.subTest(source=key):
+                requests = plan_requests(
+                    [_free_text_intent(entities=stated)], sources=(key,)
+                )
+                self.assertTrue(requests)
+                for request in requests:
+                    self.assertEqual(request.applicability, "applicable")
+                    self.assertTrue(request.query, "a plannable lane must ask something")
+
+    def test_class_and_product_are_different_values_doing_different_work(self) -> None:
+        """The correction: `facets.intervention` was declined as a duplicate of scope.
+
+        At intent scope the value is the class Scout carries from its run header. The
+        facet is one named product, and `facet_groups` adds it as a second request beside
+        the scope request rather than replacing it. Calling them the same thing left the
+        page able to send only one, so a product-level registry query was unreachable.
+        """
+        intent = RetrievalIntent(
+            scope_ref="q",
+            topic="melanoma",
+            description="",
+            indication="melanoma",
+            intervention_class="vaccine",
+            queries=(
+                SourceQueryIntent(
+                    text="melanoma",
+                    tracks=("general",),
+                    facets=QueryFacets(intervention="intismeran autogene"),
+                ),
+            ),
+        )
+        asked = [
+            request.query
+            for request in plan_requests([intent], sources=("clinicaltrials",))
+        ]
+        self.assertEqual(
+            asked,
+            [
+                "condition:melanoma AND intervention:vaccine",
+                "condition:melanoma AND intervention:intismeran autogene",
+            ],
+        )
+
+    def test_the_stated_name_reaches_the_native_query(self) -> None:
+        """Not merely accepted: the subject has to appear in what the provider receives."""
+        stated = (RetrievalEntity(name="BRAF", entity_type="gene"),)
+        (request,) = plan_requests(
+            [_free_text_intent(entities=stated)], sources=("open_targets",)
+        )
+        self.assertIn("BRAF", request.query)
+
+    def test_route_refuses_an_entity_whose_type_is_unknown(self) -> None:
+        """Dropping it silently would leave the source skipped and the reader unaware."""
+        from api.routes.searcher import _parse_entities
+
+        self.assertEqual(
+            _parse_entities("BRAF:gene"),
+            (RetrievalEntity(name="BRAF", entity_type="gene"),),
+        )
+        for bad in ("BRAF", "BRAF:widget", ":gene"):
+            with self.subTest(raw=bad), self.assertRaises(ValueError):
+                _parse_entities(bad)
+
+
 class FreeTextApplicabilityTests(unittest.TestCase):
-    """A source needing document entities is ruled out, not crashed into."""
+    """A source needing a subject the request never named is ruled out, not crashed into."""
 
     def _entity_sources(self) -> list[str]:
         return [spec.key for spec in source_specs() if spec.required_entity_types]

@@ -166,7 +166,13 @@ export function ContextFields() {
         />
       </ConfigField>
 
-      <ConfigField label="Intervention" disabled={!header.org}>
+      {/*
+        "Intervention class", not "Intervention": the options are classes - drug, vaccine,
+        monoclonal antibody - and the value travels as `intervention_class`. Searcher
+        carries the same concept under the same name beside a separate Product field, and
+        one concept labelled two ways is how a reader learns to distrust both.
+      */}
+      <ConfigField label="Intervention class" disabled={!header.org}>
         <ConfigSelect
           value={header.intervention_class}
           options={toOptions(interventions)}
@@ -307,7 +313,7 @@ export function ConfigurationFields() {
   );
 }
 
-const CONTEXT_LABELS = ["Organization", "Intervention", "Indication"] as const;
+const CONTEXT_LABELS = ["Organization", "Intervention class", "Indication"] as const;
 
 function FieldPlaceholder({ labels }: { labels: readonly string[] }) {
   return (

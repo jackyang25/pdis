@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Sequence
+
 from .controller import plan_requests, run_requests, validate_source_keys
 from .models import (
     Finding,
+    QueryFacets,
+    RetrievalEntity,
     RetrievalIntent,
     SearchReport,
     SearchRuntime,
@@ -23,6 +27,10 @@ def run_pipeline(
     sources: tuple[str, ...] = ("web",),
     condition: str | None = None,
     intervention: str | None = None,
+    entities: Sequence[RetrievalEntity] = (),
+    product: str | None = None,
+    population: str | None = None,
+    outcome: str | None = None,
     raise_source_errors: bool = False,
     progress_callback=None,
 ) -> SearchReport:
@@ -40,9 +48,27 @@ def run_pipeline(
             back to `query` itself, which for a multi-word question is a field
             value the provider's index will not hold. Ignored by plain-text
             grammars, which read `query` directly.
-        intervention: Optional intervention term, the narrowing field a
-            field-addressed source adds to its anchor. Ignored by sources whose
-            grammar has no such field.
+        intervention: The intervention *class* - drug, vaccine, monoclonal
+            antibody - carried at intent scope, which is where Scout puts the
+            class from its run header. Ignored by sources whose grammar has no
+            intervention field.
+        product: One named product, narrowing the intervention field of the
+            request the class already scopes. A separate parameter because they
+            are different values doing different work: the class is the scope a
+            source is asked about, and the product is a narrowing added beside
+            it, so a source issues both requests rather than choosing. Passing
+            the product in place of the class loses the broader request.
+        entities: Named subjects a source may address its API by - a gene, a
+            protein, a compound. A source declaring `required_entity_types` plans
+            nothing without one, because it has no subject to name, so passing
+            none silently limits the run to the sources that read prose. Scout
+            takes these from a parsed document; a free-text caller states them.
+        population: Who the question is about. A stated subject phrase for the
+            literature grammars, which otherwise take the whole query as the
+            subject. Structured sources have no such field and ignore it.
+        outcome: What is being measured. Read before `population` when a
+            literature adapter picks the one phrase a query asks about, because
+            it names the question more specifically than its subjects do.
         raise_source_errors: Re-raise any adapter failures. Defaults to the
             standalone Searcher's graceful partial-result behavior.
         progress_callback: Optional callable for streaming progress
@@ -62,10 +88,23 @@ def run_pipeline(
         description="",
         indication=condition or "",
         intervention_class=intervention or "",
+        entities=tuple(entities),
         queries=(
             SourceQueryIntent(
                 text=query,
                 tracks=("general",),
+                # Only the two facets a caller states here. `condition` and
+                # `intervention` are carried at intent scope above, and stating them
+                # again as query facets would add a narrowed request identical to the
+                # scope request, spending one of a source's requests on nothing.
+                facets=QueryFacets(
+                    # Not `condition`: every field-addressed source declares condition
+                    # its anchor, and an anchor always takes the intent's value, so a
+                    # query-level condition would narrow nothing and be dropped.
+                    intervention=product or "",
+                    population=population or "",
+                    outcome=outcome or "",
+                ),
             ),
         ),
     )

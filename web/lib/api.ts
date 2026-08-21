@@ -1015,9 +1015,17 @@ export async function runInspector(
 export async function runSearcher(
   query: string,
   sources: string[],
-  // The two facets the field-addressed lanes anchor on. Blank is allowed and means the
-  // adapter falls back to the query text itself, which is what happens today.
-  facets: { condition?: string; intervention?: string } = {},
+  // The rest of the one request every lane unpacks its own part of. Blank condition means
+  // the adapter falls back to the query text; no entities means the sources that address
+  // their API by a named subject have no subject to name.
+  facets: {
+    condition?: string;
+    intervention?: string;
+    entities?: string;
+    product?: string;
+    population?: string;
+    outcome?: string;
+  } = {},
   onStage?: (stage: string) => void,
 ): Promise<SearcherResponse> {
   const form = new FormData();
@@ -1025,6 +1033,10 @@ export async function runSearcher(
   form.append("sources", sources.join(","));
   form.append("condition", facets.condition ?? "");
   form.append("intervention", facets.intervention ?? "");
+  form.append("entities", facets.entities ?? "");
+  form.append("product", facets.product ?? "");
+  form.append("population", facets.population ?? "");
+  form.append("outcome", facets.outcome ?? "");
   return streamRequest("/api/searcher/run", form, onStage);
 }
 

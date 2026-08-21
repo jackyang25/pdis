@@ -26,10 +26,27 @@ Direct callers default to `sources=("web",)`. The report carries the
 deduplicated `findings` and one `outcomes` entry per native request, which is the
 only place an empty lane stays distinguishable from a skipped or failed one.
 
-`condition` and `intervention` are the facets a field-addressed source anchors on.
+`condition` and `intervention` are what a field-addressed source scopes its request by.
 Omitted, each such adapter falls back to the intent's own scope, so a free-text
 question becomes the value of a structured field and matches nothing. A caller with
-a condition to state should state it. Import registry metadata,
+a condition to state should state it.
+
+`intervention` is the class; `product` is one named product. They are separate because
+they do different work: the class scopes the request, and the product is added beside it
+as a narrower one, so a name a registry files differently still returns the broader
+result. Passing a product in place of a class loses that broader request.
+
+`entities` are the named subjects a source may address its API by. A source declaring
+`required_entity_types` plans nothing without one, because it has no subject to name,
+so a caller passing none is limited to the sources that read prose. Scout takes these
+from a parsed document; a free-text caller states them.
+
+`population` and `outcome` are the remaining subject facets. A literature adapter asks
+about one phrase per query and picks it in the order outcome, intervention, population,
+falling back to the query text; the structured sources have no such field. Together with
+`condition`, `intervention` and `entities` these are the whole of what a caller states,
+and `tests/test_interface_parity.py` holds every contract field to being offered,
+carried as lineage, or declined for a stated reason. Import registry metadata,
 planning and execution helpers, connectors, models, and serializers from
 `services.searcher`.
 

@@ -1104,6 +1104,8 @@
                   "inputs": [
                     "Intent IDs and text",
                     "Stated condition and intervention",
+                    "Named subjects a source may address its API by",
+                    "Stated population and outcome facets",
                     "Target and query lineage",
                     "Enabled adapter keys"
                   ],
@@ -1125,7 +1127,7 @@
                   "outputs": [
                     "Source-native requests or traced skips"
                   ],
-                  "guarantee": "Unknown source keys fail explicitly; ToolUniverse remains an injected connector, not a router. A source needing a document-stated entity is ruled out with its reason rather than failing the run, so it is reachable from Scout and not from a free-text query.",
+                  "guarantee": "Unknown source keys fail explicitly; ToolUniverse remains an injected connector, not a router. A source needing a named entity is ruled out with its reason rather than failing the run, and becomes plannable as soon as any caller states one.",
                   "children": [
                     {
                       "id": "applicability",

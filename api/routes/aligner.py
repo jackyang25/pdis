@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import tempfile
 from dataclasses import asdict
-from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -23,7 +22,7 @@ from services.aligner import (
     run_pipeline,
 )
 from services.aligner.models import AlignmentDocument
-from services.chunker import DOCUMENT_SUFFIXES, find_config as find_chunker_config
+from services.chunker import find_config as find_chunker_config
 
 from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import (
@@ -33,6 +32,7 @@ from api.schemas import (
     AlignmentResultOut,
 )
 from api.streaming import run_with_progress
+from api.uploads import document_upload_parts
 
 router = APIRouter()
 
@@ -78,13 +78,8 @@ async def run_aligner(
 
     uploads: list[tuple[UploadFile, str, str, str]] = []
     for upload, source_type in zip(files, source_types):
-        name = upload.filename or f"{source_type}.docx"
-        suffix = Path(name).suffix.lower()
-        if suffix not in DOCUMENT_SUFFIXES:
-            raise HTTPException(
-                status_code=400, detail="Aligner supports DOCX and PPTX files."
-            )
-        uploads.append((upload, source_type, Path(name).stem, suffix))
+        doc_id, suffix = document_upload_parts(upload.filename, tool="Aligner")
+        uploads.append((upload, source_type, doc_id, suffix))
 
     doc_ids = [doc_id for _, _, doc_id, _ in uploads]
     if len(set(doc_ids)) != len(doc_ids):

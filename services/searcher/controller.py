@@ -97,20 +97,35 @@ def _inapplicability_reason(
     intent: RetrievalIntent,
     spec: SourceSpec,
 ) -> str:
-    """Return a deterministic skip reason, or empty when the lane applies."""
-    if not intent.evidence_domain:
-        return ""  # free-query callers explicitly selected their source
-    if spec.evidence_domains and intent.evidence_domain not in spec.evidence_domains:
-        return (
-            f"evidence domain {intent.evidence_domain!r} is outside "
-            f"{spec.key}'s supported domains"
-        )
+    """Return a deterministic skip reason, or empty when the lane applies.
+
+    The two conditions below are not the same kind of thing, which is why only one of
+    them is gated on the caller having stated a domain.
+
+    A domain is the caller's stated scope. A free-query caller who states none has
+    chosen their sources deliberately, and filtering them by a scope they never claimed
+    would overrule the choice they did make.
+
+    A required entity type is the adapter's structural precondition: without one it
+    cannot name a subject its API addresses, so it plans nothing at all. That is a fact
+    about the adapter, not a preference of the caller, so it holds on every path. Gating
+    it behind a stated domain meant a free-text caller selecting such a source reached
+    `_validate_plan` with an empty plan, which reads an empty plan as a planner bug and
+    raises - failing the whole run, including every lane that had worked.
+    """
     if spec.required_entity_types and not any(
         entity.entity_type in spec.required_entity_types for entity in intent.entities
     ):
         return (
             f"no document-stated entity of type "
             f"{', '.join(spec.required_entity_types)}"
+        )
+    if not intent.evidence_domain:
+        return ""  # free-query callers explicitly selected their source
+    if spec.evidence_domains and intent.evidence_domain not in spec.evidence_domains:
+        return (
+            f"evidence domain {intent.evidence_domain!r} is outside "
+            f"{spec.key}'s supported domains"
         )
     return ""
 

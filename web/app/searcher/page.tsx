@@ -49,7 +49,8 @@ export default function SearcherPage() {
   }, [setError]);
 
   function toggle(id: string) {
-    if (!sources.find((source) => source.key === id)?.configured) return;
+    const source = sources.find((candidate) => candidate.key === id);
+    if (!source?.configured || !reachable(source)) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -59,6 +60,9 @@ export default function SearcherPage() {
   }
 
   const canRun = query.trim().length > 0 && selected.size > 0 && !busy;
+  const unreachableLabels = sources
+    .filter((source) => source.configured && !reachable(source))
+    .map((source) => source.label);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -166,13 +170,20 @@ export default function SearcherPage() {
             )}
             {sources.map((source) => {
               const on = selected.has(source.key);
+              const unreachable = !reachable(source);
               return (
                 <button
                   key={source.key}
                   type="button"
                   onClick={() => toggle(source.key)}
-                  disabled={busy || !source.configured}
-                  title={source.configured ? undefined : "Backend connector not configured"}
+                  disabled={busy || !source.configured || unreachable}
+                  title={
+                    !source.configured
+                      ? "Backend connector not configured"
+                      : unreachable
+                        ? `Needs a document-stated ${source.required_entity_types.join(" or ")}, which a free-text search has none of. Reachable from Scout, which reads a profile.`
+                        : undefined
+                  }
                   aria-pressed={on}
                   className={cn(
                     "h-8 rounded-md border px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50 motion-reduce:transition-none",
@@ -189,6 +200,16 @@ export default function SearcherPage() {
               <span className="text-xs text-destructive">Select at least one source.</span>
             )}
           </div>
+          {/*
+            Stated rather than left to a tooltip. A dimmed control with no visible reason
+            is the same defect as a lane that returns nothing without saying why.
+          */}
+          {unreachableLabels.length > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {unreachableLabels.join(", ")} address their API by a named gene, protein or
+              compound, which comes from a parsed document. Reach them through Scout.
+            </p>
+          )}
         </form>
 
         {error && <ErrorMessage>{error}</ErrorMessage>}
@@ -294,7 +315,8 @@ function Lanes({
               {labels.get(lane.source) ?? humanizeSource(lane.source)}
             </span>
             <code className="min-w-0 flex-1 break-all font-mono text-[10px] text-muted-foreground">
-              {lane.query}
+              {/* A ruled-out lane never built a request, so there is no query to show. */}
+              {lane.query || (lane.status === "skipped" ? "no request sent" : "")}
             </code>
             {lane.status === "complete" ? (
               <span
@@ -306,9 +328,14 @@ function Lanes({
                 {lane.returned} returned
               </span>
             ) : (
-              <span className="shrink-0 text-destructive">
+              <span
+                className={cn(
+                  "shrink-0",
+                  lane.status === "failed" ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
                 {lane.status}
-                {lane.error ? `: ${lane.error}` : ""}
+                {lane.detail ? `: ${lane.detail}` : ""}
               </span>
             )}
           </li>
@@ -316,6 +343,24 @@ function Lanes({
       </ul>
     </div>
   );
+}
+
+/**
+ * Whether this source can be searched from a free-text query at all.
+ *
+ * A source declaring `required_entity_types` addresses its API by a named subject - a
+ * gene, a protein, a compound - and those come from a parsed document. This page has no
+ * document, so such a source can never build a request here. The planner rules it out
+ * and reports the reason, but offering a control whose only outcome is a skip row states
+ * something untrue about what this interface accepts.
+ *
+ * Read from the source's own declaration rather than a list kept here, so adding a
+ * document-addressed source needs no change on this page. The decision is still the
+ * planner's: this only declines to offer a button for an outcome the planner has
+ * already determined.
+ */
+function reachable(source: SearchSource): boolean {
+  return source.required_entity_types.length === 0;
 }
 
 function humanizeSource(source: string): string {

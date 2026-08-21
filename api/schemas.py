@@ -135,7 +135,9 @@ class SearchLaneOut(BaseModel):
     #: The query the provider actually received, not the text the reader typed.
     query: str
     status: Literal["complete", "failed", "skipped"] = "complete"
-    error: str = ""
+    #: Why this lane produced nothing: an adapter failure, or the planner's reason for
+    #: ruling the lane out before it ran.
+    detail: str = ""
     #: What this request returned, before cross-lane deduplication.
     returned: int = 0
 

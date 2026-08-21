@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import tempfile
 from dataclasses import asdict
-from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -50,6 +49,7 @@ from api.schemas import (
     VariableOut,
 )
 from api.streaming import run_with_progress
+from api.uploads import document_upload_parts
 
 router = APIRouter()
 
@@ -166,12 +166,11 @@ async def run_scout(
     doc_ids: list[str] = []
     used_doc_ids: set[str] = set()
     for upload in files:
-        suffix = Path(upload.filename or "upload").suffix or ".docx"
+        base_doc_id, suffix = document_upload_parts(upload.filename, tool="Scout")
         contents = await upload.read()
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
             temp_file.write(contents)
             temp_paths.append(temp_file.name)
-        base_doc_id = Path(upload.filename or "document").stem or "document"
         doc_id = base_doc_id
         suffix_number = 2
         while doc_id in used_doc_ids:

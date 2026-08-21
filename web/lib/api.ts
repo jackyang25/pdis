@@ -259,7 +259,8 @@ export type SearchLane = {
   source: string;
   query: string;
   status: "complete" | "failed" | "skipped";
-  error: string;
+  /** Why nothing came back: an adapter failure, or why the planner ruled the lane out. */
+  detail: string;
   returned: number;
 };
 

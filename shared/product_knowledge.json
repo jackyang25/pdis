@@ -1125,7 +1125,7 @@
                   "outputs": [
                     "Source-native requests or traced skips"
                   ],
-                  "guarantee": "Unknown source keys fail explicitly; ToolUniverse remains an injected connector, not a router.",
+                  "guarantee": "Unknown source keys fail explicitly; ToolUniverse remains an injected connector, not a router. A source needing a document-stated entity is ruled out with its reason rather than failing the run, so it is reachable from Scout and not from a free-text query.",
                   "children": [
                     {
                       "id": "applicability",

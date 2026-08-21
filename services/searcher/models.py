@@ -477,7 +477,9 @@ def outcomes_to_dicts(outcomes: list["SearchOutcome"]) -> list[dict]:
     source — a typed sentence reaches ClinicalTrials.gov as `condition:<that sentence>`
     and returns nothing, and no reader could diagnose that from the sentence alone.
 
-    `returned` counts what the request itself returned, before cross-lane deduplication.
+    `detail` explains a lane that produced nothing, whether it failed or was ruled out
+    before it ran. `returned` counts what the request itself returned, before cross-lane
+    deduplication.
     So the per-lane numbers may exceed the number of findings shown, and that is the
     honest reading: two lanes that both found one URL each did each return one.
     """
@@ -486,7 +488,11 @@ def outcomes_to_dicts(outcomes: list["SearchOutcome"]) -> list[dict]:
             "source": outcome.request.source,
             "query": outcome.request.query,
             "status": outcome.status,
-            "error": outcome.error,
+            # One field for "why this lane produced nothing", because a reader asks one
+            # question and the answer sits in two places: an adapter failure lands on the
+            # outcome, while a lane the planner ruled out never runs and carries its
+            # reason on the request. Reporting only the former left every skip unexplained.
+            "detail": outcome.error or outcome.request.applicability_reason,
             "returned": len(outcome.findings),
         }
         for outcome in outcomes

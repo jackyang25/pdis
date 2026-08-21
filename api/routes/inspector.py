@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -14,6 +13,7 @@ from services.inspector import find_config, inspection_result_to_dict, run_pipel
 from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import InspectionResultOut, InspectorRunResponse
 from api.streaming import run_with_progress
+from api.uploads import document_upload_parts
 
 router = APIRouter()
 
@@ -34,9 +34,8 @@ async def run_inspector(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    suffix = Path(file.filename or "upload").suffix or ".docx"
+    _, suffix = document_upload_parts(file.filename, tool="Inspector")
     contents = await file.read()
-    doc_id = Path(file.filename or "doc").stem
 
     # Construct provider clients before the stream opens: a missing credential
     # must fail the request, not arrive as an event on a 200 response.

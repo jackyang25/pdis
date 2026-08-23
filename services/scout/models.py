@@ -20,6 +20,7 @@ from shared.vocabulary import (
     ENTITY_TYPES,
     EVIDENCE_DOMAINS,
     SCOPE_PROVENANCE,
+    attribute_definitions,
     search_term,
 )
 
@@ -28,7 +29,6 @@ if TYPE_CHECKING:
 
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
-ATTRIBUTES_FILE = Path(__file__).resolve().parents[2] / "shared" / "attributes.yaml"
 VALID_RELATIONS = {"contradicts", "extends", "confirms", "unrelated"}
 """How one insight stands against the document's claim.
 
@@ -383,23 +383,22 @@ class SearchTrace:
 
 
 def load_attributes(intervention_class: str) -> list[Attribute]:
-    """Load attribute variables for an intervention class from shared vocabulary."""
-    import yaml
+    """Bind the shared attribute vocabulary into scout's investigation units.
 
-    if not ATTRIBUTES_FILE.exists():
-        raise LookupError(f"Shared attribute vocabulary missing: {ATTRIBUTES_FILE}")
-    with open(ATTRIBUTES_FILE, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    items = data.get(intervention_class) or []
+    `definition_mode` is scout's own distinction and is the reason this wrapper exists:
+    the vocabulary supplies a fixed definition, and a dynamic one arrives from an IPDP at
+    runtime, but both become the same `Attribute`. The file is read in
+    `shared.vocabulary` so archivist and scout cannot disagree about what it says.
+    """
     return [
         Attribute(
-            name=item["name"],
-            description=item["description"],
+            name=definition.name,
+            description=definition.description,
             definition_mode="fixed",
-            evidence_domain=item.get("evidence_domain", "general"),
-            supplies_scope=item.get("supplies_scope", ""),
+            evidence_domain=definition.evidence_domain,
+            supplies_scope=definition.supplies_scope,
         )
-        for item in items
+        for definition in attribute_definitions(intervention_class)
     ]
 
 

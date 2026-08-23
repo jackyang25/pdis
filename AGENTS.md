@@ -185,6 +185,12 @@ Each tool judges a document against a different authority: Inspector against an
 authored rubric, Aligner against a second document, Scout against external
 evidence. Those comparison targets are not interchangeable.
 
+Archivist is the one exception and must stay one: it judges nothing, so it names no
+authority. Its corpus *is* its authority, and a corpus is data rather than judgment.
+Do not invent an authority for it to make the descriptions match, and do not give it a
+score, a ranking, or a reconciliation between two documents — the moment it has one it
+is a fifth judging tool with no rubric behind it.
+
 Every user-facing description of these tools states that in one shape — *what it
 reads* against *the authority it is judged by* — so a reader can tell the tools
 apart without any of them saying what it does not do. A negative clause ("Aligner
@@ -574,6 +580,53 @@ supplied material answers and which it does not.
   evidence was looked for. A discovery track never determines a relation.
 - Do not restore holistic “basis” labels or present descriptive cohort statistics
   as confidence intervals, success probabilities, or causal estimates.
+
+### Archivist
+
+Archivist reports; the other tools decide. Its read path makes no model call at all, and
+that is a contract rather than an optimisation: a filter over reviewed rows is
+reproducible, and a summary of them is not.
+
+- The corpus is a **committed artifact**, never built on request. Every row is a model's
+  reading of a confidential document, and nobody may be shown a value cited to a block
+  before a person has read that line and agreed with it. Extraction on demand would put an
+  unreviewed reading in front of a reader at the moment they trusted it most. The built
+  artifacts are gitignored while the remote is not private — the corpus holds verbatim
+  quotes and whole blocks of BMGF documents. That is a guard on where the file may go, not
+  a change to what it is: do not restructure the tool around a runtime index because of it.
+- The **provenance chain** is `stated` inside `quote` inside `block_text`, checked at build
+  time and again on every load. The outer link rules out a fabricated sentence; the inner
+  one rules out a paraphrase, which is the likelier error. Never relax either to recover a
+  reading — the reading is not worth an unverifiable row.
+- The grid is **exhaustive, not sparse**: every document has a row for every indexed
+  attribute, including the ones it never mentioned. Silence is the answer that makes "none
+  of twelve profiles specified this" expressible, and a missing row would read as silence
+  while meaning "we never found out".
+- Values from different `source_type`s are **never merged**, at any layer. An iTPP states a
+  class-level ambition and a cTPP one candidate's commitment, so a number blending them
+  describes neither product. The nesting in the service, the wire, and the page all keep
+  them apart, so a merged list is unrepresentable rather than merely discouraged.
+- `magnitude` and `unit` are **parsed in code from the document's own words and never
+  converted**. A number a model retyped can differ from the document's, and a converted one
+  is a number no document wrote. Anything ambiguous parses as nothing; `stated` still
+  carries the value.
+- The model never names a block, types a number, or resolves a tag. `block_id` is found
+  from the quote, so a quote and its citation cannot disagree.
+- An indexed attribute names the **sibling attributes it is not**, by attribute name rather
+  than as prose, and the prompt quotes the shared vocabulary's definition of each. A field
+  defined only by its name absorbs anything adjacent to it — a shelf life becomes a storage
+  temperature. Naming them means a renamed sibling fails a test instead of leaving a stale
+  sentence in a prompt.
+- A column is filterable **exactly when it declares tags**. Never add a second flag saying
+  the same thing.
+- The manifest declares only what a person reads off a cover page and whose error would
+  otherwise be invisible. `source_type` is the case that justifies the rule: mislabel a cTPP
+  as an iTPP and every value below it changes meaning with nothing to notice. Anything a
+  document states in prose is extracted and checked against a quote instead.
+- Archivist imports nothing from `services/scout` or `services/searcher`, and does not
+  borrow their nouns (`facet` is Searcher's, `ledger` is Scout's). Tests enforce both. What
+  it does share is `shared.vocabulary`, which is the single reader of
+  `shared/attributes.yaml`.
 
 ## Results, Ask, and API
 

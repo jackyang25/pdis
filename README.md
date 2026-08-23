@@ -35,6 +35,11 @@ versioned result files containing their parsed source blocks and retained
 visuals. Imported final results are read-only and Assistant never performs a new
 search.
 
+Archivist is the one tool that reads a stored artifact rather than the document in
+front of you, and it is stored for a reason: every row is a model's reading of a past
+document, verified against a quote and then reviewed by a person before anyone relies
+on it. Reading it involves no model call.
+
 ## Install
 
 Docker Desktop is the recommended local environment.
@@ -104,6 +109,8 @@ export/import is the durable boundary.
 | [Inspector](services/inspector/README.md) | Grade document completeness, adherence, rigor, and consistency.     |
 | [Aligner](services/aligner/README.md)     | Check one document against another's requirements, one requirement at a time. |
 | [Scout](services/scout/README.md)         | Test document targets against evidence, comparators, and precedent. |
+| [Expert](services/expert/README.md)       | Decide which stage-gate questions the supplied documents answer.    |
+| [Archivist](services/archivist/README.md) | Report what past profiles required for an attribute, and how many said nothing. |
 | [Chunker](services/chunker/README.md)     | Produce ordered, citable text, table, and image blocks.             |
 | [Searcher](services/searcher/README.md)   | Execute normalized retrieval across registered evidence sources.    |
 | [Assistant](services/assistant/README.md) | Navigate available results and cited material across the workspace. |

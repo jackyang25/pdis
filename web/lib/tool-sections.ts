@@ -37,15 +37,17 @@ export type ToolSection = {
 export const TOOL_SECTIONS: readonly ToolSection[] = [
   {
     id: "pst-workflows",
-    // Reading order, not alphabetical: check a document, test what it claims, then
-    // check the documents against each other, then take them to the gate.
-    toolIds: ["inspector", "scout", "aligner", "expert"],
+    // Reading order, not alphabetical: look up what has been required before, then
+    // check a document, test what it claims, check the documents against each other,
+    // and take them to the gate. Archivist is first because it is what you consult
+    // before drafting, not a step in reviewing what you drafted.
+    toolIds: ["archivist", "inspector", "scout", "aligner", "expert"],
     title: "PST team workflows",
     // The only place the cycle is stated. Each card states what its tool is judged
     // against; none of them repeats this. Keep the clauses in the same order as
     // `toolIds` above - the sentence is what the cards read as.
     description:
-      "Hold each document to its rubric, its targets to the evidence, and the documents to each other, then bundle for the gate.",
+      "Look up what past profiles required, hold each document to its rubric, its targets to the evidence, and the documents to each other, then bundle for the gate.",
   },
   {
     id: "ghide-workflows",

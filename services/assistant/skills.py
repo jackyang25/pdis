@@ -40,6 +40,12 @@ SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 
 # The result types a skill may require. Kept as one closed set so a typo in
 # frontmatter fails at load rather than silently making a skill unofferable.
+#
+# These are results a reader *holds* - the output of a run they started. Archivist is
+# absent because it starts nothing: a reading of the archive is a filter over a committed
+# table, not a run that leaves an artifact, so there is nothing for a reader to be holding
+# when a skill is offered. It belongs here on the day a reading becomes something you can
+# keep, and not before.
 KNOWN_RESULT_TYPES = frozenset(
     {"inspector", "aligner", "scout", "chunker", "searcher", "expert"}
 )

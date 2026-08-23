@@ -57,7 +57,7 @@ class PromptReferenceTest(unittest.TestCase):
         self.assertEqual(declared, published)
         self.assertEqual(
             declared,
-            {"chunker", "inspector", "aligner", "scout", "expert"},
+            {"chunker", "inspector", "aligner", "scout", "expert", "archivist"},
             "add the new tool's catalog to CATALOGS, or remove it here deliberately",
         )
 

@@ -5,6 +5,7 @@ export type ToolIcon =
   | "expert"
   | "chunker"
   | "searcher"
+  | "archivist"
   | "evaluator"
   | "roadmap"
   | "executive-summary"
@@ -88,6 +89,31 @@ export type ToolDefinition = WorkspaceToolDefinition | ExternalToolDefinition;
  * agreeing so one surface never lists the tools differently from another.
  */
 export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
+  {
+    id: "archivist",
+    href: "/archivist",
+    title: "Archivist",
+    // Imperative, like Chunker and Searcher, and for the reason the family rule gives:
+    // this performs a lookup rather than judging a document. It names no authority
+    // because it has none - the corpus is its authority, and a corpus is data.
+    description:
+      "Look up what past iTPPs and cTPPs required for an attribute, how many said nothing, and the quote behind each value.",
+    capability: "Archive lookup",
+    // The floor of the shared scale rather than a truer word for it. There is no model
+    // call on the read path - the corpus was built and reviewed in advance, so a query is
+    // a filter over a few hundred committed rows - but these are read side by side, and
+    // "instant" beside "~15 min" is two scales rather than one comparison.
+    activity: "~1 min",
+    icon: "archivist",
+    // Owned by the PST team, who write these profiles, rather than shared: no other
+    // tool reads the corpus, which is what makes Chunker and Searcher shared.
+    audience: "pst",
+    // The utility family by this file's own rule - it performs a task rather than
+    // rendering a verdict - which is a different axis from who owns it.
+    workflow: "utility",
+    delivery: "workspace",
+    availability: "available",
+  },
   {
     id: "inspector",
     href: "/inspector",

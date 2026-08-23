@@ -73,6 +73,10 @@ test("an undeclared graph falls back rather than throwing", () => {
   assert.ok(PDIS_ICON_PATHS[graphIcon("a-tool-nobody-has-built")]);
 });
 
+// The five document pipelines. Searcher and Archivist publish graphs too, and are absent
+// here only because neither takes a document: this assertion is about the tools a document
+// moves through, so listing them would widen it into "every tool", which
+// `every published workflow graph declares an icon` already covers.
 test("every tool that runs a pipeline publishes a graph", () => {
   const published = new Set(architectureGraphs().map((graph) => graph.id));
   for (const tool of ["chunker", "inspector", "aligner", "expert", "scout"]) {

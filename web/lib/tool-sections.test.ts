@@ -44,7 +44,7 @@ test("the catalog leads with the order a PPL uses the tools in", () => {
   const pst = WORKSPACE_TOOLS.filter((tool) => tool.audience === "pst").map(
     (tool) => tool.id,
   );
-  assert.deepEqual(pst, ["inspector", "scout", "aligner", "expert"]);
+  assert.deepEqual(pst, ["archivist", "inspector", "scout", "aligner", "expert"]);
 });
 
 // Sections group by audience and nothing else. A section mixing in another axis -
@@ -67,7 +67,7 @@ test("a section renders the tools it declares, in that order", () => {
   assert.ok(pst);
   assert.deepEqual(
     sectionTools(pst, () => true).map((tool) => tool.id),
-    ["inspector", "scout", "aligner", "expert"],
+    ["archivist", "inspector", "scout", "aligner", "expert"],
   );
 });
 
@@ -81,7 +81,7 @@ test("a section drops the tools a filter excludes without resorting", () => {
   // filters the catalog instead of walking `toolIds`.
   assert.deepEqual(
     sectionTools(pst, (tool) => tool.id !== "scout").map((tool) => tool.id),
-    ["inspector", "aligner", "expert"],
+    ["archivist", "inspector", "aligner", "expert"],
   );
 });
 

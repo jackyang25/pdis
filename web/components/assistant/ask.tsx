@@ -64,8 +64,10 @@ const SUGGESTIONS: Record<string, string[]> = {
   // Expert reports only whether the supplied material answers each gate question,
   // so both openers stay on that axis rather than implying a verdict.
   expert: ["Which gate questions are unanswered?", "What evidence is still needed?"],
-  // Chunker and Searcher produce material rather than judgments; asking either
-  // "what needs attention" would invite an assessment neither one made.
+  // Chunker, Searcher and Archivist produce material rather than judgments; asking any
+  // of them "what needs attention" would invite an assessment none of them made.
+  // Archivist's second opener is the silence, which is the thing only it can answer.
+  archivist: ["What have past profiles required here?", "How many of them said nothing?"],
   chunker: ["What is in this document?", "How is it structured?"],
   searcher: ["What did this search turn up?", "Which sources look most relevant?"],
   workspace: ["Which tool should I use?", "What skills can you use here?"],

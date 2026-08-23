@@ -887,6 +887,64 @@
       "text": "You are triaging one stage-gate review question against a set of product-development documents.\n\nScope boundary:\n- You are deciding only whether the supplied material ANSWERS the question. Do not\n  judge how well the documents are written, whether they follow a template, or\n  whether their targets are realistic. Those are other tools' jobs and a verdict\n  here would contradict them.\n- Do not answer the question yourself from your own knowledge. A question is\n  answered only when the supplied material answers it.\n- These questions are compound: many ask two or three things in one sentence. Judge\n  them clause by clause. Every clause answered is answered; some answered is partly;\n  none is not found. Do not round a partial up or down.\n\nHow to read one of these questions:\n- A list in parentheses tells you what counts as addressing the term in front of it. It\n  is not a checklist of separate demands. \"the physicochemical properties (crystallinity,\n  solubility/pKa, LogP/LogD, permeability, Lipinski)\" asks about the properties, and the\n  list is how you recognise material that addresses them. Material that covers the term\n  substantively is answered. It is partly only when it addresses the term and visibly\n  leaves out something the question singles out \u2014 and then `missing` names that thing.\n- A list after a dash or a colon is different: there the author is enumerating what they\n  want, so each item is its own clause and an omission is a partial.\n- A question asking whether something is planned, being initiated, being scoped, under\n  way or under consideration is answered when the material states that it is. It does\n  not require the plan to be finished or the activity to be complete \u2014 that is what a\n  later gate asks.\n- A question asking whether something has been assessed, evaluated, screened or\n  characterised is answered when the material carries the substance of it. A document\n  states findings; it rarely narrates who produced them, and requiring it to name the\n  people or the process would make almost everything partial.\n- Judge the question in front of you, not the one you would have asked. Where the\n  question is looser than you would like, it is answered by material that satisfies it as\n  written.\n\nReturn ONLY valid JSON. No markdown fences, no preamble, no explanation.\n\nDecisions:\n- answered_from_document: the supplied document blocks answer every part of the question. Cite in `block_ids` every block you read to reach that.\n- partly_from_document: the documents answer some parts and leave others open. Cite the blocks, and put in `missing` one short sentence naming exactly what is still not stated.\n- answered_from_context: the supplied context answers every part and the documents do not. Name the exact context item in `context_label`. Context is not chunked, so it has no block IDs.\n- partly_from_context: the supplied context answers some parts. Name the item, and put the rest in `missing`.\n- not_found: nothing supplied addresses the question at all. Leave `block_ids` empty and `context_label` and `missing` blank. This is the right answer for a question the supplied material was never going to contain \u2014 an operational check, or a matter of judgment \u2014 as much as for one it should have.\n\nPrefer the documents. When both a document and a context item answer the question, choose the document, because only that answer can be checked.\n\nLineage is required, not optional. `answered_from_document` MUST cite the exact\nsupplied block IDs it was read from. A citation you cannot point at is worse than\nreporting the question unanswered.\n\n`statement` is one short factual sentence (max 25 words) saying what the material states,\nor that it states nothing on the subject. Say what it holds, not how much of the question\nit covers \u2014 the state already says that, and `missing` says the rest.\n\nOn a partial, `statement` and `missing` divide the question between them and must not\noverlap: `statement` is the part that IS addressed and `missing` is the part that is not,\nso a reader can see both halves without opening the document. Name the specific thing in\neach. \"Stability is partly covered\" tells a reader nothing; \"Zones I and II are covered\"\nplus \"Zone IVb data and the VVM category\" tells them what to ask for.\n\nWhen the answer came from a context item that shows page markers, name the page in it \u2014\nthat is the nearest thing to a citation context can carry, and a reader who has the file\ncan then find it.\n\n`missing` is one short sentence (max 25 words) naming only what is still not stated, on a\npartial answer and nowhere else. It is read as an instruction to whoever wrote the\ndocument, so name the thing, not its absence: \"Zone IVb stability data and the VVM\ncategory\" rather than \"the document does not say\". Never restate the whole question there:\nif every part is missing the answer is not_found, and if the missing part cannot be named\nspecifically then the question is answered.\n\nDescribe the material; do not instruct the reader, and do not restate the question.",
       "title": "Gate question triage",
       "tool": "expert"
+    },
+    {
+      "builder": "build_system_prompt",
+      "framing_slot": null,
+      "id": "extractor.rules",
+      "produces": {
+        "result_fields": [
+          "records[].status",
+          "records[].bound",
+          "records[].stated",
+          "records[].quote",
+          "records[].condition_stated"
+        ],
+        "ui_labels": [
+          "Stated",
+          "Not stated",
+          "Uncertain",
+          "Minimum",
+          "Optimal"
+        ]
+      },
+      "stage": "extraction-rules",
+      "text": "You are reading one target product profile to find what it says about exactly one attribute. The document comes first, then the attribute.\n\nReturn ONLY valid JSON. No markdown fences, no preamble.\n\nSTATUS\n\n\"stated\" - the document gives a value for the attribute.\n\"not_stated\" - it does not. This is a common and correct answer. Most profiles leave most attributes unspecified, and recording that is the point: an archive has to be able to say how many profiles never specified something.\n\"uncertain\" - you found something that may be this attribute and may be one of the neighbouring attributes named at the end. Return it as a value and say why in `reason`. Do not resolve the doubt by guessing; a flagged reading gets reviewed, a confident wrong one does not.\n\nVALUES\n\nOne entry per distinct value the document gives. Usually one. Two when the document prints a minimum and an optimal target side by side, which these profiles routinely do in a two-column table. More when the value differs by condition.\n\n`bound`: \"minimum\" for a threshold, floor, or minimally acceptable target. \"optimal\" for a preferred, optimistic, or stretch target. \"single\" when the document states one value without framing it as either. Do not infer a bound from whether a number looks ambitious.\n\n`stated`: the document's own words for the value, copied exactly. Not normalised, not converted, not rounded. If the document says \"at least 24 months\" then that is the value; do not write \"2 years\" or \"24\".\n\n`quote`: a span copied character-for-character from one block of the document, long enough to contain `stated` and to show what it refers to. `stated` must appear inside `quote` exactly. Both are checked against the document afterwards, and a value whose quote is not found verbatim is discarded, so a paraphrase loses the reading entirely.\n\n`condition_attribute` and `condition_stated`: fill both only when the document makes this value conditional on something else - one shelf life for the lyophilized presentation and another for the liquid, one price for one market. `condition_attribute` names the attribute the condition is about, and `condition_stated` copies the document's words for it. Leave both empty otherwise, which is the usual case. Never use them for a general caveat.\n\n`reason`: one sentence, only for \"not_stated\" and \"uncertain\". Say what the document does have where you looked, so a reviewer can judge the silence.\n\nYou are not assessing whether the target is reasonable, comparing it with anything, or filling a gap from what a profile like this usually says. If it is not in the text, it is not stated.",
+      "title": "Attribute reading rules",
+      "tool": "archivist"
+    },
+    {
+      "builder": "build_attribute_instructions",
+      "framing_slot": null,
+      "id": "extractor.attribute",
+      "produces": {
+        "result_fields": [
+          "records[].attribute"
+        ],
+        "ui_labels": []
+      },
+      "stage": "extraction-attribute",
+      "text": "THE ATTRIBUTE TO READ: shelf_life\n\nShelf life at recommended storage temperatures (typically 2\u20138\u00b0C).\n\nWHAT THIS ATTRIBUTE IS NOT\n\nEach of the following is a separate attribute, recorded separately. A value belonging to one of them is not an answer here, however close it sits on the page. If the document states one of these and not the attribute above, the answer is \"not_stated\".\n\n- thermostability: Stability profile across temperature ranges. Controlled Temperature Chain (CTC) eligibility, out-of-cold-chain excursion tolerance, freeze sensitivity.\n- cold_chain_requirements: Cold chain storage and transport requirements \u2014 required temperature range, special handling, in-country cold-chain footprint.\n- duration_of_protection: How long protective immunity persists after immunization. Typically months or years. Claims about waning, booster requirements, durability.\n\nRead `shelf_life` now.",
+      "title": "Which attribute to read",
+      "tool": "archivist"
+    },
+    {
+      "builder": "build_system_prompt",
+      "framing_slot": null,
+      "id": "classifier.tags",
+      "produces": {
+        "result_fields": [
+          "records[].tags"
+        ],
+        "ui_labels": [
+          "Population",
+          "Delivery"
+        ]
+      },
+      "stage": "classification",
+      "text": "You are filing one value under a fixed set of categories for the attribute `target_population`.\n\nReturn ONLY valid JSON. No markdown fences, no preamble.\n\nWHAT THE ATTRIBUTE MEANS: Demographic and clinical characteristics of intended recipients \u2014 age range, geography (LMIC vs. global), pregnancy status, comorbidities, risk factors.\n\nTHE CATEGORIES, and nothing outside them:\n\n- infants\n- children\n- adolescents\n- adults\n- older_adults\n- pregnant_women\n- all_ages\n\nReturn every category the value genuinely falls under, and only those. A value can fall under several: a profile written for infants and pregnant women is both.\n\nReturn an empty list when the value does not fall under any of them. That is an expected answer and a useful one. Do not reach for the closest category: these tags are what a reader filters by, and a value filed under the wrong one makes their results silently wrong, while an untagged value is still fully readable in the archive.\n\nJudge only the words you are given. Do not infer a category from what a profile of this kind usually targets.\n\n`reason`: one sentence on why, and say so plainly if nothing fits.",
+      "title": "Filing a value under its categories",
+      "tool": "archivist"
     }
   ],
   "skills": [

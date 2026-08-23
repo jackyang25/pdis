@@ -956,3 +956,140 @@ class PriorityDigestResponse(BaseModel):
 
     digest: str
     nominations: list[PriorityNominationOut] = Field(default_factory=list)
+
+
+# --- Archivist ---------------------------------------------------------------
+#
+# Archivist publishes what the archive says, so its wire shape carries no verdict, no
+# score and no comparison - there is nothing here for a client to render as a judgment.
+# What it does carry, deliberately, is the same nesting the service uses: a column, then
+# the document types under it, then three disjoint states. A flat list of rows would let a
+# client merge an iTPP's class-level ambition with a cTPP's candidate commitment, and the
+# nesting is what makes that unrepresentable rather than merely discouraged.
+
+
+class ArchivistColumnOut(BaseModel):
+    """One indexed attribute, and how a client may use it."""
+
+    attribute: str
+    #: Non-empty exactly when the column is filterable. A client reads the presence of a
+    #: vocabulary as permission to offer a picker, rather than keeping its own list of
+    #: which columns are filterable.
+    tags: list[str] = Field(default_factory=list)
+    #: The unit family a value may carry, empty when the column is not a quantity. Tells a
+    #: client whether sorting by `magnitude` means anything for this column.
+    quantity: str = ""
+    #: Sibling attributes this column must not absorb. Published because it is what the
+    #: extraction was fenced by, and a reader judging a value needs to know what was
+    #: deliberately kept out of it.
+    not_confused_with: list[str] = Field(default_factory=list)
+
+
+class ArchivistDocumentOut(BaseModel):
+    id: str
+    title: str
+    org: str
+    intervention_class: str
+    indication: str
+    source_type: str
+
+
+class ArchivistRecordOut(BaseModel):
+    """One thing one document said.
+
+    `document_id` rather than an inlined title: the document appears once in
+    `documents`, and a title repeated on eight rows is eight chances to disagree with
+    itself.
+    """
+
+    document_id: str
+    attribute: str
+    status: str
+    bound: str
+    stated: str = ""
+    magnitude: float | None = None
+    unit: str = ""
+    tags: list[str] = Field(default_factory=list)
+    condition_attribute: str = ""
+    condition_stated: str = ""
+    #: The verbatim span, the block it came from, and that block's whole text. All three
+    #: travel together because a quote alone misleads: "24 months" reads differently when
+    #: the same block says "for the lyophilized presentation only".
+    quote: str = ""
+    block_id: str = ""
+    block_text: str = ""
+    section_label: str = ""
+    #: Why the document was read as silent, or why the reading is uncertain. Never set on
+    #: a stated value, where the quote is the justification.
+    reason: str = ""
+
+
+class ArchivistSourceTypeGroupOut(BaseModel):
+    """One document type's answers for one column, in three disjoint states.
+
+    `silent` holds document ids rather than records: a document that said nothing has no
+    value, no quote and no bound, so a record shape would be almost entirely empty. What a
+    reader needs is which documents they were, and the count follows from the list.
+    """
+
+    source_type: str
+    values: list[ArchivistRecordOut] = Field(default_factory=list)
+    uncertain: list[ArchivistRecordOut] = Field(default_factory=list)
+    silent: list[str] = Field(default_factory=list)
+
+
+class ArchivistAttributeGroupOut(BaseModel):
+    attribute: str
+    quantity: str = ""
+    tag_vocabulary: list[str] = Field(default_factory=list)
+    groups: list[ArchivistSourceTypeGroupOut] = Field(default_factory=list)
+
+
+class ArchivistCorpusResponse(BaseModel):
+    """What the archive holds, for building the query.
+
+    `built_at` empty and `documents` zero is a real state, not an error: the tool is
+    registered before any archive is built, and the interface has to be able to say
+    "nothing has been indexed yet" rather than fail.
+    """
+
+    built_at: str = ""
+    documents: list[ArchivistDocumentOut] = Field(default_factory=list)
+    columns: list[ArchivistColumnOut] = Field(default_factory=list)
+    intervention_class: str = ""
+    #: Every intervention class with columns declared. A client offering a class the
+    #: corpus cannot answer would produce an empty result with no explanation.
+    intervention_classes: list[str] = Field(default_factory=list)
+    #: What the corpus actually contains, not what the vocabulary declares. Offering
+    #: thirteen indications when the archive holds three produces a filter that returns
+    #: nothing and says nothing about why.
+    indications: list[str] = Field(default_factory=list)
+    source_types: list[str] = Field(default_factory=list)
+    orgs: list[str] = Field(default_factory=list)
+
+
+class ArchivistTagFilterIn(BaseModel):
+    attribute: str
+    values: list[str] = Field(default_factory=list)
+
+
+class ArchivistQueryRequest(BaseModel):
+    """Which rows to read.
+
+    `intervention_class` is required and is not a filter like the others: the columns are
+    declared per class, so it decides what the answer can be about at all.
+    """
+
+    intervention_class: str
+    attributes: list[str] = Field(default_factory=list)
+    indications: list[str] = Field(default_factory=list)
+    source_types: list[str] = Field(default_factory=list)
+    orgs: list[str] = Field(default_factory=list)
+    tags: list[ArchivistTagFilterIn] = Field(default_factory=list)
+
+
+class ArchivistQueryResponse(BaseModel):
+    intervention_class: str
+    built_at: str = ""
+    documents: list[ArchivistDocumentOut] = Field(default_factory=list)
+    attributes: list[ArchivistAttributeGroupOut] = Field(default_factory=list)

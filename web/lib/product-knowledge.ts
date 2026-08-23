@@ -27,7 +27,15 @@ export type ArchitectureNode = {
 };
 
 export type ArchitectureGraph = {
-  id: "inspector" | "aligner" | "expert" | "scout" | "chunker" | "searcher" | "chat";
+  id:
+    | "inspector"
+    | "aligner"
+    | "expert"
+    | "scout"
+    | "chunker"
+    | "searcher"
+    | "archivist"
+    | "chat";
   title: string;
   summary: string;
   nodes: ArchitectureNode[];

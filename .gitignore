@@ -36,3 +36,17 @@ web/tsconfig.tsbuildinfo
 
 # Generated from shared/prompt_reference.json by web/scripts/copy-shared.mjs
 web/public/prompt-reference.json
+
+# Archivist corpus artifacts
+#
+# The manifest is tracked: it is the documented template and holds no document content.
+# The built artifacts are not, and this is a safety guard rather than a design choice.
+# `corpus.json` carries verbatim quotes and whole blocks of BMGF product documents, so it
+# must not reach a remote that is not private.
+#
+# Archivist is designed around the corpus being committed - that is what makes review
+# happen in a diff, and why rows are written in a stable order. Delete these two lines once
+# the remote is private, and the design works as intended. Until then a build stays local,
+# and review means diffing two local builds by hand.
+services/archivist/corpus/corpus.json
+services/archivist/corpus/build_report.json

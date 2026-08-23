@@ -1,0 +1,35 @@
+# Which documents the corpus is built from.
+#
+# Reviewed content: this file is the human half of the build, and the only half. Each row
+# declares what a person reads off a cover page and nothing more, because these are the
+# fields whose error would otherwise be invisible. `source_type` is the one that matters
+# most - mislabel a cTPP as an iTPP and every value below it turns one candidate's
+# commitment into a class-level ambition, and no downstream check would notice. Everything
+# else about a document is extracted from its prose and checked against a quote.
+#
+# The documents themselves are not in this repository and will not be: they are BMGF
+# product documents. `file` names a path inside the folder passed to
+# `--documents`, and it stops at this file - a committed artifact carrying a local path
+# would describe someone's laptop.
+#
+# Every field is required, and a field this file does not support is refused rather than
+# ignored, because someone declaring something expects it to be honoured:
+#
+#   id                  stable key for the document. Appears in every row and in the
+#                       interface, so changing it rewrites the whole artifact.
+#   file                filename inside the --documents folder
+#   title               how the document should read on screen
+#   org                 who wrote it
+#   source_type         which document type it is. Must have a chunker parsing config;
+#                       there is no config for WHO PPCs today, so they cannot be indexed.
+#   intervention_class  must have corpus columns declared. Vaccine only in v1.
+#   indication          must be one the shared vocabulary declares for that class
+#
+#   .venv/bin/python scripts/build_archivist_corpus.py --documents ~/corpus-docs --dry-run
+#
+# validates every row above without making a single model call. Run it first.
+#
+# Empty because no archive has been indexed yet, and the interface says exactly that
+# rather than showing an empty result. An example row would be invented domain content in
+# a file whose whole job is to be true.
+documents: []

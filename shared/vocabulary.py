@@ -16,11 +16,13 @@ file in both places would be two answers that could disagree.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
 INDICATIONS_VOCAB = Path(__file__).resolve().parent / "indications.yaml"
+ATTRIBUTES_VOCAB = Path(__file__).resolve().parent / "attributes.yaml"
 
 #: What kind of evidence a retrieval source owns.
 #:
@@ -176,6 +178,48 @@ def indications_for(intervention_class: str) -> list[str]:
     """The indications declared for one intervention class, in file order."""
     values = _indications_document().get(intervention_class) or []
     return [str(value) for value in values] if isinstance(values, list) else []
+
+
+@dataclass(frozen=True)
+class AttributeDefinition:
+    """One attribute exactly as ``shared/attributes.yaml`` declares it.
+
+    The file's own record and nothing more. Services wrap it in whatever shape they
+    need - scout binds a document target and a resolution state onto it, archivist reads
+    only the name and the description - and the fields a service adds stay in that
+    service. Both `evidence_domain` and `supplies_scope` are already shared vocabularies
+    (`EVIDENCE_DOMAINS`, `SCOPE_DIMENSIONS`), so they belong to the record rather than to
+    whoever reads it first.
+    """
+
+    name: str
+    description: str
+    evidence_domain: str = "general"
+    supplies_scope: str = ""
+
+
+def attribute_definitions(intervention_class: str) -> tuple[AttributeDefinition, ...]:
+    """Every attribute declared for one intervention class, in file order.
+
+    Here rather than in scout, which read it first, because a second service now needs
+    the same rows: archivist quotes an attribute's description into an extraction prompt
+    and names sibling attributes it must not be confused with. Two readers of one file
+    are two answers that can disagree about what the vocabulary says.
+    """
+    if not ATTRIBUTES_VOCAB.exists():
+        raise LookupError(f"Shared attribute vocabulary missing: {ATTRIBUTES_VOCAB}")
+    with ATTRIBUTES_VOCAB.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    items = data.get(intervention_class) or []
+    return tuple(
+        AttributeDefinition(
+            name=item["name"],
+            description=item["description"],
+            evidence_domain=item.get("evidence_domain", "general"),
+            supplies_scope=item.get("supplies_scope", ""),
+        )
+        for item in items
+    )
 
 
 def search_term(tag: str) -> str:

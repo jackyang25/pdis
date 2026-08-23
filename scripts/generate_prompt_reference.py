@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 from services.aligner.prompt_catalog import PROMPT_CATALOG as ALIGNER_CATALOG
+from services.archivist.prompt_catalog import PROMPT_CATALOG as ARCHIVIST_CATALOG
 from services.assistant.skills import available_skills
 from services.chunker import available_configs as chunker_configs
 from services.chunker.prompt_catalog import PROMPT_CATALOG as CHUNKER_CATALOG
@@ -28,22 +29,27 @@ REFERENCE = ROOT / "shared" / "prompt_reference.json"
 
 VERSION = 3
 
-# Publication order, matching the order a document moves through the suite.
+# Publication order, matching the order a document moves through the suite. Archivist is
+# last because it is the only one that does not read the document in front of the reader:
+# its prompts ran when the corpus was built, against documents the archive already held.
 CATALOGS = (
     CHUNKER_CATALOG,
     INSPECTOR_CATALOG,
     ALIGNER_CATALOG,
     SCOUT_CATALOG,
     EXPERT_CATALOG,
+    ARCHIVIST_CATALOG,
 )
 
 # Where each tool's configurations come from.
 #
-# Aligner and Expert are both absent, and for the same reason: neither prompt has a
-# framing slot. Expert's bank supplies each question's whole text, and Aligner's role
+# Aligner, Expert and Archivist are absent, and for the same reason: none of their
+# prompts has a framing slot. Expert's bank supplies each question's whole text, and Aligner's role
 # description and edge question travel in the user message per requirement, so in both
 # cases there is no configuration field interpolated into a system prompt for a reader
-# to be shown. A tool that grows one registers here, and
+# to be shown. Archivist has no configurations at all - what varies per reading is an
+# attribute's definition, which comes from the shared vocabulary and is published as
+# prompt text. A tool that grows one registers here, and
 # `test_every_declared_framing_slot_publishes_its_text` is what notices if it does not.
 CONFIG_SOURCES = {
     "chunker": chunker_configs,

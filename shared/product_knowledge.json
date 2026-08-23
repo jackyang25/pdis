@@ -1359,6 +1359,125 @@
                   "target": "client"
                 }
               ]
+            },
+            {
+              "id": "archivist",
+              "title": "Archivist",
+              "summary": "Splits the work in two: a reviewed corpus is built from the archive offline, and a query over it is a filter with no model call at all.",
+              "nodes": [
+                {
+                  "id": "manifest",
+                  "title": "Manifest and documents",
+                  "summary": "A folder of source documents plus a reviewed row per document declaring who wrote it, which document type it is, and which intervention class and indication it covers.",
+                  "kind": "input",
+                  "layer": "Build input",
+                  "inputs": [
+                    "Source documents, not held in this repository",
+                    "One declared row per document"
+                  ],
+                  "outputs": [
+                    "Validated document headers"
+                  ],
+                  "guarantee": "A row is declared by a person only where a mistake would otherwise be invisible. Mislabelling a cTPP as an iTPP turns one candidate's commitment into a class-level ambition in every value below it, and no later check could notice; everything a document states in prose is extracted and checked against a quote instead. Every row is validated against the parsing configs and the shared vocabulary before any model call is made."
+                },
+                {
+                  "id": "extract",
+                  "title": "Attribute reading",
+                  "summary": "One call per document and attribute, over the parsed blocks. The model decides whether the document states the attribute, in which words, under which bound, and subject to which condition.",
+                  "kind": "model",
+                  "layer": "Build",
+                  "inputs": [
+                    "Parsed, section-labelled blocks",
+                    "One indexed attribute"
+                  ],
+                  "outputs": [
+                    "A value with its verbatim quote, or a recorded silence"
+                  ],
+                  "guarantee": "Each attribute is read on its own, and its prompt names the sibling attributes it must not absorb using the shared vocabulary's own words for them, so a shelf life cannot quietly become a storage temperature. The model never names a block, never types a number, and never resolves a tag: the block is found from the quote, so a quote and a citation cannot disagree. Silence is recorded as a row, which is what makes \"none of twelve profiles specified this\" answerable."
+                },
+                {
+                  "id": "verify",
+                  "title": "Verification and parsing",
+                  "summary": "Every offered value is checked against the document before it becomes a row, and any quantity in it is parsed in code.",
+                  "kind": "deterministic",
+                  "layer": "Build",
+                  "inputs": [
+                    "Offered values and their quotes"
+                  ],
+                  "outputs": [
+                    "Verified rows, or a flagged reading"
+                  ],
+                  "guarantee": "The value sits inside its quote, which sits inside the block it cites. The outer link rules out a fabricated sentence and the inner one rules out a paraphrase, which is the likelier error: a model asked for a shelf life will answer \"about two years\" from a document that wrote \"24 months\". Every check fails closed, so an unverifiable reading leaves no value and is flagged for review. A magnitude is read from the document's own words and never converted, and anything ambiguous parses as nothing."
+                },
+                {
+                  "id": "review",
+                  "title": "Review and commit",
+                  "summary": "The corpus and a build report are written as committed artifacts, and a person reads them before anyone relies on a value.",
+                  "kind": "review",
+                  "layer": "Build output",
+                  "inputs": [
+                    "Verified rows",
+                    "Counts of what was discarded and why"
+                  ],
+                  "outputs": [
+                    "A reviewed corpus"
+                  ],
+                  "guarantee": "Static rather than built on demand, because every row is a model's reading of a confidential document and nobody should be shown a value cited to a block before a person has agreed with it. Rows are written in a stable order so a rebuild that changed one reading is a one-row diff. The report is separate from the corpus and carries what the corpus cannot: a discarded reading leaves no row, so only the report can say how many there were."
+                },
+                {
+                  "id": "query",
+                  "title": "Filter and group",
+                  "summary": "A reader's filters select documents, and their rows are grouped by attribute and then by document type. No model call is involved.",
+                  "kind": "deterministic",
+                  "layer": "Read",
+                  "inputs": [
+                    "Intervention class",
+                    "Attributes, indications and document types",
+                    "Closed-vocabulary tags"
+                  ],
+                  "outputs": [
+                    "Values, flagged readings, and silences, kept apart"
+                  ],
+                  "guarantee": "Values from different document types are never merged, because an iTPP states a class-level ambition and a cTPP states one candidate's commitment, and a number blending them describes neither product. For each attribute every matched document appears in exactly one of stated, uncertain, or silent, so a count is a count. Loading the corpus re-runs every invariant the build enforced, so a hand-edited quote cannot be served."
+                },
+                {
+                  "id": "result",
+                  "title": "What the archive says",
+                  "summary": "Each value with the quote and block behind it, how many profiles specified the attribute, and which ones did not.",
+                  "kind": "output",
+                  "layer": "Output",
+                  "inputs": [
+                    "Grouped rows"
+                  ],
+                  "outputs": [
+                    "A reading of the archive"
+                  ],
+                  "guarantee": "No score, no ranking, and no reconciliation between two documents. This is the one workspace tool that judges nothing: its authority is the corpus, and a corpus is data rather than judgment, so what it returns is a selection of rows and counts a reader could recompute from them."
+                }
+              ],
+              "edges": [
+                {
+                  "source": "manifest",
+                  "target": "extract"
+                },
+                {
+                  "source": "extract",
+                  "target": "verify"
+                },
+                {
+                  "source": "verify",
+                  "target": "review"
+                },
+                {
+                  "source": "review",
+                  "target": "query",
+                  "label": "committed"
+                },
+                {
+                  "source": "query",
+                  "target": "result"
+                }
+              ]
             }
           ]
         }

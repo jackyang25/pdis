@@ -284,6 +284,103 @@ export type SearcherResponse = {
   lanes: SearchLane[];
 };
 
+/* --- Archivist ---------------------------------------------------------------
+ *
+ * Archivist reports what the archive says, so there is no verdict, score, or comparison
+ * on the wire and nothing here for a component to render as a judgment.
+ *
+ * The nesting is the contract, not a convenience: a column, then the document types under
+ * it, then three disjoint states. Flattening it in a component would let an iTPP's
+ * class-level ambition sit in one list beside a cTPP's candidate commitment, and the
+ * shape is what makes that unrepresentable rather than merely discouraged.
+ */
+
+export type ArchivistColumn = {
+  attribute: string;
+  /** Non-empty exactly when the column is filterable; its presence is the permission. */
+  tags: string[];
+  /** The unit family, empty when the column is not a quantity. */
+  quantity: string;
+  /** Sibling attributes the extraction was fenced against. */
+  not_confused_with: string[];
+};
+
+export type ArchivistDocument = {
+  id: string;
+  title: string;
+  org: string;
+  intervention_class: string;
+  indication: string;
+  source_type: string;
+};
+
+export type ArchivistRecord = {
+  document_id: string;
+  attribute: string;
+  status: string;
+  bound: string;
+  stated: string;
+  magnitude: number | null;
+  unit: string;
+  tags: string[];
+  condition_attribute: string;
+  condition_stated: string;
+  /** The verbatim span, its block, and that block's whole text - all three, because a
+   * quote without its surroundings misleads. */
+  quote: string;
+  block_id: string;
+  block_text: string;
+  section_label: string;
+  /** Why the document was read as silent, or why the reading is uncertain. */
+  reason: string;
+};
+
+export type ArchivistSourceTypeGroup = {
+  source_type: string;
+  values: ArchivistRecord[];
+  uncertain: ArchivistRecord[];
+  /** Document ids, not records: a document that said nothing has no value to carry. */
+  silent: string[];
+};
+
+export type ArchivistAttributeGroup = {
+  attribute: string;
+  quantity: string;
+  tag_vocabulary: string[];
+  groups: ArchivistSourceTypeGroup[];
+};
+
+export type ArchivistCorpus = {
+  /** Empty with zero documents is a real state: nothing has been indexed yet. */
+  built_at: string;
+  documents: ArchivistDocument[];
+  columns: ArchivistColumn[];
+  intervention_class: string;
+  intervention_classes: string[];
+  /** What the corpus holds, not what the vocabulary declares. */
+  indications: string[];
+  source_types: string[];
+  orgs: string[];
+};
+
+export type ArchivistTagFilter = { attribute: string; values: string[] };
+
+export type ArchivistQuery = {
+  intervention_class: string;
+  attributes?: string[];
+  indications?: string[];
+  source_types?: string[];
+  orgs?: string[];
+  tags?: ArchivistTagFilter[];
+};
+
+export type ArchivistAnswer = {
+  intervention_class: string;
+  built_at: string;
+  documents: ArchivistDocument[];
+  attributes: ArchivistAttributeGroup[];
+};
+
 export type SearchSource = {
   key: string;
   label: string;
@@ -1099,6 +1196,36 @@ export async function runSearcher(
   form.append("region", facets.region ?? "");
   form.append("published_since", facets.publishedSince ?? "");
   return streamRequest("/api/searcher/run", form, onStage);
+}
+
+/**
+ * What the archive holds. Omit the class and the server picks it.
+ *
+ * Optional rather than required so the client keeps no default of its own: the response
+ * carries `intervention_class`, so the first call can ask for whatever is declared and
+ * read back which one it got. A hardcoded "vaccine" here would be a second default, free
+ * to disagree with the route's the day another class is indexed.
+ */
+export async function fetchArchivistCorpus(
+  interventionClass?: string,
+): Promise<ArchivistCorpus> {
+  const query = interventionClass
+    ? `?intervention_class=${encodeURIComponent(interventionClass)}`
+    : "";
+  return jsonRequest<ArchivistCorpus>(`/api/archivist/corpus${query}`);
+}
+
+/**
+ * Read the corpus. A POST because the query is a set of filters rather than a path, and
+ * nothing about it is a mutation - there is no run to start and no progress to stream,
+ * which is what tells this tool apart from every other one here.
+ */
+export async function queryArchivist(query: ArchivistQuery): Promise<ArchivistAnswer> {
+  return jsonRequest<ArchivistAnswer>("/api/archivist/query", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(query),
+  });
 }
 
 export async function fetchSearchSources(): Promise<SearchSource[]> {

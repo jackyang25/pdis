@@ -38,16 +38,14 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
   {
     id: "pst-workflows",
     // Reading order, not alphabetical: check a document, test what it claims, then
-    // check the documents against each other, then take them to the gate. Librarian
-    // trails because it answers the question that comes before all of them, and
-    // leading with it would push Scout off the first row of the two-column grid.
-    toolIds: ["inspector", "scout", "aligner", "expert", "librarian"],
+    // check the documents against each other, then take them to the gate.
+    toolIds: ["inspector", "scout", "aligner", "expert"],
     title: "PST team workflows",
     // The only place the cycle is stated. Each card states what its tool is judged
     // against; none of them repeats this. Keep the clauses in the same order as
     // `toolIds` above - the sentence is what the cards read as.
     description:
-      "Hold each document to its rubric, its targets to the evidence, and the documents to each other, then bundle for the gate. With no profile yet, start from what comparable programs asked for.",
+      "Hold each document to its rubric, its targets to the evidence, and the documents to each other, then bundle for the gate.",
   },
   {
     id: "ghide-workflows",

@@ -283,8 +283,7 @@ which they would have to ask a person about.
 
 ## 6. Input configuration
 
-Nothing new in the shared header. Contrast with Librarian, which genuinely needs
-it amended.
+Nothing new in the shared header.
 
 | Bucket | Field | Component | Notes |
 |---|---|---|---|

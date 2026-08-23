@@ -44,15 +44,7 @@ test("the catalog leads with the order a PPL uses the tools in", () => {
   const pst = WORKSPACE_TOOLS.filter((tool) => tool.audience === "pst").map(
     (tool) => tool.id,
   );
-  // Librarian trails the four judging tools even though its question comes first:
-  // leading with it pushes Scout off the first row of the two-column grid.
-  assert.deepEqual(pst, [
-    "inspector",
-    "scout",
-    "aligner",
-    "expert",
-    "librarian",
-  ]);
+  assert.deepEqual(pst, ["inspector", "scout", "aligner", "expert"]);
 });
 
 // Sections group by audience and nothing else. A section mixing in another axis -
@@ -75,20 +67,21 @@ test("a section renders the tools it declares, in that order", () => {
   assert.ok(pst);
   assert.deepEqual(
     sectionTools(pst, () => true).map((tool) => tool.id),
-    ["inspector", "scout", "aligner", "expert", "librarian"],
+    ["inspector", "scout", "aligner", "expert"],
   );
 });
 
-test("a section drops the tools an audience filter excludes without resorting", () => {
+test("a section drops the tools a filter excludes without resorting", () => {
   const pst = TOOL_SECTIONS.find((section) => section.id === "pst-workflows");
   assert.ok(pst);
+  // A synthetic predicate rather than `availability`, because no tool is currently
+  // filtered out and an assertion that nothing is dropped proves nothing. The
+  // guarantee under test is that the survivors keep the section's declared order
+  // rather than closing the gap - which is what breaks if `sectionTools` ever
+  // filters the catalog instead of walking `toolIds`.
   assert.deepEqual(
-    sectionTools(pst, (tool) => tool.availability === "available").map(
-      (tool) => tool.id,
-    ),
-    // Librarian is the one still to come, so it is what the filter drops — and the
-    // four that remain keep the declared order rather than closing the gap.
-    ["inspector", "scout", "aligner", "expert"],
+    sectionTools(pst, (tool) => tool.id !== "scout").map((tool) => tool.id),
+    ["inspector", "aligner", "expert"],
   );
 });
 

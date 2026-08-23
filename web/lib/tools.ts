@@ -3,7 +3,6 @@ export type ToolIcon =
   | "aligner"
   | "scout"
   | "expert"
-  | "librarian"
   | "chunker"
   | "searcher"
   | "evaluator"
@@ -35,8 +34,6 @@ type ToolBase = {
    * the differences between them are the whole point:
    *
    *   1. One sentence, 12-24 words. A longer card reads as a more important tool.
-   *      Librarian sits at the top of the range because it is the only one whose
-   *      source is access-controlled, and saying so is worth the words.
    *   2. Name artifacts by their acronym — iTPP, cTPP, IPDP. Long-form
    *      paraphrases make two cards about the same documents look like they are
    *      about different ones.
@@ -52,9 +49,10 @@ type ToolBase = {
    * Where these sit in a PPL's process is said once, in the section copy in
    * `lib/tool-sections.ts`, not here.
    *
-   * A tool that renders no verdict has no authority to name, so it states what it
-   * reports and where that came from instead. Librarian is the only one; do not
-   * give it an authority to make the sentences match.
+   * Every workspace tool here renders a verdict, so every one names an authority. A
+   * tool that judges nothing would have none to name and would state what it reports
+   * and where that came from instead - do not invent an authority to make the
+   * sentences match.
    */
   description: string;
   capability: string;
@@ -88,10 +86,6 @@ export type ToolDefinition = WorkspaceToolDefinition | ExternalToolDefinition;
  * docs page and the Ask catalog both present them in this order and nothing sorts
  * them. The landing page states the same order in its own `toolIds`; keep the two
  * agreeing so one surface never lists the tools differently from another.
- *
- * Librarian trails those four although its question comes before all of them,
- * because leading with it pushes Scout off the first row of the landing page's
- * two-column grid.
  */
 export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
   {
@@ -156,30 +150,6 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     workflow: "stage_gate",
     delivery: "workspace",
     availability: "available",
-  },
-  {
-    id: "librarian",
-    title: "Librarian",
-    // No authority clause, because this tool judges nothing. See the note on
-    // `description` above: the others name what they are judged against, and
-    // giving this one an authority to match would make it Aligner with a corpus.
-    // "Indication-independent", not "pathogen-independent": a pathogen is the
-    // vaccine-shaped instance of the general rule, and the config also carries
-    // drugs, mabs, diagnostics, and devices, whose indication may name no pathogen
-    // at all. No attribute examples for the same reason - dosing and duration of
-    // protection are vaccine-shaped, and which attributes qualify belongs to the
-    // attribute vocabulary rather than to this sentence.
-    description:
-      "The iTPPs, cTPPs, and IPDPs you are permitted to view, without uploading one: what comparable programs committed to on attributes independent of the indication.",
-    capability: "Library reference",
-    icon: "librarian",
-    audience: "pst",
-    workflow: "document_intelligence",
-    delivery: "workspace",
-    // Nothing is built. The card exists so the gap it fills is visible next to the
-    // tools that cannot fill it: Inspector, Aligner, Expert, and Scout all need a
-    // document that already states something, and drafting from scratch has none.
-    availability: "coming_soon",
   },
   {
     id: "chunker",

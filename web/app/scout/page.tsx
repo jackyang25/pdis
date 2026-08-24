@@ -370,6 +370,20 @@ const EXPANDABLE_ROW =
   "flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/expand:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none";
 
 /**
+ * A target's role, as a pill.
+ *
+ * Both review screens showed one and both wrote the shell out by hand. Identical today, which
+ * is the state two copies are in right before one of them changes.
+ */
+function RolePill({ role }: { role: string }) {
+  return (
+    <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium capitalize text-muted-foreground">
+      {role}
+    </span>
+  );
+}
+
+/**
  * A section heading.
  *
  * Deliberately with no help affordance. The four result axes are told apart by contrast,
@@ -994,9 +1008,7 @@ function DocumentTargetReviewCheckpoint({
                 <p className="text-xl font-semibold text-foreground">
                   {formatNumericExpression(target.expression)}
                 </p>
-                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium capitalize text-muted-foreground">
-                  {target.role}
-                </span>
+                <RolePill role={target.role} />
               </div>
               <dl className="mt-5 grid gap-x-5 gap-y-4 sm:grid-cols-2">
                 {comparisonDimensions(target).map((dimension) => (
@@ -1615,9 +1627,7 @@ function QuantitativeReviewCheckpoint({
                 {target ? formatNumericExpression(target.expression) : score.target_label}
               </span>
               {target && (
-                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium capitalize text-muted-foreground">
-                  {target.role}
-                </span>
+                <RolePill role={target.role} />
               )}
             </div>
             <Quoted size="prominent">
@@ -2688,7 +2698,7 @@ function SafetyObservations({
                     </div>
                     <div className="flex shrink-0 items-center gap-3 pt-0.5">
                       {count && (
-                        <span className="text-xs tabular-nums text-muted-foreground">
+                        <span className="text-[11px] tabular-nums text-muted-foreground">
                           {count}
                         </span>
                       )}

@@ -158,6 +158,20 @@ test("every panel behind a provenance trigger opens the same way", () => {
   }
 });
 
+test("a count is one size, wherever it appears", () => {
+  // Ten counts, nine at 11px and one a size larger on a safety row. Nothing about that row
+  // makes its count a different kind of number.
+  const sizes = new Set(
+    [...PAGE.matchAll(/className="([^"]*\btabular-nums\b[^"]*)"/g)]
+      .map((match) => match[1])
+      // The target's own value is deliberately larger: it is the subject of its row, not a
+      // count of things in it.
+      .filter((value) => !value.includes("text-foreground"))
+      .map((value) => value.match(/text-(?:\[11px\]|xs|sm|base)/)?.[0] ?? "none"),
+  );
+  assert.deepEqual([...sizes], ["text-[11px]"], "a count picked its own size");
+});
+
 test("an arrival is marked with the shared ring, not just scrolled to", () => {
   // Opening the bucket is not enough: on a real run the largest bucket holds 43 insights and
   // the one that was cited lands mid-screen looking exactly like its neighbours. Same recipe

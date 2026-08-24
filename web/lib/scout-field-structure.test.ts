@@ -119,6 +119,45 @@ test("a citation that lands on a closed row opens it", () => {
   assert.match(body, /while \(ancestor\)/, "only the nearest details is opened, not every one");
 });
 
+test("every full-width row that opens uses one shape", () => {
+  // Four of these existed across four tabs and three agreed. The safety row had a lighter
+  // hover, a stronger focus ring, a fainter open tint, no focus background and a minimum
+  // height, none of which marked a difference in what the row does.
+  assert.match(PAGE, /const EXPANDABLE_ROW =/);
+  const uses = PAGE.match(/EXPANDABLE_ROW/g) ?? [];
+  assert.equal(uses.length, 5, "a full-width row is styling itself again");
+  // The per-tab group scopes those rows used. A row keeping its own scope is how one would
+  // half-adopt the shape: same classes, its own open state.
+  for (const scope of ["indicator", "program", "safety", "field"]) {
+    assert.ok(
+      !PAGE.includes(`group-open/${scope}:`),
+      `a full-width row kept its own open scope (${scope})`,
+    );
+  }
+});
+
+test("every panel behind a provenance trigger opens the same way", () => {
+  // Four panels, one header, one width. The distribution plot's popover is deliberately not
+  // one of them: it is a 300px card describing a single point under the cursor, not a panel
+  // listing entries, so it has no eyebrow, title and description to place.
+  const panels = [
+    "components/evidence-provenance.tsx",
+    "components/excluded-measurements.tsx",
+    "components/comparator-cohort.tsx",
+    "components/document-source-trace.tsx",
+  ];
+  for (const file of panels) {
+    const text = readFileSync(path.resolve(import.meta.dirname, "..", file), "utf8");
+    assert.match(text, /TracePanelHeader/, `${file} heads its panel by hand`);
+    assert.match(
+      text,
+      /w-\[min\(720px,calc\(100vw-24px\)\)\]/,
+      `${file} opens at its own width`,
+    );
+    assert.match(text, /<ProvenanceTrigger/, `${file} draws its own trigger`);
+  }
+});
+
 test("an arrival is marked with the shared ring, not just scrolled to", () => {
   // Opening the bucket is not enough: on a real run the largest bucket holds 43 insights and
   // the one that was cited lands mid-screen looking exactly like its neighbours. Same recipe

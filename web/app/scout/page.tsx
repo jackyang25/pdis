@@ -355,6 +355,21 @@ function SignalSummary({
 }
 
 /**
+ * A full-width row that opens: an indicator, a program, a safety observation, a field.
+ *
+ * One string, because four of them existed and three agreed. The safety row had drifted to a
+ * lighter hover, a stronger focus ring, a fainter open tint, no focus background, and a
+ * minimum height the others did not have. Each of those reads as a deliberate distinction
+ * when nothing distinguishes the rows: they are the same affordance in four tabs.
+ *
+ * The group scope is shared too, so a row cannot half-adopt this by keeping its own name. It
+ * is `expand`, not `row`, because `DisclosureRow` owns `row` for the smaller in-field groups
+ * and one of these rows contains those.
+ */
+const EXPANDABLE_ROW =
+  "flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/expand:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none";
+
+/**
  * A section heading.
  *
  * Deliberately with no help affordance. The four result axes are told apart by contrast,
@@ -2421,9 +2436,9 @@ function BurdenIndicators({ indicators }: { indicators: BurdenIndicator[] }) {
       {visible.map((indicator) => (
         <details
           key={indicator.projection_id}
-          className="group/indicator border-b border-border/60 last:border-b-0"
+          className="group/expand border-b border-border/60 last:border-b-0"
         >
-          <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/indicator:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
+          <summary className={EXPANDABLE_ROW}>
             <div className="min-w-0 flex-1">
               <h3 className="text-sm font-semibold leading-snug text-foreground">
                 {indicator.indicator_name || indicator.indicator_code}
@@ -2453,7 +2468,7 @@ function BurdenIndicators({ indicators }: { indicators: BurdenIndicator[] }) {
                 />
               </div>
             </div>
-            <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/indicator:rotate-180 motion-reduce:transition-none" />
+            <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />
           </summary>
           <div
             className={cn(
@@ -2544,8 +2559,8 @@ function DevelopmentLandscape({
           </summary>
           <div className={cn("border-t border-border/60", DISCLOSURE_MOTION)}>
             {group.items.map((program) => (
-          <details key={program.projection_id} className="group/program border-b border-border/60 last:border-b-0">
-            <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/program:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
+          <details key={program.projection_id} className="group/expand border-b border-border/60 last:border-b-0">
+            <summary className={EXPANDABLE_ROW}>
               <div className="min-w-0 flex-1">
                 <h3 className="truncate text-sm font-semibold text-foreground">{program.name}</h3>
                 <ProjectionRoleLabels
@@ -2573,7 +2588,7 @@ function DevelopmentLandscape({
                 <span className="text-[11px] text-muted-foreground">
                   {countLabel(program.supporting_findings.length, "record")}
                 </span>
-                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/program:rotate-180 motion-reduce:transition-none" />
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />
               </div>
             </summary>
             <div className={cn("border-t border-border/60 bg-muted/15 px-5 py-4 sm:px-6", DISCLOSURE_MOTION)}>
@@ -2653,9 +2668,9 @@ function SafetyObservations({
               return (
                 <details
                   key={observation.projection_id}
-                  className="group/safety border-t border-border/60"
+                  className="group/expand border-t border-border/60"
                 >
-                  <summary className="flex min-h-16 cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30 group-open/safety:bg-muted/10 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
+                  <summary className={EXPANDABLE_ROW}>
                     <div className="min-w-0 flex-1">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                         {safetyRecordTypeLabel(observation.record_type)} · {safetySourceSystemLabel(observation.source_system)}
@@ -2679,7 +2694,7 @@ function SafetyObservations({
                       )}
                       <ChevronDown
                         aria-hidden="true"
-                        className="h-4 w-4 text-muted-foreground transition-transform group-open/safety:rotate-180 motion-reduce:transition-none"
+                        className="h-4 w-4 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none"
                       />
                     </div>
                   </summary>
@@ -2827,8 +2842,8 @@ function FieldRow({
   // rendering the spans shows the same text once, as rows.
   const targetRows = documentTargetRows(documentSpans);
   return (
-    <details className="group/field border-b border-border/60 last:border-b-0">
-      <summary className="flex cursor-pointer select-none items-start justify-between gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/field:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
+    <details className="group/expand border-b border-border/60 last:border-b-0">
+      <summary className={cn(EXPANDABLE_ROW, "justify-between")}>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2">
             <h3 className="text-sm font-semibold text-foreground">{displayAttributeLabel(name)}</h3>
@@ -2887,7 +2902,7 @@ function FieldRow({
             </div>
           )}
         </div>
-        <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/field:rotate-180 motion-reduce:transition-none" />
+        <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />
       </summary>
 
       <div className={cn("space-y-4 border-t border-border/60 px-5 py-5 sm:px-6", DISCLOSURE_MOTION)}>

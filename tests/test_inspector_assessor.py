@@ -331,3 +331,39 @@ class CrossSectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CrossSectionBoundaryTest(unittest.TestCase):
+    """The consistency pass may not reach a verdict Inspector has no authority for.
+
+    The structural gate cannot catch this one. It accepts any finding citing two real
+    blocks in two real sections, so "both of these targets are clinically unrealistic"
+    passes every check while being Scout's judgment made with no evidence behind it. The
+    prompt is the only place it can be ruled out, and the per-unit prompt already rules it
+    out - so this asserts the two agree rather than that one of them says something.
+    """
+
+    def test_both_prompts_refuse_to_assume_absent_external_evidence(self) -> None:
+        from services.inspector.stages.assessor import (
+            build_assessment_prompt,
+            build_cross_section_prompt,
+        )
+
+        for name, text in (
+            (
+                "per-unit",
+                build_assessment_prompt(
+                    SectionSpec(name="Introduction", description="Framing.")
+                ),
+            ),
+            ("cross-section", build_cross_section_prompt(_config())),
+        ):
+            with self.subTest(prompt=name):
+                self.assertIn("external facts or evidence that are absent", text)
+
+    def test_the_consistency_prompt_anchors_a_conflict_on_the_document_itself(self) -> None:
+        from services.inspector.stages.assessor import build_cross_section_prompt
+
+        text = build_cross_section_prompt(_config())
+        self.assertIn("the document disagreeing with itself", text)
+        self.assertIn("clinically plausible", text)

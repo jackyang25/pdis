@@ -517,6 +517,16 @@ def build_cross_section_prompt(config: InspectionConfig) -> str:
         "Report ONLY conflicts that span more than one section. Do NOT report problems "
         "inside a single section, missing content, vague wording, or formatting - those are "
         "assessed per unit. If there are no cross-section conflicts, return an empty array.\n\n"
+        # The same boundary the per-unit prompt states, in the same words. Without it this
+        # pass is the one place Inspector can reach a verdict it has no authority for: the
+        # structural gate accepts any finding citing two real blocks in two real sections,
+        # so "both of these targets are clinically unrealistic" passes every check while
+        # being Scout's judgment made without any evidence behind it.
+        "A conflict is the document disagreeing with itself: two sections stating "
+        "different values for the same attribute. Do not assess whether a stated value is "
+        "correct, achievable, or clinically plausible, and do not assume external facts or "
+        "evidence that are absent from the supplied document. Two sections that agree are "
+        "not in conflict because you judge the agreed value to be wrong.\n\n"
         "Return only structured findings. Each item contains:\n"
         '{"statement": "the specific conflicting values and what disagrees", '
         '"recommendation": "one short action to reconcile them", '

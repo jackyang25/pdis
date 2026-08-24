@@ -3030,9 +3030,53 @@ def _source_record_identity(finding: Finding) -> tuple[str, str]:
     split = urlsplit(finding.url)
     host = split.netloc.casefold().removeprefix("www.")
     path = split.path.rstrip("/")
-    doi_match = re.search(r"(?:^|/)10\.\d{4,9}/[^?#]+", path, re.IGNORECASE)
-    if host == "doi.org" and doi_match:
-        return f"doi:{doi_match.group(0).lstrip('/').casefold()}", "canonical"
+
+    # A DOI wherever it is written, not only in a doi.org link. Connectors return a paper as
+    # its publisher or index URL and put the DOI in the title, so requiring the doi.org host
+    # rejected an identifier that was present and unambiguous: on one run all 18 sources that
+    # fell through to a title hash carried a DOI in their title, and that is what held their
+    # cohort at "Limited" rather than "Verified".
+    #
+    # Trailing punctuation is stripped because a DOI at the end of a sentence collects it,
+    # and a key that includes a full stop is a different key from the same DOI without one.
+    doi_match = re.search(
+        r"10\.\d{4,9}/[^\s<>?#\"']+",
+        f"{finding.url} {finding.title}",
+        re.IGNORECASE,
+    )
+    if doi_match:
+        return f"doi:{doi_match.group(0).rstrip('.,;:)').casefold()}", "canonical"
+
+    # Identifiers that are the shape of a particular host's links. Read from the host and path
+    # only, never from the title: a bare number in a title is not an identifier, and titles are
+    # full of numbers. Each of these names exactly one record on the site that issues it.
+    #
+    # Not WHO, deliberately, though it is the largest remaining group. One WHO guideline comes
+    # back as an ISBN under who.int, a Handle under iris.who.int and a file path under
+    # tbksp.who.int, so reading those would give one document three identifiers and stop the
+    # three copies from collapsing. The title hash merges them, which is the better answer
+    # here. Nor CDC, whose pages carry no identifier at all.
+    for host_suffix, pattern, prefix in (
+        ("pubmed.ncbi.nlm.nih.gov", r"/(\d{4,9})", "pmid"),
+        ("pmc.ncbi.nlm.nih.gov", r"/articles/(PMC\d+)", "pmc"),
+        ("ncbi.nlm.nih.gov", r"/books/(NBK\d+)", "nbk"),
+    ):
+        if host.endswith(host_suffix):
+            if match := re.fullmatch(pattern, path, re.IGNORECASE):
+                return f"{prefix}:{match.group(1).casefold()}", "canonical"
+
+    # A DailyMed set id, which is the stable identity of a drug label across its revisions.
+    # It lives in the query string rather than the path.
+    if host.endswith("dailymed.nlm.nih.gov"):
+        for key, value in parse_qsl(split.query):
+            if key.casefold() == "setid" and value.strip():
+                return f"setid:{value.strip().casefold()}", "canonical"
+
+    # An EU clinical trial number. Distinct enough in shape to read from the title as well,
+    # like the registry numbers below it: no date or version string takes 4-6-2-2 digits.
+    if match := re.search(r"\b\d{4}-\d{6}-\d{2}-\d{2}\b", f"{finding.url} {finding.title}"):
+        return f"euct:{match.group(0)}", "canonical"
+
     for pattern, prefix in (
         (r"\bNCT\d{8}\b", "nct"),
         (r"\bISRCTN\d+\b", "isrctn"),

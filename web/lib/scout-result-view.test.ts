@@ -16,6 +16,7 @@ import test from "node:test";
 import {
   RELATION_READING_ORDER,
   calibrationView,
+  formatMeasurePair,
   citation,
   documentTargetRows,
   formatMeasure,
@@ -297,6 +298,137 @@ test("the meeting label carries both halves or says nothing", () => {
     "3 of 3 meet target",
   );
   assert.equal(calibrationView(conformity({ benchmark_count: 0 })).meetingLabel, "");
+});
+
+test("a range is only called a range when there is one", () => {
+  // The case that prompted this: one target on a real run had a single comparator, so the
+  // minimum and the maximum were the same number and the row still read "above observed
+  // range". A reader deciding whether to trust a target reads that as a spread it clears.
+  const one = calibrationView(
+    conformity({
+      benchmark_count: 1,
+      benchmark_minimum: 1,
+      benchmark_maximum: 1,
+      target_value: 4,
+    }),
+  );
+  assert.equal(one.position, "above");
+  assert.equal(one.positionLabel, "above the observed value");
+
+  // Keyed on the range, not the count: three measurements that agree are still one value.
+  const agreeing = calibrationView(
+    conformity({
+      benchmark_count: 3,
+      benchmark_minimum: 2,
+      benchmark_maximum: 2,
+      target_value: 1,
+    }),
+  );
+  assert.equal(agreeing.positionLabel, "below the observed value");
+
+  // And "within" collapses to equality when there is nothing to be within.
+  assert.equal(
+    calibrationView(
+      conformity({
+        benchmark_count: 2,
+        benchmark_minimum: 5,
+        benchmark_maximum: 5,
+        target_value: 5,
+      }),
+    ).positionLabel,
+    "matches the observed value",
+  );
+});
+
+test("the grid names what was observed the same way the row does", () => {
+  // The one other place the word appeared. Three comparators can all report the same number,
+  // so this is reachable even where the grid has earned its space, and it printed a range of
+  // nothing as "2 injections-2 injections".
+  const agreeing = calibrationView(
+    conformity({
+      benchmark_count: 3,
+      benchmark_minimum: 2,
+      benchmark_maximum: 2,
+      unit: "injections",
+    }),
+  );
+  assert.equal(agreeing.observedLabel, "Observed value");
+  assert.equal(agreeing.observedValue, "2 injections");
+
+  const spread = calibrationView(
+    conformity({
+      benchmark_count: 3,
+      benchmark_minimum: 1,
+      benchmark_maximum: 2,
+      unit: "injections",
+    }),
+  );
+  assert.equal(spread.observedLabel, "Observed range");
+  // The unit once, not on each end. "1 injections-2 injections" spent most of the cell on
+  // the unit and buried the two numbers that are the content.
+  assert.equal(spread.observedValue, "1\u20132 injections");
+});
+
+test("a pair of numbers states its unit once", () => {
+  assert.equal(formatMeasurePair(1, 2, "injections", "\u2013"), "1\u20132 injections");
+  assert.equal(formatMeasurePair(1.33, 0.58, "administration occasions", " \u00b7 "),
+    "1.33 \u00b7 0.58 administration occasions");
+  // A unit that closes up stays closed up on the end that carries it.
+  assert.equal(formatMeasurePair(20, 80, "%", "\u2013"), "20\u201380%");
+});
+
+test("a missing end formats separately, so the placeholder cannot borrow a unit", () => {
+  // "\u2014-2 injections" would read as one value with a unit rather than as one value
+  // missing, which is the case a reader has to notice.
+  assert.equal(formatMeasurePair(null, 2, "injections", "\u2013"), "\u2014\u20132 injections");
+  assert.equal(formatMeasurePair(1, null, "injections", "\u2013"), "1 injections\u2013\u2014");
+  assert.equal(formatMeasurePair(null, null, "injections", "\u2013"), "\u2014\u2013\u2014");
+});
+
+test("one rule decides both, so they cannot disagree", () => {
+  // The row and the grid describe the same two numbers. Deciding separately is how one comes
+  // to say "range" while the other says "value" about the same target.
+  for (const [min, max] of [[1, 1], [1, 2], [5, 5]] as const) {
+    const view = calibrationView(
+      conformity({ benchmark_count: 3, benchmark_minimum: min, benchmark_maximum: max, target_value: 9 }),
+    );
+    const rowSaysRange = view.positionLabel.includes("range");
+    const gridSaysRange = view.observedLabel === "Observed range";
+    assert.equal(rowSaysRange, gridSaysRange, `disagreed at ${min}-${max}`);
+  }
+});
+
+test("a real spread still reads as a range", () => {
+  assert.equal(
+    calibrationView(
+      conformity({
+        benchmark_count: 3,
+        benchmark_minimum: 1,
+        benchmark_maximum: 2,
+        target_value: 2,
+      }),
+    ).positionLabel,
+    "within observed range",
+  );
+  assert.equal(
+    calibrationView(
+      conformity({
+        benchmark_count: 3,
+        benchmark_minimum: 1,
+        benchmark_maximum: 2,
+        target_value: 9,
+      }),
+    ).positionLabel,
+    "above observed range",
+  );
+});
+
+test("no comparators says so, and says it once", () => {
+  // The page used to branch on the shape to pick between this phrase and a position, which
+  // put the choice in two places. The phrase comes from here, like `meetingLabel`.
+  const none = calibrationView(conformity({ benchmark_count: 0 }));
+  assert.equal(none.position, "unknown");
+  assert.equal(none.positionLabel, "no comparable measurements");
 });
 
 // --- the run headline -------------------------------------------------------

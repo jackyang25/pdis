@@ -5,6 +5,7 @@ import {
 } from "@/lib/comparator-distribution";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { InterfaceNote, Quoted, Reading } from "@/components/ui/evidence-text";
+import { sourceIdentityCaveat } from "@/lib/scout-labels";
 import { formatMeasure } from "@/lib/scout-result-view";
 
 // The shared formatter, not a local copy: this one had the same missing space as the
@@ -27,12 +28,11 @@ function Point({
   contextual?: boolean;
 }) {
   const laneOffsets = [-9, 0, 9, -18, 18, -27, 27];
-  // `canonical` is how a source is identified in the ordinary case, so naming it says
-  // nothing. The exception is the informative one, and it is the only one shown.
-  const identity =
-    point.source_identity_status === "canonical"
-      ? ""
-      : `Identified by ${point.source_identity_status.replace("_fallback", "")}`;
+  // Only on an admitted point. How a source was identified never decides whether a
+  // measurement is admitted - that is its semantic status and the structural checks - so on a
+  // point already outside the cohort it is a caveat about nothing. On an admitted one it is
+  // load-bearing: a cohort cannot report a verified basis unless every source is canonical.
+  const identity = contextual ? "" : sourceIdentityCaveat(point.source_identity_status);
   return (
     <Popover>
       <PopoverTrigger asChild>

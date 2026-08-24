@@ -105,7 +105,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScoutDocumentTrace } from "@/components/scout-document-trace";
 import { ScoutSignalHelp } from "@/components/scout-signal-help";
-import { PROVENANCE_SLOT } from "@/components/ui/provenance";
 import {
   Computed,
   InterfaceNote,
@@ -124,6 +123,7 @@ import {
   citation,
   documentTargetRows,
   formatMeasure,
+  formatMeasurePair,
   insightRegistry,
   needsFindingFallback,
   relationGroups,
@@ -2076,9 +2076,13 @@ function FieldGrid({
       <div className="flex flex-col gap-4">
       <CollapsibleCard
         title={`${variables.length} fields`}
-        subtitle={`${distinctSourceCount(result).toLocaleString()} sources · ${
-          result.stats?.insights ?? 0
-        } insights`}
+        // The two numbers have different scopes and the title names only the first tab, so a
+        // reader auditing "827 sources" against the Sources panels would come up 156 short:
+        // those 156 are cited only by development and safety records, which have findings but
+        // no insights. Insights are field-bound; the source count is the whole run.
+        subtitle={`${(result.stats?.insights ?? 0).toLocaleString()} insights in these fields · ${distinctSourceCount(
+          result,
+        ).toLocaleString()} sources across the whole run`}
         contentClassName="p-0"
         trailing={
           <>
@@ -3092,7 +3096,9 @@ function TargetRows({ rows, blockIds }: { rows: TargetRow[]; blockIds: string[] 
               /* A fixed trailing column for the trigger. Sharing the optimistic cell left
                  it fighting the longest text on the row for space, so its label broke across
                  two lines and the row grew taller than its siblings. */
-              className="grid gap-x-4 gap-y-0.5 py-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_7rem]"
+              // `items-start`, so the trigger sits on the row's first line rather than
+              // floating in the middle of a cell three lines tall.
+              className="grid items-start gap-x-4 gap-y-0.5 py-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_7rem]"
             >
               <p className="text-xs font-medium text-foreground">{row.variable}</p>
               <p className="text-xs leading-relaxed text-muted-foreground">
@@ -3103,7 +3109,11 @@ function TargetRows({ rows, blockIds }: { rows: TargetRow[]; blockIds: string[] 
                 <span className="text-[10px] uppercase tracking-wide sm:hidden">Optimistic </span>
                 {row.optimistic || "—"}
               </p>
-              <DocumentSourceTrace blockIds={row.blockIds} spans={[{ quote: row.quote, block_ids: row.blockIds }]} />
+              {/* Against the right edge, matching the numeric-target rows below, which
+                  pack their triggers the same way. */}
+              <span className="justify-self-end">
+                <DocumentSourceTrace blockIds={row.blockIds} spans={[{ quote: row.quote, block_ids: row.blockIds }]} />
+              </span>
             </div>
           ) : (
             <div key={index} className="flex items-start justify-between gap-3 py-2">
@@ -3138,12 +3148,13 @@ function ConformityBlock({
   const coverageLabel = CALIBRATION_BASIS_LABEL[conformity.calibration_status];
   const targetRoleLabel = TARGET_ROLE_LABEL[conformity.target_role];
   const view = calibrationView(conformity);
-  const positionLabel = {
-    above: "above observed range",
-    below: "below observed range",
-    within: "within observed range",
-    unknown: "",
-  }[view.position];
+  // Three statistics always, the two quartile cells only when they are presentable, and the
+  // basis. Counted here so the grid can shape itself to what it holds.
+  const statCellCount =
+    3 +
+    (view.showQuartiles ? 1 : 0) +
+    (conformity.ambition_percentile != null && view.showQuartiles ? 1 : 0) +
+    1;
 
   return (
     /* A row that opens, like every other level of this view. It was the last thing that
@@ -3162,26 +3173,32 @@ function ConformityBlock({
               trigger's count, and how many met the target is the Comparators panel's own
               description, so naming either here stated it twice. */}
           <span className="text-xs font-medium text-foreground">
-            {view.shape === "none" ? "no comparable measurements" : positionLabel}
+            {view.positionLabel}
           </span>
         </span>
-        {/* One trailing zone at a fixed width, so every trigger sits in the same column on
-            every row. The two conditional slots hold their width even when empty, which is
-            what keeps `In document` from sliding left when a target has no comparators.
-            Right-aligning the group instead would align only the last trigger present. */}
-        <span className="flex shrink-0 items-center gap-1 self-center">
+        {/* Packed against the right edge, and shrink-wrapped.
+
+            These used to sit in fixed-width slots that held their space when empty, so a
+            target with no comparators showed two columns of nothing. That aligned each
+            trigger down this list at the cost of two things: the gaps read as missing data
+            rather than as nothing to show, and the same `In document` trigger landed 14rem
+            further left here than in the target table above it, which shares this screen.
+
+            Right-packing gives up per-column alignment and keeps the order fixed, so the
+            trigger a reader is looking for is still in a predictable position relative to
+            its siblings, and every row now ends on the same edge as the table above.
+
+            `self-start`, not centred: on a row whose text wraps to three lines a centred
+            trigger floats in the middle, away from the line it belongs to. */}
+        <span className="flex shrink-0 items-center justify-end gap-1 self-start">
           <DocumentSourceTrace
             blockIds={conformity.doc_block_ids}
             spans={conformity.target_quote && conformity.doc_block_ids?.length
               ? [{ quote: conformity.target_quote, block_ids: conformity.doc_block_ids }]
               : []}
           />
-          <span className={cn(PROVENANCE_SLOT.comparators, "shrink-0")}>
-            <ComparatorCohort conformity={conformity} matches={matches} />
-          </span>
-          <span className={cn(PROVENANCE_SLOT.excluded, "shrink-0")}>
-            <ExcludedMeasurements conformity={conformity} matches={matches} />
-          </span>
+          <ComparatorCohort conformity={conformity} matches={matches} />
+          <ExcludedMeasurements conformity={conformity} matches={matches} />
         </span>
       </summary>
 
@@ -3221,19 +3238,37 @@ function ConformityBlock({
           presentable for 0 of 12 targets and an SD for 1. */}
       {view.shape === "full" && (
         <>
-          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+          {/* Columns follow the cell count, because it is known: four without quartiles, five
+              or six with them. At a fixed three, four cells laid out 3 + 1 and the lone cell
+              on the second row read as something missing rather than as the fourth of four. */}
+          <dl
+            className={cn(
+              "mt-3 grid grid-cols-2 gap-x-6 gap-y-2",
+              statCellCount % 3 === 0 ? "sm:grid-cols-3" : statCellCount % 2 === 0 ? "sm:grid-cols-2" : "sm:grid-cols-3",
+            )}
+          >
             <StatCell label="External median" value={formatBenchmark(conformity.benchmark_median)} />
-            <StatCell label="Observed range" value={`${formatBenchmark(conformity.benchmark_minimum)}–${formatBenchmark(conformity.benchmark_maximum)}`} />
+            <StatCell label={view.observedLabel} value={view.observedValue} />
             <StatCell
               label={view.showDeviation ? "Mean · observed SD" : "Mean"}
               value={view.showDeviation
-                ? `${formatBenchmark(conformity.benchmark_mean)} · ${formatBenchmark(conformity.benchmark_standard_deviation)}`
+                ? formatMeasurePair(
+                    conformity.benchmark_mean,
+                    conformity.benchmark_standard_deviation,
+                    conformity.unit,
+                    " · ",
+                  )
                 : formatBenchmark(conformity.benchmark_mean)}
             />
             {view.showQuartiles && (
               <StatCell
                 label="Middle 50%"
-                value={`${formatBenchmark(conformity.benchmark_lower_quartile)}–${formatBenchmark(conformity.benchmark_upper_quartile)}`}
+                value={formatMeasurePair(
+                  conformity.benchmark_lower_quartile,
+                  conformity.benchmark_upper_quartile,
+                  conformity.unit,
+                  "–",
+                )}
               />
             )}
             {conformity.ambition_percentile != null && view.showQuartiles && (

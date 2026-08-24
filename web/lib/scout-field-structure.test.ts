@@ -158,6 +158,30 @@ test("every panel behind a provenance trigger opens the same way", () => {
   }
 });
 
+test("the run's source count covers every place a source is cited", () => {
+  // Measured on a real run: insights, verdicts and measurements share 671 distinct sources,
+  // and development and safety records bring it to 827. Dropping one of these collections
+  // would narrow the headline silently, since it would still look like a plausible number.
+  const body = functionBody(PAGE, "distinctSourceCount");
+  for (const collection of [
+    "result.matches",
+    "result.assessments",
+    "result.precedents",
+    "result.conformity",
+    "result.development_landscape",
+    "result.safety_observations",
+  ]) {
+    assert.ok(body.includes(collection), `the source count skips ${collection}`);
+  }
+});
+
+test("the headline says which scope each of its numbers has", () => {
+  // "827 sources · 911 insights" under a title reading "28 fields" invited reading both as
+  // field-scoped. One is: insights are bound to a field. The other is not.
+  assert.match(PAGE, /insights in these fields/);
+  assert.match(PAGE, /sources across the whole run/);
+});
+
 test("a count is one size, wherever it appears", () => {
   // Ten counts, nine at 11px and one a size larger on a safety row. Nothing about that row
   // makes its count a different kind of number.

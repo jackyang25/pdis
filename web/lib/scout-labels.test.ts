@@ -12,6 +12,7 @@ import {
   QUERY_TRACK_LABEL,
   RELATIONSHIP_LABEL,
   SEMANTIC_STATUS_LABEL,
+  sourceIdentityCaveat,
   TARGET_ROLE_LABEL,
   displayAttributeLabel,
   sourceDisplayLabel,
@@ -306,4 +307,35 @@ test("the how-to-read panel is the one place the vocabulary and its prompts live
     "Scout reintroduced per-heading tooltips; the panel is the single explanation",
   );
   assert.ok(page.includes("<ScoutSignalHelp />"), "Scout dropped its how-to-read entry point");
+});
+
+test("how a source was matched is said in one place, and only where it matters", () => {
+  // The caveat lived as a string built inside the plot, so the same measurement carried it on
+  // a chart point and not in the Comparators panel, which is where a reader audits the cohort.
+  // It is load-bearing: `calibrationStatus` cannot report a verified basis unless every
+  // admitted measurement is canonical, so this is what caps a cohort at "Limited".
+  assert.equal(sourceIdentityCaveat("canonical"), "", "a matched record needs no caveat");
+  assert.equal(sourceIdentityCaveat("title_fallback"), "Matched by title only");
+  assert.equal(sourceIdentityCaveat("url_fallback"), "Matched by link only");
+  assert.equal(sourceIdentityCaveat("anything_else"), "", "an unknown status invents no caveat");
+
+  const read = (file: string) =>
+    readFileSync(path.resolve(import.meta.dirname, "..", file), "utf8");
+  for (const file of [
+    "components/comparator-distribution-plot.tsx",
+    "components/comparator-cohort.tsx",
+  ]) {
+    assert.match(read(file), /sourceIdentityCaveat/, `${file} does not show how a source matched`);
+    assert.ok(
+      !/Identified by \$\{/.test(read(file)),
+      `${file} builds the caveat itself again`,
+    );
+  }
+
+  // Not in the excluded panel: identity never decides admission, so on a measurement already
+  // outside the cohort it would be a caveat about nothing.
+  assert.ok(
+    !read("components/excluded-measurements.tsx").includes("sourceIdentityCaveat"),
+    "the excluded panel caveats a measurement that is not in the cohort",
+  );
 });

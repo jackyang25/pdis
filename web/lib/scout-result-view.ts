@@ -39,6 +39,32 @@ export function formatMeasure(value: number | null | undefined, unit: string): s
   return /^[%°]/.test(unit) ? `${formatted}${unit}` : `${formatted} ${unit}`;
 }
 
+/**
+ * Two numbers that share a unit, with the unit said once.
+ *
+ * A range was built by formatting each end on its own, which printed the unit twice:
+ * "1 administration occasions-2 administration occasions" for what a reader reads as
+ * "1 to 2". The mean and its deviation had the same shape. With a long unit the repetition
+ * was most of the cell, and the two numbers, which are the content, were the hardest part
+ * to find in it.
+ *
+ * If either end is missing, both are formatted separately, so the em dash placeholder
+ * cannot be read as belonging to the other number's unit.
+ */
+export function formatMeasurePair(
+  first: number | null | undefined,
+  second: number | null | undefined,
+  unit: string,
+  separator: string,
+): string {
+  const usable = (value: number | null | undefined) => value != null && Number.isFinite(value);
+  if (!usable(first) || !usable(second)) {
+    return `${formatMeasure(first, unit)}${separator}${formatMeasure(second, unit)}`;
+  }
+  const lead = (first as number).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return `${lead}${separator}${formatMeasure(second, unit)}`;
+}
+
 // --- The document's target ---------------------------------------------------
 
 /**
@@ -241,22 +267,86 @@ export type CalibrationView = {
   showDeviation: boolean;
   /** Where the target sits relative to what was observed. The decisive fact. */
   position: "above" | "below" | "within" | "unknown";
+  /**
+   * That fact in words, phrased for how much was observed.
+   *
+   * "Above observed range" was said whenever the target sat past the maximum, including
+   * when the minimum and the maximum were the same number. On a real run one target had
+   * exactly one comparator, so the interface reported a target as above a *range* of
+   * measurements when it was above a single measurement. The word claims a spread, and
+   * a spread is the thing a reader is deciding whether to trust.
+   */
+  positionLabel: string;
+  /**
+   * What was observed, named for whether it spans anything.
+   *
+   * The same correction as `positionLabel`, in the one other place the word appears. The
+   * grid drew "Observed range: 2 injections-2 injections", which is a range of nothing
+   * printed twice. Three comparators can agree, so this is reachable even where the grid
+   * has earned its space.
+   */
+  observedLabel: string;
+  observedValue: string;
   meetingLabel: string;
 };
 
 export function calibrationView(conformity: Conformity): CalibrationView {
   const count = conformity.benchmark_count;
   const shape: CalibrationShape = count === 0 ? "none" : count < 3 ? "compact" : "full";
+  const position = targetPosition(conformity);
   return {
     shape,
     showQuartiles: count >= 4,
     showDeviation: count >= 3,
-    position: targetPosition(conformity),
+    position,
+    positionLabel: positionPhrase(position, conformity, count),
+    observedLabel: hasSpread(conformity) ? "Observed range" : "Observed value",
+    observedValue: hasSpread(conformity)
+      ? formatMeasurePair(
+          conformity.benchmark_minimum,
+          conformity.benchmark_maximum,
+          conformity.unit,
+          "\u2013",
+        )
+      : formatMeasure(conformity.benchmark_minimum, conformity.unit),
     meetingLabel:
       count > 0
         ? `${conformity.target_meeting_count} of ${count} meet target`
         : "",
   };
+}
+
+/**
+ * Keyed on whether a range exists, not on how many measurements there are.
+ *
+ * Three identical measurements are still one value, and a reader told the target is above
+ * "the observed range" would picture three points it clears rather than one it clears three
+ * times. So the phrase follows the minimum and the maximum, which is what "range" names.
+ */
+function hasSpread(conformity: Conformity): boolean {
+  return (
+    conformity.benchmark_minimum != null &&
+    conformity.benchmark_maximum != null &&
+    conformity.benchmark_minimum !== conformity.benchmark_maximum
+  );
+}
+
+function positionPhrase(
+  position: CalibrationView["position"],
+  conformity: Conformity,
+  count: number,
+): string {
+  if (position === "unknown") return count === 0 ? "no comparable measurements" : "";
+  if (hasSpread(conformity)) {
+    return { above: "above observed range", below: "below observed range", within: "within observed range" }[
+      position
+    ];
+  }
+  // Every comparator reported the same number, so there is a value to compare with, not a
+  // range. "Within" collapses to equality when the minimum and the maximum coincide.
+  return { above: "above the observed value", below: "below the observed value", within: "matches the observed value" }[
+    position
+  ];
 }
 
 function targetPosition(conformity: Conformity): CalibrationView["position"] {

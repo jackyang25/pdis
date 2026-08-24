@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
 import { Reading, SourceEntry } from "@/components/ui/evidence-text";
 import type { Conformity, Insight, Match, Measurement } from "@/lib/api";
-import { SEMANTIC_STATUS_LABEL } from "@/lib/scout-labels";
+import { SEMANTIC_STATUS_LABEL, sourceIdentityCaveat } from "@/lib/scout-labels";
 import { calibrationView, formatMeasure } from "@/lib/scout-result-view";
 
 /**
@@ -108,6 +108,10 @@ function AdmittedMeasurement({
     measurement.admission_status !== "approved"
       ? `Entered without review (${measurement.admission_status.replaceAll("_", " ")})`
       : "";
+  // Shown here as well as on the plot. It was on the plot alone, so a reader auditing the
+  // cohort through this panel never learned that a source had no canonical identifier, even
+  // though that is what caps the comparator basis at "Limited".
+  const identity = sourceIdentityCaveat(measurement.source_identity_status);
   return (
     <SourceEntry
       title={finding?.title || measurement.source_record_id || "Cited source"}
@@ -117,6 +121,7 @@ function AdmittedMeasurement({
       reading={insight?.statement}
     >
       {unreviewed && <Reading>{unreviewed}</Reading>}
+      {identity && <Reading>{identity}</Reading>}
       {/* The semantic match is a model's reading too, but per axis and long, so it stays
           collapsed rather than being a fourth line on every entry. */}
       <details className="group/semantic mt-1" open={open} onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>

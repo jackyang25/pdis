@@ -57,29 +57,6 @@ export function ProvenanceTrigger({
 }
 
 /**
- * Reserved widths for a row that can show several triggers.
- *
- * A slot holds its width even when its trigger is absent, which is what keeps every trigger
- * in one column down a list where some rows have three and some have one. Declared here
- * rather than written at each call site: three magic numbers in three files drift the moment
- * a label gets a word longer.
- *
- * Sized to the longest label each slot can hold, plus its count. A row with a single trigger
- * needs none of this and should not reserve the others: an empty 14rem of nothing to align a
- * button against a different table is space taken from the document's own text.
- */
-export const PROVENANCE_SLOT = {
-  /** "Comparators 12" */
-  comparators: "w-[7.5rem]",
-  /** "Excluded 12" */
-  excluded: "w-[6.5rem]",
-} as const;
-
-/* No entry for `In document`. A row showing only that trigger states its width as a grid
- * column, and Tailwind resolves arbitrary values at build time, so it cannot come from a
- * constant. It also appears once, which is the case a constant does not help. */
-
-/**
  * Stops a trigger inside a clickable row from opening that row.
  *
  * Every one of these sits on a `<summary>` or a list item that toggles, so the handlers are

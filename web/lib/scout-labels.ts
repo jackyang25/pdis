@@ -115,6 +115,28 @@ export const DISPOSITION_LABEL: Record<
  * read joined to a number by a middot in the excluded panel - "45% · Unknown" - where
  * nothing on screen says what is unknown about it.
  */
+/**
+ * How a cited source was matched, when it was not matched to a record.
+ *
+ * Only the fallbacks, because `canonical` is the strong case and naming it would put a line
+ * on a source that has nothing wrong with it. Not a frequency argument: on a real run 40 of
+ * 64 measurements were matched by title and only 24 canonically, so the fallback is the
+ * common case. It is tagged because it is the weaker one, and because it is load-bearing:
+ * `calibrationStatus` cannot report a verified basis unless every measurement is canonical,
+ * so this is the thing that caps a cohort at "Limited".
+ */
+export const SOURCE_IDENTITY_CAVEAT: Record<"title_fallback" | "url_fallback", string> = {
+  title_fallback: "Matched by title only",
+  url_fallback: "Matched by link only",
+};
+
+/** The caveat for a status, or nothing when the source was matched to a record. */
+export function sourceIdentityCaveat(status: string): string {
+  return status in SOURCE_IDENTITY_CAVEAT
+    ? SOURCE_IDENTITY_CAVEAT[status as keyof typeof SOURCE_IDENTITY_CAVEAT]
+    : "";
+}
+
 export const SEMANTIC_STATUS_LABEL: Record<Measurement["semantic_status"], string> = {
   comparable: "Comparable",
   contextual: "Context only",

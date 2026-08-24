@@ -103,7 +103,9 @@ export function SignalHelp({
               key={topic.title}
               className="border-t border-border/70 pt-3 first:border-t-0 first:pt-0"
             >
-              <SignalTopicBody topic={topic} />
+              {/* With the link: this panel is the one place a tool's vocabulary lives, so
+                  it has to be the place the instructions are reachable from too. */}
+              <SignalTopicBody topic={topic} withPromptLink />
             </section>
           ))}
         </div>
@@ -125,7 +127,7 @@ function SignalTopicBody({
       <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
         {topic.summary}
       </p>
-      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground/80">
+      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
         {topic.detail}
       </p>
       {withPromptLink && topic.promptRef && (

@@ -18,6 +18,8 @@ test("keeps the canonical ID while deriving one compact visible ID", () => {
 });
 
 test("uses source-passage language for one and many references", () => {
-  assert.equal(sourcePassageAriaLabel(1), "View 1 source passage");
-  assert.equal(sourcePassageAriaLabel(3), "View 3 source passages");
+  // Leads with the visible label, per WCAG 2.5.3: the button reads "In document", so voice
+  // control has to be able to ask for that.
+  assert.equal(sourcePassageAriaLabel(1), "In document: 1 source passage");
+  assert.equal(sourcePassageAriaLabel(3), "In document: 3 source passages");
 });

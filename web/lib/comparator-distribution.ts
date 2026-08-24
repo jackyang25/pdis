@@ -1,12 +1,24 @@
+/**
+ * One point on the plot.
+ *
+ * `exclusion_reasons` is deliberately absent. Why a measurement was rejected belongs to the
+ * Excluded panel, which is where a reader audits; a hover on a dot answers "what is this
+ * point", and it was answering both, partially, in two places. `semantic_status` stays
+ * because the plot filters on it: only contextual measurements are plotted at all.
+ *
+ * `title` is the paper's own name, so a dot identifies itself the way every other surface
+ * does. It carried only `source_record_id`, which is a DOI, so the same paper read as a
+ * title in the cohort and as `doi:10.1128/aac.00007-19` here.
+ */
 export type DistributionMeasurement = {
   value: number;
   unit: string;
   expressionKind: string;
+  title: string;
   source_quote: string;
   source_record_id: string;
   source_identity_status: string;
   semantic_status: string;
-  exclusion_reasons: string[];
 };
 
 export type DistributionInput = {

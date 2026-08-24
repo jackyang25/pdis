@@ -31,6 +31,12 @@ import {
   type EvidenceMapNodeKind,
   type EvidenceMapSignalTone,
 } from "@/lib/scout-evidence-map";
+import {
+  InterfaceNote,
+  Literal,
+  Quoted,
+  Reading,
+} from "@/components/ui/evidence-text";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -199,6 +205,30 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
   return { nodes: flowNodes, edges: flowEdges };
 }
 
+function NodeSummary({
+  mode,
+  children,
+}: {
+  mode: EvidenceMapNode["summaryMode"];
+  children: string;
+}) {
+  if (mode === "quoted") {
+    return (
+      <Quoted size="prominent" className="mt-3">
+        {children}
+      </Quoted>
+    );
+  }
+  if (mode === "interface") {
+    return <InterfaceNote className="mt-3">{children}</InterfaceNote>;
+  }
+  return (
+    <Reading size="prominent" className="mt-3">
+      {children}
+    </Reading>
+  );
+}
+
 function Inspector({ node }: { node: EvidenceMapNode }) {
   const Icon = KIND_ICON[node.kind];
   const relationStyle = node.relation ? RELATION_STYLE[node.relation] : null;
@@ -222,13 +252,17 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
         </div>
       )}
 
-      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-        {node.summary}
-      </p>
+      {/* The summary carried four authorships in one paint treatment: a field's definition,
+          the document's own words, a model's sentence and a paper's excerpt. The node states
+          which, so this only has to render it. */}
+      <NodeSummary mode={node.summaryMode}>{node.summary}</NodeSummary>
+      {/* A model's reasoning about the sentence above. It had the left rule, which is the
+          quotation shape, so the one thing on this panel that was nobody's exact words was
+          the one thing marked as a quotation. */}
       {node.detail && (
-        <p className="mt-3 border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">
+        <Reading size="prominent" className="mt-3">
           {node.detail}
-        </p>
+        </Reading>
       )}
 
       {node.signals && node.signals.length > 0 && (
@@ -290,13 +324,14 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
           <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             Retrieval query
           </p>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            {node.queries[0]}
-          </p>
+          {/* The query verbatim, in the monospace the app already uses for a machine string.
+              It was set as muted prose, which put a string nobody wrote in the same shape as
+              a model's judgment. */}
+          <Literal className="mt-1 block">{node.queries[0]}</Literal>
           {node.queries.length > 1 && (
-            <p className="mt-1 text-[10px] text-muted-foreground/70">
-              +{node.queries.length - 1} additional retrieval path{node.queries.length === 2 ? "" : "s"}
-            </p>
+            <InterfaceNote className="mt-2">
+              +{node.queries.length - 1} further retrieval path{node.queries.length === 2 ? "" : "s"} reached this.
+            </InterfaceNote>
           )}
         </div>
       )}

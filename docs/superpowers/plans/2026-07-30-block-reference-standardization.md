@@ -13,7 +13,9 @@
 - Do not change parsed blocks, API schemas, result envelopes, import/export, or provenance contracts.
 - Full canonical IDs remain the lookup, navigation, tooltip, accessible-name, and copy values.
 - Visible references use compact IDs such as `b-0040` without a visible `Block` prefix.
-- User-facing copy uses `View source` and `Source passage`; `Block ID` appears only in audit detail.
+- User-facing copy uses `In document` and `Source passage`; `Block ID` appears only in audit detail.
+  (The action read `View source` until an outward-facing counterpart, `Sources`, was added
+  beside it in Scout - at which point neither label said which direction it pointed.)
 - Do not render a navigation action unless a valid destination callback exists.
 - Preserve the stateless client-held result lifecycle.
 
@@ -178,7 +180,7 @@ git commit -m "refactor: compact document trace gutter references"
 
 **Interfaces:**
 - Consumes: `DocumentSourceProvider`, `DocumentSourceTrace`, `sourcePassageAriaLabel()`, and canonical block IDs.
-- Produces: the same `View source` affordance and `Source passage` inspector in Scout, Inspector, Aligner, and Evidence Map.
+- Produces: the same `In document` affordance and `Source passage` inspector in Scout, Inspector, Aligner, and Evidence Map.
 - Navigation: `Open in document trace` is emitted only when `DocumentSourceProvider` receives `onOpenInTrace`.
 
 - [ ] **Step 1: Add a failing Evidence Map assertion that compact source references remain attached to nodes**
@@ -200,7 +202,7 @@ Expected: PASS before UI replacement, establishing that the canonical ID is alre
 
 - [ ] **Step 3: Normalize `DocumentSourceTrace` copy and IDs**
 
-Use `sourcePassageAriaLabel()` for the trigger, `BlockReferenceId` in the audit footer, and retain the full ID as the copied value. Keep the visible action `View source`, the header `Source document`, and the audit label `Block ID`.
+Use `sourcePassageAriaLabel()` for the trigger, `BlockReferenceId` in the audit footer, and retain the full ID as the copied value. Keep the visible action `In document`, the header `Source document`, and the audit label `Block ID`.
 
 - [ ] **Step 4: Replace Inspector's local source-block details**
 

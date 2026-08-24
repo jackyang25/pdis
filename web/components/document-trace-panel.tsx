@@ -121,11 +121,11 @@ export function TracePassageList({
               className={cn(
                 "group/passage grid w-full min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_0.875rem] items-start gap-2 rounded-md border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none",
                 isMarked
-                  ? "border-foreground/15 bg-muted/70"
+                  ? "border-border bg-muted/70"
                   : "border-transparent hover:border-border hover:bg-muted/40",
               )}
             >
-              <span className="pt-px text-[10px] tabular-nums text-muted-foreground/70">
+              <span className="pt-px text-[10px] tabular-nums text-muted-foreground">
                 {index + 1}
               </span>
               <span className="min-w-0">
@@ -139,12 +139,12 @@ export function TracePassageList({
                       .join(" · ")}
                   </span>
                 )}
-                <span className="mt-0.5 block text-[11px] leading-4 text-foreground/75">
+                <span className="mt-0.5 block text-[11px] leading-4 text-foreground">
                   {passage.preview}
                 </span>
               </span>
               <ArrowRight
-                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition-colors group-hover/passage:text-muted-foreground/70 motion-reduce:transition-none"
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition-colors group-hover/passage:text-muted-foreground motion-reduce:transition-none"
                 aria-hidden="true"
               />
             </button>

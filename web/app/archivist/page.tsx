@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { SectionHeading } from "@/components/ui/section-heading";
+import { CitedMark, Quoted } from "@/components/ui/evidence-text";
+import { markCitedText } from "@/lib/cited-text";
 import { displayLabel } from "@/lib/display-label";
 import { cn } from "@/lib/utils";
 import {
@@ -409,24 +411,29 @@ function Provenance({
   record: ArchivistRecord;
   answer: ArchivistAnswer;
 }) {
-  const before = record.block_text.slice(0, record.block_text.indexOf(record.quote));
-  const after = record.block_text.slice(
-    record.block_text.indexOf(record.quote) + record.quote.length,
-  );
-  const found = record.quote.length > 0 && record.block_text.includes(record.quote);
+  // The shared locator, not a local `indexOf`. Archivist's own invariant guarantees the
+  // quote sits inside the block, so a naive match happens to work here - but it was a second
+  // implementation of the same idea, and Scout's showed that a quote can differ from its
+  // block by whitespace alone. One tested version, so the two tools cannot drift.
+  const passage = markCitedText(record.block_text, [record.quote]);
+  const found = passage.unplaced.length === 0 && record.quote.length > 0;
   return (
-    <div className="mt-1.5 border-l-2 border-border pl-3">
-      <p className="text-xs leading-5 text-muted-foreground">
+    <div className="mt-1.5">
+      <Quoted size="prominent" className="mt-0">
         {found ? (
           <>
-            {before}
-            <mark className="bg-secondary text-secondary-foreground">{record.quote}</mark>
-            {after}
+            {passage.segments.map((segment, index) =>
+              segment.cited ? (
+                <CitedMark key={index}>{segment.text}</CitedMark>
+              ) : (
+                <span key={index}>{segment.text}</span>
+              ),
+            )}
           </>
         ) : (
           record.block_text
         )}
-      </p>
+      </Quoted>
       <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
         {documentTitle(answer.documents, record.document_id)}
         {record.section_label && ` · ${displayLabel(record.section_label)}`}

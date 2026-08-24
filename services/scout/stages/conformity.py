@@ -420,6 +420,12 @@ def _empty_score(
     )
 
 
+_NEEDS_REVIEW_REASON = (
+    "This candidate was semantically mapped from prose and requires explicit review "
+    "before it can enter descriptive statistics."
+)
+
+
 def _partition_cohort(
     candidates: list[Measurement],
     target: QuantitativeTarget,
@@ -438,11 +444,11 @@ def _partition_cohort(
             _derived_semantic_status(candidate, target)
         )
         reasons = list(candidate.exclusion_reasons)
-        if candidate.semantic_status != "comparable":
-            reasons.append(
-                f"semantic status: {candidate.semantic_status}"
-                + (f" — {candidate.semantic_reason}" if candidate.semantic_reason else "")
-            )
+        # The reason only, without the status prefixed onto it. `semantic_status` is its own
+        # field and every surface that shows a reason shows the status beside it, so the
+        # prefix stated it twice. It also carried an em dash into reader-facing copy.
+        if candidate.semantic_status != "comparable" and candidate.semantic_reason:
+            reasons.append(candidate.semantic_reason)
         # Structural defects cannot be repaired by any review decision, so they
         # must not be offered for review at all.
         structural_reasons: list[str] = []
@@ -455,27 +461,38 @@ def _partition_cohort(
                 "numeric unit is incompatible with the document target"
             )
         reasons.extend(structural_reasons)
-        if candidate.semantic_status == "comparable" and not structural_reasons:
-            if candidate.evidence_mode == "structured_fact":
-                candidate.admission_status = "auto_admitted"
-                candidate.admission_reason = (
-                    "The adapter supplied a typed source-owned numeric fact."
-                )
-            elif candidate.admission_status not in {"approved", "rejected"}:
-                candidate.admission_status = "needs_review"
-                candidate.admission_reason = (
-                    "This candidate was semantically mapped from prose and requires "
-                    "explicit review before it can enter descriptive statistics."
-                )
-        else:
+
+        # Four things keep a measurement out, and each states itself here, once. Two of them
+        # used to arrive by appending `admission_reason` - a field derived from the reasons
+        # already in this list - which is why one sentence landed twice on 33 of 60 excluded
+        # measurements, and why suppressing it then needed a "have I said this already"
+        # check. A cause that names itself needs no such check.
+        eligible = candidate.semantic_status == "comparable" and not structural_reasons
+        if not eligible:
+            # Said already: `semantic_reason` or `structural_reasons` are in the list above.
             candidate.admission_status = "not_eligible"
             candidate.admission_reason = (
                 "; ".join(structural_reasons)
                 if structural_reasons
                 else candidate.semantic_reason
             )
-        if candidate.admission_status not in {"approved", "auto_admitted"}:
-            reasons.append(candidate.admission_reason or "candidate is not admitted")
+        elif candidate.evidence_mode == "structured_fact":
+            candidate.admission_status = "auto_admitted"
+            candidate.admission_reason = (
+                "The adapter supplied a typed source-owned numeric fact."
+            )
+        elif candidate.admission_status == "approved":
+            # A reviewer admitted it. Nothing excludes it, so it states no reason.
+            pass
+        elif candidate.admission_status == "rejected":
+            # A reviewer's own words, and the only statement of this cause.
+            reasons.append(
+                candidate.admission_reason or "a reviewer rejected this measurement"
+            )
+        else:
+            candidate.admission_status = "needs_review"
+            candidate.admission_reason = _NEEDS_REVIEW_REASON
+            reasons.append(_NEEDS_REVIEW_REASON)
         if reasons:
             candidate.exclusion_reasons = reasons
             excluded.append(candidate)
@@ -1773,11 +1790,14 @@ def _project_ledger_to_attributes(
     for attribute in attributes:
         target_ids = target_ids_by_attribute[attribute.name]
         dispositions = dispositions_by_attribute[attribute.name]
+        # Display copy, so it is written for the reader who sees it. "The document ledger
+        # assigned no independently calibratable numeric target" named two internals in one
+        # sentence; the fact is that no number here can be measured against anything.
         if target_ids:
             status = "present"
             status_reason = (
-                f"The document ledger linked {len(target_ids)} independently "
-                "calibratable numeric target(s) to this field."
+                f"{len(target_ids)} number(s) in this field can be measured against "
+                "external evidence."
             )
         elif attribute.name in uncertain_attribute_refs:
             status = "uncertain"
@@ -1785,11 +1805,21 @@ def _project_ledger_to_attributes(
                 "One or more statements in this field's source blocks could not be "
                 "mapped or validated safely."
             )
+        elif not attribute.target_resolved or not attribute.document_target:
+            # The numeric pass only reads blocks a resolved prose target already cited
+            # (see `prepare_quantitative_ledger_batches`), so an unresolved field was never
+            # examined for numbers. Reporting "none can be measured" would state a result
+            # where there was no attempt - the same absence-versus-never-tried distinction
+            # the rest of this result keeps.
+            status = "not_evaluated"
+            status_reason = (
+                "This field's target could not be read, so its numbers were never "
+                "extracted. Numbers are only taken from passages a resolved target cites."
+            )
         else:
             status = "not_applicable"
             status_reason = (
-                "The complete document ledger assigned no independently calibratable "
-                "numeric target to this field."
+                "No number in this field can be measured against external evidence."
             )
         projected.append(
             replace(

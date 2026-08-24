@@ -385,7 +385,31 @@ def _system_prompt(
         # resolving. Naming a section is the readable choice and always was.
         "  The visible text is for the reader, so keep it short - a section or "
         "variable name. The destination is what opens, so it must be the exact ID "
-        "as it appears in the context, in angle brackets, never shortened."
+        "as it appears in the context, in angle brackets, never shortened.\n"
+        # Everything above tells the model to cite; nothing told it when not to,
+        # and it obliged - citations landed on sentences they did not support and
+        # on the assistant's own explanations of how a tool works. A citation on
+        # every clause reads as noise and costs the reader the signal of which
+        # claims actually rest on the document.
+        "- Cite only where a reader would otherwise have to take you on trust: a "
+        "number, a quoted phrase, a verdict, a specific claim about this product. "
+        "Do not cite your own explanation of how a tool works, a general "
+        "statement, a restatement of the question, or the same passage twice in "
+        "one answer. If a sentence would read the same without the link, leave it "
+        "out.\n"
+        # The link must support the sentence it is attached to. A nearby passage
+        # is not a citation for a different claim, and one that does not support
+        # the sentence is worse than none: it tells the reader the claim was
+        # checked when it was not.
+        "- A citation must support the exact sentence it sits in. If no passage "
+        "or source says it, say it without a link, or say the result does not "
+        "cover it.\n"
+        # A composed URL is indistinguishable from a retrieved one by inspection,
+        # so the renderer now drops any URL the material does not contain. Said
+        # here too, because a link silently demoted to text is a wasted sentence.
+        "- Never write a URL you did not read in the context. Reconstructing a "
+        "plausible address is fabrication even when the page exists; name the "
+        "source without a link instead."
     )
 
     answering = (

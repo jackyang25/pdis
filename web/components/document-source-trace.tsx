@@ -10,10 +10,13 @@ import {
 } from "react";
 import { Check, Copy, FileText, LocateFixed } from "lucide-react";
 import { BlockReferenceId } from "@/components/block-reference";
-import { TracePanelHeader, TracePanelSection } from "@/components/document-trace-panel";
+import { TracePanelHeader } from "@/components/document-trace-panel";
 import type { ContentBlock } from "@/lib/api";
 import { sourcePassageAriaLabel } from "@/lib/block-reference";
+import { CitedMark, Quoted } from "@/components/ui/evidence-text";
+import { markCitedText } from "@/lib/cited-text";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
 
 export type DocumentSpan = { quote: string; block_ids: string[] };
 
@@ -75,6 +78,9 @@ export function DocumentSourceTrace({
       .map((span) => span.quote.trim())
       .filter(Boolean),
   ));
+  // Matched on normalised whitespace, because on a real run 15 of 36 quotes differed from
+  // their block only in spacing - a table row the parse renders with its own line breaks.
+  const citedPassage = markCitedText(selectedBlock?.content ?? "", selectedQuotes);
   const selectedHeading = selectedBlock
     ? selectedBlock.section_label ||
       selectedBlock.heading_stack[selectedBlock.heading_stack.length - 1] ||
@@ -94,18 +100,13 @@ export function DocumentSourceTrace({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          onClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-transparent px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
-          aria-label={sourcePassageAriaLabel(uniqueBlockIds.length)}
-        >
-          <FileText className="h-3 w-3" />
-          View source
-          {uniqueBlockIds.length > 1 && (
-            <span className="tabular-nums text-muted-foreground/70">{uniqueBlockIds.length}</span>
-          )}
+        <button type="button" {...stopRowToggle}>
+          <ProvenanceTrigger
+            icon={FileText}
+            label="In document"
+            count={uniqueBlockIds.length}
+            ariaLabel={sourcePassageAriaLabel(uniqueBlockIds.length)}
+          />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -141,7 +142,7 @@ export function DocumentSourceTrace({
                         : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                     }`}
                   >
-                    <span className="block text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                    <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       Passage {index + 1}
                     </span>
                     <span className="mt-0.5 block truncate text-[11px] font-medium">{label}</span>
@@ -159,21 +160,6 @@ export function DocumentSourceTrace({
                     {selectedBlock.block_type.replaceAll("_", " ")} · passage {selectedBlock.ordinal + 1}
                   </p>
                 </div>
-                {selectedQuotes.length > 0 && (
-                  <TracePanelSection
-                    label="Exact cited text"
-                    icon={FileText}
-                    className="mt-3 rounded-lg border border-border/80 bg-muted/20 px-3.5 py-3"
-                  >
-                    <div className="mt-1.5 space-y-2">
-                      {selectedQuotes.map((quote) => (
-                        <blockquote key={quote} className="border-l-2 border-foreground/30 pl-3 text-xs leading-relaxed text-foreground">
-                          {quote}
-                        </blockquote>
-                      ))}
-                    </div>
-                  </TracePanelSection>
-                )}
                 {selectedBlock.image && (
                   <div className="mt-3 overflow-hidden rounded-lg border border-border/80 bg-muted/20 p-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -186,12 +172,35 @@ export function DocumentSourceTrace({
                 )}
                 {selectedBlock.content && (
                   <section className="mt-3">
-                    <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Surrounding passage
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Passage
                     </p>
-                    <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-6 text-foreground/85">
-                      {selectedBlock.content}
+                    {/* The cited words marked where they sit, not repeated above. Showing them
+                        in their own box and again inside the passage was the same sentence
+                        twice, and left the reader matching two strings to find which part of
+                        the passage was actually cited. */}
+                    <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-6 text-foreground">
+                      {citedPassage.segments.map((segment, index) =>
+                        segment.cited ? (
+                          <CitedMark key={index}>{segment.text}</CitedMark>
+                        ) : (
+                          <span key={index}>{segment.text}</span>
+                        ),
+                      )}
                     </p>
+                    {/* A quote the passage does not contain is shown rather than lost. With
+                        the separate box gone this is the only thing standing between an
+                        unlocatable citation and it vanishing. */}
+                    {citedPassage.unplaced.length > 0 && (
+                      <div className="mt-2.5">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Cited text not found in this passage
+                        </p>
+                        {citedPassage.unplaced.map((quote) => (
+                          <Quoted key={quote}>{quote}</Quoted>
+                        ))}
+                      </div>
+                    )}
                   </section>
                 )}
               </>
@@ -204,10 +213,10 @@ export function DocumentSourceTrace({
               </div>
             )}
             <footer className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
-              <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Block ID</span>
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Block ID</span>
               <BlockReferenceId
                 blockId={selectedBlockId}
-                className="min-w-0 flex-1 truncate text-[9px] text-muted-foreground"
+                className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground"
               />
               <button
                 type="button"

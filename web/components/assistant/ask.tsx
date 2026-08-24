@@ -13,6 +13,7 @@ import {
   uploadAssistantContext,
   type AssistantContext,
 } from "@/lib/api";
+import { PRODUCT_KNOWLEDGE } from "@/lib/product-knowledge";
 import { splitResultContext } from "@/lib/result-file";
 import {
   ATTACHMENT_ACCEPT,
@@ -20,7 +21,12 @@ import {
   attachablePaste,
 } from "@/lib/document-formats";
 import { STREAM_CARET_MOTION } from "@/lib/motion";
-import { parseCitation, transformCitationUrl } from "@/lib/citation";
+import {
+  citationSources,
+  parseCitation,
+  transformCitationUrl,
+  type CitationSources,
+} from "@/lib/citation";
 import { BlockCitation } from "./block-citation";
 import { DocumentSourceProvider } from "@/components/document-source-trace";
 import { cn } from "@/lib/utils";
@@ -117,6 +123,14 @@ export function Ask({
   const submittedResult = useMemo(
     () => withAttachmentManifest(payload.analysis, attachments),
     [attachments, payload.analysis],
+  );
+  // The same material the agent was given, so a link it writes can be checked
+  // against what it actually had. Product documentation is included because its
+  // links belong to the product rather than to any one result; it is added here
+  // because `lib/citation.ts` cannot import that JSON and stay testable.
+  const citableSources = useMemo(
+    () => citationSources(submittedResult, PRODUCT_KNOWLEDGE),
+    [submittedResult],
   );
   const hasDocument = documentContext.length > 0;
   const resultCount = availableResultCount ?? (hasResult ? 1 : 0);
@@ -377,7 +391,7 @@ export function Ask({
                   : "group max-w-full text-sm text-foreground"
               }
             >
-              <Markdown text={text} />
+              <Markdown text={text} sources={citableSources} />
               {isStreaming && activity && !text && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -635,9 +649,9 @@ const LINK_CLASS =
  * discussed. Raw HTML stays escaped: `rehype-raw` is deliberately absent, so
  * model output cannot inject markup.
  */
-const MARKDOWN_ELEMENTS = {
+const markdownElements = (sources: CitationSources): Components => ({
   a: ({ children, href }) => {
-    const citation = parseCitation(href);
+    const citation = parseCitation(href, sources);
     if (citation.kind === "block") {
       return <BlockCitation blockId={citation.blockId}>{children}</BlockCitation>;
     }
@@ -648,7 +662,8 @@ const MARKDOWN_ELEMENTS = {
         </a>
       );
     }
-    // An unrecognised scheme is prose, not a broken control.
+    // Prose, not a broken control: an unrecognised scheme, or a URL that appears
+    // nowhere in the material this answer was grounded in.
     return <>{children}</>;
   },
   ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
@@ -678,21 +693,27 @@ const MARKDOWN_ELEMENTS = {
   td: ({ children }) => (
     <td className="border-b border-border/60 px-2.5 py-1.5 align-top">{children}</td>
   ),
+  // Not `Quoted`. That means "exact words from the document or a source, at full contrast";
+  // this is the assistant choosing to indent part of its own answer, which is a model's prose
+  // and so is muted like every other model's prose. Same glyph, opposite authorship.
   blockquote: ({ children }) => (
     <blockquote className="border-l-2 border-border pl-3 text-muted-foreground">
       {children}
     </blockquote>
   ),
   hr: () => <hr className="border-border" />,
-} satisfies Components;
+});
 
-function Markdown({ text }: { text: string }) {
+function Markdown({ text, sources }: { text: string; sources: CitationSources }) {
+  // Memoised on the sources, not rebuilt per message: a fresh components object
+  // would remount every rendered element on each keystroke of a streaming answer.
+  const elements = useMemo(() => markdownElements(sources), [sources]);
   if (!text) return null;
   return (
     <div className="space-y-2 leading-relaxed">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={MARKDOWN_ELEMENTS}
+        components={elements}
         // react-markdown blanks any URL whose scheme is not http/https/mailto/tel,
         // to stop `javascript:` arriving in model output. Correct by default and
         // wrong for a scheme this app defines: `block:` was emptied before the

@@ -11,7 +11,7 @@ const measurement = (value: number, unit = "%") => ({
   source_record_id: `record-${value}-${unit}`,
   source_identity_status: "canonical",
   semantic_status: "contextual",
-  exclusion_reasons: [],
+  title: "A cited paper",
 });
 
 test("builds a padded distribution containing comparators and target", () => {
@@ -95,7 +95,6 @@ test("uses a non-zero domain for a single repeated value", () => {
 test("plots related context even when none qualify for statistics", () => {
   const excluded = {
     ...measurement(75),
-    exclusion_reasons: ["population: different"],
   };
   const model = buildComparatorDistribution({
     targetValue: 80,

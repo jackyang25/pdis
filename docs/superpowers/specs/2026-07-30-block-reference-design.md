@@ -12,7 +12,9 @@ The design applies to Scout, Inspector, Aligner, Evidence Map, and shared source
 
 - Show the compact terminal ID, such as `b-0040`, wherever a block reference is visible.
 - Do not prefix the visible ID with `Block` or expose full document-qualified IDs in ordinary page content.
-- Use `View source` for the action and `Source passage` for the content it opens.
+- Use `In document` for the action and `Source passage` for the content it opens. The action
+  is named for the direction it points: Scout also shows an outward `Sources` panel, and one
+  label reading "View source" for both was ambiguous.
 - Reserve `Block ID` for the audit detail inside the source-passage popover. Show the full canonical ID there and retain the copy action.
 - Use full canonical IDs in accessible names and tooltips so shortening does not reduce traceability.
 

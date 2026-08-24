@@ -95,7 +95,7 @@
     {
       "id": "scout",
       "title": "Scout evidence",
-      "intro": "Scout binds document meaning before retrieval, generates source-neutral query intents, and keeps its evidence judgments independent.",
+      "intro": "Scout reads what your document commits to, searches outside evidence for it, and keeps four judgments separate so none of them becomes a score.",
       "content": [
         {
           "type": "definitions",
@@ -124,20 +124,20 @@
           "title": "Result axes",
           "items": [
             {
-              "term": "Relationship",
-              "description": "Contradicts, extends, confirms, or unrelated."
+              "term": "Relation to document target",
+              "description": "What one piece of outside evidence does to the target this document states: Conflicts, Supports, Adds context, or Unrelated. One relation per insight."
             },
             {
               "term": "Grounding",
-              "description": "Well grounded, partial, thin, unsupported, or unknown."
+              "description": "How well justified the target is: Well grounded, Partly grounded, Thinly grounded, Unsupported, or Grounding unknown."
             },
             {
-              "term": "Quantitative calibration",
-              "description": "Reviewed comparators and deterministic descriptive statistics."
+              "term": "Measurable targets",
+              "description": "The numbers this document states that external measurements can be compared against. Read only from passages a resolved target cites."
             },
             {
               "term": "Precedent",
-              "description": "Direct, adjacent, none, or unknown, with outcome reported separately."
+              "description": "How directly prior work matches: Direct precedent, Adjacent precedent, No precedent found, or Precedent unknown. The outcome is reported separately, and is a different question: Favorable outcome, Mixed outcome, Unfavorable outcome, or Outcome unknown."
             }
           ]
         },
@@ -155,11 +155,11 @@
             },
             {
               "term": "Proposed measurable target",
-              "description": "One atomic, normalized expression of a document-stated scalar, with its semantic dimensions and direct-comparator policy."
+              "description": "One number pulled out of the document for review, before anyone has accepted it. Accepted ones become the measurable targets on the result."
             },
             {
               "term": "Linked product fields",
-              "description": "Canonical Scout analysis fields to which one document-owned target applies; these are analysis views, not synchronized database fields. Defines means the statement directly specifies the field, constrains means it imposes a requirement, and context for means it remains traceable without creating retrieval or statistics."
+              "description": "The fields one document number applies to. Defines means it sets the field, constrains means it limits it, and context for means it stays traceable without driving any search or statistic. These are readings of one number, not records that update together."
             },
             {
               "term": "Semantic dimensions",
@@ -179,7 +179,7 @@
             },
             {
               "term": "Unresolved extraction",
-              "description": "Scout retained the source statement for audit but could not form a complete, source-verifiable atomic target, so it stays outside retrieval and statistics."
+              "description": "A number Scout kept for audit but could not pin to a single value it could verify, so it stays out of retrieval and statistics."
             },
             {
               "term": "Evidence review",
@@ -187,7 +187,7 @@
             },
             {
               "term": "Comparison check",
-              "description": "Target and evidence dimensions shown side by side. Their alignment is model interpretation; the review decision controls admission."
+              "description": "The target and one measurement shown side by side. Whether they match is the model's reading; admitting the measurement is the reviewer's decision."
             },
             {
               "term": "Choose one estimate",
@@ -195,14 +195,14 @@
             },
             {
               "term": "Included comparator cohort",
-              "description": "Only admitted, source-owned, evidence-unit-deduplicated scalars used for deterministic descriptive statistics."
+              "description": "The measurements that entered the statistics: each quoted from its source, measuring the same quantity, and counted once per source."
             }
           ]
         },
         {
           "type": "note",
           "title": "Quantitative review",
-          "text": "Anthropic maps document-owned claims and retrieved measurements into typed proposals. A claim may define or constrain several product fields without being copied; contextual links never create statistics. OpenAI independently recommends whether each proposal should be confirmed, excluded, admitted, rejected, or reviewed manually. Human decisions control admission; code checks structure, provenance, declared-unit compatibility, deduplication, and arithmetic."
+          "text": "Two model providers do the two steps, so neither checks its own work. Anthropic reads the document's numbers and the retrieved measurements into a comparable shape. OpenAI then recommends, separately, whether each one should be admitted, excluded, or looked at by a person. A person decides admission. Code checks the rest: provenance, units, duplicates, and arithmetic."
         },
         {
           "type": "warning",
@@ -229,7 +229,7 @@
             },
             {
               "term": "Skills",
-              "description": "Declared procedures Assistant can follow: reading two results together, or turning one into a list of requests or a passage safe to quote. Each names the results it needs and is offered only when the workspace holds them; one that cannot run is still listed, with the run that is missing. A skill is not a pipeline — it runs nothing and reads only results a tool's pipeline already produced."
+              "description": "Declared procedures Assistant can follow: reading two results together, or turning one into a list of requests or a passage safe to quote. Each names the results it needs and is offered only when the workspace holds them; one that cannot run is still listed, with the run that is missing. A skill is not a pipeline. It runs nothing and reads only results a tool's pipeline already produced."
             },
             {
               "term": "Final results",
@@ -267,14 +267,14 @@
         {
           "type": "note",
           "title": "A skill composes results; it does not judge them",
-          "text": "Each tool judges against one authority and never reads another tool's output, which is what stops two of them contradicting each other. A skill is a reader: it holds finished results, states which finding on each side a claim rests on, and issues no verdict of its own. So it can say that a candidate falls short of a target the evidence disputes — something neither result says alone — without either result changing."
+          "text": "Each tool judges against one authority and never reads another tool's output, which is what stops two of them contradicting each other. A skill is a reader: it holds finished results, states which finding on each side a claim rests on, and issues no verdict of its own. So it can say that a candidate falls short of a target the evidence disputes, something neither result says alone, without either result changing."
         }
       ]
     },
     {
       "id": "results",
       "title": "Saved results",
-      "intro": "Every tool that produces a result — Inspector, Aligner, Expert, and Scout — downloads a portable, versioned artifact. Their analysis and source documents travel together.",
+      "intro": "Every tool that produces a result (Inspector, Aligner, Expert, and Scout) downloads a portable, versioned artifact. Their analysis and source documents travel together.",
       "content": [
         {
           "type": "definitions",
@@ -337,7 +337,7 @@
           "items": [
             {
               "question": "Does any of this tell me whether to fund something?",
-              "answer": "No. Each tool answers one narrow question against one authority — a template, another document, a gate's question bank, published evidence — and none of them produces a recommendation, a readiness verdict, or a product score. The judgement stays with the reader."
+              "answer": "No. Each tool answers one narrow question against one authority: a template, another document, a gate's question bank, or published evidence. None of them produces a recommendation, a readiness verdict, or a product score. The judgement stays with the reader."
             },
             {
               "question": "Can I get one number for how a document did?",
@@ -345,7 +345,7 @@
             },
             {
               "question": "I ran the same document twice and the findings are not identical. Is something wrong?",
-              "answer": "No, and it is worth knowing which half moved. Identical on every run: which questions are asked, the denominator they are counted against, which blocks a finding is allowed to cite, and what is excluded and why — those are fixed by the rubric, the question bank, and deterministic checks, not by the model. What varies: which findings surface first, how each is worded, and, for Scout, which sources a search happens to reach. So a second run may order or phrase things differently while the ledger it was judged against is unchanged. Read a difference as a difference in emphasis, not as a change in what the document contains — and if you need the two side by side, see “Can I compare two runs?”."
+              "answer": "No, and it is worth knowing which half moved. Identical on every run: which questions are asked, the denominator they are counted against, which blocks a finding is allowed to cite, and what is excluded and why. Those are fixed by the rubric, the question bank, and deterministic checks, not by the model. What varies: which findings surface first, how each is worded, and, for Scout, which sources a search happens to reach. So a second run may order or phrase things differently while the ledger it was judged against is unchanged. Read a difference as a difference in emphasis, not as a change in what the document contains. If you need the two side by side, see “Can I compare two runs?”."
             },
             {
               "question": "Can I compare two runs?",
@@ -357,7 +357,7 @@
             },
             {
               "question": "Why can I attach a PDF as context but not upload one for review?",
-              "answer": "Because the two are read differently. An uploaded document becomes citable blocks, and every citation depends on structure being read from the file — which a PDF does not declare, so a table rebuilt from where glyphs landed can merge unrelated columns and still look correct. Context is read once into a prompt: never chunked, never cited, never checked against a quote. So a format that declares no structure loses nothing there, and an answer from it says so by naming its source instead of a passage."
+              "answer": "Because the two are read differently. An uploaded document becomes citable blocks, and every citation depends on structure being read from the file, which a PDF does not declare, so a table rebuilt from where glyphs landed can merge unrelated columns and still look correct. Context is read once into a prompt: never chunked, never cited, never checked against a quote. So a format that declares no structure loses nothing there, and an answer from it says so by naming its source instead of a passage."
             },
             {
               "question": "What does “not found” actually mean?",
@@ -373,11 +373,11 @@
             },
             {
               "question": "Does it search the internet on its own?",
-              "answer": "Only Scout retrieves anything, only from the sources its configuration enables, and it reads your document first — every query is bound to a passage in it. Ask never starts a search and may open a URL only when a result already cites it."
+              "answer": "Only Scout retrieves anything, only from the sources its configuration enables, and it reads your document first, and every query is bound to a passage in it. Ask never starts a search and may open a URL only when a result already cites it."
             },
             {
               "question": "Where does my document go?",
-              "answer": "It is parsed in the service, and its text and images travel to the model provider inside each request. Nothing is kept on a server: the workspace lives in your browser and resets on reload, so the only durable copy is a result you export. A file attached as context is read into text once, used for that run, and discarded — it is never stored and never becomes part of a result."
+              "answer": "It is parsed in the service, and its text and images travel to the model provider inside each request. Nothing is kept on a server: the workspace lives in your browser and resets on reload, so the only durable copy is a result you export. A file attached as context is read into text once, used for that run, and discarded. It is never stored and never becomes part of a result."
             },
             {
               "question": "Why is a chart or tab absent?",
@@ -398,7 +398,7 @@
     {
       "id": "workflows",
       "title": "Pipelines",
-      "intro": "Explore how each PDIS tool moves from source material to a traceable result, then expand load-bearing stages for their technical flow. A pipeline is what a run executes, stage by stage, and every one below is one. Assistant's pipeline is here too, and the skills it can follow are one step inside it — a skill reads finished results and runs no pipeline of its own.",
+      "intro": "Explore how each PDIS tool moves from source material to a traceable result, then expand load-bearing stages for their technical flow. A pipeline is what a run executes, stage by stage, and every one below is one. Assistant's pipeline is here too, and the skills it can follow are one step inside it: a skill reads finished results and runs no pipeline of its own.",
       "content": [
         {
           "type": "architecture",
@@ -762,7 +762,7 @@
                 {
                   "id": "reasoning",
                   "title": "Independent evidence axes",
-                  "summary": "Insights feed relationship, grounding, precedent, and quantitative calibration separately.",
+                  "summary": "Insights feed target relation, grounding, precedent, and quantitative calibration separately.",
                   "kind": "model",
                   "layer": "Evidence analysis",
                   "inputs": [
@@ -793,7 +793,7 @@
                     },
                     {
                       "id": "qualitative",
-                      "title": "Relationship and grounding",
+                      "title": "Target relation and grounding",
                       "summary": "Reports how evidence relates to a target and how well the target is supported.",
                       "kind": "model",
                       "layer": "Qualitative axes"

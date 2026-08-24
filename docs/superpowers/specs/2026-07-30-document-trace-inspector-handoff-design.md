@@ -56,7 +56,7 @@ The connected-results selector is a quiet list above the detail view, not a nest
 - connection-to-source explanation;
 - source-passage counts or unmatched/unavailable details when applicable.
 
-The connection section does not repeat source content or expose another “View source” control.
+The connection section does not repeat source content or expose another “In document” control.
 
 ### Destination emphasis
 

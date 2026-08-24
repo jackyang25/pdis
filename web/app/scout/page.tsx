@@ -47,6 +47,8 @@ import {
   type Header,
   type Match,
   type Measurement,
+  type QuantitativeStatementDisposition,
+  type Variable,
   type NumericExpression,
   type QuantitativeSemanticProfile,
   type QuantitativeTarget,
@@ -87,21 +89,50 @@ import {
   readResultIdentity,
 } from "@/lib/result-file";
 import {
+  CALIBRATION_BASIS_LABEL,
+  DISPOSITION_LABEL,
+  GROUNDING_LABEL,
+  OUTCOME_LABEL,
+  PRECEDENT_LABEL,
+  RELATIONSHIP_LABEL,
+  SEMANTIC_STATUS_LABEL,
+  TARGET_ROLE_LABEL,
   displayAttributeLabel,
   displayRecordTypeLabel,
+  queryTrackLabel,
   sourceDisplayLabel,
 } from "@/lib/scout-labels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScoutDocumentTrace } from "@/components/scout-document-trace";
+import { ScoutSignalHelp } from "@/components/scout-signal-help";
+import { PROVENANCE_SLOT } from "@/components/ui/provenance";
 import {
-  ScoutSignalHelp,
-  ScoutSignalLabel,
-  type ScoutSignalTopic,
-} from "@/components/scout-signal-help";
+  Computed,
+  InterfaceNote,
+  Quoted,
+  Reading,
+} from "@/components/ui/evidence-text";
 import { SourceAttributions } from "@/components/source-attributions";
 import { ComparatorDistributionPlot } from "@/components/comparator-distribution-plot";
+import { EvidenceProvenance } from "@/components/evidence-provenance";
+import { ExcludedMeasurements } from "@/components/excluded-measurements";
+import { ComparatorCohort } from "@/components/comparator-cohort";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RELATION_ORDER, sortMatchesForReading } from "@/lib/scout-match-order";
+import {
+  calibrationView,
+  citation,
+  documentTargetRows,
+  formatMeasure,
+  insightRegistry,
+  needsFindingFallback,
+  relationGroups,
+  runHeadline,
+  type Citation,
+  type InsightRegistry,
+  type RunHeadline,
+  type TargetRow,
+} from "@/lib/scout-result-view";
 import {
   SCOUT_EMPTY_MESSAGE,
   SCOUT_ORDER_NOTE,
@@ -109,7 +140,12 @@ import {
 } from "@/lib/scout-priorities";
 import { PriorityPanel } from "@/components/ui/priority-panel";
 import { cn } from "@/lib/utils";
-import { DISCLOSURE_MOTION, SURFACE_ENTRY_MOTION } from "@/lib/motion";
+import {
+  ARRIVAL_HIGHLIGHT,
+  ARRIVAL_HIGHLIGHT_MS,
+  DISCLOSURE_MOTION,
+  SURFACE_ENTRY_MOTION,
+} from "@/lib/motion";
 import {
   applyEvidenceReviewRecommendations,
   evidenceReviewRecommendationSummary,
@@ -122,6 +158,7 @@ import {
 } from "@/components/document-source-trace";
 import {
   filterProjectionsByRelationship,
+  groupProjectionsByRelationship,
   isContextualRelationship,
   relationshipLabel,
   sourceRoleLabel,
@@ -173,13 +210,21 @@ const SOURCE_LIST_LIMIT = 5;
 // Tone tokens are reserved for direct signal values, never derived UI grades.
 const NEUTRAL_DOT = "bg-muted-foreground/40";
 
-const EVIDENCE_META: Record<EvidenceAssessment["strength"], { label: string; dot: string }> = {
-  well_grounded: { label: "Well grounded", dot: "bg-emerald-500" },
-  partial: { label: "Partial", dot: "bg-blue-500" },
-  thin: { label: "Thin", dot: "bg-amber-400" },
-  unsupported: { label: "Unsupported", dot: "bg-[hsl(var(--tone-danger))]" },
-  unknown: { label: "Unknown", dot: NEUTRAL_DOT },
+/**
+ * The tone each grounding verdict carries. Only the tone.
+ *
+ * The words come from `GROUNDING_LABEL`, which the evidence map and the document trace
+ * already read. A second copy here is exactly how "Partial" and "Partly grounded" came to
+ * render in two tabs of one run.
+ */
+const EVIDENCE_DOT: Record<EvidenceAssessment["strength"], string> = {
+  well_grounded: "bg-emerald-500",
+  partial: "bg-blue-500",
+  thin: "bg-amber-400",
+  unsupported: "bg-[hsl(var(--tone-danger))]",
+  unknown: NEUTRAL_DOT,
 };
+
 
 const RELATION_DOT: Record<Match["relation"], string> = {
   contradicts: "bg-[hsl(var(--tone-danger))]",
@@ -188,31 +233,16 @@ const RELATION_DOT: Record<Match["relation"], string> = {
   unrelated: NEUTRAL_DOT,
 };
 
-const RELATION_LABEL: Record<Match["relation"], string> = {
-  contradicts: "Conflicts",
-  extends: "Adds context",
-  confirms: "Supports",
-  unrelated: "Unrelated",
-};
-
-// Target alignment is a position (target vs current evidence), NOT a good/bad grade:
-// a low score often reflects an intentional stretch target, not a failure. So
-// its chip uses a single neutral tone rather than green/red, to avoid being
-// read as a pass/fail score.
-const TARGET_ALIGNMENT_DOT = "bg-slate-400";
 
 function formatNumericExpression(expression: NumericExpression): string {
   const unit = expression.unit ?? "";
-  const unitSuffix = unit
-    ? /^[%°]/.test(unit) ? unit : ` ${unit}`
-    : "";
   if (expression.kind === "range" || expression.kind === "confidence_interval") {
     return expression.lower == null || expression.upper == null
       ? "Unresolved numeric expression"
-      : `${expression.lower}–${expression.upper}${unitSuffix}`;
+      : `${expression.lower}–${formatMeasure(expression.upper, unit)}`;
   }
   if (expression.value == null) return "Unresolved numeric expression";
-  return `${expression.comparator} ${expression.value}${unitSuffix}`;
+  return `${expression.comparator} ${formatMeasure(expression.value, unit)}`;
 }
 
 function formatAttributeRefs(attributeRefs: string[], fallback: string): string {
@@ -227,24 +257,31 @@ function formatFieldLinks(fieldLinks: QuantitativeTarget["field_links"]): string
   );
 }
 
-const PRECEDENT_META: Record<PrecedentSignal["precedent"], { label: string; dot: string }> = {
-  direct: { label: "Direct", dot: NEUTRAL_DOT },
-  adjacent: { label: "Adjacent", dot: NEUTRAL_DOT },
-  none: { label: "None found", dot: NEUTRAL_DOT },
-  unknown: { label: "Unknown", dot: NEUTRAL_DOT },
+/**
+ * The tone each outcome carries. Only the tone, like `EVIDENCE_DOT` above.
+ *
+ * The words come from `OUTCOME_LABEL` and `PRECEDENT_LABEL`. This file used to hold both
+ * the tones and its own copies of the words, and the copies had already drifted: the shared
+ * vocabulary said "Unknown" while the copy here said "Outcome unknown", so one run rendered
+ * that value two ways in two views. The drift test guarded the *name* `OUTCOME_LABEL`, and
+ * a copy called `OUTCOME_META` walked straight past it.
+ *
+ * Precedent coverage needs no map: every value is neutral, because how closely prior work
+ * matches is not good or bad news on its own.
+ */
+const OUTCOME_DOT: Record<PrecedentSignal["outcome"], string> = {
+  favorable: "bg-emerald-500",
+  mixed: "bg-amber-400",
+  unfavorable: "bg-[hsl(var(--tone-danger))]",
+  unknown: NEUTRAL_DOT,
 };
 
-const OUTCOME_META = {
-  favorable: { label: "Favorable", dot: "bg-emerald-500" },
-  mixed: { label: "Mixed", dot: "bg-amber-400" },
-  unfavorable: { label: "Unfavorable", dot: "bg-[hsl(var(--tone-danger))]" },
-  unknown: { label: "Outcome unknown", dot: NEUTRAL_DOT },
-} as const;
-
 function precedentView(signal: PrecedentSignal) {
-  const coverage = PRECEDENT_META[signal.precedent].label;
-  const outcome = OUTCOME_META[signal.outcome];
-  return { coverage, outcome: outcome.label, dot: outcome.dot };
+  return {
+    coverage: PRECEDENT_LABEL[signal.precedent],
+    outcome: OUTCOME_LABEL[signal.outcome],
+    dot: OUTCOME_DOT[signal.outcome],
+  };
 }
 
 function formatDate(iso: string | null): string | null {
@@ -294,23 +331,15 @@ function SignalSummary({
   value,
   detail,
   dot,
-  helpTopic,
 }: {
   label: string;
   value: string;
   detail?: string;
   dot?: string;
-  helpTopic?: ScoutSignalTopic;
 }) {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] font-medium text-muted-foreground">
-        {helpTopic ? (
-          <ScoutSignalLabel topic={helpTopic}>{label}</ScoutSignalLabel>
-        ) : (
-          label
-        )}
-      </p>
+      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
         {dot && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />}
         <span
@@ -325,6 +354,16 @@ function SignalSummary({
   );
 }
 
+/**
+ * A section heading.
+ *
+ * Deliberately with no help affordance. The four result axes are told apart by contrast,
+ * so a tooltip on one of them cannot do the job: it says what Grounding is without saying
+ * how it differs from Relation to document target, which is the thing a reader gets wrong.
+ * The toolbar's "How to read" shows all four together, and that is the only place they are
+ * explained. Twenty-eight fields times four headings was also 112 affordances glossing the
+ * same four sentences.
+ */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -350,12 +389,6 @@ function relationCounts(matches: Match[]): RelationCounts {
     },
     { contradicts: 0, extends: 0, confirms: 0, unrelated: 0 } as RelationCounts,
   );
-}
-
-function relationSummary(counts: RelationCounts): string {
-  const values = RELATION_ORDERED_KEYS.filter((key) => counts[key] > 0)
-    .map((key) => `${RELATION_LABEL[key]} ${counts[key]}`);
-  return values.length > 0 ? values.join(" · ") : "No matches";
 }
 
 function countLabel(count: number, singular: string): string {
@@ -389,7 +422,7 @@ function SourceList({ findings }: { findings: Finding[] }) {
             >
               {f.title || f.url}
             </a>
-            <span className="shrink-0 text-[11px] text-muted-foreground/60">{meta}</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">{meta}</span>
           </li>
         );
       })}
@@ -460,6 +493,16 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   useEffect(() => {
     if (result) setShowRunPanel(false);
   }, [result]);
+
+  // Covers arriving with a hash already set, or the back button. The click itself is handled
+  // on the link, because clicking a citation whose hash is already current fires no
+  // `hashchange` and would otherwise do nothing the second time.
+  useEffect(() => {
+    const openFromHash = () => revealInsight(window.location.hash.slice(1));
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
+  }, []);
 
   useEffect(() => {
     if (result && result.phase !== "target_review" && reviewStatus === "idle") {
@@ -827,14 +870,14 @@ function DocumentTargetReviewCheckpoint({
     <DocumentSourceProvider blocks={result.blocks ?? []}>
       <section
         className={cn(
-          "overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm",
+          "overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm",
           SURFACE_ENTRY_MOTION,
         )}
       >
         <ReviewCheckpointHeader
           eyebrow="Target review"
           title="Review document targets"
-          description="Confirm that each proposed number is a real document commitment—not background context, an example, or a rejected alternative."
+          description="Confirm that each proposed number is a real document commitment, not background context, an example, or a rejected alternative."
           help={<>Scout has tied each item to a canonical document field and exact source passage. Confirm measurable targets before they shape retrieval and statistics. Excluded items remain in the audit ledger.</>}
           completed={completed}
           total={total}
@@ -924,9 +967,9 @@ function DocumentTargetReviewCheckpoint({
                   spans={target.provenance_spans}
                 />
               </div>
-              <blockquote className="mt-3 border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground/85">
+              <Quoted size="prominent">
                 {target.quote}
-              </blockquote>
+              </Quoted>
               </>
             }
             right={
@@ -936,7 +979,7 @@ function DocumentTargetReviewCheckpoint({
                 <p className="text-xl font-semibold text-foreground">
                   {formatNumericExpression(target.expression)}
                 </p>
-                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium capitalize text-muted-foreground">
+                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium capitalize text-muted-foreground">
                   {target.role}
                 </span>
               </div>
@@ -949,13 +992,13 @@ function DocumentTargetReviewCheckpoint({
                     <dd className="mt-0.5 text-xs leading-relaxed text-foreground">
                       {semanticSlotLabel(target.semantic_profile[dimension])}
                     </dd>
-                    <dd className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                    <dd className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                       {comparisonRuleLabel(target.comparison_contract[dimension])}
                     </dd>
                   </div>
                 ))}
               </dl>
-              <div className="mt-5 border-t border-border/70 pt-4">
+              <div className="mt-5 border-t border-border/60 pt-4">
                 <SectionLabel>Linked product fields</SectionLabel>
                 <div className="mt-2 space-y-2">
                   {linkedVariables.map(({ link, variable }) => (
@@ -996,26 +1039,26 @@ function DocumentTargetReviewCheckpoint({
             <p className="mt-3 text-sm font-semibold text-foreground">
               {formatAttributeRefs(statement.attribute_refs, "Document context")}
             </p>
-            <blockquote className="mt-3 max-w-4xl border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground/85">
+            <Quoted size="prominent" className="max-w-4xl">
               {statement.quote}
-            </blockquote>
-            <div className="mt-4 flex max-w-4xl items-start gap-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-xs leading-relaxed text-muted-foreground">
+            </Quoted>
+            <InterfaceNote className="mt-4 flex max-w-4xl items-start gap-2">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{statementReviewReason(statement.reason)}</span>
-            </div>
+            </InterfaceNote>
           </div>
         ) : (
           <div className="px-5 py-9 sm:px-7">
             <p className="text-base font-semibold text-foreground">Document targets are resolved</p>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            <SectionDescription>
               Approved targets will shape target-specific queries and quantitative calibration. Rejected and
               uncertain statements remain traceable but cannot enter calculations.
-            </p>
+            </SectionDescription>
           </div>
         )}
 
-        <footer className="flex flex-col-reverse gap-2 border-t border-border/80 bg-muted/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-          <p className="text-[10px] leading-relaxed text-muted-foreground">
+        <footer className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
             {busy
               ? `${stage ? SCOUT_STEPS.find((item) => item.key === stage)?.label ?? stage : "Continuing analysis"}${progress ? ` · ${progress.completed}/${progress.total}` : ""}`
               : "Every decision is stored in the portable draft; no hidden server state is used."}
@@ -1079,7 +1122,7 @@ function ReviewCheckpointHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="border-b border-border/80 px-5 py-5 sm:px-7">
+    <header className="border-b border-border/60 px-5 py-5 sm:px-7">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-1.5">
@@ -1089,9 +1132,7 @@ function ReviewCheckpointHeader({
             <ReviewHelp>{help}</ReviewHelp>
           </div>
           <h2 className="mt-1 text-lg font-semibold text-foreground">{title}</h2>
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-            {description}
-          </p>
+          <SectionDescription>{description}</SectionDescription>
         </div>
         {actions && <div className="flex items-center gap-2">{actions}</div>}
       </div>
@@ -1129,27 +1170,25 @@ function ReviewOverview({
   children: ReactNode;
 }) {
   return (
-    <div className="border-b border-border/80 bg-muted/10 px-5 py-5 sm:px-7">
+    <div className="border-b border-border/60 bg-muted/10 px-5 py-5 sm:px-7">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-foreground">Review overview</h3>
-            <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               AI prefilled
             </span>
           </div>
-          <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-muted-foreground">
-            {description}
-          </p>
+          <SectionDescription>{description}</SectionDescription>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex flex-wrap items-center gap-3 text-[10px] font-medium text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3 text-[11px] font-medium text-muted-foreground">
             {counts}
           </div>
           {actions}
         </div>
       </div>
-      <div className="mt-4 max-h-72 overflow-y-auto rounded-lg border border-border/80 bg-card">
+      <div className="mt-4 max-h-72 overflow-y-auto rounded-lg border border-border/60 bg-card">
         <div className="divide-y divide-border/70">{children}</div>
       </div>
     </div>
@@ -1189,12 +1228,12 @@ function ReviewListRow({
     >
       <span className="min-w-0">
         <span className="block truncate text-[11px] font-medium text-foreground">{title}</span>
-        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{subtitle}</span>
+        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{subtitle}</span>
       </span>
-      <span className={`w-fit rounded-full border px-2 py-0.5 text-[9px] font-medium ${statusClass}`}>
+      <span className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusClass}`}>
         {status}
       </span>
-      <span className="min-w-0 truncate text-[10px] text-muted-foreground">{detail}</span>
+      <span className="min-w-0 truncate text-[11px] text-muted-foreground">{detail}</span>
     </button>
   );
 }
@@ -1202,7 +1241,7 @@ function ReviewListRow({
 function ReviewDetailColumns({ left, right }: { left: ReactNode; right: ReactNode }) {
   return (
     <div className="grid lg:grid-cols-2">
-      <div className="min-w-0 border-b border-border/80 p-5 sm:p-7 lg:border-b-0 lg:border-r">
+      <div className="min-w-0 border-b border-border/60 p-5 sm:p-7 lg:border-b-0 lg:border-r">
         {left}
       </div>
       <div className="min-w-0 p-5 sm:p-7">{right}</div>
@@ -1225,12 +1264,35 @@ function ReviewRecommendation({
     warning: "text-amber-700",
   }[tone];
   return (
-    <div className="mt-4 rounded-lg border border-border/70 bg-muted/20 p-3">
+    <div className="mt-4 rounded-lg border border-border/60 bg-muted/20 p-3">
       <p className={`text-[10px] font-semibold uppercase tracking-wide ${accent}`}>
         AI recommendation · {label}
       </p>
-      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{children}</p>
+      <Reading>{children}</Reading>
     </div>
+  );
+}
+
+/**
+ * The sentence under a heading.
+ *
+ * The interface's own words, so it needs no mode: a literal in the source has no authorship
+ * question. It needs one shape, though. Four copies of this existed at two widths and two
+ * sizes, so the caveat under the surveillance heading was set differently from the caveat
+ * under the review heading for no reason a reader could act on.
+ */
+function SectionDescription({
+  children,
+  /** Spacing and clamping only. Tone, size and measure belong here. */
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <p className={cn("mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground", className)}>
+      {children}
+    </p>
   );
 }
 
@@ -1439,7 +1501,7 @@ function QuantitativeReviewCheckpoint({
     <DocumentSourceProvider blocks={result.blocks ?? []}>
       <section
         className={cn(
-          "overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm",
+          "overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm",
           SURFACE_ENTRY_MOTION,
         )}
       >
@@ -1538,14 +1600,14 @@ function QuantitativeReviewCheckpoint({
                 {target ? formatNumericExpression(target.expression) : score.target_label}
               </span>
               {target && (
-                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium capitalize text-muted-foreground">
+                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium capitalize text-muted-foreground">
                   {target.role}
                 </span>
               )}
             </div>
-            <blockquote className="mt-3 border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">
+            <Quoted size="prominent">
               {score.target_quote}
-            </blockquote>
+            </Quoted>
             </>
           }
           right={
@@ -1577,7 +1639,7 @@ function QuantitativeReviewCheckpoint({
                         onClick={() => setSelectedCandidateId(option.candidate_id)}
                         className={`w-full rounded-lg border p-3 text-left transition-colors ${selected
                           ? "border-foreground/45 bg-muted/45"
-                          : "border-border/70 hover:border-foreground/25 hover:bg-muted/20"}`}
+                          : "border-border/60 hover:border-foreground/25 hover:bg-muted/20"}`}
                       >
                         <span className="flex items-start gap-3">
                           <span className={`mt-1 h-3.5 w-3.5 shrink-0 rounded-full border ${selected
@@ -1587,7 +1649,7 @@ function QuantitativeReviewCheckpoint({
                             <span className="block text-sm font-semibold text-foreground">
                               {formatNumericExpression(option.expression)}
                             </span>
-                            <span className="mt-1 line-clamp-3 block text-xs leading-relaxed text-foreground/80">
+                            <span className="mt-1 line-clamp-3 block text-xs leading-relaxed text-foreground">
                               {option.source_quote}
                             </span>
                             <span className="mt-1.5 block truncate text-[11px] text-muted-foreground">
@@ -1606,9 +1668,9 @@ function QuantitativeReviewCheckpoint({
                 <p className="mt-3 text-base font-semibold text-foreground">
                   {formatNumericExpression(measurement.expression)}
                 </p>
-                <blockquote className="mt-3 border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground/85">
+                <Quoted size="prominent">
                   {measurement.source_quote}
-                </blockquote>
+                </Quoted>
                 <a
                   href={measurement.url}
                   target="_blank"
@@ -1623,10 +1685,10 @@ function QuantitativeReviewCheckpoint({
           }
         />
 
-        <div className="border-t border-border/80 px-5 py-5 sm:px-7">
+        <div className="border-t border-border/60 px-5 py-5 sm:px-7">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <SectionLabel>Comparison check</SectionLabel>
-            <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
               <span>Mapped dimensions · your decision controls admission</span>
               {measurement?.url && (
                 <a
@@ -1640,7 +1702,7 @@ function QuantitativeReviewCheckpoint({
               )}
             </div>
           </div>
-          {measurement ? <div className="mt-3 overflow-hidden rounded-lg border border-border/70">
+          {measurement ? <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
             <div className="hidden grid-cols-[0.8fr_1fr_1fr_0.65fr] gap-4 bg-muted/35 px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
               <span>Dimension</span><span>Target</span><span>Evidence</span><span>Mapping</span>
             </div>
@@ -1652,7 +1714,7 @@ function QuantitativeReviewCheckpoint({
               return (
                 <div
                   key={dimension}
-                  className="grid gap-1 border-t border-border/70 px-4 py-3 first:border-t-0 sm:grid-cols-[0.8fr_1fr_1fr_0.65fr] sm:gap-4"
+                  className="grid gap-1 border-t border-border/60 px-4 py-3 first:border-t-0 sm:grid-cols-[0.8fr_1fr_1fr_0.65fr] sm:gap-4"
                 >
                   <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-xs sm:normal-case sm:tracking-normal">
                     {dimensionLabel(dimension)}
@@ -1662,7 +1724,7 @@ function QuantitativeReviewCheckpoint({
                     <span>
                       {semanticSlotLabel(targetSlot)}
                       {comparisonRule && (
-                        <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">
+                        <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
                           {comparisonRuleLabel(comparisonRule)}
                         </span>
                       )}
@@ -1684,9 +1746,7 @@ function QuantitativeReviewCheckpoint({
               Select an estimate above to inspect how it maps to the document target.
             </p>
           )}
-          {measurement && <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-            {measurement.semantic_reason}
-          </p>}
+          {measurement && <Reading className="mt-3">{measurement.semantic_reason}</Reading>}
           {measurement && (
             <ReviewRecommendation
               label={measurement.ai_recommendation === "admit"
@@ -1705,8 +1765,8 @@ function QuantitativeReviewCheckpoint({
           )}
         </div>
 
-        <footer className="flex flex-col-reverse gap-2 border-t border-border/80 bg-muted/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-          <p className="text-[10px] leading-relaxed text-muted-foreground">
+        <footer className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
             One decision resolves this source evidence unit; its provenance remains traceable.
           </p>
           <div className="flex gap-2">
@@ -1725,7 +1785,7 @@ function QuantitativeReviewCheckpoint({
                 </Button>
               </>
             ) : (
-              <span className="self-center text-[10px] font-medium text-muted-foreground">
+              <span className="self-center text-[11px] font-medium text-muted-foreground">
                 Decision recorded
               </span>
             )}
@@ -1957,6 +2017,16 @@ function FieldGrid({
         displayAttributeLabel(a.variable.name).localeCompare(displayAttributeLabel(b.variable.name)),
     );
 
+  const headline = runHeadline(rows);
+  // The measurable target behind each conformity. `Conformity` carries a pre-joined
+  // `target_label` - six semantic slots flattened into one dot-separated run-on - while
+  // `QuantitativeTarget.semantic_profile` holds those slots named and separate. The
+  // review checkpoint already renders them that way; the result view was reading the
+  // flattened copy.
+  const targetsById = new Map(
+    result.quantitative_ledger.targets.map((target) => [target.id, target]),
+  );
+
   const normalizedQuery = query.trim().toLowerCase();
   const visibleRows = rows.filter((row) => {
     const matchesSearch =
@@ -2005,7 +2075,7 @@ function FieldGrid({
         }
       >
         <Tabs value={resultTab} onValueChange={setResultTab}>
-          <div className="overflow-x-auto border-b border-border/80 px-5 pt-3 sm:px-6">
+          <div className="overflow-x-auto border-b border-border/60 px-5 pt-3 sm:px-6">
             <TabsList className="min-w-max border-b-0">
               <TabsTrigger value="fields">Fields</TabsTrigger>
               {developmentLandscape.length > 0 && (
@@ -2023,7 +2093,7 @@ function FieldGrid({
           </div>
           <TabsContent value="fields" className="mt-0">
             {(unresolvedFieldCount > 0 || result.quantitative_ledger.status === "uncertain") && (
-              <div className="flex items-start gap-2 border-b border-border/80 bg-muted/20 px-5 py-3 text-xs text-muted-foreground sm:px-6">
+              <div className="flex items-start gap-2 border-b border-border/60 bg-muted/20 px-5 py-3 text-xs text-muted-foreground sm:px-6">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <div className="space-y-1">
                   {unresolvedFieldCount > 0 && (
@@ -2032,13 +2102,13 @@ function FieldGrid({
                         Document interpretation stopped before retrieval because {unresolvedFieldCount} {unresolvedFieldCount === 1 ? "field" : "fields"} could not be bound safely.
                       </p>
                       <details className="mt-1.5">
-                        <summary className="cursor-pointer font-medium text-foreground/80">
+                        <summary className="cursor-pointer font-medium text-foreground">
                           Review unresolved fields
                         </summary>
                         <ul className="mt-1.5 space-y-1 pl-4">
                           {unresolvedFields.map((variable) => (
                             <li key={variable.name} className="list-disc">
-                              <span className="font-medium text-foreground/80">
+                              <span className="font-medium text-foreground">
                                 {displayAttributeLabel(variable.name)}:
                               </span>{" "}
                               {variable.target_resolution_reason || "No validated decision was returned."}
@@ -2056,6 +2126,7 @@ function FieldGrid({
                 </div>
               </div>
             )}
+            <RunCoverage headline={headline} />
             <div className="px-5 pt-5 sm:px-6">
               <PriorityPanel
                 attribution="by Scout"
@@ -2068,7 +2139,7 @@ function FieldGrid({
                 digestError={digest?.state === "failed" ? digest.reason : undefined}
               />
             </div>
-            <div className="flex flex-col gap-2 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+            <div className="flex flex-col gap-2 border-b border-border/60 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
               <label className="relative min-w-0 flex-1 sm:max-w-xs">
                 <span className="sr-only">Search fields</span>
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -2089,10 +2160,14 @@ function FieldGrid({
               </SelectTrigger>
               <SelectContent>
                   <SelectItem value="all">All relationships</SelectItem>
-                  <SelectItem value="contradicts">Conflicts</SelectItem>
-                  <SelectItem value="extends">Adds context</SelectItem>
-                  <SelectItem value="confirms">Supports</SelectItem>
-                  <SelectItem value="unrelated">Unrelated</SelectItem>
+                  {/* Rendered from the shared vocabulary and its shared order, not typed
+                      out again. Four hardcoded labels here meant a filter could go on
+                      saying "Supports" after the chips it filters had been renamed. */}
+                  {RELATION_ORDERED_KEYS.map((relation) => (
+                    <SelectItem key={relation} value={relation}>
+                      {RELATIONSHIP_LABEL[relation]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <div className="flex w-full items-center justify-between gap-3 sm:ml-auto sm:w-auto sm:justify-start">
@@ -2111,12 +2186,16 @@ function FieldGrid({
                 assessment={row.assessment}
                 conformities={row.conformities}
                 precedent={row.precedent}
-                quantitativeTargetStatus={row.variable.quantitative_target_status}
                 quantitativeTargetStatusReason={row.variable.quantitative_target_status_reason}
                 targetResolved={row.variable.target_resolved}
                 targetResolutionReason={row.variable.target_resolution_reason}
                 documentTarget={row.variable.document_target}
                 documentSpans={row.variable.document_spans}
+                dispositions={row.variable.quantitative_statement_dispositions}
+                definitionMode={row.variable.definition_mode}
+                entities={row.variable.entities}
+                evidenceDomain={row.variable.evidence_domain}
+                targetsById={targetsById}
               />
             ))}
             {visibleRows.length === 0 && (
@@ -2156,7 +2235,7 @@ function FieldGrid({
         </Tabs>
         <SourceAttributions
           findings={resultFindings(result)}
-          className="border-t border-border/80 px-5 py-3 sm:px-6"
+          className="border-t border-border/60 px-5 py-3 sm:px-6"
         />
       </CollapsibleCard>
       </div>
@@ -2198,7 +2277,7 @@ function ProjectionToolbar({
   recordLabel: string;
 }) {
   return (
-    <div className="flex flex-col gap-2 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+    <div className="flex flex-col gap-2 border-b border-border/60 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
       <label className="relative min-w-0 flex-1 sm:max-w-xs">
         <span className="sr-only">{searchLabel}</span>
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -2269,9 +2348,9 @@ function ContextualProjectionNote({
 }) {
   if (!isContextualRelationship(relationship)) return null;
   return (
-    <p className="mb-3 max-w-4xl rounded-md border border-border/80 bg-card px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+    <InterfaceNote className="mb-3 max-w-4xl">
       Context only. This {kind} concerns {relationship === "analogous" ? "an analogous product" : "adjacent evidence"} and does not describe the uploaded product.
-    </p>
+    </InterfaceNote>
   );
 }
 
@@ -2288,11 +2367,11 @@ function AnnouncementReading({ stats }: { stats?: FunnelStats }) {
   if (read === 0) return null;
   const named = stats?.announcements_named ?? 0;
   return (
-    <p className="px-5 pb-4 text-[11px] text-muted-foreground sm:px-6">
-      {read.toLocaleString()} announcement{read === 1 ? "" : "s"} read,{" "}
-      {named.toLocaleString()} named a program. An announcement naming none has no row
-      here.
-    </p>
+    <InterfaceNote className="mx-5 mb-4 sm:mx-6">
+      <Computed>{read.toLocaleString()}</Computed> announcement{read === 1 ? "" : "s"} read,{" "}
+      <Computed>{named.toLocaleString()}</Computed> named a program. An announcement naming
+      none has no row here.
+    </InterfaceNote>
   );
 }
 
@@ -2326,7 +2405,7 @@ function BurdenIndicators({ indicators }: { indicators: BurdenIndicator[] }) {
   );
   return (
     <section>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/80 px-5 py-3 sm:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-5 py-3 sm:px-6">
         <input
           type="text"
           value={query}
@@ -2342,14 +2421,14 @@ function BurdenIndicators({ indicators }: { indicators: BurdenIndicator[] }) {
       {visible.map((indicator) => (
         <details
           key={indicator.projection_id}
-          className="group/indicator border-b border-border/80 last:border-b-0"
+          className="group/indicator border-b border-border/60 last:border-b-0"
         >
           <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/indicator:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
             <div className="min-w-0 flex-1">
               <h3 className="text-sm font-semibold leading-snug text-foreground">
                 {indicator.indicator_name || indicator.indicator_code}
               </h3>
-              <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                 {indicator.indicator_code}
               </p>
               <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-3">
@@ -2378,7 +2457,7 @@ function BurdenIndicators({ indicators }: { indicators: BurdenIndicator[] }) {
           </summary>
           <div
             className={cn(
-              "border-t border-border/70 bg-muted/15 px-5 py-4 sm:px-6",
+              "border-t border-border/60 bg-muted/15 px-5 py-4 sm:px-6",
               DISCLOSURE_MOTION,
             )}
           >
@@ -2393,9 +2472,7 @@ function BurdenIndicators({ indicators }: { indicators: BurdenIndicator[] }) {
                     {reading.parent_place ? ` · ${reading.parent_place}` : ""}
                     {` · ${reading.year}`}
                   </span>
-                  <span className="shrink-0 tabular-nums text-foreground">
-                    {reading.value_text || "—"}
-                  </span>
+                  <Computed className="shrink-0">{reading.value_text || "—"}</Computed>
                 </li>
               ))}
             </ul>
@@ -2447,55 +2524,77 @@ function DevelopmentLandscape({
         totalCount={programs.length}
         recordLabel="structured records"
       />
-      {visible.map((program) => (
-        <details key={program.projection_id} className="group/program border-b border-border/80 last:border-b-0">
-          <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/program:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
-            <div className="min-w-0 flex-1">
-              <h3 className="truncate text-sm font-semibold text-foreground">{program.name}</h3>
-              <ProjectionRoleLabels
-                relationship={program.target_relationship}
-                sourceRole={program.source_role}
-              />
-              <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-4">
-                <SignalSummary label="Sponsor" value={program.sponsors.join(" · ") || "—"} />
-                <SignalSummary label="Phase" value={program.phases.join(" · ") || "—"} />
-                <SignalSummary label="Status" value={program.statuses.join(" · ") || "—"} />
-                {/*
-                  What the row rests on. Without it, a phase a registry holds and a phase
-                  a company announced read identically, and they are not equally
-                  checkable.
-                */}
-                <SignalSummary
-                  label="From"
-                  value={
-                    program.record_types.map(displayRecordTypeLabel).join(" · ") || "—"
-                  }
-                />
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-3">
-              <span className="text-[11px] text-muted-foreground">
-                {countLabel(program.supporting_findings.length, "record")}
-              </span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/program:rotate-180 motion-reduce:transition-none" />
-            </div>
+      {/* Grouped, not flat. Of 502 records on a real run, 13 were `direct` - and emitted
+          in retrieval order those 13 sat anywhere in the list. A count per group is what
+          says "13 of these are about your product"; a sorted flat list cannot. Every group
+          starts closed: the order and the counts point, the reader opens. */}
+      {groupProjectionsByRelationship(visible).map((group) => (
+        <details
+          key={group.relationship}
+          className="group/rel border-b border-border/60 last:border-b-0"
+        >
+          <summary className="flex cursor-pointer select-none items-center gap-2 px-5 py-2.5 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/rel:rotate-180 motion-reduce:transition-none" />
+            <span className="text-xs font-medium text-foreground">
+              {relationshipLabel(group.relationship)}
+            </span>
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              {group.items.length}
+            </span>
           </summary>
-          <div className={cn("border-t border-border/70 bg-muted/15 px-5 py-4 sm:px-6", DISCLOSURE_MOTION)}>
-            <ContextualProjectionNote
-              relationship={program.target_relationship}
-              kind="development record"
-            />
-            {program.target_relationship_reason && (
-              <p className="mb-3 max-w-4xl text-[11px] leading-relaxed text-muted-foreground">
-                {program.target_relationship_reason}
-              </p>
-            )}
-            {program.attribute_refs.length > 0 && (
-              <p className="text-[11px] text-muted-foreground">
-                Retrieved for {program.attribute_refs.map(displayAttributeLabel).join(" · ")}
-              </p>
-            )}
-            <SourceList findings={program.supporting_findings} />
+          <div className={cn("border-t border-border/60", DISCLOSURE_MOTION)}>
+            {group.items.map((program) => (
+          <details key={program.projection_id} className="group/program border-b border-border/60 last:border-b-0">
+            <summary className="flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/program:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate text-sm font-semibold text-foreground">{program.name}</h3>
+                <ProjectionRoleLabels
+                  relationship={program.target_relationship}
+                  sourceRole={program.source_role}
+                />
+                <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-4">
+                  <SignalSummary label="Sponsor" value={program.sponsors.join(" · ") || "—"} />
+                  <SignalSummary label="Phase" value={program.phases.join(" · ") || "—"} />
+                  <SignalSummary label="Status" value={program.statuses.join(" · ") || "—"} />
+                  {/*
+                    What the row rests on. Without it, a phase a registry holds and a phase
+                    a company announced read identically, and they are not equally
+                    checkable.
+                  */}
+                  <SignalSummary
+                    label="From"
+                    value={
+                      program.record_types.map(displayRecordTypeLabel).join(" · ") || "—"
+                    }
+                  />
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <span className="text-[11px] text-muted-foreground">
+                  {countLabel(program.supporting_findings.length, "record")}
+                </span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/program:rotate-180 motion-reduce:transition-none" />
+              </div>
+            </summary>
+            <div className={cn("border-t border-border/60 bg-muted/15 px-5 py-4 sm:px-6", DISCLOSURE_MOTION)}>
+              <ContextualProjectionNote
+                relationship={program.target_relationship}
+                kind="development record"
+              />
+              {program.target_relationship_reason && (
+                <Reading className="mb-3 mt-0 max-w-4xl">
+                  {program.target_relationship_reason}
+                </Reading>
+              )}
+              {program.attribute_refs.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Retrieved for {program.attribute_refs.map(displayAttributeLabel).join(" · ")}
+                </p>
+              )}
+              <SourceList findings={program.supporting_findings} />
+            </div>
+          </details>
+        ))}
           </div>
         </details>
       ))}
@@ -2541,22 +2640,20 @@ function SafetyObservations({
           <section
             key={section.key}
             aria-labelledby={headingId}
-            className="border-b border-border/80 last:border-b-0"
+            className="border-b border-border/60 last:border-b-0"
           >
             <header className="bg-muted/15 px-5 py-4 sm:px-6">
               <h3 id={headingId} className="text-sm font-semibold text-foreground">
                 {section.title}
               </h3>
-              <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">
-                {section.description}
-              </p>
+              <SectionDescription>{section.description}</SectionDescription>
             </header>
             {section.observations.map((observation) => {
               const count = safetyObservationCountLabel(observation);
               return (
                 <details
                   key={observation.projection_id}
-                  className="group/safety border-t border-border/70"
+                  className="group/safety border-t border-border/60"
                 >
                   <summary className="flex min-h-16 cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30 group-open/safety:bg-muted/10 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
                     <div className="min-w-0 flex-1">
@@ -2566,9 +2663,9 @@ function SafetyObservations({
                       <h4 className="mt-1 text-sm font-semibold text-foreground">
                         {observation.product_name}
                       </h4>
-                      <p className="mt-1 max-w-4xl text-xs leading-relaxed text-muted-foreground">
+                      <Reading size="prominent" className="max-w-4xl">
                         {observation.label}
-                      </p>
+                      </Reading>
                       <ProjectionRoleLabels
                         relationship={observation.target_relationship}
                         sourceRole={observation.source_role}
@@ -2586,25 +2683,23 @@ function SafetyObservations({
                       />
                     </div>
                   </summary>
-                  <div className="border-t border-border/70 bg-muted/10 px-5 py-4 sm:px-6">
+                  <div className="border-t border-border/60 bg-muted/10 px-5 py-4 sm:px-6">
                     <ContextualProjectionNote
                       relationship={observation.target_relationship}
                       kind="safety observation"
                     />
                     {observation.detail && (
-                      <p className="max-w-4xl text-xs leading-relaxed text-foreground/90">
+                      <p className="max-w-4xl text-xs leading-relaxed text-foreground">
                         {observation.detail}
                       </p>
                     )}
                     {observation.qualification && (
-                      <p className="mt-2 max-w-4xl text-[11px] leading-relaxed text-muted-foreground">
-                        {observation.qualification}
-                      </p>
+                      <Reading className="mt-2 max-w-4xl">{observation.qualification}</Reading>
                     )}
                     {observation.target_relationship_reason && (
-                      <p className="mt-3 max-w-4xl text-[11px] leading-relaxed text-muted-foreground">
+                      <Reading className="mt-3 max-w-4xl">
                         Relationship: {observation.target_relationship_reason}
-                      </p>
+                      </Reading>
                     )}
                     {observation.attribute_refs.length > 0 && (
                       <p className="mt-2 text-[11px] text-muted-foreground">
@@ -2628,6 +2723,57 @@ function SafetyObservations({
   );
 }
 
+/**
+ * How much of the document was testable, in one line.
+ *
+ * Deliberately *not* the answer. `PriorityPanel` below owns that - `contradictedTargets`
+ * is its first tier, so naming the contradicting fields here said the same thing twice,
+ * directly above a panel that says it with the evidence, the reason and a source link.
+ *
+ * What is left is the part nothing else reports: how many fields stated a target at all,
+ * and how many numbers could be calibrated against anything. On a real run 10 of 28 fields
+ * stated nothing and 15 of 18 numeric targets had no comparable measurement - which is the
+ * difference between "the document holds up" and "most of it could not be checked", and it
+ * was previously invisible.
+ */
+function RunCoverage({ headline }: { headline: RunHeadline }) {
+  const analysed = headline.fieldCount - headline.notStatedCount;
+  return (
+    <p className="flex flex-wrap gap-x-4 gap-y-1 border-b border-border/60 px-5 py-3 text-[11px] tabular-nums text-muted-foreground sm:px-6">
+      <span>
+        <span className="font-medium text-foreground">{analysed}</span> of{" "}
+        {headline.fieldCount} fields stated a target
+      </span>
+      {headline.numericTargets > 0 && (
+        <span>
+          {countLabel(headline.numericTargets, "numeric target")}
+          {headline.uncalibratedTargets > 0 && (
+            <>
+              {", "}
+              <span className="font-medium text-foreground">
+                {headline.uncalibratedTargets}
+              </span>{" "}
+              with no comparable measurement
+            </>
+          )}
+        </span>
+      )}
+      {headline.wellGroundedCount > 0 && (
+        <span>{headline.wellGroundedCount} well grounded</span>
+      )}
+      {/* Counted, not named. An unfavourable precedent is the one signal `PriorityPanel`
+          has no tier for, so the count belongs somewhere - but the field name is right
+          below and one of them renders as "I E Ddi", which helps nobody. */}
+      {headline.unfavorableFields.length > 0 && (
+        <span>{headline.unfavorableFields.length} unfavourable precedent</span>
+      )}
+      {headline.unresolvedCount > 0 && (
+        <span>{headline.unresolvedCount} interpretation unresolved</span>
+      )}
+    </p>
+  );
+}
+
 function FieldRow({
   name,
   description,
@@ -2635,12 +2781,16 @@ function FieldRow({
   assessment,
   conformities,
   precedent,
-  quantitativeTargetStatus,
   quantitativeTargetStatusReason,
   targetResolved,
   targetResolutionReason,
   documentTarget,
   documentSpans,
+  dispositions,
+  definitionMode,
+  entities,
+  evidenceDomain,
+  targetsById,
 }: {
   name: string;
   description: string;
@@ -2648,14 +2798,19 @@ function FieldRow({
   assessment: EvidenceAssessment | null;
   conformities: Conformity[];
   precedent: PrecedentSignal | null;
-  quantitativeTargetStatus: "not_evaluated" | "present" | "not_applicable" | "uncertain";
   quantitativeTargetStatusReason: string;
   targetResolved: boolean;
   targetResolutionReason: string;
   documentTarget: string;
   documentSpans: DocumentSpan[];
+  /** Numbers the document stated that were not turned into a calibratable target. */
+  dispositions: QuantitativeStatementDisposition[];
+  definitionMode: Variable["definition_mode"];
+  entities: Variable["entities"];
+  evidenceDomain: Variable["evidence_domain"];
+  targetsById: Map<string, QuantitativeTarget>;
 }) {
-  const evidenceMeta = assessment ? EVIDENCE_META[assessment.strength] : null;
+  const evidenceDot = assessment ? EVIDENCE_DOT[assessment.strength] : null;
   const precedentMeta = precedent ? precedentView(precedent) : null;
   const counts = relationCounts(matches);
   const comparatorCount = conformities.reduce(
@@ -2664,545 +2819,706 @@ function FieldRow({
   );
   const hasDocumentTarget = Boolean(documentTarget.trim() || assessment?.doc_target?.trim());
   const targetNotStated = targetResolved && !hasDocumentTarget;
+  // Built once per field: every signal cites into this instead of re-rendering insights.
+  const registry = insightRegistry(matches);
+  // `document_spans` reconstructs `document_target` exactly, already split one entry per
+  // source table row and each carrying its own blocks. `assessment.doc_target` is only
+  // ever a copy of `Variable.document_target` (verified in `evidence_assessor.py`), so
+  // rendering the spans shows the same text once, as rows.
+  const targetRows = documentTargetRows(documentSpans);
   return (
-    <details className="group/field border-b border-border/80 last:border-b-0">
+    <details className="group/field border-b border-border/60 last:border-b-0">
       <summary className="flex cursor-pointer select-none items-start justify-between gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/field:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2">
             <h3 className="text-sm font-semibold text-foreground">{displayAttributeLabel(name)}</h3>
           </div>
-          <p className="mt-1 line-clamp-1 text-xs leading-relaxed text-muted-foreground">
-            {description}
-          </p>
+          {/* The field's own definition, which is project copy rather than anyone's reading
+              of this document, so it takes the same shape as the sentence under a section
+              heading. Still clamped to one line: a closed row is an index, not a reference. */}
+          <SectionDescription className="line-clamp-1">{description}</SectionDescription>
           {targetNotStated ? (
-            <p className="mt-2.5 text-xs font-medium text-muted-foreground">
-              Not stated in document
-              <span className="font-normal text-muted-foreground/70">
-                {" "}· No document target was available for evidence analysis.
-              </span>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Not stated in document · no evidence analysis was run
             </p>
           ) : (
-            <div className="mt-2.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,0.9fr)]">
-              <SignalSummary
-                label="Evidence relationships"
-                value={relationSummary(counts)}
-                helpTopic="relationships"
-              />
-              <SignalSummary
-                label="Evidence · Grounding"
-                value={assessment && evidenceMeta ? evidenceMeta.label : "—"}
-                detail={assessment ? countLabel(assessment.supporting_findings.length, "source") : undefined}
-                dot={assessment && evidenceMeta ? evidenceMeta.dot : undefined}
-                helpTopic="grounding"
-              />
-              <SignalSummary
-                label="Evidence · Quantitative calibration"
-                value={conformities.length > 0
-                    ? countLabel(conformities.length, "numeric target")
-                    : quantitativeTargetStatus === "not_applicable"
-                      ? "No numeric target stated"
-                      : quantitativeTargetStatus === "uncertain"
-                        ? "Needs review"
-                        : "Not evaluated"}
-                detail={conformities.length > 0
-                    ? countLabel(comparatorCount, "admitted comparator")
-                    : undefined}
-                dot={quantitativeTargetStatus === "present" ? TARGET_ALIGNMENT_DOT : undefined}
-                helpTopic="alignment"
-              />
-              <SignalSummary
-                label="Precedent"
-                value={precedent && precedentMeta ? `${precedentMeta.coverage} · ${precedentMeta.outcome}` : "—"}
-                detail={precedent ? countLabel(precedent.supporting_findings.length, "source") : undefined}
-                dot={precedent && precedentMeta ? precedentMeta.dot : undefined}
-                helpTopic="precedent"
-              />
+            /* One line of verdicts instead of a four-column grid of label/value/detail.
+               A field is read beside 27 others, so what matters is the shape of the row:
+               conflicts first because 4 of 911 insights contradict anything, then the two
+               standing judgments, then how many numeric targets there are to open. */
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              {counts.contradicts > 0 && (
+                <SignalChip dot={RELATION_DOT.contradicts}>
+                  {`${RELATIONSHIP_LABEL.contradicts} ${counts.contradicts}`}
+                </SignalChip>
+              )}
+              {counts.confirms > 0 && (
+                <SignalChip dot={RELATION_DOT.confirms}>
+                  {`${RELATIONSHIP_LABEL.confirms} ${counts.confirms}`}
+                </SignalChip>
+              )}
+              {assessment && evidenceDot && (
+                <SignalChip dot={evidenceDot}>{GROUNDING_LABEL[assessment.strength]}</SignalChip>
+              )}
+              {precedent && precedentMeta && (
+                <SignalChip dot={precedentMeta.dot}>
+                  {`${precedentMeta.coverage} · ${precedentMeta.outcome}`}
+                </SignalChip>
+              )}
+              {/* Counts are their own spans, spaced like the chips beside them, rather
+                  than one span joined by a middot. The row already spends that glyph on
+                  joining the two halves of one signal - `Direct · Mixed` is a single
+                  precedent verdict - so using it again between two independent counts
+                  made one separator mean two things in one line. Spacing is what
+                  separates peers here; the dot is what marks a signal. */}
+              {conformities.length > 0 && (
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {countLabel(conformities.length, "numeric target")}
+                </span>
+              )}
+              {conformities.length > 0 && comparatorCount > 0 && (
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {countLabel(comparatorCount, "comparator")}
+                </span>
+              )}
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                {countLabel(matches.length, "insight")}
+              </span>
             </div>
           )}
         </div>
         <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/field:rotate-180 motion-reduce:transition-none" />
       </summary>
 
-      <div className={cn("space-y-3 border-t border-border/70 bg-muted/15 px-5 py-5 sm:px-6", DISCLOSURE_MOTION)}>
-        {targetNotStated && (
-          <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
-            <SectionLabel>Document target</SectionLabel>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Not stated in document. Scout did not run evidence analysis for this field.
-            </p>
-          </div>
+      <div className={cn("space-y-4 border-t border-border/60 px-5 py-5 sm:px-6", DISCLOSURE_MOTION)}>
+        {targetNotStated ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Not stated in document. Scout did not run evidence analysis for this field.
+          </p>
+        ) : (
+          <TargetRows rows={targetRows} blockIds={assessment?.doc_block_ids ?? []} />
         )}
         {!targetResolved && (
-          <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
-            <SectionLabel>Document interpretation · unresolved</SectionLabel>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              {targetResolutionReason || "No validated document-claim decision was returned."}
-            </p>
-          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">Interpretation unresolved.</span>{" "}
+            {targetResolutionReason || "No validated document-claim decision was returned."}
+          </p>
         )}
-        {assessment?.doc_target && (
-          <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
-            <div className="flex items-center justify-between gap-3">
-              <SectionLabel>Document target · AI extracted</SectionLabel>
-              <DocumentSourceTrace blockIds={assessment.doc_block_ids} spans={documentSpans} />
+        {/* How retrieval was aimed. `definition_mode` appears only when `dynamic`, which is
+            the informative case - a fixed definition comes from the shared vocabulary and
+            saying so on all 28 fields would say nothing. */}
+        {(definitionMode === "dynamic" || entities.length > 0) && (
+          <p className="text-[11px] text-muted-foreground">
+            {definitionMode === "dynamic" && "Definition read from the document"}
+            {definitionMode === "dynamic" && entities.length > 0 && " · "}
+            {entities.length > 0 &&
+              `Searched by ${entities.map((entity) => `${entity.name} (${entity.entity_type})`).join(", ")}`}
+            {` · ${dimensionLabel(evidenceDomain)} evidence`}
+          </p>
+        )}
+        {/* One section for the numeric targets whether there are any or not. The slot used
+            to change shape with its content - a caps heading with rows when targets
+            existed, a bold sentence when they did not - so one fact appeared at two
+            altitudes. The dispositions nest here rather than sitting beside Grounding and
+            Precedent: they explain this section, they are not a fourth assessment. */}
+        {!targetNotStated && (conformities.length > 0 || quantitativeTargetStatusReason) && (
+          <section className="border-t border-border/60 pt-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+              {/* Not "Numeric targets", which read as "the numbers among the stated
+                  targets" and implied containment. These are a parallel reading of the same
+                  document, restricted to the passages a resolved target cites, and what
+                  distinguishes them is that evidence can be measured against them. */}
+              <SectionLabel>Measurable targets</SectionLabel>
+              {/* The count, or nothing. It used to read "none stated" while the sentence
+                  directly below it also said there were none, and that sentence says *why*,
+                  which a headline cannot. So the two states do not overlap: a number when
+                  there are targets, an explanation when there are not. */}
+              {conformities.length > 0 && (
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {countLabel(conformities.length, "target")}
+                </span>
+              )}
             </div>
-            <p className="mt-1 text-sm leading-relaxed text-foreground">
-              {assessment.doc_target}
-            </p>
-            <p className="mt-1 text-[11px] text-muted-foreground/70">
-              Everything below is external evidence assessed against this.
-            </p>
-          </div>
-        )}
-        {conformities.length > 0 && (
-          <div className="space-y-5">
-            {conformities.length > 1 && (
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                The document states {conformities.length} distinct numeric targets for this field.
-                Each target keeps its own semantic qualifiers, comparator cohort, and distribution.
-              </p>
+            {/* All four of these sentences are written where the decision is made, so this is
+                the tool accounting for an absence, not a model's view of the field. */}
+            {conformities.length === 0 && quantitativeTargetStatusReason && (
+              <InterfaceNote className="mt-1">{quantitativeTargetStatusReason}</InterfaceNote>
             )}
-            {conformities.map((conformity) => (
-              <ConformityBlock
-                key={conformity.target_id}
-                conformity={conformity}
-                matches={matches}
-              />
-            ))}
+            {conformities.length > 0 && (
+              <>
+                <div className="mt-1 divide-y divide-border/60">
+                  {conformities.map((conformity) => (
+                    <ConformityBlock
+                      key={conformity.target_id}
+                      conformity={conformity}
+                      matches={matches}
+                      target={targetsById.get(conformity.target_id) ?? null}
+                    />
+                  ))}
+                </div>
+                {/* Once for the section, not once per target. It is a statement about how
+                    every comparison here is computed, and a field with seven targets
+                    repeated it for each one that had a cohort. */}
+              </>
+            )}
+            {dispositions.length > 0 && (
+              <div className="mt-1">
+                <DisclosureRow
+                  label="Numbers not used as targets"
+                  count={dispositions.length}
+                >
+                  <ul className="space-y-3">
+                    {dispositions.map((item, index) => (
+                      <li key={`${item.disposition}-${index}`}>
+                        <p className="text-[11px] font-medium text-foreground">
+                          {DISPOSITION_LABEL[item.disposition]}
+                        </p>
+                        <Quoted>{item.quote}</Quoted>
+                        {item.reason && <Reading>{item.reason}</Reading>}
+                        <DocumentSourceTrace blockIds={item.block_ids} />
+                      </li>
+                    ))}
+                  </ul>
+                </DisclosureRow>
+              </div>
+            )}
+          </section>
+        )}
+        {/* The three assessments, grouped. Above this is the subject - what the document
+            says. These are judgments *of* it, and six sections separated by one identical
+            hairline read as six peers. One heavier rule marks the boundary between the
+            claim and the assessment of it; hairlines separate the assessments inside. */}
+        {!targetNotStated && (assessment || precedent || matches.length > 0) && (
+          <div className="border-t border-border pt-4">
+          {assessment && evidenceDot && (
+            <SignalVerdict
+              label="Grounding"
+              chips={[{ dot: evidenceDot, text: GROUNDING_LABEL[assessment.strength] }]}
+              reason={assessment.reason}
+              citations={[{ cited: citation(assessment.supporting_insight_ids, registry) }]}
+              fallback={assessment.supporting_findings}
+            />
+          )}
+          {precedent && precedentMeta && (
+            <SignalVerdict
+              label="Precedent"
+              chips={[
+                { dot: NEUTRAL_DOT, text: precedentMeta.coverage },
+                { dot: precedentMeta.dot, text: precedentMeta.outcome },
+              ]}
+              reason={precedent.reason}
+              citations={
+                precedent.coverage_insight_ids?.length || precedent.outcome_insight_ids?.length
+                  ? [
+                      { label: "Coverage", cited: citation(precedent.coverage_insight_ids, registry) },
+                      { label: "Outcome", cited: citation(precedent.outcome_insight_ids, registry) },
+                    ]
+                  : [{ cited: citation(precedent.supporting_insight_ids, registry) }]
+              }
+              fallback={precedent.supporting_findings}
+            />
+          )}
+          {!targetNotStated && <InsightGroups registry={registry} />}
           </div>
         )}
-        {!targetNotStated && conformities.length === 0 && quantitativeTargetStatusReason && (
-          <div className="rounded-lg border border-border/80 bg-card px-4 py-3.5">
-            <SectionLabel>Evidence · quantitative calibration</SectionLabel>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              {quantitativeTargetStatusReason}
-            </p>
-          </div>
-        )}
-        {assessment && evidenceMeta && (
-          <EvidenceBlock assessment={assessment} evidenceMeta={evidenceMeta} matches={matches} />
-        )}
-        {precedent && precedentMeta && (
-          <PrecedentBlock precedent={precedent} precedentMeta={precedentMeta} matches={matches} />
-        )}
-        {!targetNotStated && <MatchesBlock matches={matches} />}
       </div>
     </details>
+  );
+}
+
+/**
+ * The target as the document stated it: one row per source table row.
+ *
+ * This replaced a paragraph. `document_target` is a concatenation of `document_spans`, so
+ * four table rows arrived as one 995-character block of `Variable: … Minimum: …
+ * Optimistic: …` text with a single citation. The spans were already separated and already
+ * block-attributed; rendering them is the same text, readable, cited per row.
+ *
+ * Minimum and optimistic sit as columns because that is what they are in the source. A row
+ * that does not split cleanly is shown whole rather than shown wrong.
+ */
+function TargetRows({ rows, blockIds }: { rows: TargetRow[]; blockIds: string[] }) {
+  if (rows.length === 0) return null;
+  const bounded = rows.some((row) => row.kind === "bounded");
+  return (
+    <section>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+        <SectionLabel>Target stated in document</SectionLabel>
+        {rows.length === 0 && <DocumentSourceTrace blockIds={blockIds} />}
+      </div>
+      {bounded && (
+        <div className="mt-2 hidden grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_7rem] gap-x-4 pb-1 sm:grid">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Variable
+          </span>
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Minimum
+          </span>
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Optimistic
+          </span>
+        </div>
+      )}
+      <div className="divide-y divide-border/60">
+        {rows.map((row, index) =>
+          row.kind === "bounded" ? (
+            <div
+              key={index}
+              /* A fixed trailing column for the trigger. Sharing the optimistic cell left
+                 it fighting the longest text on the row for space, so its label broke across
+                 two lines and the row grew taller than its siblings. */
+              className="grid gap-x-4 gap-y-0.5 py-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_7rem]"
+            >
+              <p className="text-xs font-medium text-foreground">{row.variable}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                <span className="text-[10px] uppercase tracking-wide sm:hidden">Minimum </span>
+                {row.minimum || "—"}
+              </p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                <span className="text-[10px] uppercase tracking-wide sm:hidden">Optimistic </span>
+                {row.optimistic || "—"}
+              </p>
+              <DocumentSourceTrace blockIds={row.blockIds} spans={[{ quote: row.quote, block_ids: row.blockIds }]} />
+            </div>
+          ) : (
+            <div key={index} className="flex items-start justify-between gap-3 py-2">
+              <p className="text-xs leading-relaxed text-foreground">{row.text}</p>
+              <DocumentSourceTrace blockIds={row.blockIds} spans={[{ quote: row.quote, block_ids: row.blockIds }]} />
+            </div>
+          ),
+        )}
+      </div>
+    </section>
   );
 }
 
 function ConformityBlock({
   conformity,
   matches,
+  target,
 }: {
   conformity: Conformity;
   matches: Match[];
+  /** The measurable target, when the ledger still holds it. Supplies the named semantic
+   *  slots that `conformity.target_label` had flattened into one line. */
+  target: QuantitativeTarget | null;
 }) {
-  const targetLabel =
-    conformity.target_label ||
-    `${conformity.comparator} ${conformity.target_value}${conformity.unit}`;
-  const formatBenchmark = (value: number | null) =>
-    value == null ? "—" : `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}${conformity.unit}`;
-  const targetPosition = conformity.benchmark_minimum == null || conformity.benchmark_maximum == null
-    ? "—"
-    : conformity.target_value < conformity.benchmark_minimum
-      ? "Below observed range"
-      : conformity.target_value > conformity.benchmark_maximum
-        ? "Above observed range"
-        : conformity.benchmark_count < 4 || conformity.ambition_percentile == null
-          ? "Within observed range"
-          : `${formatOrdinal(Math.round(conformity.ambition_percentile * 100))} ambition percentile`;
-  const hasInformativeQuartiles = conformity.benchmark_count >= 4;
-  const hasInformativeDeviation = conformity.benchmark_count >= 3;
-  const coverageLabel = {
-    insufficient: "Insufficient basis",
-    limited: "Limited basis",
-    sufficient: "Broader verified basis",
-  }[conformity.calibration_status];
-  const targetRoleLabel = {
-    threshold: "Threshold",
-    optimal: "Optimal",
-    other: "Other target",
-  }[conformity.target_role];
-  // An ambiguous source and a source we failed to map are different claims and
-  // are counted separately.
-  const uncertainSources = conformity.source_dispositions.filter(
-    (item) => item.status === "uncertain",
-  );
-  const unassessedSources = conformity.source_dispositions.filter(
-    (item) => item.status === "not_assessed",
-  );
-  const consideredSources = conformity.source_dispositions.length;
-  const otherExcluded = conformity.excluded_measurements;
+  // The expression alone, not the flattened label: "<= 2 months" rather than 200
+  // characters of semantic slots joined by dots. The slots are shown below, named.
+  const targetLabel = target
+    ? formatNumericExpression(target.expression)
+    : `${conformity.comparator} ${formatMeasure(conformity.target_value, conformity.unit)}`;
+  const dimensions = target ? comparisonDimensions(target) : [];
+  const formatBenchmark = (value: number | null) => formatMeasure(value, conformity.unit);
+  const coverageLabel = CALIBRATION_BASIS_LABEL[conformity.calibration_status];
+  const targetRoleLabel = TARGET_ROLE_LABEL[conformity.target_role];
+  const view = calibrationView(conformity);
+  const positionLabel = {
+    above: "above observed range",
+    below: "below observed range",
+    within: "within observed range",
+    unknown: "",
+  }[view.position];
 
   return (
-    <section className="rounded-xl border border-border/80 bg-card p-5 sm:p-7">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <SectionLabel>Evidence · quantitative calibration</SectionLabel>
-          <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-            {targetRoleLabel}
+    /* A row that opens, like every other level of this view. It was the last thing that
+       expanded its detail unconditionally - quote, two to seven named slots, statistics and
+       cohort - so seven targets on one field ran to roughly seventy lines. The header line
+       is what a reader scans; the rest is why. */
+    <details className="group/target py-3 first:pt-0 last:pb-0">
+      <summary className="flex cursor-pointer select-none items-baseline gap-x-3 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 self-center text-muted-foreground transition-transform group-open/target:rotate-180 motion-reduce:transition-none" />
+        {/* The reading, which flexes and wraps inside its own box. Left in the outer row it
+            competed with the triggers for width, so a long outcome pushed them off. */}
+        <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <span className="text-sm font-medium tabular-nums text-foreground">{targetLabel}</span>
+          <span className="text-[11px] text-muted-foreground">{targetRoleLabel}</span>
+          {/* The verdict, and only the verdict. How many comparators there were is the
+              trigger's count, and how many met the target is the Comparators panel's own
+              description, so naming either here stated it twice. */}
+          <span className="text-xs font-medium text-foreground">
+            {view.shape === "none" ? "no comparable measurements" : positionLabel}
           </span>
-        </div>
-        <DocumentSourceTrace
-          blockIds={conformity.doc_block_ids}
-          spans={conformity.target_quote && conformity.doc_block_ids?.length
-            ? [{ quote: conformity.target_quote, block_ids: conformity.doc_block_ids }]
-            : []}
-        />
-      </div>
-      <p className="mt-0.5 text-[11px] text-muted-foreground/80">
-        AI-mapped prose remains a review candidate. Only explicitly admitted or
-        typed structured evidence enters descriptive statistics.
-      </p>
-      <p className="mt-1 text-[11px] text-muted-foreground">
-        Target <span className="text-foreground">{targetLabel}</span>
-      </p>
-      <blockquote className="mt-2 border-l-2 border-border pl-3 text-xs leading-relaxed text-foreground">
-        {conformity.target_quote}
-      </blockquote>
+        </span>
+        {/* One trailing zone at a fixed width, so every trigger sits in the same column on
+            every row. The two conditional slots hold their width even when empty, which is
+            what keeps `In document` from sliding left when a target has no comparators.
+            Right-aligning the group instead would align only the last trigger present. */}
+        <span className="flex shrink-0 items-center gap-1 self-center">
+          <DocumentSourceTrace
+            blockIds={conformity.doc_block_ids}
+            spans={conformity.target_quote && conformity.doc_block_ids?.length
+              ? [{ quote: conformity.target_quote, block_ids: conformity.doc_block_ids }]
+              : []}
+          />
+          <span className={cn(PROVENANCE_SLOT.comparators, "shrink-0")}>
+            <ComparatorCohort conformity={conformity} matches={matches} />
+          </span>
+          <span className={cn(PROVENANCE_SLOT.excluded, "shrink-0")}>
+            <ExcludedMeasurements conformity={conformity} matches={matches} />
+          </span>
+        </span>
+      </summary>
 
-      {conformity.benchmark_count > 0 ? (
+      <div className={cn(DISCLOSURE_MOTION)}>
+      {conformity.target_quote && (
+        <Quoted size="prominent" className="mt-1.5">
+          {conformity.target_quote}
+        </Quoted>
+      )}
+
+      {/* What this number is a measure of, one named slot per line. The same profile the
+          review checkpoint shows; only the constrained slots, because an unconstrained
+          one places no requirement on a comparator. */}
+      {dimensions.length > 0 && target && (
+        <dl className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+          {dimensions.map((dimension) => (
+            <div key={dimension} className="flex min-w-0 gap-2">
+              <dt className="shrink-0 text-[11px] text-muted-foreground">
+                {dimensionLabel(dimension)}
+              </dt>
+              <dd className="min-w-0 text-[11px] text-foreground">
+                {semanticSlotLabel(target.semantic_profile[dimension])}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {/* The fallback when no structured target was resolved: the label the pipeline composed
+          for what was scored, e.g. "adult threshold <=1.0 mL". Full contrast, because it
+          stands in for the target itself here, not for anyone's reading of it. */}
+      {!target && conformity.target_label && (
+        <Computed className="mt-2 block text-[11px]">{conformity.target_label}</Computed>
+      )}
+
+      {/* The grid appears at three comparators, where an observed SD exists. Below that it
+          was five cells of "Not shown" beside one number - on a real run quartiles were
+          presentable for 0 of 12 targets and an SD for 1. */}
+      {view.shape === "full" && (
         <>
-          <dl className="mt-4 grid grid-cols-2 overflow-hidden rounded-lg border border-border/70 sm:grid-cols-3">
+          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
             <StatCell label="External median" value={formatBenchmark(conformity.benchmark_median)} />
-            <StatCell
-              label="Middle 50%"
-              value={hasInformativeQuartiles
-                ? `${formatBenchmark(conformity.benchmark_lower_quartile)}–${formatBenchmark(conformity.benchmark_upper_quartile)}`
-                : "Not shown"}
-              detail={hasInformativeQuartiles ? undefined : "Not presented below 4 comparators"}
-            />
             <StatCell label="Observed range" value={`${formatBenchmark(conformity.benchmark_minimum)}–${formatBenchmark(conformity.benchmark_maximum)}`} />
             <StatCell
-              label="Mean · observed SD"
-              value={hasInformativeDeviation
+              label={view.showDeviation ? "Mean · observed SD" : "Mean"}
+              value={view.showDeviation
                 ? `${formatBenchmark(conformity.benchmark_mean)} · ${formatBenchmark(conformity.benchmark_standard_deviation)}`
-                : `${formatBenchmark(conformity.benchmark_mean)} · not shown`}
-              detail={hasInformativeDeviation ? undefined : "SD not presented below 3 comparators"}
+                : formatBenchmark(conformity.benchmark_mean)}
             />
-            <StatCell label="Target position" value={targetPosition} />
-            <StatCell label="Evidence basis" value={`${conformity.benchmark_count} comparator${conformity.benchmark_count === 1 ? "" : "s"}`} detail={coverageLabel} />
+            {view.showQuartiles && (
+              <StatCell
+                label="Middle 50%"
+                value={`${formatBenchmark(conformity.benchmark_lower_quartile)}–${formatBenchmark(conformity.benchmark_upper_quartile)}`}
+              />
+            )}
+            {conformity.ambition_percentile != null && view.showQuartiles && (
+              <StatCell
+                label="Ambition percentile"
+                value={formatOrdinal(Math.round(conformity.ambition_percentile * 100))}
+              />
+            )}
+            <StatCell label="Comparator basis" value={coverageLabel} />
           </dl>
-          <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/70">
-            These values describe this selected comparator cohort only. Small cohorts intentionally
-            omit unstable distribution summaries. They are not population uncertainty or likelihood of success.
-          </p>
         </>
-      ) : (
-        <div className="mt-4 rounded-lg border border-border/70 bg-muted/20 px-4 py-3">
-          <p className="text-xs font-medium text-foreground">No direct comparator cohort</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            {conformity.excluded_measurements.length > 0
-              ? "Complete source measurements were retained below, but none were comparable atomic scalars in the target unit. No statistics were calculated."
-              : "The reviewed source passages did not yield a complete claim-compatible scalar. No statistics were calculated."}
-          </p>
-        </div>
       )}
 
-      {(conformity.benchmark_count > 0 || conformity.excluded_measurements.length > 0) && (
-        <ComparatorDistributionPlot conformity={conformity} />
-      )}
+      <ComparatorDistributionPlot conformity={conformity} matches={matches} />
 
-      {consideredSources > 0 && (
-        <div className="mt-3 text-[10px] text-muted-foreground/70">
-          <p>
-            {consideredSources} source passage{consideredSources === 1 ? "" : "s"} reviewed
-            {uncertainSources.length > 0 ? ` · ${uncertainSources.length} unresolved` : ""}
-            {unassessedSources.length > 0 ? ` · ${unassessedSources.length} not assessed` : ""}
-            {uncertainSources.length === 0 && unassessedSources.length === 0
-              ? " · all resolved"
-              : ""}
-          </p>
-          {[
-            {
-              key: "unresolved",
-              label: "Review source passages the model could not resolve",
-              items: uncertainSources,
-            },
-            {
-              key: "not-assessed",
-              label: "Review source passages this run could not assess",
-              items: unassessedSources,
-            },
-          ]
-            .filter((group) => group.items.length > 0)
-            .map((group) => (
-              <details key={group.key} className="group/unresolved mt-1.5">
-                <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 font-medium outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
-                  {group.label}
-                  <ChevronDown className="h-3 w-3 transition-transform group-open/unresolved:rotate-180 motion-reduce:transition-none" />
-                </summary>
-                <ul className="mt-1.5 space-y-1.5">
-                  {group.items.map((item) => {
-                    const sourceTitle = matches
-                      .find((match) => match.insight.id === item.insight_id)
-                      ?.insight.supporting_findings.find((finding) => finding.url === item.url)
-                      ?.title;
-                    return (
-                      <li key={item.source_id} className="rounded-md bg-muted/35 px-3 py-2">
-                        <a href={item.url} target="_blank" rel="noreferrer" className="font-medium text-foreground/80 hover:underline">
-                          {sourceTitle || "Cited source"}
-                        </a>
-                        <p className="mt-0.5 leading-relaxed">{item.reason}</p>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </details>
-            ))}
-        </div>
-      )}
 
-      {conformity.benchmark_count > 0 && (
-        <p className="mt-1.5 text-[10px] text-muted-foreground/70">
-          The observed share is a literal count within the admitted cohort, not a probability or confidence interval.
-        </p>
-      )}
 
-      <div className="mt-3">
-        <SignalChip dot={TARGET_ALIGNMENT_DOT}>{conformity.verdict}</SignalChip>
       </div>
-
-      {conformity.measurements.length > 0 && (
-        <div className="mt-3">
-          <SectionLabel>Included comparator cohort · {conformity.measurements.length}</SectionLabel>
-          <ul className="mt-1 divide-y divide-border/70">
-            {conformity.measurements.map((measurement, index) => {
-              const sourceInsight = matches.find(
-                (match) => match.insight.id === measurement.insight_id,
-              )?.insight;
-              const sourceFinding = sourceInsight?.supporting_findings.find(
-                (finding) => finding.url === measurement.url,
-              );
-              return (
-                <li key={`${measurement.url}-${index}`} className="py-2 text-xs text-muted-foreground first:pt-1">
-                  <div className="flex items-baseline gap-2">
-                    <a href={measurement.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:text-foreground hover:underline">
-                      {sourceFinding?.title || measurement.source_record_id || "Cited source"}
-                    </a>
-                    <span className="shrink-0 text-[11px] text-muted-foreground/60">
-                      {formatNumericExpression(measurement.expression)} · {measurement.age_months != null ? `${Math.round(measurement.age_months)}mo` : "date unknown"}
-                    </span>
-                  </div>
-                  <blockquote className="mt-1 border-l border-border pl-2 text-[11px] leading-relaxed text-foreground/80">
-                    {measurement.source_quote}
-                  </blockquote>
-                  <p className="mt-1 text-[10px] text-muted-foreground/70">
-                    {measurement.inclusion_reason} Identity: {measurement.source_identity_status.replace("_", " ")}.
-                  </p>
-                  <details className="group/semantic mt-1 text-[10px] text-muted-foreground/70">
-                    <summary className="inline-flex cursor-pointer select-none items-center gap-1 rounded px-1 py-0.5 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
-                      Semantic mapping
-                      <ChevronDown className="h-2.5 w-2.5 transition-transform group-open/semantic:rotate-180 motion-reduce:transition-none" />
-                    </summary>
-                    <ul className="mt-1 space-y-0.5 pl-3">
-                      <li>Status: {measurement.semantic_status.replace("_", " ")} — {measurement.semantic_reason}</li>
-                      <li>Expression: {measurement.expression.kind.replaceAll("_", " ")}</li>
-                      {Object.entries(measurement.semantic_assessment.dimensions)
-                        .filter(([, dimension]) => dimension.source.state === "specified" || dimension.source.state === "other")
-                        .map(([field, dimension]) => (
-                          <li key={field}>
-                            {field.replace("_", " ")}: {dimension.source.state === "specified" ? dimension.source.value : dimension.source.other}
-                          </li>
-                        ))}
-                    </ul>
-                  </details>
-                  {sourceInsight && <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground/60">Insight: {sourceInsight.statement}</p>}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-
-      {otherExcluded.length > 0 && (
-        <details className="group/excluded mt-3 border-t border-border/70 pt-3">
-          <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
-            {otherExcluded.length} measurement{otherExcluded.length === 1 ? "" : "s"} not admitted
-            <ChevronDown className="h-3 w-3 transition-transform group-open/excluded:rotate-180 motion-reduce:transition-none" />
-          </summary>
-          <ul className="mt-2 space-y-2">
-            {otherExcluded.map((measurement, index) => (
-              <li key={`${measurement.url}-excluded-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
-                <div className="flex justify-between gap-3">
-                  <a href={measurement.url} target="_blank" rel="noreferrer" className="truncate hover:text-foreground hover:underline">
-                    {measurement.source_record_id}
-                  </a>
-                  <span>{formatNumericExpression(measurement.expression)}</span>
-                </div>
-                <p className="mt-1 text-foreground/75">“{measurement.source_quote}”</p>
-                <p className="mt-1">{measurement.semantic_status}: {measurement.semantic_reason}</p>
-                <p className="mt-1">{measurement.exclusion_reasons.join(" · ")}</p>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </section>
+    </details>
   );
 }
 
 function StatCell({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
-    <div className="border-b border-r border-border/70 px-3 py-2.5 last:border-r-0 sm:[&:nth-last-child(-n+3)]:border-b-0">
+    <div className="border-b border-r border-border/60 px-3 py-2.5 last:border-r-0 sm:[&:nth-last-child(-n+3)]:border-b-0">
       <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-xs font-medium text-foreground">{value}</dd>
-      {detail && <dd className="text-[10px] text-muted-foreground">{detail}</dd>}
+      {detail && <dd className="text-[11px] text-muted-foreground">{detail}</dd>}
     </div>
   );
 }
 
-function EvidenceBlock({
-  assessment,
-  evidenceMeta,
-  matches,
-}: {
-  assessment: EvidenceAssessment;
-  evidenceMeta: { label: string; dot: string };
-  matches: Match[];
-}) {
-  return (
-    <section className="rounded-lg border border-border/80 bg-card p-4">
-      <div className="flex items-center justify-between gap-2">
-        <SectionLabel>Evidence · grounding · AI assessment</SectionLabel>
-        <SignalChip dot={evidenceMeta.dot}>{evidenceMeta.label}</SignalChip>
-      </div>
-      <p className="mt-0.5 text-[11px] text-muted-foreground/80">
-        How well-grounded and justified your target is
-      </p>
-      {assessment.reason && (
-        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{assessment.reason}</p>
-      )}
-      <SupportingInsights
-        insightIds={assessment.supporting_insight_ids}
-        matches={matches}
-        fallback={assessment.supporting_findings}
-      />
-    </section>
-  );
-}
-
-function PrecedentBlock({
-  precedent,
-  precedentMeta,
-  matches,
-}: {
-  precedent: PrecedentSignal;
-  precedentMeta: { coverage: string; outcome: string; dot: string };
-  matches: Match[];
-}) {
-  const hasAxisLineage = Boolean(
-    precedent.coverage_insight_ids?.length || precedent.outcome_insight_ids?.length,
-  );
-  return (
-    <section className="rounded-lg border border-border/80 bg-card p-4">
-      <div className="flex items-center justify-between gap-2">
-        <SectionLabel>Precedent · AI judgment</SectionLabel>
-        <div className="flex items-center gap-3">
-          <SignalChip dot={NEUTRAL_DOT}>{precedentMeta.coverage}</SignalChip>
-          <SignalChip dot={precedentMeta.dot}>{precedentMeta.outcome}</SignalChip>
-        </div>
-      </div>
-      <p className="mt-0.5 text-[11px] text-muted-foreground/80">
-        Coverage says whether prior work is direct, adjacent, absent, or unknown. Outcome
-        separately says whether that prior work was favorable, mixed, or unfavorable.
-      </p>
-      {precedent.reason && (
-        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{precedent.reason}</p>
-      )}
-      {hasAxisLineage ? (
-        <>
-          <SupportingInsights
-            label="Coverage evidence"
-            insightIds={precedent.coverage_insight_ids}
-            matches={matches}
-            fallback={[]}
-          />
-          <SupportingInsights
-            label="Outcome evidence"
-            insightIds={precedent.outcome_insight_ids}
-            matches={matches}
-            fallback={[]}
-          />
-        </>
-      ) : (
-        <SupportingInsights
-          label="Supporting evidence"
-          insightIds={precedent.supporting_insight_ids}
-          matches={matches}
-          fallback={precedent.supporting_findings}
-        />
-      )}
-    </section>
-  );
-}
-
-function SupportingInsights({
+/**
+ * One openable group inside a field, in the shape all of them use.
+ *
+ * Four sections held groups and each drew its own row: the relation buckets had a chevron, a
+ * tone dot, a label and a count; the numbers-not-used-as-targets row had a chevron, a label
+ * and a count at different spacing; and the two verdicts had no row at all, just a count in
+ * loose text. Three ways of saying "this many, here they are", so a reader could not tell
+ * that the count beside Grounding and the count beside Conflicts were the same kind of
+ * thing.
+ *
+ * The dot is optional because it carries a relation's tone, and only relations have one.
+ * `note` is for the exceptional case a count cannot state on its own.
+ */
+function DisclosureRow({
   label,
-  insightIds,
-  matches,
+  dot,
+  count,
+  note,
+  children,
+}: {
+  label: string;
+  dot?: string;
+  count: number;
+  /** Shown only when something is off, e.g. a citation naming an insight not retained. */
+  note?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="group/row">
+      <summary className="flex cursor-pointer select-none items-center gap-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/row:rotate-180 motion-reduce:transition-none" />
+        {dot && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />}
+        <span className="text-xs font-medium text-foreground">{label}</span>
+        <span className="text-[11px] tabular-nums text-muted-foreground">{count}</span>
+        {note && <span className="text-[11px] text-muted-foreground">{note}</span>}
+      </summary>
+      <div className={cn("pb-2 pl-5", DISCLOSURE_MOTION)}>{children}</div>
+    </details>
+  );
+}
+
+/**
+ * A signal's verdict, its reason, and a pointer to the insights behind it.
+ *
+ * The pointer is the whole change. `supporting_insight_ids` was already a list of
+ * references, and the previous renderer expanded each one into a full copy of the insight
+ * and its sources - so an insight cited by grounding, precedent coverage, precedent
+ * outcome and the relationship list was drawn five times. On a real 28-field run that was
+ * 937 redundant renders, 51% of all insight rendering. Here a signal says how many it
+ * rests on and where they are; the insights themselves are drawn once, below.
+ */
+function SignalVerdict({
+  label,
+  chips,
+  reason,
+  citations,
   fallback,
 }: {
-  label?: string;
-  insightIds?: string[];
-  matches: Match[];
+  label: string;
+  chips: { dot: string; text: string }[];
+  reason: string;
+  citations: { label?: string; cited: Citation }[];
+  /** Drawn only when nothing the ids named could be found; see `needsFindingFallback`. */
   fallback: Finding[];
 }) {
-  const selected = insightIds?.length
-    ? matches.filter((match) => match.insight.id && insightIds.includes(match.insight.id))
-    : [];
-  if (!selected.length) {
-    if (!fallback.length) return null;
-    return (
-      <div className="mt-3 border-t border-border/70 pt-3">
-        {label && <SectionLabel>{label}</SectionLabel>}
-        <SourceList findings={fallback} />
+  const orphaned = citations.every((entry) => needsFindingFallback(entry.cited));
+  return (
+    <section className="border-t border-border/60 pt-4 first:border-t-0 first:pt-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <SectionLabel>{label}</SectionLabel>
+        <div className="flex items-center gap-3">
+          {chips.map((chip) => (
+            <SignalChip key={chip.text} dot={chip.dot}>{chip.text}</SignalChip>
+          ))}
+        </div>
       </div>
+      {/* The model's own sentence, so it reads muted like every other model-authored
+          reason in this view. Full contrast is reserved for the tool's own words and the
+          document's values, which is the only authorship distinction a reader can act on. */}
+      {reason && (
+        <Reading size="prominent" className="mt-1.5">{reason}</Reading>
+      )}
+      {/* The same row as a relation bucket, so a verdict's evidence opens the way every
+          other group in this field opens. A citation naming an insight the field does not
+          hold is the one thing a count cannot say on its own, so that alone gets a note. */}
+      <div className="mt-1">
+        {citations
+          .filter((entry) => entry.cited.total > 0)
+          .map((entry) => (
+            <DisclosureRow
+              key={entry.label ?? label}
+              // "Grounding evidence" under a GROUNDING heading said the word twice.
+              // Precedent's rows are named because two verdicts have to be told apart; a
+              // single verdict's row has nothing to distinguish, so it names its contents.
+              label={entry.label ?? "Evidence"}
+              count={entry.cited.resolved.length}
+              note={
+                entry.cited.unresolvedCount > 0
+                  ? `of ${entry.cited.total} cited · ${entry.cited.unresolvedCount} not retained`
+                  : undefined
+              }
+            >
+              <CitedInsightIndex cited={entry.cited} />
+            </DisclosureRow>
+          ))}
+      </div>
+      {orphaned && fallback.length > 0 && (
+        <SourceList findings={fallback} />
+      )}
+    </section>
+  );
+}
+
+/**
+ * Which insights a verdict rests on, not just how many.
+ *
+ * A count alone could not be checked. "Grounding: 7 insights" above a list of 63 left a
+ * reader unable to say *which* 7, and the ids were already resolved to build that number, so
+ * the answer was computed and then discarded.
+ *
+ * An index, deliberately, not a second copy. Each cited insight is one line that links to
+ * its full record in the relation buckets below, where it is drawn once with its reason and
+ * both directions of provenance. Measured on a real run: grounding cites 177, precedent 451,
+ * so drawing them in full would add 628 insight renders to the 911 that exist, which is most
+ * of the duplication this view was rebuilt to remove. The relation dot travels with each
+ * line, because a verdict's citations span buckets and which bucket it came from is the
+ * thing a reader wants next.
+ */
+function CitedInsightIndex({ cited }: { cited: Citation }) {
+  return (
+    <ul className="space-y-1 pt-0.5">
+      {cited.resolved.map((match, index) => (
+        <li key={match.insight.id || index}>
+          <a
+            href={`#${insightAnchor(match) ?? ""}`}
+            onClick={() => revealInsight(insightAnchor(match) ?? "")}
+            className="flex items-start gap-2 rounded text-xs leading-relaxed text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+          >
+            <span
+              className={cn(
+                "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                RELATION_DOT[match.relation],
+              )}
+              aria-hidden="true"
+            />
+            <span className="min-w-0">
+              <span className="sr-only">{RELATIONSHIP_LABEL[match.relation]}: </span>
+              {match.insight.statement}
+            </span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The one place insights are drawn, grouped by what each does to the claim.
+ *
+ * Measured on a real run: `extends` 78%, `unrelated` 19%, `confirms` 2%, `contradicts`
+ * 0.4%. So the groups are ordered by what settles something, and every one of them starts
+ * closed behind its count - nothing opens itself. Ordering says where to look; opening is
+ * the reader's. Nothing is removed: every insight is still here, and this is its only copy.
+ */
+function InsightGroups({ registry }: { registry: InsightRegistry }) {
+  const total = registry.groups.reduce((sum, group) => sum + group.matches.length, 0);
+  if (registry.groups.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        No outside evidence was classified against this field's target.
+      </p>
     );
   }
   return (
-    <div className="mt-3 space-y-3 border-t border-border/70 pt-3">
-      {label && <SectionLabel>{label}</SectionLabel>}
-      {selected.map((match) => (
-        <div key={match.insight.id}>
-          <p className="text-xs leading-relaxed text-foreground/90">{match.insight.statement}</p>
-          <SourceList findings={match.insight.supporting_findings} />
-        </div>
-      ))}
-    </div>
+    <section className="border-t border-border/60 pt-4 first:border-t-0 first:pt-0">
+      {/* Named for the question it answers, like Grounding and Precedent. "External
+          evidence" named the material instead, which collided with Grounding (also about
+          outside evidence) and read as the pool those verdicts were computed from, so a
+          reader asked why the counts did not sum. It is the fourth verdict: one relation per
+          insight. The phrase is the one the evidence map already renders for this axis, and
+          it says *target* where the projection views say *product*, which is the other axis
+          the word could mean. */}
+      {/* A headline on the right, like the three sections above it. This was the only one
+          with nothing there, so it read as a list of controls rather than as a fourth
+          reading of the field. The total, because unlike Grounding this axis has no single
+          verdict: it partitions every insight, and the partition is the answer. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <SectionLabel>Relation to document target</SectionLabel>
+        <span className="text-[11px] tabular-nums text-muted-foreground">
+          {countLabel(total, "insight")}
+        </span>
+      </div>
+      <div className="mt-1">
+        {registry.groups.map((group) => (
+          <DisclosureRow
+            key={group.relation}
+            label={RELATIONSHIP_LABEL[group.relation]}
+            dot={RELATION_DOT[group.relation]}
+            count={group.matches.length}
+          >
+            <ul className="space-y-4">
+              {group.matches.map((match, index) => (
+                <li
+                  key={match.insight.id || index}
+                  id={insightAnchor(match)}
+                  // Negative margin against the padding, so making room for an inset ring
+                  // does not shift the statement when nothing has arrived.
+                  className="-mx-2 rounded-md px-2 py-1 transition-shadow duration-base ease-enter motion-reduce:transition-none"
+                >
+                  <p className="text-xs leading-relaxed text-foreground">
+                    {match.insight.statement}
+                  </p>
+                  {/* No left rule: that shape means "quoted verbatim", and the other seven
+                      places it appears are a document or source quote. This is the model's
+                      reasoning about the insight above, so it reads as muted prose. */}
+                  {match.reason && <Reading>{match.reason}</Reading>}
+                  {/* Both directions of provenance, both behind a click and neither
+                      expanded by default. Rendering every source inline put 1,121 finding
+                      rows on one run in front of the statements they support. */}
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <DocumentSourceTrace blockIds={match.doc_block_ids} />
+                    <EvidenceProvenance insight={match.insight} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </DisclosureRow>
+        ))}
+      </div>
+    </section>
   );
 }
 
-function MatchesBlock({ matches }: { matches: Match[] }) {
-  if (matches.length === 0) {
-    return <p className="text-sm text-muted-foreground">No matches for this variable.</p>;
+/**
+ * Opens an insight that a citation points at, and scrolls to it.
+ *
+ * A reader following a verdict's citation should land on the open insight, not on a closed
+ * row they have to hunt for. Each one is nested twice, in its relation bucket and in its
+ * field, so every `<details>` above it has to be opened. Same problem and same approach as
+ * the prompt reference, where "read the instructions behind this" landed on a closed row.
+ */
+let arrivalTimeout: number | undefined;
+
+function revealInsight(id: string): void {
+  if (!id.startsWith("insight-")) return;
+  const target = document.getElementById(id);
+  if (!target) return;
+  let ancestor = target.closest("details");
+  while (ancestor) {
+    ancestor.open = true;
+    ancestor = ancestor.parentElement?.closest("details") ?? null;
   }
-  return (
-    <section>
-      <SectionLabel>Evidence relationships · AI judgment · {relationSummary(relationCounts(matches))}</SectionLabel>
-      <ul className="mt-2 space-y-3">
-        {matches.map((match, index) => (
-          <li key={index} className="rounded-lg border border-border/80 bg-card p-4">
-            <SignalChip dot={RELATION_DOT[match.relation]}>{RELATION_LABEL[match.relation]}</SignalChip>
-            <p className="mt-3 text-sm font-medium leading-relaxed text-foreground">
-              {match.insight.statement}
-            </p>
-            {match.reason && (
-              <p className="mt-2 border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">
-                {match.reason}
-              </p>
-            )}
-            <DocumentSourceTrace blockIds={match.doc_block_ids} />
-            <SourceList findings={match.insight.supporting_findings} />
-            <p className="mt-2 truncate text-[11px] text-muted-foreground/60">
-              searched: {match.insight.query}
-            </p>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+
+  // The same arrival ring the document trace uses, and for the same reason: opening the
+  // bucket is not enough, because the insight lands mid-screen among up to 43 others that
+  // look exactly like it. The recipe is imported rather than restyled here, so a jump into a
+  // field reads like a jump into a passage.
+  const marks = ARRIVAL_HIGHLIGHT.split(" ");
+  window.clearTimeout(arrivalTimeout);
+  document
+    .querySelectorAll("[data-arrived]")
+    .forEach((stale) => {
+      stale.removeAttribute("data-arrived");
+      stale.classList.remove(...marks);
+    });
+  target.setAttribute("data-arrived", "");
+  target.classList.add(...marks);
+  arrivalTimeout = window.setTimeout(() => {
+    target.removeAttribute("data-arrived");
+    target.classList.remove(...marks);
+  }, ARRIVAL_HIGHLIGHT_MS);
+}
+
+/** Stable anchor so a signal's citation can point at the insight it rests on. */
+function insightAnchor(match: Match): string | undefined {
+  return match.insight.id ? `insight-${match.insight.id}` : undefined;
 }
 
 /**

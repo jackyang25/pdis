@@ -26,7 +26,9 @@ class AssistantKnowledgeTests(unittest.TestCase):
         self.assertIn("architecture", matches)
         scout_docs = knowledge.read(["scout"])
         self.assertIn("Linked product fields", scout_docs)
-        self.assertIn("not synchronized database fields", scout_docs)
+        # The claim, not the old wording: a reader must not think one linked field updates
+        # another. "not synchronized database fields" said this in database terms.
+        self.assertIn("not records that update together", scout_docs)
         self.assertIn("Included comparator cohort", scout_docs)
 
     def test_assistant_exposes_bounded_product_documentation_tools(self) -> None:

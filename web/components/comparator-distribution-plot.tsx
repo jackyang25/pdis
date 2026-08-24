@@ -1,14 +1,15 @@
-import type { Conformity } from "@/lib/api";
+import type { Conformity, Match } from "@/lib/api";
 import {
   buildComparatorDistribution,
   type DistributionPoint,
 } from "@/lib/comparator-distribution";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { InterfaceNote, Quoted, Reading } from "@/components/ui/evidence-text";
+import { formatMeasure } from "@/lib/scout-result-view";
 
-function formatValue(value: number, unit: string): string {
-  const formatted = value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-  return unit ? `${formatted}${unit}` : formatted;
-}
+// The shared formatter, not a local copy: this one had the same missing space as the
+// benchmark formatter, which is how "0.6administration occasions" reached an axis label.
+const formatValue = formatMeasure;
 
 function popoverAlignment(x: number): "start" | "center" | "end" {
   if (x < 18) return "start";
@@ -26,9 +27,12 @@ function Point({
   contextual?: boolean;
 }) {
   const laneOffsets = [-9, 0, 9, -18, 18, -27, 27];
-  const detail = contextual
-    ? point.exclusion_reasons.join(" · ")
-    : `Identity: ${point.source_identity_status.replaceAll("_", " ")}`;
+  // `canonical` is how a source is identified in the ordinary case, so naming it says
+  // nothing. The exception is the informative one, and it is the only one shown.
+  const identity =
+    point.source_identity_status === "canonical"
+      ? ""
+      : `Identified by ${point.source_identity_status.replace("_fallback", "")}`;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -54,30 +58,42 @@ function Point({
         <p className="text-xs font-semibold text-foreground">
           {formatValue(point.value, unit)} · {contextual ? "Not admitted" : "Admitted comparator"}
         </p>
-        <blockquote className="mt-2 border-l-2 border-border pl-2.5 text-[11px] leading-relaxed text-foreground/80">
-          {point.source_quote}
-        </blockquote>
-        <p className="mt-2 break-words text-[10px] leading-relaxed text-muted-foreground">
-          {point.source_record_id || "Source record"}
+        <Quoted className="mt-2">{point.source_quote}</Quoted>
+        {/* Title then detail, in the order and the tones `SourceEntry` uses. This card
+            showed the same source muted while the cohort list beside it showed it at full
+            contrast, so one measurement looked like two kinds of thing. */}
+        <p className="mt-2 break-words text-[11px] font-medium text-foreground">
+          {point.title || point.source_record_id || "Cited source"}
         </p>
-        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground/80">
-          {detail || "Retained as related numeric context."}
-        </p>
+        {identity && <Reading>{identity}</Reading>}
       </PopoverContent>
     </Popover>
   );
 }
 
-export function ComparatorDistributionPlot({ conformity }: { conformity: Conformity }) {
+export function ComparatorDistributionPlot({
+  conformity,
+  matches,
+}: {
+  conformity: Conformity;
+  /** Supplies each measurement's paper title, so a dot identifies itself the way the
+   *  cohort and the excluded panel do rather than by DOI. */
+  matches: Match[];
+}) {
+  const titleFor = (measurement: Conformity["measurements"][number]) =>
+    matches
+      .find((match) => match.insight.id === measurement.insight_id)
+      ?.insight.supporting_findings.find((finding) => finding.url === measurement.url)
+      ?.title ?? "";
   const distributionMeasurement = (measurement: Conformity["measurements"][number]) => ({
     value: measurement.expression.value ?? Number.NaN,
+    title: titleFor(measurement),
     unit: measurement.expression.unit,
     expressionKind: measurement.expression.kind,
     source_quote: measurement.source_quote,
     source_record_id: measurement.source_record_id,
     source_identity_status: measurement.source_identity_status,
     semantic_status: measurement.semantic_status,
-    exclusion_reasons: measurement.exclusion_reasons,
   });
   const model = buildComparatorDistribution({
     targetValue: conformity.target_value,
@@ -91,6 +107,11 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
     excluded: conformity.excluded_measurements.map(distributionMeasurement),
   });
   if (!model) return null;
+  // A distribution needs something to distribute. Below two plotted points the mark says
+  // less than the number beside it does - a "range" of "1 injections–1 injections" over a
+  // single dot, which was 11 of 12 targets on a real run. The values are still shown as
+  // text by the caller, and every measurement stays in the ledger below.
+  if (model.included.length + model.excluded.length < 2) return null;
   const hasIncluded = model.included.length > 0;
   const hasExcluded = model.excluded.length > 0;
   const showQuartiles = model.included.length >= 4;
@@ -211,9 +232,11 @@ export function ComparatorDistributionPlot({ conformity }: { conformity: Conform
         {hasExcluded && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full border border-muted-foreground bg-card" />Candidate or context, not admitted</span>}
       </div>
       {model.unplottableExcludedCount > 0 && (
-        <p className="mt-1.5 text-[9px] text-muted-foreground/70">
-          {model.unplottableExcludedCount} additional excluded measurement{model.unplottableExcludedCount === 1 ? " is" : "s are"} retained in the audit ledger and not plotted because they are non-atomic, incompatible, or unresolved.
-        </p>
+        <InterfaceNote className="mt-2">
+          {model.unplottableExcludedCount} further excluded measurement{model.unplottableExcludedCount === 1 ? "" : "s"} cannot be
+          plotted, because {model.unplottableExcludedCount === 1 ? "it states" : "they state"} no single
+          comparable number. Excluded lists {model.unplottableExcludedCount === 1 ? "it" : "them"} with the reason.
+        </InterfaceNote>
       )}
     </figure>
   );

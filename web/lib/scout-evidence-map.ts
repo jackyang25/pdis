@@ -3,6 +3,7 @@ import {
   displayAttributeLabel,
   sourceDisplayLabel,
   GROUNDING_LABEL,
+  RELATIONSHIP_LABEL,
   PRECEDENT_LABEL,
   OUTCOME_LABEL,
 } from "./scout-labels.ts";
@@ -44,6 +45,17 @@ export type EvidenceMapNode = {
   eyebrow: string;
   title: string;
   summary: string;
+  /**
+   * Who wrote `summary`, stated where the text is chosen rather than guessed at render time.
+   *
+   * A node's summary is exact words for a document or a source, a model's sentence for an
+   * insight, and project copy for a field, so one paint treatment for all four told the
+   * reader nothing. It cannot be derived from `kind` either: a source with no excerpt
+   * retained falls back to a sentence the interface wrote, and rendering that as a quotation
+   * would attribute the interface's words to the paper.
+   */
+  summaryMode: "quoted" | "reading" | "interface";
+  /** A model's reasoning about `summary`. Always `reading`; nothing else populates it. */
   detail?: string;
   meta?: string;
   relation?: Match["relation"];
@@ -80,14 +92,6 @@ export type EvidenceMapProjection = {
 };
 
 export type EvidenceMapMode = "focused" | "all";
-
-const RELATION_LABEL: Record<Match["relation"], string> = {
-  contradicts: "Conflicts",
-  extends: "Adds context",
-  confirms: "Supports",
-  unrelated: "Unrelated",
-};
-
 
 const GROUNDING_TONE: Record<
   EvidenceAssessment["strength"],
@@ -359,6 +363,7 @@ export function buildScoutEvidenceMap(
       eyebrow: "Evaluated field",
       title: displayAttributeLabel(attributeRef),
       summary: variable.description,
+      summaryMode: "interface",
       meta: [
         conformities.length > 1 ? `${conformities.length} numeric targets` : null,
         `${uniqueMatches.length} insight${uniqueMatches.length === 1 ? "" : "s"}`,
@@ -380,6 +385,7 @@ export function buildScoutEvidenceMap(
       eyebrow: "Document target",
       title: "Extracted target",
       summary: variable.document_target,
+      summaryMode: "quoted",
       meta: `${variable.block_ids?.length ?? 0} block${variable.block_ids?.length === 1 ? "" : "s"}`,
       blockIds: variable.block_ids,
     });
@@ -413,8 +419,9 @@ export function buildScoutEvidenceMap(
       id: insightId,
       kind: "insight",
       eyebrow: "Evidence insight",
-      title: RELATION_LABEL[match.relation],
+      title: RELATIONSHIP_LABEL[match.relation],
       summary: match.insight.statement,
+      summaryMode: "reading",
       detail: match.reason,
       meta: `${findings.length} source${findings.length === 1 ? "" : "s"}`,
       relation: match.relation,
@@ -448,14 +455,14 @@ export function buildScoutEvidenceMap(
     const laneLabels = lanes.map((lane) =>
       sourceDisplayLabel(lane, finding.source_labels),
     );
+    const excerpt = cleanSourceExcerpt(finding.excerpt);
     nodes.push({
       id: `source:${stableHash(finding.url)}`,
       kind: "source",
       eyebrow: "Cited source",
       title: cleanSourceTitle(finding.title || finding.url, finding.url),
-      summary:
-        cleanSourceExcerpt(finding.excerpt) ||
-        "No source excerpt was retained for this record.",
+      summary: excerpt || "No source excerpt was retained for this record.",
+      summaryMode: excerpt ? "quoted" : "interface",
       meta: laneLabels.join(" + "),
       href: finding.url,
       queries: finding.queries?.length ? finding.queries : [finding.query].filter(Boolean),

@@ -7,8 +7,15 @@ export function blockReferenceLabel(blockId: string): string {
   return `Source block ID ${blockId}`;
 }
 
+/**
+ * The accessible name for the document-trace trigger.
+ *
+ * Leads with the visible label. WCAG 2.5.3 asks that the accessible name contain the text a
+ * sighted reader sees, so renaming the button to "In document" without this would leave
+ * voice control asking for "view source" on a control that no longer says it.
+ */
 export function sourcePassageAriaLabel(count: number): string {
-  return `View ${count} source ${count === 1 ? "passage" : "passages"}`;
+  return `In document: ${count} source ${count === 1 ? "passage" : "passages"}`;
 }
 
 /**

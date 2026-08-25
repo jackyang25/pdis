@@ -3412,10 +3412,18 @@ function SignalVerdict({
           .map((entry) => (
             <DisclosureRow
               key={entry.label ?? label}
-              // "Grounding evidence" under a GROUNDING heading said the word twice.
-              // Precedent's rows are named because two verdicts have to be told apart; a
-              // single verdict's row has nothing to distinguish, so it names its contents.
-              label={entry.label ?? "Evidence"}
+              // Every row names the question its insights answered, never the material.
+              // Precedent's two are "Coverage" and "Outcome"; grounding asks one thing -
+              // is this target justified - so its row is "Justification".
+              //
+              // Not "Evidence", which was true of every row on the screen and so
+              // distinguished none of them: coverage insights are evidence, outcome
+              // insights are evidence, and so are the relation counts below. Not
+              // "Support" either, which collides with `Supports`, the per-insight
+              // relation label visible in the same view. And not the bare count: these are
+              // all counts of insights, so putting the unit in the label slot would make
+              // one row look like a different kind of thing.
+              label={entry.label ?? "Justification"}
               count={entry.cited.resolved.length}
               note={
                 entry.cited.unresolvedCount > 0

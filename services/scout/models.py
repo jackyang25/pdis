@@ -119,6 +119,15 @@ QUANTITATIVE_TARGET_STATUSES = frozenset(
 QUANTITATIVE_LEDGER_STATUSES = frozenset(
     {"complete", "not_applicable", "uncertain"}
 )
+#: Why a cited numeric statement was not calibrated.
+#:
+#: The four `QUANTITATIVE_REVIEW_CLASSIFICATIONS` that are not a target. Written out inline in
+#: this model and again as a Literal in the API schema, with no name joining them, which is
+#: the shape every vocabulary drift in this codebase has had.
+QUANTITATIVE_STATEMENT_DISPOSITIONS = frozenset(
+    {"context_only", "non_scalar", "range_or_set", "uncertain"}
+)
+
 QUANTITATIVE_REVIEW_CLASSIFICATIONS = frozenset(
     {
         "target",
@@ -912,12 +921,7 @@ class QuantitativeStatementDisposition:
         self.attribute_refs = list(
             dict.fromkeys(value.strip() for value in self.attribute_refs if value.strip())
         )
-        if self.disposition not in {
-            "context_only",
-            "non_scalar",
-            "range_or_set",
-            "uncertain",
-        }:
+        if self.disposition not in QUANTITATIVE_STATEMENT_DISPOSITIONS:
             raise ValueError("invalid quantitative statement disposition")
         if not self.quote or not self.block_ids or not self.reason:
             raise ValueError("quantitative statement disposition requires cited reasoning")

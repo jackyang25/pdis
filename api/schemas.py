@@ -79,11 +79,16 @@ class SourceAttributionOut(BaseModel):
 
 class DevelopmentRecordOut(BaseModel):
     program_name: str
+    # Every member of `DEVELOPMENT_RECORD_TYPES`. `announcement` was added to the domain and
+    # this list did not follow, so any run whose announcement reader produced a record failed
+    # at the response boundary after the whole analysis had succeeded.
+    # `test_api_schema_vocabulary.py` compares the two.
     record_type: Literal[
         "clinical_trial",
         "compound_catalog",
         "regulatory_label",
         "regulatory_clearance",
+        "announcement",
     ]
     record_id: str = ""
     sponsor: str = ""

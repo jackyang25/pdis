@@ -3191,14 +3191,19 @@ function ConformityBlock({
             `self-start`, not centred: on a row whose text wraps to three lines a centred
             trigger floats in the middle, away from the line it belongs to. */}
         <span className="flex shrink-0 items-center justify-end gap-1 self-start">
+          <ComparatorCohort conformity={conformity} matches={matches} />
+          <ExcludedMeasurements conformity={conformity} matches={matches} />
+          {/* Last, so it holds the right edge. Each of these three renders nothing when it
+              has nothing, and packing right means only the final position is stable - so it
+              belongs to the trigger that is almost always present. It also puts `In
+              document` in the same column as the target table above, whose only trigger is
+              this one, in its rightmost cell. */}
           <DocumentSourceTrace
             blockIds={conformity.doc_block_ids}
             spans={conformity.target_quote && conformity.doc_block_ids?.length
               ? [{ quote: conformity.target_quote, block_ids: conformity.doc_block_ids }]
               : []}
           />
-          <ComparatorCohort conformity={conformity} matches={matches} />
-          <ExcludedMeasurements conformity={conformity} matches={matches} />
         </span>
       </summary>
 
@@ -3243,7 +3248,7 @@ function ConformityBlock({
               on the second row read as something missing rather than as the fourth of four. */}
           <dl
             className={cn(
-              "mt-3 grid grid-cols-2 gap-x-6 gap-y-2",
+              "mt-3 grid grid-cols-2 gap-x-6 gap-y-3",
               statCellCount % 3 === 0 ? "sm:grid-cols-3" : statCellCount % 2 === 0 ? "sm:grid-cols-2" : "sm:grid-cols-3",
             )}
           >
@@ -3291,9 +3296,24 @@ function ConformityBlock({
   );
 }
 
+/**
+ * One statistic about the comparator cohort.
+ *
+ * No rules between cells. They were drawn per cell with `last:border-r-0` and an
+ * `nth-last-child(-n+3)` rule for the bottom edge, both of which encode "three columns" in a
+ * grid that has two at narrow widths and two or three at wide ones. At two columns the second
+ * cell kept a right border with nothing beyond it and lost the bottom border it needed, which
+ * is the ragged half-line a reader sees. Any grid whose column count answers to its content
+ * recreates that, so the rules go rather than get another selector.
+ *
+ * Nothing is lost by removing them: the semantic profile directly above is the same shape,
+ * two columns of label over value, and has never had rules. The uppercase label is what
+ * separates one cell from the next. Dropping the horizontal padding also lines these labels
+ * up with that block instead of sitting indented from it.
+ */
 function StatCell({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
-    <div className="border-b border-r border-border/60 px-3 py-2.5 last:border-r-0 sm:[&:nth-last-child(-n+3)]:border-b-0">
+    <div className="py-1">
       <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-xs font-medium text-foreground">{value}</dd>
       {detail && <dd className="text-[11px] text-muted-foreground">{detail}</dd>}

@@ -500,6 +500,13 @@ export type Measurement = {
   admission_reason: string;
   inclusion_reason: string;
   exclusion_reasons: string[];
+  /**
+   * The deterministic half of `exclusion_reasons`, so a check can be told from a judgment.
+   *
+   * Optional because a result saved before this existed has the two kinds joined into
+   * `exclusion_reasons` with no way back; those still render, just without the distinction.
+   */
+  structural_reasons?: string[];
   age_months: number | null;
 };
 

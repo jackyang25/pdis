@@ -453,14 +453,23 @@ def _partition_cohort(
         # must not be offered for review at all.
         structural_reasons: list[str] = []
         if candidate.expression_kind not in {"point_estimate", "count", "rate"}:
+            # Written for the reader who sees it. "not an atomic scalar" named the internal
+            # requirement rather than the fact: the source states a spread or a set where a
+            # comparison needs one number.
             structural_reasons.append(
-                f"numeric expression is {candidate.expression_kind}, not an atomic scalar"
+                f"The source states a {candidate.expression_kind.replace('_', ' ')}, "
+                "not a single number to compare."
             )
         if _unit_key(candidate.unit) != _unit_key(target.unit):
             structural_reasons.append(
-                "numeric unit is incompatible with the document target"
+                f"The source measures in {candidate.unit or 'no stated unit'}, "
+                f"and the target is in {target.unit or 'no stated unit'}."
             )
         reasons.extend(structural_reasons)
+        # Kept in their own field as well. `exclusion_reasons` stays the complete list, so
+        # nothing that reads it loses anything; this is the same content with its authorship
+        # intact, which is what the interface needs to show a check apart from a judgment.
+        candidate.structural_reasons = list(structural_reasons)
 
         # Four things keep a measurement out, and each states itself here, once. Two of them
         # used to arrive by appending `admission_reason` - a field derived from the reasons

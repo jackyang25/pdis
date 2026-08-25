@@ -158,6 +158,21 @@ test("every panel behind a provenance trigger opens the same way", () => {
   }
 });
 
+test("the statistics grid draws no rules it cannot finish", () => {
+  // The rules were per cell, with `last:border-r-0` for the right edge and an
+  // `nth-last-child(-n+3)` rule for the bottom one. Both encode "three columns" in a grid that
+  // has two at narrow widths and two or three at wide ones, so at two columns the second cell
+  // kept a right border with nothing beyond it and lost the bottom border it needed. The
+  // column count answers to the content, so a selector cannot know it.
+  const body = functionBody(PAGE, "StatCell");
+  assert.ok(!body.includes("border-r"), "a cell draws its own vertical rule again");
+  assert.ok(!body.includes("border-b"), "a cell draws its own horizontal rule again");
+  assert.ok(
+    !body.includes("nth-last-child"),
+    "a cell is positioning itself by a column count a selector cannot see",
+  );
+});
+
 test("the run's source count covers every place a source is cited", () => {
   // Measured on a real run: insights, verdicts and measurements share 671 distinct sources,
   // and development and safety records bring it to 827. Dropping one of these collections

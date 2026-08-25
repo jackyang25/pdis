@@ -5,7 +5,7 @@ import { FilterX } from "lucide-react";
 import { TracePanelHeader, TracePanelSection } from "@/components/document-trace-panel";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
-import { SourceEntry } from "@/components/ui/evidence-text";
+import { Computed, Reading, SourceEntry } from "@/components/ui/evidence-text";
 import type { Conformity, Match, Measurement } from "@/lib/api";
 import { SEMANTIC_STATUS_LABEL } from "@/lib/scout-labels";
 import { formatMeasure } from "@/lib/scout-result-view";
@@ -135,6 +135,22 @@ function ExcludedMeasurement({
   title: string;
 }) {
   const value = measurement.expression?.value;
+
+  // Why it was left out, split by who established it. A structural check is a fact about the
+  // source's own numbers and cannot be wrong; the semantic reason beside it is a model's
+  // reading and can be. Joined with a middot they were one paragraph, and the facts were
+  // rendered in the muted tone that means "a model wrote this".
+  const structural = measurement.structural_reasons ?? [];
+  const judgment =
+    measurement.semantic_status !== "comparable" ? measurement.semantic_reason || "" : "";
+  // Whatever neither field claims: a reviewer's own words, or the tool's needs-review
+  // sentence. On a result saved before `structural_reasons` existed this also holds the
+  // checks, which then read as they did before rather than being lost. Filtering by exact
+  // equality also drops the second copy those older results carry.
+  const remaining = (measurement.exclusion_reasons ?? []).filter(
+    (reason) => reason !== judgment && !structural.includes(reason),
+  );
+
   return (
     <SourceEntry
       title={title || measurement.source_record_id || measurement.url}
@@ -145,9 +161,18 @@ function ExcludedMeasurement({
           : "no single value"
       } · ${SEMANTIC_STATUS_LABEL[measurement.semantic_status]}`}
       quote={measurement.source_quote}
-      // Why it was left out: the whole reason a reader opens this panel, and a model's
-      // reading rather than a rule code.
-      reading={measurement.exclusion_reasons?.join(" · ")}
-    />
+      reading={judgment || undefined}
+    >
+      {structural.length > 0 && (
+        <ul className="mt-1 space-y-0.5">
+          {structural.map((reason) => (
+            <li key={reason}>
+              <Computed className="text-[11px] leading-relaxed">{reason}</Computed>
+            </li>
+          ))}
+        </ul>
+      )}
+      {remaining.length > 0 && <Reading>{remaining.join(" · ")}</Reading>}
+    </SourceEntry>
   );
 }

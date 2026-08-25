@@ -5,7 +5,7 @@ import { ChevronRight } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { CONTENT_ARRIVAL_MOTION } from "@/lib/motion";
-import { promptAnchor, type ToolKey } from "@/lib/prompt-reference";
+import { isPromptAnchorFor, promptAnchor, type ToolKey } from "@/lib/prompt-reference";
 import { cn } from "@/lib/utils";
 
 type PromptEntry = {
@@ -73,20 +73,36 @@ export function PromptReference({ tool }: { tool: ToolKey }) {
 
   // A reader following "Read the instructions behind this" should land on the
   // open prompt, not on a closed row they have to click again.
+  //
+  // Depends on `reference`, and that dependency is the whole fix. The anchor
+  // being looked for does not exist until the file has loaded: before that this
+  // renders a "Show the instructions" button and no `<details>` at all. The
+  // effect used to look the element up first and call `load()` after, so on
+  // arrival it found nothing, returned early, and never loaded - every deep link
+  // landed wherever the page happened to open, whichever prompt it named.
+  //
+  // Loading first and letting the effect run again once `reference` arrives needs
+  // no polling and no timer: an effect runs after the DOM is committed, so by the
+  // second pass the entry is there.
   useEffect(() => {
     const openFromHash = () => {
       const id = window.location.hash.slice(1);
-      if (!id.startsWith("prompt-")) return;
+      // Scoped to this tool, so a link naming one prompt does not make all five
+      // sections fetch the reference.
+      if (!isPromptAnchorFor(id, tool)) return;
+      if (!reference) {
+        void load();
+        return;
+      }
       const entry = document.getElementById(id);
       if (!(entry instanceof HTMLDetailsElement)) return;
       entry.open = true;
-      void load();
       entry.scrollIntoView({ block: "start" });
     };
     openFromHash();
     window.addEventListener("hashchange", openFromHash);
     return () => window.removeEventListener("hashchange", openFromHash);
-  }, [load]);
+  }, [load, reference, tool]);
 
   // Stages come from the published reference in publication order, so adding a
   // prompt to a catalog surfaces it here without touching this file.

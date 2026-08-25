@@ -51,7 +51,18 @@ export function ProvenanceTrigger({
     >
       <Icon className="h-3 w-3" aria-hidden="true" />
       {label}
-      {count != null && <span className="tabular-nums">{count}</span>}
+      {count != null && (
+        /* Two digits wide, right-aligned, so the count cannot move the label.
+
+           These are read down a column, and the label is what a reader scans - but the
+           count is the last element in a right-packed row, so one extra digit shifted
+           everything left of it: `Excluded 32` sat a digit further left than `Excluded 7`
+           directly above it. Reserving the width here rather than at the row keeps the
+           trigger one shape wherever it is used. `tabular-nums` makes the reservation
+           exact; without it the glyphs themselves vary. Three digits still widen it, which
+           is the right trade for a count that rare. */
+        <span className="min-w-[2ch] text-right tabular-nums">{count}</span>
+      )}
     </span>
   );
 }

@@ -3397,10 +3397,13 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertEqual(result.benchmark_count, 0)
         self.assertEqual(result.measurements, [])
         self.assertEqual(len(result.excluded_measurements), 1)
-        self.assertIn(
-            "unit is incompatible",
-            result.excluded_measurements[0].exclusion_reasons[0],
-        )
+        # The reason names both units rather than saying "incompatible", because a reader
+        # deciding whether the rejection was right needs to see what was compared with what.
+        excluded = result.excluded_measurements[0]
+        self.assertIn("fraction", excluded.exclusion_reasons[0])
+        self.assertIn("%", excluded.exclusion_reasons[0])
+        # And it is recorded as a deterministic check, not as a model's reading.
+        self.assertIn(excluded.exclusion_reasons[0], excluded.structural_reasons)
 
     def test_conflicting_values_from_one_study_fail_closed(self) -> None:
         first_url = "https://clinicaltrials.gov/study/NCT12345678"

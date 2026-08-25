@@ -1274,6 +1274,12 @@ class Measurement:
     admission_reason: str = ""
     inclusion_reason: str = ""
     exclusion_reasons: list[str] = field(default_factory=list)
+    # The deterministic half of `exclusion_reasons`, kept apart because the two halves are
+    # different kinds of claim. A structural check is a fact about the source's own numbers
+    # and cannot be wrong; `semantic_reason` beside it is a model's reading and can be. Joined
+    # into one sentence they were indistinguishable, and the interface rendered the facts in
+    # the muted tone that means "a model wrote this".
+    structural_reasons: list[str] = field(default_factory=list)
     age_months: float | None = None
 
     def __post_init__(self) -> None:

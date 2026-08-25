@@ -184,6 +184,7 @@ export const QUERY_TRACK_LABEL: Record<string, string> = {
   geographic: "geographic search",
   counterfactual: "search for contrary evidence",
   precedent: "search for prior work",
+  adjacent: "search for comparable work",
 };
 
 export function queryTrackLabel(track: string): string {

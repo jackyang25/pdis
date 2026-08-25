@@ -260,6 +260,22 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
     ),
     CatalogEntry(
         tool=TOOL,
+        id="query_extractor.adjacent",
+        stage="query_extractor",
+        title="Adjacent query planning",
+        builder_name="build_system_prompt_for_adjacent_variable",
+        render=lambda: query_extractor.build_system_prompt_for_adjacent_variable(
+            PLACEHOLDER_CONFIG,
+            indication=INDICATION,
+            attribute=PLACEHOLDER_ATTRIBUTE,
+            adjacent_queries_per_variable=1,
+        ),
+        framing_slot=None,
+        result_fields=("stats.queries",),
+        ui_labels=("precedent",),
+    ),
+    CatalogEntry(
+        tool=TOOL,
         id="insight_extractor.extract",
         stage="insight_extractor",
         title="Source insight extraction",

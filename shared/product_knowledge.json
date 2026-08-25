@@ -725,7 +725,7 @@
                     {
                       "id": "intents",
                       "title": "Source-neutral intents",
-                      "summary": "General, geographic, counterfactual, and precedent tracks add coverage without overwriting each other.",
+                      "summary": "General, geographic, counterfactual, precedent, and adjacent tracks add coverage without overwriting each other.",
                       "kind": "model",
                       "layer": "Query generation"
                     },

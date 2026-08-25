@@ -290,8 +290,13 @@ class ScopeReachesQueryGenerationTests(unittest.TestCase):
         self.assertNotIn("DOCUMENT'S OWN GEOGRAPHY", self._prompt(""))
 
     def test_only_the_geographic_track_receives_the_region(self) -> None:
-        """`general`, `counterfactual` and `precedent` are broad by design, and narrowing
-        them to one geography would answer a smaller question than the one asked."""
+        """`general`, `counterfactual`, `precedent` and `adjacent` are broad by design, and
+        narrowing them to one geography would answer a smaller question than the one asked.
+
+        `adjacent` most of all: its whole job is to step one dimension away from the exact
+        target, and a region bound into it would fix the one dimension a reader is least
+        likely to want held constant when nothing direct exists.
+        """
         import inspect
 
         from services.scout.stages import query_extractor
@@ -300,6 +305,7 @@ class ScopeReachesQueryGenerationTests(unittest.TestCase):
             query_extractor.build_system_prompt_for_variable,
             query_extractor.build_system_prompt_for_counterfactual_variable,
             query_extractor.build_system_prompt_for_precedent_variable,
+            query_extractor.build_system_prompt_for_adjacent_variable,
         ):
             with self.subTest(builder=builder.__name__):
                 self.assertNotIn("region", inspect.signature(builder).parameters)

@@ -46,7 +46,13 @@ an `unrelated`, and it means something else - see there.
 #: the track. Use `valid_query_tracks()` to validate a track, never this set alone: this set
 #: is half the vocabulary and the contract checked against it for a year, so every run whose
 #: burden or events lane fired was rejected with "has an unknown query track".
-VALID_ATTRIBUTE_QUERY_TRACKS = {"general", "geographic", "counterfactual", "precedent"}
+VALID_ATTRIBUTE_QUERY_TRACKS = {
+    "general",
+    "geographic",
+    "counterfactual",
+    "precedent",
+    "adjacent",
+}
 
 #: Kept for readers of the old name. Deliberately the attribute half only, so a caller that
 #: means "every track" has to say so.
@@ -1044,8 +1050,16 @@ def valid_query_tracks() -> frozenset[str]:
 #:     counterfactual 4  The check that stops an optimistic reading. A competitive
 #:                       assessment that only finds supporting evidence reads as a strong
 #:                       position, and it is the one failure the reader cannot see.
-#:     precedent      3  Prior attempts. Real value and the least time-sensitive of the
-#:                       four, so it takes the smallest share.
+#:     precedent      3  Prior attempts at this exact target, for this indication. Real
+#:                       value and the least time-sensitive, so it takes a small share.
+#:     adjacent       2  The nearest thing anyone has done, when nothing direct exists.
+#:                       Its own budget, and that is the point of it being its own track:
+#:                       precedent used to seek "prior OR analogous" work on one budget,
+#:                       so a target with several direct hits filled the track and
+#:                       returned no analogues at all. That is precisely backwards - the
+#:                       more novel a target is, the fewer direct hits it has and the more
+#:                       the nearest analogue is worth. A floor cannot be crowded out.
+#:                       Smallest share because it is the fallback, not the first answer.
 #:
 #: A config may override any of these; nothing does today. Overriding one is a statement
 #: that a document type needs a different balance, which is exactly when a number should
@@ -1055,6 +1069,7 @@ QUERY_TRACK_BUDGET = {
     "geographic": 6,
     "counterfactual": 4,
     "precedent": 3,
+    "adjacent": 2,
 }
 
 
@@ -1559,6 +1574,7 @@ class ScoutTypeConfig:
     geographic_queries_per_variable: int = QUERY_TRACK_BUDGET["geographic"]
     counterfactual_queries_per_variable: int = QUERY_TRACK_BUDGET["counterfactual"]
     precedent_queries_per_variable: int = QUERY_TRACK_BUDGET["precedent"]
+    adjacent_queries_per_variable: int = QUERY_TRACK_BUDGET["adjacent"]
     # Where the units to investigate come from:
     #   "vocabulary" - the fixed shared attribute list (TPP).
     #   "extract"    - an LLM pulls units (claims/targets) from the document (e.g. IPDP).
@@ -1763,6 +1779,11 @@ def load_config(config_path: str) -> ScoutTypeConfig:
     )
     if precedent_queries_per_variable < 0:
         raise ValueError("precedent_queries_per_variable must be >= 0")
+    adjacent_queries_per_variable = int(
+        data.get("adjacent_queries_per_variable", QUERY_TRACK_BUDGET["adjacent"])
+    )
+    if adjacent_queries_per_variable < 0:
+        raise ValueError("adjacent_queries_per_variable must be >= 0")
     unit_provider = str(data.get("unit_provider", "vocabulary")).strip().lower()
     if unit_provider not in {"vocabulary", "extract"}:
         raise ValueError("unit_provider must be 'vocabulary' or 'extract'")
@@ -1797,6 +1818,7 @@ def load_config(config_path: str) -> ScoutTypeConfig:
         geographic_queries_per_variable=geographic_queries_per_variable,
         counterfactual_queries_per_variable=counterfactual_queries_per_variable,
         precedent_queries_per_variable=precedent_queries_per_variable,
+        adjacent_queries_per_variable=adjacent_queries_per_variable,
         unit_provider=unit_provider,
         drift_framing=framings["drift_framing"].strip(),
         evidence_framing=framings["evidence_framing"].strip(),

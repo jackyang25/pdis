@@ -25,6 +25,7 @@ below names the classes with no lane, so closing one is deleting a line here.
 from __future__ import annotations
 
 import pathlib
+import re
 import unittest
 import xml.etree.ElementTree as ElementTree
 from unittest.mock import patch
@@ -43,6 +44,11 @@ from services.scout.models import (
     QueryIntent,
     RetrievalScopeLedger,
     load_config,
+    valid_query_tracks,
+)
+from services.scout.stages.query_extractor import (
+    build_system_prompt_for_adjacent_variable,
+    build_system_prompt_for_precedent_variable,
 )
 from services.scout.stages.intent_builder import build_retrieval_intents
 from services.searcher import (
@@ -668,7 +674,7 @@ class QueryTrackBudgetTests(unittest.TestCase):
 
     #: Every track the extractor runs. A track added without a share would silently
     #: default to zero and never run, which reads as a track that found nothing.
-    TRACKS = ("general", "geographic", "counterfactual", "precedent")
+    TRACKS = ("general", "geographic", "counterfactual", "precedent", "adjacent")
 
     def test_every_track_has_a_declared_share(self) -> None:
         self.assertEqual(sorted(QUERY_TRACK_BUDGET), sorted(self.TRACKS))
@@ -708,11 +714,98 @@ class QueryTrackBudgetTests(unittest.TestCase):
                         config.geographic_queries_per_variable,
                         config.counterfactual_queries_per_variable,
                         config.precedent_queries_per_variable,
+                        config.adjacent_queries_per_variable,
                     ),
                     (
                         QUERY_TRACK_BUDGET["general"],
                         QUERY_TRACK_BUDGET["geographic"],
                         QUERY_TRACK_BUDGET["counterfactual"],
                         QUERY_TRACK_BUDGET["precedent"],
+                        QUERY_TRACK_BUDGET["adjacent"],
                     ),
                 )
+
+
+class AdjacentTrackTests(unittest.TestCase):
+    """The nearest comparable work gets its own budget, not precedent's leftovers.
+
+    Precedent used to ask for "prior OR analogous" work on one share, so a target with
+    several direct hits filled the quota and returned no analogues at all. That is
+    backwards: the more novel a target is, the fewer direct hits it has, and the more the
+    nearest analogue is worth. A separate track cannot be crowded out by the case that
+    needs it least.
+    """
+
+    def test_adjacent_is_a_planned_track(self) -> None:
+        self.assertIn("adjacent", valid_query_tracks())
+
+    def test_adjacent_carries_its_own_share(self) -> None:
+        # The whole point. Sharing precedent's number would restore the failure.
+        self.assertGreater(QUERY_TRACK_BUDGET["adjacent"], 0)
+        self.assertIsNot(
+            QUERY_TRACK_BUDGET["adjacent"], QUERY_TRACK_BUDGET["precedent"],
+        )
+
+    def test_a_run_cannot_spend_the_adjacent_share_on_precedent(self) -> None:
+        # Every config receives both numbers separately, so no arithmetic downstream can
+        # merge them back into one pool.
+        for path in sorted(CONFIG_DIR.glob("bmgf_*.yaml")):
+            config = load_config(str(path))
+            with self.subTest(config=path.name):
+                self.assertEqual(
+                    config.adjacent_queries_per_variable, QUERY_TRACK_BUDGET["adjacent"]
+                )
+                self.assertEqual(
+                    config.precedent_queries_per_variable, QUERY_TRACK_BUDGET["precedent"]
+                )
+
+    def test_the_two_tracks_ask_different_questions(self) -> None:
+        """Splitting a budget is pointless if both halves run the same search.
+
+        Precedent is scoped to this target for this indication; adjacent is licensed to
+        cross exactly one dimension. Each prompt names the other and disclaims its job.
+        """
+        attribute = Attribute(name="vaccine.efficacy", description="Efficacy target.")
+        config = load_config(str(CONFIG_DIR / "bmgf_itpp_vaccine.yaml"))
+        precedent = build_system_prompt_for_precedent_variable(
+            config, indication="malaria", attribute=attribute, precedent_queries_per_variable=3
+        )
+        adjacent = build_system_prompt_for_adjacent_variable(
+            config, indication="malaria", attribute=attribute, adjacent_queries_per_variable=2
+        )
+        self.assertIn("FOR THIS INDICATION", precedent)
+        self.assertIn("adjacent track covers that", precedent)
+        self.assertIn("NEAREST COMPARABLE", adjacent)
+        self.assertIn("separate track covers this exact target", adjacent)
+
+    def test_adjacent_stays_about_its_variable(self) -> None:
+        """Crossing an indication is licence to widen the comparison, never the subject.
+
+        An analogy track with no scope rule drifts until its results are about something
+        else, which reaches the reader as retrieval noise rather than as an analogue.
+        """
+        attribute = Attribute(name="vaccine.efficacy", description="Efficacy target.")
+        config = load_config(str(CONFIG_DIR / "bmgf_itpp_vaccine.yaml"))
+        adjacent = build_system_prompt_for_adjacent_variable(
+            config, indication="malaria", attribute=attribute, adjacent_queries_per_variable=2
+        )
+        self.assertIn("Every query must remain about THIS variable", adjacent)
+        self.assertIn("One step away, not several", adjacent)
+
+
+    def test_every_declared_track_is_actually_dispatched(self) -> None:
+        """A budget is not a track. Found by breaking it: deleting the adjacent dispatch
+        left the track declared, budgeted, prompted and labelled, and every test still
+        passed - a track that runs nothing is indistinguishable from one that finds
+        nothing, which is the failure this whole split exists to prevent.
+        """
+        source = (
+            pathlib.Path(__file__).resolve().parents[1]
+            / "services" / "scout" / "stages" / "query_extractor.py"
+        ).read_text()
+        dispatched = set(re.findall(r'track="([a-z_]+)"', source))
+        self.assertEqual(
+            dispatched,
+            set(QUERY_TRACK_BUDGET),
+            "a track is declared with a share but never run, or run without a share",
+        )

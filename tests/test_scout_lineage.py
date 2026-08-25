@@ -1172,6 +1172,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             geographic_queries_per_variable=0,
             counterfactual_queries_per_variable=0,
             precedent_queries_per_variable=0,
+            adjacent_queries_per_variable=0,
         )
         queries = extract_queries_for_variable(
             attribute,
@@ -1369,6 +1370,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             geographic_queries_per_variable=0,
             counterfactual_queries_per_variable=0,
             precedent_queries_per_variable=0,
+            adjacent_queries_per_variable=0,
         )
         invalid = [{
             "query": "device stability above 8°C reported results",
@@ -1430,6 +1432,7 @@ class RetrievalPlanningTests(unittest.TestCase):
             geographic_queries_per_variable=0,
             counterfactual_queries_per_variable=0,
             precedent_queries_per_variable=0,
+            adjacent_queries_per_variable=0,
         )
         invalid = [{
             "query": "dose volume below 0,5 mL reported results",

@@ -55,7 +55,8 @@ languages:
 # Queries per variable per coverage track. Omitted here on purpose: the split is
 # declared once in `QUERY_TRACK_BUDGET` with the reasoning for each share. Set one
 # of `queries_per_variable`, `geographic_queries_per_variable`,
-# `counterfactual_queries_per_variable` or `precedent_queries_per_variable` only to
+# `counterfactual_queries_per_variable`, `precedent_queries_per_variable` or
+# `adjacent_queries_per_variable` only to
 # state that this document type needs a different balance.
 
 geographic_emphasis:

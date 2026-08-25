@@ -162,11 +162,32 @@ def extract_queries_for_variable(
             target_query_contexts=target_query_contexts,
         )
 
+    if config.adjacent_queries_per_variable > 0:
+        queries += _run_track(
+            build_system_prompt_for_adjacent_variable(
+                config,
+                indication=indication,
+                attribute=attribute,
+                adjacent_queries_per_variable=config.adjacent_queries_per_variable,
+            ),
+            user_message,
+            llm_client,
+            max_tokens,
+            cap=config.adjacent_queries_per_variable,
+            attribute_name=attribute.name,
+            track="adjacent",
+            allowed_block_ids=document_block_ids(document_context),
+            allowed_target_ids=set(target_blocks),
+            target_blocks=target_blocks,
+            target_query_contexts=target_query_contexts,
+        )
+
     total = (
         general_budget
         + config.geographic_queries_per_variable
         + config.counterfactual_queries_per_variable
         + config.precedent_queries_per_variable
+        + config.adjacent_queries_per_variable
     )
     return _dedupe_queries(queries)[:total]
 
@@ -612,15 +633,21 @@ def build_system_prompt_for_precedent_variable(
         "SCOPE: Every query must remain about THIS variable. Do not pull in other "
         "variables like efficacy, safety, dosing, duration, or cost unless this variable "
         "is that topic.",
-        "Precedent emphasis: search for PRIOR or EXISTING attempts at this target/approach - "
-        "earlier or current products pursuing the same target for this indication, past "
+        "Precedent emphasis: search for PRIOR or EXISTING attempts at THIS target/approach "
+        "FOR THIS INDICATION - earlier or current products pursuing the same target, past "
         "programs or trials that pursued it (whether they succeeded, stalled, or were "
-        "abandoned), and the same platform/mechanism proven in ADJACENT indications as "
-        "analogous precedent. The goal is to establish whether the approach is new or has "
-        "a track record.",
+        "abandoned). The goal is to establish whether this approach is new or has a track "
+        "record.",
         HISTORICAL_ERA,
         "Do NOT seek disconfirming/failure evidence here (a separate track covers that); "
-        "seek the EXISTENCE of prior or analogous work, positive or negative.",
+        "seek the EXISTENCE of prior work, positive or negative.",
+        # Analogues used to be this track's job too, on this track's budget. A target with
+        # several direct hits filled the quota and returned none of them, which is the
+        # wrong way round: the more novel a target is, the more the nearest analogue is
+        # worth. They are a separate track now, so keep this one direct.
+        "Do NOT reach into other indications or other platforms for analogies here; the "
+        "adjacent track covers that. Queries that find nothing are an acceptable and "
+        "informative outcome for this track.",
         "Return the precedent queries only; the caller appends them after the other tracks.",
     ]
     if config.priority_institutions:
@@ -639,6 +666,75 @@ def build_system_prompt_for_precedent_variable(
     parts.append(
         f"Return EXACTLY {precedent_queries_per_variable} quer"
         f"{'y' if precedent_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
+        "Return only the schema-bound response. "
+        f"{BLOCK_ID_JSON_INSTRUCTION} "
+        "Each query 5-15 words."
+    )
+    return "\n\n".join(parts)
+
+
+def build_system_prompt_for_adjacent_variable(
+    config: ScoutTypeConfig,
+    *,
+    indication: str,
+    attribute: Attribute,
+    adjacent_queries_per_variable: int,
+) -> str:
+    """Plan queries for the nearest comparable work, when nothing direct exists.
+
+    Separate from precedent because the two answer different questions on different
+    budgets. Precedent asks whether this exact target has been attempted for this
+    indication; a novel product's honest answer is "no", and that is the moment the
+    nearest analogue becomes the most useful evidence in the run. Sharing one budget meant
+    a target with several direct hits returned no analogues at all - the case that needed
+    them least crowded out the case that needed them most.
+    """
+    parts = [
+        "You generate ADDITIVE ADJACENT retrieval intents for ONE variable. "
+        "These seek the NEAREST COMPARABLE work when no direct precedent exists - so a "
+        "downstream reader assessing a novel target has something real to reason from "
+        "rather than an empty result. They are added to the general query set, never "
+        "substituted for it.",
+        f"variable: {attribute.name}.",
+        f"Product class: {config.intervention_term}. Indication: {indication}.",
+        f"What this variable covers: {attribute.description.strip()}",
+        # The same scope rule the other tracks carry. Adjacency is licence to cross
+        # indication and platform, never licence to change the subject.
+        "SCOPE: Every query must remain about THIS variable. Do not pull in other "
+        "variables like efficacy, safety, dosing, duration, or cost unless this variable "
+        "is that topic.",
+        "Adjacent emphasis: deliberately step ONE dimension away from the exact target and "
+        "search for the closest thing anyone has actually done. Cross exactly one of: the "
+        "same platform or mechanism used for a DIFFERENT indication; a different platform "
+        "solving the SAME problem this variable describes; the same target achieved in a "
+        "neighbouring disease area, population, or setting.",
+        # Named because the failure mode of an analogy track is drifting until the results
+        # are about something else entirely, which reads as retrieval noise.
+        "Stay close. One step away, not several: an analogue a reader would accept as "
+        "informative about this target. If a query would return work no one would compare "
+        "with this product, it is too far.",
+        HISTORICAL_ERA,
+        "Do NOT repeat the direct-precedent search (a separate track covers this exact "
+        "target for this indication), and do NOT seek disconfirming evidence (another "
+        "track covers that). Seek the nearest real, comparable attempt.",
+        "Return the adjacent queries only; the caller appends them after the other tracks.",
+    ]
+    if config.priority_institutions:
+        parts.append(
+            "Authoritative institutions to spread across: "
+            + ", ".join(config.priority_institutions)
+            + "."
+        )
+    if config.languages:
+        parts.append(
+            "Configured languages: "
+            + ", ".join(config.languages)
+            + ". Use native-language phrasing where it helps surface non-English evidence."
+        )
+    parts.append(QUERY_FACET_INSTRUCTION)
+    parts.append(
+        f"Return EXACTLY {adjacent_queries_per_variable} quer"
+        f"{'y' if adjacent_queries_per_variable == 1 else 'ies'} in the structured `queries` array. "
         "Return only the schema-bound response. "
         f"{BLOCK_ID_JSON_INSTRUCTION} "
         "Each query 5-15 words."

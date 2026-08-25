@@ -461,11 +461,6 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         # is a hole in the field check, and this is what keeps it from being a hole in the
         # lineage checks too.
         _require_subset(
-            trace.doc_block_ids,
-            set() if run_scoped else set(variables[trace.attribute_ref].block_ids),
-            f"search trace {trace.query!r} document blocks",
-        )
-        _require_subset(
             trace.target_ids,
             set() if run_scoped else set(targets_by_id),
             f"search trace {trace.query!r} targets",
@@ -475,6 +470,32 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                 raise ValueError(
                     f"search trace {trace.query!r} carries a target not linked to its field"
                 )
+        # The field's own passages, plus those of any target the search names.
+        #
+        # A numeric query is planned from a target and inherits that target's blocks
+        # (`query_extractor` builds it from `target_blocks[target_id]`), and a target can cite
+        # a passage its field's own extraction did not list - a table row elsewhere in the
+        # document that states the number. Checking only the field's blocks rejected that:
+        #
+        #     search trace '... reported numeric results' document blocks contain unknown
+        #     IDs: BNT.TPP Draft VGP 18Dec2025/b-0008
+        #
+        # The target's own blocks are already validated against the document above, so
+        # widening here admits a passage the run can point at, not an arbitrary id.
+        allowed_trace_blocks: set[str] = (
+            set()
+            if run_scoped
+            else set(variables[trace.attribute_ref].block_ids).union(
+                *(set(targets_by_id[target_id].doc_block_ids) for target_id in trace.target_ids)
+            )
+            if trace.target_ids
+            else set(variables[trace.attribute_ref].block_ids)
+        )
+        _require_subset(
+            trace.doc_block_ids,
+            allowed_trace_blocks,
+            f"search trace {trace.query!r} document blocks",
+        )
         if len(trace.intent_ids) != len(trace.input_queries):
             raise ValueError(
                 f"search trace {trace.query!r} has unaligned intent lineage"

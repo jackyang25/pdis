@@ -18,9 +18,21 @@ from __future__ import annotations
 import unittest
 
 from services.scout.contract import validate_result_contract
-from services.scout.models import PROGRAM_SCOPE_KEY, SearchTrace
+from dataclasses import replace
+
+from services.scout.models import (
+    ConformityScore,
+    DocumentSpan,
+    NumericExpression,
+    PROGRAM_SCOPE_KEY,
+    QuantitativeFieldLink,
+    QuantitativeLedgerReview,
+    QuantitativeTarget,
+    SearchTrace,
+)
 
 from tests.test_scout_contract import _result as minimal_result
+from tests.test_scout_lineage import comparison_contract, semantic_profile
 
 
 class RunScopedSearchTraceTests(unittest.TestCase):
@@ -66,3 +78,152 @@ class RunScopedSearchTraceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class NumericQueryBlockTests(unittest.TestCase):
+    """A search planned from a target, carrying that target's passages.
+
+    `query_extractor` builds a numeric query straight from `target_blocks[target_id]`, and a
+    target can cite a passage its field's own extraction never listed: a table row elsewhere
+    in the document that states the number. Checking a trace's blocks against the field alone
+    rejected the run:
+
+        search trace '... reported numeric results' document blocks contain unknown IDs:
+        BNT.TPP Draft VGP 18Dec2025/b-0008
+    """
+
+    def _scenario(self):
+        """A field whose blocks and whose target's blocks do not overlap.
+
+        That is the shape the pipeline produces and the contract rejected. The second block
+        already exists on the document and in the ledger, so it is a passage the run can
+        point at, not an invented id.
+        """
+        result = minimal_result()
+        field_block = result.blocks[0].id
+        target_block = result.blocks[1].id
+        profile = semantic_profile("injections administered")
+        span = DocumentSpan(quote="No more than 4 injections.", block_ids=[target_block])
+        target = QuantitativeTarget(
+            field_links=[
+                QuantitativeFieldLink(
+                    attribute_ref=result.variables[0].name,
+                    relation="defines",
+                    reason="Test fixture.",
+                )
+            ],
+            expression=NumericExpression(kind="bound", value=4, comparator="<=", unit="injections"),
+            role="threshold",
+            quote="No more than 4 injections.",
+            doc_block_ids=[target_block],
+            semantic_profile=profile,
+            comparison_contract=comparison_contract(profile),
+            # A specified semantic slot has to cite the passage it was read from, so the
+            # profile above cannot claim a measure the document never stated.
+            provenance_spans=[span],
+            semantic_provenance={"measure": [span]},
+            review_status="approved",
+        )
+        result.variables = [
+            replace(
+                variable,
+                block_ids=[field_block],
+                quantitative_target_ids=[target.id] if index == 0 else [],
+                quantitative_target_status="present" if index == 0 else "not_applicable",
+            )
+            for index, variable in enumerate(result.variables)
+        ]
+        result.quantitative_ledger = replace(
+            result.quantitative_ledger,
+            status="complete",
+            block_ids=[field_block, target_block],
+            targets=[target],
+            # Every target must be covered by a statement review, so the ledger states where
+            # the number came from as well as what it says.
+            reviews=[
+                QuantitativeLedgerReview(
+                    unit_id="unit-1",
+                    block_id=target_block,
+                    quote="No more than 4 injections.",
+                    classification="target",
+                    attribute_refs=[result.variables[0].name],
+                    reason="Mapped target.",
+                    target_ids=[target.id],
+                )
+            ],
+        )
+        # Every target owes a calibration that mirrors it exactly, so the fixture states one
+        # rather than leaving the ledger half-built.
+        result.conformity = [
+            ConformityScore(
+                target_id=target.id,
+                attribute_refs=list(target.analysis_attribute_refs),
+                target_role=target.role,
+                target_value=target.value,
+                comparator=target.comparator,
+                unit=target.unit,
+                target_label=target.label,
+                target_quote=target.quote,
+                doc_block_ids=list(target.doc_block_ids),
+                target_meeting_count=0,
+                target_meeting_rate=0.0,
+                verdict="No comparable measurement was found.",
+            )
+        ]
+        return result, target, field_block, target_block
+
+    def _trace(self, result, *, blocks, target_ids):
+        result.search_plan = [
+            SearchTrace(
+                attribute_ref=result.variables[0].name,
+                lane="pubmed",
+                query="a numeric query reported numeric results",
+                doc_block_ids=blocks,
+                target_ids=target_ids,
+                intent_ids=["intent-1"],
+                input_queries=["numbers"],
+            )
+        ]
+        return result
+
+    def test_a_numeric_search_may_cite_its_target_passage(self):
+        """The bug. The target's own blocks are already checked against the document."""
+        result, target, _, target_block = self._scenario()
+        validate_result_contract(
+            self._trace(result, blocks=[target_block], target_ids=[target.id])
+        )
+
+    def test_a_search_naming_no_target_is_still_held_to_its_field(self):
+        """Unchanged. The widening applies only to passages a named target owns."""
+        result, _, _, target_block = self._scenario()
+        with self.assertRaises(ValueError) as raised:
+            validate_result_contract(self._trace(result, blocks=[target_block], target_ids=[]))
+        self.assertIn("document blocks", str(raised.exception))
+
+    def test_naming_a_target_does_not_admit_an_arbitrary_block(self):
+        """The exemption is that target's passages, not any passage."""
+        result, target, _, _ = self._scenario()
+        with self.assertRaises(ValueError) as raised:
+            validate_result_contract(
+                self._trace(result, blocks=["document/b-9999"], target_ids=[target.id])
+            )
+        self.assertIn("document blocks", str(raised.exception))
+
+    def test_a_merged_query_carries_both_and_is_admitted(self):
+        """The third path, and the reason the rule is a union rather than a choice.
+
+        `query_extractor` collapses two queries with the same text into one, taking the union
+        of their blocks *and* of their target ids together. So a merged query can hold a
+        field passage and a target passage at once, and it names the target either way.
+        """
+        result, target, field_block, target_block = self._scenario()
+        validate_result_contract(
+            self._trace(result, blocks=[field_block, target_block], target_ids=[target.id])
+        )
+
+    def test_the_field_own_blocks_are_still_admitted(self):
+        result, target, field_block, _ = self._scenario()
+        validate_result_contract(
+            self._trace(result, blocks=[field_block], target_ids=[target.id])
+        )

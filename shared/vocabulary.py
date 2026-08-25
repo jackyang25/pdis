@@ -130,6 +130,23 @@ SCOPE_PROVENANCE = frozenset({"header", "document", "config_default", "unset"})
 #:     burden     structured indicator readings enter the disease-burden projection
 DOWNSTREAM_OUTPUTS = frozenset({"insights", "landscape", "safety", "burden"})
 
+def searchable_attribute_phrase(name: str) -> str:
+    """An attribute's name as words a search provider can use.
+
+    An attribute is named `vaccine.duration_of_protection`: a namespace, a dot, and words
+    joined by underscores. Two places dropped that straight into search text after replacing
+    only the underscores, which left the namespace and the dot in the query:
+
+        hiv vaccine vaccine.duration of protection Annualized relapse/rebound rate ...
+
+    No provider knows what `vaccine.duration` is, and the prefix repeats the intervention
+    class that is already the word before it. The web layer has always stripped this for
+    display (`displayAttributeLabel`); this is the same rule where the query is built, so a
+    reader and a provider see the same phrase.
+    """
+    return name.rsplit(".", 1)[-1].replace("_", " ").replace("-", " ").strip()
+
+
 EVIDENCE_DOMAINS = frozenset(
     {
         "general",

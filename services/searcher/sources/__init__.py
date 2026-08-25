@@ -17,10 +17,12 @@ from .europepmc import EuropePMCSource
 from .semantic_scholar import SemanticScholarSource
 from .who_gho import WHOGHOSource
 from .who_guidelines import WHOGuidelinesSource
+from .tavily import TavilySource
 from .web import WebSource
 
 _SOURCES: tuple[SourceAdapter, ...] = (
     WebSource(),
+    TavilySource(),
     PubMedSource(),
     ClinicalTrialsSource(),
     CTISSource(),

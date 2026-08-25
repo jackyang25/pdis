@@ -37,7 +37,7 @@ from .models import (
     merge_findings,
     outcomes_to_dicts,
 )
-from .connectors import ToolUniverseHTTPConnector
+from .connectors import TavilyHTTPConnector, ToolUniverseHTTPConnector
 from .controller import (
     integration_operations,
     lane_class,
@@ -58,6 +58,7 @@ prefer_ipv4()
 
 __all__ = [
     "DEFAULT_MAX_TOKENS",
+    "TavilyHTTPConnector",
     "DEFAULT_MAX_USES",
     "DEVELOPMENT_RECORD_TYPES",
     "DevelopmentRecord",

@@ -48,7 +48,7 @@ const TOPICS: Record<ScoutSignalTopic, SignalTopic> = {
     summary:
       "One number at a time, compared with measurements of the same quantity from outside.",
     detail:
-      "Numbers are read only from passages a resolved target cites, so a field whose target could not be read has none. A measurement joins the comparison only if it measures the same quantity in the same unit and is quoted from its source. The statistics describe that cohort alone: they are not confidence intervals, population estimates, or probabilities of success.",
+      "Numbers are read only from passages a resolved target cites, so a field whose target could not be read has none. A measurement joins the comparison only if it measures the same quantity in the same unit, is quoted from its source, and comes from published literature, a trial registry or a regulator. A general web result can support a judgment but never a number. The statistics describe that cohort alone: they are not confidence intervals, population estimates, or probabilities of success.",
     promptRef: { tool: "scout", stage: "conformity" },
   },
   precedent: {

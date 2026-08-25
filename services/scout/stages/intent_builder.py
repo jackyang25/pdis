@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 
 from services.searcher import RetrievalEntity, RetrievalIntent, SourceQueryIntent
+from shared.vocabulary import searchable_attribute_phrase
 
 from ..models import (
     PROGRAM_QUERY_SETS,
@@ -99,7 +100,9 @@ def build_retrieval_intents(
     return [
         RetrievalIntent(
             scope_ref=attribute_ref,
-            topic=attribute.name.replace("_", " "),
+            # Six source adapters fall back to `topic` when a query has no text of its
+            # own, so the namespace leaked into their queries too.
+            topic=searchable_attribute_phrase(attribute.name),
             description=attribute.description,
             indication=scope.value("condition"),
             intervention_class=scope.value("intervention"),

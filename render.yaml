@@ -63,6 +63,18 @@ projects:
                   envVarKey: TOOLUNIVERSE_API_TOKEN
               - key: TOOLUNIVERSE_TIMEOUT_SECONDS
                 value: 30
+              # Tavily. `sync: false` so the key is set in the dashboard and never
+              # committed. The lane disables itself when this is absent, so a deploy without
+              # it behaves exactly as it did before Tavily existed.
+              - key: TAVILY_API_KEY
+                sync: false
+              # `advanced` costs two credits and `basic` one. Advanced by default because the
+              # reason to run this lane is the quality of the extracted page text. Set this to
+              # `basic` to halve the cost of a comparison run.
+              - key: TAVILY_SEARCH_DEPTH
+                value: advanced
+              - key: TAVILY_TIMEOUT_SECONDS
+                value: 30
 
           # Public Next.js client. It is stateless and can tolerate free-tier
           # idle spin-down without interrupting an API analysis already running.

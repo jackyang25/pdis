@@ -24,7 +24,10 @@ from services.scout.models import (
     ConformityScore,
     DocumentSpan,
     NumericExpression,
+    PROGRAM_QUERY_SETS,
     PROGRAM_SCOPE_KEY,
+    VALID_ATTRIBUTE_QUERY_TRACKS,
+    valid_query_tracks,
     QuantitativeFieldLink,
     QuantitativeLedgerReview,
     QuantitativeTarget,
@@ -227,3 +230,90 @@ class NumericQueryBlockTests(unittest.TestCase):
         validate_result_contract(
             self._trace(result, blocks=[field_block], target_ids=[target.id])
         )
+
+
+class EveryProgramLaneSurvivesTheContractTests(unittest.TestCase):
+    """The audit these three fixes should have started with.
+
+    A run-scoped search failed the contract in *four* separate checks in one loop, and each
+    was found only when a run happened to fire the lane that triggered it:
+
+        1. the field check      -> "references unknown field 'program'"
+        2. the block check      -> KeyError on the sentinel
+        3. the target check     -> the same
+        4. the track check      -> "has an unknown query track"
+
+    One omission - program-scoped intents were added after the contract's trace loop was
+    written, and the loop was never revisited - surfacing four times, three of them patched
+    reactively. This builds a trace exactly as `intent_builder` and the pipeline do, for every
+    program query set and every lane each set declares, so a fifth check cannot be found by a
+    user instead of by a test.
+    """
+
+    def test_every_program_query_set_and_lane_passes(self):
+        for name, query_set in PROGRAM_QUERY_SETS.items():
+            for lane in query_set.lanes:
+                with self.subTest(program_set=name, lane=lane):
+                    result = minimal_result()
+                    result.search_plan = [
+                        SearchTrace(
+                            # As `intent_builder` builds it: the sentinel as the scope, and
+                            # the query set's own name as the track.
+                            attribute_ref=PROGRAM_SCOPE_KEY,
+                            lane=lane,
+                            query=f"a {name} query on {lane}",
+                            tracks=[name],
+                            intent_ids=["intent-1"],
+                            input_queries=["a phrase"],
+                        )
+                    ]
+                    validate_result_contract(result)
+
+    def test_a_program_track_on_a_variable_scoped_trace_also_passes(self):
+        """The vocabulary is one set, not two gates.
+
+        A track is a track. Splitting the check by scope would be a fifth thing to keep in
+        step, and the scope is already asserted by the field and lineage checks above.
+        """
+        result = minimal_result()
+        result.search_plan = [
+            SearchTrace(
+                attribute_ref=result.variables[0].name,
+                lane="web",
+                query="a query",
+                tracks=["events"],
+                intent_ids=["intent-1"],
+                input_queries=["a phrase"],
+            )
+        ]
+        validate_result_contract(result)
+
+    def test_an_invented_track_is_still_rejected(self):
+        """Widening the vocabulary must not empty it."""
+        result = minimal_result()
+        result.search_plan = [
+            SearchTrace(
+                attribute_ref=PROGRAM_SCOPE_KEY,
+                lane="web",
+                query="a query",
+                tracks=["not_a_track"],
+                intent_ids=["intent-1"],
+                input_queries=["a phrase"],
+            )
+        ]
+        with self.assertRaises(ValueError) as raised:
+            validate_result_contract(result)
+        self.assertIn("unknown query track", str(raised.exception))
+
+    def test_the_track_vocabulary_is_derived_from_the_program_sets(self):
+        """So adding a program query set cannot leave the contract behind.
+
+        This is the check that makes the other three unnecessary next time: a new set widens
+        the vocabulary by construction rather than by someone remembering.
+        """
+        self.assertEqual(
+            valid_query_tracks(),
+            frozenset(VALID_ATTRIBUTE_QUERY_TRACKS) | frozenset(PROGRAM_QUERY_SETS),
+        )
+        for name in PROGRAM_QUERY_SETS:
+            self.assertIn(name, valid_query_tracks(), name)

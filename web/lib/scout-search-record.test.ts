@@ -143,3 +143,20 @@ test("one search reads as one, not as a plural", () => {
 test("a result saved before the plan existed reports nothing rather than throwing", () => {
   assert.equal(fieldSearchRecord({}, "drug.indication").total, 0);
 });
+
+
+test("the two web lanes sit beside each other", () => {
+  // They are the same question asked two ways - a model that cites what it read, and a search
+  // API that returns what it found - so a reader comparing them should not have to scroll
+  // between them. An unlisted lane still appears, after these, so this is about order and not
+  // about admission.
+  const record = fieldSearchRecord(
+    plan(
+      trace({ lane: "pubmed", query: "a" }),
+      trace({ lane: "tavily", query: "b" }),
+      trace({ lane: "web", query: "c" }),
+    ),
+    "drug.indication",
+  );
+  assert.deepEqual(record.groups.map((group) => group.lane), ["web", "tavily", "pubmed"]);
+});

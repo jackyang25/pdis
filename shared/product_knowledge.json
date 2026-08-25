@@ -195,7 +195,7 @@
             },
             {
               "term": "Included comparator cohort",
-              "description": "The measurements that entered the statistics: each quoted from its source, measuring the same quantity, and counted once per source."
+              "description": "The measurements that entered the statistics: each quoted from its source, measuring the same quantity, and counted once per source. A number is only taken from published literature, a trial registry or a regulator."
             }
           ]
         },

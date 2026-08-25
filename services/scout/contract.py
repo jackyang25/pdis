@@ -15,6 +15,7 @@ from services.chunker import ContentBlock, ImageAsset
 
 from .models import (
     PROGRAM_SCOPE_KEY,
+    valid_query_tracks,
     QUANTITATIVE_SEMANTIC_FIELDS,
     VALID_EVIDENCE_STRENGTHS,
     VALID_PRECEDENT,
@@ -454,7 +455,12 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
             raise ValueError(f"invalid search status {trace.status!r}")
         if trace.applicability not in {"applicable", "not_applicable"}:
             raise ValueError(f"invalid source applicability {trace.applicability!r}")
-        if set(trace.tracks) - VALID_QUERY_TRACKS:
+        # Every track, both vocabularies. A variable's queries are planned on the attribute
+        # tracks; a run-scoped query is planned on its program query set, whose *name* is the
+        # track it carries. This checked the attribute half alone, so a run whose burden or
+        # events lane fired was rejected: `search trace 'indicator_name_contains:hiv' has an
+        # unknown query track`. Derived now, so adding a program query set widens it.
+        if set(trace.tracks) - valid_query_tracks():
             raise ValueError(f"search trace {trace.query!r} has an unknown query track")
         # A run-scoped search comes from the configured condition and class, never from a
         # passage or a target, so it owns neither. Asserted rather than skipped: the sentinel

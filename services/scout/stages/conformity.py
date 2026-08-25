@@ -37,6 +37,8 @@ from pydantic import ValidationError
 
 from services.chunker import ContentBlock
 from services.searcher import Finding
+from services.searcher.controller import SOURCE_REGISTRY
+from shared.vocabulary import EVIDENCE_CLASSES
 
 from ..ai import request_structured
 from shared.batching import grouped_batches, map_ordered
@@ -2928,9 +2930,64 @@ def _measurement_user_message(passages: list[_SourcePassage]) -> str:
     return "\n".join(lines)
 
 
-def _has_source_verbatim_excerpt(finding: Finding) -> bool:
-    """Web-search output is citation context, not a verbatim source passage."""
-    return (finding.excerpt_source_lane or finding.source) != "web"
+#: The kinds of source a measured number may come from.
+#:
+#: Two questions decide whether a passage can supply a measurement, and they are different:
+#: whether the excerpt is the source's own words, and whether the source is one a number
+#: should rest on. Only the first was ever asked, as `!= "web"`, and it hid the second: of the
+#: six lanes eligible under it on a real run, only the two literature lanes ever produced a
+#: candidate. So the rule was already "peer-reviewed and equivalent" in practice, by accident
+#: of which excerpts happen to contain comparable numbers, and nothing stated it.
+#:
+#: Adding a general web lane is what makes that unsafe. Its excerpt *is* the page's own words,
+#: so it passes the first question, and a blog accurately quoted would have entered the
+#: arithmetic looking exactly like a phase III result.
+#:
+#: Named against `evidence_class`, which every source already declares and which is already
+#: validated against a closed set, so this needs no new field and nothing new to keep in step.
+#: Registries and regulators are in: a registry stating a duration is as quotable as a paper
+#: stating it, and a reviewer would accept either. `general`, `news`, `molecular`,
+#: `epidemiology` and `guidance` are out - not because they are untrustworthy, but because a
+#: number taken from them is a number whose provenance a reviewer would question.
+CALIBRATION_EVIDENCE_CLASSES = frozenset({"literature", "registry", "regulatory"})
+
+#: A typo or a renamed class would silently narrow the set above, and a narrower set means
+#: measurements quietly disappearing rather than an error. Checked at import instead.
+assert CALIBRATION_EVIDENCE_CLASSES <= EVIDENCE_CLASSES, (
+    "CALIBRATION_EVIDENCE_CLASSES names a class that is not an evidence class: "
+    f"{sorted(CALIBRATION_EVIDENCE_CLASSES - EVIDENCE_CLASSES)}"
+)
+
+
+def _may_supply_a_measurement(finding: Finding) -> bool:
+    """Whether a number may be read from this finding's passage.
+
+    Both questions, in one place, because they are one decision and reading them from two
+    would be reading half of it:
+
+      1. Is the excerpt the source's own words? A measurement is quoted from its source, so a
+         lane whose excerpt is generated cannot supply one. `web` is such a lane: its excerpt
+         is a model's sentence about the page.
+      2. Is the source one a number should rest on? See `CALIBRATION_EVIDENCE_CLASSES`.
+
+    Today the second subsumes the first, because the only lane failing (1) is `general` and so
+    fails (2) as well. Both are asked anyway: they are not the same property, and a literature
+    lane that summarised rather than extracted would pass (2) while failing (1).
+
+    An unknown lane is refused rather than trusted. This is the one place where the old
+    behaviour is deliberately reversed: it read the lane name and trusted anything that was
+    not `web`, so a lane renamed or removed since a result was saved supplied measurements on
+    the strength of not being one specific string. A number is worth less than the claim that
+    it came from somewhere nameable.
+    """
+    lane = finding.excerpt_source_lane or finding.source
+    adapter = SOURCE_REGISTRY.get(lane)
+    if adapter is None:
+        return False
+    return (
+        adapter.spec.excerpt_is_verbatim
+        and adapter.spec.evidence_class in CALIBRATION_EVIDENCE_CLASSES
+    )
 
 
 def _source_passages(insights: list[Insight]) -> list[_SourcePassage]:
@@ -2941,7 +2998,7 @@ def _source_passages(insights: list[Insight]) -> list[_SourcePassage]:
         for finding in insight.supporting_findings:
             if (
                 not finding.excerpt
-                or not _has_source_verbatim_excerpt(finding)
+                or not _may_supply_a_measurement(finding)
             ):
                 continue
             text = finding.excerpt[:MAX_SOURCE_PASSAGE_CHARS]

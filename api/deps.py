@@ -9,9 +9,12 @@ from shared.anthropic_client import AnthropicQuantitativeClient
 from shared.openai_client import OpenAIClient
 from services.searcher import (
     SearchRuntime,
+    TavilyHTTPConnector,
     ToolUniverseHTTPConnector,
     integration_operations,
 )
+from services.searcher.connectors.tavily import DEFAULT_BASE_URL, DEFAULT_SEARCH_DEPTH
+from services.searcher.sources.tavily import TAVILY_INTEGRATION
 
 TOOLUNIVERSE_INTEGRATION = "tooluniverse"
 
@@ -69,6 +72,17 @@ def get_search_integrations(
             api_token=os.environ.get("TOOLUNIVERSE_API_TOKEN", ""),
             allowed_tools=frozenset(integration_operations(TOOLUNIVERSE_INTEGRATION)),
             timeout_seconds=_positive_float("TOOLUNIVERSE_TIMEOUT_SECONDS", 30.0),
+        )
+    if api_key := os.environ.get("TAVILY_API_KEY", "").strip():
+        configured[TAVILY_INTEGRATION] = TavilyHTTPConnector(
+            api_key=api_key,
+            base_url=os.environ.get("TAVILY_BASE_URL", "").strip() or DEFAULT_BASE_URL,
+            # Advanced by default: the reason to run this lane is the quality of the
+            # extracted page text, and basic depth returns less of it. Overridable for a
+            # cheaper comparison run.
+            search_depth=os.environ.get("TAVILY_SEARCH_DEPTH", "").strip()
+            or DEFAULT_SEARCH_DEPTH,
+            timeout_seconds=_positive_float("TAVILY_TIMEOUT_SECONDS", 30.0),
         )
     configured.update(overrides or {})
     return configured

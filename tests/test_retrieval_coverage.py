@@ -335,7 +335,9 @@ class MapIsTrueTests(unittest.TestCase):
 
     def test_a_lane_reading_no_condition_does_not_use_one(self) -> None:
         for spec in source_specs():
-            if "condition" in spec.reads or spec.key == "web":
+            # A free-text lane reaches the indication only through the query it was given,
+            # never by naming it itself. `web` and `tavily` are both such lanes.
+            if "condition" in spec.reads or spec.key in {"web", "tavily"}:
                 continue
             with self.subTest(lane=spec.key):
                 self.assertNotIn("intent.indication", _adapter_source(spec.key))

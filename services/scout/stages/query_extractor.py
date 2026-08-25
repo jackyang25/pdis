@@ -24,6 +24,7 @@ from ..models import (
     ScoutTypeConfig,
 )
 from ..prompt_primitives import COMPARATOR_POLICY_PRIMITIVE, SEMANTIC_DIMENSIONS_PRIMITIVE
+from shared.vocabulary import searchable_attribute_phrase
 
 logger = logging.getLogger(__name__)
 
@@ -238,7 +239,7 @@ def _run_track(
                         (
                             indication,
                             intervention_class,
-                            attribute_name.replace("_", " "),
+                            searchable_attribute_phrase(attribute_name),
                             target_query_contexts[target_id],
                             "reported numeric results",
                         )

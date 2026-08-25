@@ -92,6 +92,20 @@ class SourceSpec:
     reads: tuple[str, ...] = ()
     #: Downstream outputs this source's findings reach. Empty is invalid.
     feeds: tuple[str, ...] = ()
+    #: Whether `excerpt` holds the source's own words.
+    #:
+    #: False for a lane whose excerpt is generated rather than extracted. The `web` lane is
+    #: OpenAI's `web_search` tool: a model answers a question and the lane keeps the sentence
+    #: it wrote about each page it cited. That reads like a quotation and is not one, so it
+    #: cannot enter quantitative calibration, where a measurement has to be quoted from its
+    #: source.
+    #:
+    #: Declared here rather than inferred downstream. `conformity` decided this with
+    #: `(finding.excerpt_source_lane or finding.source) != "web"`, a denylist of one name: a
+    #: lane added later was trusted by default, including one that also generates its
+    #: excerpts. A lane now states what its excerpt is, and a new lane cannot be trusted by
+    #: omission because the default here is the honest case.
+    excerpt_is_verbatim: bool = True
     #: Whether this source can bound results by publication date at the provider.
     #:
     #: Declared because the alternative is invisible: a caller asking for the last year

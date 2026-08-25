@@ -16,6 +16,10 @@ class WebSource:
         jurisdiction="global",
         reads=("text",),
         feeds=("insights",),
+        # The excerpt is the model's own sentence about the page, not the page. Measured on a
+        # real run this barred all 151 of the lane's findings from quantitative calibration,
+        # which is correct: a measurement has to be quoted from its source.
+        excerpt_is_verbatim=False,
     )
 
     def plan(self, intent: RetrievalIntent) -> list[SearchRequest]:

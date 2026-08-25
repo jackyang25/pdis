@@ -49,7 +49,10 @@ export type FieldSearchRecord = {
  * alphabetically, so adding a lane upstream needs no change here.
  */
 const LANE_ORDER = [
+  // Beside each other on purpose: these two are the same question asked two ways, and a
+  // reader comparing them should not have to scroll between them.
   "web",
+  "tavily",
   "pubmed",
   "semantic_scholar",
   "clinicaltrials",

@@ -40,7 +40,17 @@ bears on the claim without settling it (`extends`).
 `unrelated` here means "does not bear on this claim". `TARGET_RELATIONSHIPS` also has
 an `unrelated`, and it means something else - see there.
 """
-VALID_QUERY_TRACKS = {"general", "geographic", "counterfactual", "precedent"}
+#: The tracks a *variable's* queries are planned on.
+#:
+#: A run-scoped query is planned on its program query set instead, and that set's own name is
+#: the track. Use `valid_query_tracks()` to validate a track, never this set alone: this set
+#: is half the vocabulary and the contract checked against it for a year, so every run whose
+#: burden or events lane fired was rejected with "has an unknown query track".
+VALID_ATTRIBUTE_QUERY_TRACKS = {"general", "geographic", "counterfactual", "precedent"}
+
+#: Kept for readers of the old name. Deliberately the attribute half only, so a caller that
+#: means "every track" has to say so.
+VALID_QUERY_TRACKS = VALID_ATTRIBUTE_QUERY_TRACKS
 VALID_EVIDENCE_STRENGTHS = {
     "well_grounded",
     "partial",
@@ -991,6 +1001,22 @@ PROGRAM_QUERY_SETS = {
         ),
     ),
 }
+
+
+def valid_query_tracks() -> frozenset[str]:
+    """Every track a search trace can legitimately carry.
+
+    Two vocabularies, one question. A variable's queries are planned on the attribute tracks;
+    a run-scoped query is planned on its program query set, and that set's *name* is the
+    track it carries (`intent_builder` sets `tracks=(name,)`).
+
+    Derived from `PROGRAM_QUERY_SETS` rather than listed, because listing is what went wrong:
+    the contract validated against the attribute half alone, so every run whose burden or
+    events lane fired was rejected by its own contract with "has an unknown query track".
+    Adding a program query set now widens this by construction.
+    """
+    return frozenset(VALID_ATTRIBUTE_QUERY_TRACKS) | frozenset(PROGRAM_QUERY_SETS)
+
 
 
 #: How many queries each coverage track gets per variable, and why that many.

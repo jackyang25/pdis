@@ -36,7 +36,7 @@ function Cell({
 }) {
   const tone = TONE[question.state];
   const title = `${question.id} · ${tone.label}${
-    question.statement ? ` — ${question.statement}` : ""
+    question.statement ? ` · ${question.statement}` : ""
   }`;
   const shape = `h-3.5 w-3.5 rounded-[3px] ${tone.cell}`;
   const openable = Boolean(onSelect) && question.cited_block_ids.length > 0;
@@ -48,7 +48,7 @@ function Cell({
     <button
       type="button"
       onClick={() => onSelect?.(question)}
-      title={`${title} — open the passage`}
+      title={`${title} · open the passage`}
       aria-label={`${title}. Open the passage.`}
       className={`${shape} transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none`}
     />

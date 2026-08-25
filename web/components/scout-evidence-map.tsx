@@ -37,6 +37,7 @@ import {
   Quoted,
   Reading,
 } from "@/components/ui/evidence-text";
+import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -114,7 +115,7 @@ function EvidenceNode({ data, selected }: NodeProps<EvidenceFlowNode>) {
         className="!h-1 !w-1 !border-0 !bg-border !opacity-0"
       />
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+        <div className={cn("flex min-w-0 items-center gap-1.5", EYEBROW)}>
           <Icon className="h-3 w-3 shrink-0" />
           <span className="truncate">{data.eyebrow}</span>
         </div>
@@ -234,7 +235,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
   const relationStyle = node.relation ? RELATION_STYLE[node.relation] : null;
   return (
     <GraphInspectorShell className="xl:h-[560px] xl:min-h-0 xl:overflow-y-auto xl:border-l xl:border-t-0">
-      <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className={cn("flex items-center gap-2", EYEBROW)}>
         <Icon className="h-3.5 w-3.5" />
         {node.eyebrow}
       </div>
@@ -291,7 +292,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
       {node.sources && node.sources.length > 0 && (
         <div className="mt-4 border-t border-border/70 pt-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <p className={EYEBROW}>
               All cited sources
             </p>
             <span className="text-[10px] tabular-nums text-muted-foreground/70">
@@ -321,7 +322,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
 
       {node.queries && node.queries.length > 0 && (
         <div className="mt-4 border-t border-border/70 pt-4">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <p className={EYEBROW}>
             Retrieval query
           </p>
           {/* The query verbatim, in the monospace the app already uses for a machine string.

@@ -3,6 +3,8 @@ import { ArrowRight, BookOpen, ExternalLink, Github } from "lucide-react";
 import { PRODUCT_KNOWLEDGE } from "@/lib/product-knowledge";
 import { AssistantSkills } from "@/components/docs/assistant-skills";
 import { KnowledgeContent } from "@/components/docs/knowledge-content";
+import { EYEBROW } from "@/lib/typography";
+import { cn } from "@/lib/utils";
 
 /**
  * The sections that render at page level, in order.
@@ -49,7 +51,7 @@ export default function DocsPage() {
 
         <article className="min-w-0">
           <header className="border-b border-border pb-9">
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            <div className={cn("flex items-center gap-2", EYEBROW)}>
               <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
               Documentation
             </div>

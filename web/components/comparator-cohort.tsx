@@ -4,11 +4,12 @@ import { useState } from "react";
 import { ChevronDown, Scale } from "lucide-react";
 import { TracePanelHeader } from "@/components/document-trace-panel";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
+import { ProvenanceTrigger, stopRowToggle , PROVENANCE_PANEL} from "@/components/ui/provenance";
 import { Reading, SourceEntry } from "@/components/ui/evidence-text";
 import type { Conformity, Insight, Match, Measurement } from "@/lib/api";
 import { SEMANTIC_STATUS_LABEL, sourceIdentityCaveat } from "@/lib/scout-labels";
 import { calibrationView, formatMeasure } from "@/lib/scout-result-view";
+import { cn } from "@/lib/utils";
 
 /**
  * The measurements a target's statistics were computed from.
@@ -50,7 +51,7 @@ export function ComparatorCohort({
         align="start"
         sideOffset={6}
         collisionPadding={12}
-        className="w-[min(720px,calc(100vw-24px))] overflow-hidden p-0"
+        className={cn(PROVENANCE_PANEL.width, "overflow-hidden p-0")}
       >
         <TracePanelHeader
           eyebrow="Comparators"
@@ -60,7 +61,7 @@ export function ComparatorCohort({
           // "3 of 3" and "3 of 3 meet target" come to disagree about the wording.
           description={`Every measurement admitted for this target. ${calibrationView(conformity).meetingLabel}.`}
         />
-        <div className="max-h-[min(60vh,520px)] overflow-y-auto px-4 py-4">
+        <div className={cn(PROVENANCE_PANEL.scroll, " overflow-y-auto px-4 py-4")}>
           <ul>
             {admitted.map((measurement, index) => (
               <AdmittedMeasurement

@@ -56,6 +56,8 @@ import { useExpertSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
 import { CONTEXT_ACCEPT, CONTEXT_FORMAT_HINT } from "@/lib/document-formats";
+import { EYEBROW } from "@/lib/typography";
+import { cn } from "@/lib/utils";
 
 const STEPS = [
   { key: "resolve", label: "Resolving the question bank" },
@@ -391,7 +393,7 @@ function ContextChooser({
     <div className="mt-5 border-t border-border pt-4">
       <p className="text-xs font-medium text-foreground">Additional context</p>
       <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-        Attach material the documents do not contain — a CMC summary, meeting minutes.
+        Attach material the documents do not contain: a CMC summary, meeting minutes.
         Its text is read for this run only and never saved, so an answer from it names the
         source and cites no passage. {CONTEXT_FORMAT_HINT}.
       </p>
@@ -597,7 +599,7 @@ function ReviewView({
           <TabsContent value="trace" className="m-0">
             <div className="border-b border-border px-5 py-3 sm:px-6">
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Which passages carried an answer — whole or partial — and what they
+                Which passages carried an answer, whole or partial, and what they
                 answered. The inverse of the questions view. Only answers read from a
                 document appear here: an answer from attached context has no passage, and
                 an unanswered question has nothing to mark.
@@ -907,7 +909,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
             */}
             {question.requirement === "required" && (
               <ExpertSignalLabel topic="requirement">
-                <span className="rounded border border-border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <span className={cn("rounded border border-border px-1.5 py-px", EYEBROW)}>
                   Required
                 </span>
               </ExpertSignalLabel>

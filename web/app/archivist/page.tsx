@@ -377,7 +377,7 @@ function SourceType({
               <p className="text-sm">
                 {record.stated || "No value could be read"}
                 {record.reason && (
-                  <span className="text-muted-foreground"> — {record.reason}</span>
+                  <span className="text-muted-foreground"> · {record.reason}</span>
                 )}
               </p>
               {record.quote && <Provenance record={record} answer={answer} />}

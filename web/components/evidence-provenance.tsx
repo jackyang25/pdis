@@ -4,10 +4,11 @@ import { useState } from "react";
 import { Globe, Search } from "lucide-react";
 import { TracePanelHeader, TracePanelSection } from "@/components/document-trace-panel";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
+import { ProvenanceTrigger, stopRowToggle , PROVENANCE_PANEL} from "@/components/ui/provenance";
 import { InterfaceNote, Literal, SourceEntry } from "@/components/ui/evidence-text";
 import type { Finding, Insight } from "@/lib/api";
 import { queryTrackLabel, sourceDisplayLabel } from "@/lib/scout-labels";
+import { cn } from "@/lib/utils";
 
 /**
  * Where one insight came from: its sources, and the searches that returned them.
@@ -46,14 +47,14 @@ export function EvidenceProvenance({ insight }: { insight: Insight }) {
         align="start"
         sideOffset={6}
         collisionPadding={12}
-        className="w-[min(720px,calc(100vw-24px))] overflow-hidden p-0"
+        className={cn(PROVENANCE_PANEL.width, "overflow-hidden p-0")}
       >
         <TracePanelHeader
           eyebrow="Sources"
           title="What this insight rests on"
           description="Every source that carried this statement, and the search that returned each one."
         />
-        <div className="max-h-[min(60vh,520px)] space-y-4 overflow-y-auto px-4 py-4">
+        <div className={cn(PROVENANCE_PANEL.scroll, " space-y-4 overflow-y-auto px-4 py-4")}>
           {/* Labelled, because this panel holds two kinds of thing. A panel with one kind
               needs no label; one with two needs both, or the unlabelled group reads as a
               preamble to the labelled one. */}

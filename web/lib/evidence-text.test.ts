@@ -41,6 +41,21 @@ const RULE_EXEMPT: Record<string, string> = {
     "Inspector's coloured status rule, amber or foreground rather than the neutral border",
 };
 
+/**
+ * Identifiers the interface composed itself, and why each one is not upstream text.
+ *
+ * The check flags any interpolation rather than only a dotted field path, because upstream
+ * text threaded through a prop loses its dot and a dotted-path rule missed one. The cost is
+ * that a sentence the interface built from its own literals looks the same, so those are
+ * named here with the reason. A name, not a pattern: "anything not containing a dot" is the
+ * rule that let the prop-threaded one through in the first place.
+ */
+const INTERFACE_COMPOSED: Record<string, string> = {
+  children: "a component that exists to hold one shape is the fix, not the offence",
+  message:
+    "the document-context notice builds this from the run's own configuration and three literals",
+};
+
 const read = (file: string) => readFileSync(path.join(WEB, file), "utf8");
 
 /** Every view file in the app, so a check cannot be dodged by adding a file. */
@@ -151,10 +166,13 @@ test("upstream text is never rendered in prose styled by hand", () => {
       const isHandStyledProse =
         /<(p|span|div) className="[^"]*leading-relaxed[^"]*text-muted-foreground/.test(line);
       if (!isHandStyledProse) return;
-      // The value usually sits on the next line, in the JSX body.
-      const body = `${line}\n${lines[index + 1] ?? ""}`;
+      // The value usually sits on the next line, in the JSX body. Unless the element closes
+      // on its own line, in which case the next line belongs to a sibling and reading it
+      // blamed this one for the sibling's content.
+      const closes = /<\/(p|span|div)>/.test(line);
+      const body = closes ? line : `${line}\n${lines[index + 1] ?? ""}`;
       const interpolated = body.match(/\{[a-zA-Z_][A-Za-z0-9_.?[\]]*\}/g) ?? [];
-      if (interpolated.some((value) => value !== "{children}")) {
+      if (interpolated.some((value) => !(value.slice(1, -1) in INTERFACE_COMPOSED))) {
         offenders.push(`${file}:${index + 1}`);
       }
     });

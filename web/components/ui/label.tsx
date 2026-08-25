@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
+import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
 const Label = React.forwardRef<
@@ -10,10 +11,10 @@ const Label = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <LabelPrimitive.Root
     ref={ref}
-    className={cn(
-      "text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground",
-      className,
-    )}
+    // The same shape as an eyebrow, because it is the same thing: a small capitalised label
+    // over a value. This carried its own weight and letter-spacing, which is how a form field
+    // and a result panel came to label themselves differently on one page.
+    className={cn(EYEBROW, className)}
     {...props}
   />
 ));

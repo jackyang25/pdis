@@ -130,16 +130,41 @@ export const REASON_LABELS: Record<FindingReason, string> = {
   conflicting: "Conflicts with another section",
 };
 
-export const LEVEL_LABELS: Record<FindingLevel, string> = {
-  not_met: "Not met",
+/**
+ * What a unit's status is called, and separately what it means.
+ *
+ * These were one map, whose values ran to thirteen words because they were written as
+ * explanations. Inspector's page kept its own short forms for the pill and used the long
+ * ones as a tooltip, which worked there; the document trace could not reach the short forms,
+ * so it rendered "The rubric asks for this and the document does not usably supply it" as
+ * inline pill text.
+ *
+ * A label sits beside a value and has to be short. A description explains it on hover and
+ * has room. Naming both makes which is which a decision rather than an accident.
+ */
+export const STATUS_LABEL: Record<UnitStatus, string> = {
+  met: "Met",
   could_be_stronger: "Could be stronger",
+  not_met: "Not met",
+  not_applicable: "N/A",
 };
 
-export const STATUS_LABELS: Record<UnitStatus, string> = {
+export const STATUS_DESCRIPTION: Record<UnitStatus, string> = {
   met: "Meets the rubric",
   could_be_stronger: "Supplied and usable, but could be stronger",
   not_met: "The rubric asks for this and the document does not usably supply it",
   not_applicable: "The rubric accepts this being absent",
+};
+
+/**
+ * A finding's level.
+ *
+ * Every level is also a unit status, so the words come from there. Two maps holding "Not
+ * met" is how one of them comes to say "Not Met".
+ */
+export const LEVEL_LABELS: Record<FindingLevel, string> = {
+  not_met: STATUS_LABEL.not_met,
+  could_be_stronger: STATUS_LABEL.could_be_stronger,
 };
 
 export function reasonLabel(reason: string): string {

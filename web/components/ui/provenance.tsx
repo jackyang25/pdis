@@ -73,6 +73,28 @@ export function ProvenanceTrigger({
  * Every one of these sits on a `<summary>` or a list item that toggles, so the handlers are
  * the same in all four and belong here rather than being remembered per call site.
  */
+/**
+ * The geometry every provenance panel opens at.
+ *
+ * Four panels wrote `w-[min(720px,calc(100vw-24px))]` and three wrote
+ * `max-h-[min(60vh,520px)]`, beside near-variants at 58vh and 76vh and at 300, 320 and
+ * 360px. A reader opens these one after another on one row, so a panel that is 20px narrower
+ * than the last reads as a different kind of thing.
+ *
+ * The width is the reading measure minus a gutter; the height stops a long cohort from
+ * covering the row it belongs to. Both are here rather than in a Tailwind theme key because
+ * they are one pair of values for one component, not a scale.
+ *
+ * Deliberately not applied to two other popovers: the distribution plot's 300px card
+ * describes a single point under the cursor, and `signal-help` opens a paragraph, not a list.
+ * Both are tooltips rather than panels, and giving a tooltip a panel's measure would say it
+ * holds something it does not.
+ */
+export const PROVENANCE_PANEL = {
+  width: "w-[min(720px,calc(100vw-24px))]",
+  scroll: "max-h-[min(60vh,520px)]",
+} as const;
+
 export const stopRowToggle = {
   onClick: (event: React.MouseEvent) => event.stopPropagation(),
   onPointerDown: (event: React.PointerEvent) => event.stopPropagation(),

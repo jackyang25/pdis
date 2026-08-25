@@ -139,6 +139,7 @@ import {
   selectScoutPriorities,
 } from "@/lib/scout-priorities";
 import { PriorityPanel } from "@/components/ui/priority-panel";
+import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import {
   ARRIVAL_HIGHLIGHT,
@@ -146,6 +147,7 @@ import {
   DISCLOSURE_MOTION,
   SURFACE_ENTRY_MOTION,
 } from "@/lib/motion";
+import { TONE_DOT, TONE_TEXT } from "@/lib/tone";
 import {
   applyEvidenceReviewRecommendations,
   evidenceReviewRecommendationSummary,
@@ -207,8 +209,10 @@ const SCOUT_STEPS = [
 const SOURCE_LIST_LIMIT = 5;
 
 
-// Tone tokens are reserved for direct signal values, never derived UI grades.
-const NEUTRAL_DOT = "bg-muted-foreground/40";
+// Tone tokens are reserved for direct signal values, never derived UI grades. The scale
+// itself is `lib/tone.ts`: these were raw palette classes with no dark-mode variant, so a
+// verdict that read at one contrast in light mode read at another in dark.
+const NEUTRAL_DOT = TONE_DOT.neutral;
 
 /**
  * The tone each grounding verdict carries. Only the tone.
@@ -218,18 +222,18 @@ const NEUTRAL_DOT = "bg-muted-foreground/40";
  * render in two tabs of one run.
  */
 const EVIDENCE_DOT: Record<EvidenceAssessment["strength"], string> = {
-  well_grounded: "bg-emerald-500",
-  partial: "bg-blue-500",
-  thin: "bg-amber-400",
-  unsupported: "bg-[hsl(var(--tone-danger))]",
+  well_grounded: TONE_DOT.success,
+  partial: TONE_DOT.info,
+  thin: TONE_DOT.warning,
+  unsupported: TONE_DOT.danger,
   unknown: NEUTRAL_DOT,
 };
 
 
 const RELATION_DOT: Record<Match["relation"], string> = {
-  contradicts: "bg-[hsl(var(--tone-danger))]",
-  extends: "bg-amber-400",
-  confirms: "bg-emerald-500",
+  contradicts: TONE_DOT.danger,
+  extends: TONE_DOT.warning,
+  confirms: TONE_DOT.success,
   unrelated: NEUTRAL_DOT,
 };
 
@@ -270,9 +274,9 @@ function formatFieldLinks(fieldLinks: QuantitativeTarget["field_links"]): string
  * matches is not good or bad news on its own.
  */
 const OUTCOME_DOT: Record<PrecedentSignal["outcome"], string> = {
-  favorable: "bg-emerald-500",
-  mixed: "bg-amber-400",
-  unfavorable: "bg-[hsl(var(--tone-danger))]",
+  favorable: TONE_DOT.success,
+  mixed: TONE_DOT.warning,
+  unfavorable: TONE_DOT.danger,
   unknown: NEUTRAL_DOT,
 };
 
@@ -395,7 +399,7 @@ function RolePill({ role }: { role: string }) {
  */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <p className={EYEBROW}>
       {children}
     </p>
   );
@@ -931,14 +935,14 @@ function DocumentTargetReviewCheckpoint({
             <>
               {flaggedCount > 0 ? (
                 <>
-                  <ReviewCount dot="bg-emerald-500" label={`${confirmRecommendationCount} confirm recommended`} />
-                  <ReviewCount dot="bg-muted-foreground/50" label={`${excludeRecommendationCount} exclude recommended`} />
-                  <ReviewCount dot="bg-amber-400" label={`${manualTargetCount} needs review`} />
+                  <ReviewCount dot={TONE_DOT.success} label={`${confirmRecommendationCount} confirm recommended`} />
+                  <ReviewCount dot={TONE_DOT.neutral} label={`${excludeRecommendationCount} exclude recommended`} />
+                  <ReviewCount dot={TONE_DOT.warning} label={`${manualTargetCount} needs review`} />
                 </>
               ) : (
                 <>
-                  <ReviewCount dot="bg-emerald-500" label={`${confirmedCount} confirmed`} />
-                  <ReviewCount dot="bg-muted-foreground/50" label={`${excludedCount} excluded`} />
+                  <ReviewCount dot={TONE_DOT.success} label={`${confirmedCount} confirmed`} />
+                  <ReviewCount dot={TONE_DOT.neutral} label={`${excludedCount} excluded`} />
                 </>
               )}
             </>
@@ -1013,7 +1017,7 @@ function DocumentTargetReviewCheckpoint({
               <dl className="mt-5 grid gap-x-5 gap-y-4 sm:grid-cols-2">
                 {comparisonDimensions(target).map((dimension) => (
                   <div key={dimension} className="min-w-0">
-                    <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <dt className={EYEBROW}>
                       {dimensionLabel(dimension)}
                     </dt>
                     <dd className="mt-0.5 text-xs leading-relaxed text-foreground">
@@ -1153,7 +1157,7 @@ function ReviewCheckpointHeader({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <p className={EYEBROW}>
               {eyebrow}
             </p>
             <ReviewHelp>{help}</ReviewHelp>
@@ -1242,9 +1246,9 @@ function ReviewListRow({
   detail: string;
 }) {
   const statusClass = {
-    positive: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    positive: "border-[hsl(var(--tone-success))]/25 bg-[hsl(var(--tone-success))]/[0.06] text-[hsl(var(--tone-success))]",
     neutral: "border-border bg-muted/35 text-muted-foreground",
-    warning: "border-amber-200 bg-amber-50 text-amber-800",
+    warning: "border-[hsl(var(--tone-warning))]/25 bg-[hsl(var(--tone-warning))]/[0.06] text-[hsl(var(--tone-warning))]",
   }[tone];
   return (
     <button
@@ -1286,13 +1290,13 @@ function ReviewRecommendation({
   children: ReactNode;
 }) {
   const accent = {
-    positive: "text-emerald-700",
+    positive: TONE_TEXT.success,
     neutral: "text-muted-foreground",
-    warning: "text-amber-700",
+    warning: TONE_TEXT.warning,
   }[tone];
   return (
     <div className="mt-4 rounded-lg border border-border/60 bg-muted/20 p-3">
-      <p className={`text-[10px] font-semibold uppercase tracking-wide ${accent}`}>
+      <p className={cn(EYEBROW, accent)}>
         AI recommendation · {label}
       </p>
       <Reading>{children}</Reading>
@@ -1559,14 +1563,14 @@ function QuantitativeReviewCheckpoint({
             <>
               {pendingGroups.length > 0 ? (
                 <>
-                  <ReviewCount dot="bg-emerald-500" label={`${recommendationSummary.admit} admit recommended`} />
-                  <ReviewCount dot="bg-muted-foreground/50" label={`${recommendationSummary.reject} reject recommended`} />
-                  <ReviewCount dot="bg-amber-400" label={`${recommendationSummary.flag} needs review`} />
+                  <ReviewCount dot={TONE_DOT.success} label={`${recommendationSummary.admit} admit recommended`} />
+                  <ReviewCount dot={TONE_DOT.neutral} label={`${recommendationSummary.reject} reject recommended`} />
+                  <ReviewCount dot={TONE_DOT.warning} label={`${recommendationSummary.flag} needs review`} />
                 </>
               ) : (
                 <>
-                  <ReviewCount dot="bg-emerald-500" label={`${admittedGroupCount} admitted`} />
-                  <ReviewCount dot="bg-muted-foreground/50" label={`${rejectedGroupCount} rejected`} />
+                  <ReviewCount dot={TONE_DOT.success} label={`${admittedGroupCount} admitted`} />
+                  <ReviewCount dot={TONE_DOT.neutral} label={`${rejectedGroupCount} rejected`} />
                 </>
               )}
             </>
@@ -1728,7 +1732,7 @@ function QuantitativeReviewCheckpoint({
             </div>
           </div>
           {measurement ? <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
-            <div className="hidden grid-cols-[0.8fr_1fr_1fr_0.65fr] gap-4 bg-muted/35 px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+            <div className={cn(EYEBROW, "hidden grid-cols-[0.8fr_1fr_1fr_0.65fr] gap-4 bg-muted/35 px-4 py-2 sm:grid")}>
               <span>Dimension</span><span>Target</span><span>Evidence</span><span>Mapping</span>
             </div>
             {dimensions.map((dimension) => {
@@ -1741,11 +1745,11 @@ function QuantitativeReviewCheckpoint({
                   key={dimension}
                   className="grid gap-1 border-t border-border/60 px-4 py-3 first:border-t-0 sm:grid-cols-[0.8fr_1fr_1fr_0.65fr] sm:gap-4"
                 >
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-xs sm:normal-case sm:tracking-normal">
+                  <span className={cn(EYEBROW, "sm:text-xs sm:normal-case sm:tracking-normal")}>
                     {dimensionLabel(dimension)}
                   </span>
                   <span className="flex gap-2 text-xs text-foreground">
-                    <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground sm:hidden">Target</span>
+                    <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>Target</span>
                     <span>
                       {semanticSlotLabel(targetSlot)}
                       {comparisonRule && (
@@ -1756,11 +1760,11 @@ function QuantitativeReviewCheckpoint({
                     </span>
                   </span>
                   <span className="flex gap-2 text-xs text-foreground">
-                    <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground sm:hidden">Evidence</span>
+                    <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>Evidence</span>
                     {semanticSlotLabel(mapped?.source)}
                   </span>
                   <span className="flex gap-2 text-xs font-medium text-muted-foreground">
-                    <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide sm:hidden">Mapping</span>
+                    <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>Mapping</span>
                     {compatibility === "yes" ? "Aligned" : compatibility === "no" ? "Different" : "Uncertain"}
                   </span>
                 </div>
@@ -1854,14 +1858,16 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
   return (
     <div
       role="status"
-      className="flex items-start gap-2.5 rounded-lg border border-amber-300/60 bg-amber-50/60 px-3.5 py-3 text-xs text-amber-950"
+      className="flex items-start gap-2.5 rounded-lg border border-[hsl(var(--tone-warning))]/30 bg-[hsl(var(--tone-warning))]/[0.07] px-3.5 py-3 text-xs text-foreground"
     >
       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
       <div className="min-w-0">
         <p className="font-medium">Review document context</p>
-        <p className="mt-0.5 leading-relaxed text-amber-950/75">
-          {message} {validation.reason}
-        </p>
+        {/* The tool's own statement of what it found, then the model's reason for it. They
+            were one paragraph, which put a sentence the interface composed and a sentence a
+            model wrote in the same voice. */}
+        <p className="mt-0.5 leading-relaxed text-muted-foreground">{message}</p>
+        <Reading size="prominent" className="mt-1">{validation.reason}</Reading>
       </div>
     </div>
   );
@@ -2686,7 +2692,7 @@ function SafetyObservations({
                 >
                   <summary className={EXPANDABLE_ROW}>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <p className={EYEBROW}>
                         {safetyRecordTypeLabel(observation.record_type)} · {safetySourceSystemLabel(observation.source_system)}
                       </p>
                       <h4 className="mt-1 text-sm font-semibold text-foreground">
@@ -3077,13 +3083,13 @@ function TargetRows({ rows, blockIds }: { rows: TargetRow[]; blockIds: string[] 
       </div>
       {bounded && (
         <div className="mt-2 hidden grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_7rem] gap-x-4 pb-1 sm:grid">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className={EYEBROW}>
             Variable
           </span>
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className={EYEBROW}>
             Minimum
           </span>
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className={EYEBROW}>
             Optimistic
           </span>
         </div>
@@ -3102,11 +3108,11 @@ function TargetRows({ rows, blockIds }: { rows: TargetRow[]; blockIds: string[] 
             >
               <p className="text-xs font-medium text-foreground">{row.variable}</p>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                <span className="text-[10px] uppercase tracking-wide sm:hidden">Minimum </span>
+                <span className={cn(EYEBROW, "sm:hidden")}>Minimum </span>
                 {row.minimum || "—"}
               </p>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                <span className="text-[10px] uppercase tracking-wide sm:hidden">Optimistic </span>
+                <span className={cn(EYEBROW, "sm:hidden")}>Optimistic </span>
                 {row.optimistic || "—"}
               </p>
               {/* Against the right edge, matching the numeric-target rows below, which
@@ -3314,7 +3320,7 @@ function ConformityBlock({
 function StatCell({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
     <div className="py-1">
-      <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dt className={EYEBROW}>{label}</dt>
       <dd className="mt-0.5 text-xs font-medium text-foreground">{value}</dd>
       {detail && <dd className="text-[11px] text-muted-foreground">{detail}</dd>}
     </div>

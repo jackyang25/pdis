@@ -1,9 +1,12 @@
 import { cn } from "@/lib/utils";
+import { EYEBROW } from "@/lib/typography";
 
 type Kind = "issue" | "recommendation";
 
+// The left rule is coloured, which is what tells this apart from a quotation's neutral one.
+// Its colour is a verdict, so it comes from the tone scale rather than the palette.
 const KIND_STYLES: Record<Kind, { label: string; border: string }> = {
-  issue: { label: "Warning", border: "border-l-amber-500" },
+  issue: { label: "Warning", border: "border-l-[hsl(var(--tone-warning))]" },
   recommendation: { label: "Recommendation", border: "border-l-foreground" },
 };
 
@@ -18,7 +21,7 @@ export function LabeledItem({ kind, children, meta, className }: Props) {
   const style = KIND_STYLES[kind];
   return (
     <div className={cn("border-l-2 pl-3", style.border, className)}>
-      <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+      <div className={cn("mb-1 flex items-center gap-2", EYEBROW)}>
         <span>{style.label}</span>
         {meta && <span>{meta}</span>}
       </div>

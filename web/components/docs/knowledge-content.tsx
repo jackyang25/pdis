@@ -4,6 +4,7 @@ import { AlertCircle, ExternalLink, Info } from "lucide-react";
 
 import { ArchitectureGraphs } from "@/components/docs/architecture-graph";
 import type { KnowledgeBlock } from "@/lib/product-knowledge";
+import { TONE_TEXT } from "@/lib/tone";
 import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
 
 /**
@@ -46,7 +47,7 @@ export function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
   if (block.type === "tool_catalog") {
     return (
       <ContentGroup title={block.title}>
-        <DefinitionRows rows={CATALOG.map(([name, role, description]) => [name, `${role} — ${description}`] as const)} />
+        <DefinitionRows rows={CATALOG.map(([name, role, description]) => [name, `${role} · ${description}`] as const)} />
       </ContentGroup>
     );
   }
@@ -149,14 +150,14 @@ function Callout({
   return (
     <aside
       className={`mt-6 rounded-lg border p-4 ${warning
-        ? "border-amber-400/30 bg-amber-400/[0.04]"
+        ? "border-[hsl(var(--tone-warning))]/30 bg-[hsl(var(--tone-warning))]/[0.05]"
         : "border-border bg-muted/20"
       }`}
     >
       <div className="flex items-start gap-3">
         <Icon
           className={`mt-0.5 h-4 w-4 shrink-0 ${warning
-            ? "text-amber-600 dark:text-amber-300"
+            ? TONE_TEXT.warning
             : "text-muted-foreground"
           }`}
           aria-hidden="true"

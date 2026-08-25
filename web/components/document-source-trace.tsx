@@ -16,7 +16,9 @@ import { sourcePassageAriaLabel } from "@/lib/block-reference";
 import { CitedMark, Quoted } from "@/components/ui/evidence-text";
 import { markCitedText } from "@/lib/cited-text";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
+import { ProvenanceTrigger, stopRowToggle , PROVENANCE_PANEL} from "@/components/ui/provenance";
+import { EYEBROW } from "@/lib/typography";
+import { cn } from "@/lib/utils";
 
 export type DocumentSpan = { quote: string; block_ids: string[] };
 
@@ -113,7 +115,7 @@ export function DocumentSourceTrace({
         align="end"
         sideOffset={6}
         collisionPadding={12}
-        className="w-[min(720px,calc(100vw-24px))] overflow-hidden p-0"
+        className={cn(PROVENANCE_PANEL.width, "overflow-hidden p-0")}
       >
         <TracePanelHeader
           eyebrow="Source passage"
@@ -142,7 +144,7 @@ export function DocumentSourceTrace({
                         : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                     }`}
                   >
-                    <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <span className={cn("block", EYEBROW)}>
                       Passage {index + 1}
                     </span>
                     <span className="mt-0.5 block truncate text-[11px] font-medium">{label}</span>
@@ -151,7 +153,9 @@ export function DocumentSourceTrace({
               })}
             </nav>
           )}
-          <article className="max-h-[min(58vh,520px)] min-w-0 overflow-y-auto px-4 py-4">
+          {/* The same scroll box as its three sibling panels. It was 58vh where they were 60,
+                a difference of two viewport percent that marked nothing. */}
+          <article className={cn(PROVENANCE_PANEL.scroll, "min-w-0 overflow-y-auto px-4 py-4")}>
             {selectedBlock ? (
               <>
                 <div className="min-w-0">
@@ -172,7 +176,7 @@ export function DocumentSourceTrace({
                 )}
                 {selectedBlock.content && (
                   <section className="mt-3">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className={EYEBROW}>
                       Passage
                     </p>
                     {/* The cited words marked where they sit, not repeated above. Showing them
@@ -193,7 +197,7 @@ export function DocumentSourceTrace({
                         unlocatable citation and it vanishing. */}
                     {citedPassage.unplaced.length > 0 && (
                       <div className="mt-2.5">
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <p className={EYEBROW}>
                           Cited text not found in this passage
                         </p>
                         {citedPassage.unplaced.map((quote) => (
@@ -213,7 +217,7 @@ export function DocumentSourceTrace({
               </div>
             )}
             <footer className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
-              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Block ID</span>
+              <span className={EYEBROW}>Block ID</span>
               <BlockReferenceId
                 blockId={selectedBlockId}
                 className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground"

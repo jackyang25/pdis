@@ -20,6 +20,7 @@ import { runLabel } from "@/lib/result-file";
 import { useSearcherSession } from "@/lib/session";
 import { SourceAttributions } from "@/components/source-attributions";
 import type { Finding } from "@/lib/api";
+import { EYEBROW } from "@/lib/typography";
 
 export default function SearcherPage() {
   const [query, setQuery] = useState("");
@@ -576,7 +577,7 @@ function Lanes({
       </p>
       {groups.map((group) => (
         <div key={group.name}>
-          <p className="border-b border-border bg-muted/30 px-4 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <p className={cn("border-b border-border bg-muted/30 px-4 py-1.5", EYEBROW)}>
             {group.name}
           </p>
           <ul className="divide-y divide-border">

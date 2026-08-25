@@ -30,6 +30,7 @@ import type {
   ArchitectureNodeKind,
 } from "@/lib/product-knowledge";
 import { graphIcon } from "@/lib/pdis-icon-paths";
+import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { PdisIcon } from "@/components/ui/pdis-icon";
 import { ToolDetail } from "@/components/docs/tool-detail";
@@ -74,7 +75,7 @@ function ArchitectureNode({ data, selected }: NodeProps<ArchitectureFlowNode>) {
       <Handle type="target" position={Position.Left} className="!h-1 !w-1 !border-0 !bg-border !opacity-0" />
       <Handle type="source" position={Position.Right} className="!h-1 !w-1 !border-0 !bg-border !opacity-0" />
       <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+        <span className={cn("flex min-w-0 items-center gap-1.5", EYEBROW)}>
           <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span className="truncate">{data.layer}</span>
         </span>
@@ -207,7 +208,7 @@ function NodeInspector({
           Back to overview
         </button>
       ) : null}
-      <div className={cn("flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground", parent && "mt-4")}>
+      <div className={cn("flex items-center gap-2", EYEBROW, parent && "mt-4")}>
         <Icon className="h-3.5 w-3.5" aria-hidden="true" />
         {node.layer === meta.label ? node.layer : `${node.layer} · ${meta.label}`}
       </div>
@@ -231,7 +232,7 @@ function NodeInspector({
       <InspectorList title="Produces" items={node.outputs} />
       {node.guarantee ? (
         <div className="mt-4 border-t border-border/70 pt-4">
-          <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <div className={cn("flex items-center gap-1.5", EYEBROW)}>
             <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
             Contract boundary
           </div>
@@ -246,7 +247,7 @@ function InspectorList({ title, items }: { title: string; items?: string[] }) {
   if (!items?.length) return null;
   return (
     <div className="mt-4 border-t border-border/70 pt-4">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+      <p className={EYEBROW}>{title}</p>
       <ul className="mt-2 space-y-1.5">
         {items.map((item) => (
           <li key={item} className="flex gap-2 text-[11px] leading-[1.45] text-muted-foreground">
@@ -436,7 +437,7 @@ export function ArchitectureGraphs({
                   <Icon className="h-3.5 w-3.5" aria-hidden="true" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <span className={cn("flex items-center gap-1.5", EYEBROW)}>
                     <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meta.dot)} />
                     <span className="truncate">{node.layer === meta.label ? node.layer : `${node.layer} · ${meta.label}`}</span>
                   </span>
@@ -464,7 +465,7 @@ export function ArchitectureGraphs({
                 <InspectorList title="Produces" items={node.outputs} />
                 {node.guarantee ? (
                   <div className="mt-4 border-t border-border/70 pt-4">
-                    <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <div className={cn("flex items-center gap-1.5", EYEBROW)}>
                       <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                       Contract boundary
                     </div>

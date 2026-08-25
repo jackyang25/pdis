@@ -18,6 +18,23 @@ const SCANNED = ["app", "components", "lib"];
 const SHIMMER_OWNER = path.join("components", "ui", "skeleton.tsx");
 /** Motion recipes are declared here, so this file states durations directly. */
 const MOTION_SOURCE = path.join("lib", "motion.ts");
+/** The text recipes are declared here, so this file states their class strings directly. */
+const TYPOGRAPHY_SOURCE = path.join("lib", "typography.ts");
+
+/** The tone scale is declared here, so this file states its class strings directly. */
+const TONE_SOURCE = path.join("lib", "tone.ts");
+
+/**
+ * Files allowed a palette colour, and why.
+ *
+ * The rule is about *result signals*: a verdict, a grade, a status. Decoration is not one,
+ * and giving the page's background wash a semantic token would say a judgement is being made
+ * where none is.
+ */
+const PALETTE_EXEMPT: Record<string, string> = {
+  [path.join("components", "app-shell.tsx")]:
+    "two blurred background shapes behind the page, which signal nothing",
+};
 
 function sourceFiles(): string[] {
   const out: string[] = [];
@@ -179,17 +196,71 @@ test("a jump holds for the standard duration, not a hand-picked one", () => {
   );
 });
 
-test("failure signals use the danger tone, never a raw red", () => {
-  // Grade F, `unsupported`, `contradicts`, `unfavorable`, and `conflict` are the
-  // same judgement in four tools, so they share one themed, contrast-checked
-  // token. `text-destructive` stays for system errors, which are a different
-  // thing from a bad result.
-  const offenders = FILES.filter(({ text }) => /-red-\d{2,3}/.test(text)).map(
-    ({ relative }) => relative,
-  );
+test("a result signal uses a tone token, never a raw palette colour", () => {
+  // Grade F, `unsupported`, `contradicts`, `unfavorable`, and `conflict` are the same
+  // judgement in four tools, so they share one themed, contrast-checked token.
+  // `text-destructive` stays for system errors, which are a different thing from a bad
+  // result.
+  //
+  // This covered red alone for a long time, and the gap showed: `success` and `warning` had
+  // tokens that Expert and Aligner used while Scout wrote `bg-emerald-500` and
+  // `bg-amber-400` eighteen times and Inspector wrote the palette with a hand-kept `dark:`
+  // variant beside it. **None of Scout's eighteen had a dark-mode variant at all**, so a
+  // verdict that read at one contrast in light mode read at another in dark. A token cannot
+  // have that problem: the theme swaps underneath it.
+  const PALETTE = /-(?:red|green|emerald|amber|yellow|orange|blue|sky|indigo|violet|purple|pink|rose|teal|cyan|lime)-\d{2,3}\b/;
+  const offenders = FILES.filter(
+    ({ relative, text }) =>
+      relative !== TONE_SOURCE && !PALETTE_EXEMPT[relative] && PALETTE.test(text),
+  ).map(({ relative }) => relative);
   assert.deepEqual(
     offenders,
     [],
-    "use hsl(var(--tone-danger)) for a negative signal, or text-destructive for an error",
+    "use TONE_DOT, TONE_TEXT or TONE_TINT from lib/tone.ts, or text-destructive for an error",
   );
+});
+
+test("the tone scale is declared once, and every tone has all three shapes", () => {
+  // A signal appears as a dot, as a word, or as a filled chip, and nowhere else. A tone
+  // missing one of the three is how a call site comes to reach for the palette again.
+  const tone = FILES.find(({ relative }) => relative === TONE_SOURCE);
+  if (!tone) throw new Error("lib/tone.ts is missing");
+  for (const shape of ["TONE_DOT", "TONE_TEXT", "TONE_TINT"]) {
+    assert.match(tone.text, new RegExp(`export const ${shape}: Record<Tone, string>`));
+  }
+  const source: string = tone.text;
+  for (const name of ["success", "warning", "danger", "info", "neutral"]) {
+    const shapes: number = source.split(new RegExp(`^  ${name}:`, "m")).length - 1;
+    assert.equal(shapes, 3, `${name} is missing one of the three shapes`);
+  }
+});
+
+test("nothing re-declares the tone scale", () => {
+  const offenders = FILES.filter(
+    ({ relative, text }) =>
+      relative !== TONE_SOURCE && /export const TONE_(DOT|TEXT|TINT)\b/.test(text),
+  ).map(({ relative }) => relative);
+  assert.deepEqual(offenders, [], "a second tone scale defeats the point of having one");
+});
+
+test("an eyebrow label is one shape, not a letter-spacing per author", () => {
+  // The audit that produced `lib/typography.ts`: this label appeared 36 times across five
+  // letter-spacings (`tracking-wide`, `[0.08em]`, `[0.1em]`, `[0.12em]`, `[0.14em]`) and two
+  // weights. Nothing distinguished them; they are the same label doing the same job in a
+  // panel header, a definition list, a table column and a form field.
+  const offenders = FILES.filter(
+    ({ relative, text }) =>
+      relative !== TYPOGRAPHY_SOURCE && /text-\[10px\][^"`]*\buppercase\b/.test(text),
+  ).map(({ relative }) => relative);
+  assert.deepEqual(offenders, [], "import EYEBROW from lib/typography.ts");
+});
+
+test("a count is tabular wherever it is written", () => {
+  // A column of counts that do not line up is harder to scan than no column. Ten files wrote
+  // this out and one of them at a size larger than the rest.
+  const source = FILES.find(({ relative }) => relative === TYPOGRAPHY_SOURCE);
+  if (!source) throw new Error("lib/typography.ts is missing");
+  assert.match(source.text, /export const EYEBROW =/);
+  assert.match(source.text, /export const COUNT =/);
+  assert.match(source.text, /tabular-nums/);
 });

@@ -28,7 +28,8 @@ import {
   LEVEL_LABELS,
   REASON_LABELS,
   SHORTFALL_LEVELS,
-  STATUS_LABELS,
+  STATUS_DESCRIPTION,
+  STATUS_LABEL,
   runInspector,
   sectionShortfalls,
   worklist,
@@ -63,6 +64,7 @@ import {
 } from "@/lib/session";
 import { usePriorityDigest } from "@/lib/priority-digest";
 import { toolAuthority } from "@/lib/tools";
+import { TONE_TEXT, TONE_TINT } from "@/lib/tone";
 import { cn } from "@/lib/utils";
 
 const INSPECTOR_STEPS = [
@@ -256,7 +258,7 @@ function InspectionResultView({
       }
     >
       {!final && (
-        <div className="border-b border-border bg-amber-500/[0.05] px-5 py-3 text-sm text-amber-800 dark:text-amber-300 sm:px-6">
+        <div className={cn("border-b border-border bg-[hsl(var(--tone-warning))]/[0.06] px-5 py-3 text-sm sm:px-6", TONE_TEXT.warning)}>
           This assessment is incomplete. Complete the analysis before downloading a final result.
         </div>
       )}
@@ -475,9 +477,9 @@ function ConsistencyView({
       <div className="rounded-lg border border-border bg-muted/15 px-5 py-5">
         <div className="flex items-start gap-3">
           {complete ? (
-            <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
+            <CheckCircle2 className={cn("mt-0.5 h-4 w-4", TONE_TEXT.success)} />
           ) : (
-            <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
+            <AlertTriangle className={cn("mt-0.5 h-4 w-4", TONE_TEXT.warning)} />
           )}
           <div>
             <p className="text-sm font-medium">
@@ -526,39 +528,32 @@ function StatusPill({ status }: { status: UnitStatus }) {
   return (
     <InspectorSignalLabel topic="status">
       <span
-        title={STATUS_LABELS[status]}
+        title={STATUS_DESCRIPTION[status]}
         className={cn(
           "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
           STATUS_SURFACE[status],
         )}
       >
-        {STATUS_BADGES[status]}
+        {STATUS_LABEL[status]}
       </span>
     </InspectorSignalLabel>
   );
 }
 
-/**
- * Short forms for a pill, and colour as a reading aid for the word beside it.
- *
- * `not_applicable` is neutral rather than a lesser result: the rubric accepts the
- * absence.
- */
-const STATUS_BADGES: Record<UnitStatus, string> = {
-  met: "Met",
-  could_be_stronger: "Could be stronger",
-  not_met: "Not met",
-  not_applicable: "N/A",
-};
+/* The short forms moved to `lib/api.ts` as `STATUS_LABEL`. They lived here, so the document
+   trace could not reach them and rendered the description as pill text instead. Colour is
+   still a local concern: see `STATUS_SURFACE`. */
 
+// Half of these reached the tone tokens and half wrote the palette out with a hand-kept
+// dark-mode variant beside it, for verdicts that sit in the same row as each other.
 const STATUS_SURFACE: Record<UnitStatus, string> = {
-  met: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  could_be_stronger: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  not_met: "bg-[hsl(var(--tone-danger))]/10 text-[hsl(var(--tone-danger))]",
-  not_applicable: "bg-muted text-muted-foreground",
+  met: TONE_TINT.success,
+  could_be_stronger: TONE_TINT.warning,
+  not_met: TONE_TINT.danger,
+  not_applicable: TONE_TINT.neutral,
 };
 
 const LEVEL_SURFACE: Record<FindingLevel, string> = {
-  not_met: "bg-[hsl(var(--tone-danger))]/10 text-[hsl(var(--tone-danger))]",
-  could_be_stronger: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  not_met: TONE_TINT.danger,
+  could_be_stronger: TONE_TINT.warning,
 };

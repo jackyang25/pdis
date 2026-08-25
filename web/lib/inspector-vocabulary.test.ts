@@ -19,7 +19,8 @@ import {
   FINDING_REASONS,
   LEVEL_LABELS,
   REASON_LABELS,
-  STATUS_LABELS,
+  STATUS_DESCRIPTION,
+  STATUS_LABEL,
   UNIT_STATUSES,
   reasonLabel,
 } from "./api.ts";
@@ -56,7 +57,10 @@ test("every published value has a label, so none renders as a raw key", () => {
     assert.ok(LEVEL_LABELS[level], `${level} has no label`);
   }
   for (const status of UNIT_STATUSES) {
-    assert.ok(STATUS_LABELS[status], `${status} has no label`);
+    // Both, because a status now names itself and explains itself separately: a label short
+    // enough for a pill, and the sentence behind it.
+    assert.ok(STATUS_LABEL[status], `${status} has no label`);
+    assert.ok(STATUS_DESCRIPTION[status], `${status} has no description`);
   }
 });
 
@@ -78,7 +82,8 @@ test("no label asserts a consequence the tool cannot see", () => {
   for (const text of [
     ...Object.values(REASON_LABELS),
     ...Object.values(LEVEL_LABELS),
-    ...Object.values(STATUS_LABELS),
+    ...Object.values(STATUS_LABEL),
+    ...Object.values(STATUS_DESCRIPTION),
   ]) {
     assert.ok(!forbidden.test(text), `"${text}" asserts a consequence`);
   }

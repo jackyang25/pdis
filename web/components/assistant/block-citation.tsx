@@ -10,6 +10,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { EYEBROW } from "@/lib/typography";
 
 /**
  * A cited document passage, opened where it was cited.
@@ -58,7 +59,7 @@ export function BlockCitation({
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-3">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <p className={EYEBROW}>
           {heading}
         </p>
         <p className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-foreground">

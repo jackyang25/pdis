@@ -43,6 +43,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { EYEBROW } from "@/lib/typography";
 
 type LayerOption<TKind extends string> = {
   value: TKind;
@@ -379,7 +380,7 @@ function BlockText<TKind extends string, TRef>({
                   style={{ gridColumnStart: cell.columnIndex + 1 }}
                 >
                   {headerSegments.length > 0 && (
-                    <dt className="mb-1 text-[10px] font-semibold uppercase leading-4 tracking-[0.08em] text-muted-foreground">
+                    <dt className={cn("mb-1", EYEBROW)}>
                       <TraceSegmentText
                         blockId={traceBlock.block.id}
                         segments={headerSegments}
@@ -463,7 +464,7 @@ function AnnotationInspector<TKind extends string, TRef>({
     <div>
       {annotations.length > 1 && (
         <div className="border-b border-border/80 px-4 py-3">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <p className={cn("mb-2", EYEBROW)}>
             Connected results · {annotations.length}
           </p>
           <div className="max-h-60 space-y-1 overflow-y-auto overscroll-contain pr-1">
@@ -481,7 +482,7 @@ function AnnotationInspector<TKind extends string, TRef>({
                     : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
-                <span className="truncate text-[10px] font-semibold uppercase tracking-[0.08em]">
+                <span className={cn(EYEBROW, "truncate text-foreground")}>
                   {annotation.layerLabel}
                 </span>
                 <span className="truncate text-xs font-medium">{annotation.title}</span>

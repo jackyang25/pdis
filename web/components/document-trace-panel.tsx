@@ -8,6 +8,7 @@ import {
   type DocumentTracePassage,
 } from "@/lib/document-trace";
 import { cn } from "@/lib/utils";
+import { EYEBROW } from "@/lib/typography";
 
 export function TracePanelHeader({
   eyebrow,
@@ -26,7 +27,7 @@ export function TracePanelHeader({
     <header className={cn("border-b border-border/80 px-4 py-3.5", className)}>
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <p className={EYEBROW}>
             {eyebrow}
           </p>
           <h3 className="mt-1 text-balance text-sm font-semibold leading-tight text-foreground">
@@ -57,7 +58,7 @@ export function TracePanelSection({
 }) {
   return (
     <section className={cn("border-t border-border/70 pt-4", className)}>
-      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+      <div className={cn("flex items-center gap-2", EYEBROW)}>
         {Icon && <Icon className="h-3.5 w-3.5" aria-hidden="true" />}
         {label}
       </div>
@@ -130,7 +131,7 @@ export function TracePassageList({
               </span>
               <span className="min-w-0">
                 {(spansDocuments || passage.sectionLabel) && (
-                  <span className="block truncate text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                  <span className={cn("block truncate", EYEBROW)}>
                     {[
                       spansDocuments ? displayDocumentName(passage.documentId) : "",
                       passage.sectionLabel,

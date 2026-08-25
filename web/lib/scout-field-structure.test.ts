@@ -149,11 +149,10 @@ test("every panel behind a provenance trigger opens the same way", () => {
   for (const file of panels) {
     const text = readFileSync(path.resolve(import.meta.dirname, "..", file), "utf8");
     assert.match(text, /TracePanelHeader/, `${file} heads its panel by hand`);
-    assert.match(
-      text,
-      /w-\[min\(720px,calc\(100vw-24px\)\)\]/,
-      `${file} opens at its own width`,
-    );
+    // The geometry is a constant now. It was four copies of the width and three of the
+    // scroll height, beside near-variants at 58vh and 76vh.
+    assert.match(text, /PROVENANCE_PANEL\.width/, `${file} opens at its own width`);
+    assert.match(text, /PROVENANCE_PANEL\.scroll/, `${file} scrolls at its own height`);
     assert.match(text, /<ProvenanceTrigger/, `${file} draws its own trigger`);
   }
 });

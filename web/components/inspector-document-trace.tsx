@@ -12,7 +12,12 @@ import {
   TracePanelSection,
   TracePassageList,
 } from "@/components/document-trace-panel";
-import { FINDING_REASONS, REASON_LABELS, STATUS_LABELS } from "@/lib/api";
+import {
+  FINDING_REASONS,
+  REASON_LABELS,
+  STATUS_DESCRIPTION,
+  STATUS_LABEL,
+} from "@/lib/api";
 import type { InspectionResult } from "@/lib/api";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
 import {
@@ -62,10 +67,12 @@ function InspectorTraceInspector({
       <div className="px-5 py-5">
         {ref.status && (
           <span
-            title={STATUS_LABELS[ref.status]}
+            title={STATUS_DESCRIPTION[ref.status]}
             className="inline-flex min-h-7 items-center rounded-full border border-border/80 bg-muted/25 px-2.5 text-[10px] font-medium text-foreground/80"
           >
-            {STATUS_LABELS[ref.status]}
+            {/* The short form. This rendered the description, which is a sentence, as pill
+                text: "The rubric asks for this and the document does not usably supply it". */}
+            {STATUS_LABEL[ref.status]}
           </span>
         )}
 

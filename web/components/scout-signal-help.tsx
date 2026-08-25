@@ -40,7 +40,7 @@ const TOPICS: Record<ScoutSignalTopic, SignalTopic> = {
     summary:
       "One verdict for the whole field: how well outside evidence justifies the target.",
     detail:
-      "Well grounded, Partly grounded, Thinly grounded, Unsupported, or Grounding unknown. The count is the evidence this verdict rests on, and it need not match the relationship counts.",
+      "Well grounded, Partly grounded, Thinly grounded, Unsupported, or Grounding unknown. Justification counts the insights this verdict rests on, and it need not match the relation counts.",
     promptRef: { tool: "scout", stage: "evidence_assessor" },
   },
   measurable: {

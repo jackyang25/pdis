@@ -65,6 +65,44 @@ export function formatMeasurePair(
   return `${lead}${separator}${formatMeasure(second, unit)}`;
 }
 
+/**
+ * Why a measurement was left out, split by who established it.
+ *
+ * `checks` are deterministic: a fact about the source's own numbers, which cannot be wrong.
+ * `judgment` is a model's reading of whether the source measures the same thing, which can
+ * be. They were one dot-joined paragraph, so the interface rendered the facts in the tone
+ * that means "a model wrote this".
+ *
+ * `other` is whatever neither field claims: a reviewer's own words, or the tool's
+ * needs-review sentence.
+ *
+ * Most of this function is the older saved results. Before `structural_reasons` existed the
+ * two kinds were joined, and the model's reason was stored with a `semantic status: X - `
+ * prefix and could appear twice. Matching on equality alone left the prefixed copy behind, so
+ * the reason showed once cleanly and once again inside the leftovers. `endsWith` catches both
+ * forms, and the set collapses the repeats. Exact string work, not pattern matching: the
+ * prefix is prepended to the reason verbatim.
+ */
+export function exclusionReasonLines(measurement: {
+  exclusion_reasons?: string[];
+  structural_reasons?: string[];
+  semantic_status?: string;
+  semantic_reason?: string;
+}): { checks: string[]; judgment: string; other: string[] } {
+  const checks = measurement.structural_reasons ?? [];
+  const judgment =
+    measurement.semantic_status !== "comparable" ? measurement.semantic_reason || "" : "";
+  const other = Array.from(
+    new Set(
+      (measurement.exclusion_reasons ?? []).filter(
+        (reason) =>
+          !checks.includes(reason) && !(judgment !== "" && reason.endsWith(judgment)),
+      ),
+    ),
+  );
+  return { checks, judgment, other };
+}
+
 // --- The document's target ---------------------------------------------------
 
 /**

@@ -8,7 +8,7 @@ import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
 import { Computed, Reading, SourceEntry } from "@/components/ui/evidence-text";
 import type { Conformity, Match, Measurement } from "@/lib/api";
 import { SEMANTIC_STATUS_LABEL } from "@/lib/scout-labels";
-import { formatMeasure } from "@/lib/scout-result-view";
+import { exclusionReasonLines, formatMeasure } from "@/lib/scout-result-view";
 
 /**
  * What one numeric target's comparison left out, and why.
@@ -136,20 +136,9 @@ function ExcludedMeasurement({
 }) {
   const value = measurement.expression?.value;
 
-  // Why it was left out, split by who established it. A structural check is a fact about the
-  // source's own numbers and cannot be wrong; the semantic reason beside it is a model's
-  // reading and can be. Joined with a middot they were one paragraph, and the facts were
-  // rendered in the muted tone that means "a model wrote this".
-  const structural = measurement.structural_reasons ?? [];
-  const judgment =
-    measurement.semantic_status !== "comparable" ? measurement.semantic_reason || "" : "";
-  // Whatever neither field claims: a reviewer's own words, or the tool's needs-review
-  // sentence. On a result saved before `structural_reasons` existed this also holds the
-  // checks, which then read as they did before rather than being lost. Filtering by exact
-  // equality also drops the second copy those older results carry.
-  const remaining = (measurement.exclusion_reasons ?? []).filter(
-    (reason) => reason !== judgment && !structural.includes(reason),
-  );
+  // Split by who established it, in a tested function: the fallback for older saved results
+  // is most of the logic and it belongs somewhere it can be exercised.
+  const { checks, judgment, other } = exclusionReasonLines(measurement);
 
   return (
     <SourceEntry
@@ -163,16 +152,16 @@ function ExcludedMeasurement({
       quote={measurement.source_quote}
       reading={judgment || undefined}
     >
-      {structural.length > 0 && (
+      {checks.length > 0 && (
         <ul className="mt-1 space-y-0.5">
-          {structural.map((reason) => (
+          {checks.map((reason) => (
             <li key={reason}>
               <Computed className="text-[11px] leading-relaxed">{reason}</Computed>
             </li>
           ))}
         </ul>
       )}
-      {remaining.length > 0 && <Reading>{remaining.join(" · ")}</Reading>}
+      {other.length > 0 && <Reading>{other.join(" · ")}</Reading>}
     </SourceEntry>
   );
 }

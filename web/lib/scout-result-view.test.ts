@@ -16,6 +16,7 @@ import test from "node:test";
 import {
   RELATION_READING_ORDER,
   calibrationView,
+  exclusionReasonLines,
   formatMeasurePair,
   citation,
   documentTargetRows,
@@ -509,4 +510,64 @@ test("uncalibrated targets are counted against the total", () => {
   ]);
   assert.equal(headline.numericTargets, 2);
   assert.equal(headline.uncalibratedTargets, 1);
+});
+
+test("a check reads apart from a judgment", () => {
+  const lines = exclusionReasonLines({
+    semantic_status: "unknown",
+    semantic_reason: "Regimen compatibility is unknown: the quote omits the spacing.",
+    structural_reasons: ["The source states a range, not a single number to compare."],
+    exclusion_reasons: [
+      "Regimen compatibility is unknown: the quote omits the spacing.",
+      "The source states a range, not a single number to compare.",
+    ],
+  });
+  assert.deepEqual(lines.checks, ["The source states a range, not a single number to compare."]);
+  assert.equal(lines.judgment, "Regimen compatibility is unknown: the quote omits the spacing.");
+  assert.deepEqual(lines.other, [], "a reason was shown twice");
+});
+
+test("an older result does not show its judgment twice", () => {
+  // The bug this closes. Before `structural_reasons` existed the reason was stored with a
+  // "semantic status: X - " prefix, so matching on equality left the prefixed copy in the
+  // leftovers and the reason rendered once cleanly and once again inside them.
+  const reason = "Regimen compatibility is unknown: the quote omits the spacing.";
+  const lines = exclusionReasonLines({
+    semantic_status: "unknown",
+    semantic_reason: reason,
+    exclusion_reasons: [
+      `semantic status: unknown — ${reason}`,
+      "numeric expression is range, not an atomic scalar",
+      "numeric expression is range, not an atomic scalar",
+    ],
+  });
+  assert.equal(lines.judgment, reason);
+  // The old duplicate collapses too, and the check survives as an unattributed leftover
+  // rather than being dropped: an older file cannot say which kind it was.
+  assert.deepEqual(lines.other, ["numeric expression is range, not an atomic scalar"]);
+});
+
+test("a comparable measurement claims no judgment", () => {
+  // Excluded for a structural reason alone. Its semantic reason, if any, is not a cause.
+  const lines = exclusionReasonLines({
+    semantic_status: "comparable",
+    semantic_reason: "Every dimension matches.",
+    structural_reasons: ["The source measures in fraction, and the target is in %."],
+    exclusion_reasons: ["The source measures in fraction, and the target is in %."],
+  });
+  assert.equal(lines.judgment, "");
+  assert.deepEqual(lines.other, []);
+});
+
+test("a reviewer's own words survive as their own line", () => {
+  const lines = exclusionReasonLines({
+    semantic_status: "comparable",
+    structural_reasons: [],
+    exclusion_reasons: ["a reviewer rejected this measurement"],
+  });
+  assert.deepEqual(lines.other, ["a reviewer rejected this measurement"]);
+});
+
+test("a measurement with nothing recorded produces nothing", () => {
+  assert.deepEqual(exclusionReasonLines({}), { checks: [], judgment: "", other: [] });
 });

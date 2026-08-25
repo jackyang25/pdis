@@ -122,8 +122,8 @@ export function TracePassageList({
               className={cn(
                 "group/passage grid w-full min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_0.875rem] items-start gap-2 rounded-md border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none",
                 isMarked
-                  ? "border-border bg-muted/70"
-                  : "border-transparent hover:border-border hover:bg-muted/40",
+                  ? "border-border bg-foreground/[0.07]"
+                  : "border-transparent hover:border-border hover:bg-foreground/[0.045]",
               )}
             >
               <span className="pt-px text-[10px] tabular-nums text-muted-foreground">

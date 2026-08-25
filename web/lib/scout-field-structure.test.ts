@@ -145,6 +145,7 @@ test("every panel behind a provenance trigger opens the same way", () => {
     "components/excluded-measurements.tsx",
     "components/comparator-cohort.tsx",
     "components/document-source-trace.tsx",
+    "components/field-searches.tsx",
   ];
   for (const file of panels) {
     const text = readFileSync(path.resolve(import.meta.dirname, "..", file), "utf8");
@@ -224,4 +225,50 @@ test("an arrival is marked with the shared ring, not just scrolled to", () => {
     /prefers-reduced-motion/,
     "the scroll animates even for a reader who asked it not to",
   );
+});
+
+test("the retrieval record is reachable, and not summarised in its place", () => {
+  // `search_plan` held 754 traces on a real run and rendered nowhere. `Sources` is per
+  // insight, so it can only show a search that found something: 229 of 529 distinct queries,
+  // with 300 invisible. Those 300 are what makes a negative verdict readable, since
+  // "Unsupported" means opposite things depending on whether a field was searched sixty ways
+  // or barely touched.
+  assert.match(PAGE, /<FieldSearches/, "a field does not offer its retrieval record");
+  assert.match(PAGE, /searchPlan=\{result\.search_plan\}/);
+
+  // The line it replaced. That named an entity which appeared in 4 of the 62 searches for
+  // its field, so it claimed the aiming of a search it mostly did not aim, and it carried
+  // the evidence domain behind a gate that was not about the evidence domain.
+  // Comment-stripped: the comment explaining why it went names the string it replaced.
+  assert.ok(
+    !CODE.includes("Searched by "),
+    "the entity summary is back in place of the record",
+  );
+});
+
+test("every field states which body of evidence it was searched as", () => {
+  // It was true of all 28 fields and visible on 3, because it rode the entity gate.
+  assert.match(PAGE, /\{dimensionLabel\(evidenceDomain\)\} evidence/);
+  const at = PAGE.indexOf("{dimensionLabel(evidenceDomain)} evidence");
+  const before = PAGE.slice(Math.max(0, at - 400), at);
+  assert.ok(
+    !/entities\.length > 0 && \($/.test(before.trim()),
+    "the domain is gated on something that is not the domain again",
+  );
+});
+
+test("a field row threads no prop it does not render", () => {
+  // `entities` survived the line it fed as a prop on the call site, on the parameter list and
+  // in the type, reaching nothing. A dead prop is worse than dead code: it reads as data the
+  // row uses, so the next reader threads a fourth thing beside it.
+  const declared = [...PAGE.matchAll(/^  ([a-z][A-Za-z0-9]*),$/gm)].map((m) => m[1]);
+  const body = PAGE.slice(PAGE.indexOf("function FieldRow("));
+  const unread = declared.filter((name) => {
+    if (!new RegExp(`^  ${name},$`, "m").test(body)) return false;
+    // Once as the parameter, once in the type, once at the call site. Anything that is read
+    // appears a fourth time.
+    const uses = [...PAGE.matchAll(new RegExp(`\\b${name}\\b`, "g"))].length;
+    return uses <= 3;
+  });
+  assert.deepEqual(unread, [], "a prop is threaded into FieldRow and never read");
 });

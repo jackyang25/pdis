@@ -38,7 +38,7 @@ function Point({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="absolute z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
+          className="absolute z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
           style={{ left: `${point.x}%`, top: `calc(50% + ${laneOffsets[point.lane]}px)` }}
           aria-label={`${contextual ? "Non-admitted measurement" : "Admitted comparator"}: ${formatValue(point.value, unit)}. ${point.source_quote}`}
         >
@@ -131,7 +131,7 @@ export function ComparatorDistributionPlot({
       : "-translate-x-1/2";
 
   return (
-    <figure className="mt-4 rounded-lg border border-border/70 bg-muted/10 px-4 py-4 sm:px-5">
+    <figure className="mt-4 rounded-lg border border-border/70 bg-foreground/[0.045] px-4 py-4 sm:px-5">
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <span className="text-xs font-semibold text-foreground">
           {hasIncluded ? "Comparator distribution" : "Related numeric context"}

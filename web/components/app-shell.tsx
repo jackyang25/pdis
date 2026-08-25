@@ -69,7 +69,7 @@ function ProductHeader({ pathname }: { pathname: string }) {
           <Link
             href="/ask"
             aria-current={pathname === "/ask" ? "page" : undefined}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/5 aria-[current=page]:text-foreground motion-reduce:transition-none"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/[0.045] aria-[current=page]:text-foreground motion-reduce:transition-none"
           >
             <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">Assistant</span>
@@ -77,7 +77,7 @@ function ProductHeader({ pathname }: { pathname: string }) {
           <Link
             href="/docs"
             aria-current={pathname === "/docs" ? "page" : undefined}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/5 aria-[current=page]:text-foreground motion-reduce:transition-none"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/[0.045] aria-[current=page]:text-foreground motion-reduce:transition-none"
           >
             <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">Docs</span>

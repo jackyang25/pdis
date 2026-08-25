@@ -126,7 +126,7 @@ export function DocumentSourceTrace({
           {uniqueBlockIds.length > 1 && (
             <nav
               aria-label="Source passages"
-              className="flex max-h-32 gap-1 overflow-auto border-b border-border/80 bg-muted/15 p-2 sm:max-h-[min(58vh,520px)] sm:flex-col sm:border-b-0 sm:border-r"
+              className="flex max-h-32 gap-1 overflow-auto border-b border-border/80 bg-foreground/[0.045] p-2 sm:max-h-[min(58vh,520px)] sm:flex-col sm:border-b-0 sm:border-r"
             >
               {uniqueBlockIds.map((blockId, index) => {
                 const block = blocksById.get(blockId);
@@ -141,7 +141,7 @@ export function DocumentSourceTrace({
                     className={`min-w-32 rounded-md px-2.5 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/20 sm:min-w-0 ${
                       selectedBlockId === blockId
                         ? "bg-card text-foreground shadow-sm ring-1 ring-border"
-                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                        : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground"
                     }`}
                   >
                     <span className={cn("block", EYEBROW)}>
@@ -165,7 +165,7 @@ export function DocumentSourceTrace({
                   </p>
                 </div>
                 {selectedBlock.image && (
-                  <div className="mt-3 overflow-hidden rounded-lg border border-border/80 bg-muted/20 p-2">
+                  <div className="mt-3 overflow-hidden rounded-lg border border-border/80 bg-foreground/[0.045] p-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={`data:${selectedBlock.image.media_type};base64,${selectedBlock.image.data_base64}`}
@@ -226,7 +226,7 @@ export function DocumentSourceTrace({
                 type="button"
                 onClick={() => void copyBlockId(selectedBlockId)}
                 aria-label={`Copy block ID ${selectedBlockId}`}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
               >
                 {copiedBlockId === selectedBlockId
                   ? <Check className="h-3.5 w-3.5" />
@@ -239,7 +239,7 @@ export function DocumentSourceTrace({
                     setOpen(false);
                     window.requestAnimationFrame(() => onOpenInTrace(selectedBlockId));
                   }}
-                  className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2.5 text-[10px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                  className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2.5 text-[10px] font-medium text-foreground outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
                 >
                   <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
                   Open in document trace

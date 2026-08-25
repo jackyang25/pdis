@@ -334,9 +334,9 @@ export default function SearcherPage() {
             <span className="mr-1 text-xs text-muted-foreground">Sources</span>
             {!sourcesLoaded && (
               <>
-                <span className="h-8 w-20 rounded-md border border-border bg-muted/40" />
-                <span className="h-8 w-24 rounded-md border border-border bg-muted/40" />
-                <span className="h-8 w-16 rounded-md border border-border bg-muted/40" />
+                <span className="h-8 w-20 rounded-md border border-border bg-muted" />
+                <span className="h-8 w-24 rounded-md border border-border bg-muted" />
+                <span className="h-8 w-16 rounded-md border border-border bg-muted" />
               </>
             )}
             {sources.map((source) => {
@@ -577,7 +577,7 @@ function Lanes({
       </p>
       {groups.map((group) => (
         <div key={group.name}>
-          <p className={cn("border-b border-border bg-muted/30 px-4 py-1.5", EYEBROW)}>
+          <p className={cn("border-b border-border bg-foreground/[0.045] px-4 py-1.5", EYEBROW)}>
             {group.name}
           </p>
           <ul className="divide-y divide-border">

@@ -65,14 +65,14 @@ export function RunHistory<TResult>({
               key={run.id}
               className={cn(
                 "flex items-center gap-1",
-                run.id === selectedId && "rounded-sm bg-muted/50",
+                run.id === selectedId && "rounded-sm bg-foreground/[0.07]",
               )}
             >
               <button
                 type="button"
                 onClick={() => onSelect(run.id)}
                 aria-current={run.id === selectedId ? "true" : undefined}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-foreground/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
               >
                 <Check
                   className={cn(
@@ -94,7 +94,7 @@ export function RunHistory<TResult>({
                 type="button"
                 onClick={() => onRemove(run.id)}
                 aria-label={`Remove ${label(run.result)}`}
-                className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
               >
                 <X className="h-3 w-3" aria-hidden="true" />
               </button>

@@ -151,7 +151,7 @@ function Callout({
     <aside
       className={`mt-6 rounded-lg border p-4 ${warning
         ? "border-[hsl(var(--tone-warning))]/30 bg-[hsl(var(--tone-warning))]/[0.05]"
-        : "border-border bg-muted/20"
+        : "border-border bg-foreground/[0.045]"
       }`}
     >
       <div className="flex items-start gap-3">

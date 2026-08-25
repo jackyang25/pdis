@@ -454,7 +454,7 @@ export function Ask({
                     type="button"
                     onClick={() => setAttachments((current) => current.filter((item) => item.doc_id !== attachment.doc_id))}
                     aria-label={`Remove ${attachment.filename}`}
-                    className="rounded-full p-0.5 hover:bg-muted hover:text-foreground"
+                    className="rounded-full p-0.5 hover:bg-foreground/[0.045] hover:text-foreground"
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
@@ -686,7 +686,7 @@ const markdownElements = (sources: CitationSources): Components => ({
     </div>
   ),
   th: ({ children }) => (
-    <th className="border-b border-border bg-muted/40 px-2.5 py-1.5 text-left font-medium">
+    <th className="border-b border-border bg-foreground/[0.045] px-2.5 py-1.5 text-left font-medium">
       {children}
     </th>
   ),

@@ -393,7 +393,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
 
   return (
     <section aria-label="Evidence map" className="bg-card">
-      <div className="flex flex-col gap-3 border-b border-border/80 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <div className="flex flex-col gap-3 border-b border-border/80 bg-foreground/[0.045] px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <label htmlFor="evidence-map-field" className="shrink-0 text-xs font-medium text-muted-foreground">
             Field

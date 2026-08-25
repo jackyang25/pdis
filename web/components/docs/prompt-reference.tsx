@@ -194,7 +194,7 @@ export function PromptReference({ tool }: { tool: ToolKey }) {
                           ? ` · inserts the configured ${prompt.framing_slot.replace(/_/g, " ")}`
                           : ""}
                       </p>
-                      <pre className="mt-2 overflow-x-auto rounded-md border border-border bg-muted/20 p-3 text-[10px] leading-[1.55] text-muted-foreground">
+                      <pre className="mt-2 overflow-x-auto rounded-md border border-border bg-foreground/[0.045] p-3 text-[10px] leading-[1.55] text-muted-foreground">
                         <code className="whitespace-pre-wrap break-words">
                           {prompt.text}
                         </code>
@@ -283,7 +283,7 @@ function Configurations({ entries }: { entries: ConfigurationEntry[] }) {
                   <p className="text-[10px] font-medium text-foreground">
                     {slot.replace(/_/g, " ")}
                   </p>
-                  <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-muted/20 p-3 text-[10px] leading-[1.55] text-muted-foreground">
+                  <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-foreground/[0.045] p-3 text-[10px] leading-[1.55] text-muted-foreground">
                     <code className="whitespace-pre-wrap break-words">{text}</code>
                   </pre>
                 </div>

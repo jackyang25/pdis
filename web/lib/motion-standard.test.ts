@@ -18,6 +18,9 @@ const SCANNED = ["app", "components", "lib"];
 const SHIMMER_OWNER = path.join("components", "ui", "skeleton.tsx");
 /** Motion recipes are declared here, so this file states durations directly. */
 const MOTION_SOURCE = path.join("lib", "motion.ts");
+/** The surface scale is declared here, so this file states its class strings directly. */
+const SURFACE_SOURCE = path.join("lib", "surface.ts");
+
 /** The text recipes are declared here, so this file states their class strings directly. */
 const TYPOGRAPHY_SOURCE = path.join("lib", "typography.ts");
 
@@ -263,4 +266,58 @@ test("a count is tabular wherever it is written", () => {
   assert.match(source.text, /export const EYEBROW =/);
   assert.match(source.text, /export const COUNT =/);
   assert.match(source.text, /tabular-nums/);
+});
+
+test("a tinted surface is one of the five the scale names", () => {
+  // Twelve values of one tint were in use: `bg-muted` and eleven opacities from /10 to /70.
+  // A header band was /10, /15, /30 and /35 in four places; hovering a row was one of seven
+  // values; a selected row was /45, /50 or /70. None of the rungs meant anything.
+  //
+  // The values rather than the constant, because Tailwind reads class names literally out of
+  // the source: a call site has to write `bg-muted/15`, so what can be checked is that the
+  // number it wrote is one the scale sanctions.
+  const SANCTIONED = new Set([
+    "bg-muted",                 // FILL: a solid track or placeholder
+    "bg-foreground/[0.025]",    // OPEN.body: everything a summary revealed
+    "bg-foreground/[0.045]",    // RECESSED, and HOVER at the same weight
+    "bg-foreground/[0.07]",     // OPEN.header, and SELECTED at the same weight
+  ]);
+  const offenders: string[] = [];
+  for (const { relative, text } of FILES) {
+    if (relative === SURFACE_SOURCE) continue;
+    // A *tint* is what this scale owns: a low alpha of the foreground, laid over content.
+    // A solid or near-solid `bg-foreground` is ink - a plot point, a progress bar, a caret -
+    // and belongs to whatever is drawing it. The line between them is 10%: below it nothing
+    // is legible as an object, above it nothing is legible as a wash.
+    for (const match of text.matchAll(/bg-(?:muted|foreground)(?:\/(?:\[[\d.]+\]|\d+))?/g)) {
+      const alpha = match[0].match(/\/\[?([\d.]+)\]?$/)?.[1];
+      // A percentage form like `/50` is a percent; a bracket form like `/[0.045]` is a
+      // fraction. Both become a fraction here so one threshold can decide.
+      const fraction = alpha == null ? 1 : alpha.includes(".") ? Number(alpha) : Number(alpha) / 100;
+      if (match[0].startsWith("bg-foreground") && fraction >= 0.1) continue;
+      if (!SANCTIONED.has(match[0])) offenders.push(`${relative}: ${match[0]}`);
+    }
+  }
+  assert.deepEqual([...new Set(offenders)], [], "use a value lib/surface.ts names");
+});
+
+test("an open row is tinted for its whole height, not just its summary", () => {
+  // The reason the scale exists. Only the summary carried a tint, so an open row marked
+  // where it began and never where it ended: scrolling into a long body left no signal that
+  // you were still inside one.
+  const surface = FILES.find(({ relative }) => relative === SURFACE_SOURCE);
+  if (!surface) throw new Error("lib/surface.ts is missing");
+  assert.match(surface.text, /header: "group-open\/expand:bg-foreground\/\[0\.07\]"/);
+  assert.match(surface.text, /body: "bg-foreground\/\[0\.025\]"/);
+  // The tint is the foreground, not `--muted`. `--muted` is 96% lightness, so every alpha of
+  // it lands within four points of white and the first version of this scale was invisible.
+  assert.ok(
+    !/bg-muted\/\d/.test(surface.text),
+    "the scale is back on an almost-white base, where its rungs cannot be told apart",
+  );
+
+  const page = FILES.find(({ relative }) => relative === path.join("app", "scout", "page.tsx"));
+  if (!page) throw new Error("the scout page is missing");
+  const bodies = [...page.text.matchAll(/SURFACE\.open\.body/g)];
+  assert.equal(bodies.length, 4, "an expandable row is tinting only its summary again");
 });

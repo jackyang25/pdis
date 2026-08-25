@@ -118,7 +118,7 @@ function DocsNavigation() {
         <p className="px-2 text-[9px] font-semibold uppercase tracking-[0.11em] text-muted-foreground/70">On this page</p>
         <div className="mt-1 space-y-0.5">
           {NAVIGATION.map(([href, label]) => (
-            <a key={href} href={`#${href}`} className="block rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground motion-reduce:transition-none">
+            <a key={href} href={`#${href}`} className="block rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground motion-reduce:transition-none">
               {label}
             </a>
           ))}
@@ -134,7 +134,7 @@ function MobileContents() {
       <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">On this page</summary>
       <div className="mt-2 grid grid-cols-2 gap-1 border-t border-border pt-2">
         {NAVIGATION.map(([href, label]) => (
-          <a key={href} href={`#${href}`} className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground">{label}</a>
+          <a key={href} href={`#${href}`} className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground">{label}</a>
         ))}
       </div>
     </details>

@@ -441,21 +441,33 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         raise ValueError(f"quantitative ledgers do not cover the target set: {detail}")
 
     for trace in result.search_plan:
-        _require_field(trace.attribute_ref, variables, f"search trace {trace.query!r}")
+        # A search planned from the run's own scope rather than from a variable carries the
+        # program sentinel, exactly as the projections it produces do. This check accepted
+        # only real variables, so a run whose burden lane fired at all was rejected by its
+        # own contract: `search trace 'indicator_name_contains:polio' references unknown
+        # field 'program'`. The two places downstream that accept a projection built from
+        # that search already allow the sentinel; only the trace that produced it did not.
+        run_scoped = trace.attribute_ref == PROGRAM_SCOPE_KEY
+        if not run_scoped:
+            _require_field(trace.attribute_ref, variables, f"search trace {trace.query!r}")
         if trace.status not in {"complete", "failed", "skipped"}:
             raise ValueError(f"invalid search status {trace.status!r}")
         if trace.applicability not in {"applicable", "not_applicable"}:
             raise ValueError(f"invalid source applicability {trace.applicability!r}")
         if set(trace.tracks) - VALID_QUERY_TRACKS:
             raise ValueError(f"search trace {trace.query!r} has an unknown query track")
+        # A run-scoped search comes from the configured condition and class, never from a
+        # passage or a target, so it owns neither. Asserted rather than skipped: the sentinel
+        # is a hole in the field check, and this is what keeps it from being a hole in the
+        # lineage checks too.
         _require_subset(
             trace.doc_block_ids,
-            set(variables[trace.attribute_ref].block_ids),
+            set() if run_scoped else set(variables[trace.attribute_ref].block_ids),
             f"search trace {trace.query!r} document blocks",
         )
         _require_subset(
             trace.target_ids,
-            set(targets_by_id),
+            set() if run_scoped else set(targets_by_id),
             f"search trace {trace.query!r} targets",
         )
         for target_id in trace.target_ids:

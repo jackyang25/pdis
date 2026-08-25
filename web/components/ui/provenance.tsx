@@ -44,7 +44,7 @@ export function ProvenanceTrigger({
         // The pair stays on one line: `motion-standard.test.ts` reads them together, and a
         // transition whose reduced-motion companion is a line away is one nobody can audit.
         "text-[10px] font-medium text-muted-foreground transition-colors motion-reduce:transition-none",
-        "hover:border-border hover:bg-muted/60 hover:text-foreground",
+        "hover:border-border hover:bg-foreground/[0.045] hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20",
       )}
       aria-label={ariaLabel}

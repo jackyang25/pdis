@@ -60,7 +60,7 @@ function ScoutTraceInspector({
 
       <div className="px-5 py-5">
         {annotation.statusLabel && (
-          <div className="inline-flex min-h-7 items-center rounded-full border border-border/80 bg-muted/25 px-2.5 text-[10px] font-medium text-foreground/80">
+          <div className="inline-flex min-h-7 items-center rounded-full border border-border/80 bg-foreground/[0.045] px-2.5 text-[10px] font-medium text-foreground/80">
             {annotation.statusLabel}
           </div>
         )}

@@ -119,7 +119,7 @@ export function GraphControls() {
             aria-label={label}
             title={label}
             onClick={action}
-            className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 motion-reduce:transition-none"
+            className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 motion-reduce:transition-none"
           >
             <Icon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>

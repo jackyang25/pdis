@@ -54,6 +54,7 @@ import {
   type QuantitativeTarget,
   type SemanticSlot,
   type ScoutResponse,
+  type SearchTrace,
   type SafetyObservation,
   type SourceRole,
   type TargetRelationship,
@@ -114,6 +115,7 @@ import {
 import { SourceAttributions } from "@/components/source-attributions";
 import { ComparatorDistributionPlot } from "@/components/comparator-distribution-plot";
 import { EvidenceProvenance } from "@/components/evidence-provenance";
+import { FieldSearches } from "@/components/field-searches";
 import { ExcludedMeasurements } from "@/components/excluded-measurements";
 import { ComparatorCohort } from "@/components/comparator-cohort";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -147,6 +149,7 @@ import {
   DISCLOSURE_MOTION,
   SURFACE_ENTRY_MOTION,
 } from "@/lib/motion";
+import { SURFACE } from "@/lib/surface";
 import { TONE_DOT, TONE_TEXT } from "@/lib/tone";
 import {
   applyEvidenceReviewRecommendations,
@@ -371,7 +374,15 @@ function SignalSummary({
  * and one of these rows contains those.
  */
 const EXPANDABLE_ROW =
-  "flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 group-open/expand:bg-muted/15 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none";
+  cn(
+    "flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none",
+    SURFACE.hover,
+    "focus-visible:bg-foreground/[0.045]",
+    // The summary is the open row's header, and the body below carries the lighter half of
+    // the same tint. Only this line used to be tinted, which marked where an open row began
+    // and never where it ended.
+    SURFACE.open.header,
+  );
 
 /**
  * A target's role, as a pill.
@@ -1088,7 +1099,7 @@ function DocumentTargetReviewCheckpoint({
           </div>
         )}
 
-        <footer className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+        <footer className="flex flex-col-reverse gap-2 border-t border-border/60 bg-foreground/[0.045] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             {busy
               ? `${stage ? SCOUT_STEPS.find((item) => item.key === stage)?.label ?? stage : "Continuing analysis"}${progress ? ` · ${progress.completed}/${progress.total}` : ""}`
@@ -1201,7 +1212,7 @@ function ReviewOverview({
   children: ReactNode;
 }) {
   return (
-    <div className="border-b border-border/60 bg-muted/10 px-5 py-5 sm:px-7">
+    <div className="border-b border-border/60 bg-foreground/[0.045] px-5 py-5 sm:px-7">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -1247,14 +1258,14 @@ function ReviewListRow({
 }) {
   const statusClass = {
     positive: "border-[hsl(var(--tone-success))]/25 bg-[hsl(var(--tone-success))]/[0.06] text-[hsl(var(--tone-success))]",
-    neutral: "border-border bg-muted/35 text-muted-foreground",
+    neutral: "border-border bg-foreground/[0.045] text-muted-foreground",
     warning: "border-[hsl(var(--tone-warning))]/25 bg-[hsl(var(--tone-warning))]/[0.06] text-[hsl(var(--tone-warning))]",
   }[tone];
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`grid w-full gap-2 px-3 py-2.5 text-left transition-colors hover:bg-muted/35 sm:grid-cols-[minmax(0,0.9fr)_minmax(9rem,0.7fr)_minmax(0,1.4fr)] sm:items-center ${selected ? "bg-muted/45" : "bg-card"}`}
+      className={`grid w-full gap-2 px-3 py-2.5 text-left transition-colors hover:bg-foreground/[0.045] sm:grid-cols-[minmax(0,0.9fr)_minmax(9rem,0.7fr)_minmax(0,1.4fr)] sm:items-center ${selected ? "bg-foreground/[0.07]" : "bg-card"}`}
       aria-current={selected ? "true" : undefined}
     >
       <span className="min-w-0">
@@ -1295,7 +1306,7 @@ function ReviewRecommendation({
     warning: TONE_TEXT.warning,
   }[tone];
   return (
-    <div className="mt-4 rounded-lg border border-border/60 bg-muted/20 p-3">
+    <div className="mt-4 rounded-lg border border-border/60 bg-foreground/[0.045] p-3">
       <p className={cn(EYEBROW, accent)}>
         AI recommendation · {label}
       </p>
@@ -1667,8 +1678,8 @@ function QuantitativeReviewCheckpoint({
                         aria-checked={selected}
                         onClick={() => setSelectedCandidateId(option.candidate_id)}
                         className={`w-full rounded-lg border p-3 text-left transition-colors ${selected
-                          ? "border-foreground/45 bg-muted/45"
-                          : "border-border/60 hover:border-foreground/25 hover:bg-muted/20"}`}
+                          ? "border-foreground/45 bg-foreground/[0.07]"
+                          : "border-border/60 hover:border-foreground/25 hover:bg-foreground/[0.045]"}`}
                       >
                         <span className="flex items-start gap-3">
                           <span className={`mt-1 h-3.5 w-3.5 shrink-0 rounded-full border ${selected
@@ -1732,7 +1743,7 @@ function QuantitativeReviewCheckpoint({
             </div>
           </div>
           {measurement ? <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
-            <div className={cn(EYEBROW, "hidden grid-cols-[0.8fr_1fr_1fr_0.65fr] gap-4 bg-muted/35 px-4 py-2 sm:grid")}>
+            <div className={cn(EYEBROW, "hidden grid-cols-[0.8fr_1fr_1fr_0.65fr] gap-4 bg-foreground/[0.045] px-4 py-2 sm:grid")}>
               <span>Dimension</span><span>Target</span><span>Evidence</span><span>Mapping</span>
             </div>
             {dimensions.map((dimension) => {
@@ -1794,7 +1805,7 @@ function QuantitativeReviewCheckpoint({
           )}
         </div>
 
-        <footer className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+        <footer className="flex flex-col-reverse gap-2 border-t border-border/60 bg-foreground/[0.045] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             One decision resolves this source evidence unit; its provenance remains traceable.
           </p>
@@ -1893,7 +1904,7 @@ function RetrievalWindowNotice({ result }: { result: ScoutResponse }) {
   return (
     <div
       role="status"
-      className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/40 px-3.5 py-3 text-xs text-foreground"
+      className="flex items-start gap-2.5 rounded-lg border border-border bg-foreground/[0.045] px-3.5 py-3 text-xs text-foreground"
     >
       <CalendarRange className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0">
@@ -2128,7 +2139,7 @@ function FieldGrid({
           </div>
           <TabsContent value="fields" className="mt-0">
             {(unresolvedFieldCount > 0 || result.quantitative_ledger.status === "uncertain") && (
-              <div className="flex items-start gap-2 border-b border-border/60 bg-muted/20 px-5 py-3 text-xs text-muted-foreground sm:px-6">
+              <div className="flex items-start gap-2 border-b border-border/60 bg-foreground/[0.045] px-5 py-3 text-xs text-muted-foreground sm:px-6">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <div className="space-y-1">
                   {unresolvedFieldCount > 0 && (
@@ -2162,7 +2173,9 @@ function FieldGrid({
               </div>
             )}
             <RunCoverage headline={headline} />
-            <div className="px-5 pt-5 sm:px-6">
+            {/* Padded on both sides, like Aligner's. It was `pt-5` alone, so the card had
+                twenty pixels above it and sat flush against the filter bar below. */}
+            <div className="px-5 py-5 sm:px-6">
               <PriorityPanel
                 attribution="by Scout"
                 items={priorities}
@@ -2174,7 +2187,7 @@ function FieldGrid({
                 digestError={digest?.state === "failed" ? digest.reason : undefined}
               />
             </div>
-            <div className="flex flex-col gap-2 border-b border-border/60 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+            <div className="flex flex-col gap-2 border-b border-border/60 bg-foreground/[0.045] px-5 py-3 sm:flex-row sm:items-center sm:px-6">
               <label className="relative min-w-0 flex-1 sm:max-w-xs">
                 <span className="sr-only">Search fields</span>
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -2221,6 +2234,7 @@ function FieldGrid({
                 assessment={row.assessment}
                 conformities={row.conformities}
                 precedent={row.precedent}
+                searchPlan={result.search_plan}
                 quantitativeTargetStatusReason={row.variable.quantitative_target_status_reason}
                 targetResolved={row.variable.target_resolved}
                 targetResolutionReason={row.variable.target_resolution_reason}
@@ -2228,7 +2242,6 @@ function FieldGrid({
                 documentSpans={row.variable.document_spans}
                 dispositions={row.variable.quantitative_statement_dispositions}
                 definitionMode={row.variable.definition_mode}
-                entities={row.variable.entities}
                 evidenceDomain={row.variable.evidence_domain}
                 targetsById={targetsById}
               />
@@ -2312,7 +2325,7 @@ function ProjectionToolbar({
   recordLabel: string;
 }) {
   return (
-    <div className="flex flex-col gap-2 border-b border-border/60 bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+    <div className="flex flex-col gap-2 border-b border-border/60 bg-foreground/[0.045] px-5 py-3 sm:flex-row sm:items-center sm:px-6">
       <label className="relative min-w-0 flex-1 sm:max-w-xs">
         <span className="sr-only">{searchLabel}</span>
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -2492,7 +2505,8 @@ function BurdenIndicators({ indicators }: { indicators: BurdenIndicator[] }) {
           </summary>
           <div
             className={cn(
-              "border-t border-border/60 bg-muted/15 px-5 py-4 sm:px-6",
+              "border-t border-border/60 px-5 py-4 sm:px-6",
+              SURFACE.open.body,
               DISCLOSURE_MOTION,
             )}
           >
@@ -2568,7 +2582,7 @@ function DevelopmentLandscape({
           key={group.relationship}
           className="group/rel border-b border-border/60 last:border-b-0"
         >
-          <summary className="flex cursor-pointer select-none items-center gap-2 px-5 py-2.5 outline-none transition-colors hover:bg-muted/25 focus-visible:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
+          <summary className="flex cursor-pointer select-none items-center gap-2 px-5 py-2.5 outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none">
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/rel:rotate-180 motion-reduce:transition-none" />
             <span className="text-xs font-medium text-foreground">
               {relationshipLabel(group.relationship)}
@@ -2611,7 +2625,8 @@ function DevelopmentLandscape({
                 <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />
               </div>
             </summary>
-            <div className={cn("border-t border-border/60 bg-muted/15 px-5 py-4 sm:px-6", DISCLOSURE_MOTION)}>
+            <div className={cn("border-t border-border/60 px-5 py-4 sm:px-6",
+              SURFACE.open.body, DISCLOSURE_MOTION)}>
               <ContextualProjectionNote
                 relationship={program.target_relationship}
                 kind="development record"
@@ -2677,7 +2692,7 @@ function SafetyObservations({
             aria-labelledby={headingId}
             className="border-b border-border/60 last:border-b-0"
           >
-            <header className="bg-muted/15 px-5 py-4 sm:px-6">
+            <header className="bg-foreground/[0.045] px-5 py-4 sm:px-6">
               <h3 id={headingId} className="text-sm font-semibold text-foreground">
                 {section.title}
               </h3>
@@ -2718,7 +2733,7 @@ function SafetyObservations({
                       />
                     </div>
                   </summary>
-                  <div className="border-t border-border/60 bg-muted/10 px-5 py-4 sm:px-6">
+                  <div className={cn("border-t border-border/60 px-5 py-4 sm:px-6", SURFACE.open.body)}>
                     <ContextualProjectionNote
                       relationship={observation.target_relationship}
                       kind="safety observation"
@@ -2816,6 +2831,7 @@ function FieldRow({
   assessment,
   conformities,
   precedent,
+  searchPlan,
   quantitativeTargetStatusReason,
   targetResolved,
   targetResolutionReason,
@@ -2823,7 +2839,6 @@ function FieldRow({
   documentSpans,
   dispositions,
   definitionMode,
-  entities,
   evidenceDomain,
   targetsById,
 }: {
@@ -2833,6 +2848,9 @@ function FieldRow({
   assessment: EvidenceAssessment | null;
   conformities: Conformity[];
   precedent: PrecedentSignal | null;
+  /** The run's whole retrieval record. `FieldSearches` filters it to this field, rather than
+   *  the page slicing it 28 times to hand each row its own copy. */
+  searchPlan: SearchTrace[] | undefined;
   quantitativeTargetStatusReason: string;
   targetResolved: boolean;
   targetResolutionReason: string;
@@ -2841,7 +2859,6 @@ function FieldRow({
   /** Numbers the document stated that were not turned into a calibratable target. */
   dispositions: QuantitativeStatementDisposition[];
   definitionMode: Variable["definition_mode"];
-  entities: Variable["entities"];
   evidenceDomain: Variable["evidence_domain"];
   targetsById: Map<string, QuantitativeTarget>;
 }) {
@@ -2925,7 +2942,16 @@ function FieldRow({
         <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />
       </summary>
 
-      <div className={cn("space-y-4 border-t border-border/60 px-5 py-5 sm:px-6", DISCLOSURE_MOTION)}>
+      {/* The lighter half of the open row's tint, so the row reads as one block from its
+          summary to its last line. Tinting the summary alone marked where an open row began
+          and never where it ended. */}
+      <div
+        className={cn(
+          "space-y-4 border-t border-border/60 px-5 py-5 sm:px-6",
+          SURFACE.open.body,
+          DISCLOSURE_MOTION,
+        )}
+      >
         {targetNotStated ? (
           <p className="text-xs leading-relaxed text-muted-foreground">
             Not stated in document. Scout did not run evidence analysis for this field.
@@ -2939,18 +2965,24 @@ function FieldRow({
             {targetResolutionReason || "No validated document-claim decision was returned."}
           </p>
         )}
-        {/* How retrieval was aimed. `definition_mode` appears only when `dynamic`, which is
-            the informative case - a fixed definition comes from the shared vocabulary and
-            saying so on all 28 fields would say nothing. */}
-        {(definitionMode === "dynamic" || entities.length > 0) && (
+        {/* How retrieval was aimed, and the record of it.
+
+            This replaced a line reading "Searched by pulmonary TB (disease) · Clinical
+            evidence". Its two halves had different conditions and only one gate. The entity
+            was informative on 3 of 28 fields and, measured on a real run, appeared in 4 of
+            the 62 searches for its field, so it claimed the aiming of a search it mostly did
+            not aim. The evidence domain is true of all 28 fields and was visible on 3,
+            because it rode a gate that was not about it.
+
+            `definition_mode` is gone from here too: it is `fixed` on every field of every
+            run seen so far, and a dynamic definition now shows itself in the searches. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <p className="text-[11px] text-muted-foreground">
-            {definitionMode === "dynamic" && "Definition read from the document"}
-            {definitionMode === "dynamic" && entities.length > 0 && " · "}
-            {entities.length > 0 &&
-              `Searched by ${entities.map((entity) => `${entity.name} (${entity.entity_type})`).join(", ")}`}
-            {` · ${dimensionLabel(evidenceDomain)} evidence`}
+            {dimensionLabel(evidenceDomain)} evidence
+            {definitionMode === "dynamic" && " · definition read from the document"}
           </p>
-        )}
+          <FieldSearches result={{ search_plan: searchPlan }} attributeRef={name} />
+        </div>
         {/* One section for the numeric targets whether there are any or not. The slot used
             to change shape with its content - a caps heading with rows when targets
             existed, a bold sentence when they did not - so one fact appeared at two

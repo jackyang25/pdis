@@ -68,7 +68,7 @@ function InspectorTraceInspector({
         {ref.status && (
           <span
             title={STATUS_DESCRIPTION[ref.status]}
-            className="inline-flex min-h-7 items-center rounded-full border border-border/80 bg-muted/25 px-2.5 text-[10px] font-medium text-foreground/80"
+            className="inline-flex min-h-7 items-center rounded-full border border-border/80 bg-foreground/[0.045] px-2.5 text-[10px] font-medium text-foreground/80"
           >
             {/* The short form. This rendered the description, which is a sentence, as pill
                 text: "The rubric asks for this and the document does not usably supply it". */}

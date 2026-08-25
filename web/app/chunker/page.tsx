@@ -167,7 +167,7 @@ function BlocksList({ result }: { result: ChunkerResult }) {
                 <span className="font-mono">{block.id}</span>
                 <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/block:rotate-180 motion-reduce:transition-none" />
               </summary>
-              <div className="mt-2 space-y-0.5 rounded-md bg-muted/40 px-3 py-2 font-mono text-[11px] text-muted-foreground/70">
+              <div className="mt-2 space-y-0.5 rounded-md bg-foreground/[0.045] px-3 py-2 font-mono text-[11px] text-muted-foreground/70">
                 <div>
                   <span className="text-muted-foreground/40">ordinal</span> #{block.ordinal}
                 </div>
@@ -182,7 +182,7 @@ function BlocksList({ result }: { result: ChunkerResult }) {
               </div>
             </details>
             {block.image ? (
-              <figure className="mt-3 overflow-hidden rounded-md border border-border bg-muted/20 p-2">
+              <figure className="mt-3 overflow-hidden rounded-md border border-border bg-foreground/[0.045] p-2">
                 <img
                   src={`data:${block.image.media_type};base64,${block.image.data_base64}`}
                   alt={`Document figure ${block.structural_meta.image_index ?? block.ordinal}`}

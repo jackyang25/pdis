@@ -474,7 +474,7 @@ function ConsistencyView({
   if (findings.length === 0) {
     const complete = status === "complete" || status === "not_applicable";
     return (
-      <div className="rounded-lg border border-border bg-muted/15 px-5 py-5">
+      <div className="rounded-lg border border-border bg-foreground/[0.045] px-5 py-5">
         <div className="flex items-start gap-3">
           {complete ? (
             <CheckCircle2 className={cn("mt-0.5 h-4 w-4", TONE_TEXT.success)} />

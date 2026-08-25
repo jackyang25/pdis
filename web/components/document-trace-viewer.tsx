@@ -407,7 +407,7 @@ function BlockText<TKind extends string, TRef>({
       );
     }
     return (
-      <p className="m-0 whitespace-pre-wrap bg-muted/20 px-3 py-2 text-[13px] leading-5 tabular-nums text-foreground/85">
+      <p className="m-0 whitespace-pre-wrap bg-foreground/[0.045] px-3 py-2 text-[13px] leading-5 tabular-nums text-foreground/85">
         {content}
       </p>
     );
@@ -478,8 +478,8 @@ function AnnotationInspector<TKind extends string, TRef>({
                 className={cn(
                   "grid min-h-11 w-full min-w-0 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none",
                   annotation.id === selected.id
-                    ? "border-foreground/15 bg-muted/70 text-foreground"
-                    : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
+                    ? "border-foreground/15 bg-foreground/[0.07] text-foreground"
+                    : "border-border bg-background text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
                 )}
               >
                 <span className={cn(EYEBROW, "truncate text-foreground")}>
@@ -761,7 +761,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
   }
 
   return (
-    <div ref={rootRef} className="bg-muted/10">
+    <div ref={rootRef} className="bg-foreground/[0.045]">
       <div className={cn(
         "flex gap-3 border-b border-border/80 bg-card px-5 py-3 sm:px-6",
         isNarrow ? "flex-col" : "items-center",
@@ -867,7 +867,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
       )}>
         <div
           className={cn(
-            "max-h-[min(76vh,58rem)] overflow-y-auto overscroll-contain bg-muted/20 py-6",
+            "max-h-[min(76vh,58rem)] overflow-y-auto overscroll-contain bg-foreground/[0.045] py-6",
             isNarrow ? "px-3 sm:px-6" : "px-8",
           )}
         >
@@ -978,7 +978,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                       emphasisVisible
                         && traceBlock.emphasis
                         && EMPHASIS_SURFACE_CLASS[traceBlock.emphasis.tone],
-                      "group-hover/trace-block:bg-muted/35 group-focus-within/trace-block:bg-muted/35",
+                      "group-hover/trace-block:bg-foreground/[0.045] group-focus-within/trace-block:bg-foreground/[0.045]",
                       blockIsMarkTarget
                         && "cursor-pointer hover:bg-[hsl(var(--tone-marked))]/10 focus-within:bg-[hsl(var(--tone-marked))]/10",
                     )}
@@ -1048,7 +1048,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
               );
             })}
             {activeDocument && visibleAnnotations.length === 0 && (
-              <p className="mt-8 rounded-md bg-muted/40 px-4 py-3 text-center text-xs leading-5 text-muted-foreground">
+              <p className="mt-8 rounded-md bg-foreground/[0.045] px-4 py-3 text-center text-xs leading-5 text-muted-foreground">
                 This layer has no source connections in the saved result. The full retained document remains visible.
               </p>
             )}
@@ -1063,7 +1063,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                   type="button"
                   onClick={closeInspector}
                   aria-label="Close trace details"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
                 </button>
@@ -1108,7 +1108,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                   ref={closeButtonRef}
                   type="button"
                   onClick={closeInspector}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
                   aria-label="Close trace details"
                 >
                   <X className="h-4 w-4" aria-hidden="true" />

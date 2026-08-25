@@ -320,7 +320,7 @@ function FieldPlaceholder({ labels }: { labels: readonly string[] }) {
     <ConfigFieldGrid aria-busy="true" aria-label="Loading configuration">
       {labels.map((label) => (
         <ConfigField key={label} label={label} disabled>
-          <div className="h-9 rounded-md border border-input bg-muted/40" aria-hidden="true" />
+          <div className="h-9 rounded-md border border-input bg-muted" aria-hidden="true" />
         </ConfigField>
       ))}
     </ConfigFieldGrid>

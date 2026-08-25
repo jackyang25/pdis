@@ -80,7 +80,7 @@ function AudienceFilter({
 
   return (
     <div
-      className="inline-flex rounded-lg border border-border bg-muted/35 p-1"
+      className="inline-flex rounded-lg border border-border bg-foreground/[0.045] p-1"
       role="group"
       aria-label="Filter tools by audience"
     >

@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { PriorityNomination } from "@/lib/api";
 import { PRIORITY_LIMIT, type PriorityItem } from "@/lib/priorities";
 import { cn } from "@/lib/utils";
+import { Reading } from "@/components/ui/evidence-text";
 
 // Re-exported for the pages that import the panel and its item together.
 export type { PriorityItem } from "@/lib/priorities";
@@ -183,11 +184,9 @@ export function PriorityPanel({
                         </span>
                       )}
                     </p>
-                    <p className="mt-0.5">{item.statement}</p>
+                    <Reading size="prominent">{item.statement}</Reading>
                     {item.recommendation && (
-                      <p className="mt-0.5 text-muted-foreground">
-                        {item.recommendation}
-                      </p>
+                      <Reading size="prominent">{item.recommendation}</Reading>
                     )}
                     {item.blockIds && item.blockIds.length > 0 && (
                       <div className="mt-1.5">
@@ -235,7 +234,7 @@ export function PriorityPanel({
                 {nominations.map((nomination) => (
                   <li key={nomination.label} className="text-sm leading-6">
                     <p className="font-medium">{nomination.label}</p>
-                    <p className="mt-0.5 text-muted-foreground">{nomination.statement}</p>
+                    <Reading size="prominent">{nomination.statement}</Reading>
                     {nomination.cited_block_ids.length > 0 && (
                       <div className="mt-1.5">
                         <DocumentSourceTrace blockIds={nomination.cited_block_ids} />

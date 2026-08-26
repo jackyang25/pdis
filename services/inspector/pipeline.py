@@ -10,7 +10,7 @@ from services.chunker import (
     run_pipeline as chunker_run_pipeline,
 )
 
-from .assembly import assess_sections, rank_findings
+from .assembly import assess_sections, rank_assessments
 from .contract import validate_result_contract
 from .models import (
     BatchInspectionResult,
@@ -97,7 +97,7 @@ def inspect_blocks(
         findings,
         mapped_blocks=mapped_blocks,
     )
-    rank_findings(config, sections, document_findings)
+    rank_assessments(config, sections, document_findings)
 
     result = InspectionResult(
         doc_id=blocks[0].doc_id if blocks else "",

@@ -124,9 +124,17 @@ function EvidenceNode({ data, selected }: NodeProps<EvidenceFlowNode>) {
       <p className="mt-2 line-clamp-2 text-xs font-semibold leading-[1.35] text-foreground">
         {data.title}
       </p>
-      <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
-        {data.summary}
-      </p>
+      {/* The card already carries `summaryMode`; it was only being read in the detail
+          panel, so a model's sentence and a quoted line looked identical here. `Quoted`
+          and `InterfaceNote` would break a two-line clamp on a graph node, so the card
+          marks the one case a reader can act on and the panel does the rest. */}
+      {data.summaryMode === "reading" ? (
+        <Reading className="mt-1 line-clamp-2 leading-[1.45]">{data.summary}</Reading>
+      ) : (
+        <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
+          {data.summary}
+        </p>
+      )}
       {data.meta && (
         <p className="mt-auto truncate pt-1.5 text-[10px] text-muted-foreground/70">
           {data.meta}

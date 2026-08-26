@@ -53,25 +53,17 @@ test("both selectors return the same item shape", () => {
           section_name: "Profile",
           mapped_block_ids: ["b1"],
           is_present: true,
-          status_counts: { met: 0, could_be_stronger: 0, not_met: 1, not_applicable: 0 },
+          verdict_counts: { not_present: 1 } as never,
           units: [
             {
+              id: "Profile|Efficacy",
+              verdict: "not_present",
+              statement: "Not stated.",
+              section_name: "Profile",
               variable_name: "Efficacy",
               optional: false,
-              status: "not_met",
-              findings: [
-                {
-                  id: "f1",
-                  reason: "missing",
-                  statement: "Not stated.",
-                  recommendation: "State it.",
-                  section_name: "Profile",
-                  variable_name: "Efficacy",
-                  cited_block_ids: [],
-                  rank: 0,
-                  level: "not_met",
-                },
-              ],
+              cited_block_ids: [],
+              rank: 0,
             },
           ],
         },
@@ -95,28 +87,46 @@ test("both selectors return the same item shape", () => {
     }),
   )[0];
 
-  assert.deepEqual(Object.keys(inspectorItem).sort(), Object.keys(scoutItem).sort());
+  // Every key each selector emits has to be one the shared item declares. Equality of
+  // the two key sets was the old check, and it stopped being the right one when
+  // Inspector lost its `recommendation`: that field restated the statement beside it,
+  // so removing it was the point. Scout's is a different thing under the same name -
+  // the evidence's own reason - and it stays.
+  const DECLARED = [
+    "id",
+    "label",
+    "qualifier",
+    "statement",
+    "recommendation",
+    "blockIds",
+  ];
+  for (const [tool, item] of [
+    ["inspector", inspectorItem],
+    ["scout", scoutItem],
+  ] as const) {
+    for (const key of Object.keys(item)) {
+      assert.ok(DECLARED.includes(key), `${tool} emits ${key}, which no other tool has`);
+    }
+  }
+  // The two that make no sense to omit: without them the panel has no row and no link.
+  for (const required of ["id", "label", "statement"]) {
+    assert.ok(required in inspectorItem, `inspector omits ${required}`);
+    assert.ok(required in scoutItem, `scout omits ${required}`);
+  }
 });
 
 test("Inspector reuses the rank the result already assigned", () => {
   // Re-deriving the order in the view would be a second opinion that could disagree
   // with the sections below it.
-  const finding = (id: string, rank: number) => ({
-    id,
-    reason: "unclear" as const,
-    statement: id,
-    recommendation: "",
-    section_name: "Profile",
-    variable_name: id,
-    cited_block_ids: ["b1"],
-    rank,
-    level: "could_be_stronger" as const,
-  });
   const unit = (name: string, rank: number) => ({
+    id: `Profile|${name}`,
+    verdict: "vague" as const,
+    statement: name,
+    section_name: "Profile",
     variable_name: name,
     optional: false,
-    status: "could_be_stronger" as const,
-    findings: [finding(name, rank)],
+    cited_block_ids: ["b1"],
+    rank,
   });
 
   const items = selectInspectorPriorities(
@@ -126,7 +136,7 @@ test("Inspector reuses the rank the result already assigned", () => {
           section_name: "Profile",
           mapped_block_ids: ["b1"],
           is_present: true,
-          status_counts: { met: 0, could_be_stronger: 2, not_met: 0, not_applicable: 0 },
+          verdict_counts: { vague: 2 } as never,
           units: [unit("later", 5), unit("sooner", 1)],
         },
       ],

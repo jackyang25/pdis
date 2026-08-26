@@ -632,37 +632,42 @@ class ScoutContinueRequest(BaseModel):
     draft: ScoutRunResponse
 
 
-class RubricFindingOut(BaseModel):
-    """One thing to fix. One statement, one recommendation, one reason."""
+VERDICT_VALUES = Literal[
+    "specified",
+    "not_present",
+    "placeholder",
+    "insufficient",
+    "off_template",
+    "vague",
+    "section_conflict",
+    "not_applicable",
+]
+"""Inspector's one published vocabulary, mirroring `VERDICTS` in its models.
+
+One axis. It replaced three over the same fact - a `reason` the model chose, a
+`level` looked up from the reason, and a `status` that bucketed the levels - none of
+which carried information the first did not.
+"""
+
+
+class AssessmentOut(BaseModel):
+    """One rubric unit and how it stands: a verdict, a sentence, and its blocks."""
 
     id: str
-    reason: Literal[
-        "missing", "placeholder", "unmet", "off_template", "unclear", "conflicting"
-    ]
-    statement: str
-    recommendation: str = ""
+    verdict: VERDICT_VALUES
+    # What is wrong, in one sentence. Empty exactly when nothing is wrong: a
+    # `specified` unit has nothing to say, and anything else is a claim about the
+    # document that has to be checkable against it.
+    statement: str = ""
     # Which unit this is about is read from the names: both set is a variable,
     # section alone is a whole section, neither is the document.
     section_name: str | None = None
     variable_name: str | None = None
+    optional: bool = False
     # Where this was read from. Empty exactly when nothing is there.
     cited_block_ids: list[str] = []
     # Worklist position, assigned server-side so every view orders identically.
     rank: int = 0
-    # Derived from the reason. Required, not defaulted: a missing derivation must
-    # fail here rather than publish a plausible wrong level.
-    level: Literal["not_met", "could_be_stronger"]
-
-
-class UnitAssessmentOut(BaseModel):
-    """One rubric unit. `status` is derived from the findings beneath it."""
-
-    variable_name: str | None = None
-    optional: bool = False
-    findings: list[RubricFindingOut] = []
-    # Derived from this unit's findings. Required for the same reason: defaulting it
-    # to "met" would report a unit with findings as satisfied.
-    status: Literal["met", "could_be_stronger", "not_met", "not_applicable"]
 
 
 class SectionAssessmentOut(BaseModel):
@@ -674,10 +679,11 @@ class SectionAssessmentOut(BaseModel):
     # Derived from that mapping: a section is present exactly when the mapper gave it
     # blocks. Required, so a missed derivation cannot pass for a present section.
     is_present: bool
-    units: list[UnitAssessmentOut] = []
-    # This section's units counted by status. Bounded by the rubric, and required
-    # rather than defaulted so an empty count cannot pass for a clean section.
-    status_counts: dict[str, int]
+    units: list[AssessmentOut] = []
+    # This section's units counted by verdict. A count of the one axis, not a
+    # bucketing into a second: required rather than defaulted so an empty count
+    # cannot pass for a clean section.
+    verdict_counts: dict[str, int]
 
 
 class InspectionResultOut(BaseModel):
@@ -686,7 +692,7 @@ class InspectionResultOut(BaseModel):
     # asks about, so the denominator is identical for every document.
     sections: list[SectionAssessmentOut] = []
     # Conflicts spanning sections, which no single unit can own.
-    document_findings: list[RubricFindingOut] = []
+    document_findings: list[AssessmentOut] = []
     consistency_status: Literal[
         "complete", "partial", "failed", "not_applicable", "unknown"
     ] = "unknown"

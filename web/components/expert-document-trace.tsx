@@ -15,6 +15,7 @@ import {
 } from "@/components/document-trace-panel";
 import type { GateReview } from "@/lib/api";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
+import { Reading } from "@/components/ui/evidence-text";
 import {
   buildExpertDocumentAnnotations,
   type ExpertDocumentAnnotation,
@@ -64,13 +65,13 @@ function ExpertTraceInspector({
           <p className="mt-2 text-xs leading-5 text-muted-foreground">{ref.question}</p>
         </TracePanelSection>
 
-        <p className="mt-5 whitespace-pre-wrap text-sm leading-6 text-foreground/85">
+        <Reading size="body" className="mt-5 whitespace-pre-wrap">
           {annotation.summary}
-        </p>
+        </Reading>
 
         {ref.missing && (
           <TracePanelSection label="Still not stated" icon={CircleDashed} className="mt-5">
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">{ref.missing}</p>
+            <Reading className="mt-2">{ref.missing}</Reading>
           </TracePanelSection>
         )}
 

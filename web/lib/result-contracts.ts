@@ -51,11 +51,20 @@ function requireText(tool: ResultType, value: unknown, name: string): void {
 
 /**
  * The minimum an Inspector assessment needs: every section, every unit beneath it,
- * and the derived values the interface reads rather than recomputes.
+ * and the one derived value the interface reads rather than recomputes.
  *
- * Derived values are checked because they are exactly what an older file will be
- * missing: `status`, `level`, and `status_counts` were added when per-dimension
- * verdicts were replaced, and a file without them would render every unit blank.
+ * A unit *is* its assessment - one `verdict`, one `statement` - so there is nothing
+ * nested to walk. This used to descend into `units[].findings[]` and require a
+ * `reason`, a `level` and a unit `status` on the way, which is why a result built by
+ * the current pipeline stopped hydrating the moment those three went: the check was
+ * written against the shape rather than against what the interface needs.
+ *
+ * `verdict_counts` is checked because it is derived during serialization, so it is
+ * exactly what an older file will be missing - and a file without it renders every
+ * section header blank.
+ *
+ * `statement` is deliberately not required. It is empty on a sound unit, which is most
+ * of them, so requiring text would reject a clean document.
  */
 function assertInspectorReadable(result: unknown): void {
   const inspection = (result as InspectorResponse | null)?.inspection;
@@ -64,18 +73,11 @@ function assertInspectorReadable(result: unknown): void {
   for (const section of requireArray("inspector", inspection.sections, "sections")) {
     const entry = section as Record<string, unknown>;
     requireText("inspector", entry.section_name, "a section name");
-    if (typeof entry.status_counts !== "object" || entry.status_counts === null) {
-      fail("inspector", `section ${String(entry.section_name)} has no status counts`);
+    if (typeof entry.verdict_counts !== "object" || entry.verdict_counts === null) {
+      fail("inspector", `section ${String(entry.section_name)} has no verdict counts`);
     }
     for (const unit of requireArray("inspector", entry.units, "a section's units")) {
-      const held = unit as Record<string, unknown>;
-      requireText("inspector", held.status, "a unit status");
-      for (const finding of requireArray("inspector", held.findings, "a unit's findings")) {
-        const raised = finding as Record<string, unknown>;
-        requireText("inspector", raised.reason, "a finding reason");
-        requireText("inspector", raised.statement, "a finding statement");
-        requireText("inspector", raised.level, "a finding level");
-      }
+      requireText("inspector", (unit as Record<string, unknown>).verdict, "a unit verdict");
     }
   }
   requireArray("inspector", inspection.document_findings, "document_findings");

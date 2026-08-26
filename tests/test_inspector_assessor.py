@@ -1,9 +1,12 @@
 """What Inspector asks the model, and what it accepts back.
 
-One call per rubric unit, one closed reason vocabulary, and lineage required for
-every claim except absence. The shape this replaced asked three questions per unit
-and merged their answers afterwards, so the same defect could arrive three times
-and code had to decide which axis won.
+One call per rubric unit, one closed vocabulary, one verdict back, and lineage
+required for every claim except absence.
+
+Two shapes preceded it. The first asked three questions per unit and merged their
+answers, so the same defect arrived three times and code decided which axis won.
+The second asked once but accepted a list, so a unit could come back with several
+answers to one question and every layer above had to reconcile them.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ import unittest
 
 from services.chunker import ContentBlock
 from services.inspector.models import (
-    UNIT_REASONS,
+    UNIT_VERDICTS,
     InspectionConfig,
     SectionSpec,
     VariableSpec,
@@ -69,30 +72,30 @@ def _config(sections: list[SectionSpec] | None = None) -> InspectionConfig:
     )
 
 
-def _finding(reason: str, block_ids: list[str]) -> dict:
+def _answer(verdict: str, block_ids: list[str]) -> dict:
+    sound = verdict in ("specified", "not_applicable")
     return {
-        "reason": reason,
-        "statement": f"A {reason} problem.",
-        "recommendation": "Do the thing.",
+        "verdict": verdict,
+        "statement": "" if sound else f"A {verdict} problem.",
         "block_ids": block_ids,
     }
 
 
 class _UnitClient:
-    """Answers each unit call with a fixed finding list, recording the schema."""
+    """Answers each unit call with a fixed verdict, recording the schema."""
 
-    def __init__(self, findings_by_subject: dict[str, list[dict]]) -> None:
-        self.findings_by_subject = findings_by_subject
+    def __init__(self, answers_by_subject: dict[str, dict]) -> None:
+        self.answers_by_subject = answers_by_subject
         self.calls = 0
-        self.reason_enum: list[str] | None = None
+        self.verdict_enum: list[str] | None = None
 
     def call_structured(self, _system, message, *_args, schema, **_kwargs):
         self.calls += 1
-        self.reason_enum = schema["properties"]["findings"]["items"]["properties"][
-            "reason"
-        ]["enum"]
+        self.verdict_enum = schema["properties"]["verdict"]["enum"]
         subject = message.split("Assess: ", 1)[1].splitlines()[0]
-        return {"findings": self.findings_by_subject.get(subject, [])}
+        return self.answers_by_subject.get(
+            subject, _answer("specified", ["document:b1"])
+        )
 
 
 class _EmptyClient:
@@ -101,21 +104,54 @@ class _EmptyClient:
 
 
 class PromptAndSchemaTests(unittest.TestCase):
-    def test_the_model_is_offered_every_reason_a_unit_can_raise(self) -> None:
+    def test_the_model_is_offered_every_verdict_a_unit_can_carry(self) -> None:
         schema = assessment_schema([_block("document:b1", "Profile")])
-        reasons = schema["properties"]["findings"]["items"]["properties"]["reason"]["enum"]
+        verdicts = schema["properties"]["verdict"]["enum"]
 
-        self.assertEqual(reasons, list(UNIT_REASONS))
-        self.assertNotIn("conflicting", reasons, "a conflict belongs to no single unit")
+        self.assertEqual(verdicts, list(UNIT_VERDICTS))
+        self.assertNotIn("section_conflict", verdicts, "a conflict belongs to no single unit")
 
-    def test_findings_are_capped_at_one_per_reason(self) -> None:
+    def test_one_question_gets_one_answer(self) -> None:
+        """The schema returns an object, not an array of them. An array let a unit
+        come back with several answers and every layer above had to pick one."""
         schema = assessment_schema([_block("document:b1", "Profile")])
-        self.assertEqual(schema["properties"]["findings"]["maxItems"], len(UNIT_REASONS))
+
+        self.assertEqual(schema["type"], "object")
+        self.assertEqual(sorted(schema["required"]), ["block_ids", "statement", "verdict"])
+        self.assertNotIn("findings", schema["properties"])
+
+    def test_the_boundary_between_the_two_soft_verdicts_is_stated(self) -> None:
+        """`insufficient` and `vague` are the pair a model most often confuses.
+
+        Two adjectives on their own left the split to be inferred, and the same
+        content could land either side depending on how the requirement was read.
+        The prompt states the test instead: coverage first, then usability.
+        """
+        prompt = build_assessment_prompt(_section(), _section().variables[0])
+
+        self.assertIn("not degrees of each other", prompt)
+        self.assertIn("Ask coverage first", prompt)
+
+    def test_layout_alone_is_not_a_verdict(self) -> None:
+        prompt = build_assessment_prompt(_section(), _section().variables[0])
+
+        self.assertIn("Do not judge structure or naming on its own", prompt)
+        self.assertNotIn("off_template", prompt)
+
+    def test_no_recommendation_is_asked_for(self) -> None:
+        """It restated the statement as an imperative, at the cost of tokens."""
+        schema = assessment_schema([_block("document:b1", "Profile")])
+        self.assertNotIn("recommendation", schema["properties"])
+        self.assertNotIn(
+            "recommendation",
+            cross_section_schema({"Profile": [_block("document:b1", "Profile")]})[
+                "properties"
+            ]["findings"]["items"]["properties"],
+        )
 
     def test_wire_schemas_do_not_use_unsupported_unique_items(self) -> None:
         blocks = [_block("document:b1", "Profile")]
-        unit = assessment_schema(blocks)["properties"]["findings"]["items"]["properties"]
-        self.assertNotIn("uniqueItems", unit["block_ids"])
+        self.assertNotIn("uniqueItems", assessment_schema(blocks)["properties"]["block_ids"])
         conflict = cross_section_schema({"Profile": blocks})["properties"]["findings"][
             "items"
         ]["properties"]
@@ -161,22 +197,27 @@ class OneCallPerUnitTests(unittest.TestCase):
 
         self.assertEqual(client.calls, 2, "two units, two calls")
 
-    def test_a_sound_unit_produces_no_finding(self) -> None:
-        findings = _assess_section(
+    def test_a_sound_unit_still_reports_a_verdict(self) -> None:
+        """Silence used to mean "nothing wrong", which is the same shape as "not
+        assessed". Every unit answers, and `specified` is the answer."""
+        assessed = _assess_section(
             section_spec=_section(),
             section_blocks=[_block("document:b1", "Profile")],
             llm_client=_UnitClient({}),
             max_tokens=4000,
         )
 
-        self.assertEqual(findings, [])
+        self.assertEqual([item.verdict for item in assessed], ["specified", "specified"])
 
-    def test_findings_carry_their_unit_and_stable_ids(self) -> None:
+    def test_a_verdict_carries_its_unit_and_a_stable_id(self) -> None:
         client = _UnitClient(
-            {"Efficacy": [_finding("unclear", ["document:b1"])], "Safety": [_finding("missing", [])]}
+            {
+                "Efficacy": _answer("vague", ["document:b1"]),
+                "Safety": _answer("not_present", []),
+            }
         )
 
-        findings = _assess_section(
+        assessed = _assess_section(
             section_spec=_section(),
             section_blocks=[_block("document:b1", "Profile")],
             llm_client=client,
@@ -184,10 +225,10 @@ class OneCallPerUnitTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            [(f.section_name, f.variable_name, f.reason, f.id) for f in findings],
+            [(a.section_name, a.variable_name, a.verdict, a.id) for a in assessed],
             [
-                ("Profile", "Efficacy", "unclear", "Profile|Efficacy|unclear"),
-                ("Profile", "Safety", "missing", "Profile|Safety|missing"),
+                ("Profile", "Efficacy", "vague", "Profile|Efficacy"),
+                ("Profile", "Safety", "not_present", "Profile|Safety"),
             ],
         )
 
@@ -215,54 +256,56 @@ class OneCallPerUnitTests(unittest.TestCase):
         self.assertEqual(mapped["Profile"], [])
         self.assertEqual(mapped["Timeline"], ["document:b1"])
         self.assertEqual(
-            [(f.variable_name, f.reason) for f in findings],
-            [("Efficacy", "missing"), ("Safety", "missing")],
+            [(a.variable_name, a.verdict) for a in findings if a.section_name == "Profile"],
+            [("Efficacy", "not_present"), ("Safety", "not_present")],
         )
 
 
 class ParseTests(unittest.TestCase):
-    def _parse(self, findings: list[dict]):
+    def _parse(self, answer: dict):
         return _parse_unit_payload(
-            {"findings": findings},
+            answer,
             section_name="Profile",
             variable_name="Efficacy",
+            optional=False,
             section_blocks=[_block("document:b1", "Profile")],
         )
 
     def test_a_reported_problem_must_say_where_it_was_read(self) -> None:
-        for reason in ("placeholder", "unmet", "off_template", "unclear"):
+        for verdict in ("placeholder", "insufficient", "vague"):
             with self.assertRaisesRegex(ValueError, "without citing a block"):
-                self._parse([_finding(reason, [])])
+                self._parse(_answer(verdict, []))
+
+    def test_a_sound_unit_must_say_where_it_read_that(self) -> None:
+        """`specified` is a claim about content, so it cites the content."""
+        with self.assertRaisesRegex(ValueError, "without citing a block"):
+            self._parse(_answer("specified", []))
 
     def test_absence_cites_nothing_even_when_the_model_offers_a_block(self) -> None:
-        parsed = self._parse([_finding("missing", ["document:b1"])])
-        self.assertEqual(parsed[0].cited_block_ids, [])
-
-    def test_absence_silences_every_other_reason_for_that_unit(self) -> None:
-        """One absence used to become two findings, written by code."""
-        parsed = self._parse(
-            [_finding("missing", []), _finding("off_template", ["document:b1"])]
-        )
-
-        self.assertEqual([f.reason for f in parsed], ["missing"])
-
-    def test_the_same_reason_twice_is_refused(self) -> None:
-        with self.assertRaisesRegex(ValueError, "raised unclear twice"):
-            self._parse([_finding("unclear", ["document:b1"]), _finding("unclear", ["document:b1"])])
+        self.assertEqual(self._parse(_answer("not_present", ["document:b1"])).cited_block_ids, [])
 
     def test_an_unknown_block_is_refused(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown block ID"):
-            self._parse([_finding("unclear", ["document:b9"])])
+            self._parse(_answer("vague", ["document:b9"]))
 
-    def test_a_finding_with_no_statement_is_refused(self) -> None:
+    def test_a_shortfall_with_no_statement_is_refused(self) -> None:
         with self.assertRaisesRegex(ValueError, "no statement"):
-            self._parse([{"reason": "unclear", "statement": "", "recommendation": "", "block_ids": ["document:b1"]}])
+            self._parse(
+                {"verdict": "vague", "statement": "", "block_ids": ["document:b1"]}
+            )
 
-    def test_findings_come_back_in_the_published_reason_order(self) -> None:
+    def test_a_sound_unit_saying_something_is_quietly_silenced(self) -> None:
+        """A model adding "Looks fine." is not a contract failure worth a retry, but
+        the sentence is a claim with no defect behind it, so it does not survive."""
         parsed = self._parse(
-            [_finding("unclear", ["document:b1"]), _finding("off_template", ["document:b1"])]
+            {"verdict": "specified", "statement": "Looks fine.", "block_ids": ["document:b1"]}
         )
-        self.assertEqual([f.reason for f in parsed], ["off_template", "unclear"])
+
+        self.assertEqual(parsed.statement, "")
+
+    def test_an_unknown_verdict_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            self._parse(_answer("unmet", ["document:b1"]))
 
 
 class CrossSectionTests(unittest.TestCase):
@@ -273,7 +316,7 @@ class CrossSectionTests(unittest.TestCase):
         }
 
     def test_a_conflict_must_cite_two_different_sections(self) -> None:
-        payload = {"findings": [_finding("conflicting", ["document:b1"])]}
+        payload = {"findings": [{"statement": "Conflict.", "block_ids": ["document:b1"]}]}
         self.assertIsNone(_parse_cross_section_payload(payload, self._blocks_by_section()))
 
     def test_a_spanning_conflict_becomes_a_document_finding(self) -> None:
@@ -281,7 +324,6 @@ class CrossSectionTests(unittest.TestCase):
             "findings": [
                 {
                     "statement": "Values conflict.",
-                    "recommendation": "Reconcile them.",
                     "block_ids": ["document:b1", "document:b2"],
                 }
             ]
@@ -290,9 +332,9 @@ class CrossSectionTests(unittest.TestCase):
         findings = _parse_cross_section_payload(payload, self._blocks_by_section())
 
         self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0].reason, "conflicting")
+        self.assertEqual(findings[0].verdict, "section_conflict")
         self.assertIsNone(findings[0].section_name)
-        self.assertEqual(findings[0].level, "not_met")
+        self.assertTrue(findings[0].needs_work)
 
     def test_only_rubric_sections_are_citable(self) -> None:
         recorded: dict[str, list[str]] = {}

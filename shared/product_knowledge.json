@@ -412,7 +412,7 @@
             {
               "id": "inspector",
               "title": "Inspector",
-              "summary": "Turns one parsed development document and its authored rubric into one finding per thing to fix, each citing the passage it was read from, plus cited cross-section conflicts.",
+              "summary": "Turns one parsed development document and its authored rubric into one verdict per rubric unit, each citing the passage it was read from, plus cited cross-section conflicts.",
               "nodes": [
                 {
                   "id": "document",
@@ -446,7 +446,7 @@
                 {
                   "id": "assessment",
                   "title": "Unit assessment",
-                  "summary": "One bounded call per rubric unit asks what is wrong with it and why. A unit raises each reason at most once, and content that is absent raises nothing else.",
+                  "summary": "One bounded call per rubric unit asks how it stands, in one word from one closed vocabulary. One question, one answer: a unit carries exactly one verdict.",
                   "kind": "model",
                   "layer": "Analysis",
                   "inputs": [
@@ -454,21 +454,21 @@
                     "The unit's description and expectations"
                   ],
                   "outputs": [
-                    "Findings with exact block lineage"
+                    "One verdict per unit, with exact block lineage"
                   ]
                 },
                 {
                   "id": "assembly",
                   "title": "Assembly and consistency",
-                  "summary": "Code joins the rubric with the findings and orders them, while a separate model pass finds cited cross-section conflicts.",
+                  "summary": "Code joins the rubric with the verdicts and orders them, while a separate model pass finds cited cross-section conflicts.",
                   "kind": "deterministic",
                   "layer": "Assembly",
                   "inputs": [
                     "Every rubric unit",
-                    "Findings raised against them"
+                    "The verdict returned for each"
                   ],
                   "outputs": [
-                    "Unit statuses derived from their own findings",
+                    "Section counts, summed from the units",
                     "One worklist order",
                     "Cross-section conflict trace"
                   ]
@@ -480,9 +480,7 @@
                   "kind": "output",
                   "layer": "Result",
                   "inputs": [
-                    "Validated findings",
-                    "Conflict trace",
-                    "Source blocks"
+                    "Validated units and conflicts"
                   ],
                   "outputs": [
                     "Immutable pdis.result artifact"

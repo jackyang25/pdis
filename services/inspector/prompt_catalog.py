@@ -55,10 +55,10 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ),
         framing_slot="stage_guidance",
         result_fields=(
-            "sections[].units[].findings[]",
-            "sections[].units[].status",
+            "sections[].units[].verdict",
+            "sections[].units[].statement",
         ),
-        ui_labels=("finding", "status"),
+        ui_labels=("verdict",),
     ),
     CatalogEntry(
         tool=TOOL,

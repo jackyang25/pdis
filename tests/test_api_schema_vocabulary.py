@@ -107,12 +107,21 @@ API_OWNED: dict[frozenset[str], str] = {
     frozenset({"measurements_found", "no_relevant_measurement", "not_assessed", "uncertain"}): (
         "the outcome of one target's measurement search"
     ),
-    frozenset({"conflicting", "missing", "off_template", "placeholder", "unclear", "unmet"}): (
-        "Inspector's finding reasons, declared in its own service"
-    ),
-    frozenset({"could_be_stronger", "not_met"}): "Inspector's finding levels",
-    frozenset({"could_be_stronger", "met", "not_applicable", "not_met"}): (
-        "Inspector's unit statuses"
+    frozenset(
+        {
+            "specified",
+            "not_present",
+            "placeholder",
+            "insufficient",
+            "vague",
+            "section_conflict",
+            "not_applicable",
+        }
+    ): (
+        # One entry, where there were three. A finding reason, a finding level and a
+        # unit status all named the same judgement, and this file listing all three as
+        # separate vocabularies is what made that look deliberate.
+        "Inspector's verdicts, declared in its own service"
     ),
     frozenset({"complete", "failed", "not_applicable", "partial", "unknown"}): (
         "Inspector's cross-section consistency status"

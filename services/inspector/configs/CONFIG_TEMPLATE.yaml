@@ -6,12 +6,13 @@
 # A section and a variable declare the same four things, so there is one schema to
 # learn rather than two. A section adds only its `variables` list.
 #
-# Every rubric unit is assessed by one model call and reports zero or more
-# findings, each with one reason, one statement, one recommendation, and the exact
-# blocks it was read from. Units report met, could be stronger, not met, or not
-# applicable. There is no letter grade, no score, and no section weight: findings
-# are ordered by level and then by the order you write the rubric in, so the
-# sequence below is itself the statement of what matters most.
+# Every rubric unit is assessed by one model call and gets exactly one verdict, with
+# one statement saying what is wrong and the exact blocks it was read from. The
+# verdicts are: specified, not present, placeholder, insufficient, vague, and not
+# applicable. There is no letter grade, no score, no severity scale
+# and no section weight: units are ordered by verdict, worst first, and then by the
+# order you write the rubric in - so the sequence below is itself the statement of
+# what matters most.
 
 type_key: example_org_itpp_vaccine
 org: example_org

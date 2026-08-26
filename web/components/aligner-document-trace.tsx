@@ -15,6 +15,7 @@ import {
 } from "@/components/document-trace-panel";
 import { ALIGNMENT_VERDICTS, VERDICT_LABELS, type AlignmentResult } from "@/lib/api";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
+import { Reading } from "@/components/ui/evidence-text";
 import {
   buildAlignerDocumentAnnotations,
   type AlignerDocumentAnnotation,
@@ -72,9 +73,9 @@ function AlignerTraceInspector({
         </TracePanelSection>
 
         {!isRequirement && (
-          <p className="mt-5 whitespace-pre-wrap text-sm leading-6 text-foreground/85">
+          <Reading size="body" className="mt-5 whitespace-pre-wrap">
             {ref.statement}
-          </p>
+          </Reading>
         )}
 
         {ref.gap && !isRequirement && (

@@ -73,6 +73,7 @@ import { toolAuthority } from "@/lib/tools";
 import { useAlignerSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
+import { Reading } from "@/components/ui/evidence-text";
 
 const STEPS = [
   { key: "parse", label: "Parsing documents" },
@@ -695,9 +696,7 @@ function FindingRow({
           {finding.requirement}
         </AlignerSignalLabel>
       </p>
-      <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-        {finding.statement}
-      </p>
+      <Reading size="prominent" className="mt-1.5">{finding.statement}</Reading>
       {finding.gap && (
         <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-foreground/85">
           <CircleDashed

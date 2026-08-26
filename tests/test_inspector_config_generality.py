@@ -18,14 +18,15 @@ import unittest
 
 from services.chunker import find_config as find_chunker_config
 from services.inspector.assembly import (
-    absent_unit_findings,
+    absent_unit_assessments,
     assess_sections,
-    rank_findings,
+    rank_assessments,
     rubric_units,
+    unit_id,
 )
 from services.inspector.contract import validate_result_contract
 from services.inspector.models import (
-    Finding,
+    Assessment,
     InspectionResult,
     available_configs,
     inspection_result_to_dict,
@@ -49,6 +50,27 @@ def _blocks(config):
             section_label=section.name,
         )
         for index, section in enumerate(config.sections, start=1)
+    ]
+
+
+def _all_specified(config, blocks) -> list[Assessment]:
+    """One sound verdict per rubric unit, cited to that section's block.
+
+    Every unit must be answered - `assess_sections` refuses a gap rather than
+    filling it, because a unit nobody assessed is a failed call and must not read
+    as a unit with nothing wrong.
+    """
+    block_by_section = {b.section_label: b.id for b in blocks}
+    return [
+        Assessment(
+            id=unit_id(section, variable),
+            verdict="specified",
+            section_name=section,
+            variable_name=variable,
+            optional=optional,
+            cited_block_ids=[block_by_section[section]],
+        )
+        for section, variable, optional in rubric_units(config)
     ]
 
 
@@ -95,7 +117,7 @@ class EveryRubricTests(unittest.TestCase):
             mapped = {b.section_label: [b.id] for b in blocks}
             sections = assess_sections(
                 config,
-                findings=[],
+                _all_specified(config, blocks),
                 mapped_blocks=mapped,
             )
             result = InspectionResult(
@@ -120,13 +142,13 @@ class EveryRubricTests(unittest.TestCase):
             findings = [
                 finding
                 for section in config.sections
-                for finding in absent_unit_findings(config, section.name)
+                for finding in absent_unit_assessments(config, section.name)
             ]
-            sections = assess_sections(config, findings=findings)
-            ordered = rank_findings(config, sections)
+            sections = assess_sections(config, findings)
+            ordered = rank_assessments(config, sections)
 
-            statuses = {unit.status for s in sections for unit in s.units}
-            self.assertTrue(statuses <= {"not_met", "not_applicable"}, config.type_key)
+            verdicts = {unit.verdict for s in sections for unit in s.units}
+            self.assertTrue(verdicts <= {"not_present"}, config.type_key)
             # Ranks are dense and unique, so a worklist cannot show two items in the
             # same position however many units a rubric declares.
             self.assertEqual(
@@ -142,7 +164,7 @@ class EveryRubricTests(unittest.TestCase):
             blocks = _blocks(config)
             sections = assess_sections(
                 config,
-                findings=[],
+                _all_specified(config, blocks),
                 mapped_blocks={b.section_label: [b.id] for b in blocks},
             )
             payload = inspection_result_to_dict(
@@ -171,7 +193,7 @@ class EveryRubricTests(unittest.TestCase):
         blocks = _blocks(config)
         sections = assess_sections(
             config,
-            findings=[],
+            _all_specified(config, blocks),
             mapped_blocks={b.section_label: [b.id] for b in blocks},
         )
         payload = inspection_result_to_dict(

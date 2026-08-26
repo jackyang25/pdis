@@ -38,54 +38,46 @@ export type ContentBlock = {
 /**
  * Inspector's published vocabulary.
  *
- * Mirrors `FINDING_REASONS`, `FINDING_LEVELS`, and `UNIT_STATUSES` in
- * `services/inspector/models.py`; `inspector-vocabulary.test.ts` fails if the two
- * diverge. Every name here is the one the service uses - no layer invents a
+ * Mirrors `VERDICTS` in `services/inspector/models.py`; `inspector-vocabulary.test.ts`
+ * fails if the two diverge. One axis, where there used to be three stacked over the
+ * same fact - a reason, a level looked up from it, and a status that bucketed the
+ * levels. Every name here is the one the service uses - no layer invents a
  * synonym, because a second name for one thing is a second thing to keep in step.
  */
-export const FINDING_REASONS = [
-  "missing",
+export const VERDICTS = [
+  "specified",
+  "not_present",
   "placeholder",
-  "unmet",
-  "off_template",
-  "unclear",
-  "conflicting",
-] as const;
-export type FindingReason = (typeof FINDING_REASONS)[number];
-
-export const FINDING_LEVELS = ["not_met", "could_be_stronger"] as const;
-export type FindingLevel = (typeof FINDING_LEVELS)[number];
-
-export const UNIT_STATUSES = [
-  "met",
-  "could_be_stronger",
-  "not_met",
+  "insufficient",
+  "vague",
+  "section_conflict",
   "not_applicable",
 ] as const;
-export type UnitStatus = (typeof UNIT_STATUSES)[number];
+export type Verdict = (typeof VERDICTS)[number];
 
-/** One thing to fix: one statement, one recommendation, one reason. */
-export type RubricFinding = {
+/** The verdicts that name something to fix, in published order. */
+export const ASSESSED_VERDICTS: Verdict[] = [
+  "not_present",
+  "placeholder",
+  "insufficient",
+  "vague",
+  "section_conflict",
+];
+
+/** One rubric unit and how it stands: a verdict, a sentence, and its blocks. */
+export type Assessment = {
   id: string;
-  reason: FindingReason;
+  verdict: Verdict;
+  /** What is wrong, in one sentence. Empty exactly when nothing is wrong. */
   statement: string;
-  recommendation: string;
   /** Both names set is a variable, section alone is a section, neither is the document. */
   section_name: string | null;
   variable_name: string | null;
+  optional: boolean;
   /** Where this was read from. Empty exactly when nothing is there. */
   cited_block_ids: string[];
   /** Worklist position, assigned server-side so every view orders identically. */
   rank: number;
-  level: FindingLevel;
-};
-
-/** One rubric unit. `status` is derived from the findings beneath it. */
-export type UnitAssessment = {
-  variable_name: string | null;
-  optional: boolean;
-  findings: RubricFinding[];
-  status: UnitStatus;
 };
 
 export type SectionAssessment = {
@@ -93,155 +85,97 @@ export type SectionAssessment = {
   is_present: boolean;
   /** A deterministic section assignment in document order, not a citation. */
   mapped_block_ids: string[];
-  units: UnitAssessment[];
-  /** This section's units counted by status. Bounded by the rubric. */
-  status_counts: Record<UnitStatus, number>;
+  units: Assessment[];
+  /** This section's units counted by verdict. Bounded by the rubric. */
+  verdict_counts: Record<Verdict, number>;
 };
 
 export type InspectionResult = {
   doc_id: string;
   sections: SectionAssessment[];
   /** Conflicts spanning sections, which no single unit can own. */
-  document_findings: RubricFinding[];
+  document_findings: Assessment[];
   consistency_status: "complete" | "partial" | "failed" | "not_applicable" | "unknown";
-  /** Whether the run completed. A process fact, never a finding. */
+  /** Whether the run completed. A process fact, never a verdict. */
   assessment_status: "complete" | "unknown";
   org: string | null;
   source_type: string | null;
   intervention_class: string | null;
   indication: string | null;
-  // The parsed source document behind the findings (for the Ask assistant).
+  // The parsed source document behind the assessments (for the Ask assistant).
   blocks: ContentBlock[];
 };
 
 /**
- * What each name means, in the reader's words.
+ * What each verdict is called, and separately what it means.
  *
- * One map per vocabulary, read through a lookup rather than branched on, so a
- * value added upstream renders as itself instead of failing to compile. Nothing
- * here names a consequence: what a shortfall costs a programme is not something
- * Inspector can see.
- */
-export const REASON_LABELS: Record<FindingReason, string> = {
-  missing: "Not present",
-  placeholder: "Placeholder",
-  // Not "Not met", which is a *status*. The two axes were separated on purpose - a status
-  // is how far short a unit falls, a reason is what is wrong with the content - and one
-  // word doing both jobs is how a reader comes to think they are the same field.
-  unmet: "Insufficient",
-  off_template: "Off template",
-  unclear: "Vague",
-  // Not "Conflicts" alone: Scout's RELATIONSHIP_LABEL already spends that word on evidence
-  // contradicting a target, and one word meaning two things across two tools is the drift
-  // the shared-vocabulary test exists to catch. Naming the axis keeps them apart.
-  conflicting: "Section conflict",
-};
-
-/**
- * The same six, at length.
- *
- * The split `STATUS_LABEL` and `STATUS_DESCRIPTION` already make, for the same reason and
- * after the same failure: these ran to five words because they were written as
- * explanations, and the document trace renders a reason as an inline chip and as the
- * options of a layer selector. "Does not meet the requirement" wrapped onto two lines in
- * a select and overflowed a gutter pill.
+ * Two maps rather than one, after the same failure twice: a single map's values ran to
+ * thirteen words because they were written as explanations, and the document trace
+ * rendered "The rubric asks for this and the document does not usably supply it" as
+ * inline pill text.
  *
  * A label sits beside a value and has to be short. A description explains it where there
  * is room - the how-to-read panel, and a native title on hover.
- */
-export const REASON_DESCRIPTION: Record<FindingReason, string> = {
-  missing: "Nothing is there",
-  placeholder: "A token such as <<TBD>> sits where the value belongs",
-  unmet: "Content is there and does not satisfy the requirement",
-  off_template: "The structure or naming deviates from the template",
-  unclear: "The requirement is satisfied but the content is vague",
-  conflicting: "Another section states something this cannot hold with",
-};
-
-/**
- * What a unit's status is called, and separately what it means.
  *
- * These were one map, whose values ran to thirteen words because they were written as
- * explanations. Inspector's page kept its own short forms for the pill and used the long
- * ones as a tooltip, which worked there; the document trace could not reach the short forms,
- * so it rendered "The rubric asks for this and the document does not usably supply it" as
- * inline pill text.
- *
- * A label sits beside a value and has to be short. A description explains it on hover and
- * has room. Naming both makes which is which a decision rather than an accident.
+ * Nothing here names a consequence: what a shortfall costs a programme is not something
+ * Inspector can see.
  */
-export const STATUS_LABEL: Record<UnitStatus, string> = {
-  met: "Met",
-  could_be_stronger: "Could be stronger",
-  not_met: "Not met",
+export const VERDICT_LABEL: Record<Verdict, string> = {
+  specified: "Specified",
+  not_present: "Not present",
+  placeholder: "Placeholder",
+  insufficient: "Insufficient",
+  vague: "Vague",
+  // Not "Conflicts" alone: Scout's RELATIONSHIP_LABEL already spends that word on evidence
+  // contradicting a target, and one word meaning two things across two tools is the drift
+  // the shared-vocabulary test exists to catch. Naming the axis keeps them apart.
+  section_conflict: "Section conflict",
   not_applicable: "N/A",
 };
 
-export const STATUS_DESCRIPTION: Record<UnitStatus, string> = {
-  met: "Meets the rubric",
-  could_be_stronger: "Supplied and usable, but could be stronger",
-  not_met: "The rubric asks for this and the document does not usably supply it",
+export const VERDICT_DESCRIPTION: Record<Verdict, string> = {
+  specified: "The rubric asks for this and the document supplies it usably",
+  not_present: "Nothing is there",
+  placeholder: "A token such as <<TBD>> sits where the value belongs",
+  insufficient: "Part of what the requirement asks for is not there",
+  vague: "Covered, but unusable as stated - unmeasurable or too general to act on",
+  section_conflict: "Another section states something this cannot hold with",
   not_applicable: "The rubric accepts this being absent",
 };
 
-/**
- * A finding's level.
- *
- * Every level is also a unit status, so the words come from there. Two maps holding "Not
- * met" is how one of them comes to say "Not Met".
- */
-export const LEVEL_LABELS: Record<FindingLevel, string> = {
-  not_met: STATUS_LABEL.not_met,
-  could_be_stronger: STATUS_LABEL.could_be_stronger,
-};
-
-export function reasonLabel(reason: string): string {
-  return REASON_LABELS[reason as FindingReason] ?? reason;
+export function verdictLabel(verdict: string): string {
+  return VERDICT_LABEL[verdict as Verdict] ?? verdict;
 }
 
-/** The two levels a reader can act on, in published order. */
-export const SHORTFALL_LEVELS: FindingLevel[] = ["not_met", "could_be_stronger"];
-
 /**
- * Every finding worth acting on, in the order the result already assigned.
+ * Every unit worth acting on, in the order the result already assigned.
  *
- * A view over the sections rather than a second array in the payload. The ranked
- * list used to be computed server-side and published beside the units it
- * duplicated, so the two could disagree; `rank` travels on the finding instead.
+ * A view over the sections rather than a second array in the payload. The ranked list
+ * used to be computed server-side and published beside the units it duplicated, so the
+ * two could disagree; `rank` travels on the unit instead.
  */
-export function worklist(inspection: InspectionResult): RubricFinding[] {
+export function worklist(inspection: InspectionResult): Assessment[] {
   const fromUnits = (inspection.sections ?? [])
     .flatMap((section) => section.units)
-    .filter((unit) => unit.status !== "not_applicable")
-    .flatMap((unit) => unit.findings);
+    .filter((unit) => ASSESSED_VERDICTS.includes(unit.verdict));
   return [...fromUnits, ...(inspection.document_findings ?? [])].sort(
     (left, right) => left.rank - right.rank,
   );
 }
 
-/** How many units of a section fall at each level, for its collapsed header. */
 /**
- * A section's units, counted by the two statuses that are shortfalls.
+ * A section's units, counted by the verdicts that need work.
  *
- * Units, not findings. It was typed `Record<FindingLevel, number>` and labelled with
- * `LEVEL_LABELS`, so a count of units wore the finding vocabulary: the numbers were right
- * and the words said something else, and a reader comparing "Not met 10" on a section with
- * "Not met" on a unit had no way to know whether the ten counted units or their findings.
- *
- * `met` and `not_applicable` are absent because this answers "what needs work here". A
- * section whose units are all met returns nothing, which the caller shows as `Met`.
+ * `specified` and `not_applicable` are absent because this answers "what needs work
+ * here". A section with none returns nothing, which the caller shows as `Specified`.
  */
-export type SectionShortfall = Extract<UnitStatus, "not_met" | "could_be_stronger">;
-
-export const SECTION_SHORTFALLS: SectionShortfall[] = ["not_met", "could_be_stronger"];
-
 export function sectionShortfalls(
   section: SectionAssessment,
-): Record<SectionShortfall, number> {
-  return {
-    not_met: section.status_counts?.not_met ?? 0,
-    could_be_stronger: section.status_counts?.could_be_stronger ?? 0,
-  };
+): Record<Verdict, number> {
+  const counts = section.verdict_counts ?? ({} as Record<Verdict, number>);
+  return Object.fromEntries(
+    ASSESSED_VERDICTS.map((verdict) => [verdict, counts[verdict] ?? 0]),
+  ) as Record<Verdict, number>;
 }
 
 export type InspectorResponse = {

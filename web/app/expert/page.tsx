@@ -65,6 +65,7 @@ import { displayLabel } from "@/lib/display-label";
 import { CONTEXT_ACCEPT, CONTEXT_FORMAT_HINT } from "@/lib/document-formats";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
+import { Reading } from "@/components/ui/evidence-text";
 
 const STEPS = [
   { key: "resolve", label: "Resolving the question bank" },
@@ -967,10 +968,10 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
           {question.text}
         </p>
       </button>
+      {/* The model's answer, so muted and marked - it was at full contrast, which is
+          the treatment for the tool's own words and the document's values. */}
       {question.statement && (
-        <p className="mt-2 text-sm leading-6 text-foreground">
-          {question.statement}
-        </p>
+        <Reading size="body" className="mt-2">{question.statement}</Reading>
       )}
       {/*
         The ask, given its own line rather than left inside the statement. On a partial
@@ -978,10 +979,10 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
         why it was required as a field in the first place.
       */}
       {question.missing && (
-        <p className="mt-1.5 text-sm leading-6 text-foreground">
-          <span className="text-muted-foreground">Still not stated: </span>
+        <Reading size="body" className="mt-1.5">
+          <span className="font-medium">Still not stated: </span>
           {question.missing}
-        </p>
+        </Reading>
       )}
       {open && <Provenance question={question} />}
     </li>

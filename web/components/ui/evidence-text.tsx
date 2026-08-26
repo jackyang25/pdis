@@ -13,22 +13,27 @@ import { cn } from "@/lib/utils";
  *
  *   Quoted    exact words. Cannot be wrong; it is a copy. Ruled on the left, full contrast.
  *             Whose words is shown by the attribution above it, never by the styling.
- *   Reading   a model read or judged this. Muted prose, flowing in the column. Needs review,
- *             and is the thing to check first.
+ *   Reading   a model read or judged this. Muted prose behind a four-pointed star. Needs
+ *             review, and is the thing to check first.
  *   Computed  arithmetic over admitted data. Full contrast and tabular. Wrong only if its
  *             inputs are.
  *   Interface the tool explaining itself. Muted prose in a box. Not about this document.
  *
  * **Every distinction here is structural, not a new colour.** Reading and Interface are the
  * pair that needed it: both are muted prose, because both are subordinate to the words they
- * sit under, so no tone could tell them apart. A box does, and one instance teaches it. On
- * top of that, interface copy is not allowed inside a data row at all, which means muted
- * prose in a row is a model's, always, and needs no marker of its own. That is what keeps
- * this quiet rather than badge-ridden: a real run carries over 1,500 model-authored
- * sentences, and a per-sentence marker would be on every one of them.
+ * sit under, so no tone could tell them apart. A box tells Interface apart, and a mark
+ * tells Reading apart.
  *
- * Two tones, three sizes, one rule, one box, one numeral setting. No new colours, and the
- * four are not four shades of one thing.
+ * The mark reverses an earlier decision, and the reason is worth keeping. The argument
+ * against it was that interface copy is banned from data rows, so muted prose inside a row
+ * is a model's by position and needs no marker - which is true, and was exactly the
+ * problem: it is a rule a reader has to have been told, and on screen a model's sentence
+ * read as the tool's own prose. Position implies authorship; a mark states it. The cost is
+ * real - a run carries over a thousand of these - which is why the mark is a glyph in
+ * `currentColor` at the size of the text, not a badge, a pill, or a colour.
+ *
+ * Two tones, three sizes, one rule, one box, one mark, one numeral setting. No new colours,
+ * and the four are not four shades of one thing.
  */
 
 /**
@@ -96,25 +101,72 @@ export function CitedMark({ children }: { children: ReactNode }) {
  * Muted, with no rule and no badge. Inside a data row this is unambiguous by the structural
  * law above: interface copy is not permitted there, so muted prose in a row is a model's.
  */
+/**
+ * The mark that says a model wrote what follows.
+ *
+ * A four-pointed star, and deliberately not the Priorities sparkle: that one marks a
+ * *selection* a tool made, this one marks a *sentence* a model wrote. Same family so
+ * they read as related, different glyph so they are not confused.
+ *
+ * `currentColor` and no new hue. The authorship system is two tones and no colours,
+ * and a gradient here would make this the only element on the page arguing for its own
+ * importance. What makes it findable is that it is a mark where prose has none.
+ *
+ * `aria-hidden`, and that is a decision rather than an oversight. A run carries over a
+ * thousand model-authored sentences, so announcing each one would bury the content it
+ * is meant to qualify. Screen-reader users get authorship from the attribution above a
+ * block, which is where it is stated in words.
+ */
+function ReadingMark() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      // Sized in `em` so it tracks the two `Reading` sizes without a second rule, and
+      // nudged up by a fraction: optically centred on lower-case prose sits above the
+      // baseline, and a glyph sitting on it reads as punctuation.
+      className="mr-1 inline-block h-[0.95em] w-[0.95em] shrink-0 -translate-y-[0.06em] fill-current"
+    >
+      <path d="M12 2c.9 5.1 4 8.2 9.1 9.1v1.8c-5.1.9-8.2 4-9.1 9.1h-1.8C9.3 16.9 6.2 13.8 1.1 12.9v-1.8C6.2 10.2 9.3 7.1 10.2 2Z" />
+    </svg>
+  );
+}
+
 export function Reading({
   children,
-  /** `prominent` for the sentence a section turns on, `dense` inside a list. */
+  /**
+   * `body` where the sentence is the content of a panel, `prominent` for the sentence a
+   * section turns on, `dense` inside a list.
+   *
+   * `body` exists because the trace panels had no size to reach for and wrote their own -
+   * `text-sm leading-6 text-foreground/85`, a third tone that is neither the muted prose
+   * of a model's words nor the full contrast of the tool's. Four panels agreed on it,
+   * which is what made it look deliberate.
+   */
   size = "dense",
   className,
 }: {
   children: ReactNode;
-  size?: "prominent" | "dense";
+  size?: "body" | "prominent" | "dense";
   /** Spacing only. Tone and size belong to this component. */
   className?: string;
 }) {
   return (
     <p
       className={cn(
-        "mt-1 leading-relaxed text-muted-foreground",
-        size === "prominent" ? "text-xs" : "text-[11px]",
+        "leading-relaxed text-muted-foreground",
+        size === "body" && "text-sm leading-6",
+        size === "prominent" && "mt-1 text-xs",
+        size === "dense" && "mt-1 text-[11px]",
         className,
       )}
     >
+      {/* Marked, which reverses an earlier decision. The argument against was that
+          interface copy is banned from data rows, so muted prose in a row is a model's
+          by position - which is true, and turned out to be the problem: it is a rule a
+          reader has to have been told. On screen the sentence looked like the tool's own
+          prose. A mark states it instead of implying it. */}
+      <ReadingMark />
       {children}
     </p>
   );

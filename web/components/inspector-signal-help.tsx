@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  FINDING_REASONS,
-  REASON_DESCRIPTION,
-  REASON_LABELS,
-  STATUS_DESCRIPTION,
-  STATUS_LABEL,
-  UNIT_STATUSES,
-} from "@/lib/api";
+import { VERDICTS, VERDICT_DESCRIPTION, VERDICT_LABEL } from "@/lib/api";
 import {
   SignalHelp,
   type SignalTopic,
@@ -17,38 +10,32 @@ import {
  * Inspector's vocabulary. The wording is Inspector's; the popover behaviour is
  * shared with Scout through `ui/signal-help`.
  *
- * Three topics, one per published vocabulary: what a finding is, what a unit's
- * status means, and what the whole-document check covers. There were six, because
- * three internal questions each needed explaining plus a presence scale and a
- * severity scale on top; merging the questions merged their explanations too.
+ * Two topics, one per thing a reader has to interpret: what a unit's verdict means,
+ * and what the whole-document check covers.
+ *
+ * There were six, then three, now two. Six because three internal questions each
+ * needed explaining plus a presence scale and a severity scale on top. Three because
+ * merging the questions merged their explanations, but the result still published a
+ * `finding` reason and a unit `status` - one judgement in two vocabularies, which
+ * needed two topics to explain the difference between them. There is one axis now,
+ * so there is one thing to explain.
  */
 
-export type InspectorSignalTopic = "finding" | "status" | "consistency";
+export type InspectorSignalTopic = "verdict" | "consistency";
 
 const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
-  finding: {
+  verdict: {
     promptRef: { tool: "inspector", stage: "assessment" },
-    title: "Finding",
-    summary: "One thing to fix, with the reason it was raised.",
+    title: "Verdict",
+    summary: "How one rubric unit stands, in one word.",
     detail:
-      "A finding is one problem, one recommendation, and the exact passage it was read from, so a count of findings is a count of things to do. A unit raises each reason at most once, and content that is not present raises nothing else, because there is nothing there to have read.",
-    // Read from the label maps, not retyped. The six reasons were a paragraph here and six
-    // chips on screen, which is two copies of one vocabulary and eleven lines a reader has
-    // to parse to find the term they are looking at.
-    terms: FINDING_REASONS.map((reason) => ({
-      term: REASON_LABELS[reason],
-      meaning: REASON_DESCRIPTION[reason],
-    })),
-  },
-  status: {
-    promptRef: { tool: "inspector", stage: "assessment" },
-    title: "Status",
-    summary: "How one rubric unit stands: met, could be stronger, not met, or not applicable.",
-    detail:
-      "Derived from the findings on that unit alone, so met always means exactly zero findings and no view can show you a different answer. Nothing here says what a shortfall costs your programme, because that is not something this tool can see: there is no letter grade, no severity scale, and no overall score.",
-    terms: UNIT_STATUSES.map((status) => ({
-      term: STATUS_LABEL[status],
-      meaning: STATUS_DESCRIPTION[status],
+      "One question per unit and one answer, so a count of anything but Specified is a count of things to do. Every verdict except an absence cites the exact passage it was read from. Nothing here says what a shortfall costs your programme, because that is not something this tool can see: there is no letter grade, no severity scale, and no overall score.",
+    // Read from the label maps, not retyped. The vocabulary was a paragraph here and
+    // a set of chips on screen, which is two copies of one list and eleven lines a
+    // reader has to parse to find the term in front of them.
+    terms: VERDICTS.map((verdict) => ({
+      term: VERDICT_LABEL[verdict],
+      meaning: VERDICT_DESCRIPTION[verdict],
     })),
   },
   consistency: {
@@ -67,7 +54,7 @@ export function InspectorSignalHelp() {
   return (
     <SignalHelp
       title="How to read this assessment"
-      intro="Inspector checks one document against its authored rubric. Every unit the rubric asks about is assessed, and every finding cites the passage it came from."
+      intro="Inspector checks one document against its authored rubric. Every unit the rubric asks about gets one verdict, and every verdict cites the passage it came from."
       topics={INSPECTOR_TOPIC_LIST as SignalTopic[]}
     />
   );

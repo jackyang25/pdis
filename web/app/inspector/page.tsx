@@ -1,15 +1,11 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
 import { ResultLayout } from "@/components/ui/result-layout";
 import {
   ResultToolbar,
   ResultToolbarEnd,
 } from "@/components/ui/result-toolbar";
 import { ResultSearch } from "@/components/ui/result-search";
-import { EXPANDABLE_ROW } from "@/lib/expandable-row";
-import { DISCLOSURE_MOTION } from "@/lib/motion";
-import { SURFACE } from "@/lib/surface";
 import { useTraceFocus } from "@/lib/trace-focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -28,31 +24,25 @@ import { InspectorDocumentTrace } from "@/components/inspector-document-trace";
 import { PriorityPanel } from "@/components/ui/priority-panel";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { Reading } from "@/components/ui/evidence-text";
-import { LabeledItem } from "@/components/labeled-item";
 import { inspectorAnnotationId } from "@/lib/inspector-document-trace";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { RunHistory } from "@/components/run-history";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  LEVEL_LABELS,
-  REASON_DESCRIPTION,
-  REASON_LABELS,
-  SECTION_SHORTFALLS,
-  STATUS_DESCRIPTION,
-  STATUS_LABEL,
-  UNIT_STATUSES,
+  ASSESSED_VERDICTS,
+  VERDICTS,
+  VERDICT_DESCRIPTION,
+  VERDICT_LABEL,
   runInspector,
   sectionShortfalls,
   worklist,
-  type FindingLevel,
+  type Assessment,
   type Header,
   type InspectionResult,
   type InspectorResponse,
-  type RubricFinding,
   type SectionAssessment,
-  type UnitAssessment,
-  type UnitStatus,
+  type Verdict,
 } from "@/lib/api";
 import {
   inspectorResultFilename,
@@ -279,16 +269,11 @@ function InspectionResultView({
       title={runLabel(result, "inspector")}
       subtitle={runScope(result, "inspector")}
       metrics={
-        <RunCoverage
-          sections={sections}
-          findings={findings}
-          conflicts={conflicts}
-        />
+        <RunCoverage sections={sections} conflicts={conflicts} />
       }
-      // Two denominators. The statuses are units and sum to the unit count; findings and
-      // conflicts do not, because one unit can carry several and a cross-section conflict
-      // belongs to no unit at all.
-      metricsNote="Every rubric unit by status, then what the run found. A unit can carry several findings, and a cross-section conflict belongs to no unit, so the two do not sum to each other."
+      // The row sums to the unit count, because a unit carries exactly one verdict.
+      // Conflicts stand apart from it: one belongs to no unit at all.
+      metricsNote="Every rubric unit by verdict, so the row sums to the number of units the rubric asks about. Cross-section conflicts are counted separately, because a conflict belongs to no single unit."
 
       tabValue={resultTab}
       onTabChange={setResultTab}
@@ -458,84 +443,60 @@ function SectionsList({
 }
 
 /**
- * Whether a finding's prose only repeats the fields rendered beside it.
+ * One assessment, as a row: what it is about, how it stands, and why.
  *
- * True for exactly one case, and deliberately narrow. A *variable* the document never
- * wrote has both sentences built from its own name, its section's name, and its reason -
- * all three already on the row. A *section* that declares no variables does not qualify:
- * its recommendation carries the rubric's description of what that section should cover,
- * which appears nowhere else on screen.
- */
-function restatesItself(finding: RubricFinding): boolean {
-  return finding.reason === "missing" && Boolean(finding.variable_name);
-}
-
-/**
- * One finding, rendered the same way wherever it appears.
+ * The same renderer for a rubric unit and for a cross-section conflict, because since
+ * the vocabulary collapsed they are the same shape - one verdict, one sentence, and the
+ * blocks it was read from. Two renderers for one type is two things to keep in step.
  *
- * The section list and the findings list show the same object, so they share one
- * renderer; two would be two things to keep in step.
+ * Flat, which is the change. A unit used to open: the row carried a chevron and the
+ * sentence sat behind it under a tinted body. That was right when a unit held several
+ * findings, each with a reason, a statement, a recommendation and a trigger - a
+ * thirteen-unit section was sixty lines and adjacent rows differed in height ninefold.
+ * A unit now holds one verdict and one sentence of at most twenty words, so the
+ * disclosure hid two lines behind a click and a reader had to make thirty-two of them
+ * to read the assessment. A sound unit is one line; a unit with a problem is three.
+ *
+ * The section above is still a disclosure, and that is the one that earns it: opening a
+ * section is choosing what to read, and there are six of them rather than thirty-two.
  */
-function FindingBody({
-  finding,
-  showUnit = true,
+function AssessmentRow({
+  item,
+  title,
 }: {
-  finding: RubricFinding;
-  showUnit?: boolean;
+  item: Assessment;
+  /** What this is about. The section's name where a unit declares no variable. */
+  title: string;
 }) {
   return (
-    <div className="min-w-0 flex-1">
-      <p className="flex flex-wrap items-baseline gap-x-1.5">
-        {showUnit && (
-          <span className="font-medium">
-            {finding.variable_name ?? finding.section_name ?? "Across sections"}
-          </span>
-        )}
-        {/* Plain, like every other reason on the page. The vocabulary is explained once
-            in "How to read", which is the only place that can show a reason beside the
-            five it is not - and this line repeats 32 times in a run. */}
-        {/* Short, with the full sentence on hover. The panel explains all six together,
-            which is the only place they can be told apart from each other. */}
-        <span
-          className="text-xs text-muted-foreground"
-          title={REASON_DESCRIPTION[finding.reason]}
-        >
-          {REASON_LABELS[finding.reason]}
-        </span>
-      </p>
-      {/* Both sentences are the model's, so both are `Reading`. They used to render at
-          two contrasts in one card - the statement at full, the recommendation muted -
-          which told a reader the two had different authors when they have the same one.
-          Full contrast belongs to the tool's own words and the document's values, and the
-          lede of this card is the unit name and its verdict, both of which are the tool's.
-          Hierarchy between the two comes from size, which is what `Reading` sizes are for.
-
-          Suppressed when the finding restates itself. A variable the document never wrote
-          gets both sentences templated in `assembly.py` out of the three fields already on
-          this row - the unit name, the section, and the reason - so "Target User Group is
-          not present; the Medical Need / Use Case section is absent" and "Add the Medical
-          Need / Use Case section and state Target User Group" carry nothing the row has
-          not said. On a six-variable section that was one fact rendered twenty-five times.
-
-          They stay in the result: a JSON consumer without the rubric cannot rebuild the
-          sentence, and the assistant reads that JSON. This is a rendering decision, not a
-          data one - and it is also an authorship correction, because template text was
-          being shown in the treatment that means a model judged it. */}
-      {!restatesItself(finding) && (
-        <>
-          <Reading size="prominent">{finding.statement}</Reading>
-          {finding.recommendation && (
-            <Reading>{finding.recommendation}</Reading>
+    <div className="px-5 py-3.5 sm:px-6">
+      <div className="flex items-baseline gap-4">
+        <p className="min-w-0 flex-1 truncate text-sm font-medium">{title}</p>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Muted text, not a second pill. `Optional` is the rubric author's decision
+              about this unit, not a verdict about the document, and two pills on one row
+              read as two judgements. */}
+          {item.optional && (
+            <span className="text-[11px] text-muted-foreground">Optional</span>
           )}
-        </>
+          <StatusPill status={item.verdict} />
+        </div>
+      </div>
+      {/* The verdict is on the pill and nowhere else. It used to be repeated here as
+          well, which made sense when a unit held several findings and each carried its
+          own reason; with one verdict per unit the second copy says nothing. */}
+      {item.statement && (
+        <Reading size="prominent" className="mt-1 pr-16">
+          {item.statement}
+        </Reading>
       )}
-      {finding.cited_block_ids.length > 0 && (
+      {item.cited_block_ids.length > 0 && (
         <div className="mt-1.5">
-          {/* Named, so the trace opens on this finding's own layer rather than on
-              every layer the passage carries. */}
+          {/* Named, so the trace opens on this unit's own layer rather than on every
+              layer the passage carries. */}
           <DocumentSourceTrace
-            blockIds={finding.cited_block_ids}
-            annotationId={inspectorAnnotationId(finding.id)}
+            blockIds={item.cited_block_ids}
+            annotationId={inspectorAnnotationId(item.id)}
           />
         </div>
       )}
@@ -556,10 +517,10 @@ function SectionCard({ section }: { section: SectionAssessment }) {
           Scout renders with two. */}
       <div className="divide-y divide-border/60">
         {section.units.map((unit) => (
-          <UnitRow
+          <AssessmentRow
             key={unit.variable_name ?? section.section_name}
-            unit={unit}
-            sectionName={section.section_name}
+            item={unit}
+            title={unit.variable_name ?? section.section_name}
           />
         ))}
       </div>
@@ -589,43 +550,40 @@ function SectionCard({ section }: { section: SectionAssessment }) {
  */
 function RunCoverage({
   sections,
-  findings,
   conflicts,
 }: {
   sections: SectionAssessment[];
-  findings: RubricFinding[];
   conflicts: number;
 }) {
-  const counts = UNIT_STATUSES.reduce(
-    (totals, status) => {
-      totals[status] = sections.reduce(
-        (sum, section) => sum + (section.status_counts?.[status] ?? 0),
+  const counts = VERDICTS.reduce(
+    (totals, verdict) => {
+      totals[verdict] = sections.reduce(
+        (sum, section) => sum + (section.verdict_counts?.[verdict] ?? 0),
         0,
       );
       return totals;
     },
-    {} as Record<UnitStatus, number>,
+    {} as Record<Verdict, number>,
   );
+
+  // A conflict belongs to no unit, so it is not one of them. Everything else on this
+  // row is a unit and the row sums to the unit count.
+  const unitVerdicts = VERDICTS.filter((verdict) => verdict !== "section_conflict");
 
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
       <VerdictCounts
-        items={UNIT_STATUSES.map((status) => ({
-          label: STATUS_LABEL[status],
-          count: counts[status],
-          tone: STATUS_TONE[status],
+        items={unitVerdicts.map((verdict) => ({
+          label: VERDICT_LABEL[verdict],
+          count: counts[verdict],
+          tone: VERDICT_TONE[verdict],
         }))}
       />
-      <span className="text-[11px] tabular-nums text-muted-foreground">
-        {findings.length} {findings.length === 1 ? "finding" : "findings"}
-        {conflicts > 0 && (
-          <>
-            {" · "}
-            {conflicts} cross-section{" "}
-            {conflicts === 1 ? "conflict" : "conflicts"}
-          </>
-        )}
-      </span>
+      {conflicts > 0 && (
+        <span className="text-[11px] tabular-nums text-muted-foreground">
+          {conflicts} cross-section {conflicts === 1 ? "conflict" : "conflicts"}
+        </span>
+      )}
     </div>
   );
 }
@@ -640,96 +598,25 @@ function RunCoverage({
  */
 function ShortfallCounts({ section }: { section: SectionAssessment }) {
   const counts = sectionShortfalls(section);
-  const shown = SECTION_SHORTFALLS.filter((status) => counts[status] > 0);
+  const shown = ASSESSED_VERDICTS.filter((verdict) => counts[verdict] > 0);
   if (shown.length === 0) {
     // The same pill a unit shows. One signal, and it is what this row is about, so it is a
-    // tint - the rule in `lib/tone.ts`. "Met" rendered as muted text here and as a pill one
+    // tint - the rule in `lib/tone.ts`. It rendered as muted text here and as a pill one
     // level down, so one verdict had two appearances on one screen.
-    return <StatusPill status="met" />;
+    return <StatusPill status="specified" />;
   }
   // A zero is hidden here on purpose: a shortfall that did not occur is not a fact about
   // the document. Expert shows its zeros for the opposite and equally deliberate reason.
   return (
     <VerdictCounts
-      items={shown.map((status) => ({
-        // The unit vocabulary, because these are units. Reading `STATUS_LABEL` rather
-        // than the finding-level copy also means the section header and the unit pill it
-        // summarises can never disagree about a word.
-        label: STATUS_LABEL[status],
-        count: counts[status],
-        tone: STATUS_TONE[status],
+      items={shown.map((verdict) => ({
+        // One vocabulary, so the section header and the unit pill it summarises read
+        // the same word from the same map and cannot disagree about it.
+        label: VERDICT_LABEL[verdict],
+        count: counts[verdict],
+        tone: VERDICT_TONE[verdict],
       }))}
     />
-  );
-}
-
-/**
- * One rubric unit: its name, its verdict, and its findings behind a disclosure.
- *
- * Collapsed, which is the change. Every unit used to render all of its findings inline -
- * each with a reason, a statement, a recommendation and a provenance trigger - so a
- * thirteen-unit section was sixty lines and adjacent rows differed in height by a factor of
- * nine. Scout reads a field beside twenty-seven others and collapses; this reads a unit
- * beside thirty-one and did not.
- *
- * A unit with no findings is not a disclosure at all. There is nothing behind it, and a
- * control that opens to nothing is the same mistake as a citation that resolves to nothing.
- */
-function UnitRow({
-  unit,
-  sectionName,
-}: {
-  unit: UnitAssessment;
-  sectionName: string;
-}) {
-  const heading = (
-    <>
-      <p className="min-w-0 flex-1 truncate text-sm font-medium">
-        {unit.variable_name ?? sectionName}
-      </p>
-      <div className="flex shrink-0 items-center gap-2">
-        {/* Muted text, not a second pill. `Optional` is the rubric author's decision about
-            this unit, not a verdict about the document, and two pills on one row read as
-            two judgements. */}
-        {unit.optional && (
-          <span className="text-[11px] text-muted-foreground">Optional</span>
-        )}
-        <StatusPill status={unit.status} />
-      </div>
-    </>
-  );
-
-  if (unit.findings.length === 0) {
-    return (
-      <div className="flex items-center gap-4 px-5 py-4 sm:px-6">{heading}</div>
-    );
-  }
-
-  return (
-    <details className="group/unit">
-      <summary className={cn(EXPANDABLE_ROW, "items-center")}>
-        <ChevronDown
-          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/unit:rotate-180 motion-reduce:transition-none"
-          aria-hidden="true"
-        />
-        {heading}
-      </summary>
-      <ul
-        className={cn(
-          "space-y-2.5 px-5 pb-4 text-sm leading-6 sm:px-6",
-          SURFACE.open.body,
-          DISCLOSURE_MOTION,
-        )}
-      >
-        {unit.findings.map((finding) => (
-          <li key={finding.id}>
-            {/* The unit's name is the row heading, so the finding does not
-                repeat it here. */}
-            <FindingBody finding={finding} showUnit={false} />
-          </li>
-        ))}
-      </ul>
-    </details>
   );
 }
 
@@ -737,7 +624,7 @@ function ConsistencyView({
   findings,
   status,
 }: {
-  findings: RubricFinding[];
+  findings: Assessment[];
   status: InspectionResult["consistency_status"];
 }) {
   if (findings.length === 0) {
@@ -758,40 +645,38 @@ function ConsistencyView({
     );
   }
   return (
-    <div className="space-y-3">
+    <div>
       {/* The count and the name are in the toolbar above; what is left is the one thing a
           reader cannot see, which is how much of the document the pass actually covered. */}
-      <p className="text-xs leading-5 text-muted-foreground">
+      <p className="border-b border-border/60 px-5 py-3 text-xs leading-5 text-muted-foreground sm:px-6">
         {consistencyDescription(status)}
       </p>
-      {findings.map((finding) => (
-        <article
-          key={finding.id}
-          className="rounded-lg border border-border p-4"
-        >
-          {/* The model's sentence, like the one in a section card. It was at full
-              contrast here and muted there, so the same kind of claim carried two
-              authorships depending on which tab you were reading. */}
-          <Reading size="prominent">{finding.statement}</Reading>
-          {finding.recommendation && (
-            <div className="mt-3">
-              <LabeledItem kind="recommendation">
-                {finding.recommendation}
-              </LabeledItem>
-            </div>
-          )}
-          <div className="mt-3">
-            {/* Named, so the trace opens on this finding's own layer rather than on
-              every layer the passage carries. */}
-            <DocumentSourceTrace
-              blockIds={finding.cited_block_ids}
-              annotationId={inspectorAnnotationId(finding.id)}
-            />
-          </div>
-        </article>
-      ))}
+      {/* The same rows the Sections tab shows, in the same divided list. A conflict is
+          the same shape as a unit - one verdict, one sentence, the blocks it was read
+          from - and it used to render as a bordered card instead, so the same kind of
+          claim looked like a different kind of thing depending on the tab. */}
+      <div className="divide-y divide-border/60">
+        {findings.map((finding) => (
+          <AssessmentRow
+            key={finding.id}
+            item={finding}
+            title={conflictTitle(finding)}
+          />
+        ))}
+      </div>
     </div>
   );
+}
+
+/**
+ * What to call a conflict, which belongs to no unit.
+ *
+ * Titled by the sections its own citations resolve to, the same derivation the document
+ * trace uses. Naming them a second way here would be a second answer to "which sections
+ * disagree" that could differ from the one in the gutter.
+ */
+function conflictTitle(finding: Assessment): string {
+  return finding.variable_name ?? finding.section_name ?? "Across sections";
 }
 
 function consistencyDescription(
@@ -808,47 +693,53 @@ function consistencyDescription(
   return "This saved result does not record consistency-pass completion.";
 }
 
-function StatusPill({ status }: { status: UnitStatus }) {
+function StatusPill({ status }: { status: Verdict }) {
   return (
-    // No help affordance. The four statuses are told apart by contrast, so an icon on one
-    // of them cannot do the job: it says what "Not met" is without saying how it differs
-    // from "Could be stronger", which is the thing a reader gets wrong. "How to read"
-    // shows all four together and is the only place they are explained. Scout reached the
-    // same conclusion for the same reason; the native title stays, because it costs
-    // nothing and adds no mark to the page.
+    // No help affordance. The verdicts are told apart by contrast, so an icon on one of
+    // them cannot do the job: it says what "Insufficient" is without saying how it
+    // differs from "Vague", which is the thing a reader gets wrong. "How to read" shows
+    // them together and is the only place they are explained. Scout reached the same
+    // conclusion for the same reason; the native title stays, because it costs nothing
+    // and adds no mark to the page.
     <span
-      title={STATUS_DESCRIPTION[status]}
+      title={VERDICT_DESCRIPTION[status]}
       className={cn(
         "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
-        STATUS_SURFACE[status],
+        VERDICT_SURFACE[status],
       )}
     >
-      {STATUS_LABEL[status]}
+      {VERDICT_LABEL[status]}
     </span>
   );
 }
 
-/* The short forms moved to `lib/api.ts` as `STATUS_LABEL`. They lived here, so the document
-   trace could not reach them and rendered the description as pill text instead. Colour is
-   still a local concern: see `STATUS_SURFACE`. */
+/* The short forms live in `lib/api.ts` as `VERDICT_LABEL`. They used to live here, so the
+   document trace could not reach them and rendered the description as pill text instead.
+   Colour is still a local concern: see `VERDICT_SURFACE`. */
 
-// Half of these reached the tone tokens and half wrote the palette out with a hand-kept
-// dark-mode variant beside it, for verdicts that sit in the same row as each other.
 /**
- * One tone per unit status. The only place the judgement is made.
+ * One tone per verdict. The only place the judgement is made.
  *
  * The pill fills with it and the section's count row dots with it - two shapes, one
  * decision, per the rule in `lib/tone.ts`. Two maps here would be the same verdict decided
  * twice, which is how a status came to be one colour on a unit and another on the section
  * summarising it.
+ *
+ * The shortfalls are not graded against each other. `vague` is the one that leaves the
+ * requirement covered - the content is all there and unusable - so it reads as caution;
+ * the rest leave something absent and read as danger. That split is the vocabulary's own
+ * worst-first order, not a severity scale invented here.
  */
-const STATUS_TONE: Record<UnitStatus, Tone> = {
-  met: "success",
-  could_be_stronger: "warning",
-  not_met: "danger",
+const VERDICT_TONE: Record<Verdict, Tone> = {
+  specified: "success",
+  not_present: "danger",
+  placeholder: "danger",
+  insufficient: "danger",
+  vague: "warning",
+  section_conflict: "danger",
   not_applicable: "neutral",
 };
 
-const STATUS_SURFACE: Record<UnitStatus, string> = Object.fromEntries(
-  UNIT_STATUSES.map((status) => [status, TONE_TINT[STATUS_TONE[status]]]),
-) as Record<UnitStatus, string>;
+const VERDICT_SURFACE: Record<Verdict, string> = Object.fromEntries(
+  VERDICTS.map((verdict) => [verdict, TONE_TINT[VERDICT_TONE[verdict]]]),
+) as Record<Verdict, string>;

@@ -1,9 +1,13 @@
 """The deterministic half of Inspector's contract.
 
 Determinism checks what can be checked without reading prose: the assessment covers
-exactly the rubric's units, lineage points at blocks that exist in the right
-section, and no unit reports the same reason twice. Judgment belongs to the model;
-these are the claims code can refuse on its own.
+exactly the rubric's units, and lineage points at blocks that exist in the right
+section. Judgment belongs to the model; these are the claims code can refuse on
+its own.
+
+Two checks left with the nesting they policed - "no unit raises the same reason
+twice" and "an absent unit cannot also raise other findings". A unit carries one
+verdict now, so neither is expressible and neither needs guarding.
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ from services.chunker import ContentBlock
 from services.inspector.assembly import assess_sections, rubric_units
 from services.inspector.contract import validate_result_contract
 from services.inspector.models import (
-    Finding,
+    Assessment,
     InspectionConfig,
     InspectionResult,
     SectionSpec,
@@ -56,23 +60,33 @@ def _config() -> InspectionConfig:
     )
 
 
-def _finding(reason: str, variable: str = "Efficacy", blocks: list[str] | None = None) -> Finding:
-    return Finding(
-        id=f"Profile|{variable}|{reason}",
-        reason=reason,
-        statement="A stated defect.",
-        recommendation="Do the thing.",
+def _unit(
+    verdict: str = "specified",
+    variable: str = "Efficacy",
+    blocks: list[str] | None = None,
+) -> Assessment:
+    uncited = verdict in ("not_present", "not_applicable")
+    sound = verdict in ("specified", "not_applicable")
+    return Assessment(
+        id=f"Profile|{variable}",
+        verdict=verdict,
+        statement="" if sound else "A stated defect.",
         section_name="Profile",
         variable_name=variable,
-        cited_block_ids=[] if reason == "missing" else (blocks or ["document:b1"]),
+        cited_block_ids=[] if uncited else (blocks or ["document:b1"]),
     )
+
+
+def _all(verdict: str = "specified", blocks: list[str] | None = None) -> list[Assessment]:
+    """Every unit the fixture rubric declares, so assembly has a full answer."""
+    return [_unit(verdict, name, blocks) for name in ("Efficacy", "Safety")]
 
 
 def _result(
     config: InspectionConfig,
-    findings: list[Finding],
+    assessments: list[Assessment],
     *,
-    document_findings: list[Finding] | None = None,
+    document_findings: list[Assessment] | None = None,
     blocks: list[ContentBlock] | None = None,
     mapped: dict[str, list[str]] | None = None,
 ) -> InspectionResult:
@@ -83,7 +97,7 @@ def _result(
     }
     return InspectionResult(
         doc_id="document",
-        sections=assess_sections(config, findings, mapped_blocks=mapping),
+        sections=assess_sections(config, assessments, mapped_blocks=mapping),
         document_findings=document_findings or [],
         consistency_status="complete",
         assessment_status="complete",
@@ -96,13 +110,13 @@ class LedgerTests(unittest.TestCase):
         config = _config()
         self.assertEqual(len(rubric_units(config)), 2)
 
-        result = _result(config, [])
+        result = _result(config, _all())
 
         self.assertIs(validate_result_contract(result, config), result)
 
     def test_a_missing_unit_is_refused(self) -> None:
         config = _config()
-        result = _result(config, [])
+        result = _result(config, _all())
         result.sections[0].units = result.sections[0].units[:1]
 
         with self.assertRaisesRegex(ValueError, "units do not match the rubric"):
@@ -110,36 +124,23 @@ class LedgerTests(unittest.TestCase):
 
     def test_a_reordered_section_is_refused(self) -> None:
         config = _config()
-        result = _result(config, [])
+        result = _result(config, _all())
         result.sections[0].section_name = "Invented"
 
         with self.assertRaisesRegex(ValueError, "sections do not match the rubric"):
             validate_result_contract(result, config)
 
 
-class FindingLineageTests(unittest.TestCase):
-    def test_a_unit_cannot_raise_the_same_reason_twice(self) -> None:
-        config = _config()
-        result = _result(config, [])
-        result.sections[0].units[0].findings = [_finding("unclear"), _finding("unclear")]
+class LineageTests(unittest.TestCase):
+    """Two checks are gone with the nesting: "the same reason twice" and "an absent
+    unit that also raises other findings". A unit carries one verdict, so a second
+    one on it is not a thing that can be written down."""
 
-        with self.assertRaisesRegex(ValueError, "raises a reason twice"):
-            validate_result_contract(result, config)
-
-    def test_an_absent_unit_cannot_also_raise_other_findings(self) -> None:
-        """The check that keeps one absence from becoming two entries again."""
-        config = _config()
-        result = _result(config, [])
-        result.sections[0].units[0].findings = [_finding("missing"), _finding("off_template")]
-
-        with self.assertRaisesRegex(ValueError, "cannot also raise other findings"):
-            validate_result_contract(result, config)
-
-    def test_a_finding_must_cite_within_its_own_section(self) -> None:
+    def test_an_assessment_must_cite_within_its_own_section(self) -> None:
         config = _config()
         result = _result(
             config,
-            [_finding("unclear", blocks=["document:b2"])],
+            [_unit("vague", "Efficacy", ["document:b2"]), _unit("specified", "Safety")],
             blocks=[_block("document:b1", "Profile"), _block("document:b2", "Plan")],
             mapped={"Profile": ["document:b1"]},
         )
@@ -147,28 +148,18 @@ class FindingLineageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside its scope"):
             validate_result_contract(result, config)
 
-    def test_a_finding_filed_against_the_wrong_unit_is_refused(self) -> None:
+    def test_a_unit_filed_under_the_wrong_section_is_refused(self) -> None:
         config = _config()
-        result = _result(config, [])
-        result.sections[0].units[1].findings = [_finding("unclear", variable="Efficacy")]
+        result = _result(config, _all())
+        result.sections[0].units[1].section_name = "Elsewhere"
 
-        with self.assertRaisesRegex(ValueError, "wrong unit"):
+        with self.assertRaisesRegex(ValueError, "wrong section"):
             validate_result_contract(result, config)
 
-    def test_duplicate_finding_ids_are_refused(self) -> None:
+    def test_duplicate_unit_ids_are_refused(self) -> None:
         config = _config()
-        result = _result(config, [])
-        result.sections[0].units[0].findings = [_finding("unclear")]
-        result.sections[0].units[1].findings = [
-            Finding(
-                id="Profile|Efficacy|unclear",
-                reason="unclear",
-                statement="Same id.",
-                section_name="Profile",
-                variable_name="Safety",
-                cited_block_ids=["document:b1"],
-            )
-        ]
+        result = _result(config, _all())
+        result.sections[0].units[1].id = result.sections[0].units[0].id
 
         with self.assertRaisesRegex(ValueError, "id is not unique"):
             validate_result_contract(result, config)
@@ -179,7 +170,7 @@ class SectionMappingTests(unittest.TestCase):
         config = _config()
         result = _result(
             config,
-            [],
+            _all(),
             blocks=[_block("document:b1", "Profile"), _block("document:b2", "Plan")],
             mapped={"Profile": ["document:b2"]},
         )
@@ -190,7 +181,7 @@ class SectionMappingTests(unittest.TestCase):
     def test_presence_is_derived_from_the_mapping_rather_than_stored(self) -> None:
         """"Absent yet mapping blocks" is no longer expressible, so nothing checks it."""
         config = _config()
-        result = _result(config, [])
+        result = _result(config, _all())
 
         self.assertTrue(result.sections[0].is_present)
         result.sections[0].mapped_block_ids = []
@@ -200,18 +191,17 @@ class SectionMappingTests(unittest.TestCase):
 
 
 class ConflictTests(unittest.TestCase):
-    def _conflict(self, block_ids: list[str]) -> Finding:
-        return Finding(
+    def _conflict(self, block_ids: list[str]) -> Assessment:
+        return Assessment(
             id="conflict|0",
-            reason="conflicting",
+            verdict="section_conflict",
             statement="Two sections disagree.",
-            recommendation="Reconcile them.",
             cited_block_ids=block_ids,
         )
 
     def test_a_conflict_must_span_two_sections(self) -> None:
         config = _config()
-        result = _result(config, [], document_findings=[self._conflict(["document:b1"])])
+        result = _result(config, _all(), document_findings=[self._conflict(["document:b1"])])
 
         with self.assertRaisesRegex(ValueError, "at least two sections"):
             validate_result_contract(result, config)
@@ -220,7 +210,7 @@ class ConflictTests(unittest.TestCase):
         config = _config()
         result = _result(
             config,
-            [],
+            _all(),
             document_findings=[self._conflict(["document:b1", "document:b2"])],
             blocks=[_block("document:b1", "Profile"), _block("document:b2", "Plan")],
             mapped={"Profile": ["document:b1"]},
@@ -234,7 +224,7 @@ class ConflictTests(unittest.TestCase):
 class RunCompletionTests(unittest.TestCase):
     def test_an_incomplete_run_cannot_become_a_final_result(self) -> None:
         config = _config()
-        result = _result(config, [])
+        result = _result(config, _all())
         result.assessment_status = "unknown"
 
         with self.assertRaisesRegex(ValueError, "must be complete"):
@@ -242,7 +232,7 @@ class RunCompletionTests(unittest.TestCase):
 
     def test_blocks_from_another_document_are_refused(self) -> None:
         config = _config()
-        result = _result(config, [])
+        result = _result(config, _all())
         result.doc_id = "other"
 
         with self.assertRaisesRegex(ValueError, "blocks from another document"):
@@ -256,9 +246,10 @@ if __name__ == "__main__":
 class DerivedValueTests(unittest.TestCase):
     """A derived value must fail loudly rather than default to a plausible answer.
 
-    `status`, `level`, and `status_counts` are computed during serialization. The API
-    models used to default them, and `status` defaulted to "met" - so a unit whose
-    status went missing would have published as satisfied.
+    Two remain: `is_present` and `verdict_counts`. There used to be four, and the two
+    that went were a unit `status` and a finding `level` - both restatements of the
+    verdict rather than reads of it. The API models used to default them, and `status`
+    defaulted to "met", so a unit whose status went missing published as satisfied.
     """
 
     def test_no_derived_field_anywhere_carries_a_default(self) -> None:
@@ -272,15 +263,14 @@ class DerivedValueTests(unittest.TestCase):
         from dataclasses import asdict
 
         from api.schemas import (
+            AssessmentOut,
             InspectionResultOut,
-            RubricFindingOut,
             SectionAssessmentOut,
-            UnitAssessmentOut,
         )
         from services.inspector.models import inspection_result_to_dict
 
         config = _config()
-        result = _result(config, [_finding("unclear")])
+        result = _result(config, [_unit("vague", "Efficacy"), _unit("specified", "Safety")])
         plain = asdict(result)
         published = inspection_result_to_dict(result)
 
@@ -293,14 +283,9 @@ class DerivedValueTests(unittest.TestCase):
                 plain["sections"][0],
             ),
             "unit": (
-                UnitAssessmentOut,
+                AssessmentOut,
                 published["sections"][0]["units"][0],
                 plain["sections"][0]["units"][0],
-            ),
-            "finding": (
-                RubricFindingOut,
-                published["sections"][0]["units"][0]["findings"][0],
-                plain["sections"][0]["units"][0]["findings"][0],
             ),
         }
         checked = 0
@@ -312,28 +297,29 @@ class DerivedValueTests(unittest.TestCase):
                     f"{model.__name__}.{name} is derived at the {level} level and "
                     "must not have a default",
                 )
-        self.assertGreaterEqual(checked, 4, "the derived set was not discovered")
+        self.assertGreaterEqual(checked, 2, "the derived set was not discovered")
 
     def test_serialization_publishes_every_derived_field(self) -> None:
         from api.schemas import InspectionResultOut
         from services.inspector.models import inspection_result_to_dict
 
         config = _config()
-        result = _result(config, [_finding("unclear")])
+        result = _result(config, [_unit("vague", "Efficacy"), _unit("specified", "Safety")])
         payload = inspection_result_to_dict(result)
 
         # Constructing the API model is the check: a missing derived value now has no
         # default to fall back on.
         out = InspectionResultOut(**payload)
-        self.assertEqual(out.sections[0].units[0].status, "could_be_stronger")
-        self.assertEqual(out.sections[0].units[0].findings[0].level, "could_be_stronger")
-        self.assertEqual(out.sections[0].status_counts["could_be_stronger"], 1)
+        self.assertEqual(out.sections[0].units[0].verdict, "vague")
+        self.assertTrue(out.sections[0].is_present)
+        self.assertEqual(out.sections[0].verdict_counts["vague"], 1)
+        self.assertEqual(out.sections[0].verdict_counts["specified"], 1)
 
     def test_a_truncated_payload_raises_rather_than_publishing(self) -> None:
         from services.inspector.models import inspection_result_to_dict
 
         config = _config()
-        result = _result(config, [])
+        result = _result(config, _all())
         original = inspection_result_to_dict
 
         # `zip` truncates silently, so the serializer checks its own shape first.
@@ -347,17 +333,17 @@ class PresenceBindingTests(unittest.TestCase):
 
     def test_an_absent_section_requires_every_unit_to_report_it(self) -> None:
         config = _config()
-        result = _result(config, [])
+        result = _result(config, _all())
         result.sections[0].mapped_block_ids = []
 
         with self.assertRaisesRegex(ValueError, "must report it missing"):
             validate_result_contract(result, config)
 
     def test_an_absent_section_whose_units_all_report_it_passes(self) -> None:
-        from services.inspector.assembly import absent_unit_findings
+        from services.inspector.assembly import absent_unit_assessments
 
         config = _config()
-        result = _result(config, absent_unit_findings(config, "Profile"))
+        result = _result(config, absent_unit_assessments(config, "Profile"))
         result.sections[0].mapped_block_ids = []
 
         self.assertIs(validate_result_contract(result, config), result)

@@ -18,9 +18,7 @@ import unittest
 from pathlib import Path
 
 from services.inspector.models import (
-    FINDING_LEVELS,
-    FINDING_REASONS,
-    UNIT_STATUSES,
+    VERDICTS,
 )
 
 KNOWLEDGE = Path(__file__).resolve().parents[1] / "shared" / "product_knowledge.json"
@@ -71,9 +69,11 @@ class RetiredVocabularyTests(unittest.TestCase):
 class DeclaredVocabularyTests(unittest.TestCase):
     """Where the prose names a value, it must be one the code declares."""
 
-    def test_any_inspector_status_or_reason_it_names_is_real(self) -> None:
+    def test_any_inspector_verdict_it_names_is_real(self) -> None:
         body = _body()
-        declared = set(FINDING_REASONS) | set(FINDING_LEVELS) | set(UNIT_STATUSES)
+        # One set, because there is one axis. It used to union three - reasons,
+        # levels and statuses - which is exactly the shape this replaced.
+        declared = set(VERDICTS)
         # Snake-case tokens that look like an Inspector vocabulary member.
         candidates = {
             token
@@ -83,7 +83,7 @@ class DeclaredVocabularyTests(unittest.TestCase):
         self.assertEqual(
             candidates - declared,
             set(),
-            "product knowledge names a status or reason the code does not declare",
+            "product knowledge names a verdict the code does not declare",
         )
 
 

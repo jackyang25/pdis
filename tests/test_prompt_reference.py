@@ -37,8 +37,10 @@ class PromptReferenceTest(unittest.TestCase):
             ("scout", "grounding"),
             ("scout", "alignment"),
             ("scout", "precedent"),
-            ("inspector", "finding"),
-            ("inspector", "status"),
+            # One label, because Inspector publishes one axis. It used to be two -
+            # a `finding` reason and a unit `status` - which were one judgement in
+            # two vocabularies.
+            ("inspector", "verdict"),
             ("inspector", "consistency"),
             ("expert", "answered"),
             ("expert", "absent"),

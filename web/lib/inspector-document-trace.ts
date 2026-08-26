@@ -1,11 +1,10 @@
 import type {
-  FindingReason,
+  Assessment,
   InspectionResult,
-  RubricFinding,
   SectionAssessment,
-  UnitStatus,
+  Verdict,
 } from "./api.ts";
-import { REASON_LABELS, worklist } from "./api.ts";
+import { VERDICT_LABEL, worklist } from "./api.ts";
 import type {
   DocumentAnnotation,
   DocumentAnnotationEmphasis,
@@ -18,9 +17,9 @@ import type {
  * already carries; it never re-assesses, re-parses prose, or infers lineage the
  * result does not already hold.
  *
- * One annotation per finding, because a finding is already one thing to fix. The
- * shape this replaced looped three dimensions over every unit and branched on
- * whether a section had variables, so one defect could produce three gutter
+ * One annotation per unit that needs work, because a unit is already one thing to
+ * fix. The shape this replaced looped three dimensions over every unit and branched
+ * on whether a section had variables, so one defect could produce three gutter
  * markers and two of the three were usually empty.
  *
  * Inspector carries no exact quotes, only block ids, so annotations claim whole
@@ -28,17 +27,15 @@ import type {
  * variable name would invent provenance the model never asserted.
  */
 
-export type InspectorDocumentTraceKind = FindingReason;
+export type InspectorDocumentTraceKind = Verdict;
 
 export type InspectorDocumentTraceRef = {
-  findingId: string;
-  reason: FindingReason;
+  /** The unit's own id, which is also what the row's trigger sends. */
+  assessmentId: string;
+  verdict: Verdict;
   statement: string;
-  recommendation: string;
   sectionName: string | null;
   variableName: string | null;
-  /** The status of the unit this finding sits on; absent for a conflict. */
-  status: UnitStatus | null;
 };
 
 export type InspectorDocumentAnnotation = DocumentAnnotation<
@@ -50,14 +47,17 @@ export type InspectorDocumentAnnotation = DocumentAnnotation<
  * A negative result, not a system error, so this rides the tone tokens rather
  * than `--destructive`.
  *
- * Derived from the finding's own level: a reason that leaves the requirement
- * unsatisfied reads as danger, one that only makes it weaker reads as caution.
- * There is no separate tone table to keep in step with the vocabulary.
+ * Read from the vocabulary's own order, which is declared worst-first: the verdicts
+ * that leave something absent read as danger, and the one that leaves the requirement
+ * covered but unusable reads as caution. There is no separate tone table to keep in step, and no
+ * severity field - the position in the one list is the severity.
  */
-function emphasisFor(finding: RubricFinding): DocumentAnnotationEmphasis {
+const WEAKER_VERDICTS: readonly Verdict[] = ["vague"];
+
+function emphasisFor(item: Assessment): DocumentAnnotationEmphasis {
   return {
-    tone: finding.level === "not_met" ? "danger" : "caution",
-    badge: REASON_LABELS[finding.reason] ?? finding.reason,
+    tone: WEAKER_VERDICTS.includes(item.verdict) ? "caution" : "danger",
+    badge: VERDICT_LABEL[item.verdict] ?? item.verdict,
   };
 }
 
@@ -92,15 +92,15 @@ function sectionAnchor(
 }
 
 function titleFor(
-  finding: RubricFinding,
+  item: Assessment,
   sectionByBlock: Map<string, string>,
 ): string {
-  if (finding.variable_name) return finding.variable_name;
-  if (finding.section_name) return finding.section_name;
+  if (item.variable_name) return item.variable_name;
+  if (item.section_name) return item.section_name;
   // A conflict belongs to no single section, so it is titled by the sections its
   // own citations resolve to - the same derivation the result relies on.
   const sections = unique(
-    finding.cited_block_ids.map((blockId) => sectionByBlock.get(blockId) ?? ""),
+    item.cited_block_ids.map((blockId) => sectionByBlock.get(blockId) ?? ""),
   );
   return sections.length ? sections.join(" ↔ ") : "Cross-section conflict";
 }
@@ -108,12 +108,12 @@ function titleFor(
 /**
  * The annotation ID a finding gets in the trace.
  *
- * Exported because the finding rows send readers here, and a trigger that names the wrong
+ * Exported because the unit rows send readers here, and a trigger that names the wrong
  * ID falls back to every layer without saying so. Built in one place so the two sides
  * cannot spell it differently.
  */
-export function inspectorAnnotationId(findingId: string): string {
-  return `inspector:${findingId}`;
+export function inspectorAnnotationId(assessmentId: string): string {
+  return `inspector:${assessmentId}`;
 }
 
 export function buildInspectorDocumentAnnotations(
@@ -136,49 +136,35 @@ export function buildInspectorDocumentAnnotations(
       ),
     ),
   );
-  const statusByUnit = new Map(
-    sections.flatMap((section) =>
-      section.units.map(
-        (unit) =>
-          [
-            `${section.section_name} ${unit.variable_name ?? ""}`,
-            unit.status,
-          ] as const,
-      ),
-    ),
-  );
-
   // The same list the fix list shows, so the gutter and the list can never
   // disagree about what counts as work. Units the rubric marks optional and
   // absent are excluded by that one rule rather than a second one repeated here.
-  return worklist(result).map((finding) => {
-    const blockIds = unique(finding.cited_block_ids);
-    const anchor = finding.section_name
-      ? anchorBySection.get(finding.section_name)
-      : conflictAnchor(finding, sectionByBlock, anchorBySection);
+  return worklist(result).map((item) => {
+    const blockIds = unique(item.cited_block_ids);
+    const anchor = item.section_name
+      ? anchorBySection.get(item.section_name)
+      : conflictAnchor(item, sectionByBlock, anchorBySection);
+    const label = VERDICT_LABEL[item.verdict] ?? item.verdict;
 
     return {
-      id: inspectorAnnotationId(finding.id),
-      kind: finding.reason,
-      layerLabel: REASON_LABELS[finding.reason] ?? finding.reason,
-      title: titleFor(finding, sectionByBlock),
-      summary: finding.statement,
-      statusLabel: REASON_LABELS[finding.reason] ?? finding.reason,
+      id: inspectorAnnotationId(item.id),
+      kind: item.verdict,
+      layerLabel: label,
+      title: titleFor(item, sectionByBlock),
+      summary: item.statement,
+      statusLabel: label,
       blockIds,
       spans: [],
-      emphasis: emphasisFor(finding),
+      emphasis: emphasisFor(item),
       ...(blockIds.length || !anchor ? {} : { displayAnchorBlockId: anchor }),
+      // No unit status beside the verdict. It used to carry both, because the unit
+      // wore a status while the finding on it wore a reason; they are one field now.
       sourceRef: {
-        findingId: finding.id,
-        reason: finding.reason,
-        statement: finding.statement,
-        recommendation: finding.recommendation,
-        sectionName: finding.section_name,
-        variableName: finding.variable_name,
-        status:
-          statusByUnit.get(
-            `${finding.section_name ?? ""} ${finding.variable_name ?? ""}`,
-          ) ?? null,
+        assessmentId: item.id,
+        verdict: item.verdict,
+        statement: item.statement,
+        sectionName: item.section_name,
+        variableName: item.variable_name,
       },
     };
   });
@@ -186,11 +172,11 @@ export function buildInspectorDocumentAnnotations(
 
 /** A conflict without lineage anchors to the first section it can resolve. */
 function conflictAnchor(
-  finding: RubricFinding,
+  item: Assessment,
   sectionByBlock: Map<string, string>,
   anchorBySection: Map<string, string | undefined>,
 ): string | undefined {
-  for (const blockId of finding.cited_block_ids) {
+  for (const blockId of item.cited_block_ids) {
     const section = sectionByBlock.get(blockId);
     if (!section) continue;
     const anchor = anchorBySection.get(section);

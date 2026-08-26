@@ -48,104 +48,120 @@ AssessmentStatus = Literal["complete", "unknown"]
 # synonym for one, because a second name for the same thing is a second thing to
 # keep in step and a reader cannot tell which is authoritative.
 
-FindingReason = Literal[
-    "missing", "placeholder", "unmet", "off_template", "unclear", "conflicting"
-]
-FINDING_REASONS: tuple[FindingReason, ...] = (
-    "missing",
+Verdict = Literal[
+    "specified",
+    "not_present",
     "placeholder",
-    "unmet",
-    "off_template",
-    "unclear",
-    "conflicting",
-)
-"""Why one finding exists. Declared worst-first, which is also display order.
-
-- `missing`      nothing is there
-- `placeholder`  a token such as <<TBD>> sits where the value belongs
-- `unmet`        content is present and does not satisfy the requirement
-- `off_template` the structure or naming deviates from the rubric
-- `unclear`      the requirement is satisfied but the content is vague
-- `conflicting`  two sections state claims that cannot both hold
-
-This replaced three separate dimension verdicts plus a five-value content status.
-One defect belonged to up to three of those at once, so it was counted up to three
-times, and absence was recorded in three places that could disagree.
-"""
-
-UNIT_REASONS: tuple[FindingReason, ...] = tuple(
-    reason for reason in FINDING_REASONS if reason != "conflicting"
-)
-"""The reasons one rubric unit can raise, and the enum offered to the model.
-
-A conflict spans sections, so no single unit can own it; it comes from the
-whole-document pass instead.
-"""
-
-FindingLevel = Literal["not_met", "could_be_stronger"]
-FINDING_LEVELS: tuple[FindingLevel, ...] = ("not_met", "could_be_stronger")
-"""How far short a finding falls.
-
-Conformance language, deliberately not severity language. Inspector knows what the
-rubric asked and what the document supplies; it does not know what a shortfall
-costs a given programme, so it does not claim one.
-"""
-
-LEVEL_BY_REASON: dict[FindingReason, FindingLevel] = {
-    "missing": "not_met",
-    "placeholder": "not_met",
-    "unmet": "not_met",
-    "off_template": "could_be_stronger",
-    "unclear": "could_be_stronger",
-    "conflicting": "not_met",
-}
-"""The level is derived from the reason, never stored beside it.
-
-A reason already carries the distinction the two levels express, so storing a
-severity as well would create two fields that can disagree about one fact.
-"""
-
-UNCITED_REASON: FindingReason = "missing"
-"""The one reason that cites no block, because there is nothing to cite.
-
-It is also the only reason exempt from citing: every other finding was read from
-somewhere, so a reader can check it against the document.
-"""
-
-UnitStatus = Literal["met", "could_be_stronger", "not_met", "not_applicable"]
-UNIT_STATUSES: tuple[UnitStatus, ...] = (
-    "met",
-    "could_be_stronger",
-    "not_met",
+    "insufficient",
+    "vague",
+    "section_conflict",
+    "not_applicable",
+]
+VERDICTS: tuple[Verdict, ...] = (
+    "specified",
+    "not_present",
+    "placeholder",
+    "insufficient",
+    "vague",
+    "section_conflict",
     "not_applicable",
 )
-"""How one rubric unit stands. Derived from the findings on that unit alone."""
+"""How one rubric unit stands. Declared worst-first after `specified`, which is also
+display order.
+
+- `specified`        the rubric asks for this and the document supplies it usably
+- `not_present`      nothing is there
+- `placeholder`      a token such as <<TBD>> sits where the value belongs
+- `insufficient`     content is present and does not satisfy the requirement
+- `vague`            the requirement is satisfied but the content is unusable as stated
+- `section_conflict` two sections state claims that cannot both hold
+- `not_applicable`   the rubric accepts absence here and the document omits it
+
+One axis, and the only one, answering one question: does the document supply what
+this unit asks for, usably? Every value is a position on that question - from
+supplied, through supplied-but-not-enough, to nothing there.
+
+It replaced three stacked vocabularies over the same fact: a `reason` the model
+chose, a `level` that was a lookup on the reason, and a `status` that bucketed the
+levels into three. The second added no information the first did not carry, and the
+third re-expressed the second in different words - so a reader saw "Insufficient" on
+a finding and "Not met" on the unit above it and had no way to know those were one
+judgement said twice.
+
+`off_template` is deliberately absent, and it was the last thing on this list that
+did not belong. It named a deviation in structure or naming, which is a different
+question from every other value here: the rest ask what the content says, that one
+asked what shape it was in. Two questions in one field means a unit that is both
+misnamed and unmeasurable has to be filed as one of them, and the other fact is
+lost. A layout that costs the reader something shows up as `insufficient` or `vague`
+on its own merits; a layout that costs them nothing is not Inspector's business.
+
+Names match what a reader sees, which the old ones did not: the reason `unmet`
+rendered as "Insufficient" while the status `not_met` rendered as "Not met", two
+near-identical keys for two different axes.
+"""
+
+UNIT_VERDICTS: tuple[Verdict, ...] = tuple(
+    verdict for verdict in VERDICTS if verdict != "section_conflict"
+)
+"""The verdicts one rubric unit can carry, and the enum offered to the model.
+
+A conflict spans sections, so no single unit can own it; it comes from the
+whole-document pass instead. Same vocabulary, wider scope - not a second one.
+"""
+
+ASSESSED_VERDICTS: tuple[Verdict, ...] = tuple(
+    verdict for verdict in VERDICTS if verdict not in ("specified", "not_applicable")
+)
+"""The verdicts that name something to fix.
+
+`specified` is the rubric satisfied and `not_applicable` is the rubric not asking, so
+neither is a shortfall. Used for the worklist and for the priorities panel, both of
+which answer "what needs work" rather than "what happened".
+"""
+
+UNCITED_VERDICTS: tuple[Verdict, ...] = ("not_present", "not_applicable")
+"""The verdicts that cite no block, because there is nothing to cite.
+
+Every other verdict was read from somewhere, so a reader can check it against the
+document.
+"""
 
 
 @dataclass
-class Finding:
-    """One thing to fix: a defect, its remedy, and the blocks it was read from.
+class Assessment:
+    """One rubric unit and how it stands: a verdict, a sentence, and its blocks.
 
-    The atom. Three shapes used to carry this - a dimension assessment holding a
-    list of issues against a single recommendation, a separately ranked copy of the
-    worst of them, and a cross-section conflict with its own field names for the
-    same concepts. A reader could not act on the second of three issues, because
-    only the list had three entries and the fix had one.
+    The atom, and the only one. It used to be a `Finding` nested inside a
+    `UnitAssessment`, with the unit's verdict computed from the findings it held -
+    which meant a unit could hold several and the display had to reconcile them.
+    One rubric question now gets one answer.
 
-    Which unit a finding is about is read from its names rather than a separate
+    Which unit an assessment is about is read from its names rather than a separate
     scope field: both names set is a variable, section alone is a whole section,
     neither is the document.
+
+    Dropped with the nesting: `recommendation`. It restated the statement as an
+    imperative - "Vial size is not specified" beside "Specify vial size" - and the
+    web layer had grown a `restatesItself()` guard to hide one of them. A reader who
+    knows what is missing knows to add it.
     """
 
     id: str
-    reason: FindingReason
-    statement: str
-    """What is wrong, in one sentence. One defect per finding, never a list."""
-    recommendation: str = ""
+    verdict: Verdict
+    statement: str = ""
+    """What is wrong, in one sentence. Empty exactly when nothing is wrong.
+
+    A `specified` unit has no sentence because there is nothing to say: the rubric
+    asked and the document answered. Anything else is a claim about the document
+    that has to be checkable against it.
+    """
     section_name: str | None = None
     variable_name: str | None = None
+    optional: bool = False
+    """The rubric author's decision that absence here is acceptable."""
     cited_block_ids: list[str] = field(default_factory=list)
-    """The blocks this finding was read from. Empty exactly when nothing is there.
+    """The blocks this was read from. Empty exactly when nothing is there.
 
     For a conflict these are the passages that disagree, so the sections involved
     are resolved from them rather than stored a second time.
@@ -153,57 +169,38 @@ class Finding:
     rank: int = 0
     """Position in the worklist, assigned once during assembly.
 
-    Stored so every consumer orders identically without holding the rubric. This
-    replaced a separately computed list of top issues that duplicated the rows it
-    ranked and could fall out of step with them.
+    Stored so every consumer orders identically without holding the rubric.
     """
 
     def __post_init__(self) -> None:
-        if self.reason not in FINDING_REASONS:
-            raise ValueError(f"invalid finding reason: {self.reason!r}")
-        if not self.statement:
-            raise ValueError("a finding must state what is wrong")
+        if self.verdict not in VERDICTS:
+            raise ValueError(f"invalid verdict: {self.verdict!r}")
+        if self.verdict in ASSESSED_VERDICTS and not self.statement:
+            raise ValueError(f"a {self.verdict} unit must state what is wrong")
+        if self.verdict not in ASSESSED_VERDICTS and self.statement:
+            raise ValueError(f"a {self.verdict} unit has nothing to state")
         if self.variable_name and not self.section_name:
-            raise ValueError("a variable finding must name its section")
-        if self.reason == UNCITED_REASON and self.cited_block_ids:
+            raise ValueError("a variable assessment must name its section")
+        if self.verdict == "not_applicable" and not self.optional:
+            # Whether absence is acceptable is the rubric author's decision, never the
+            # model's. Without this a required unit could come back `not_applicable`
+            # and be dropped from the worklist - a shortfall disappearing quietly,
+            # which is the one failure mode this tool must not have.
+            raise ValueError("only an optional unit can be not_applicable")
+        if self.verdict in UNCITED_VERDICTS and self.cited_block_ids:
             raise ValueError("an absent unit cannot cite blocks")
-        if self.reason != UNCITED_REASON and not self.cited_block_ids:
-            raise ValueError("a finding must cite the block it was read from")
+        if self.verdict not in UNCITED_VERDICTS and not self.cited_block_ids:
+            raise ValueError("an assessment must cite the block it was read from")
 
     @property
-    def level(self) -> FindingLevel:
-        return LEVEL_BY_REASON[self.reason]
+    def needs_work(self) -> bool:
+        """Whether this names something to fix.
 
-
-@dataclass
-class UnitAssessment:
-    """One rubric unit: a variable, or a section that declares none.
-
-    The unit owns its findings rather than referring to them by id, so a finding
-    cannot belong to two units or to none, and the status is a property of data the
-    unit already holds.
-    """
-
-    variable_name: str | None = None
-    """None when the section itself is the unit, as a prose section is."""
-    optional: bool = False
-    """The rubric author's decision that absence here is acceptable."""
-    findings: list[Finding] = field(default_factory=list)
-
-    @property
-    def status(self) -> UnitStatus:
-        """What this unit reports, derived from its own findings.
-
-        The only place a status is decided. `met` therefore means exactly zero
-        findings, and no consumer can arrive at a different answer.
+        Not a second axis: a read of the one axis, the way `is_present` is a read of
+        `mapped_block_ids`. It exists because "what needs work" is asked in four
+        places and each was writing the same tuple membership test.
         """
-        if self.optional and any(f.reason == UNCITED_REASON for f in self.findings):
-            return "not_applicable"
-        if not self.findings:
-            return "met"
-        if any(f.level == "not_met" for f in self.findings):
-            return "not_met"
-        return "could_be_stronger"
+        return self.verdict in ASSESSED_VERDICTS
 
 
 @dataclass
@@ -224,7 +221,7 @@ class SectionAssessment:
     contract check, and the document view each used to rebuild it from
     `section_label`, three times, from the same input.
     """
-    units: list[UnitAssessment] = field(default_factory=list)
+    units: list[Assessment] = field(default_factory=list)
 
     @property
     def is_present(self) -> bool:
@@ -239,16 +236,17 @@ class SectionAssessment:
         return bool(self.mapped_block_ids)
 
     @property
-    def status_counts(self) -> dict[str, int]:
-        """This section's units, counted by status.
+    def verdict_counts(self) -> dict[str, int]:
+        """This section's units, counted by verdict.
 
-        Bounded by the rubric, so "3 not met" always means three of a known number
-        of units. The count it replaced counted judgments, which was unbounded and
-        comparable to nothing.
+        A count of the one axis, not a bucketing into a second one: `3 vague` means
+        three of a known number of units, and the word is the same word the unit
+        wears. What it replaced counted findings, which was unbounded - a unit could
+        hold several - and comparable to nothing.
         """
-        counts = {status: 0 for status in UNIT_STATUSES}
+        counts = {verdict: 0 for verdict in VERDICTS}
         for unit in self.units:
-            counts[unit.status] += 1
+            counts[unit.verdict] += 1
         return counts
 
 
@@ -258,7 +256,7 @@ class InspectionResult:
 
     doc_id: str
     sections: list[SectionAssessment] = field(default_factory=list)
-    document_findings: list[Finding] = field(default_factory=list)
+    document_findings: list[Assessment] = field(default_factory=list)
     """Conflicts spanning sections, which no single unit can own."""
     consistency_status: ConsistencyStatus = "unknown"
     assessment_status: AssessmentStatus = "unknown"
@@ -491,30 +489,29 @@ def load_inspection_config(path: str) -> InspectionConfig:
 def inspection_result_to_dict(result: InspectionResult) -> dict[str, Any]:
     """Convert an InspectionResult to JSON-serializable dictionaries.
 
-    Derived values `asdict` cannot see are added here: each unit's status, each
-    finding's level, and each section's status counts. They are published rather
+    Two derived values `asdict` cannot see are added: each section's presence and its
+    verdict counts. Both are reads of data already in the payload, published rather
     than left to the client because a client deriving them independently could
     disagree with the assessment it is displaying.
 
-    No flattened copy of the findings is published. A worklist is those same
-    findings ordered by `rank`, which the presentation layer composes - a second
-    array here would be a shape that can drift from the units it came from.
+    Every other value here is the model's answer or the rubric's. There used to be
+    three more - a unit status computed from its findings, a finding level looked up
+    from its reason, and section counts of those statuses - all restating one
+    judgement in three vocabularies.
+
+    No flattened copy of the units is published. A worklist is those same units
+    ordered by `rank`, which the presentation layer composes - a second array here
+    would be a shape that can drift from the sections it came from.
     """
     payload = asdict(result)
     # `zip` truncates silently, so a shape that stopped lining up would leave later
-    # units without their derived status - and the API refuses that rather than
-    # defaulting it, so this assert names the cause instead of the symptom.
+    # sections without their derived values - and the API refuses that rather than
+    # defaulting it, so this raise names the cause instead of the symptom.
     if len(result.sections) != len(payload["sections"]):
         raise ValueError("Inspector payload lost sections during serialization")
     for section, section_payload in zip(result.sections, payload["sections"]):
         section_payload["is_present"] = section.is_present
-        section_payload["status_counts"] = section.status_counts
-        for unit, unit_payload in zip(section.units, section_payload["units"]):
-            unit_payload["status"] = unit.status
-            for finding, finding_payload in zip(unit.findings, unit_payload["findings"]):
-                finding_payload["level"] = finding.level
-    for finding, finding_payload in zip(result.document_findings, payload["document_findings"]):
-        finding_payload["level"] = finding.level
+        section_payload["verdict_counts"] = section.verdict_counts
     return payload
 
 

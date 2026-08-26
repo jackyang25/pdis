@@ -7,6 +7,8 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import { RESULT_CONTRACTS, type ResultType } from "./result-contracts.ts";
@@ -29,15 +31,15 @@ test("each contract refuses an empty analysis and names the tool", () => {
 });
 
 test("Inspector refuses an assessment missing a derived value", () => {
-  // `status`, `level`, and `status_counts` arrived with the rubric ledger, so a file
-  // written before it has the right field names and none of these. Without the
-  // check, every unit would render blank rather than being refused.
+  // `verdict_counts` is computed during serialization, so a file written before it has
+  // the right field names and not this one. Without the check every section header
+  // would render blank rather than the file being refused.
   const withUnits = (unit: Record<string, unknown>) => ({
     inspection: {
       sections: [
         {
           section_name: "Profile",
-          status_counts: { met: 0, could_be_stronger: 0, not_met: 1, not_applicable: 0 },
+          verdict_counts: { specified: 0, not_present: 1 },
           units: [unit],
         },
       ],
@@ -45,33 +47,44 @@ test("Inspector refuses an assessment missing a derived value", () => {
     },
   });
 
-  const complete = {
-    variable_name: "Efficacy",
-    status: "not_met",
-    findings: [
-      { reason: "missing", statement: "Not stated.", level: "not_met" },
-    ],
-  };
+  const complete = { variable_name: "Efficacy", verdict: "not_present", statement: "Not stated." };
   RESULT_CONTRACTS.inspector(withUnits(complete));
 
-  const { status, ...noStatus } = complete;
-  assert.throws(() => RESULT_CONTRACTS.inspector(withUnits(noStatus)), /unit status/);
+  const { verdict, ...noVerdict } = complete;
+  assert.throws(() => RESULT_CONTRACTS.inspector(withUnits(noVerdict)), /unit verdict/);
 
-  const noLevel = { ...complete, findings: [{ reason: "missing", statement: "x" }] };
-  assert.throws(() => RESULT_CONTRACTS.inspector(withUnits(noLevel)), /finding level/);
-});
-
-test("Inspector refuses a section with no units", () => {
   assert.throws(
     () =>
       RESULT_CONTRACTS.inspector({
         inspection: {
-          sections: [{ section_name: "Profile", status_counts: {} }],
+          sections: [{ section_name: "Profile", units: [complete] }],
           document_findings: [],
         },
       }),
-    /units/,
+    /verdict counts/,
   );
+});
+
+test("Inspector accepts a sound unit, which states nothing", () => {
+  // The regression this exists for. The contract used to walk `units[].findings[]` and
+  // require a `reason`, a `level` and a unit `status` on the way down - a shape check
+  // rather than a check of what the interface needs. When those three fields went, every
+  // freshly built result stopped hydrating and the page threw a client-side exception.
+  //
+  // A `specified` unit carries an empty statement, which is the common case, so the
+  // contract must not require text there either.
+  RESULT_CONTRACTS.inspector({
+    inspection: {
+      sections: [
+        {
+          section_name: "Profile",
+          verdict_counts: { specified: 1 },
+          units: [{ variable_name: "Efficacy", verdict: "specified", statement: "" }],
+        },
+      ],
+      document_findings: [],
+    },
+  });
 });
 
 test("Aligner refuses a result that cannot form a comparison", () => {
@@ -182,4 +195,52 @@ test("a contract reports a reason a reader can act on", () => {
     () => RESULT_CONTRACTS.inspector({}),
     /this inspector result cannot be read: it carries no assessment/,
   );
+});
+
+test("Inspector's contract only requires fields the service publishes", () => {
+  // The bug this exists for: the contract required `status`, `level` and
+  // `status_counts` long after the service stopped emitting them, so every freshly
+  // built result was refused and the page threw a client-side exception. Hand-written
+  // fixtures could not catch it, because they were written to match the contract.
+  //
+  // Reading the service's own schema closes that loop: a field the contract insists on
+  // has to be one `api/schemas.py` declares, or the contract is checking for something
+  // no result will ever carry.
+  const schema = readFileSync(
+    path.resolve(import.meta.dirname, "..", "..", "api", "schemas.py"),
+    "utf8",
+  );
+  const declared = (model: string) => {
+    const block = schema.slice(schema.indexOf(`class ${model}(BaseModel):`));
+    return new Set(
+      [...block.slice(0, block.indexOf("\n\nclass ")).matchAll(/^\s{4}(\w+):/gm)].map(
+        (match) => match[1],
+      ),
+    );
+  };
+
+  const contract = readFileSync(
+    path.resolve(import.meta.dirname, "result-contracts.ts"),
+    "utf8",
+  );
+  const body = contract.slice(
+    contract.indexOf("function assertInspectorReadable"),
+    contract.indexOf("// --- Aligner"),
+  );
+
+  const section = declared("SectionAssessmentOut");
+  const unit = declared("AssessmentOut");
+  assert.ok(section.size > 0 && unit.size > 0, "the API schema could not be read");
+
+  // Every property the contract names on a section or a unit, however it reaches it.
+  const named = [...body.matchAll(/(?:entry|held|unit as Record<string, unknown>)\)?\.(\w+)/g)]
+    .map((match) => match[1])
+    .filter((name) => name !== "then");
+  assert.ok(named.length > 0, "the contract names no fields, so this checks nothing");
+  for (const field of named) {
+    assert.ok(
+      section.has(field) || unit.has(field),
+      `the contract requires ${field}, which the service does not publish`,
+    );
+  }
 });

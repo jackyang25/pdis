@@ -1,4 +1,4 @@
-"""Assembly: the rubric's units joined with the findings raised against them.
+"""Assembly: the rubric's units joined with the verdicts returned against them.
 
 The one layer that creates nothing. Every value produced here is authored in the
 rubric, observed by the model, or derived by a function in this file, so a reader
@@ -13,12 +13,10 @@ from __future__ import annotations
 from typing import Optional, Sequence, Tuple
 
 from services.inspector.models import (
-    FINDING_LEVELS,
-    UNCITED_REASON,
-    Finding,
+    VERDICTS,
+    Assessment,
     InspectionConfig,
     SectionAssessment,
-    UnitAssessment,
 )
 
 RubricUnit = Tuple[str, Optional[str], bool]
@@ -29,7 +27,7 @@ def rubric_units(config: InspectionConfig) -> list[RubricUnit]:
     """Every unit the rubric asks about, in the order the author wrote them.
 
     The document's denominator, taken from the rubric alone, which is why this is
-    its own function rather than something read off the findings: a model that says
+    its own function rather than something read off the answers: a model that says
     nothing about a unit cannot remove it from the assessment.
 
     Rubric order is also the only priority signal in the system that somebody
@@ -50,16 +48,20 @@ def rubric_units(config: InspectionConfig) -> list[RubricUnit]:
 
 def assess_sections(
     config: InspectionConfig,
-    findings: Sequence[Finding],
+    assessments: Sequence[Assessment],
     *,
     mapped_blocks: dict[str, list[str]] | None = None,
 ) -> list[SectionAssessment]:
-    """Join the rubric with the findings addressed to it.
+    """Join the rubric with the verdicts addressed to it.
 
-    Every section and every unit appears whether or not the model spoke about it. A
-    finding addressed to a unit the rubric does not contain raises rather than being
-    dropped: it means the run and the rubric disagree about what was assessed, and a
-    silent discard would leave the assessment looking complete.
+    Every rubric unit must have exactly one assessment, and both directions raise.
+    An assessment for a unit the rubric does not contain means the run and the rubric
+    disagree about what was assessed; a unit with no assessment means the run did not
+    finish. Either way a silent fill would leave the result looking complete.
+
+    Deliberately not defaulted to `specified`: the assessor makes one call per unit,
+    so a missing answer is a failed call, and "not checked" reading as "nothing
+    wrong" is the one mistake this tool cannot make.
 
     `mapped_blocks` carries the parse lineage the assessor observed, and presence is
     read from it rather than passed alongside: a section is present exactly when the
@@ -67,17 +69,31 @@ def assess_sections(
     cares about the join.
     """
     mapping = mapped_blocks or {}
+    answered = {
+        (item.section_name, item.variable_name): item for item in assessments
+    }
+
+    known = {(section, variable) for section, variable, _ in rubric_units(config)}
+    for key in answered:
+        if key not in known:
+            raise ValueError(
+                "assessment addresses a unit outside the rubric: "
+                f"{key[0]!r} / {key[1]!r}"
+            )
+    for section, variable, _ in rubric_units(config):
+        if (section, variable) not in answered:
+            raise ValueError(
+                f"no assessment for rubric unit: {section!r} / {variable!r}"
+            )
 
     sections: list[SectionAssessment] = []
-    units_by_key: dict[tuple[str, str | None], UnitAssessment] = {}
     for section_spec in config.sections:
-        units: list[UnitAssessment] = []
+        units: list[Assessment] = []
         for section_name, variable_name, optional in rubric_units(config):
             if section_name != section_spec.name:
                 continue
-            unit = UnitAssessment(variable_name=variable_name, optional=optional)
-            units.append(unit)
-            units_by_key[(section_name, variable_name)] = unit
+            del optional  # the assessment carries it; the rubric is checked above
+            units.append(answered[(section_name, variable_name)])
         sections.append(
             SectionAssessment(
                 section_name=section_spec.name,
@@ -85,82 +101,57 @@ def assess_sections(
                 units=units,
             )
         )
-
-    for finding in findings:
-        unit = units_by_key.get((finding.section_name, finding.variable_name))
-        if unit is None:
-            raise ValueError(
-                "finding addresses a unit outside the rubric: "
-                f"{finding.section_name!r} / {finding.variable_name!r}"
-            )
-        unit.findings.append(finding)
     return sections
 
 
-def rank_findings(
+def rank_assessments(
     config: InspectionConfig,
     sections: Sequence[SectionAssessment],
-    document_findings: Sequence[Finding] = (),
-) -> list[Finding]:
-    """Assign every finding its position and return them in that order.
+    document_assessments: Sequence[Assessment] = (),
+) -> list[Assessment]:
+    """Assign every unit that needs work its position, and return them in that order.
 
-    Ordered by level, then by the rubric's own sequence, then by reason. Nothing
-    here is a judgment we invented: an unsatisfied requirement preceding an
-    improvable one is what the two levels mean, and the rest of the order is the
-    order the rubric author wrote.
+    Ordered by verdict, then by the rubric's own sequence. Neither is a judgment we
+    invented: the vocabulary is declared worst-first and that is its display order,
+    and the rest is the order the rubric author wrote.
 
-    Findings on a `not_applicable` unit are excluded rather than ranked last. The
-    rubric accepts their absence, so they are not work; they stay on the unit so it
-    can still explain itself.
+    `specified` and `not_applicable` units are excluded rather than ranked last. One
+    is the rubric satisfied and the other is the rubric not asking, so neither is
+    work.
 
     Assigning this once, here, is what let a separately computed list of top issues
     go away. Every consumer sorts by `rank` and gets the same order.
     """
-    from services.inspector.models import FINDING_REASONS  # local: display order only
-
-    level_rank = {level: index for index, level in enumerate(FINDING_LEVELS)}
+    verdict_rank = {verdict: index for index, verdict in enumerate(VERDICTS)}
     unit_order = {
         (section, variable): index
         for index, (section, variable, _) in enumerate(rubric_units(config))
     }
 
-    candidates: list[Tuple[int, int, int, Finding]] = []
+    candidates: list[Tuple[int, int, Assessment]] = []
     for section in sections:
         for unit in section.units:
-            if unit.status == "not_applicable":
+            if not unit.needs_work:
                 continue
             position = unit_order[(section.section_name, unit.variable_name)]
-            for finding in unit.findings:
-                candidates.append(
-                    (
-                        level_rank[finding.level],
-                        position,
-                        FINDING_REASONS.index(finding.reason),
-                        finding,
-                    )
-                )
-    for offset, finding in enumerate(document_findings):
-        # A conflict carries no unit, so it follows the units it shares a level
+            candidates.append((verdict_rank[unit.verdict], position, unit))
+    for offset, item in enumerate(document_assessments):
+        # A conflict carries no unit, so it follows the units it shares a verdict
         # with rather than interleaving with them on an invented position.
         candidates.append(
-            (
-                level_rank[finding.level],
-                len(unit_order) + offset,
-                FINDING_REASONS.index(finding.reason),
-                finding,
-            )
+            (verdict_rank[item.verdict], len(unit_order) + offset, item)
         )
 
-    ordered = [item[-1] for item in sorted(candidates, key=lambda item: item[:3])]
-    for position, finding in enumerate(ordered):
-        finding.rank = position
+    ordered = [item[-1] for item in sorted(candidates, key=lambda item: item[:2])]
+    for position, item in enumerate(ordered):
+        item.rank = position
     return ordered
 
 
-def absent_unit_findings(
+def absent_unit_assessments(
     config: InspectionConfig, section_name: str
-) -> list[Finding]:
-    """One finding per unit of a section the document never wrote.
+) -> list[Assessment]:
+    """One verdict per unit of a section the document never wrote.
 
     A section with variables has no unit of its own, so each of its units reports
     its own absence. That keeps the denominator honest instead of collapsing a whole
@@ -171,31 +162,40 @@ def absent_unit_findings(
         raise ValueError(f"section outside the rubric: {section_name!r}")
     if not spec.variables:
         return [
-            Finding(
-                id=finding_id(section_name, None, UNCITED_REASON),
-                reason=UNCITED_REASON,
-                statement=f"The {section_name} section is not present in the document.",
-                recommendation=f"Add a {section_name} section covering: {spec.description}",
+            Assessment(
+                id=unit_id(section_name, None),
+                verdict="not_present",
+                # The rubric's own description of what this section should contain,
+                # folded into the sentence. It used to sit in a `recommendation` beside
+                # this one - and unlike the per-variable case, where both sentences were
+                # built from names already on the row, this one carries something that
+                # appears nowhere else on screen. The field went; the fact did not.
+                statement=(
+                    f"The {section_name} section is not present in the document. "
+                    f"It should cover: {spec.description}"
+                ),
                 section_name=section_name,
+                optional=spec.optional,
             )
         ]
     return [
-        Finding(
-            id=finding_id(section_name, variable.name, UNCITED_REASON),
-            reason=UNCITED_REASON,
+        Assessment(
+            id=unit_id(section_name, variable.name),
+            verdict="not_present",
             statement=f"{variable.name} is not present; the {section_name} section is absent.",
-            recommendation=f"Add the {section_name} section and state {variable.name}.",
             section_name=section_name,
             variable_name=variable.name,
+            optional=spec.optional or variable.optional,
         )
         for variable in spec.variables
     ]
 
 
-def finding_id(section_name: str | None, variable_name: str | None, reason: str) -> str:
-    """A stable id for one unit's finding under one reason.
+def unit_id(section_name: str | None, variable_name: str | None) -> str:
+    """A stable id for one rubric unit.
 
-    Unique by construction: a unit raises each reason at most once, which the
-    contract check enforces.
+    Unique by construction, and no longer by enforcement: a unit carries one verdict,
+    so the id needs no reason to disambiguate it and the contract check that policed
+    "at most one finding per reason per unit" has nothing left to police.
     """
-    return "|".join((section_name or "", variable_name or "", reason))
+    return "|".join((section_name or "", variable_name or ""))

@@ -123,9 +123,11 @@ test("every full-width row that opens uses one shape", () => {
   // Four of these existed across four tabs and three agreed. The safety row had a lighter
   // hover, a stronger focus ring, a fainter open tint, no focus background and a minimum
   // height, none of which marked a difference in what the row does.
-  // Now in `lib/expandable-row.ts`, because Inspector needed it too: it rendered all 32 of
-  // its units expanded at once while Scout collapsed 28 fields, which is the same row doing
-  // opposite things in two tools.
+  // Now in `lib/expandable-row.ts`. Inspector needed it once, when a unit held several
+  // findings and a section was a wall; a unit now holds one verdict and one sentence, so
+  // it renders as a flat row and reaches for nothing here. The shape is Scout's alone
+  // again - which is fine, and is why the check below is that it lives in one place
+  // rather than that a particular tool uses it.
   const shape = readFileSync(
     path.resolve(import.meta.dirname, "expandable-row.ts"),
     "utf8",
@@ -136,13 +138,20 @@ test("every full-width row that opens uses one shape", () => {
   // deliberately deleted - a row *added* without the constant leaves the count untouched,
   // so the number never caught the thing the test is named for. What it can check is that
   // the shape has more than one tool using it.
-  const users = ["scout", "inspector"].filter((tool) =>
-    readFileSync(
+  // Anyone who opens a full-width row reaches for the shared shape rather than writing
+  // the classes again. A tool that stopped having such rows is not a failure; a tool
+  // that has them and spells them itself is.
+  for (const tool of ["scout", "inspector", "aligner", "expert"]) {
+    const source = readFileSync(
       path.resolve(import.meta.dirname, "..", "app", tool, "page.tsx"),
       "utf8",
-    ).includes("EXPANDABLE_ROW"),
-  );
-  assert.deepEqual(users, ["scout", "inspector"], "a tool stopped using the shared row shape");
+    );
+    if (!/<summary/.test(source)) continue;
+    assert.ok(
+      source.includes("EXPANDABLE_ROW"),
+      `${tool} opens a full-width row without the shared shape`,
+    );
+  }
   // The per-tab group scopes those rows used. A row keeping its own scope is how one would
   // half-adopt the shape: same classes, its own open state.
   for (const scope of ["indicator", "program", "safety", "field"]) {

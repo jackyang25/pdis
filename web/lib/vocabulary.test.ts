@@ -15,12 +15,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import {
-  LEVEL_LABELS,
-  REASON_LABELS,
-  STATUS_LABEL,
-  VERDICT_LABELS,
-} from "./api.ts";
+import { VERDICT_LABEL, VERDICT_LABELS } from "./api.ts";
 import {
   CALIBRATION_BASIS_LABEL,
   DISPOSITION_LABEL,
@@ -62,11 +57,11 @@ const VOCABULARY: Record<string, Record<string, string>> = {
       (k) => [k, sourceRoleLabel(k)],
     ),
   ),
-  // Inspector and Aligner
-  REASON_LABELS,
-  LEVEL_LABELS,
+  // Inspector and Aligner. One Inspector map, where there were three - a reason, a
+  // level and a status, all naming the same judgement, which is exactly the kind of
+  // near-collision this file exists to catch.
+  VERDICT_LABEL,
   VERDICT_LABELS,
-  STATUS_LABEL,
 };
 
 /**

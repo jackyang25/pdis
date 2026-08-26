@@ -1,9 +1,12 @@
 """Deterministic integrity checks for the Inspector result contract.
 
 Determinism's whole job here: check what can be checked without reading prose. The
-assessment covers exactly the rubric's units, every finding cites blocks that exist
-in the section it is about, absence is the only claim allowed to cite nothing, and
-no unit raises the same reason twice.
+assessment covers exactly the rubric's units, every verdict cites blocks that exist
+in the section it is about, and absence is the only claim allowed to cite nothing.
+
+Two checks left with the nesting they policed: "no unit raises the same reason
+twice" and "an absent unit cannot also raise other findings". A unit carries one
+verdict now, so neither is expressible.
 
 These hold for a result this process just built and for one imported from a file,
 which is why they live here rather than only at parse time.
@@ -13,9 +16,8 @@ from __future__ import annotations
 
 from .assembly import rubric_units
 from .models import (
-    FINDING_REASONS,
-    UNCITED_REASON,
-    Finding,
+    VERDICTS,
+    Assessment,
     InspectionConfig,
     InspectionResult,
 )
@@ -83,8 +85,7 @@ def validate_result_contract(
         # What still needs one is the other half: a section the document never wrote
         # must say so on every unit beneath it, or the rest look assessed.
         if not section.is_present and any(
-            UNCITED_REASON not in {f.reason for f in unit.findings}
-            for unit in section.units
+            unit.verdict != "not_present" for unit in section.units
         ):
             raise ValueError(
                 f"Inspector section {section.section_name} is absent, so every unit "
@@ -93,37 +94,20 @@ def validate_result_contract(
 
         allowed = set(mapped)
         for unit in section.units:
-            reasons = [finding.reason for finding in unit.findings]
-            if len(reasons) != len(set(reasons)):
-                raise ValueError(
-                    f"Inspector unit {unit.variable_name or section.section_name} "
-                    "raises a reason twice"
-                )
-            if UNCITED_REASON in reasons and len(reasons) > 1:
-                # Absence gates the rest. Code used to add a second finding of its
-                # own here, so one absence was counted twice before the model spoke.
-                raise ValueError(
-                    f"Inspector unit {unit.variable_name or section.section_name} "
-                    "is absent and cannot also raise other findings"
-                )
-            for finding in unit.findings:
-                if (
-                    finding.section_name != section.section_name
-                    or finding.variable_name != unit.variable_name
-                ):
-                    raise ValueError("Inspector finding is filed against the wrong unit")
-                _validate_finding(finding, allowed, seen_ids)
+            if unit.section_name != section.section_name:
+                raise ValueError("Inspector unit is filed under the wrong section")
+            _validate_assessment(unit, allowed, seen_ids)
 
     # --- Conflicts: findings no single unit owns ------------------------------
     all_block_ids = set(block_by_id)
-    for finding in result.document_findings:
-        if finding.section_name or finding.variable_name:
+    for item in result.document_findings:
+        if item.section_name or item.variable_name:
             raise ValueError("Inspector conflict must not name a single unit")
-        if finding.reason != "conflicting":
-            raise ValueError("Inspector document finding must use the conflicting reason")
-        _validate_finding(finding, all_block_ids, seen_ids)
+        if item.verdict != "section_conflict":
+            raise ValueError("Inspector document finding must use the section_conflict verdict")
+        _validate_assessment(item, all_block_ids, seen_ids)
         sections = {
-            block_by_id[block_id].section_label for block_id in finding.cited_block_ids
+            block_by_id[block_id].section_label for block_id in item.cited_block_ids
         }
         if len(sections) < 2:
             raise ValueError(
@@ -132,25 +116,23 @@ def validate_result_contract(
     return result
 
 
-def _validate_finding(
-    finding: Finding,
+def _validate_assessment(
+    item: Assessment,
     allowed_block_ids: set[str],
     seen_ids: set[str],
 ) -> None:
-    if finding.reason not in FINDING_REASONS:
-        raise ValueError(f"Inspector finding has an invalid reason: {finding.reason!r}")
-    if not finding.statement:
-        raise ValueError("Inspector finding must state what is wrong")
-    if finding.id in seen_ids:
-        raise ValueError(f"Inspector finding id is not unique: {finding.id!r}")
-    seen_ids.add(finding.id)
+    if item.verdict not in VERDICTS:
+        raise ValueError(f"Inspector assessment has an invalid verdict: {item.verdict!r}")
+    if item.id in seen_ids:
+        raise ValueError(f"Inspector assessment id is not unique: {item.id!r}")
+    seen_ids.add(item.id)
 
-    cited = finding.cited_block_ids
+    cited = item.cited_block_ids
     if len(cited) != len(set(cited)):
-        raise ValueError("Inspector finding block lineage must be unique")
+        raise ValueError("Inspector assessment block lineage must be unique")
     if any(block_id not in allowed_block_ids for block_id in cited):
-        raise ValueError("Inspector finding cited a block outside its scope")
-    # `Finding.__post_init__` already refuses an absent finding that cites, and a
-    # cited one that does not. Re-checking here would be a second statement of one
-    # rule, so this layer checks only what the dataclass cannot see: which blocks
-    # the finding was allowed to reach.
+        raise ValueError("Inspector assessment cited a block outside its scope")
+    # `Assessment.__post_init__` already refuses an absent unit that cites, a cited
+    # one that does not, a shortfall with no sentence and a sound unit with one.
+    # Re-checking any of that here would be a second statement of one rule, so this
+    # layer checks only what the dataclass cannot see: which blocks it could reach.

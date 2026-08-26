@@ -26,12 +26,13 @@ from shared.batching import map_ordered
 
 from services.chunker import ContentBlock
 
-from ..assembly import absent_unit_findings, finding_id
+from ..assembly import absent_unit_assessments, unit_id
 from ..models import (
-    UNCITED_REASON,
-    UNIT_REASONS,
+    ASSESSED_VERDICTS,
+    UNCITED_VERDICTS,
+    UNIT_VERDICTS,
+    Assessment,
     ConsistencyStatus,
-    Finding,
     InspectionConfig,
     LLMClientProtocol,
     SectionSpec,
@@ -44,15 +45,38 @@ MAX_PARALLEL_SECTIONS = 4
 UNITS_PER_REQUEST = 1
 MAX_PARALLEL_UNIT_CALLS = 6
 
-# What each reason is for, stated once and rendered into the prompt. Adding a
-# reason means adding it here and to `FINDING_REASONS`; nothing between this module
-# and the interface needs to know.
-_REASON_GUIDANCE: tuple[tuple[str, str], ...] = (
-    ("missing", "there is no content at all for this unit."),
+# What each verdict is for, stated once and rendered into the prompt. Adding one
+# means adding it here and to `VERDICTS`; nothing between this module and the
+# interface needs to know.
+_VERDICT_GUIDANCE: tuple[tuple[str, str], ...] = (
+    ("specified", "the rubric asks for this and the document supplies it usably. Nothing to say."),
+    ("not_present", "there is no content at all for this unit."),
     ("placeholder", "a template token such as <<TBD>>, TBD, a dash, or a blank sits where the value belongs."),
-    ("unmet", "content is present and does not satisfy the requirement, for example only one of Minimum/Optimistic is filled, or a category label stands in for a value."),
-    ("off_template", "the content is there but does not follow the rubric's expected structure or naming, or a template token remains beside real content."),
-    ("unclear", "the requirement is satisfied but the content is vague, unmeasurable, or internally incoherent."),
+    (
+        "insufficient",
+        "content is present but does not cover what the requirement asks for - part of "
+        "it is answered and part is not. For example only one of Minimum/Optimistic is "
+        "filled, or a category label stands in for a value.",
+    ),
+    (
+        "vague",
+        "content is present and covers what the requirement asks for, but is unusable "
+        "as stated - unmeasurable, self-contradictory, or too general to act on.",
+    ),
+    ("not_applicable", "the rubric marks this optional and the document omits it."),
+)
+
+# `insufficient` and `vague` are the pair readers and models most often confuse, so
+# the boundary is stated rather than left to be inferred from two adjectives:
+# coverage versus usability. Insufficient is "some of what was asked for is not
+# there"; vague is "all of it is there and none of it can be acted on". A unit that
+# is both is `insufficient`, because a gap outranks a weakness - which is also the
+# published order of the two.
+_BOUNDARY_NOTE = (
+    "insufficient and vague are not degrees of each other. Ask coverage first: is any "
+    "part of what the requirement asks for absent? If yes, insufficient. Only if the "
+    "content covers the whole requirement and is still unusable as stated is it vague. "
+    "A unit that is both is insufficient."
 )
 
 
@@ -68,7 +92,7 @@ def assess_document(
     *,
     max_tokens: int,
     progress=None,
-) -> tuple[list[Finding], dict[str, list[str]]]:
+) -> tuple[list[Assessment], dict[str, list[str]]]:
     """Assess every rubric unit.
 
     Returns the findings and the blocks mapped to each section. Presence is not
@@ -92,7 +116,7 @@ def assess_document(
     def assess_one(item):
         index, section_spec, section_blocks = item
         if not section_blocks:
-            out = (index, absent_unit_findings(config, section_spec.name), [])
+            out = (index, absent_unit_assessments(config, section_spec.name), [])
         else:
             out = (
                 index,
@@ -130,11 +154,11 @@ def _assess_section(
     llm_client: LLMClientProtocol,
     max_tokens: int,
     stage_guidance: str = "",
-) -> list[Finding]:
+) -> list[Assessment]:
     blocks_text = _format_blocks(section_blocks)
     units = section_spec.variables or [None]
 
-    def call_one(unit: VariableSpec | None) -> list[Finding]:
+    def call_one(unit: VariableSpec | None) -> Assessment:
         return _assess_unit(
             section_spec=section_spec,
             unit=unit,
@@ -145,8 +169,9 @@ def _assess_section(
             stage_guidance=stage_guidance,
         )
 
-    batched = map_ordered(units, call_one, workers=MAX_PARALLEL_UNIT_CALLS)
-    return [finding for unit_findings in batched for finding in unit_findings]
+    # One answer per unit, so this is a list of verdicts rather than a list of lists
+    # to flatten.
+    return list(map_ordered(units, call_one, workers=MAX_PARALLEL_UNIT_CALLS))
 
 
 def _assess_unit(
@@ -158,7 +183,7 @@ def _assess_unit(
     llm_client: LLMClientProtocol,
     max_tokens: int,
     stage_guidance: str = "",
-) -> list[Finding]:
+) -> Assessment:
     """Build one schema-bound decision for one unit and validate its lineage.
 
     One call means the answer needs no unit name: this function already knows which
@@ -177,8 +202,8 @@ def _assess_unit(
         if attempt:
             message += (
                 "\n\nThe prior decision failed the Inspector contract: "
-                f"{first_error}. Report at most one finding per reason, and cite the "
-                "exact supplied block IDs for every finding except an absent one."
+                f"{first_error}. Return exactly one verdict, and cite the exact "
+                "supplied block IDs unless the unit is absent."
             )
         payload = request_structured(
             llm_client,
@@ -196,6 +221,7 @@ def _assess_unit(
                 payload,
                 section_name=section_spec.name,
                 variable_name=unit_name,
+                optional=section_spec.optional or bool(unit and unit.optional),
                 section_blocks=section_blocks,
             )
         except ValueError as exc:
@@ -216,7 +242,7 @@ def build_assessment_prompt(
     unit: VariableSpec | None = None,
     stage_guidance: str = "",
 ) -> str:
-    reasons = "\n".join(f"- {reason}: {text}" for reason, text in _REASON_GUIDANCE)
+    verdicts = "\n".join(f"- {verdict}: {text}" for verdict, text in _VERDICT_GUIDANCE)
     preamble = f"""You are inspecting one unit of a product-development document against its authored rubric.
 
 Scope boundary:
@@ -227,27 +253,33 @@ Scope boundary:
 
 Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
 
-Report every distinct problem with this unit, at most one per reason, and nothing
-when the unit is sound. Do not report the same problem twice under two reasons:
-choose the one that names it best.
+Return exactly one verdict for this unit. One question, one answer: if more than one
+label could apply, choose the one that names the unit's condition best. They are
+listed worst-first, so prefer the earlier of two that fit equally.
 
-Reasons:
-{reasons}
+Verdicts:
+{verdicts}
 
-If the content is absent, report `missing` alone. Absence is not also off-template
-or unclear, and there is nothing there to have read.
+{_BOUNDARY_NOTE}
 
-Lineage is required, not optional. Every finding except `missing` MUST cite in
-`block_ids` the exact blocks you read to reach it.
+Do not judge structure or naming on its own. Whether a heading, a column, or a label
+matches the template is not a verdict here. If the layout costs a reader something -
+a value that cannot be found, or a requirement left half-answered because a column is
+absent - report that as insufficient or vague on its own merits. If it costs them
+nothing, it is not a finding.
 
-Describe the document; do not direct the reader. State what is or is not there,
-not what must be done about it. The recommendation is the one place an action
-belongs.
+Lineage is required, not optional. Every verdict except `not_present` and
+`not_applicable` MUST cite in `block_ids` the exact blocks you read to reach it -
+including `specified`, which is a claim about content you saw.
+
+Describe the document; do not direct the reader. State what is or is not there, not
+what must be done about it: a reader who knows a value is missing knows to add it.
 
 Style:
 - `statement` is one short factual sentence (max 20 words) naming the problem.
-- `recommendation` is one short action sentence (max 20 words), action-verb-leading.
-- Do not repeat the unit's name in either. Do not hedge."""
+- Leave `statement` empty for `specified` and `not_applicable`. There is nothing wrong
+  to describe, and a sentence there would be a claim with no defect behind it.
+- Do not repeat the unit's name in it. Do not hedge."""
 
     parts = [preamble]
     if stage_guidance.strip():
@@ -282,29 +314,20 @@ def assessment_schema(section_blocks: list[ContentBlock]) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["findings"],
+        # One object, not an array of them. The array let a unit come back with
+        # several answers to one question, and every layer above had to decide which
+        # of them the unit was.
+        "required": ["verdict", "statement", "block_ids"],
         "properties": {
-            "findings": {
+            "verdict": {"type": "string", "enum": list(UNIT_VERDICTS)},
+            "statement": {"type": "string"},
+            "block_ids": {
                 "type": "array",
-                "maxItems": len(UNIT_REASONS),
                 "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["reason", "statement", "recommendation", "block_ids"],
-                    "properties": {
-                        "reason": {"type": "string", "enum": list(UNIT_REASONS)},
-                        "statement": {"type": "string"},
-                        "recommendation": {"type": "string"},
-                        "block_ids": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": [block.id for block in section_blocks],
-                            },
-                        },
-                    },
+                    "type": "string",
+                    "enum": [block.id for block in section_blocks],
                 },
-            }
+            },
         },
     }
 
@@ -335,52 +358,51 @@ def _parse_unit_payload(
     *,
     section_name: str,
     variable_name: str | None,
+    optional: bool,
     section_blocks: list[ContentBlock],
-) -> list[Finding]:
+) -> Assessment:
     if not isinstance(parsed, dict):
         raise ValueError("assessment response must be an object")
-    raw = parsed.get("findings")
-    if not isinstance(raw, list):
-        raise ValueError("findings must be a list")
 
     valid_block_ids = {block.id for block in section_blocks}
-    allowed = set(UNIT_REASONS)
     subject = variable_name or section_name
 
-    by_reason: dict[str, Finding] = {}
-    for item in raw:
-        if not isinstance(item, dict):
-            raise ValueError("each finding must be an object")
-        reason = _closed_value(item.get("reason"), allowed, "reason")
-        if reason in by_reason:
-            raise ValueError(f"{subject} raised {reason} twice")
-        block_ids = list(dict.fromkeys(_string_list(item.get("block_ids"))))
-        if any(block_id not in valid_block_ids for block_id in block_ids):
-            raise ValueError(f"{subject} cited an unknown block ID")
-        statement = _string_value(item.get("statement"))
-        if not statement:
-            raise ValueError(f"{subject} reported a finding with no statement")
-        # Presence and lineage have to agree, and the rule is the same everywhere:
-        # absence cites nothing and everything else cites something.
-        if reason == UNCITED_REASON:
-            block_ids = []
-        elif not block_ids:
-            raise ValueError(f"{subject} reported {reason} without citing a block")
-        by_reason[reason] = Finding(
-            id=finding_id(section_name, variable_name, reason),
-            reason=reason,  # type: ignore[arg-type]
-            statement=statement,
-            recommendation=_string_value(item.get("recommendation")),
-            section_name=section_name,
-            variable_name=variable_name,
-            cited_block_ids=block_ids,
-        )
+    verdict = _closed_value(parsed.get("verdict"), set(UNIT_VERDICTS), "verdict")
+    statement = _string_value(parsed.get("statement"))
+    block_ids = list(dict.fromkeys(_string_list(parsed.get("block_ids"))))
+    if any(block_id not in valid_block_ids for block_id in block_ids):
+        raise ValueError(f"{subject} cited an unknown block ID")
 
-    if UNCITED_REASON in by_reason and len(by_reason) > 1:
-        # Absence gates the rest. Code used to add a second finding of its own
-        # here, so every absent unit was counted twice before the model spoke.
-        return [by_reason[UNCITED_REASON]]
-    return [by_reason[reason] for reason in UNIT_REASONS if reason in by_reason]
+    # Presence and lineage have to agree, and the rule is the same everywhere:
+    # absence cites nothing and everything else cites something.
+    if verdict in UNCITED_VERDICTS:
+        block_ids = []
+    elif not block_ids:
+        raise ValueError(f"{subject} returned {verdict} without citing a block")
+
+    # A verdict with nothing wrong has nothing to say, and one with something wrong
+    # has to say it. Normalised here rather than refused, because a model adding
+    # "Specified." to a sound unit is not a contract failure worth a retry.
+    if verdict not in ASSESSED_VERDICTS:
+        statement = ""
+    elif not statement:
+        raise ValueError(f"{subject} returned {verdict} with no statement")
+
+    # The rubric decides whether absence is acceptable, so a model claiming
+    # `not_applicable` on a required unit is refused and asked again. Left to stand it
+    # would drop a real shortfall out of the worklist without saying anything.
+    if verdict == "not_applicable" and not optional:
+        raise ValueError(f"{subject} is required and cannot be not_applicable")
+
+    return Assessment(
+        id=unit_id(section_name, variable_name),
+        verdict=verdict,  # type: ignore[arg-type]
+        statement=statement,
+        section_name=section_name,
+        variable_name=variable_name,
+        optional=optional,
+        cited_block_ids=block_ids,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +471,7 @@ def check_cross_section(
     llm_client: LLMClientProtocol,
     *,
     max_tokens: int,
-) -> tuple[list[Finding], ConsistencyStatus]:
+) -> tuple[list[Assessment], ConsistencyStatus]:
     """Find consistency problems that span MORE THAN ONE section.
 
     Per-unit assessment is deliberately isolated, so it cannot catch "Section A
@@ -529,7 +551,6 @@ def build_cross_section_prompt(config: InspectionConfig) -> str:
         "not in conflict because you judge the agreed value to be wrong.\n\n"
         "Return only structured findings. Each item contains:\n"
         '{"statement": "the specific conflicting values and what disagrees", '
-        '"recommendation": "one short action to reconcile them", '
         '"block_ids": ["exact supporting block ID from each disagreeing section"]}\n\n'
         "Use only supplied block IDs, and cite at least one from each of at least two "
         "different sections - that span is what makes a conflict cross-section. The sections "
@@ -551,10 +572,9 @@ def cross_section_schema(
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["statement", "recommendation", "block_ids"],
+                    "required": ["statement", "block_ids"],
                     "properties": {
                         "statement": {"type": "string"},
-                        "recommendation": {"type": "string"},
                         "block_ids": {
                             "type": "array",
                             "items": {"type": "string", "enum": block_ids},
@@ -645,7 +665,7 @@ def _bounded_cross_section_blocks(
 def _parse_cross_section_payload(
     payload: object,
     blocks_by_section: dict[str, list[ContentBlock]],
-) -> list[Finding] | None:
+) -> list[Assessment] | None:
     if not isinstance(payload, dict):
         return None
     parsed = payload.get("findings")
@@ -656,7 +676,7 @@ def _parse_cross_section_payload(
         for section_name, blocks in blocks_by_section.items()
         for block in blocks
     }
-    out: list[Finding] = []
+    out: list[Assessment] = []
     for index, item in enumerate(parsed):
         if not isinstance(item, dict):
             return None
@@ -671,11 +691,10 @@ def _parse_cross_section_payload(
         if len({section_by_block_id[block_id] for block_id in block_ids}) < 2:
             return None
         out.append(
-            Finding(
+            Assessment(
                 id=f"conflict|{index}",
-                reason="conflicting",
+                verdict="section_conflict",
                 statement=statement,
-                recommendation=_string_value(item.get("recommendation")),
                 cited_block_ids=block_ids,
             )
         )

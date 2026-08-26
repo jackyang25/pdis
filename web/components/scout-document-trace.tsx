@@ -19,6 +19,8 @@ import {
   type DocumentTracePassageAccess,
 } from "@/components/document-trace-viewer";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
+import { Reading } from "@/components/ui/evidence-text";
+import { cn } from "@/lib/utils";
 
 const TRACE_LAYERS: Array<{
   value: ScoutDocumentTraceKind;
@@ -66,12 +68,15 @@ function ScoutTraceInspector({
           </div>
         )}
 
-        <p className={annotation.statusLabel
-          ? "mt-4 whitespace-pre-wrap text-sm leading-6 text-foreground/85"
-          : "whitespace-pre-wrap text-sm leading-6 text-foreground/85"}
+        <Reading
+          size="body"
+          className={cn(
+            "whitespace-pre-wrap",
+            annotation.statusLabel && "mt-4",
+          )}
         >
           {annotation.summary}
-        </p>
+        </Reading>
 
         <TracePanelSection
           label={connectionLabel}

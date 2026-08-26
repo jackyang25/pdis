@@ -42,17 +42,17 @@ test("a finding's annotation ID is built in one place", () => {
   // the bug this fixes wearing the same clothes.
   assert.equal(inspectorAnnotationId("f-3"), "inspector:f-3");
   const built = readFileSync(path.join(REPO, "lib", "inspector-document-trace.ts"), "utf8");
-  assert.match(built, /id: inspectorAnnotationId\(finding\.id\)/);
+  assert.match(built, /id: inspectorAnnotationId\(item\.id\)/);
   const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
   // Every finding-scoped trigger, not merely one. Asserting a single match let one of the
   // two be deleted with the suite still green - found by deleting it.
-  const triggers = page.match(/blockIds=\{finding\.cited_block_ids\}/g) ?? [];
-  const named = page.match(/annotationId=\{inspectorAnnotationId\(finding\.id\)\}/g) ?? [];
+  const triggers = page.match(/blockIds=\{item\.cited_block_ids\}/g) ?? [];
+  const named = page.match(/annotationId=\{inspectorAnnotationId\(item\.id\)\}/g) ?? [];
   assert.ok(triggers.length > 0, "no finding-scoped trace triggers found");
   assert.equal(
     named.length,
     triggers.length,
-    `${triggers.length} finding triggers but ${named.length} name their finding: `
+    `${triggers.length} triggers but ${named.length} name their assessment: `
       + "one opens on every layer the passage carries",
   );
 });

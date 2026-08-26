@@ -64,8 +64,7 @@ test("Inspector reads its model sentences through the shared component", () => {
   // Not merely muted by hand — through `Reading`, so the next sentence added to this card
   // inherits the treatment instead of choosing one.
   const page = read("app", "inspector", "page.tsx");
-  assert.match(page, /<Reading size="prominent">\{finding\.statement\}<\/Reading>/);
-  assert.match(page, /<Reading>\{finding\.recommendation\}<\/Reading>/);
+  assert.match(page, /<Reading size="prominent" className="mt-1 pr-16">/);
 });
 
 test("one verdict has one appearance", () => {
@@ -74,9 +73,9 @@ test("one verdict has one appearance", () => {
   const page = read("app", "inspector", "page.tsx");
   assert.ok(
     !/return <span className="text-xs text-muted-foreground">Met<\/span>;/.test(page),
-    "a section states Met in its own words instead of the shared pill",
+    "a section states its verdict in its own words instead of the shared pill",
   );
-  assert.match(page, /<StatusPill status="met" \/>/);
+  assert.match(page, /<StatusPill status="specified" \/>/);
 });
 
 test("the quotation rule marks only quotes, in every tool that uses it", () => {
@@ -101,28 +100,29 @@ test("the quotation rule marks only quotes, in every tool that uses it", () => {
  */
 
 test("the panel lists the vocabulary instead of describing it in a paragraph", () => {
+  // One list, because there is one axis. It itemised two - reasons and statuses - which
+  // is how the panel came to need a paragraph explaining the difference between them.
   const help = readFileSync(path.join(REPO, "components", "inspector-signal-help.tsx"), "utf8");
-  assert.match(help, /terms: FINDING_REASONS\.map/, "the reasons are not itemised");
-  assert.match(help, /terms: UNIT_STATUSES\.map/, "the statuses are not itemised");
+  assert.match(help, /terms: VERDICTS\.map/, "the verdicts are not itemised");
 });
 
 test("the panel reads the labels rather than restating them", () => {
   // A retyped list is a second copy that drifts. Built from the maps, the panel cannot
   // come to explain a word the interface no longer uses.
   const help = readFileSync(path.join(REPO, "components", "inspector-signal-help.tsx"), "utf8");
-  assert.match(help, /term: REASON_LABELS\[reason\]/);
-  assert.match(help, /meaning: REASON_DESCRIPTION\[reason\]/);
+  assert.match(help, /term: VERDICT_LABEL\[verdict\]/);
+  assert.match(help, /meaning: VERDICT_DESCRIPTION\[verdict\]/);
 });
 
-test("every reason has a short label and a full description", () => {
-  // The split statuses already have. A reason renders as an inline chip and as the options
-  // of the trace's layer selector, where a five-word sentence wrapped onto two lines.
+test("every verdict has a short label and a full description", () => {
+  // A verdict renders as an inline chip, as a pill, and as the options of the trace's
+  // layer selector, where a five-word sentence wrapped onto two lines.
   const api = readFileSync(path.join(REPO, "lib", "api.ts"), "utf8");
-  const labels = api.match(/export const REASON_LABELS[\s\S]*?\n\};/)?.[0] ?? "";
-  const descriptions = api.match(/export const REASON_DESCRIPTION[\s\S]*?\n\};/)?.[0] ?? "";
-  assert.ok(descriptions, "reasons have no description map");
+  const labels = api.match(/export const VERDICT_LABEL:[\s\S]*?\n\};/)?.[0] ?? "";
+  const descriptions = api.match(/export const VERDICT_DESCRIPTION:[\s\S]*?\n\};/)?.[0] ?? "";
+  assert.ok(descriptions, "verdicts have no description map");
   const keys = (block: string) => (block.match(/^\s{2}(\w+):/gm) ?? []).map((k) => k.trim());
-  assert.deepEqual(keys(labels), keys(descriptions), "the two maps cover different reasons");
+  assert.deepEqual(keys(labels), keys(descriptions), "the two maps cover different verdicts");
 });
 
 test("a label stays short enough to sit in a chip", () => {
@@ -234,49 +234,72 @@ test("a popover can never grow taller than the screen", () => {
  * means a model judged it.
  */
 
-test("a finding does not restate the fields rendered beside it", () => {
+test("a unit is not described twice in two sentences", () => {
+  // There used to be a `recommendation` beside every statement, restating it as an
+  // imperative: "Target User Group is not present" and "Add the section and state Target
+  // User Group", built from the same three fields already on the row. The page had grown
+  // a `restatesItself()` guard to hide one of them on the one case where both were pure
+  // template. Removing the field removed the need for the guard - and the guard's own
+  // narrowness, which only covered variables and not sections.
+  // Checked on code rather than on the whole file: both the page and this test explain
+  // in prose what they no longer do, and a comment naming the guard is not the guard.
   const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
-  assert.match(page, /function restatesItself/, "the restatement rule is gone");
-  assert.match(
-    page,
-    /finding\.reason === "missing" && Boolean\(finding\.variable_name\)/,
-    "the rule no longer names the one case it is for",
+  assert.ok(
+    !/function restatesItself/.test(page),
+    "the restatement guard is back, so the field is too",
   );
-  assert.match(page, /\{!restatesItself\(finding\) && \(/, "the rule is declared but not applied");
+  assert.ok(
+    !/\{finding\.recommendation\}/.test(page),
+    "a second sentence renders beside the statement",
+  );
+  const api = readFileSync(path.join(REPO, "lib", "api.ts"), "utf8");
+  const assessment = api.slice(api.indexOf("export type Assessment = {"));
+  assert.ok(
+    !/recommendation/.test(assessment.slice(0, assessment.indexOf("};"))),
+    "the published atom carries a recommendation again",
+  );
 });
 
 test("an absent section still says what it should have covered", () => {
-  // Deliberately narrow. A section declaring no variables keeps its recommendation,
-  // because that one carries the rubric's description of what the section should contain -
-  // which appears nowhere else on screen. Only the per-variable case restates itself.
+  // The rubric's description of what the section should contain appears nowhere else on
+  // screen, so it survived the removal of the field it used to live in. A `recommendation`
+  // carried it, and that field restated the statement in every other case - "Target User
+  // Group is not present" beside "Add the section and state Target User Group" - which is
+  // why the web layer had grown a guard to hide one of the two. The field went; this fact
+  // moved into the sentence rather than going with it.
   const assembly = readFileSync(
     path.join(REPO, "..", "services", "inspector", "assembly.py"),
     "utf8",
   );
-  assert.match(assembly, /Add a \{section_name\} section covering: \{spec\.description\}/);
+  assert.match(assembly, /It should cover: \{spec\.description\}/);
+  assert.ok(
+    !/recommendation=/.test(assembly),
+    "the recommendation field is back, so one fact has two sentences again",
+  );
 });
 
-test("a unit status has one tone, and the pill and the count row both read it", () => {
-  // Two maps would be one verdict decided twice, which is how a status comes to be one
+test("a verdict has one tone, and the pill and the count row both read it", () => {
+  // Two maps would be one verdict decided twice, which is how a verdict comes to be one
   // colour on a unit and another on the section summarising it.
   const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
-  assert.match(page, /const STATUS_TONE: Record<UnitStatus, Tone>/);
+  assert.match(page, /const VERDICT_TONE: Record<Verdict, Tone>/);
   assert.match(
     page,
-    /STATUS_SURFACE[\s\S]{0,120}TONE_TINT\[STATUS_TONE\[status\]\]/,
+    /VERDICT_SURFACE[\s\S]{0,140}TONE_TINT\[VERDICT_TONE\[verdict\]\]/,
     "the tint map decides its own colours again instead of reading the tone",
   );
 });
 
-test("a section's counts are counts of units, and say so", () => {
+test("a section's counts are counts of units, in the units' own words", () => {
   // They were typed `Record<FindingLevel, number>` and labelled with the finding
   // vocabulary while counting units, so "Not met 10" on a section and "Not met" on a unit
-  // used one word for two denominators.
+  // used one word for two denominators. There is one vocabulary now, so the section row
+  // and the unit pill read the same map and the mismatch is not expressible.
   const api = readFileSync(path.join(REPO, "lib", "api.ts"), "utf8");
-  assert.match(api, /export type SectionShortfall = Extract<UnitStatus,/);
-  assert.match(api, /Record<SectionShortfall, number>/);
+  assert.match(api, /verdict_counts: Record<Verdict, number>/);
   const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
-  assert.match(page, /label: STATUS_LABEL\[status\]/, "the section row uses the finding words");
+  assert.match(page, /label: VERDICT_LABEL\[verdict\]/, "the section row invents its own words");
+  assert.match(page, /VERDICT_LABEL\[status\]/, "the unit pill invents its own words");
 });
 
 /**
@@ -665,5 +688,83 @@ test("the priorities panel is bounded, and says when it is", () => {
     scout,
     /SCOUT_PRIORITY_LIMIT = PRIORITY_LIMIT/,
     "Scout keeps its own copy of the priority limit",
+  );
+});
+
+test("units in one list are one row each, at one left edge", () => {
+  // A unit used to open: a chevron on the row, the sentence behind it. That was right
+  // when a unit held several findings - a thirteen-unit section was sixty lines - and
+  // wrong once a unit held one verdict and one sentence of at most twenty words, which
+  // put two lines behind a click and asked a reader to make thirty-two of them.
+  //
+  // It also removes the bug that made the row alignment matter: a unit with nothing to
+  // disclose had no chevron and so no indent, which read as a heading over the rows
+  // below it. With no chevron anywhere, there is no edge to get wrong.
+  const page = read("app", "inspector", "page.tsx");
+  assert.ok(
+    !/<details/.test(page),
+    "a unit opens again, so the assessment costs one click per unit to read",
+  );
+  assert.ok(
+    !/ChevronDown/.test(page),
+    "a row carries a chevron, so rows with and without one sit at different edges",
+  );
+  // One renderer for one shape: a rubric unit and a cross-section conflict are the same
+  // thing now, and rendering them two ways is two things to keep in step.
+  assert.match(page, /function AssessmentRow\(/, "the shared row is gone");
+  assert.ok(
+    !/function (FindingBody|UnitRow)\(/.test(page),
+    "a second renderer for the same shape is back",
+  );
+});
+
+test("the authorship mark is rendered once, by the component", () => {
+  // The whole point of the mark living in `Reading`: adding it per sentence would put
+  // it on the sentences somebody remembered and nowhere else, and coverage is the
+  // thing it is for. One render site, twenty-odd call sites, every instance marked.
+  const text = read("components", "ui", "evidence-text.tsx");
+  assert.match(text, /function ReadingMark\(/, "the mark is no longer a component");
+  assert.equal(
+    (text.match(/<ReadingMark \/>/g) ?? []).length,
+    1,
+    "the mark is rendered more than once, so a call site can render it by hand",
+  );
+  const marks = tsxFiles()
+    .filter((file) => !file.endsWith(path.join("ui", "evidence-text.tsx")))
+    .filter((file) => /ReadingMark/.test(readFileSync(file, "utf8")));
+  assert.deepEqual(marks, [], "a call site reaches for the mark instead of Reading");
+});
+
+test("a model's sentence reaches the page through Reading, never as bare prose", () => {
+  // The coverage rule. A sentence rendered as a hand-written `<p>` gets no mark, no
+  // tone and no size from the system - and there were eight of them, four of which had
+  // independently agreed on `text-sm leading-6 text-foreground/85`, a third tone that
+  // is neither a model's muted prose nor the tool's full contrast. Agreement between
+  // four hand-written copies is what made it look deliberate.
+  //
+  // The fields listed are the ones a model authors. A new one is not covered until it
+  // is added here, which is the honest limit of a source check.
+  // `summary` is qualified by its object: a trace annotation's is a model's sentence,
+  // while `topic.summary` in the help panel and `data.summary` in the docs diagram are
+  // the tool explaining itself. Naming the field alone caught all three.
+  const AUTHORED = /\{(?:\w+\.(?:statement|recommendation|missing)|(?:annotation|ref)\.summary)\}/;
+  const offenders: string[] = [];
+  for (const file of tsxFiles()) {
+    const source = readFileSync(file, "utf8");
+    for (const [line] of source.split("\n").entries()) void line;
+    const lines = source.split("\n");
+    lines.forEach((text, index) => {
+      if (!AUTHORED.test(text)) return;
+      // Look at the element this sits in: the same line, or the one above it when the
+      // value is on a line of its own.
+      const element = /^\s*\{/.test(text) ? `${lines[index - 1] ?? ""}${text}` : text;
+      if (!/<p[\s>]/.test(element)) return;
+      offenders.push(`${path.relative(REPO, file)}:${index + 1}`);
+    });
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "a model-authored sentence is rendered as a bare paragraph instead of <Reading>",
   );
 });

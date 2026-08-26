@@ -2,7 +2,7 @@
 
 import type { TraceFocus } from "@/lib/trace-focus";
 import { useMemo } from "react";
-import { CircleDashed, FileText, Link2, Wrench } from "lucide-react";
+import { CircleDashed, FileText, Link2 } from "lucide-react";
 
 import {
   DocumentTraceViewer,
@@ -13,14 +13,10 @@ import {
   TracePanelSection,
   TracePassageList,
 } from "@/components/document-trace-panel";
-import {
-  FINDING_REASONS,
-  REASON_LABELS,
-  STATUS_DESCRIPTION,
-  STATUS_LABEL,
-} from "@/lib/api";
+import { ASSESSED_VERDICTS, VERDICT_DESCRIPTION, VERDICT_LABEL } from "@/lib/api";
 import type { InspectionResult } from "@/lib/api";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
+import { Reading } from "@/components/ui/evidence-text";
 import {
   buildInspectorDocumentAnnotations,
   type InspectorDocumentAnnotation,
@@ -28,17 +24,17 @@ import {
 } from "@/lib/inspector-document-trace";
 
 /**
- * The layers are the reasons a finding can exist, generated from the published
- * vocabulary rather than listed here. A reason added upstream gets a layer without
- * this file changing; it was previously a hand-kept list of the internal question
- * names, which is the coupling that made adding a question a change at every layer.
+ * The layers are the verdicts that name something to fix, generated from the
+ * published vocabulary rather than listed here. A verdict added upstream gets a layer
+ * without this file changing; it was previously a hand-kept list of the internal
+ * question names, which is the coupling that made adding a question a change at every
+ * layer.
  *
- * The level is deliberately not a layer: the layer chooses which kind of problem to
- * look at, and the block tone answers how much it blocks, so triage stays visible
- * inside every layer.
+ * `specified` and `not_applicable` are not layers: the trace marks what needs work,
+ * and a layer holding every sound unit would mark most of the document.
  */
 const TRACE_LAYERS: Array<{ value: InspectorDocumentTraceKind; label: string }> =
-  FINDING_REASONS.map((reason) => ({ value: reason, label: REASON_LABELS[reason] }));
+  ASSESSED_VERDICTS.map((verdict) => ({ value: verdict, label: VERDICT_LABEL[verdict] }));
 
 function InspectorTraceInspector({
   annotation,
@@ -66,28 +62,21 @@ function InspectorTraceInspector({
       />
 
       <div className="px-5 py-5">
-        {ref.status && (
-          <span
-            title={STATUS_DESCRIPTION[ref.status]}
-            className="inline-flex min-h-7 items-center rounded-full border border-border/80 bg-foreground/[0.045] px-2.5 text-[10px] font-medium text-foreground/80"
-          >
-            {/* The short form. This rendered the description, which is a sentence, as pill
-                text: "The rubric asks for this and the document does not usably supply it". */}
-            {STATUS_LABEL[ref.status]}
-          </span>
-        )}
+        {/* One pill, because there is one axis. It used to show a unit status here
+            beside a reason in the eyebrow above - two words for one judgement, and a
+            reader had no way to know they were the same field. */}
+        <span
+          title={VERDICT_DESCRIPTION[ref.verdict]}
+          className="inline-flex min-h-7 items-center rounded-full border border-border/80 bg-foreground/[0.045] px-2.5 text-[10px] font-medium text-foreground/80"
+        >
+          {/* The short form. This rendered the description, which is a sentence, as pill
+              text: "The rubric asks for this and the document does not usably supply it". */}
+          {VERDICT_LABEL[ref.verdict]}
+        </span>
 
-        <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-foreground/85">
+        <Reading size="body" className="mt-4 whitespace-pre-wrap">
           {annotation.summary}
-        </p>
-
-        {ref.recommendation && (
-          <TracePanelSection label="Recommendation" icon={Wrench} className="mt-5">
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              {ref.recommendation}
-            </p>
-          </TracePanelSection>
-        )}
+        </Reading>
 
         <TracePanelSection
           label={absent ? "Not present in the document" : "Source passages"}
@@ -133,7 +122,7 @@ export function InspectorDocumentTrace({
       layers={TRACE_LAYERS}
       // Absence first: whether the rubric's content exists at all is the question
       // that gates the others.
-      defaultLayer="missing"
+      defaultLayer="not_present"
       focus={focus}
       onFocusConsumed={onFocusConsumed}
       renderInspector={(annotation, connection, passages) => (

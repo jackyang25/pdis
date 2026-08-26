@@ -1,5 +1,6 @@
 "use client";
 
+import { useTraceFocus } from "@/lib/trace-focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, Paperclip, Plus, X } from "lucide-react";
 import { RunHistory } from "@/components/run-history";
@@ -474,14 +475,12 @@ function ReviewView({
   // Same handoff Inspector uses: a citation anywhere opens that passage in the trace,
   // so the two views are one navigation rather than two places to look.
   const [resultTab, setResultTab] = useState("questions");
-  const [traceFocusBlockId, setTraceFocusBlockId] = useState<string | null>(null);
-  const openBlockInTrace = useCallback((blockId: string) => {
-    setTraceFocusBlockId(blockId);
-    setResultTab("trace");
-  }, []);
-  const consumeTraceFocus = useCallback((blockId: string) => {
-    setTraceFocusBlockId((current) => (current === blockId ? null : current));
-  }, []);
+  const revealTrace = useCallback(() => setResultTab("trace"), []);
+  const {
+    focus: traceFocus,
+    open: openBlockInTrace,
+    consume: consumeTraceFocus,
+  } = useTraceFocus(revealTrace);
 
   const subtitle = [
     review.gate_label,
@@ -547,7 +546,9 @@ function ReviewView({
                   // A cell opens the passage behind its answer when there is one;
                   // otherwise there is nothing to open and the cell stays inert.
                   const blockId = question.cited_block_ids[0];
-                  if (blockId) openBlockInTrace(blockId);
+                  // No annotation: a coverage cell names a question, not one result on
+                  // the passage, so the trace opens showing every layer the block carries.
+                  if (blockId) openBlockInTrace({ blockId });
                 }}
               />
 
@@ -622,8 +623,8 @@ function ReviewView({
             </div>
             <ExpertDocumentTrace
               review={review}
-              focusBlockId={traceFocusBlockId}
-              onFocusBlockConsumed={consumeTraceFocus}
+              focus={traceFocus}
+              onFocusConsumed={consumeTraceFocus}
             />
           </TabsContent>
         </Tabs>

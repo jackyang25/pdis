@@ -1,5 +1,6 @@
 "use client";
 
+import type { TraceFocus } from "@/lib/trace-focus";
 import { useMemo } from "react";
 import { CircleDashed, FileText, HelpCircle, Link2 } from "lucide-react";
 
@@ -97,12 +98,12 @@ function ExpertTraceInspector({
 
 export function ExpertDocumentTrace({
   review,
-  focusBlockId,
-  onFocusBlockConsumed,
+  focus,
+  onFocusConsumed,
 }: {
   review: GateReview;
-  focusBlockId?: string | null;
-  onFocusBlockConsumed?: (blockId: string) => void;
+  focus?: TraceFocus | null;
+  onFocusConsumed?: (focus: TraceFocus) => void;
 }) {
   const annotations = useMemo(
     () => buildExpertDocumentAnnotations(review),
@@ -116,8 +117,8 @@ export function ExpertDocumentTrace({
       layers={TRACE_LAYERS}
       // Partials first: they are the ones a reader can act on.
       defaultLayer="partly_answered"
-      focusBlockId={focusBlockId}
-      onFocusBlockConsumed={onFocusBlockConsumed}
+      focus={focus}
+      onFocusConsumed={onFocusConsumed}
       renderInspector={(annotation, connection, passages) => (
         <ExpertTraceInspector
           annotation={annotation}

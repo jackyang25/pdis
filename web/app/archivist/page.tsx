@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Archive, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -115,14 +116,16 @@ export default function ArchivistPage() {
       {error && <ErrorMessage>{error}</ErrorMessage>}
 
       {empty && (
-        <div className="rounded-lg border border-border bg-card p-5">
-          <h2 className="text-sm font-semibold">Nothing has been indexed yet</h2>
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            The corpus is built from a folder of documents and a reviewed manifest, then
-            committed. Until that has been run there is nothing to read, which is a
-            different state from an archive that holds no answer to your question.
-          </p>
-        </div>
+        // `absence`, not `clear`: nothing has been checked here. An unbuilt corpus is a
+        // precondition, and a tick would claim a search that never happened.
+        <EmptyState
+          message="Nothing has been indexed yet"
+          detail={
+            "The corpus is built from a folder of documents and a reviewed manifest, then "
+            + "committed. Until that has been run there is nothing to read, which is a "
+            + "different state from an archive that holds no answer to your question."
+          }
+        />
       )}
 
       {corpus && !empty && (

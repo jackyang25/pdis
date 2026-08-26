@@ -42,6 +42,7 @@ from services.scout.models import (
     RUN_SCOPE_DIMENSIONS,
     Attribute,
     QueryIntent,
+    PROGRAM_QUERY_SETS,
     RetrievalScopeLedger,
     load_config,
     valid_query_tracks,
@@ -52,6 +53,7 @@ from services.scout.stages.query_extractor import (
 )
 from services.scout.stages.intent_builder import build_retrieval_intents
 from services.searcher import (
+    source_keys,
     Finding,
     RetrievalIntent,
     SourceQueryIntent,
@@ -108,6 +110,13 @@ MISSING_SCOPE_CONSUMERS: dict[str, str] = {}
 MISSING_COVERAGE = {
     "access": "no procurement or financing body is reachable: the ToolUniverse catalogue exposes no Gavi, Global Fund or UNICEF Supply tool",
     "news": "reached by the web lane's program query set rather than a lane of its own, since no news provider is exposed",
+    "epidemiology": (
+        "the WHO GHO lane was removed: its readings reached a tab and no reasoning stage, "
+        "so a document target claiming a reduction was never measured against the quantity "
+        "it claimed to reduce. Declared rather than deleted because the gap is real - "
+        "burden is a question Scout cannot currently answer, and readers of this map should "
+        "see that rather than see a class that no longer exists"
+    ),
 }
 
 #: Jurisdictions with no lane in any class.
@@ -809,3 +818,43 @@ class AdjacentTrackTests(unittest.TestCase):
             set(QUERY_TRACK_BUDGET),
             "a track is declared with a share but never run, or run without a share",
         )
+
+
+class SourceEnablementTests(unittest.TestCase):
+    """A registered source no config enables and no program set targets is unreachable.
+
+    Found by someone asking why a lane returned nothing. Tavily shipped enabled in one
+    config as a deliberate trial and stayed there for weeks. An adapter nothing lists is
+    never asked, so it is silent rather than broken - and silence is exactly what a lane
+    returning nothing also looks like.
+
+    Two ways to be reachable, not one. A config's `sources` plans a lane per attribute;
+    `PROGRAM_QUERY_SETS` plans it once for the run, which is how the `events` set reaches
+    the web lane. Requiring a config entry would declare that design a bug, which is how
+    this test was first written.
+    """
+
+    def test_every_registered_source_is_enabled_somewhere(self) -> None:
+        enabled: set[str] = set()
+        for path in CONFIG_DIR.glob("bmgf_*.yaml"):
+            found = re.search(r"^sources:\s*\[(.*?)\]", path.read_text(), re.M | re.S)
+            self.assertIsNotNone(found, f"{path.name} declares no sources")
+            enabled |= {item.strip() for item in found.group(1).split(",")}
+        program_lanes = {
+            lane for query_set in PROGRAM_QUERY_SETS.values() for lane in query_set.lanes
+        }
+        dark = sorted(set(source_keys()) - enabled - program_lanes)
+        self.assertEqual(
+            dark,
+            [],
+            "registered, but no config lists it and no program query set targets it, "
+            "so it can never run: " + ", ".join(dark),
+        )
+
+    def test_no_config_enables_a_source_that_does_not_exist(self) -> None:
+        """The other direction. A typo in a source list is caught at load today, but only
+        for the config someone happens to run."""
+        for path in sorted(CONFIG_DIR.glob("bmgf_*.yaml")):
+            config = load_config(str(path))
+            with self.subTest(config=path.name):
+                self.assertEqual(sorted(set(config.sources) - set(source_keys())), [])

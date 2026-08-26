@@ -99,17 +99,6 @@ class DevelopmentRecordOut(BaseModel):
     ] = "unknown"
 
 
-class IndicatorRecordOut(BaseModel):
-    indicator_code: str
-    indicator_name: str
-    place: str
-    spatial_type: str
-    year: int
-    value: float | None = None
-    value_text: str = ""
-    parent_place: str = ""
-
-
 class SafetyObservationRecordOut(BaseModel):
     product_name: str
     record_type: Literal["label_warning", "reported_event", "device_event", "recall"]
@@ -134,7 +123,6 @@ class FindingOut(BaseModel):
     evidence_role: Literal["evidence", "reference"] = "evidence"
     development_records: list[DevelopmentRecordOut] = Field(default_factory=list)
     safety_observations: list[SafetyObservationRecordOut] = Field(default_factory=list)
-    indicator_records: list[IndicatorRecordOut] = Field(default_factory=list)
     queries: list[str] = Field(default_factory=list)
     source_lanes: list[str] = Field(default_factory=list)
     source_labels: dict[str, str] = Field(default_factory=dict)
@@ -607,15 +595,6 @@ class IndicatorReadingOut(BaseModel):
     parent_place: str = ""
 
 
-class BurdenIndicatorOut(BaseModel):
-    projection_id: str
-    indicator_code: str
-    indicator_name: str
-    readings: list[IndicatorReadingOut] = Field(default_factory=list)
-    attribute_refs: list[str] = Field(default_factory=list)
-    supporting_findings: list[FindingOut] = Field(default_factory=list)
-
-
 class DocumentContextValidationOut(BaseModel):
     status: Literal["match", "mismatch", "uncertain"]
     configured_indication: str
@@ -642,7 +621,6 @@ class ScoutRunResponse(BaseModel):
     precedents: list[PrecedentOut] = Field(default_factory=list)
     development_landscape: list[DevelopmentProgramOut] = Field(default_factory=list)
     safety_observations: list[SafetyObservationOut] = Field(default_factory=list)
-    burden_indicators: list[BurdenIndicatorOut] = Field(default_factory=list)
     assessments: list[EvidenceAssessmentOut]
     stats: FunnelStatsOut
     # The parsed source document. Read by the Ask assistant and by the Scout UI's

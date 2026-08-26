@@ -1,5 +1,5 @@
 import type { AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.ts";
-import { VERDICT_LABELS } from "./api.ts";
+import { ALIGNMENT_VERDICTS, ALIGNMENT_VERDICT_TONE, VERDICT_LABELS } from "./api.ts";
 import type {
   DocumentAnnotation,
   DocumentAnnotationEmphasis,
@@ -64,13 +64,15 @@ export type AlignerDocumentAnnotation = DocumentAnnotation<
  * failure. Danger stays with a contradiction or a grade a tool calls blocking, and
  * reusing it here would make one colour mean two things across two tools.
  */
-const TONE: Record<AlignmentVerdict, DocumentAnnotationEmphasis["tone"]> = {
-  meets: "success",
-  exceeds: "success",
-  falls_short: "caution",
-  not_comparable: "caution",
-  not_addressed: "neutral",
-};
+const TONE: Record<AlignmentVerdict, DocumentAnnotationEmphasis["tone"]> = Object.fromEntries(
+  ALIGNMENT_VERDICTS.map((verdict) => [
+    verdict,
+    // The trace calls a caution `caution` and the tone scale calls it `warning`; they are
+    // the same reading under two names, which is why the map above is the only place the
+    // judgement is made and this is a translation rather than a second opinion.
+    ALIGNMENT_VERDICT_TONE[verdict] === "warning" ? "caution" : ALIGNMENT_VERDICT_TONE[verdict],
+  ]),
+) as Record<AlignmentVerdict, DocumentAnnotationEmphasis["tone"]>;
 
 export function buildAlignerDocumentAnnotations(
   result: AlignmentResult,

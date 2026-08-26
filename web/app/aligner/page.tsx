@@ -1,5 +1,7 @@
 "use client";
 
+import { VerdictCounts } from "@/components/ui/verdict-counts";
+import { useTraceFocus } from "@/lib/trace-focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, CircleDashed, Plus, X } from "lucide-react";
 import { RunHistory } from "@/components/run-history";
@@ -25,6 +27,7 @@ import { SectionHeading } from "@/components/ui/section-heading";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ALIGNMENT_VERDICTS,
+  ALIGNMENT_VERDICT_TONE,
   VERDICT_LABELS,
   fetchAlignerEdges,
   runAligner,
@@ -393,14 +396,12 @@ function AlignmentView({
   // Same handoff every tool uses: a citation anywhere opens that passage in the trace,
   // so the two views are one navigation rather than two places to look.
   const [resultTab, setResultTab] = useState("comparisons");
-  const [traceFocusBlockId, setTraceFocusBlockId] = useState<string | null>(null);
-  const openBlockInTrace = useCallback((blockId: string) => {
-    setTraceFocusBlockId(blockId);
-    setResultTab("trace");
-  }, []);
-  const consumeTraceFocus = useCallback((blockId: string) => {
-    setTraceFocusBlockId((current) => (current === blockId ? null : current));
-  }, []);
+  const revealTrace = useCallback(() => setResultTab("trace"), []);
+  const {
+    focus: traceFocus,
+    open: openBlockInTrace,
+    consume: consumeTraceFocus,
+  } = useTraceFocus(revealTrace);
 
   const counts = useMemo(() => countVerdicts(result), [result]);
   const groups = useMemo(() => findingsByComparison(result), [result]);
@@ -515,8 +516,8 @@ function AlignmentView({
           <TabsContent value="trace" className="m-0">
             <AlignerDocumentTrace
               result={result}
-              focusBlockId={traceFocusBlockId}
-              onFocusBlockConsumed={consumeTraceFocus}
+              focus={traceFocus}
+              onFocusConsumed={consumeTraceFocus}
             />
           </TabsContent>
         </Tabs>
@@ -536,7 +537,7 @@ function AlignmentView({
 function CountRow({ counts }: { counts: Record<AlignmentVerdict, number> }) {
   const total = ALIGNMENT_VERDICTS.reduce((sum, verdict) => sum + counts[verdict], 0);
   return (
-    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
       <p className="text-xs">
         <AlignerSignalLabel topic="denominator">
           <span className="font-medium">
@@ -544,12 +545,15 @@ function CountRow({ counts }: { counts: Record<AlignmentVerdict, number> }) {
           </span>
         </AlignerSignalLabel>
       </p>
-      {ALIGNMENT_VERDICTS.map((verdict) => (
-        <p key={verdict} className="text-xs text-muted-foreground">
-          <span className="tabular-nums text-foreground">{counts[verdict]}</span>{" "}
-          {VERDICT_LABELS[verdict].toLowerCase()}
-        </p>
-      ))}
+      {/* Every verdict, including zeros: the denominator above is the whole rubric, so a
+          zero here says the requirement class was checked and nothing fell into it. */}
+      <VerdictCounts
+        items={ALIGNMENT_VERDICTS.map((verdict) => ({
+          label: VERDICT_LABELS[verdict],
+          count: counts[verdict],
+          tone: ALIGNMENT_VERDICT_TONE[verdict],
+        }))}
+      />
     </div>
   );
 }

@@ -17,6 +17,8 @@ import { CitedMark, Quoted } from "@/components/ui/evidence-text";
 import { markCitedText } from "@/lib/cited-text";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ProvenanceTrigger, stopRowToggle , PROVENANCE_PANEL} from "@/components/ui/provenance";
+import type { TraceFocus } from "@/lib/trace-focus";
+import { EmptyState } from "@/components/empty-state";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +26,7 @@ export type DocumentSpan = { quote: string; block_ids: string[] };
 
 type DocumentSourceContextValue = {
   blocks: ContentBlock[];
-  onOpenInTrace?: (blockId: string) => void;
+  onOpenInTrace?: (focus: TraceFocus) => void;
 };
 
 /** Exported so any surface resolving a block ID resolves it the same way. */
@@ -39,7 +41,7 @@ export function DocumentSourceProvider({
 }: {
   blocks: ContentBlock[];
   children: ReactNode;
-  onOpenInTrace?: (blockId: string) => void;
+  onOpenInTrace?: (focus: TraceFocus) => void;
 }) {
   return (
     <DocumentSourceContext.Provider value={{ blocks, onOpenInTrace }}>
@@ -51,9 +53,18 @@ export function DocumentSourceProvider({
 export function DocumentSourceTrace({
   blockIds,
   spans = [],
+  annotationId,
 }: {
   blockIds?: string[];
   spans?: DocumentSpan[];
+  /**
+   * The result this trigger belongs to, when it belongs to one.
+   *
+   * Carried so the trace can open on that result's own layer. Without it a passage
+   * cited by six findings opens showing all of them, which is correct for a trigger
+   * that names no finding and wrong for one that does.
+   */
+  annotationId?: string;
 }) {
   const { blocks, onOpenInTrace } = useContext(DocumentSourceContext);
   const [open, setOpen] = useState(false);
@@ -209,12 +220,10 @@ export function DocumentSourceTrace({
                 )}
               </>
             ) : (
-              <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center">
-                <p className="text-xs font-medium text-foreground">Source passage unavailable</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                  This imported result references the passage but does not retain its source content.
-                </p>
-              </div>
+              <EmptyState
+                message="Source passage unavailable"
+                detail="This imported result references the passage but does not retain its source content."
+              />
             )}
             <footer className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
               <span className={EYEBROW}>Block ID</span>
@@ -237,7 +246,9 @@ export function DocumentSourceTrace({
                   type="button"
                   onClick={() => {
                     setOpen(false);
-                    window.requestAnimationFrame(() => onOpenInTrace(selectedBlockId));
+                    window.requestAnimationFrame(() =>
+                      onOpenInTrace({ blockId: selectedBlockId, annotationId }),
+                    );
                   }}
                   className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2.5 text-[10px] font-medium text-foreground outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
                 >

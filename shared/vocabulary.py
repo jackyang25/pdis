@@ -127,8 +127,7 @@ SCOPE_PROVENANCE = frozenset({"header", "document", "config_default", "unset"})
 #:     insights   passages enter semantic reasoning (requires evidence_role "evidence")
 #:     landscape  structured development records enter the development landscape
 #:     safety     structured safety observations enter the safety projection
-#:     burden     structured indicator readings enter the disease-burden projection
-DOWNSTREAM_OUTPUTS = frozenset({"insights", "landscape", "safety", "burden"})
+DOWNSTREAM_OUTPUTS = frozenset({"insights", "landscape", "safety"})
 
 def searchable_attribute_phrase(name: str) -> str:
     """An attribute's name as words a search provider can use.

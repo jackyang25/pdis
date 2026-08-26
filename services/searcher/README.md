@@ -115,7 +115,6 @@ are the authority, and the tests are what keep them honest.
 | FDA Safety | regulatory | us | subject | safety |
 | ChEMBL | molecular | global | subject | landscape |
 | Open Targets | molecular | global | subject, condition | insights |
-| WHO GHO | epidemiology | multi | text, condition | burden |
 
 `reads` and `feeds` are the two ends of one wire, and both may not be empty. `reads`
 is what a lane can be told; `feeds` is where its findings go. Declaring them together
@@ -131,19 +130,6 @@ WHO Guidelines is the only lane in the `guidance` class, which is separate from
 `regulatory` for a reason a reader can check: someone asking what a label permits would
 not accept a WHO recommendation, and someone asking what the recommended regimen is would
 not accept an FDA label. Sources in one class have to be alternatives.
-
-WHO GHO is the only lane in the `epidemiology` class, and it answers a different question
-from every other lane: not what someone did or claimed, but how much of the problem there
-is and where. That is what makes it worth a class - a profile stating "reduce cases by
-thirty per cent in sub-Saharan Africa" makes a claim about a quantity, and nothing else
-retrieved supplies the number the claim is measured against.
-
-It produces `IndicatorRecord`s rather than a passage, and feeds `burden` rather than
-`insights`. Nothing is interpolated: a country with no row for a year has no row, and a
-suppressed value keeps the provider's own text rather than becoming a zero. It is reached
-only from Scout's program scope, because how much disease there is does not change with
-the variable being read - planned per attribute it would repeat one answer for every
-variable, at two provider calls each.
 
 It is also the one lane that makes two calls per result. Its search returns a title and a
 URL and no text at all, so a finding built from that alone would be a title - and a lane

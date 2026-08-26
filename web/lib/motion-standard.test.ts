@@ -318,6 +318,17 @@ test("an open row is tinted for its whole height, not just its summary", () => {
 
   const page = FILES.find(({ relative }) => relative === path.join("app", "scout", "page.tsx"));
   if (!page) throw new Error("the scout page is missing");
+  // Counted against each other rather than against a number. The literal said 4, and when
+  // a row was deleted the test failed for having the wrong tally rather than for anything
+  // being untinted - a count has to be re-agreed every time the page changes, while the
+  // rule does not. One body tint per expandable row is the rule.
+  const rows = [...page.text.matchAll(/summary className=\{(?:cn\()?EXPANDABLE_ROW/g)];
   const bodies = [...page.text.matchAll(/SURFACE\.open\.body/g)];
-  assert.equal(bodies.length, 4, "an expandable row is tinting only its summary again");
+  assert.ok(rows.length > 0, "no expandable rows found; the selector has drifted");
+  assert.equal(
+    bodies.length,
+    rows.length,
+    `${rows.length} expandable rows but ${bodies.length} tinted bodies: `
+      + "a row is tinting only its summary again",
+  );
 });

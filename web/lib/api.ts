@@ -1,3 +1,4 @@
+import type { Tone } from "./tone.ts";
 export type Header = {
   org: string;
   source_type: string;
@@ -123,11 +124,38 @@ export type InspectionResult = {
  */
 export const REASON_LABELS: Record<FindingReason, string> = {
   missing: "Not present",
-  placeholder: "Placeholder left in",
-  unmet: "Does not meet the requirement",
+  placeholder: "Placeholder",
+  // Not "Not met", which is a *status*. The two axes were separated on purpose - a status
+  // is how far short a unit falls, a reason is what is wrong with the content - and one
+  // word doing both jobs is how a reader comes to think they are the same field.
+  unmet: "Insufficient",
   off_template: "Off template",
-  unclear: "Not specific enough",
-  conflicting: "Conflicts with another section",
+  unclear: "Vague",
+  // Not "Conflicts" alone: Scout's RELATIONSHIP_LABEL already spends that word on evidence
+  // contradicting a target, and one word meaning two things across two tools is the drift
+  // the shared-vocabulary test exists to catch. Naming the axis keeps them apart.
+  conflicting: "Section conflict",
+};
+
+/**
+ * The same six, at length.
+ *
+ * The split `STATUS_LABEL` and `STATUS_DESCRIPTION` already make, for the same reason and
+ * after the same failure: these ran to five words because they were written as
+ * explanations, and the document trace renders a reason as an inline chip and as the
+ * options of a layer selector. "Does not meet the requirement" wrapped onto two lines in
+ * a select and overflowed a gutter pill.
+ *
+ * A label sits beside a value and has to be short. A description explains it where there
+ * is room - the how-to-read panel, and a native title on hover.
+ */
+export const REASON_DESCRIPTION: Record<FindingReason, string> = {
+  missing: "Nothing is there",
+  placeholder: "A token such as <<TBD>> sits where the value belongs",
+  unmet: "Content is there and does not satisfy the requirement",
+  off_template: "The structure or naming deviates from the template",
+  unclear: "The requirement is satisfied but the content is vague",
+  conflicting: "Another section states something this cannot hold with",
 };
 
 /**
@@ -216,7 +244,6 @@ export type Finding = {
   evidence_role?: "evidence" | "reference";
   development_records?: DevelopmentRecord[];
   safety_observations?: SafetyObservationRecord[];
-  indicator_records?: IndicatorRecord[];
   queries?: string[];
   source_lanes?: string[];
   source_labels?: Record<string, string>;
@@ -254,16 +281,6 @@ export type SafetyObservationRecord = {
 };
 
 /** One measured quantity for one place in one year, as an adapter normalized it. */
-export type IndicatorRecord = {
-  indicator_code: string;
-  indicator_name: string;
-  place: string;
-  spatial_type: string;
-  year: number;
-  value: number | null;
-  value_text: string;
-  parent_place: string;
-};
 
 export type SourceRole =
   | "experimental"
@@ -667,14 +684,6 @@ export type IndicatorReading = {
  * total over whichever countries happened to be retrieved would read as a total for the
  * disease.
  */
-export type BurdenIndicator = {
-  projection_id: string;
-  indicator_code: string;
-  indicator_name: string;
-  readings: IndicatorReading[];
-  attribute_refs: string[];
-  supporting_findings: Finding[];
-};
 
 export type Variable = {
   name: string;
@@ -816,7 +825,6 @@ export type ScoutResponse = {
   development_landscape: DevelopmentProgram[];
   safety_observations: SafetyObservation[];
   /** Optional so a result saved before this projection existed still loads. */
-  burden_indicators?: BurdenIndicator[];
   stats: FunnelStats;
   // The parsed source document behind the analysis (for the Ask assistant).
   blocks: ContentBlock[];
@@ -864,6 +872,29 @@ export const ALIGNMENT_VERDICTS: AlignmentVerdict[] = [
   "not_comparable",
   "not_addressed",
 ];
+
+/**
+ * The tone each alignment verdict carries.
+ *
+ * `falls_short` and `not_comparable` are caution, not danger: falling short of a target is
+ * this tool's central finding and a normal state of an in-progress programme, not a
+ * failure. Danger stays with a contradiction or a grade a tool calls blocking, and reusing
+ * it here would make one colour mean two things across two tools.
+ *
+ * `not_addressed` is neutral because nobody has answered yet, which is not a verdict about
+ * the answer.
+ *
+ * One map, read by the count row and by the document trace. The trace's emphasis scale
+ * says `caution` where this says `warning` - the same reading under two names - so it
+ * translates rather than deciding again.
+ */
+export const ALIGNMENT_VERDICT_TONE: Record<AlignmentVerdict, Tone> = {
+  meets: "success",
+  exceeds: "success",
+  falls_short: "warning",
+  not_comparable: "warning",
+  not_addressed: "neutral",
+};
 
 export const VERDICT_LABELS: Record<AlignmentVerdict, string> = {
   meets: "Meets",

@@ -34,7 +34,7 @@ async def run_inspector(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    _, suffix = document_upload_parts(file.filename, tool="Inspector")
+    doc_id, suffix = document_upload_parts(file.filename, tool="Inspector")
     contents = await file.read()
 
     # Construct provider clients before the stream opens: a missing credential

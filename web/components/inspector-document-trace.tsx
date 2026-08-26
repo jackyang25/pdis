@@ -1,5 +1,6 @@
 "use client";
 
+import type { TraceFocus } from "@/lib/trace-focus";
 import { useMemo } from "react";
 import { CircleDashed, FileText, Link2, Wrench } from "lucide-react";
 
@@ -113,12 +114,12 @@ function InspectorTraceInspector({
 
 export function InspectorDocumentTrace({
   result,
-  focusBlockId,
-  onFocusBlockConsumed,
+  focus,
+  onFocusConsumed,
 }: {
   result: InspectionResult;
-  focusBlockId?: string | null;
-  onFocusBlockConsumed?: (blockId: string) => void;
+  focus?: TraceFocus | null;
+  onFocusConsumed?: (focus: TraceFocus) => void;
 }) {
   const annotations = useMemo(
     () => buildInspectorDocumentAnnotations(result),
@@ -133,8 +134,8 @@ export function InspectorDocumentTrace({
       // Absence first: whether the rubric's content exists at all is the question
       // that gates the others.
       defaultLayer="missing"
-      focusBlockId={focusBlockId}
-      onFocusBlockConsumed={onFocusBlockConsumed}
+      focus={focus}
+      onFocusConsumed={onFocusConsumed}
       renderInspector={(annotation, connection, passages) => (
         <InspectorTraceInspector
           annotation={annotation}

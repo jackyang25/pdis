@@ -69,15 +69,11 @@ actually follow.
 A run derives two authoritative statements from its document, and they are separate
 because their consumers and their failure modes are.
 
-Three projections group findings by the thing itself rather than by the variable that
-retrieved them: `development_landscape` by program, `safety_observations` by observation,
-and `burden_indicators` by indicator. Each is fed by a typed record an adapter built from
-provider fields, never by a model reading prose - the one exception is
-`announcement_reader`, which exists because a press release has no fields to map.
-
-Burden indicators are the only projection that is not role-classified. A disease reading
-is not experimental or comparator, and not direct or analogous to a target; it is a
-measured quantity, so what it owes is identity, traceable readings and sources.
+Two projections group findings by the thing itself rather than by the variable that
+retrieved them: `development_landscape` by program and `safety_observations` by
+observation. Each is fed by a typed record an adapter built from provider fields, never by
+a model reading prose - the one exception is `announcement_reader`, which exists because a
+press release has no fields to map.
 
 | Ledger | Answers | Read by | A wrong value gives you |
 |---|---|---|---|

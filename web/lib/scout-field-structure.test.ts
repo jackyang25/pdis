@@ -124,8 +124,16 @@ test("every full-width row that opens uses one shape", () => {
   // hover, a stronger focus ring, a fainter open tint, no focus background and a minimum
   // height, none of which marked a difference in what the row does.
   assert.match(PAGE, /const EXPANDABLE_ROW =/);
+  // Shared, not tallied. This asserted a literal 5, which only ever failed when a row was
+  // deliberately deleted - a row *added* without the constant leaves the count untouched,
+  // so the number never caught the thing the test is named for. What it can check is that
+  // the shape is genuinely shared rather than a constant with one caller; the scope check
+  // below is what catches a row half-adopting it.
   const uses = PAGE.match(/EXPANDABLE_ROW/g) ?? [];
-  assert.equal(uses.length, 5, "a full-width row is styling itself again");
+  assert.ok(
+    uses.length >= 3,
+    `EXPANDABLE_ROW has ${uses.length - 1} callers; a shape with one caller is not shared`,
+  );
   // The per-tab group scopes those rows used. A row keeping its own scope is how one would
   // half-adopt the shape: same classes, its own open state.
   for (const scope of ["indicator", "program", "safety", "field"]) {

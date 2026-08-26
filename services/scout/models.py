@@ -982,19 +982,6 @@ class ProgramQuerySet:
 #:     precedent           It is the precedent for one variable, not for the program.
 #:     safety signals      Driven by each attribute's own stated entities.
 PROGRAM_QUERY_SETS = {
-    "burden": ProgramQuerySet(
-        # No subject to name. The lane's request is built from the run's condition alone,
-        # so the set exists to say which lane runs and at what scope rather than to
-        # supply query text.
-        subjects=(),
-        lanes=("who_gho",),
-        reason=(
-            "How much of the disease there is does not change with the variable being "
-            "read, so it is asked once for the run. The lane is reached only from here: "
-            "planned per attribute it would repeat one answer for every variable, and "
-            "each repetition costs two provider calls."
-        ),
-    ),
     "events": ProgramQuerySet(
         subjects=(
             "phase 3 trial results",
@@ -1260,38 +1247,6 @@ class IndicatorReading:
 
 
 @dataclass
-class BurdenIndicator:
-    """One health indicator and every reading retrieved for it.
-
-    The third projection, beside `DevelopmentProgram` and `SafetyObservation`, and grouped
-    the same way: by the thing itself rather than by the variable that happened to
-    retrieve it. A reader asking how much malaria there is wants one row per indicator
-    with its places beneath, not the same indicator repeated under every attribute.
-
-    Deliberately not summarised. No total across countries, no average, no most-recent
-    single number - each of those is an answer to a question the reader did not ask, and
-    a total over an incomplete set of countries is worse than the set.
-    """
-
-    indicator_code: str
-    indicator_name: str
-    projection_id: str = ""
-    readings: list[IndicatorReading] = field(default_factory=list)
-    attribute_refs: list[str] = field(default_factory=list)
-    supporting_findings: list[Finding] = field(default_factory=list)
-
-    @property
-    def latest_year(self) -> int | None:
-        """The most recent year any place reported, for ordering and for a heading."""
-        years = [reading.year for reading in self.readings]
-        return max(years) if years else None
-
-    @property
-    def place_count(self) -> int:
-        return len({reading.place for reading in self.readings})
-
-
-@dataclass
 class Measurement:
     """One source's reported numeric value for a quantitative document unit.
 
@@ -1527,9 +1482,6 @@ class ScoutResult:
     search_plan: list[SearchTrace] = field(default_factory=list)
     development_landscape: list[DevelopmentProgram] = field(default_factory=list)
     safety_observations: list[SafetyObservation] = field(default_factory=list)
-    #: Disease-burden readings retrieved for the run. Defaulted so a result saved before
-    #: this projection existed still loads.
-    burden_indicators: list[BurdenIndicator] = field(default_factory=list)
     # Canonical, document-bound units actually investigated this run. Consumers
     # read this rather than re-deriving provider-specific definitions.
     variables: list[Attribute] = field(default_factory=list)
@@ -1687,12 +1639,6 @@ def safety_observations_to_dicts(
         for observation in observations
     ]
 
-
-def burden_indicators_to_dicts(indicators: list[BurdenIndicator]) -> list[dict]:
-    """Convert burden projections to plain dictionaries."""
-    return [
-        _serialize_finding_datetimes(asdict(indicator)) for indicator in indicators
-    ]
 
 
 def _serialize_finding_datetimes(value: dict) -> dict:

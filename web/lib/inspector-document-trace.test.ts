@@ -125,7 +125,7 @@ test("projects one annotation per finding, not one per question asked", () => {
     annotations.map((item) => [item.kind, item.statusLabel]),
     [
       ["off_template", "Off template"],
-      ["unclear", "Not specific enough"],
+      ["unclear", "Vague"],
     ],
   );
 });

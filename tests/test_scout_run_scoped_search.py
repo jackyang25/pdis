@@ -1,16 +1,18 @@
 """A search planned from the run's own scope, not from a variable.
 
-The development landscape and the burden indicators are asked about the *run*: its
-condition, its intervention class. Those intents carry `PROGRAM_SCOPE_KEY` as their scope
-because there is no variable that owns them, and the projections they produce reach the
-contract with the same sentinel, which two checks there already accept.
+The development landscape is asked about the *run*: its condition, its intervention class.
+Those intents carry `PROGRAM_SCOPE_KEY` as their scope because there is no variable that
+owns them, and the projections they produce reach the contract with the same sentinel,
+which two checks there already accept.
 
-The trace that produced them did not. So any run whose burden lane actually fired was
-rejected by its own contract:
+The trace that produced them did not. So any run whose program query set actually fired
+was rejected by its own contract:
 
     search trace 'indicator_name_contains:polio' references unknown field 'program'
 
 Nothing exercised it, because no test built a run-scoped `SearchTrace` and validated it.
+The quoted failure came from the WHO GHO burden lane, which has since been removed; the
+`events` set still plans run-scoped searches, so the check it broke is still load-bearing.
 """
 
 from __future__ import annotations
@@ -44,8 +46,8 @@ class RunScopedSearchTraceTests(unittest.TestCase):
         result.search_plan = [
             SearchTrace(
                 attribute_ref=over.pop("attribute_ref", PROGRAM_SCOPE_KEY),
-                lane="who_gho",
-                query="indicator_name_contains:polio",
+                lane="web",
+                query="polio vaccine phase 3 trial results",
                 intent_ids=["intent-1"],
                 input_queries=["polio"],
                 **over,
@@ -54,7 +56,7 @@ class RunScopedSearchTraceTests(unittest.TestCase):
         return result
 
     def test_a_run_scoped_search_is_accepted(self):
-        """The bug. A burden lane firing was enough to fail the whole result."""
+        """The bug. One run-scoped search firing was enough to fail the whole result."""
         validate_result_contract(self._with_trace())
 
     def test_a_run_scoped_search_still_cannot_claim_a_passage(self):

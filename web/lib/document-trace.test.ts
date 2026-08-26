@@ -811,8 +811,18 @@ test("one meaning takes one tone, and every tool draws from the same four", () =
   // "The thing asked for is there" is success everywhere it appears.
   const [expert, aligner] = sources;
   assert.match(expert, /question\.state === "answered"\s*\n?\s*\? \{ tone: "success"/);
-  assert.match(aligner, /meets: "success"/);
-  assert.match(aligner, /exceeds: "success"/);
+  // Aligner's verdict tones moved to `ALIGNMENT_VERDICT_TONE`, read by both the count row
+  // and this trace, so the judgement is made once and the trace translates `warning` to
+  // its own `caution`. Checked at the source rather than at the translation, which is
+  // where a second opinion would appear if one were ever introduced.
+  const verdictTone = readFileSync(path.join(WEB_ROOT, "lib", "api.ts"), "utf8");
+  assert.match(verdictTone, /meets: "success"/);
+  assert.match(verdictTone, /exceeds: "success"/);
+  assert.match(
+    aligner,
+    /ALIGNMENT_VERDICT_TONE\[verdict\] === "warning" \? "caution"/,
+    "the aligner trace decides its own tones again instead of translating the shared map",
+  );
 });
 
 test("a block claimed twice shows the tone a reader most needs", () => {

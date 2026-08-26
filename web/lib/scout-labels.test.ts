@@ -309,6 +309,29 @@ test("the how-to-read panel is the one place the vocabulary and its prompts live
   assert.ok(page.includes("<ScoutSignalHelp />"), "Scout dropped its how-to-read entry point");
 });
 
+test("a tool that publishes a vocabulary explains it in one panel, not per row", () => {
+  // Scout settled this and Inspector had not: it carried a help icon on every status pill
+  // and every finding reason as well as a panel, which is 32 units times two affordances
+  // glossing three sentences. The argument is the same in both tools - an icon on one
+  // value cannot show how it differs from the values it is not, and telling them apart is
+  // the thing a reader actually gets wrong.
+  const tools = [
+    { page: ["app", "scout", "page.tsx"], label: "ScoutSignalLabel", help: "<ScoutSignalHelp />" },
+    { page: ["app", "inspector", "page.tsx"], label: "InspectorSignalLabel", help: "<InspectorSignalHelp />" },
+  ];
+  for (const tool of tools) {
+    const source = readFileSync(path.resolve(import.meta.dirname, "..", ...tool.page), "utf8");
+    assert.ok(
+      !source.includes(tool.label),
+      `${tool.page[1]} reintroduced per-row tooltips; the panel is the single explanation`,
+    );
+    assert.ok(
+      source.includes(tool.help),
+      `${tool.page[1]} has no how-to-read entry point, so the vocabulary is explained nowhere`,
+    );
+  }
+});
+
 test("how a source was matched is said in one place, and only where it matters", () => {
   // The caveat lived as a string built inside the plot, so the same measurement carried it on
   // a chart point and not in the Comparators panel, which is where a reader audits the cohort.

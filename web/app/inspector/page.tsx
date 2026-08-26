@@ -1,8 +1,10 @@
 "use client";
 
+import { useTraceFocus } from "@/lib/trace-focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { CollapsibleCard } from "@/components/collapsible-card";
+import { EmptyState } from "@/components/empty-state";
+import { VerdictCounts } from "@/components/ui/verdict-counts";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { ConfigurationFields } from "@/components/configuration-fields";
 import {
@@ -13,12 +15,13 @@ import { FinalResultActions } from "@/components/final-result-actions";
 import { HeaderGuard } from "@/components/header-guard";
 import {
   InspectorSignalHelp,
-  InspectorSignalLabel,
 } from "@/components/inspector-signal-help";
 import { InspectorDocumentTrace } from "@/components/inspector-document-trace";
 import { PriorityPanel } from "@/components/ui/priority-panel";
 import { SectionHeading } from "@/components/ui/section-heading";
+import { Reading } from "@/components/ui/evidence-text";
 import { LabeledItem } from "@/components/labeled-item";
+import { inspectorAnnotationId } from "@/lib/inspector-document-trace";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { RunHistory } from "@/components/run-history";
@@ -26,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   LEVEL_LABELS,
+  REASON_DESCRIPTION,
   REASON_LABELS,
   SHORTFALL_LEVELS,
   STATUS_DESCRIPTION,
@@ -64,7 +68,7 @@ import {
 } from "@/lib/session";
 import { usePriorityDigest } from "@/lib/priority-digest";
 import { toolAuthority } from "@/lib/tools";
-import { TONE_TEXT, TONE_TINT } from "@/lib/tone";
+import { TONE_TEXT, TONE_TINT, type Tone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
 
 const INSPECTOR_STEPS = [
@@ -212,14 +216,12 @@ function InspectionResultView({
   const inspection = result.inspection;
   const final = isInspectorResultFinal(result);
   const [resultTab, setResultTab] = useState("trace");
-  const [traceFocusBlockId, setTraceFocusBlockId] = useState<string | null>(null);
-  const openBlockInTrace = useCallback((blockId: string) => {
-    setTraceFocusBlockId(blockId);
-    setResultTab("trace");
-  }, []);
-  const consumeTraceFocus = useCallback((blockId: string) => {
-    setTraceFocusBlockId((current) => (current === blockId ? null : current));
-  }, []);
+  const revealTrace = useCallback(() => setResultTab("trace"), []);
+  const {
+    focus: traceFocus,
+    open: openBlockInTrace,
+    consume: consumeTraceFocus,
+  } = useTraceFocus(revealTrace);
 
   const findings = worklist(inspection);
   const sections = inspection.sections ?? [];
@@ -280,8 +282,8 @@ function InspectionResultView({
           <TabsContent value="trace" className="m-0">
             <InspectorDocumentTrace
               result={inspection}
-              focusBlockId={traceFocusBlockId}
-              onFocusBlockConsumed={consumeTraceFocus}
+              focus={traceFocus}
+              onFocusConsumed={consumeTraceFocus}
             />
           </TabsContent>
           <TabsContent value="sections" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
@@ -353,6 +355,19 @@ function SectionsList({
 }
 
 /**
+ * Whether a finding's prose only repeats the fields rendered beside it.
+ *
+ * True for exactly one case, and deliberately narrow. A *variable* the document never
+ * wrote has both sentences built from its own name, its section's name, and its reason -
+ * all three already on the row. A *section* that declares no variables does not qualify:
+ * its recommendation carries the rubric's description of what that section should cover,
+ * which appears nowhere else on screen.
+ */
+function restatesItself(finding: RubricFinding): boolean {
+  return finding.reason === "missing" && Boolean(finding.variable_name);
+}
+
+/**
  * One finding, rendered the same way wherever it appears.
  *
  * The section list and the findings list show the same object, so they share one
@@ -367,17 +382,47 @@ function FindingBody({ finding, showUnit = true }: { finding: RubricFinding; sho
             {finding.variable_name ?? finding.section_name ?? "Across sections"}
           </span>
         )}
-        <InspectorSignalLabel topic="finding" className="text-xs text-muted-foreground">
+        {/* Plain, like every other reason on the page. The vocabulary is explained once
+            in "How to read", which is the only place that can show a reason beside the
+            five it is not - and this line repeats 32 times in a run. */}
+        {/* Short, with the full sentence on hover. The panel explains all six together,
+            which is the only place they can be told apart from each other. */}
+        <span className="text-xs text-muted-foreground" title={REASON_DESCRIPTION[finding.reason]}>
           {REASON_LABELS[finding.reason]}
-        </InspectorSignalLabel>
+        </span>
       </p>
-      <p className="mt-0.5">{finding.statement}</p>
-      {finding.recommendation && (
-        <p className="mt-0.5 text-muted-foreground">{finding.recommendation}</p>
+      {/* Both sentences are the model's, so both are `Reading`. They used to render at
+          two contrasts in one card - the statement at full, the recommendation muted -
+          which told a reader the two had different authors when they have the same one.
+          Full contrast belongs to the tool's own words and the document's values, and the
+          lede of this card is the unit name and its verdict, both of which are the tool's.
+          Hierarchy between the two comes from size, which is what `Reading` sizes are for.
+
+          Suppressed when the finding restates itself. A variable the document never wrote
+          gets both sentences templated in `assembly.py` out of the three fields already on
+          this row - the unit name, the section, and the reason - so "Target User Group is
+          not present; the Medical Need / Use Case section is absent" and "Add the Medical
+          Need / Use Case section and state Target User Group" carry nothing the row has
+          not said. On a six-variable section that was one fact rendered twenty-five times.
+
+          They stay in the result: a JSON consumer without the rubric cannot rebuild the
+          sentence, and the assistant reads that JSON. This is a rendering decision, not a
+          data one - and it is also an authorship correction, because template text was
+          being shown in the treatment that means a model judged it. */}
+      {!restatesItself(finding) && (
+        <>
+          <Reading size="prominent">{finding.statement}</Reading>
+          {finding.recommendation && <Reading>{finding.recommendation}</Reading>}
+        </>
       )}
       {finding.cited_block_ids.length > 0 && (
         <div className="mt-1.5">
-          <DocumentSourceTrace blockIds={finding.cited_block_ids} />
+          {/* Named, so the trace opens on this finding's own layer rather than on
+              every layer the passage carries. */}
+          <DocumentSourceTrace
+            blockIds={finding.cited_block_ids}
+            annotationId={inspectorAnnotationId(finding.id)}
+          />
         </div>
       )}
     </div>
@@ -417,23 +462,21 @@ function ShortfallCounts({ section }: { section: SectionAssessment }) {
   const counts = sectionShortfalls(section);
   const shown = SHORTFALL_LEVELS.filter((level) => counts[level] > 0);
   if (shown.length === 0) {
-    return <span className="text-xs text-muted-foreground">Met</span>;
+    // The same pill a unit shows. One signal, and it is what this row is about, so it is a
+    // tint - the rule in `lib/tone.ts`. "Met" rendered as muted text here and as a pill one
+    // level down, so one verdict had two appearances on one screen.
+    return <StatusPill status="met" />;
   }
+  // A zero is hidden here on purpose: a shortfall that did not occur is not a fact about
+  // the document. Expert shows its zeros for the opposite and equally deliberate reason.
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      {shown.map((level) => (
-        <span
-          key={level}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-md px-2 py-1",
-            LEVEL_SURFACE[level],
-          )}
-        >
-          <span>{LEVEL_LABELS[level]}</span>
-          <span className="font-semibold tabular-nums">{counts[level]}</span>
-        </span>
-      ))}
-    </div>
+    <VerdictCounts
+      items={shown.map((level) => ({
+        label: LEVEL_LABELS[level],
+        count: counts[level],
+        tone: LEVEL_TONE[level],
+      }))}
+    />
   );
 }
 
@@ -473,24 +516,19 @@ function ConsistencyView({
 }) {
   if (findings.length === 0) {
     const complete = status === "complete" || status === "not_applicable";
+    // Two answers, not one absence. A check that ran and found nothing is good news; a
+    // check that did not finish is a question still open, and a reader who cannot tell
+    // them apart cannot tell a clean document from an unread one.
     return (
-      <div className="rounded-lg border border-border bg-foreground/[0.045] px-5 py-5">
-        <div className="flex items-start gap-3">
-          {complete ? (
-            <CheckCircle2 className={cn("mt-0.5 h-4 w-4", TONE_TEXT.success)} />
-          ) : (
-            <AlertTriangle className={cn("mt-0.5 h-4 w-4", TONE_TEXT.warning)} />
-          )}
-          <div>
-            <p className="text-sm font-medium">
-              {complete ? "No cross-section conflicts identified" : "Consistency coverage is incomplete"}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {consistencyDescription(status)}
-            </p>
-          </div>
-        </div>
-      </div>
+      <EmptyState
+        tone={complete ? "clear" : "unknown"}
+        message={
+          complete
+            ? "No cross-section conflicts identified"
+            : "Consistency coverage is incomplete"
+        }
+        detail={consistencyDescription(status)}
+      />
     );
   }
   return (
@@ -501,14 +539,22 @@ function ConsistencyView({
       />
       {findings.map((finding) => (
         <article key={finding.id} className="rounded-lg border border-border p-4">
-          <p className="text-sm leading-6">{finding.statement}</p>
+          {/* The model's sentence, like the one in a section card. It was at full
+              contrast here and muted there, so the same kind of claim carried two
+              authorships depending on which tab you were reading. */}
+          <Reading size="prominent">{finding.statement}</Reading>
           {finding.recommendation && (
             <div className="mt-3">
               <LabeledItem kind="recommendation">{finding.recommendation}</LabeledItem>
             </div>
           )}
           <div className="mt-3">
-            <DocumentSourceTrace blockIds={finding.cited_block_ids} />
+            {/* Named, so the trace opens on this finding's own layer rather than on
+              every layer the passage carries. */}
+          <DocumentSourceTrace
+            blockIds={finding.cited_block_ids}
+            annotationId={inspectorAnnotationId(finding.id)}
+          />
           </div>
         </article>
       ))}
@@ -526,17 +572,21 @@ function consistencyDescription(status: InspectionResult["consistency_status"]):
 
 function StatusPill({ status }: { status: UnitStatus }) {
   return (
-    <InspectorSignalLabel topic="status">
-      <span
-        title={STATUS_DESCRIPTION[status]}
-        className={cn(
-          "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
-          STATUS_SURFACE[status],
-        )}
-      >
-        {STATUS_LABEL[status]}
-      </span>
-    </InspectorSignalLabel>
+    // No help affordance. The four statuses are told apart by contrast, so an icon on one
+    // of them cannot do the job: it says what "Not met" is without saying how it differs
+    // from "Could be stronger", which is the thing a reader gets wrong. "How to read"
+    // shows all four together and is the only place they are explained. Scout reached the
+    // same conclusion for the same reason; the native title stays, because it costs
+    // nothing and adds no mark to the page.
+    <span
+      title={STATUS_DESCRIPTION[status]}
+      className={cn(
+        "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
+        STATUS_SURFACE[status],
+      )}
+    >
+      {STATUS_LABEL[status]}
+    </span>
   );
 }
 
@@ -553,7 +603,7 @@ const STATUS_SURFACE: Record<UnitStatus, string> = {
   not_applicable: TONE_TINT.neutral,
 };
 
-const LEVEL_SURFACE: Record<FindingLevel, string> = {
-  not_met: TONE_TINT.danger,
-  could_be_stronger: TONE_TINT.warning,
+const LEVEL_TONE: Record<FindingLevel, Tone> = {
+  not_met: "danger",
+  could_be_stronger: "warning",
 };

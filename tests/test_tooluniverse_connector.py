@@ -389,8 +389,6 @@ class ToolUniverseConnectorTests(unittest.TestCase):
                 "EuropePMC_search_articles",
                 "WHO_Guidelines_Search",
                 "WHO_Guideline_Full_Text",
-                "WHOGHO_search_indicators",
-                "WHOGHO_get_indicator_data",
                 "OpenTargets_get_evidence_by_datasource",
                 "ChEMBL_search_drugs",
                 "ChEMBL_search_targets",

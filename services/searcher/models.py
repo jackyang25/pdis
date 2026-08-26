@@ -400,56 +400,6 @@ INDICATOR_SPATIAL_TYPES = frozenset({"COUNTRY", "REGION"})
 
 
 @dataclass(frozen=True)
-class IndicatorRecord:
-    """One measured quantity, for one place, in one year.
-
-    The third member of the record family, beside `DevelopmentRecord` and
-    `SafetyObservationRecord`, and the same contract: an adapter populates only what the
-    provider stated. No interpolation between years, no aggregation across countries, no
-    filling a missing value from a neighbouring one. A statistics database is exact about
-    what it does not have, and a record that smooths over that is worse than a gap.
-    """
-
-    indicator_code: str
-    indicator_name: str
-    #: ISO3 country code, or a WHO region code. `spatial_type` says which.
-    place: str
-    spatial_type: str
-    year: int
-    #: The provider's own numeric reading. `None` when the row carries a value that is
-    #: not a number, which GHO does for suppressed and not-applicable readings.
-    value: float | None = None
-    #: The provider's own text for the value, kept because it may say "<0.1" or "No data"
-    #: where the numeric field is empty, and that is a fact rather than an absence.
-    value_text: str = ""
-    #: WHO region the place sits in, when the row states it.
-    parent_place: str = ""
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "indicator_code", self.indicator_code.strip())
-        object.__setattr__(self, "indicator_name", " ".join(self.indicator_name.split()))
-        object.__setattr__(self, "place", self.place.strip().upper())
-        object.__setattr__(self, "spatial_type", self.spatial_type.strip().upper())
-        object.__setattr__(self, "value_text", " ".join(self.value_text.split()))
-        object.__setattr__(self, "parent_place", " ".join(self.parent_place.split()))
-        if not self.indicator_code:
-            raise ValueError("indicator record requires an indicator code")
-        if not self.place:
-            raise ValueError("indicator record requires a place")
-        if self.spatial_type not in INDICATOR_SPATIAL_TYPES:
-            raise ValueError(
-                f"unknown indicator spatial type: {self.spatial_type!r}"
-            )
-        if self.year < 1900 or self.year > 2100:
-            raise ValueError(f"implausible indicator year: {self.year}")
-        if self.value is None and not self.value_text:
-            raise ValueError(
-                "an indicator record with neither a number nor the provider's own text "
-                "records nothing"
-            )
-
-
-@dataclass(frozen=True)
 class SafetyObservationRecord:
     """One structured, non-causal safety observation from a source record."""
 
@@ -503,7 +453,6 @@ class Finding:
     evidence_role: str = "evidence"  # evidence | reference
     development_records: list[DevelopmentRecord] = field(default_factory=list)
     safety_observations: list[SafetyObservationRecord] = field(default_factory=list)
-    indicator_records: list[IndicatorRecord] = field(default_factory=list)
     # URL deduplication must not erase how a source was discovered. ``query``
     # and ``source`` remain the primary values for compatibility; these lists
     # retain every retrieval path merged into the Finding.
@@ -522,7 +471,6 @@ class Finding:
             raise ValueError(f"unknown finding evidence role: {self.evidence_role}")
         self.development_records = list(dict.fromkeys(self.development_records))
         self.safety_observations = list(dict.fromkeys(self.safety_observations))
-        self.indicator_records = list(dict.fromkeys(self.indicator_records))
         if self.query and self.query not in self.queries:
             self.queries.insert(0, self.query)
         if self.source and self.source not in self.source_lanes:

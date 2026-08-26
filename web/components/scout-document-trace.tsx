@@ -1,5 +1,6 @@
 "use client";
 
+import type { TraceFocus } from "@/lib/trace-focus";
 import { useMemo } from "react";
 import { FileText, Link2 } from "lucide-react";
 import {
@@ -104,12 +105,12 @@ function ScoutTraceInspector({
 
 export function ScoutDocumentTrace({
   result,
-  focusBlockId,
-  onFocusBlockConsumed,
+  focus,
+  onFocusConsumed,
 }: {
   result: ScoutResponse;
-  focusBlockId?: string | null;
-  onFocusBlockConsumed?: (blockId: string) => void;
+  focus?: TraceFocus | null;
+  onFocusConsumed?: (focus: TraceFocus) => void;
 }) {
   const annotations = useMemo(
     () => buildScoutDocumentAnnotations(result),
@@ -121,8 +122,8 @@ export function ScoutDocumentTrace({
       blocks={result.blocks ?? []}
       annotations={annotations}
       layers={TRACE_LAYERS}
-      focusBlockId={focusBlockId}
-      onFocusBlockConsumed={onFocusBlockConsumed}
+      focus={focus}
+      onFocusConsumed={onFocusConsumed}
       renderInspector={(annotation, connection, passages) => (
         <ScoutTraceInspector
           annotation={annotation}

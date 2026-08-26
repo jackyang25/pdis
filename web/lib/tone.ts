@@ -20,6 +20,21 @@
  *   TONE_TEXT   the verdict word itself
  *   TONE_TINT   a filled chip or cell, background and text together
  *
+ * **Which shape, and when.** The list above says where each one goes and, for a long time,
+ * nothing said which situation calls for which — so four tools each picked one and a
+ * reader moving between them met one idea in four costumes. The rule is how many signals
+ * share the row:
+ *
+ *   one signal, and it is what the row is about        TINT. It has to be findable while
+ *                                                      scanning a column of rows.
+ *   several signals in one row, none of them dominant  DOT. A tint on each turns the row
+ *                                                      into a bar chart of colour, and
+ *                                                      the reader is comparing counts,
+ *                                                      not hunting for one verdict.
+ *   the verdict is the sentence                        TEXT.
+ *
+ * A count row is always the second case, which is what `ui/verdict-counts` renders.
+ *
  * `neutral` is the absence of a signal, not a fourth verdict. It is deliberately quieter
  * than the others so "unknown" cannot be mistaken for a reading.
  */

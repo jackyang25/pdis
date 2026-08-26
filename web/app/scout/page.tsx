@@ -1,5 +1,6 @@
 "use client";
 
+import { useTraceFocus } from "@/lib/trace-focus";
 import {
   useCallback,
   useEffect,
@@ -33,13 +34,13 @@ import {
 import { useHeaderStore } from "@/lib/store";
 import { HeaderGuard } from "@/components/header-guard";
 import { EmptyState } from "@/components/empty-state";
+import { SignalChip } from "@/components/ui/signal-chip";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { FinalResultActions } from "@/components/final-result-actions";
 import {
   continueScout,
   runScout,
   type Conformity,
-  type BurdenIndicator,
   type DevelopmentProgram,
   type FunnelStats,
   type EvidenceAssessment,
@@ -150,7 +151,7 @@ import {
   SURFACE_ENTRY_MOTION,
 } from "@/lib/motion";
 import { SURFACE } from "@/lib/surface";
-import { TONE_DOT, TONE_TEXT } from "@/lib/tone";
+import { TONE_DOT, TONE_TEXT, type Tone } from "@/lib/tone";
 import {
   applyEvidenceReviewRecommendations,
   evidenceReviewRecommendationSummary,
@@ -212,10 +213,6 @@ const SCOUT_STEPS = [
 const SOURCE_LIST_LIMIT = 5;
 
 
-// Tone tokens are reserved for direct signal values, never derived UI grades. The scale
-// itself is `lib/tone.ts`: these were raw palette classes with no dark-mode variant, so a
-// verdict that read at one contrast in light mode read at another in dark.
-const NEUTRAL_DOT = TONE_DOT.neutral;
 
 /**
  * The tone each grounding verdict carries. Only the tone.
@@ -224,20 +221,20 @@ const NEUTRAL_DOT = TONE_DOT.neutral;
  * already read. A second copy here is exactly how "Partial" and "Partly grounded" came to
  * render in two tabs of one run.
  */
-const EVIDENCE_DOT: Record<EvidenceAssessment["strength"], string> = {
-  well_grounded: TONE_DOT.success,
-  partial: TONE_DOT.info,
-  thin: TONE_DOT.warning,
-  unsupported: TONE_DOT.danger,
-  unknown: NEUTRAL_DOT,
+const EVIDENCE_TONE: Record<EvidenceAssessment["strength"], Tone> = {
+  well_grounded: "success",
+  partial: "info",
+  thin: "warning",
+  unsupported: "danger",
+  unknown: "neutral",
 };
 
 
-const RELATION_DOT: Record<Match["relation"], string> = {
-  contradicts: TONE_DOT.danger,
-  extends: TONE_DOT.warning,
-  confirms: TONE_DOT.success,
-  unrelated: NEUTRAL_DOT,
+const RELATION_TONE: Record<Match["relation"], Tone> = {
+  contradicts: "danger",
+  extends: "warning",
+  confirms: "success",
+  unrelated: "neutral",
 };
 
 
@@ -265,7 +262,7 @@ function formatFieldLinks(fieldLinks: QuantitativeTarget["field_links"]): string
 }
 
 /**
- * The tone each outcome carries. Only the tone, like `EVIDENCE_DOT` above.
+ * The tone each outcome carries. Only the tone, like `EVIDENCE_TONE` above.
  *
  * The words come from `OUTCOME_LABEL` and `PRECEDENT_LABEL`. This file used to hold both
  * the tones and its own copies of the words, and the copies had already drifted: the shared
@@ -276,18 +273,18 @@ function formatFieldLinks(fieldLinks: QuantitativeTarget["field_links"]): string
  * Precedent coverage needs no map: every value is neutral, because how closely prior work
  * matches is not good or bad news on its own.
  */
-const OUTCOME_DOT: Record<PrecedentSignal["outcome"], string> = {
-  favorable: TONE_DOT.success,
-  mixed: TONE_DOT.warning,
-  unfavorable: TONE_DOT.danger,
-  unknown: NEUTRAL_DOT,
+const OUTCOME_TONE: Record<PrecedentSignal["outcome"], Tone> = {
+  favorable: "success",
+  mixed: "warning",
+  unfavorable: "danger",
+  unknown: "neutral",
 };
 
 function precedentView(signal: PrecedentSignal) {
   return {
     coverage: PRECEDENT_LABEL[signal.precedent],
     outcome: OUTCOME_LABEL[signal.outcome],
-    dot: OUTCOME_DOT[signal.outcome],
+    tone: OUTCOME_TONE[signal.outcome],
   };
 }
 
@@ -318,37 +315,20 @@ function leadingRelation(matches: Match[]): Match["relation"] {
 // ---------------------------------------------------------------------------
 
 /** Compact value marker used inside expanded detail sections. */
-function SignalChip({
-  dot,
-  children,
-}: {
-  dot: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <span className="inline-flex h-5 items-center gap-1.5 whitespace-nowrap text-[11px] font-medium text-foreground">
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-      {children}
-    </span>
-  );
-}
 
 function SignalSummary({
   label,
   value,
   detail,
-  dot,
 }: {
   label: string;
   value: string;
   detail?: string;
-  dot?: string;
 }) {
   return (
     <div className="min-w-0">
       <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
-        {dot && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />}
         <span
           className="min-w-0 truncate"
           title={detail ? `${value} · ${detail}` : value}
@@ -946,14 +926,14 @@ function DocumentTargetReviewCheckpoint({
             <>
               {flaggedCount > 0 ? (
                 <>
-                  <ReviewCount dot={TONE_DOT.success} label={`${confirmRecommendationCount} confirm recommended`} />
-                  <ReviewCount dot={TONE_DOT.neutral} label={`${excludeRecommendationCount} exclude recommended`} />
-                  <ReviewCount dot={TONE_DOT.warning} label={`${manualTargetCount} needs review`} />
+                  <ReviewCount tone="success" label={`${confirmRecommendationCount} confirm recommended`} />
+                  <ReviewCount tone="neutral" label={`${excludeRecommendationCount} exclude recommended`} />
+                  <ReviewCount tone="warning" label={`${manualTargetCount} needs review`} />
                 </>
               ) : (
                 <>
-                  <ReviewCount dot={TONE_DOT.success} label={`${confirmedCount} confirmed`} />
-                  <ReviewCount dot={TONE_DOT.neutral} label={`${excludedCount} excluded`} />
+                  <ReviewCount tone="success" label={`${confirmedCount} confirmed`} />
+                  <ReviewCount tone="neutral" label={`${excludedCount} excluded`} />
                 </>
               )}
             </>
@@ -1135,10 +1115,10 @@ function DocumentTargetReviewCheckpoint({
   );
 }
 
-function ReviewCount({ dot, label }: { dot: string; label: string }) {
+function ReviewCount({ tone, label }: { tone: Tone; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+      <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT[tone])} />
       {label}
     </span>
   );
@@ -1574,14 +1554,14 @@ function QuantitativeReviewCheckpoint({
             <>
               {pendingGroups.length > 0 ? (
                 <>
-                  <ReviewCount dot={TONE_DOT.success} label={`${recommendationSummary.admit} admit recommended`} />
-                  <ReviewCount dot={TONE_DOT.neutral} label={`${recommendationSummary.reject} reject recommended`} />
-                  <ReviewCount dot={TONE_DOT.warning} label={`${recommendationSummary.flag} needs review`} />
+                  <ReviewCount tone="success" label={`${recommendationSummary.admit} admit recommended`} />
+                  <ReviewCount tone="neutral" label={`${recommendationSummary.reject} reject recommended`} />
+                  <ReviewCount tone="warning" label={`${recommendationSummary.flag} needs review`} />
                 </>
               ) : (
                 <>
-                  <ReviewCount dot={TONE_DOT.success} label={`${admittedGroupCount} admitted`} />
-                  <ReviewCount dot={TONE_DOT.neutral} label={`${rejectedGroupCount} rejected`} />
+                  <ReviewCount tone="success" label={`${admittedGroupCount} admitted`} />
+                  <ReviewCount tone="neutral" label={`${rejectedGroupCount} rejected`} />
                 </>
               )}
             </>
@@ -2000,18 +1980,15 @@ function FieldGrid({
   const variables = result.variables ?? [];
   const developmentLandscape = result.development_landscape ?? [];
   const safetyObservations = result.safety_observations ?? [];
-  const burdenIndicators = result.burden_indicators ?? [];
   const [query, setQuery] = useState("");
   const [relationFilter, setRelationFilter] = useState<"all" | Match["relation"]>("all");
   const [resultTab, setResultTab] = useState("fields");
-  const [traceFocusBlockId, setTraceFocusBlockId] = useState<string | null>(null);
-  const openBlockInTrace = useCallback((blockId: string) => {
-    setTraceFocusBlockId(blockId);
-    setResultTab("trace");
-  }, []);
-  const consumeTraceFocus = useCallback((blockId: string) => {
-    setTraceFocusBlockId((current) => current === blockId ? null : current);
-  }, []);
+  const revealTrace = useCallback(() => setResultTab("trace"), []);
+  const {
+    focus: traceFocus,
+    open: openBlockInTrace,
+    consume: consumeTraceFocus,
+  } = useTraceFocus(revealTrace);
   if (variables.length === 0) {
     return <EmptyState message="No variables were returned for this intervention." />;
   }
@@ -2129,9 +2106,6 @@ function FieldGrid({
               )}
               {safetyObservations.length > 0 && (
                 <TabsTrigger value="safety">Safety</TabsTrigger>
-              )}
-              {burdenIndicators.length > 0 && (
-                <TabsTrigger value="burden">Burden</TabsTrigger>
               )}
               <TabsTrigger value="map">Evidence map</TabsTrigger>
               <TabsTrigger value="trace">Documents</TabsTrigger>
@@ -2265,19 +2239,14 @@ function FieldGrid({
               <SafetyObservations observations={safetyObservations} />
             </TabsContent>
           )}
-          {burdenIndicators.length > 0 && (
-            <TabsContent value="burden" className="mt-0">
-              <BurdenIndicators indicators={burdenIndicators} />
-            </TabsContent>
-          )}
           <TabsContent value="map" className="mt-0">
             <ScoutEvidenceMap result={result} />
           </TabsContent>
           <TabsContent value="trace" className="mt-0">
             <ScoutDocumentTrace
               result={result}
-              focusBlockId={traceFocusBlockId}
-              onFocusBlockConsumed={consumeTraceFocus}
+              focus={traceFocus}
+              onFocusConsumed={consumeTraceFocus}
             />
           </TabsContent>
         </Tabs>
@@ -2420,123 +2389,6 @@ function AnnouncementReading({ stats }: { stats?: FunnelStats }) {
       <Computed>{named.toLocaleString()}</Computed> named a program. An announcement naming
       none has no row here.
     </InterfaceNote>
-  );
-}
-
-/**
- * Disease burden: one row per indicator, its readings beneath.
- *
- * No total and no headline number. The readings are whichever countries the provider
- * returned within the row budget, so a sum would read as a total for the disease and a
- * single "current" figure would hide which country it came from. What a reader gets is
- * the indicator, how many places reported, the latest year, and every reading.
- *
- * Values are the provider's own text rather than the parsed number: GHO writes
- * "10 638 498" and also writes "<0.1" and "No data", and re-formatting the first would
- * mean choosing a rendering for the others.
- */
-function BurdenIndicators({ indicators }: { indicators: BurdenIndicator[] }) {
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  const visible = indicators.filter(
-    (indicator) =>
-      !normalizedQuery ||
-      [indicator.indicator_name, indicator.indicator_code]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedQuery) ||
-      indicator.readings.some((reading) =>
-        `${reading.place} ${reading.parent_place}`
-          .toLowerCase()
-          .includes(normalizedQuery),
-      ),
-  );
-  return (
-    <section>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-5 py-3 sm:px-6">
-        <input
-          type="text"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Find an indicator or a country…"
-          aria-label="Search burden indicators"
-          className="h-9 w-full max-w-sm rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20"
-        />
-        <span className="text-[11px] text-muted-foreground">
-          {visible.length} of {indicators.length} indicators
-        </span>
-      </div>
-      {visible.map((indicator) => (
-        <details
-          key={indicator.projection_id}
-          className="group/expand border-b border-border/60 last:border-b-0"
-        >
-          <summary className={EXPANDABLE_ROW}>
-            <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-semibold leading-snug text-foreground">
-                {indicator.indicator_name || indicator.indicator_code}
-              </h3>
-              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                {indicator.indicator_code}
-              </p>
-              <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-3">
-                <SignalSummary
-                  label="Places reporting"
-                  value={String(
-                    new Set(indicator.readings.map((reading) => reading.place)).size,
-                  )}
-                />
-                <SignalSummary
-                  label="Latest year"
-                  value={String(
-                    indicator.readings.reduce(
-                      (latest, reading) => Math.max(latest, reading.year),
-                      0,
-                    ) || "—",
-                  )}
-                />
-                <SignalSummary
-                  label="Readings"
-                  value={String(indicator.readings.length)}
-                />
-              </div>
-            </div>
-            <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />
-          </summary>
-          <div
-            className={cn(
-              "border-t border-border/60 px-5 py-4 sm:px-6",
-              SURFACE.open.body,
-              DISCLOSURE_MOTION,
-            )}
-          >
-            <ul className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
-              {indicator.readings.map((reading) => (
-                <li
-                  key={`${reading.place}-${reading.year}`}
-                  className="flex items-baseline justify-between gap-3 text-xs"
-                >
-                  <span className="text-muted-foreground">
-                    <span className="font-mono text-foreground">{reading.place}</span>
-                    {reading.parent_place ? ` · ${reading.parent_place}` : ""}
-                    {` · ${reading.year}`}
-                  </span>
-                  <Computed className="shrink-0">{reading.value_text || "—"}</Computed>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-4">
-              <SourceList findings={indicator.supporting_findings} />
-            </div>
-          </div>
-        </details>
-      ))}
-      {visible.length === 0 && (
-        <p className="px-6 py-10 text-center text-sm text-muted-foreground">
-          No indicators match this view.
-        </p>
-      )}
-    </section>
   );
 }
 
@@ -2862,7 +2714,7 @@ function FieldRow({
   evidenceDomain: Variable["evidence_domain"];
   targetsById: Map<string, QuantitativeTarget>;
 }) {
-  const evidenceDot = assessment ? EVIDENCE_DOT[assessment.strength] : null;
+  const evidenceTone = assessment ? EVIDENCE_TONE[assessment.strength] : null;
   const precedentMeta = precedent ? precedentView(precedent) : null;
   const counts = relationCounts(matches);
   const comparatorCount = conformities.reduce(
@@ -2900,20 +2752,20 @@ function FieldRow({
                standing judgments, then how many numeric targets there are to open. */
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
               {counts.contradicts > 0 && (
-                <SignalChip dot={RELATION_DOT.contradicts}>
+                <SignalChip tone={RELATION_TONE.contradicts}>
                   {`${RELATIONSHIP_LABEL.contradicts} ${counts.contradicts}`}
                 </SignalChip>
               )}
               {counts.confirms > 0 && (
-                <SignalChip dot={RELATION_DOT.confirms}>
+                <SignalChip tone={RELATION_TONE.confirms}>
                   {`${RELATIONSHIP_LABEL.confirms} ${counts.confirms}`}
                 </SignalChip>
               )}
-              {assessment && evidenceDot && (
-                <SignalChip dot={evidenceDot}>{GROUNDING_LABEL[assessment.strength]}</SignalChip>
+              {assessment && evidenceTone && (
+                <SignalChip tone={evidenceTone}>{GROUNDING_LABEL[assessment.strength]}</SignalChip>
               )}
               {precedent && precedentMeta && (
-                <SignalChip dot={precedentMeta.dot}>
+                <SignalChip tone={precedentMeta.tone}>
                   {`${precedentMeta.coverage} · ${precedentMeta.outcome}`}
                 </SignalChip>
               )}
@@ -3057,10 +2909,10 @@ function FieldRow({
             claim and the assessment of it; hairlines separate the assessments inside. */}
         {!targetNotStated && (assessment || precedent || matches.length > 0) && (
           <div className="border-t border-border pt-4">
-          {assessment && evidenceDot && (
+          {assessment && evidenceTone && (
             <SignalVerdict
               label="Grounding"
-              chips={[{ dot: evidenceDot, text: GROUNDING_LABEL[assessment.strength] }]}
+              chips={[{ tone: evidenceTone, text: GROUNDING_LABEL[assessment.strength] }]}
               reason={assessment.reason}
               citations={[{ cited: citation(assessment.supporting_insight_ids, registry) }]}
               fallback={assessment.supporting_findings}
@@ -3070,8 +2922,8 @@ function FieldRow({
             <SignalVerdict
               label="Precedent"
               chips={[
-                { dot: NEUTRAL_DOT, text: precedentMeta.coverage },
-                { dot: precedentMeta.dot, text: precedentMeta.outcome },
+                { tone: "neutral", text: precedentMeta.coverage },
+                { tone: precedentMeta.tone, text: precedentMeta.outcome },
               ]}
               reason={precedent.reason}
               citations={
@@ -3374,13 +3226,14 @@ function StatCell({ label, value, detail }: { label: string; value: string; deta
  */
 function DisclosureRow({
   label,
-  dot,
+  tone,
   count,
   note,
   children,
 }: {
   label: string;
-  dot?: string;
+  /** The verdict this row groups, when it groups one. */
+  tone?: Tone;
   count: number;
   /** Shown only when something is off, e.g. a citation naming an insight not retained. */
   note?: string;
@@ -3390,7 +3243,7 @@ function DisclosureRow({
     <details className="group/row">
       <summary className="flex cursor-pointer select-none items-center gap-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/row:rotate-180 motion-reduce:transition-none" />
-        {dot && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />}
+        {tone && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", TONE_DOT[tone])} />}
         <span className="text-xs font-medium text-foreground">{label}</span>
         <span className="text-[11px] tabular-nums text-muted-foreground">{count}</span>
         {note && <span className="text-[11px] text-muted-foreground">{note}</span>}
@@ -3418,7 +3271,7 @@ function SignalVerdict({
   fallback,
 }: {
   label: string;
-  chips: { dot: string; text: string }[];
+  chips: { tone: Tone; text: string }[];
   reason: string;
   citations: { label?: string; cited: Citation }[];
   /** Drawn only when nothing the ids named could be found; see `needsFindingFallback`. */
@@ -3431,7 +3284,7 @@ function SignalVerdict({
         <SectionLabel>{label}</SectionLabel>
         <div className="flex items-center gap-3">
           {chips.map((chip) => (
-            <SignalChip key={chip.text} dot={chip.dot}>{chip.text}</SignalChip>
+            <SignalChip key={chip.text} tone={chip.tone}>{chip.text}</SignalChip>
           ))}
         </div>
       </div>
@@ -3508,7 +3361,7 @@ function CitedInsightIndex({ cited }: { cited: Citation }) {
             <span
               className={cn(
                 "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
-                RELATION_DOT[match.relation],
+                TONE_DOT[RELATION_TONE[match.relation]],
               )}
               aria-hidden="true"
             />
@@ -3564,7 +3417,7 @@ function InsightGroups({ registry }: { registry: InsightRegistry }) {
           <DisclosureRow
             key={group.relation}
             label={RELATIONSHIP_LABEL[group.relation]}
-            dot={RELATION_DOT[group.relation]}
+            tone={RELATION_TONE[group.relation]}
             count={group.matches.length}
           >
             <ul className="space-y-4">

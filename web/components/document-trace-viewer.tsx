@@ -1,5 +1,6 @@
 "use client";
 
+import type { TraceFocus } from "@/lib/trace-focus";
 import {
   type ReactNode,
   useEffect,
@@ -85,8 +86,8 @@ export type DocumentTraceViewerProps<TKind extends string, TRef> = {
     connection: DocumentTraceConnection,
     passages: DocumentTracePassageAccess,
   ) => ReactNode;
-  focusBlockId?: string | null;
-  onFocusBlockConsumed?: (blockId: string) => void;
+  focus?: TraceFocus | null;
+  onFocusConsumed?: (focus: TraceFocus) => void;
 };
 
 function annotationButtonLabel<TKind extends string, TRef>(
@@ -505,8 +506,8 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
   layers,
   defaultLayer,
   renderInspector,
-  focusBlockId,
-  onFocusBlockConsumed,
+  focus,
+  onFocusConsumed,
 }: DocumentTraceViewerProps<TKind, TRef>) {
   const [layer, setLayer] = useState<TKind | "all">(defaultLayer ?? "all");
   /**
@@ -572,7 +573,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
    * Show one passage: switch document if it lives in another one, scroll it to the
    * middle, and ring it. Nothing else.
    *
-   * One path for both callers — a result row handing in `focusBlockId`, and the panel's
+   * One path for both callers — a result row handing in a `focus`, and the panel's
    * own passage list — because they are the same act, and two paths meant one click
    * behaved differently depending on where it came from.
    *
@@ -582,10 +583,10 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
    * the block; opening its result stays a second, deliberate click on the mark.
    */
   useEffect(() => {
-    const blockId = focusBlockId ?? revealBlockId;
+    const blockId = focus?.blockId ?? revealBlockId;
     if (!blockId) return;
     const done = () => {
-      if (focusBlockId) onFocusBlockConsumed?.(focusBlockId);
+      if (focus) onFocusConsumed?.(focus);
       setRevealBlockId(null);
     };
     const location = documentTraceBlockLocation(fullTrace, blockId);
@@ -610,10 +611,20 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
       && location.annotationIds.length > 0
       && !location.annotationIds.some((id) => annotationsById.has(id))
     ) {
+      // The layer the reader asked for, when they asked for one. A click on a specific
+      // result names it, and opening on every layer there would answer a question they
+      // did not ask: a passage cited by six findings would show all six when they
+      // clicked one. Falling back to the block's own kinds keeps triggers that name no
+      // result - a section card, a priority row - behaving as they did.
+      const requested = focus?.annotationId
+        ? allAnnotationsById.get(focus.annotationId)?.kind
+        : undefined;
       const kinds = new Set(
-        location.annotationIds
-          .map((id) => allAnnotationsById.get(id)?.kind)
-          .filter((kind): kind is TKind => Boolean(kind)),
+        requested
+          ? [requested]
+          : location.annotationIds
+              .map((id) => allAnnotationsById.get(id)?.kind)
+              .filter((kind): kind is TKind => Boolean(kind)),
       );
       const [only] = [...kinds];
       setLayer(kinds.size === 1 && layers.some((option) => option.value === only)
@@ -645,11 +656,11 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
     activeDocumentId,
     allAnnotationsById,
     annotationsById,
-    focusBlockId,
+    focus,
     fullTrace,
     layer,
     layers,
-    onFocusBlockConsumed,
+    onFocusConsumed,
     revealBlockId,
   ]);
 

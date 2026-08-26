@@ -1,5 +1,6 @@
 "use client";
 
+import type { TraceFocus } from "@/lib/trace-focus";
 import { useMemo } from "react";
 import { CircleDashed, FileText, HelpCircle, Link2, Target } from "lucide-react";
 
@@ -105,12 +106,12 @@ function AlignerTraceInspector({
 
 export function AlignerDocumentTrace({
   result,
-  focusBlockId,
-  onFocusBlockConsumed,
+  focus,
+  onFocusConsumed,
 }: {
   result: AlignmentResult;
-  focusBlockId?: string | null;
-  onFocusBlockConsumed?: (blockId: string) => void;
+  focus?: TraceFocus | null;
+  onFocusConsumed?: (focus: TraceFocus) => void;
 }) {
   const annotations = useMemo(
     () => buildAlignerDocumentAnnotations(result),
@@ -125,8 +126,8 @@ export function AlignerDocumentTrace({
       // Shortfalls first: they are the ones a reader can act on, and the reason a PPL
       // opened the trace at all.
       defaultLayer="falls_short"
-      focusBlockId={focusBlockId}
-      onFocusBlockConsumed={onFocusBlockConsumed}
+      focus={focus}
+      onFocusConsumed={onFocusConsumed}
       renderInspector={(annotation, connection, passages) => (
         <AlignerTraceInspector
           annotation={annotation}

@@ -15,7 +15,6 @@ from .open_targets import OpenTargetsSource
 from .pubmed import PubMedSource
 from .europepmc import EuropePMCSource
 from .semantic_scholar import SemanticScholarSource
-from .who_gho import WHOGHOSource
 from .who_guidelines import WHOGuidelinesSource
 from .tavily import TavilySource
 from .web import WebSource
@@ -30,7 +29,6 @@ _SOURCES: tuple[SourceAdapter, ...] = (
     SemanticScholarSource(),
     EuropePMCSource(),
     WHOGuidelinesSource(),
-    WHOGHOSource(),
     OpenTargetsSource(),
     ChEMBLSource(),
     FDASource(),

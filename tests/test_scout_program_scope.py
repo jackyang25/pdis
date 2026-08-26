@@ -18,6 +18,7 @@ hold:
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from services.scout.models import (
     PROGRAM_QUERY_SETS,
@@ -91,8 +92,18 @@ class IntentTests(unittest.TestCase):
             self.assertIn("vaccine", query.text)
 
     def test_a_set_with_no_subjects_still_carries_one_query(self) -> None:
-        """A request with no query carries no lineage, so nothing can be traced back."""
-        intent = self._set("burden")
+        """A request with no query carries no lineage, so nothing can be traced back.
+
+        Builds its own set rather than naming a real one. The burden set was the only
+        subject-less member and it was removed with the WHO GHO lane, so a test naming it
+        went with it - but the behaviour outlives the set that happened to need it, and
+        the next subject-less set should not have to rediscover this.
+        """
+        from services.scout.models import ProgramQuerySet
+
+        subjectless = {"probe": ProgramQuerySet(subjects=(), lanes=("web",), reason="test")}
+        with patch.dict(PROGRAM_QUERY_SETS, subjectless, clear=True):
+            intent = self._set("probe")
         self.assertEqual([q.text for q in intent.queries], ["melanoma vaccine"])
 
     def test_a_stated_region_is_carried(self) -> None:

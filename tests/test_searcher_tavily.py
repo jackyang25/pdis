@@ -442,7 +442,7 @@ class WhichSourcesMaySupplyANumberTests(unittest.TestCase):
         A number taken from them is a number whose provenance a reviewer would question, and
         none of them produced a candidate on a real run in any case.
         """
-        for lane in ("chembl", "open_targets", "who_guidelines", "who_gho"):
+        for lane in ("chembl", "open_targets", "who_guidelines"):
             with self.subTest(lane=lane):
                 self.assertFalse(_may_supply_a_measurement(self._finding(lane)))
 

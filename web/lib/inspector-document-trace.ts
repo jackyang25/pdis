@@ -105,6 +105,17 @@ function titleFor(
   return sections.length ? sections.join(" ↔ ") : "Cross-section conflict";
 }
 
+/**
+ * The annotation ID a finding gets in the trace.
+ *
+ * Exported because the finding rows send readers here, and a trigger that names the wrong
+ * ID falls back to every layer without saying so. Built in one place so the two sides
+ * cannot spell it differently.
+ */
+export function inspectorAnnotationId(findingId: string): string {
+  return `inspector:${findingId}`;
+}
+
 export function buildInspectorDocumentAnnotations(
   result: InspectionResult,
 ): InspectorDocumentAnnotation[] {
@@ -147,7 +158,7 @@ export function buildInspectorDocumentAnnotations(
       : conflictAnchor(finding, sectionByBlock, anchorBySection);
 
     return {
-      id: `inspector:${finding.id}`,
+      id: inspectorAnnotationId(finding.id),
       kind: finding.reason,
       layerLabel: REASON_LABELS[finding.reason] ?? finding.reason,
       title: titleFor(finding, sectionByBlock),

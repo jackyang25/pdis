@@ -19,7 +19,6 @@ from services.scout import (
     find_config,
     matches_to_dicts,
     precedents_to_dicts,
-    burden_indicators_to_dicts,
     safety_observations_to_dicts,
     continue_pipeline,
     run_pipeline,
@@ -44,7 +43,6 @@ from api.schemas import (
     QuantitativeLedgerOut,
     ScoutContinueRequest,
     ScoutRunResponse,
-    BurdenIndicatorOut,
     SafetyObservationOut,
     SearchTraceOut,
     PrecedentOut,
@@ -144,10 +142,6 @@ def _response_from_result(
         safety_observations=[
             SafetyObservationOut(**item)
             for item in safety_observations_to_dicts(result.safety_observations)
-        ],
-        burden_indicators=[
-            BurdenIndicatorOut(**item)
-            for item in burden_indicators_to_dicts(result.burden_indicators)
         ],
         stats=FunnelStatsOut.model_validate(asdict(result.stats)),
         blocks=[ContentBlockOut(**item) for item in blocks_to_dicts(result.blocks)],

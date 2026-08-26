@@ -53,7 +53,6 @@ from .models import (
     load_attributes,
 )
 from .projections import (
-    build_burden_indicators,
     build_development_landscape,
     build_safety_observations,
 )
@@ -410,7 +409,6 @@ def continue_pipeline(
     )
     development_landscape = build_development_landscape(findings_by_attribute)
     safety_observations = build_safety_observations(findings_by_attribute)
-    burden_indicators = build_burden_indicators(findings_by_attribute)
     development_landscape, safety_observations = classify_projection_relationships(
         searchable_attributes,
         development_landscape,
@@ -545,7 +543,6 @@ def continue_pipeline(
         search_plan=search_plan,
         development_landscape=development_landscape,
         safety_observations=safety_observations,
-        burden_indicators=burden_indicators,
         context_validation=context_validation,
         quantitative_ledger=quantitative_ledger,
         variables=attributes,

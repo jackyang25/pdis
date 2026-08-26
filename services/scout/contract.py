@@ -61,7 +61,6 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
         result.precedents,
         result.development_landscape,
         result.safety_observations,
-        result.burden_indicators,
     )):
         raise ValueError("target-review result cannot contain downstream analysis")
 
@@ -542,34 +541,6 @@ def validate_result_contract(result: ScoutResult) -> ScoutResult:
                         f"{projection_name} contains an untraceable supporting finding"
                     )
 
-    # Burden indicators are a projection but not a role-classified one: a disease reading
-    # is not experimental or comparator, and it is not direct or analogous to a target. It
-    # is a measured quantity, so what it owes is identity, traceable readings, and sources.
-    _require_unique(
-        [indicator.projection_id for indicator in result.burden_indicators],
-        "burden indicator projection ID",
-    )
-    for indicator in result.burden_indicators:
-        if not indicator.projection_id:
-            raise ValueError("burden indicator is missing its projection ID")
-        if not indicator.indicator_code:
-            raise ValueError("burden indicator is missing its indicator code")
-        if not indicator.readings:
-            raise ValueError(
-                f"burden indicator {indicator.indicator_code!r} states no reading, so it "
-                "names a statistic without reporting one"
-            )
-        _require_subset(
-            indicator.attribute_refs,
-            set(variables) | {PROGRAM_SCOPE_KEY},
-            "burden indicator field references",
-        )
-        for supporting_finding in indicator.supporting_findings:
-            if not supporting_finding.url or not supporting_finding.source:
-                raise ValueError(
-                    "burden indicator contains an untraceable supporting finding"
-                )
-
     _require_subset(
         result.context_validation.doc_block_ids,
         known_blocks,
@@ -672,7 +643,6 @@ _DOWNSTREAM_KEYS = (
     "precedents",
     "development_landscape",
     "safety_observations",
-    "burden_indicators",
 )
 
 

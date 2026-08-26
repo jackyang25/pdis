@@ -1,8 +1,15 @@
 "use client";
 
 import {
+  FINDING_REASONS,
+  REASON_DESCRIPTION,
+  REASON_LABELS,
+  STATUS_DESCRIPTION,
+  STATUS_LABEL,
+  UNIT_STATUSES,
+} from "@/lib/api";
+import {
   SignalHelp,
-  SignalLabel,
   type SignalTopic,
 } from "@/components/ui/signal-help";
 
@@ -24,14 +31,25 @@ const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
     title: "Finding",
     summary: "One thing to fix, with the reason it was raised.",
     detail:
-      "A finding is one problem, one recommendation, and the exact passage it was read from, so a count of findings is a count of things to do. Reasons: Not present means nothing is there. Placeholder left in means a token such as <<TBD>> sits where the value belongs. Does not meet the requirement means content is there and does not satisfy it. Off template means the structure or naming deviates. Not specific enough means the requirement is satisfied but the content is vague. Conflicts with another section comes from the whole-document check. A unit raises each reason at most once, and content that is not present raises nothing else, because there is nothing there to have read.",
+      "A finding is one problem, one recommendation, and the exact passage it was read from, so a count of findings is a count of things to do. A unit raises each reason at most once, and content that is not present raises nothing else, because there is nothing there to have read.",
+    // Read from the label maps, not retyped. The six reasons were a paragraph here and six
+    // chips on screen, which is two copies of one vocabulary and eleven lines a reader has
+    // to parse to find the term they are looking at.
+    terms: FINDING_REASONS.map((reason) => ({
+      term: REASON_LABELS[reason],
+      meaning: REASON_DESCRIPTION[reason],
+    })),
   },
   status: {
     promptRef: { tool: "inspector", stage: "assessment" },
     title: "Status",
     summary: "How one rubric unit stands: met, could be stronger, not met, or not applicable.",
     detail:
-      "Derived from the findings on that unit alone, so met always means exactly zero findings and no view can show you a different answer. Not met covers content that is absent, a placeholder, or present but not satisfying the requirement. Could be stronger covers content that satisfies the requirement and would be better with more specificity. Not applicable means the rubric itself accepts this being absent, so it is not a shortfall. Nothing here says what a shortfall costs your programme, because that is not something this tool can see: there is no letter grade, no severity scale, and no overall score.",
+      "Derived from the findings on that unit alone, so met always means exactly zero findings and no view can show you a different answer. Nothing here says what a shortfall costs your programme, because that is not something this tool can see: there is no letter grade, no severity scale, and no overall score.",
+    terms: UNIT_STATUSES.map((status) => ({
+      term: STATUS_LABEL[status],
+      meaning: STATUS_DESCRIPTION[status],
+    })),
   },
   consistency: {
     promptRef: { tool: "inspector", stage: "consistency" },
@@ -42,24 +60,8 @@ const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
   },
 };
 
-/** Publication order, shared by the tooltips and the documentation panel. */
+/** Publication order, read by the documentation panel. */
 export const INSPECTOR_TOPIC_LIST: readonly SignalTopic[] = Object.values(TOPICS);
-
-export function InspectorSignalLabel({
-  topic,
-  children,
-  className,
-}: {
-  topic: InspectorSignalTopic;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <SignalLabel topic={TOPICS[topic]} className={className}>
-      {children}
-    </SignalLabel>
-  );
-}
 
 export function InspectorSignalHelp() {
   return (

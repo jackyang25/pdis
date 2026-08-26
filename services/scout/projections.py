@@ -8,7 +8,6 @@ import re
 from services.searcher import Finding
 
 from .models import (
-    BurdenIndicator,
     DevelopmentProgram,
     IndicatorReading,
     SafetyObservation,
@@ -46,57 +45,6 @@ def build_development_landscape(
     return sorted(
         grouped.values(),
         key=lambda item: (-_highest_phase(item.phases), item.name.casefold()),
-    )
-
-
-def build_burden_indicators(
-    findings_by_attribute: dict[str, list[Finding]],
-) -> list[BurdenIndicator]:
-    """Group indicator readings by indicator, keeping every place and year stated.
-
-    Deduplicated on the full reading - indicator, place, year - because the same
-    country-year row can arrive from more than one request and it is one reading, not two.
-    Nothing is aggregated: a total across whichever countries happened to be retrieved
-    would read as a total for the disease.
-    """
-    grouped: dict[str, BurdenIndicator] = {}
-    seen: dict[str, set[tuple[str, int]]] = {}
-    for attribute_ref, findings in findings_by_attribute.items():
-        for finding in findings:
-            for record in finding.indicator_records:
-                indicator = grouped.setdefault(
-                    record.indicator_code,
-                    BurdenIndicator(
-                        indicator_code=record.indicator_code,
-                        indicator_name=record.indicator_name,
-                    ),
-                )
-                if record.indicator_name and not indicator.indicator_name:
-                    indicator.indicator_name = record.indicator_name
-                readings = seen.setdefault(record.indicator_code, set())
-                key = (record.place, record.year)
-                if key not in readings:
-                    readings.add(key)
-                    indicator.readings.append(
-                        IndicatorReading(
-                            place=record.place,
-                            spatial_type=record.spatial_type,
-                            year=record.year,
-                            value=record.value,
-                            value_text=record.value_text,
-                            parent_place=record.parent_place,
-                        )
-                    )
-                _append(indicator.attribute_refs, attribute_ref)
-                _append_finding(indicator.supporting_findings, finding)
-    for code, indicator in grouped.items():
-        indicator.projection_id = _projection_id("bi", code)
-        # Newest first, then by place, so a reader sees the current picture before the
-        # history of any one country.
-        indicator.readings.sort(key=lambda r: (-r.year, r.place))
-    return sorted(
-        grouped.values(),
-        key=lambda item: (-(item.latest_year or 0), item.indicator_name.casefold()),
     )
 
 

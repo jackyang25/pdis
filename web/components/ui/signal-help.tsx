@@ -21,6 +21,18 @@ export type SignalTopic = {
   /** The distinction a reader most often gets wrong. */
   detail: string;
   /**
+   * The vocabulary itself, when the topic has one.
+   *
+   * A list, not a sentence. Six reasons written as prose ran to eleven lines of solid
+   * paragraph that a reader has to parse to find the one term they are looking at on
+   * screen — and the term they want is a chip two inches away. Rendered as term and
+   * meaning, it can be scanned, and it lines up one-to-one with what the interface shows.
+   *
+   * Built from the label maps at the call site rather than retyped here, so the panel
+   * cannot come to explain a word the interface no longer uses.
+   */
+  terms?: readonly { term: string; meaning: string }[];
+  /**
    * Which published prompt produced this label, when a model produced it at all.
    * Omitted when the value is computed deterministically, because there are no
    * instructions to read behind arithmetic.
@@ -130,6 +142,16 @@ function SignalTopicBody({
       <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
         {topic.detail}
       </p>
+      {topic.terms && (
+        <dl className="mt-2 space-y-1">
+          {topic.terms.map(({ term, meaning }) => (
+            <div key={term} className="text-[11px] leading-relaxed">
+              <dt className="inline font-medium text-foreground">{term}</dt>
+              <dd className="ml-1 inline text-muted-foreground">{meaning}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
       {withPromptLink && topic.promptRef && (
         <a
           href={promptHref(topic.promptRef.tool, topic.promptRef.stage)}

@@ -15,7 +15,6 @@ import {
   CalendarRange,
   ChevronDown,
   CircleHelp,
-  Search,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
@@ -33,6 +32,13 @@ import {
 } from "@/components/ui/config-field";
 import { useHeaderStore } from "@/lib/store";
 import { HeaderGuard } from "@/components/header-guard";
+import { ResultLayout } from "@/components/ui/result-layout";
+import {
+  ResultToolbar,
+  ResultToolbarEnd,
+} from "@/components/ui/result-toolbar";
+import { ResultSearch } from "@/components/ui/result-search";
+import { EXPANDABLE_ROW } from "@/lib/expandable-row";
 import { EmptyState } from "@/components/empty-state";
 import { SignalChip } from "@/components/ui/signal-chip";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -63,7 +69,11 @@ import {
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -84,6 +94,7 @@ import {
   isScoutResultFinal,
   packScoutResult,
   runLabel,
+  runScope,
   pendingQuantitativeReviewCount,
   splitResultContext,
   scoutResultFilename,
@@ -185,7 +196,11 @@ const ScoutEvidenceMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-[560px] space-y-3 p-5" role="status" aria-label="Preparing evidence map">
+      <div
+        className="h-[560px] space-y-3 p-5"
+        role="status"
+        aria-label="Preparing evidence map"
+      >
         <Skeleton className="h-4 w-48" />
         <Skeleton className="h-[440px]" />
         <Skeleton className="h-3 w-64" />
@@ -212,8 +227,6 @@ const SCOUT_STEPS = [
 
 const SOURCE_LIST_LIMIT = 5;
 
-
-
 /**
  * The tone each grounding verdict carries. Only the tone.
  *
@@ -229,7 +242,6 @@ const EVIDENCE_TONE: Record<EvidenceAssessment["strength"], Tone> = {
   unknown: "neutral",
 };
 
-
 const RELATION_TONE: Record<Match["relation"], Tone> = {
   contradicts: "danger",
   extends: "warning",
@@ -237,10 +249,12 @@ const RELATION_TONE: Record<Match["relation"], Tone> = {
   unrelated: "neutral",
 };
 
-
 function formatNumericExpression(expression: NumericExpression): string {
   const unit = expression.unit ?? "";
-  if (expression.kind === "range" || expression.kind === "confidence_interval") {
+  if (
+    expression.kind === "range" ||
+    expression.kind === "confidence_interval"
+  ) {
     return expression.lower == null || expression.upper == null
       ? "Unresolved numeric expression"
       : `${expression.lower}–${formatMeasure(expression.upper, unit)}`;
@@ -249,12 +263,17 @@ function formatNumericExpression(expression: NumericExpression): string {
   return `${expression.comparator} ${formatMeasure(expression.value, unit)}`;
 }
 
-function formatAttributeRefs(attributeRefs: string[], fallback: string): string {
+function formatAttributeRefs(
+  attributeRefs: string[],
+  fallback: string,
+): string {
   const labels = Array.from(new Set(attributeRefs)).map(displayAttributeLabel);
   return labels.length > 0 ? labels.join(" · ") : fallback;
 }
 
-function formatFieldLinks(fieldLinks: QuantitativeTarget["field_links"]): string {
+function formatFieldLinks(
+  fieldLinks: QuantitativeTarget["field_links"],
+): string {
   return formatAttributeRefs(
     fieldLinks.map((link) => link.attribute_ref),
     "Document claim",
@@ -305,9 +324,11 @@ function formatOrdinal(value: number): string {
 }
 
 function leadingRelation(matches: Match[]): Match["relation"] {
-  return RELATION_ORDERED_KEYS.find((relation) =>
-    matches.some((match) => match.relation === relation),
-  ) ?? "unrelated";
+  return (
+    RELATION_ORDERED_KEYS.find((relation) =>
+      matches.some((match) => match.relation === relation),
+    ) ?? "unrelated"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -342,29 +363,6 @@ function SignalSummary({
 }
 
 /**
- * A full-width row that opens: an indicator, a program, a safety observation, a field.
- *
- * One string, because four of them existed and three agreed. The safety row had drifted to a
- * lighter hover, a stronger focus ring, a fainter open tint, no focus background, and a
- * minimum height the others did not have. Each of those reads as a deliberate distinction
- * when nothing distinguishes the rows: they are the same affordance in four tabs.
- *
- * The group scope is shared too, so a row cannot half-adopt this by keeping its own name. It
- * is `expand`, not `row`, because `DisclosureRow` owns `row` for the smaller in-field groups
- * and one of these rows contains those.
- */
-const EXPANDABLE_ROW =
-  cn(
-    "flex cursor-pointer select-none items-start gap-4 px-5 py-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 sm:px-6 [&::-webkit-details-marker]:hidden motion-reduce:transition-none",
-    SURFACE.hover,
-    "focus-visible:bg-foreground/[0.045]",
-    // The summary is the open row's header, and the body below carries the lighter half of
-    // the same tint. Only this line used to be tinted, which marked where an open row began
-    // and never where it ended.
-    SURFACE.open.header,
-  );
-
-/**
  * A target's role, as a pill.
  *
  * Both review screens showed one and both wrote the shell out by hand. Identical today, which
@@ -389,11 +387,7 @@ function RolePill({ role }: { role: string }) {
  * same four sentences.
  */
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className={EYEBROW}>
-      {children}
-    </p>
-  );
+  return <p className={EYEBROW}>{children}</p>;
 }
 
 type RelationCounts = Record<Match["relation"], number>;
@@ -430,9 +424,9 @@ function SourceList({ findings }: { findings: Finding[] }) {
     <ul className="mt-3 space-y-1.5">
       {shown.map((f) => {
         const date = formatDate(f.published_at);
-        const sourceLabels = (f.source_lanes?.length ? f.source_lanes : [f.source]).map(
-          (lane) => sourceDisplayLabel(lane, f.source_labels),
-        );
+        const sourceLabels = (
+          f.source_lanes?.length ? f.source_lanes : [f.source]
+        ).map((lane) => sourceDisplayLabel(lane, f.source_labels));
         const sourceLabel = Array.from(new Set(sourceLabels)).join(" + ");
         const meta = [sourceLabel, date].filter(Boolean).join(" · ");
         return (
@@ -446,7 +440,9 @@ function SourceList({ findings }: { findings: Finding[] }) {
             >
               {f.title || f.url}
             </a>
-            <span className="shrink-0 text-[11px] text-muted-foreground">{meta}</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">
+              {meta}
+            </span>
           </li>
         );
       })}
@@ -472,9 +468,14 @@ function SourceList({ findings }: { findings: Finding[] }) {
 export default function ScoutPage() {
   return (
     <>
-      <PageHeader title="Scout" description="One document’s targets against external evidence: whether its numbers hold up against live measurements, comparators, and development precedent." />
+      <PageHeader
+        title="Scout"
+        description="One document’s targets against external evidence: whether its numbers hold up against live measurements, comparators, and development precedent."
+      />
       <HeaderGuard>
-        {(header, ready) => <ScoutView header={header as Header} ready={ready} />}
+        {(header, ready) => (
+          <ScoutView header={header as Header} ready={ready} />
+        )}
       </HeaderGuard>
     </>
   );
@@ -569,7 +570,11 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     try {
       const raw = JSON.parse(await file.text());
       const parsed = unpackScoutResult(raw);
-      if (!parsed || !Array.isArray(parsed.variables) || !Array.isArray(parsed.matches)) {
+      if (
+        !parsed ||
+        !Array.isArray(parsed.variables) ||
+        !Array.isArray(parsed.matches)
+      ) {
         throw new Error("not a scout result file");
       }
       setStage(null);
@@ -581,7 +586,10 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     }
   }
 
-  function handleTargetDecision(targetId: string, decision: "approved" | "rejected") {
+  function handleTargetDecision(
+    targetId: string,
+    decision: "approved" | "rejected",
+  ) {
     if (!result || result.phase !== "target_review") return;
     const updateTarget = (target: QuantitativeTarget): QuantitativeTarget =>
       target.id === targetId ? { ...target, review_status: decision } : target;
@@ -603,7 +611,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
         reviews: result.quantitative_ledger.reviews.map((review) =>
           review.unit_id === unitId
             ? { ...review, review_status: "accepted_exclusion" as const }
-            : review
+            : review,
         ),
       },
     });
@@ -660,7 +668,9 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     selectedCandidateId: string | null,
   ) {
     if (!result) return;
-    const previousScore = result.conformity.find((score) => score.target_id === targetId);
+    const previousScore = result.conformity.find(
+      (score) => score.target_id === targetId,
+    );
     if (!previousScore) return;
     const reviewedScore = reviewQuantitativeCandidateGroup(
       previousScore,
@@ -671,7 +681,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     const nextResult = {
       ...result,
       conformity: result.conformity.map((score) =>
-        score.target_id === targetId ? reviewedScore : score
+        score.target_id === targetId ? reviewedScore : score,
       ),
     };
     setResult(nextResult);
@@ -687,7 +697,8 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   function handleAcceptEvidenceRecommendations() {
     if (!result || result.phase !== "evidence_review") return;
     const conformity = applyEvidenceReviewRecommendations(result.conformity);
-    if (conformity.every((score, index) => score === result.conformity[index])) return;
+    if (conformity.every((score, index) => score === result.conformity[index]))
+      return;
     const nextResult = { ...result, conformity };
     setResult(nextResult);
     recordDecision(
@@ -705,7 +716,9 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
 
   function handleFinalizeReview() {
     if (!result || pendingQuantitativeReviewCount(result) > 0) {
-      setError("Resolve every quantitative review candidate before finalizing.");
+      setError(
+        "Resolve every quantitative review candidate before finalizing.",
+      );
       return;
     }
     setError(null);
@@ -772,20 +785,25 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
           onNewAnalysis={() => setShowRunPanel(true)}
         />
       )}
-      {result && result.phase === "evidence_review" && ["reviewing", "ready"].includes(reviewStatus) && (
-        <QuantitativeReviewCheckpoint
+      {result &&
+        result.phase === "evidence_review" &&
+        ["reviewing", "ready"].includes(reviewStatus) && (
+          <QuantitativeReviewCheckpoint
+            result={result}
+            onNewAnalysis={() => setShowRunPanel(true)}
+            onReview={handleQuantitativeReview}
+            onAcceptRecommendations={handleAcceptEvidenceRecommendations}
+            onUndo={handleUndoReview}
+            canUndo={reviewHistory.length > 0}
+            readyToFinalize={reviewStatus === "ready"}
+            onFinalize={handleFinalizeReview}
+          />
+        )}
+      {result && result.phase === "final" && reviewStatus === "final" && (
+        <FieldGrid
           result={result}
           onNewAnalysis={() => setShowRunPanel(true)}
-          onReview={handleQuantitativeReview}
-          onAcceptRecommendations={handleAcceptEvidenceRecommendations}
-          onUndo={handleUndoReview}
-          canUndo={reviewHistory.length > 0}
-          readyToFinalize={reviewStatus === "ready"}
-          onFinalize={handleFinalizeReview}
         />
-      )}
-      {result && result.phase === "final" && reviewStatus === "final" && (
-        <FieldGrid result={result} onNewAnalysis={() => setShowRunPanel(true)} />
       )}
     </div>
   );
@@ -806,7 +824,10 @@ function DocumentTargetReviewCheckpoint({
   busy: boolean;
   stage: string | null;
   progress: { completed: number; total: number } | null;
-  onTargetDecision: (targetId: string, decision: "approved" | "rejected") => void;
+  onTargetDecision: (
+    targetId: string,
+    decision: "approved" | "rejected",
+  ) => void;
   onStatementDecision: (unitId: string) => void;
   onAcceptRecommendations: () => void;
   onContinue: () => void;
@@ -815,11 +836,15 @@ function DocumentTargetReviewCheckpoint({
   const targets = result.quantitative_ledger.targets;
   const statements = result.quantitative_ledger.reviews.filter(
     (review) =>
-      review.classification === "uncertain"
-      || review.classification === "partial_target",
+      review.classification === "uncertain" ||
+      review.classification === "partial_target",
   );
-  const pendingTargets = targets.filter((target) => target.review_status === "needs_review");
-  const pendingStatements = statements.filter((review) => review.review_status === "needs_review");
+  const pendingTargets = targets.filter(
+    (target) => target.review_status === "needs_review",
+  );
+  const pendingStatements = statements.filter(
+    (review) => review.review_status === "needs_review",
+  );
   const total = targets.length + statements.length;
   const completed = total - pendingTargets.length - pendingStatements.length;
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
@@ -831,7 +856,7 @@ function DocumentTargetReviewCheckpoint({
     ? `target:${pendingTargets[0].id}`
     : pendingStatements[0]
       ? `statement:${pendingStatements[0].unit_id}`
-      : itemKeys[0] ?? null;
+      : (itemKeys[0] ?? null);
 
   useEffect(() => {
     if (selectedItem && itemKeys.includes(selectedItem)) return;
@@ -842,21 +867,30 @@ function DocumentTargetReviewCheckpoint({
     ? targets.find((item) => item.id === selectedItem.slice("target:".length))
     : undefined;
   const statement = selectedItem?.startsWith("statement:")
-    ? statements.find((item) => item.unit_id === selectedItem.slice("statement:".length))
+    ? statements.find(
+        (item) => item.unit_id === selectedItem.slice("statement:".length),
+      )
     : undefined;
   const linkedVariables = target
     ? target.field_links.flatMap((link) => {
-        const variable = result.variables.find((item) => item.name === link.attribute_ref);
+        const variable = result.variables.find(
+          (item) => item.name === link.attribute_ref,
+        );
         return variable ? [{ link, variable }] : [];
       })
     : [];
-  const confirmedCount = targets.filter((item) => item.review_status === "approved").length;
+  const confirmedCount = targets.filter(
+    (item) => item.review_status === "approved",
+  ).length;
   const excludedCount =
-    targets.filter((item) => item.review_status === "rejected").length
-    + statements.filter((item) => item.review_status === "accepted_exclusion").length;
+    targets.filter((item) => item.review_status === "rejected").length +
+    statements.filter((item) => item.review_status === "accepted_exclusion")
+      .length;
   const flaggedCount = pendingTargets.length + pendingStatements.length;
   const recommendedTargetCount = pendingTargets.filter(
-    (item) => item.ai_recommendation === "confirm" || item.ai_recommendation === "exclude",
+    (item) =>
+      item.ai_recommendation === "confirm" ||
+      item.ai_recommendation === "exclude",
   ).length;
   const confirmRecommendationCount = pendingTargets.filter(
     (item) => item.ai_recommendation === "confirm",
@@ -864,7 +898,8 @@ function DocumentTargetReviewCheckpoint({
   const excludeRecommendationCount = pendingTargets.filter(
     (item) => item.ai_recommendation === "exclude",
   ).length;
-  const manualTargetCount = pendingTargets.length - recommendedTargetCount + pendingStatements.length;
+  const manualTargetCount =
+    pendingTargets.length - recommendedTargetCount + pendingStatements.length;
 
   function nextPendingKey(currentKey: string): string | null {
     const remaining = [
@@ -881,7 +916,8 @@ function DocumentTargetReviewCheckpoint({
   function decideTarget(targetId: string, decision: "approved" | "rejected") {
     const key = `target:${targetId}`;
     onTargetDecision(targetId, decision);
-    if (target?.review_status === "needs_review") setSelectedItem(nextPendingKey(key));
+    if (target?.review_status === "needs_review")
+      setSelectedItem(nextPendingKey(key));
   }
 
   function decideStatement(unitId: string) {
@@ -902,7 +938,14 @@ function DocumentTargetReviewCheckpoint({
           eyebrow="Target review"
           title="Review document targets"
           description="Confirm that each proposed number is a real document commitment, not background context, an example, or a rejected alternative."
-          help={<>Scout has tied each item to a canonical document field and exact source passage. Confirm measurable targets before they shape retrieval and statistics. Excluded items remain in the audit ledger.</>}
+          help={
+            <>
+              Scout has tied each item to a canonical document field and exact
+              source passage. Confirm measurable targets before they shape
+              retrieval and statistics. Excluded items remain in the audit
+              ledger.
+            </>
+          }
           completed={completed}
           total={total}
           progressLabel="Document target review progress"
@@ -913,7 +956,12 @@ function DocumentTargetReviewCheckpoint({
                   {busy ? "Continuing…" : "Continue to evidence"}
                 </Button>
               )}
-              <Button variant="ghost" size="sm" disabled={busy} onClick={onNewAnalysis}>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={onNewAnalysis}
+              >
                 New analysis
               </Button>
             </>
@@ -926,122 +974,153 @@ function DocumentTargetReviewCheckpoint({
             <>
               {flaggedCount > 0 ? (
                 <>
-                  <ReviewCount tone="success" label={`${confirmRecommendationCount} confirm recommended`} />
-                  <ReviewCount tone="neutral" label={`${excludeRecommendationCount} exclude recommended`} />
-                  <ReviewCount tone="warning" label={`${manualTargetCount} needs review`} />
+                  <ReviewCount
+                    tone="success"
+                    label={`${confirmRecommendationCount} confirm recommended`}
+                  />
+                  <ReviewCount
+                    tone="neutral"
+                    label={`${excludeRecommendationCount} exclude recommended`}
+                  />
+                  <ReviewCount
+                    tone="warning"
+                    label={`${manualTargetCount} needs review`}
+                  />
                 </>
               ) : (
                 <>
-                  <ReviewCount tone="success" label={`${confirmedCount} confirmed`} />
-                  <ReviewCount tone="neutral" label={`${excludedCount} excluded`} />
+                  <ReviewCount
+                    tone="success"
+                    label={`${confirmedCount} confirmed`}
+                  />
+                  <ReviewCount
+                    tone="neutral"
+                    label={`${excludedCount} excluded`}
+                  />
                 </>
               )}
             </>
           }
-          actions={recommendedTargetCount > 0 ? (
-            <Button size="sm" onClick={onAcceptRecommendations}>
-              Accept {recommendedTargetCount} AI recommendations
-            </Button>
-          ) : undefined}
+          actions={
+            recommendedTargetCount > 0 ? (
+              <Button size="sm" onClick={onAcceptRecommendations}>
+                Accept {recommendedTargetCount} AI recommendations
+              </Button>
+            ) : undefined
+          }
         >
-              {targets.map((item) => {
-                const presentation = targetReviewPresentation(item);
-                const selected = selectedItem === `target:${item.id}`;
-                return (
-                  <ReviewListRow
-                    key={item.id}
-                    selected={selected}
-                    onSelect={() => setSelectedItem(`target:${item.id}`)}
-                    title={formatFieldLinks(item.field_links)}
-                    subtitle={formatNumericExpression(item.expression)}
-                    status={presentation.label}
-                    tone={presentation.tone}
-                    detail={item.ai_review_reason || "No reviewer explanation was returned; manual review is required."}
-                  />
-                );
-              })}
-              {statements.map((item) => {
-                const pending = item.review_status === "needs_review";
-                const selected = selectedItem === `statement:${item.unit_id}`;
-                return (
-                  <ReviewListRow
-                    key={item.unit_id}
-                    selected={selected}
-                    onSelect={() => setSelectedItem(`statement:${item.unit_id}`)}
-                    title={formatAttributeRefs(item.attribute_refs, "Document context")}
-                    subtitle={item.classification === "partial_target"
-                      ? "Partially resolved extraction"
-                      : "Unresolved extraction"}
-                    status={pending ? "Needs review" : "Excluded"}
-                    tone={pending ? "warning" : "neutral"}
-                    detail={statementReviewReason(item.reason)}
-                  />
-                );
-              })}
+          {targets.map((item) => {
+            const presentation = targetReviewPresentation(item);
+            const selected = selectedItem === `target:${item.id}`;
+            return (
+              <ReviewListRow
+                key={item.id}
+                selected={selected}
+                onSelect={() => setSelectedItem(`target:${item.id}`)}
+                title={formatFieldLinks(item.field_links)}
+                subtitle={formatNumericExpression(item.expression)}
+                status={presentation.label}
+                tone={presentation.tone}
+                detail={
+                  item.ai_review_reason ||
+                  "No reviewer explanation was returned; manual review is required."
+                }
+              />
+            );
+          })}
+          {statements.map((item) => {
+            const pending = item.review_status === "needs_review";
+            const selected = selectedItem === `statement:${item.unit_id}`;
+            return (
+              <ReviewListRow
+                key={item.unit_id}
+                selected={selected}
+                onSelect={() => setSelectedItem(`statement:${item.unit_id}`)}
+                title={formatAttributeRefs(
+                  item.attribute_refs,
+                  "Document context",
+                )}
+                subtitle={
+                  item.classification === "partial_target"
+                    ? "Partially resolved extraction"
+                    : "Unresolved extraction"
+                }
+                status={pending ? "Needs review" : "Excluded"}
+                tone={pending ? "warning" : "neutral"}
+                detail={statementReviewReason(item.reason)}
+              />
+            );
+          })}
         </ReviewOverview>
 
         {target ? (
           <ReviewDetailColumns
             left={
               <>
-              <div className="flex items-center justify-between gap-3">
-                <SectionLabel>Source passage</SectionLabel>
-                <DocumentSourceTrace
-                  blockIds={target.doc_block_ids}
-                  spans={target.provenance_spans}
-                />
-              </div>
-              <Quoted size="prominent">
-                {target.quote}
-              </Quoted>
+                <div className="flex items-center justify-between gap-3">
+                  <SectionLabel>Source passage</SectionLabel>
+                  <DocumentSourceTrace
+                    blockIds={target.doc_block_ids}
+                    spans={target.provenance_spans}
+                  />
+                </div>
+                <Quoted size="prominent">{target.quote}</Quoted>
               </>
             }
             right={
               <>
-              <SectionLabel>Proposed measurable target</SectionLabel>
-              <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <p className="text-xl font-semibold text-foreground">
-                  {formatNumericExpression(target.expression)}
-                </p>
-                <RolePill role={target.role} />
-              </div>
-              <dl className="mt-5 grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                {comparisonDimensions(target).map((dimension) => (
-                  <div key={dimension} className="min-w-0">
-                    <dt className={EYEBROW}>
-                      {dimensionLabel(dimension)}
-                    </dt>
-                    <dd className="mt-0.5 text-xs leading-relaxed text-foreground">
-                      {semanticSlotLabel(target.semantic_profile[dimension])}
-                    </dd>
-                    <dd className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                      {comparisonRuleLabel(target.comparison_contract[dimension])}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              <div className="mt-5 border-t border-border/60 pt-4">
-                <SectionLabel>Linked product fields</SectionLabel>
-                <div className="mt-2 space-y-2">
-                  {linkedVariables.map(({ link, variable }) => (
-                    <div key={`${link.attribute_ref}:${link.relation}`} className="text-[11px] leading-relaxed">
-                      <span className="font-medium text-foreground">
-                        {displayAttributeLabel(variable.name)}
-                      </span>
-                      <span className="ml-2 capitalize text-muted-foreground">
-                        {link.relation.replace("_", " ")}
-                        {link.reason ? ` · ${link.reason}` : ""}
-                      </span>
+                <SectionLabel>Proposed measurable target</SectionLabel>
+                <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <p className="text-xl font-semibold text-foreground">
+                    {formatNumericExpression(target.expression)}
+                  </p>
+                  <RolePill role={target.role} />
+                </div>
+                <dl className="mt-5 grid gap-x-5 gap-y-4 sm:grid-cols-2">
+                  {comparisonDimensions(target).map((dimension) => (
+                    <div key={dimension} className="min-w-0">
+                      <dt className={EYEBROW}>{dimensionLabel(dimension)}</dt>
+                      <dd className="mt-0.5 text-xs leading-relaxed text-foreground">
+                        {semanticSlotLabel(target.semantic_profile[dimension])}
+                      </dd>
+                      <dd className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                        {comparisonRuleLabel(
+                          target.comparison_contract[dimension],
+                        )}
+                      </dd>
                     </div>
                   ))}
+                </dl>
+                <div className="mt-5 border-t border-border/60 pt-4">
+                  <SectionLabel>Linked product fields</SectionLabel>
+                  <div className="mt-2 space-y-2">
+                    {linkedVariables.map(({ link, variable }) => (
+                      <div
+                        key={`${link.attribute_ref}:${link.relation}`}
+                        className="text-[11px] leading-relaxed"
+                      >
+                        <span className="font-medium text-foreground">
+                          {displayAttributeLabel(variable.name)}
+                        </span>
+                        <span className="ml-2 capitalize text-muted-foreground">
+                          {link.relation.replace("_", " ")}
+                          {link.reason ? ` · ${link.reason}` : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <ReviewRecommendation
-                label={aiRecommendationPresentation(target.ai_recommendation).label}
-                tone={aiRecommendationPresentation(target.ai_recommendation).tone}
-              >
-                {target.ai_review_reason || "No explanation was returned; review this proposal manually."}
-              </ReviewRecommendation>
+                <ReviewRecommendation
+                  label={
+                    aiRecommendationPresentation(target.ai_recommendation).label
+                  }
+                  tone={
+                    aiRecommendationPresentation(target.ai_recommendation).tone
+                  }
+                >
+                  {target.ai_review_reason ||
+                    "No explanation was returned; review this proposal manually."}
+                </ReviewRecommendation>
               </>
             }
           />
@@ -1055,11 +1134,16 @@ function DocumentTargetReviewCheckpoint({
               </SectionLabel>
               <DocumentSourceTrace
                 blockIds={[statement.block_id]}
-                spans={[{ quote: statement.quote, block_ids: [statement.block_id] }]}
+                spans={[
+                  { quote: statement.quote, block_ids: [statement.block_id] },
+                ]}
               />
             </div>
             <p className="mt-3 text-sm font-semibold text-foreground">
-              {formatAttributeRefs(statement.attribute_refs, "Document context")}
+              {formatAttributeRefs(
+                statement.attribute_refs,
+                "Document context",
+              )}
             </p>
             <Quoted size="prominent" className="max-w-4xl">
               {statement.quote}
@@ -1071,10 +1155,13 @@ function DocumentTargetReviewCheckpoint({
           </div>
         ) : (
           <div className="px-5 py-9 sm:px-7">
-            <p className="text-base font-semibold text-foreground">Document targets are resolved</p>
+            <p className="text-base font-semibold text-foreground">
+              Document targets are resolved
+            </p>
             <SectionDescription>
-              Approved targets will shape target-specific queries and quantitative calibration. Rejected and
-              uncertain statements remain traceable but cannot enter calculations.
+              Approved targets will shape target-specific queries and
+              quantitative calibration. Rejected and uncertain statements remain
+              traceable but cannot enter calculations.
             </SectionDescription>
           </div>
         )}
@@ -1082,32 +1169,44 @@ function DocumentTargetReviewCheckpoint({
         <footer className="flex flex-col-reverse gap-2 border-t border-border/60 bg-foreground/[0.045] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             {busy
-              ? `${stage ? SCOUT_STEPS.find((item) => item.key === stage)?.label ?? stage : "Continuing analysis"}${progress ? ` · ${progress.completed}/${progress.total}` : ""}`
+              ? `${stage ? (SCOUT_STEPS.find((item) => item.key === stage)?.label ?? stage) : "Continuing analysis"}${progress ? ` · ${progress.completed}/${progress.total}` : ""}`
               : "Every decision is stored in the portable draft; no hidden server state is used."}
           </p>
           <div className="flex gap-2">
             {target && (
               <>
-                <Button variant="outline" disabled={busy} onClick={() => decideTarget(target.id, "rejected")}>
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => decideTarget(target.id, "rejected")}
+                >
                   Exclude as context
                 </Button>
-                <Button disabled={busy} onClick={() => decideTarget(target.id, "approved")}>
+                <Button
+                  disabled={busy}
+                  onClick={() => decideTarget(target.id, "approved")}
+                >
                   Confirm target
                 </Button>
               </>
             )}
             {statement && (
-              <Button disabled={busy} onClick={() => decideStatement(statement.unit_id)}>
+              <Button
+                disabled={busy}
+                onClick={() => decideStatement(statement.unit_id)}
+              >
                 {statement.classification === "partial_target"
                   ? "Acknowledge unresolved remainder"
                   : "Acknowledge exclusion"}
               </Button>
             )}
-            {!target && !statement && pendingTargets.length + pendingStatements.length === 0 && (
-              <Button disabled={busy} onClick={onContinue}>
-                {busy ? "Continuing…" : "Continue to evidence"}
-              </Button>
-            )}
+            {!target &&
+              !statement &&
+              pendingTargets.length + pendingStatements.length === 0 && (
+                <Button disabled={busy} onClick={onContinue}>
+                  {busy ? "Continuing…" : "Continue to evidence"}
+                </Button>
+              )}
           </div>
         </footer>
       </section>
@@ -1148,12 +1247,12 @@ function ReviewCheckpointHeader({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-1.5">
-            <p className={EYEBROW}>
-              {eyebrow}
-            </p>
+            <p className={EYEBROW}>{eyebrow}</p>
             <ReviewHelp>{help}</ReviewHelp>
           </div>
-          <h2 className="mt-1 text-lg font-semibold text-foreground">{title}</h2>
+          <h2 className="mt-1 text-lg font-semibold text-foreground">
+            {title}
+          </h2>
           <SectionDescription>{description}</SectionDescription>
         </div>
         {actions && <div className="flex items-center gap-2">{actions}</div>}
@@ -1196,7 +1295,9 @@ function ReviewOverview({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-foreground">Review overview</h3>
+            <h3 className="text-sm font-semibold text-foreground">
+              Review overview
+            </h3>
             <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               AI prefilled
             </span>
@@ -1237,9 +1338,11 @@ function ReviewListRow({
   detail: string;
 }) {
   const statusClass = {
-    positive: "border-[hsl(var(--tone-success))]/25 bg-[hsl(var(--tone-success))]/[0.06] text-[hsl(var(--tone-success))]",
+    positive:
+      "border-[hsl(var(--tone-success))]/25 bg-[hsl(var(--tone-success))]/[0.06] text-[hsl(var(--tone-success))]",
     neutral: "border-border bg-foreground/[0.045] text-muted-foreground",
-    warning: "border-[hsl(var(--tone-warning))]/25 bg-[hsl(var(--tone-warning))]/[0.06] text-[hsl(var(--tone-warning))]",
+    warning:
+      "border-[hsl(var(--tone-warning))]/25 bg-[hsl(var(--tone-warning))]/[0.06] text-[hsl(var(--tone-warning))]",
   }[tone];
   return (
     <button
@@ -1249,18 +1352,32 @@ function ReviewListRow({
       aria-current={selected ? "true" : undefined}
     >
       <span className="min-w-0">
-        <span className="block truncate text-[11px] font-medium text-foreground">{title}</span>
-        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{subtitle}</span>
+        <span className="block truncate text-[11px] font-medium text-foreground">
+          {title}
+        </span>
+        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+          {subtitle}
+        </span>
       </span>
-      <span className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusClass}`}>
+      <span
+        className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusClass}`}
+      >
         {status}
       </span>
-      <span className="min-w-0 truncate text-[11px] text-muted-foreground">{detail}</span>
+      <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+        {detail}
+      </span>
     </button>
   );
 }
 
-function ReviewDetailColumns({ left, right }: { left: ReactNode; right: ReactNode }) {
+function ReviewDetailColumns({
+  left,
+  right,
+}: {
+  left: ReactNode;
+  right: ReactNode;
+}) {
   return (
     <div className="grid lg:grid-cols-2">
       <div className="min-w-0 border-b border-border/60 p-5 sm:p-7 lg:border-b-0 lg:border-r">
@@ -1287,9 +1404,7 @@ function ReviewRecommendation({
   }[tone];
   return (
     <div className="mt-4 rounded-lg border border-border/60 bg-foreground/[0.045] p-3">
-      <p className={cn(EYEBROW, accent)}>
-        AI recommendation · {label}
-      </p>
+      <p className={cn(EYEBROW, accent)}>AI recommendation · {label}</p>
       <Reading>{children}</Reading>
     </div>
   );
@@ -1312,7 +1427,12 @@ function SectionDescription({
   className?: string;
 }) {
   return (
-    <p className={cn("mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground", className)}>
+    <p
+      className={cn(
+        "mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground",
+        className,
+      )}
+    >
       {children}
     </p>
   );
@@ -1337,18 +1457,24 @@ function targetReviewPresentation(target: QuantitativeTarget): {
   label: string;
   tone: ReviewTone;
 } {
-  if (target.review_status === "approved") return { label: "Confirmed", tone: "positive" };
-  if (target.review_status === "rejected") return { label: "Excluded", tone: "neutral" };
-  if (target.ai_recommendation === "confirm") return { label: "Confirm recommended", tone: "positive" };
-  if (target.ai_recommendation === "exclude") return { label: "Exclude recommended", tone: "neutral" };
+  if (target.review_status === "approved")
+    return { label: "Confirmed", tone: "positive" };
+  if (target.review_status === "rejected")
+    return { label: "Excluded", tone: "neutral" };
+  if (target.ai_recommendation === "confirm")
+    return { label: "Confirm recommended", tone: "positive" };
+  if (target.ai_recommendation === "exclude")
+    return { label: "Exclude recommended", tone: "neutral" };
   return { label: "Needs review", tone: "warning" };
 }
 
 function aiRecommendationPresentation(
   recommendation: QuantitativeTarget["ai_recommendation"],
 ): { label: string; tone: ReviewTone } {
-  if (recommendation === "confirm") return { label: "Confirm", tone: "positive" };
-  if (recommendation === "exclude") return { label: "Exclude", tone: "neutral" };
+  if (recommendation === "confirm")
+    return { label: "Confirm", tone: "positive" };
+  if (recommendation === "exclude")
+    return { label: "Exclude", tone: "neutral" };
   return { label: "Review manually", tone: "warning" };
 }
 
@@ -1362,11 +1488,16 @@ function evidenceReviewPresentation(measurements: Measurement[]): {
   if (measurements.every((item) => item.admission_status === "rejected")) {
     return { label: "Rejected", tone: "neutral" };
   }
-  const pending = measurements.filter((item) => item.admission_status === "needs_review");
+  const pending = measurements.filter(
+    (item) => item.admission_status === "needs_review",
+  );
   if (pending.some((item) => item.ai_recommendation === "admit")) {
     return { label: "Admit recommended", tone: "positive" };
   }
-  if (pending.length > 0 && pending.every((item) => item.ai_recommendation === "reject")) {
+  if (
+    pending.length > 0 &&
+    pending.every((item) => item.ai_recommendation === "reject")
+  ) {
     return { label: "Reject recommended", tone: "neutral" };
   }
   return { label: "Needs review", tone: "warning" };
@@ -1386,24 +1517,40 @@ function dimensionLabel(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function comparisonDimensions(target: QuantitativeTarget): Array<keyof QuantitativeSemanticProfile> {
-  return (Object.keys(target.comparison_contract) as Array<keyof QuantitativeSemanticProfile>)
-    .filter((dimension) => target.comparison_contract[dimension].mode !== "unconstrained");
+function comparisonDimensions(
+  target: QuantitativeTarget,
+): Array<keyof QuantitativeSemanticProfile> {
+  return (
+    Object.keys(target.comparison_contract) as Array<
+      keyof QuantitativeSemanticProfile
+    >
+  ).filter(
+    (dimension) =>
+      target.comparison_contract[dimension].mode !== "unconstrained",
+  );
 }
 
 function comparisonRuleLabel(
-  rule: QuantitativeTarget["comparison_contract"][keyof QuantitativeSemanticProfile] | undefined,
+  rule:
+    | QuantitativeTarget["comparison_contract"][keyof QuantitativeSemanticProfile]
+    | undefined,
 ): string {
   if (!rule) return "Comparison scope unavailable";
   if (rule.mode === "unconstrained") return "Does not control comparison";
-  if (rule.mode === "unknown") return `Scope needs review${rule.reason ? ` · ${rule.reason}` : ""}`;
+  if (rule.mode === "unknown")
+    return `Scope needs review${rule.reason ? ` · ${rule.reason}` : ""}`;
   return `${rule.mode === "exact" ? "Exact" : "Compatible"} scope · ${rule.scope}`;
 }
 
 function evidenceUnitLabel(measurement: Measurement): string {
-  const labels = [measurement.evidence_unit.group, measurement.evidence_unit.cohort]
+  const labels = [
+    measurement.evidence_unit.group,
+    measurement.evidence_unit.cohort,
+  ]
     .map(semanticSlotLabel)
-    .filter((label) => !["Not specified", "Not available", "Unknown"].includes(label));
+    .filter(
+      (label) => !["Not specified", "Not available", "Unknown"].includes(label),
+    );
   return labels.length > 0 ? labels.join(" · ") : "Source-level result";
 }
 
@@ -1430,24 +1577,34 @@ function QuantitativeReviewCheckpoint({
   readyToFinalize: boolean;
   onFinalize: () => void;
 }) {
-  const allCandidates = result.conformity.flatMap((score) =>
-    [...score.measurements, ...score.excluded_measurements].map((measurement) => ({
-      score,
-      measurement,
-    })),
-  ).filter(({ measurement }) =>
-    measurement.evidence_mode === "prose"
-      && ["needs_review", "approved", "rejected"].includes(measurement.admission_status)
-  );
+  const allCandidates = result.conformity
+    .flatMap((score) =>
+      [...score.measurements, ...score.excluded_measurements].map(
+        (measurement) => ({
+          score,
+          measurement,
+        }),
+      ),
+    )
+    .filter(
+      ({ measurement }) =>
+        measurement.evidence_mode === "prose" &&
+        ["needs_review", "approved", "rejected"].includes(
+          measurement.admission_status,
+        ),
+    );
   const grouped = new Map<string, typeof allCandidates>();
   for (const item of allCandidates) {
-    const unitId = item.measurement.evidence_unit_id || item.measurement.source_record_id;
+    const unitId =
+      item.measurement.evidence_unit_id || item.measurement.source_record_id;
     const key = `${item.score.target_id}::${unitId}`;
     grouped.set(key, [...(grouped.get(key) ?? []), item]);
   }
   const groups = Array.from(grouped.entries());
   const pendingGroups = groups.filter(([, items]) =>
-    items.some(({ measurement }) => measurement.admission_status === "needs_review")
+    items.some(
+      ({ measurement }) => measurement.admission_status === "needs_review",
+    ),
   );
   const groupKeys = groups.map(([key]) => key);
   const firstPendingGroupKey = pendingGroups[0]?.[0] ?? groupKeys[0] ?? null;
@@ -1456,13 +1613,19 @@ function QuantitativeReviewCheckpoint({
     if (selectedGroupKey && groupKeys.includes(selectedGroupKey)) return;
     setSelectedGroupKey(firstPendingGroupKey);
   }, [firstPendingGroupKey, groupKeys, selectedGroupKey]);
-  const current = groups.find(([key]) => key === selectedGroupKey) ?? pendingGroups[0] ?? groups[0];
-  const recommendedCandidateId = current?.[1].find(
-    ({ measurement }) =>
-      measurement.admission_status === "needs_review"
-      && measurement.ai_recommendation === "admit",
-  )?.measurement.candidate_id ?? null;
-  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+  const current =
+    groups.find(([key]) => key === selectedGroupKey) ??
+    pendingGroups[0] ??
+    groups[0];
+  const recommendedCandidateId =
+    current?.[1].find(
+      ({ measurement }) =>
+        measurement.admission_status === "needs_review" &&
+        measurement.ai_recommendation === "admit",
+    )?.measurement.candidate_id ?? null;
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(
+    null,
+  );
   useEffect(
     () => setSelectedCandidateId(recommendedCandidateId),
     [current?.[0], recommendedCandidateId],
@@ -1477,35 +1640,44 @@ function QuantitativeReviewCheckpoint({
   const score = groupItems[0].score;
   const multiple = reviewItems.length > 1;
   const activeItem = multiple
-    ? reviewItems.find(({ measurement }) => measurement.candidate_id === selectedCandidateId)
-      ?? reviewItems[0]
+    ? (reviewItems.find(
+        ({ measurement }) => measurement.candidate_id === selectedCandidateId,
+      ) ?? reviewItems[0])
     : reviewItems[0];
   const measurement = activeItem?.measurement;
-  const target: QuantitativeTarget | undefined = result.quantitative_ledger.targets.find(
-    (item) => item.id === score.target_id,
-  );
+  const target: QuantitativeTarget | undefined =
+    result.quantitative_ledger.targets.find(
+      (item) => item.id === score.target_id,
+    );
   const dimensions = measurement
-    ? (target ? comparisonDimensions(target) : Object.keys(
-        measurement.semantic_assessment.dimensions,
-      )) as Array<keyof typeof measurement.semantic_assessment.dimensions>
+    ? ((target
+        ? comparisonDimensions(target)
+        : Object.keys(measurement.semantic_assessment.dimensions)) as Array<
+        keyof typeof measurement.semantic_assessment.dimensions
+      >)
     : [];
   const total = groups.length;
   const completed = total - pendingGroups.length;
   const admittedGroupCount = groups.filter(([, items]) =>
-    items.some(({ measurement: item }) => item.admission_status === "approved")
+    items.some(({ measurement: item }) => item.admission_status === "approved"),
   ).length;
   const rejectedGroupCount = groups.filter(([, items]) =>
-    items.every(({ measurement: item }) => item.admission_status === "rejected")
+    items.every(
+      ({ measurement: item }) => item.admission_status === "rejected",
+    ),
   ).length;
-  const recommendationSummary = evidenceReviewRecommendationSummary(result.conformity);
-  const actionableRecommendations = recommendationSummary.admit + recommendationSummary.reject;
+  const recommendationSummary = evidenceReviewRecommendationSummary(
+    result.conformity,
+  );
+  const actionableRecommendations =
+    recommendationSummary.admit + recommendationSummary.reject;
 
   function sourceFindingFor(item: (typeof allCandidates)[number]) {
-    return result.matches.find(
-      (match) => match.insight.id === item.measurement.insight_id,
-    )?.insight.supporting_findings.find(
-      (finding) => finding.url === item.measurement.url,
-    );
+    return result.matches
+      .find((match) => match.insight.id === item.measurement.insight_id)
+      ?.insight.supporting_findings.find(
+        (finding) => finding.url === item.measurement.url,
+      );
   }
 
   function decideCurrent(selectedId: string | null) {
@@ -1531,19 +1703,32 @@ function QuantitativeReviewCheckpoint({
           eyebrow="Evidence review"
           title="Review quantitative evidence"
           description="Decide whether each cited result measures the document target closely enough to enter the comparator statistics."
-          help={<>Admit evidence only when it measures the same outcome, product, population, regimen, and time horizon as the document target. Rejected evidence remains in the audit trail but cannot enter statistics.</>}
+          help={
+            <>
+              Admit evidence only when it measures the same outcome, product,
+              population, regimen, and time horizon as the document target.
+              Rejected evidence remains in the audit trail but cannot enter
+              statistics.
+            </>
+          }
           completed={completed}
           total={total}
           progressLabel="Quantitative evidence review progress"
           actions={
             <>
               {canUndo && (
-                <Button variant="ghost" size="sm" onClick={onUndo}>Undo last decision</Button>
+                <Button variant="ghost" size="sm" onClick={onUndo}>
+                  Undo last decision
+                </Button>
               )}
               {readyToFinalize && (
-                <Button size="sm" onClick={onFinalize}>Finalize result</Button>
+                <Button size="sm" onClick={onFinalize}>
+                  Finalize result
+                </Button>
               )}
-              <Button variant="ghost" size="sm" onClick={onNewAnalysis}>New analysis</Button>
+              <Button variant="ghost" size="sm" onClick={onNewAnalysis}>
+                New analysis
+              </Button>
             </>
           }
         />
@@ -1554,36 +1739,55 @@ function QuantitativeReviewCheckpoint({
             <>
               {pendingGroups.length > 0 ? (
                 <>
-                  <ReviewCount tone="success" label={`${recommendationSummary.admit} admit recommended`} />
-                  <ReviewCount tone="neutral" label={`${recommendationSummary.reject} reject recommended`} />
-                  <ReviewCount tone="warning" label={`${recommendationSummary.flag} needs review`} />
+                  <ReviewCount
+                    tone="success"
+                    label={`${recommendationSummary.admit} admit recommended`}
+                  />
+                  <ReviewCount
+                    tone="neutral"
+                    label={`${recommendationSummary.reject} reject recommended`}
+                  />
+                  <ReviewCount
+                    tone="warning"
+                    label={`${recommendationSummary.flag} needs review`}
+                  />
                 </>
               ) : (
                 <>
-                  <ReviewCount tone="success" label={`${admittedGroupCount} admitted`} />
-                  <ReviewCount tone="neutral" label={`${rejectedGroupCount} rejected`} />
+                  <ReviewCount
+                    tone="success"
+                    label={`${admittedGroupCount} admitted`}
+                  />
+                  <ReviewCount
+                    tone="neutral"
+                    label={`${rejectedGroupCount} rejected`}
+                  />
                 </>
               )}
             </>
           }
-          actions={actionableRecommendations > 0 ? (
-            <Button
-              size="sm"
-              onClick={onAcceptRecommendations}
-            >
-              Accept {actionableRecommendations} AI recommendations
-            </Button>
-          ) : undefined}
+          actions={
+            actionableRecommendations > 0 ? (
+              <Button size="sm" onClick={onAcceptRecommendations}>
+                Accept {actionableRecommendations} AI recommendations
+              </Button>
+            ) : undefined
+          }
         >
           {groups.map(([key, items]) => {
-            const representative = items.find(
-              ({ measurement: item }) => item.admission_status === "needs_review",
-            ) ?? items[0];
-            const presentation = evidenceReviewPresentation(items.map((item) => item.measurement));
+            const representative =
+              items.find(
+                ({ measurement: item }) =>
+                  item.admission_status === "needs_review",
+              ) ?? items[0];
+            const presentation = evidenceReviewPresentation(
+              items.map((item) => item.measurement),
+            );
             const selected = key === currentGroupKey;
-            const sourceTitle = sourceFindingFor(representative)?.title
-              || representative.measurement.source_record_id
-              || "Cited source";
+            const sourceTitle =
+              sourceFindingFor(representative)?.title ||
+              representative.measurement.source_record_id ||
+              "Cited source";
             const rowTarget = result.quantitative_ledger.targets.find(
               (item) => item.id === representative.score.target_id,
             );
@@ -1592,7 +1796,10 @@ function QuantitativeReviewCheckpoint({
                 key={key}
                 selected={selected}
                 onSelect={() => setSelectedGroupKey(key)}
-                title={formatAttributeRefs(representative.score.attribute_refs, "Document claim")}
+                title={formatAttributeRefs(
+                  representative.score.attribute_refs,
+                  "Document claim",
+                )}
                 subtitle={`${formatNumericExpression(representative.measurement.expression)} → ${rowTarget ? formatNumericExpression(rowTarget.expression) : representative.score.target_label}`}
                 status={presentation.label}
                 tone={presentation.tone}
@@ -1605,102 +1812,124 @@ function QuantitativeReviewCheckpoint({
         <ReviewDetailColumns
           left={
             <>
-            <div className="flex items-center justify-between gap-3">
-              <SectionLabel>Document target</SectionLabel>
-              <DocumentSourceTrace
-                blockIds={score.doc_block_ids ?? []}
-                spans={score.target_quote && score.doc_block_ids?.length
-                  ? [{ quote: score.target_quote, block_ids: score.doc_block_ids }]
-                : []}
-              />
-            </div>
-            <p className="mt-3 text-base font-semibold text-foreground">
-              {formatAttributeRefs(score.attribute_refs, "Document claim")}
-            </p>
-            <div className="mt-2 flex flex-wrap items-baseline gap-2">
-              <span className="text-lg font-semibold text-foreground">
-                {target ? formatNumericExpression(target.expression) : score.target_label}
-              </span>
-              {target && (
-                <RolePill role={target.role} />
-              )}
-            </div>
-            <Quoted size="prominent">
-              {score.target_quote}
-            </Quoted>
+              <div className="flex items-center justify-between gap-3">
+                <SectionLabel>Document target</SectionLabel>
+                <DocumentSourceTrace
+                  blockIds={score.doc_block_ids ?? []}
+                  spans={
+                    score.target_quote && score.doc_block_ids?.length
+                      ? [
+                          {
+                            quote: score.target_quote,
+                            block_ids: score.doc_block_ids,
+                          },
+                        ]
+                      : []
+                  }
+                />
+              </div>
+              <p className="mt-3 text-base font-semibold text-foreground">
+                {formatAttributeRefs(score.attribute_refs, "Document claim")}
+              </p>
+              <div className="mt-2 flex flex-wrap items-baseline gap-2">
+                <span className="text-lg font-semibold text-foreground">
+                  {target
+                    ? formatNumericExpression(target.expression)
+                    : score.target_label}
+                </span>
+                {target && <RolePill role={target.role} />}
+              </div>
+              <Quoted size="prominent">{score.target_quote}</Quoted>
             </>
           }
           right={
             <>
-            {multiple ? (
-              <>
-                <div className="flex items-center gap-1.5">
-                  <SectionLabel>Choose one estimate</SectionLabel>
-                  <ReviewHelp>
-                    These values belong to the same source arm or cohort for this target.
-                    Select the one that best represents the target, or choose “None apply.”
-                    Distinct non-overlapping arms or cohorts are reviewed separately.
-                  </ReviewHelp>
-                </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Same evidence unit · {evidenceUnitLabel(reviewItems[0].measurement)}
-                </p>
-                <div className="mt-3 space-y-2" role="radiogroup" aria-label="Evidence estimate">
-                  {reviewItems.map((item) => {
-                    const option = item.measurement;
-                    const selected = option.candidate_id === selectedCandidateId;
-                    const sourceFinding = sourceFindingFor(item);
-                    return (
-                      <button
-                        key={option.candidate_id}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        onClick={() => setSelectedCandidateId(option.candidate_id)}
-                        className={`w-full rounded-lg border p-3 text-left transition-colors ${selected
-                          ? "border-foreground/45 bg-foreground/[0.07]"
-                          : "border-border/60 hover:border-foreground/25 hover:bg-foreground/[0.045]"}`}
-                      >
-                        <span className="flex items-start gap-3">
-                          <span className={`mt-1 h-3.5 w-3.5 shrink-0 rounded-full border ${selected
-                            ? "border-foreground bg-foreground shadow-[inset_0_0_0_3px_hsl(var(--card))]"
-                            : "border-muted-foreground/60"}`} />
-                          <span className="min-w-0">
-                            <span className="block text-sm font-semibold text-foreground">
-                              {formatNumericExpression(option.expression)}
-                            </span>
-                            <span className="mt-1 line-clamp-3 block text-xs leading-relaxed text-foreground">
-                              {option.source_quote}
-                            </span>
-                            <span className="mt-1.5 block truncate text-[11px] text-muted-foreground">
-                              {sourceFinding?.title || option.source_record_id || "Cited source"}
+              {multiple ? (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <SectionLabel>Choose one estimate</SectionLabel>
+                    <ReviewHelp>
+                      These values belong to the same source arm or cohort for
+                      this target. Select the one that best represents the
+                      target, or choose “None apply.” Distinct non-overlapping
+                      arms or cohorts are reviewed separately.
+                    </ReviewHelp>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Same evidence unit ·{" "}
+                    {evidenceUnitLabel(reviewItems[0].measurement)}
+                  </p>
+                  <div
+                    className="mt-3 space-y-2"
+                    role="radiogroup"
+                    aria-label="Evidence estimate"
+                  >
+                    {reviewItems.map((item) => {
+                      const option = item.measurement;
+                      const selected =
+                        option.candidate_id === selectedCandidateId;
+                      const sourceFinding = sourceFindingFor(item);
+                      return (
+                        <button
+                          key={option.candidate_id}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() =>
+                            setSelectedCandidateId(option.candidate_id)
+                          }
+                          className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                            selected
+                              ? "border-foreground/45 bg-foreground/[0.07]"
+                              : "border-border/60 hover:border-foreground/25 hover:bg-foreground/[0.045]"
+                          }`}
+                        >
+                          <span className="flex items-start gap-3">
+                            <span
+                              className={`mt-1 h-3.5 w-3.5 shrink-0 rounded-full border ${
+                                selected
+                                  ? "border-foreground bg-foreground shadow-[inset_0_0_0_3px_hsl(var(--card))]"
+                                  : "border-muted-foreground/60"
+                              }`}
+                            />
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold text-foreground">
+                                {formatNumericExpression(option.expression)}
+                              </span>
+                              <span className="mt-1 line-clamp-3 block text-xs leading-relaxed text-foreground">
+                                {option.source_quote}
+                              </span>
+                              <span className="mt-1.5 block truncate text-[11px] text-muted-foreground">
+                                {sourceFinding?.title ||
+                                  option.source_record_id ||
+                                  "Cited source"}
+                              </span>
                             </span>
                           </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            ) : measurement ? (
-              <>
-                <SectionLabel>Cited evidence</SectionLabel>
-                <p className="mt-3 text-base font-semibold text-foreground">
-                  {formatNumericExpression(measurement.expression)}
-                </p>
-                <Quoted size="prominent">
-                  {measurement.source_quote}
-                </Quoted>
-                <a
-                  href={measurement.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 block truncate text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
-                >
-                  {sourceFindingFor(reviewItems[0])?.title || measurement.source_record_id || "Open cited source"}
-                </a>
-              </>
-            ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : measurement ? (
+                <>
+                  <SectionLabel>Cited evidence</SectionLabel>
+                  <p className="mt-3 text-base font-semibold text-foreground">
+                    {formatNumericExpression(measurement.expression)}
+                  </p>
+                  <Quoted size="prominent">{measurement.source_quote}</Quoted>
+                  <a
+                    href={measurement.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 block truncate text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    {sourceFindingFor(reviewItems[0])?.title ||
+                      measurement.source_record_id ||
+                      "Open cited source"}
+                  </a>
+                </>
+              ) : null}
             </>
           }
         />
@@ -1722,72 +1951,107 @@ function QuantitativeReviewCheckpoint({
               )}
             </div>
           </div>
-          {measurement ? <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
-            <div className={cn(EYEBROW, "hidden grid-cols-[0.8fr_1fr_1fr_0.65fr] gap-4 bg-foreground/[0.045] px-4 py-2 sm:grid")}>
-              <span>Dimension</span><span>Target</span><span>Evidence</span><span>Mapping</span>
-            </div>
-            {dimensions.map((dimension) => {
-              const targetSlot = target?.semantic_profile[dimension];
-              const comparisonRule = target?.comparison_contract[dimension];
-              const mapped = measurement.semantic_assessment.dimensions[dimension];
-              const compatibility = mapped?.compatibility.state ?? "unknown";
-              return (
-                <div
-                  key={dimension}
-                  className="grid gap-1 border-t border-border/60 px-4 py-3 first:border-t-0 sm:grid-cols-[0.8fr_1fr_1fr_0.65fr] sm:gap-4"
-                >
-                  <span className={cn(EYEBROW, "sm:text-xs sm:normal-case sm:tracking-normal")}>
-                    {dimensionLabel(dimension)}
-                  </span>
-                  <span className="flex gap-2 text-xs text-foreground">
-                    <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>Target</span>
-                    <span>
-                      {semanticSlotLabel(targetSlot)}
-                      {comparisonRule && (
-                        <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
-                          {comparisonRuleLabel(comparisonRule)}
-                        </span>
+          {measurement ? (
+            <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
+              <div
+                className={cn(
+                  EYEBROW,
+                  "hidden grid-cols-[0.8fr_1fr_1fr_0.65fr] gap-4 bg-foreground/[0.045] px-4 py-2 sm:grid",
+                )}
+              >
+                <span>Dimension</span>
+                <span>Target</span>
+                <span>Evidence</span>
+                <span>Mapping</span>
+              </div>
+              {dimensions.map((dimension) => {
+                const targetSlot = target?.semantic_profile[dimension];
+                const comparisonRule = target?.comparison_contract[dimension];
+                const mapped =
+                  measurement.semantic_assessment.dimensions[dimension];
+                const compatibility = mapped?.compatibility.state ?? "unknown";
+                return (
+                  <div
+                    key={dimension}
+                    className="grid gap-1 border-t border-border/60 px-4 py-3 first:border-t-0 sm:grid-cols-[0.8fr_1fr_1fr_0.65fr] sm:gap-4"
+                  >
+                    <span
+                      className={cn(
+                        EYEBROW,
+                        "sm:text-xs sm:normal-case sm:tracking-normal",
                       )}
+                    >
+                      {dimensionLabel(dimension)}
                     </span>
-                  </span>
-                  <span className="flex gap-2 text-xs text-foreground">
-                    <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>Evidence</span>
-                    {semanticSlotLabel(mapped?.source)}
-                  </span>
-                  <span className="flex gap-2 text-xs font-medium text-muted-foreground">
-                    <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>Mapping</span>
-                    {compatibility === "yes" ? "Aligned" : compatibility === "no" ? "Different" : "Uncertain"}
-                  </span>
-                </div>
-              );
-            })}
-          </div> : (
+                    <span className="flex gap-2 text-xs text-foreground">
+                      <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>
+                        Target
+                      </span>
+                      <span>
+                        {semanticSlotLabel(targetSlot)}
+                        {comparisonRule && (
+                          <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
+                            {comparisonRuleLabel(comparisonRule)}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    <span className="flex gap-2 text-xs text-foreground">
+                      <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>
+                        Evidence
+                      </span>
+                      {semanticSlotLabel(mapped?.source)}
+                    </span>
+                    <span className="flex gap-2 text-xs font-medium text-muted-foreground">
+                      <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>
+                        Mapping
+                      </span>
+                      {compatibility === "yes"
+                        ? "Aligned"
+                        : compatibility === "no"
+                          ? "Different"
+                          : "Uncertain"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
             <p className="mt-3 rounded-lg border border-dashed border-border px-4 py-5 text-xs text-muted-foreground">
-              Select an estimate above to inspect how it maps to the document target.
+              Select an estimate above to inspect how it maps to the document
+              target.
             </p>
           )}
-          {measurement && <Reading className="mt-3">{measurement.semantic_reason}</Reading>}
+          {measurement && (
+            <Reading className="mt-3">{measurement.semantic_reason}</Reading>
+          )}
           {measurement && (
             <ReviewRecommendation
-              label={measurement.ai_recommendation === "admit"
-                ? "Admit"
-                : measurement.ai_recommendation === "reject"
-                  ? "Reject"
-                  : "Review manually"}
-              tone={measurement.ai_recommendation === "admit"
-                ? "positive"
-                : measurement.ai_recommendation === "reject"
-                  ? "neutral"
-                  : "warning"}
+              label={
+                measurement.ai_recommendation === "admit"
+                  ? "Admit"
+                  : measurement.ai_recommendation === "reject"
+                    ? "Reject"
+                    : "Review manually"
+              }
+              tone={
+                measurement.ai_recommendation === "admit"
+                  ? "positive"
+                  : measurement.ai_recommendation === "reject"
+                    ? "neutral"
+                    : "warning"
+              }
             >
-              {measurement.ai_review_reason || "No complete independent recommendation was returned."}
+              {measurement.ai_review_reason ||
+                "No complete independent recommendation was returned."}
             </ReviewRecommendation>
           )}
         </div>
 
         <footer className="flex flex-col-reverse gap-2 border-t border-border/60 bg-foreground/[0.045] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            One decision resolves this source evidence unit; its provenance remains traceable.
+            One decision resolves this source evidence unit; its provenance
+            remains traceable.
           </p>
           <div className="flex gap-2">
             {pendingItems.length > 0 ? (
@@ -1797,9 +2061,13 @@ function QuantitativeReviewCheckpoint({
                 </Button>
                 <Button
                   disabled={multiple && selectedCandidateId == null}
-                  onClick={() => decideCurrent(
-                    multiple ? selectedCandidateId : pendingItems[0].measurement.candidate_id,
-                  )}
+                  onClick={() =>
+                    decideCurrent(
+                      multiple
+                        ? selectedCandidateId
+                        : pendingItems[0].measurement.candidate_id,
+                    )
+                  }
                 >
                   {multiple ? "Use selected estimate" : "Admit comparator"}
                 </Button>
@@ -1857,8 +2125,12 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
         {/* The tool's own statement of what it found, then the model's reason for it. They
             were one paragraph, which put a sentence the interface composed and a sentence a
             model wrote in the same voice. */}
-        <p className="mt-0.5 leading-relaxed text-muted-foreground">{message}</p>
-        <Reading size="prominent" className="mt-1">{validation.reason}</Reading>
+        <p className="mt-0.5 leading-relaxed text-muted-foreground">
+          {message}
+        </p>
+        <Reading size="prominent" className="mt-1">
+          {validation.reason}
+        </Reading>
       </div>
     </div>
   );
@@ -1888,10 +2160,12 @@ function RetrievalWindowNotice({ result }: { result: ScoutResponse }) {
     >
       <CalendarRange className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0">
-        <p className="font-medium">Scoped to evidence published since {since}</p>
+        <p className="font-medium">
+          Scoped to evidence published since {since}
+        </p>
         <p className="mt-0.5 leading-relaxed text-muted-foreground">
-          Every count, benchmark, and precedent below describes only that window.
-          Sources that publish no date, such as web pages, are included.
+          Every count, benchmark, and precedent below describes only that
+          window. Sources that publish no date, such as web pages, are included.
         </p>
       </div>
     </div>
@@ -1918,7 +2192,8 @@ function formatWindowDate(iso: string | undefined): string | null {
 function distinctSourceCount(result: ScoutResponse): number {
   const urls = new Set<string>();
   for (const m of result.matches ?? [])
-    for (const f of m.insight.supporting_findings ?? []) if (f.url) urls.add(f.url);
+    for (const f of m.insight.supporting_findings ?? [])
+      if (f.url) urls.add(f.url);
   for (const a of result.assessments ?? [])
     for (const f of a.supporting_findings ?? []) if (f.url) urls.add(f.url);
   for (const p of result.precedents ?? [])
@@ -1926,9 +2201,11 @@ function distinctSourceCount(result: ScoutResponse): number {
   for (const c of result.conformity ?? [])
     for (const meas of c.measurements ?? []) if (meas.url) urls.add(meas.url);
   for (const program of result.development_landscape ?? [])
-    for (const finding of program.supporting_findings ?? []) if (finding.url) urls.add(finding.url);
+    for (const finding of program.supporting_findings ?? [])
+      if (finding.url) urls.add(finding.url);
   for (const observation of result.safety_observations ?? [])
-    for (const finding of observation.supporting_findings ?? []) if (finding.url) urls.add(finding.url);
+    for (const finding of observation.supporting_findings ?? [])
+      if (finding.url) urls.add(finding.url);
   return urls.size;
 }
 
@@ -1981,7 +2258,9 @@ function FieldGrid({
   const developmentLandscape = result.development_landscape ?? [];
   const safetyObservations = result.safety_observations ?? [];
   const [query, setQuery] = useState("");
-  const [relationFilter, setRelationFilter] = useState<"all" | Match["relation"]>("all");
+  const [relationFilter, setRelationFilter] = useState<
+    "all" | Match["relation"]
+  >("all");
   const [resultTab, setResultTab] = useState("fields");
   const revealTrace = useCallback(() => setResultTab("trace"), []);
   const {
@@ -1990,7 +2269,9 @@ function FieldGrid({
     consume: consumeTraceFocus,
   } = useTraceFocus(revealTrace);
   if (variables.length === 0) {
-    return <EmptyState message="No variables were returned for this intervention." />;
+    return (
+      <EmptyState message="No variables were returned for this intervention." />
+    );
   }
 
   const matchesByVariable = new Map<string, Match[]>();
@@ -2033,7 +2314,9 @@ function FieldGrid({
     .sort(
       (a, b) =>
         RELATION_ORDER[a.leadingRelation] - RELATION_ORDER[b.leadingRelation] ||
-        displayAttributeLabel(a.variable.name).localeCompare(displayAttributeLabel(b.variable.name)),
+        displayAttributeLabel(a.variable.name).localeCompare(
+          displayAttributeLabel(b.variable.name),
+        ),
     );
 
   const headline = runHeadline(rows);
@@ -2050,7 +2333,9 @@ function FieldGrid({
   const visibleRows = rows.filter((row) => {
     const matchesSearch =
       !normalizedQuery ||
-      displayAttributeLabel(row.variable.name).toLowerCase().includes(normalizedQuery) ||
+      displayAttributeLabel(row.variable.name)
+        .toLowerCase()
+        .includes(normalizedQuery) ||
       row.variable.description.toLowerCase().includes(normalizedQuery);
     const matchesRelation =
       relationFilter === "all" ||
@@ -2068,38 +2353,24 @@ function FieldGrid({
       onOpenInTrace={openBlockInTrace}
     >
       <div className="flex flex-col gap-4">
-      <CollapsibleCard
-        title={`${variables.length} fields`}
-        // The two numbers have different scopes and the title names only the first tab, so a
-        // reader auditing "827 sources" against the Sources panels would come up 156 short:
-        // those 156 are cited only by development and safety records, which have findings but
-        // no insights. Insights are field-bound; the source count is the whole run.
-        subtitle={`${(result.stats?.insights ?? 0).toLocaleString()} insights in these fields · ${distinctSourceCount(
-          result,
-        ).toLocaleString()} sources across the whole run`}
-        contentClassName="p-0"
-        trailing={
-          <>
-          <RunHistory
-            runs={results}
-            selectedId={selectedId}
-            onSelect={selectResult}
-            onRemove={removeResult}
-            label={(value) => runLabel(value, "scout")}
-          />
-          <FinalResultActions
-            onNewAnalysis={onNewAnalysis}
-            download={{
-              filename: scoutResultFilename(result),
-              data: packScoutResult(result),
-            }}
-          />
-          </>
-        }
-      >
-        <Tabs value={resultTab} onValueChange={setResultTab}>
-          <div className="overflow-x-auto border-b border-border/60 px-5 pt-3 sm:px-6">
-            <TabsList className="min-w-max border-b-0">
+        <ResultLayout
+          title={runLabel(result, "scout")}
+          subtitle={runScope(result, "scout")}
+          metrics={
+            <RunCoverage
+              headline={headline}
+              insights={result.stats?.insights ?? 0}
+              sources={distinctSourceCount(result)}
+            />
+          }
+          // The two counts have different scopes, and a reader auditing one against the
+          // other comes up short: 156 sources are cited only by development and safety
+          // records, which have findings but no insights.
+          metricsNote="Insights are counted within fields. The source count is the whole run, including records that carry no insight."
+          tabValue={resultTab}
+          onTabChange={setResultTab}
+          tabs={
+            <>
               <TabsTrigger value="fields">Fields</TabsTrigger>
               {developmentLandscape.length > 0 && (
                 <TabsTrigger value="landscape">Landscape</TabsTrigger>
@@ -2109,17 +2380,68 @@ function FieldGrid({
               )}
               <TabsTrigger value="map">Evidence map</TabsTrigger>
               <TabsTrigger value="trace">Documents</TabsTrigger>
-            </TabsList>
-          </div>
+            </>
+          }
+          priorities={{
+            // Every item links to a field, so it shows where the fields are.
+            tab: "fields",
+            panel: (
+              <PriorityPanel
+                attribution="by Scout"
+                items={priorities}
+                emptyMessage={SCOUT_EMPTY_MESSAGE}
+                orderNote={SCOUT_ORDER_NOTE}
+                digest={
+                  digest?.state === "ready" ? digest.digest.digest : undefined
+                }
+                nominations={
+                  digest?.state === "ready" ? digest.digest.nominations : []
+                }
+                digestLoading={digest?.state === "loading"}
+                digestError={
+                  digest?.state === "failed" ? digest.reason : undefined
+                }
+              />
+            ),
+          }}
+          footer={
+            <SourceAttributions
+              findings={resultFindings(result)}
+              className="border-t border-border/60 px-5 py-3 sm:px-6"
+            />
+          }
+          actions={
+            <>
+              <RunHistory
+                runs={results}
+                selectedId={selectedId}
+                onSelect={selectResult}
+                onRemove={removeResult}
+                label={(value) => runLabel(value, "scout")}
+              />
+              <FinalResultActions
+                onNewAnalysis={onNewAnalysis}
+                download={{
+                  filename: scoutResultFilename(result),
+                  data: packScoutResult(result),
+                }}
+              />
+            </>
+          }
+        >
           <TabsContent value="fields" className="mt-0">
-            {(unresolvedFieldCount > 0 || result.quantitative_ledger.status === "uncertain") && (
+            {(unresolvedFieldCount > 0 ||
+              result.quantitative_ledger.status === "uncertain") && (
               <div className="flex items-start gap-2 border-b border-border/60 bg-foreground/[0.045] px-5 py-3 text-xs text-muted-foreground sm:px-6">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <div className="space-y-1">
                   {unresolvedFieldCount > 0 && (
                     <div>
                       <p>
-                        Document interpretation stopped before retrieval because {unresolvedFieldCount} {unresolvedFieldCount === 1 ? "field" : "fields"} could not be bound safely.
+                        Document interpretation stopped before retrieval because{" "}
+                        {unresolvedFieldCount}{" "}
+                        {unresolvedFieldCount === 1 ? "field" : "fields"} could
+                        not be bound safely.
                       </p>
                       <details className="mt-1.5">
                         <summary className="cursor-pointer font-medium text-foreground">
@@ -2131,7 +2453,8 @@ function FieldGrid({
                               <span className="font-medium text-foreground">
                                 {displayAttributeLabel(variable.name)}:
                               </span>{" "}
-                              {variable.target_resolution_reason || "No validated decision was returned."}
+                              {variable.target_resolution_reason ||
+                                "No validated decision was returned."}
                             </li>
                           ))}
                         </ul>
@@ -2140,47 +2463,32 @@ function FieldGrid({
                   )}
                   {result.quantitative_ledger.status === "uncertain" && (
                     <p>
-                      Some numeric statements remained unresolved after one retry. They were retained for audit and excluded from quantitative calibration; the verified document claims still proceeded through evidence retrieval.
+                      Some numeric statements remained unresolved after one
+                      retry. They were retained for audit and excluded from
+                      quantitative calibration; the verified document claims
+                      still proceeded through evidence retrieval.
                     </p>
                   )}
                 </div>
               </div>
             )}
-            <RunCoverage headline={headline} />
-            {/* Padded on both sides, like Aligner's. It was `pt-5` alone, so the card had
-                twenty pixels above it and sat flush against the filter bar below. */}
-            <div className="px-5 py-5 sm:px-6">
-              <PriorityPanel
-                attribution="by Scout"
-                items={priorities}
-                emptyMessage={SCOUT_EMPTY_MESSAGE}
-                orderNote={SCOUT_ORDER_NOTE}
-                digest={digest?.state === "ready" ? digest.digest.digest : undefined}
-                nominations={digest?.state === "ready" ? digest.digest.nominations : []}
-                digestLoading={digest?.state === "loading"}
-                digestError={digest?.state === "failed" ? digest.reason : undefined}
+            <ResultToolbar>
+              <ResultSearch
+                label="Search fields"
+                placeholder="Find a field…"
+                value={query}
+                onChange={setQuery}
               />
-            </div>
-            <div className="flex flex-col gap-2 border-b border-border/60 bg-foreground/[0.045] px-5 py-3 sm:flex-row sm:items-center sm:px-6">
-              <label className="relative min-w-0 flex-1 sm:max-w-xs">
-                <span className="sr-only">Search fields</span>
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Find a field…"
-                  className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10 motion-reduce:transition-none"
-                />
-              </label>
               <Select
                 value={relationFilter}
-                onValueChange={(value) => setRelationFilter(value as "all" | Match["relation"])}
+                onValueChange={(value) =>
+                  setRelationFilter(value as "all" | Match["relation"])
+                }
               >
                 <SelectTrigger className="h-8 w-full bg-card sm:w-40">
                   <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
+                </SelectTrigger>
+                <SelectContent>
                   <SelectItem value="all">All relationships</SelectItem>
                   {/* Rendered from the shared vocabulary and its shared order, not typed
                       out again. Four hardcoded labels here meant a filter could go on
@@ -2192,13 +2500,20 @@ function FieldGrid({
                   ))}
                 </SelectContent>
               </Select>
-              <div className="flex w-full items-center justify-between gap-3 sm:ml-auto sm:w-auto sm:justify-start">
-                <ScoutSignalHelp />
-                <span className="text-[11px] tabular-nums text-muted-foreground">
-                  {visibleRows.length} of {rows.length}
-                </span>
-              </div>
-            </div>
+              <ResultToolbarEnd
+                count={{ shown: visibleRows.length, total: rows.length }}
+              >
+                {/* The field axis. The records tabs filter on the other one. */}
+                <ScoutSignalHelp
+                  only={[
+                    "relationships",
+                    "grounding",
+                    "measurable",
+                    "precedent",
+                  ]}
+                />
+              </ResultToolbarEnd>
+            </ResultToolbar>
             {visibleRows.map((row) => (
               <FieldRow
                 key={row.variable.name}
@@ -2209,7 +2524,9 @@ function FieldGrid({
                 conformities={row.conformities}
                 precedent={row.precedent}
                 searchPlan={result.search_plan}
-                quantitativeTargetStatusReason={row.variable.quantitative_target_status_reason}
+                quantitativeTargetStatusReason={
+                  row.variable.quantitative_target_status_reason
+                }
                 targetResolved={row.variable.target_resolved}
                 targetResolutionReason={row.variable.target_resolution_reason}
                 documentTarget={row.variable.document_target}
@@ -2249,12 +2566,7 @@ function FieldGrid({
               onFocusConsumed={consumeTraceFocus}
             />
           </TabsContent>
-        </Tabs>
-        <SourceAttributions
-          findings={resultFindings(result)}
-          className="border-t border-border/60 px-5 py-3 sm:px-6"
-        />
-      </CollapsibleCard>
+        </ResultLayout>
       </div>
     </DocumentSourceProvider>
   );
@@ -2294,18 +2606,13 @@ function ProjectionToolbar({
   recordLabel: string;
 }) {
   return (
-    <div className="flex flex-col gap-2 border-b border-border/60 bg-foreground/[0.045] px-5 py-3 sm:flex-row sm:items-center sm:px-6">
-      <label className="relative min-w-0 flex-1 sm:max-w-xs">
-        <span className="sr-only">{searchLabel}</span>
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder={placeholder}
-          className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/10 motion-reduce:transition-none"
-        />
-      </label>
+    <ResultToolbar>
+      <ResultSearch
+        label={searchLabel}
+        placeholder={placeholder}
+        value={query}
+        onChange={onQueryChange}
+      />
       <Select
         value={relationship}
         onValueChange={(value) =>
@@ -2313,7 +2620,9 @@ function ProjectionToolbar({
         }
       >
         <SelectTrigger
-          aria-label="Filter by relationship to the uploaded product"
+          // The same words as the tooltip that explains it. This filter is what heads
+          // this axis - there is no section label over it - so it is what has to match.
+          aria-label="Relation to the uploaded product"
           className="h-8 w-full bg-card sm:w-40"
         >
           <SelectValue />
@@ -2326,14 +2635,16 @@ function ProjectionToolbar({
           ))}
         </SelectContent>
       </Select>
-      <p
-        role="status"
-        aria-live="polite"
-        className="text-[11px] text-muted-foreground sm:ml-auto"
-      >
-        {visibleCount} of {totalCount} {recordLabel}
-      </p>
-    </div>
+      {/* The shared end, not a hand-aligned paragraph. This toolbar was the one of five
+          that pushed its count right with its own `sm:ml-auto`, so a change to how a
+          toolbar ends would have reached four of them. */}
+      <ResultToolbarEnd count={{ shown: visibleCount, total: totalCount }}>
+        {/* Only the axis this toolbar filters on. Showing the field topics here put a
+            definition of "Unrelated" beside a filter where the word means something
+            else - the collision `models.py` names at the vocabulary itself. */}
+        <ScoutSignalHelp only={["targetRelationship"]} />
+      </ResultToolbarEnd>
+    </ResultToolbar>
   );
 }
 
@@ -2366,7 +2677,11 @@ function ContextualProjectionNote({
   if (!isContextualRelationship(relationship)) return null;
   return (
     <InterfaceNote className="mb-3 max-w-4xl">
-      Context only. This {kind} concerns {relationship === "analogous" ? "an analogous product" : "adjacent evidence"} and does not describe the uploaded product.
+      Context only. This {kind} concerns{" "}
+      {relationship === "analogous"
+        ? "an analogous product"
+        : "adjacent evidence"}{" "}
+      and does not describe the uploaded product.
     </InterfaceNote>
   );
 }
@@ -2385,9 +2700,10 @@ function AnnouncementReading({ stats }: { stats?: FunnelStats }) {
   const named = stats?.announcements_named ?? 0;
   return (
     <InterfaceNote className="mx-5 mb-4 sm:mx-6">
-      <Computed>{read.toLocaleString()}</Computed> announcement{read === 1 ? "" : "s"} read,{" "}
-      <Computed>{named.toLocaleString()}</Computed> named a program. An announcement naming
-      none has no row here.
+      <Computed>{read.toLocaleString()}</Computed> announcement
+      {read === 1 ? "" : "s"} read,{" "}
+      <Computed>{named.toLocaleString()}</Computed> named a program. An
+      announcement naming none has no row here.
     </InterfaceNote>
   );
 }
@@ -2403,11 +2719,19 @@ function DevelopmentLandscape({
   const [relationship, setRelationship] =
     useState<ProjectionRelationshipFilter>("all");
   const normalizedQuery = query.trim().toLowerCase();
-  const relationshipMatches = filterProjectionsByRelationship(programs, relationship);
+  const relationshipMatches = filterProjectionsByRelationship(
+    programs,
+    relationship,
+  );
   const visible = relationshipMatches.filter(
     (program) =>
       !normalizedQuery ||
-      [program.name, ...program.sponsors, ...program.phases, ...program.statuses]
+      [
+        program.name,
+        ...program.sponsors,
+        ...program.phases,
+        ...program.statuses,
+      ]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery),
@@ -2445,58 +2769,82 @@ function DevelopmentLandscape({
           </summary>
           <div className={cn("border-t border-border/60", DISCLOSURE_MOTION)}>
             {group.items.map((program) => (
-          <details key={program.projection_id} className="group/expand border-b border-border/60 last:border-b-0">
-            <summary className={EXPANDABLE_ROW}>
-              <div className="min-w-0 flex-1">
-                <h3 className="truncate text-sm font-semibold text-foreground">{program.name}</h3>
-                <ProjectionRoleLabels
-                  relationship={program.target_relationship}
-                  sourceRole={program.source_role}
-                />
-                <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-4">
-                  <SignalSummary label="Sponsor" value={program.sponsors.join(" · ") || "—"} />
-                  <SignalSummary label="Phase" value={program.phases.join(" · ") || "—"} />
-                  <SignalSummary label="Status" value={program.statuses.join(" · ") || "—"} />
-                  {/*
+              <details
+                key={program.projection_id}
+                className="group/expand border-b border-border/60 last:border-b-0"
+              >
+                <summary className={EXPANDABLE_ROW}>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-sm font-semibold text-foreground">
+                      {program.name}
+                    </h3>
+                    <ProjectionRoleLabels
+                      relationship={program.target_relationship}
+                      sourceRole={program.source_role}
+                    />
+                    <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-4">
+                      <SignalSummary
+                        label="Sponsor"
+                        value={program.sponsors.join(" · ") || "—"}
+                      />
+                      <SignalSummary
+                        label="Phase"
+                        value={program.phases.join(" · ") || "—"}
+                      />
+                      <SignalSummary
+                        label="Status"
+                        value={program.statuses.join(" · ") || "—"}
+                      />
+                      {/*
                     What the row rests on. Without it, a phase a registry holds and a phase
                     a company announced read identically, and they are not equally
                     checkable.
                   */}
-                  <SignalSummary
-                    label="From"
-                    value={
-                      program.record_types.map(displayRecordTypeLabel).join(" · ") || "—"
-                    }
+                      <SignalSummary
+                        label="From"
+                        value={
+                          program.record_types
+                            .map(displayRecordTypeLabel)
+                            .join(" · ") || "—"
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="text-[11px] text-muted-foreground">
+                      {countLabel(program.supporting_findings.length, "record")}
+                    </span>
+                    <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />
+                  </div>
+                </summary>
+                <div
+                  className={cn(
+                    "border-t border-border/60 px-5 py-4 sm:px-6",
+                    SURFACE.open.body,
+                    DISCLOSURE_MOTION,
+                  )}
+                >
+                  <ContextualProjectionNote
+                    relationship={program.target_relationship}
+                    kind="development record"
                   />
+                  {program.target_relationship_reason && (
+                    <Reading className="mb-3 mt-0 max-w-4xl">
+                      {program.target_relationship_reason}
+                    </Reading>
+                  )}
+                  {program.attribute_refs.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Retrieved for{" "}
+                      {program.attribute_refs
+                        .map(displayAttributeLabel)
+                        .join(" · ")}
+                    </p>
+                  )}
+                  <SourceList findings={program.supporting_findings} />
                 </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-3">
-                <span className="text-[11px] text-muted-foreground">
-                  {countLabel(program.supporting_findings.length, "record")}
-                </span>
-                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />
-              </div>
-            </summary>
-            <div className={cn("border-t border-border/60 px-5 py-4 sm:px-6",
-              SURFACE.open.body, DISCLOSURE_MOTION)}>
-              <ContextualProjectionNote
-                relationship={program.target_relationship}
-                kind="development record"
-              />
-              {program.target_relationship_reason && (
-                <Reading className="mb-3 mt-0 max-w-4xl">
-                  {program.target_relationship_reason}
-                </Reading>
-              )}
-              {program.attribute_refs.length > 0 && (
-                <p className="text-[11px] text-muted-foreground">
-                  Retrieved for {program.attribute_refs.map(displayAttributeLabel).join(" · ")}
-                </p>
-              )}
-              <SourceList findings={program.supporting_findings} />
-            </div>
-          </details>
-        ))}
+              </details>
+            ))}
           </div>
         </details>
       ))}
@@ -2518,7 +2866,10 @@ function SafetyObservations({
   const [query, setQuery] = useState("");
   const [relationship, setRelationship] =
     useState<ProjectionRelationshipFilter>("all");
-  const sections = groupSafetyObservations(observations, { query, relationship });
+  const sections = groupSafetyObservations(observations, {
+    query,
+    relationship,
+  });
   const visibleCount = sections.reduce(
     (count, section) => count + section.observations.length,
     0,
@@ -2545,7 +2896,10 @@ function SafetyObservations({
             className="border-b border-border/60 last:border-b-0"
           >
             <header className="bg-foreground/[0.045] px-5 py-4 sm:px-6">
-              <h3 id={headingId} className="text-sm font-semibold text-foreground">
+              <h3
+                id={headingId}
+                className="text-sm font-semibold text-foreground"
+              >
                 {section.title}
               </h3>
               <SectionDescription>{section.description}</SectionDescription>
@@ -2560,7 +2914,8 @@ function SafetyObservations({
                   <summary className={EXPANDABLE_ROW}>
                     <div className="min-w-0 flex-1">
                       <p className={EYEBROW}>
-                        {safetyRecordTypeLabel(observation.record_type)} · {safetySourceSystemLabel(observation.source_system)}
+                        {safetyRecordTypeLabel(observation.record_type)} ·{" "}
+                        {safetySourceSystemLabel(observation.source_system)}
                       </p>
                       <h4 className="mt-1 text-sm font-semibold text-foreground">
                         {observation.product_name}
@@ -2585,7 +2940,12 @@ function SafetyObservations({
                       />
                     </div>
                   </summary>
-                  <div className={cn("border-t border-border/60 px-5 py-4 sm:px-6", SURFACE.open.body)}>
+                  <div
+                    className={cn(
+                      "border-t border-border/60 px-5 py-4 sm:px-6",
+                      SURFACE.open.body,
+                    )}
+                  >
                     <ContextualProjectionNote
                       relationship={observation.target_relationship}
                       kind="safety observation"
@@ -2596,7 +2956,9 @@ function SafetyObservations({
                       </p>
                     )}
                     {observation.qualification && (
-                      <Reading className="mt-2 max-w-4xl">{observation.qualification}</Reading>
+                      <Reading className="mt-2 max-w-4xl">
+                        {observation.qualification}
+                      </Reading>
                     )}
                     {observation.target_relationship_reason && (
                       <Reading className="mt-3 max-w-4xl">
@@ -2605,7 +2967,10 @@ function SafetyObservations({
                     )}
                     {observation.attribute_refs.length > 0 && (
                       <p className="mt-2 text-[11px] text-muted-foreground">
-                        Retrieved for {observation.attribute_refs.map(displayAttributeLabel).join(" · ")}
+                        Retrieved for{" "}
+                        {observation.attribute_refs
+                          .map(displayAttributeLabel)
+                          .join(" · ")}
                       </p>
                     )}
                     <SourceList findings={observation.supporting_findings} />
@@ -2638,17 +3003,44 @@ function SafetyObservations({
  * difference between "the document holds up" and "most of it could not be checked", and it
  * was previously invisible.
  */
-function RunCoverage({ headline }: { headline: RunHeadline }) {
+function RunCoverage({
+  headline,
+  insights,
+  sources,
+}: {
+  headline: RunHeadline;
+  /** Insights within fields. Field-bound, unlike the source count beside it. */
+  insights: number;
+  /** Distinct sources across the whole run, records included. */
+  sources: number;
+}) {
   const analysed = headline.fieldCount - headline.notStatedCount;
   return (
-    <p className="flex flex-wrap gap-x-4 gap-y-1 border-b border-border/60 px-5 py-3 text-[11px] tabular-nums text-muted-foreground sm:px-6">
+    // Every figure at one weight, every word at another. It read `**31** of 36 fields`
+    // then `34 numeric targets, **34** with no comparable` - three numbers, two of them
+    // emphasised and one not, which made the plain one look like a different kind of
+    // fact. The rule: the number is the foreground, the sentence around it is not.
+    <p className="flex flex-col gap-1.5 text-[11px] tabular-nums text-muted-foreground">
+      <span>
+        <span className="font-medium text-foreground">
+          {insights.toLocaleString()}
+        </span>{" "}
+        insights from{" "}
+        <span className="font-medium text-foreground">
+          {sources.toLocaleString()}
+        </span>{" "}
+        sources
+      </span>
       <span>
         <span className="font-medium text-foreground">{analysed}</span> of{" "}
         {headline.fieldCount} fields stated a target
       </span>
       {headline.numericTargets > 0 && (
         <span>
-          {countLabel(headline.numericTargets, "numeric target")}
+          <span className="font-medium text-foreground">
+            {headline.numericTargets}
+          </span>{" "}
+          {headline.numericTargets === 1 ? "numeric target" : "numeric targets"}
           {headline.uncalibratedTargets > 0 && (
             <>
               {", "}
@@ -2661,16 +3053,31 @@ function RunCoverage({ headline }: { headline: RunHeadline }) {
         </span>
       )}
       {headline.wellGroundedCount > 0 && (
-        <span>{headline.wellGroundedCount} well grounded</span>
+        <span>
+          <span className="font-medium text-foreground">
+            {headline.wellGroundedCount}
+          </span>{" "}
+          well grounded
+        </span>
       )}
       {/* Counted, not named. An unfavourable precedent is the one signal `PriorityPanel`
           has no tier for, so the count belongs somewhere - but the field name is right
           below and one of them renders as "I E Ddi", which helps nobody. */}
       {headline.unfavorableFields.length > 0 && (
-        <span>{headline.unfavorableFields.length} unfavourable precedent</span>
+        <span>
+          <span className="font-medium text-foreground">
+            {headline.unfavorableFields.length}
+          </span>{" "}
+          unfavourable precedent
+        </span>
       )}
       {headline.unresolvedCount > 0 && (
-        <span>{headline.unresolvedCount} interpretation unresolved</span>
+        <span>
+          <span className="font-medium text-foreground">
+            {headline.unresolvedCount}
+          </span>{" "}
+          interpretation unresolved
+        </span>
       )}
     </p>
   );
@@ -2721,7 +3128,9 @@ function FieldRow({
     (total, score) => total + score.benchmark_count,
     0,
   );
-  const hasDocumentTarget = Boolean(documentTarget.trim() || assessment?.doc_target?.trim());
+  const hasDocumentTarget = Boolean(
+    documentTarget.trim() || assessment?.doc_target?.trim(),
+  );
   const targetNotStated = targetResolved && !hasDocumentTarget;
   // Built once per field: every signal cites into this instead of re-rendering insights.
   const registry = insightRegistry(matches);
@@ -2735,12 +3144,16 @@ function FieldRow({
       <summary className={cn(EXPANDABLE_ROW, "justify-between")}>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2">
-            <h3 className="text-sm font-semibold text-foreground">{displayAttributeLabel(name)}</h3>
+            <h3 className="text-sm font-semibold text-foreground">
+              {displayAttributeLabel(name)}
+            </h3>
           </div>
           {/* The field's own definition, which is project copy rather than anyone's reading
               of this document, so it takes the same shape as the sentence under a section
               heading. Still clamped to one line: a closed row is an index, not a reference. */}
-          <SectionDescription className="line-clamp-1">{description}</SectionDescription>
+          <SectionDescription className="line-clamp-1">
+            {description}
+          </SectionDescription>
           {targetNotStated ? (
             <p className="mt-2 text-xs text-muted-foreground">
               Not stated in document · no evidence analysis was run
@@ -2762,7 +3175,9 @@ function FieldRow({
                 </SignalChip>
               )}
               {assessment && evidenceTone && (
-                <SignalChip tone={evidenceTone}>{GROUNDING_LABEL[assessment.strength]}</SignalChip>
+                <SignalChip tone={evidenceTone}>
+                  {GROUNDING_LABEL[assessment.strength]}
+                </SignalChip>
               )}
               {precedent && precedentMeta && (
                 <SignalChip tone={precedentMeta.tone}>
@@ -2806,15 +3221,22 @@ function FieldRow({
       >
         {targetNotStated ? (
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Not stated in document. Scout did not run evidence analysis for this field.
+            Not stated in document. Scout did not run evidence analysis for this
+            field.
           </p>
         ) : (
-          <TargetRows rows={targetRows} blockIds={assessment?.doc_block_ids ?? []} />
+          <TargetRows
+            rows={targetRows}
+            blockIds={assessment?.doc_block_ids ?? []}
+          />
         )}
         {!targetResolved && (
           <p className="text-xs leading-relaxed text-muted-foreground">
-            <span className="font-medium text-foreground">Interpretation unresolved.</span>{" "}
-            {targetResolutionReason || "No validated document-claim decision was returned."}
+            <span className="font-medium text-foreground">
+              Interpretation unresolved.
+            </span>{" "}
+            {targetResolutionReason ||
+              "No validated document-claim decision was returned."}
           </p>
         )}
         {/* How retrieval was aimed, and the record of it.
@@ -2831,115 +3253,155 @@ function FieldRow({
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <p className="text-[11px] text-muted-foreground">
             {dimensionLabel(evidenceDomain)} evidence
-            {definitionMode === "dynamic" && " · definition read from the document"}
+            {definitionMode === "dynamic" &&
+              " · definition read from the document"}
           </p>
-          <FieldSearches result={{ search_plan: searchPlan }} attributeRef={name} />
+          <FieldSearches
+            result={{ search_plan: searchPlan }}
+            attributeRef={name}
+          />
         </div>
         {/* One section for the numeric targets whether there are any or not. The slot used
             to change shape with its content - a caps heading with rows when targets
             existed, a bold sentence when they did not - so one fact appeared at two
             altitudes. The dispositions nest here rather than sitting beside Grounding and
             Precedent: they explain this section, they are not a fourth assessment. */}
-        {!targetNotStated && (conformities.length > 0 || quantitativeTargetStatusReason) && (
-          <section className="border-t border-border/60 pt-4">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-4">
-              {/* Not "Numeric targets", which read as "the numbers among the stated
+        {!targetNotStated &&
+          (conformities.length > 0 || quantitativeTargetStatusReason) && (
+            <section className="border-t border-border/60 pt-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+                {/* Not "Numeric targets", which read as "the numbers among the stated
                   targets" and implied containment. These are a parallel reading of the same
                   document, restricted to the passages a resolved target cites, and what
                   distinguishes them is that evidence can be measured against them. */}
-              <SectionLabel>Measurable targets</SectionLabel>
-              {/* The count, or nothing. It used to read "none stated" while the sentence
+                <SectionLabel>Measurable targets</SectionLabel>
+                {/* The count, or nothing. It used to read "none stated" while the sentence
                   directly below it also said there were none, and that sentence says *why*,
                   which a headline cannot. So the two states do not overlap: a number when
                   there are targets, an explanation when there are not. */}
-              {conformities.length > 0 && (
-                <span className="text-[11px] tabular-nums text-muted-foreground">
-                  {countLabel(conformities.length, "target")}
-                </span>
-              )}
-            </div>
-            {/* All four of these sentences are written where the decision is made, so this is
+                {conformities.length > 0 && (
+                  <span className="text-[11px] tabular-nums text-muted-foreground">
+                    {countLabel(conformities.length, "target")}
+                  </span>
+                )}
+              </div>
+              {/* All four of these sentences are written where the decision is made, so this is
                 the tool accounting for an absence, not a model's view of the field. */}
-            {conformities.length === 0 && quantitativeTargetStatusReason && (
-              <InterfaceNote className="mt-1">{quantitativeTargetStatusReason}</InterfaceNote>
-            )}
-            {conformities.length > 0 && (
-              <>
-                <div className="mt-1 divide-y divide-border/60">
-                  {conformities.map((conformity) => (
-                    <ConformityBlock
-                      key={conformity.target_id}
-                      conformity={conformity}
-                      matches={matches}
-                      target={targetsById.get(conformity.target_id) ?? null}
-                    />
-                  ))}
-                </div>
-                {/* Once for the section, not once per target. It is a statement about how
+              {conformities.length === 0 && quantitativeTargetStatusReason && (
+                <InterfaceNote className="mt-1">
+                  {quantitativeTargetStatusReason}
+                </InterfaceNote>
+              )}
+              {conformities.length > 0 && (
+                <>
+                  <div className="mt-1 divide-y divide-border/60">
+                    {conformities.map((conformity) => (
+                      <ConformityBlock
+                        key={conformity.target_id}
+                        conformity={conformity}
+                        matches={matches}
+                        target={targetsById.get(conformity.target_id) ?? null}
+                      />
+                    ))}
+                  </div>
+                  {/* Once for the section, not once per target. It is a statement about how
                     every comparison here is computed, and a field with seven targets
                     repeated it for each one that had a cohort. */}
-              </>
-            )}
-            {dispositions.length > 0 && (
-              <div className="mt-1">
-                <DisclosureRow
-                  label="Numbers not used as targets"
-                  count={dispositions.length}
-                >
-                  <ul className="space-y-3">
-                    {dispositions.map((item, index) => (
-                      <li key={`${item.disposition}-${index}`}>
-                        <p className="text-[11px] font-medium text-foreground">
-                          {DISPOSITION_LABEL[item.disposition]}
-                        </p>
-                        <Quoted>{item.quote}</Quoted>
-                        {item.reason && <Reading>{item.reason}</Reading>}
-                        <DocumentSourceTrace blockIds={item.block_ids} />
-                      </li>
-                    ))}
-                  </ul>
-                </DisclosureRow>
-              </div>
-            )}
-          </section>
-        )}
+                </>
+              )}
+              {dispositions.length > 0 && (
+                <div className="mt-1">
+                  <DisclosureRow
+                    label="Numbers not used as targets"
+                    count={dispositions.length}
+                  >
+                    <ul className="space-y-3">
+                      {dispositions.map((item, index) => (
+                        <li key={`${item.disposition}-${index}`}>
+                          <p className="text-[11px] font-medium text-foreground">
+                            {DISPOSITION_LABEL[item.disposition]}
+                          </p>
+                          <Quoted>{item.quote}</Quoted>
+                          {item.reason && <Reading>{item.reason}</Reading>}
+                          <DocumentSourceTrace blockIds={item.block_ids} />
+                        </li>
+                      ))}
+                    </ul>
+                  </DisclosureRow>
+                </div>
+              )}
+            </section>
+          )}
         {/* The three assessments, grouped. Above this is the subject - what the document
             says. These are judgments *of* it, and six sections separated by one identical
             hairline read as six peers. One heavier rule marks the boundary between the
             claim and the assessment of it; hairlines separate the assessments inside. */}
-        {!targetNotStated && (assessment || precedent || matches.length > 0) && (
-          <div className="border-t border-border pt-4">
-          {assessment && evidenceTone && (
-            <SignalVerdict
-              label="Grounding"
-              chips={[{ tone: evidenceTone, text: GROUNDING_LABEL[assessment.strength] }]}
-              reason={assessment.reason}
-              citations={[{ cited: citation(assessment.supporting_insight_ids, registry) }]}
-              fallback={assessment.supporting_findings}
-            />
+        {!targetNotStated &&
+          (assessment || precedent || matches.length > 0) && (
+            <div className="border-t border-border pt-4">
+              {assessment && evidenceTone && (
+                <SignalVerdict
+                  label="Grounding"
+                  chips={[
+                    {
+                      tone: evidenceTone,
+                      text: GROUNDING_LABEL[assessment.strength],
+                    },
+                  ]}
+                  reason={assessment.reason}
+                  citations={[
+                    {
+                      cited: citation(
+                        assessment.supporting_insight_ids,
+                        registry,
+                      ),
+                    },
+                  ]}
+                  fallback={assessment.supporting_findings}
+                />
+              )}
+              {precedent && precedentMeta && (
+                <SignalVerdict
+                  label="Precedent"
+                  chips={[
+                    { tone: "neutral", text: precedentMeta.coverage },
+                    { tone: precedentMeta.tone, text: precedentMeta.outcome },
+                  ]}
+                  reason={precedent.reason}
+                  citations={
+                    precedent.coverage_insight_ids?.length ||
+                    precedent.outcome_insight_ids?.length
+                      ? [
+                          {
+                            label: "Coverage",
+                            cited: citation(
+                              precedent.coverage_insight_ids,
+                              registry,
+                            ),
+                          },
+                          {
+                            label: "Outcome",
+                            cited: citation(
+                              precedent.outcome_insight_ids,
+                              registry,
+                            ),
+                          },
+                        ]
+                      : [
+                          {
+                            cited: citation(
+                              precedent.supporting_insight_ids,
+                              registry,
+                            ),
+                          },
+                        ]
+                  }
+                  fallback={precedent.supporting_findings}
+                />
+              )}
+              {!targetNotStated && <InsightGroups registry={registry} />}
+            </div>
           )}
-          {precedent && precedentMeta && (
-            <SignalVerdict
-              label="Precedent"
-              chips={[
-                { tone: "neutral", text: precedentMeta.coverage },
-                { tone: precedentMeta.tone, text: precedentMeta.outcome },
-              ]}
-              reason={precedent.reason}
-              citations={
-                precedent.coverage_insight_ids?.length || precedent.outcome_insight_ids?.length
-                  ? [
-                      { label: "Coverage", cited: citation(precedent.coverage_insight_ids, registry) },
-                      { label: "Outcome", cited: citation(precedent.outcome_insight_ids, registry) },
-                    ]
-                  : [{ cited: citation(precedent.supporting_insight_ids, registry) }]
-              }
-              fallback={precedent.supporting_findings}
-            />
-          )}
-          {!targetNotStated && <InsightGroups registry={registry} />}
-          </div>
-        )}
       </div>
     </details>
   );
@@ -2956,7 +3418,13 @@ function FieldRow({
  * Minimum and optimistic sit as columns because that is what they are in the source. A row
  * that does not split cleanly is shown whole rather than shown wrong.
  */
-function TargetRows({ rows, blockIds }: { rows: TargetRow[]; blockIds: string[] }) {
+function TargetRows({
+  rows,
+  blockIds,
+}: {
+  rows: TargetRow[];
+  blockIds: string[];
+}) {
   if (rows.length === 0) return null;
   const bounded = rows.some((row) => row.kind === "bounded");
   return (
@@ -2967,15 +3435,9 @@ function TargetRows({ rows, blockIds }: { rows: TargetRow[]; blockIds: string[] 
       </div>
       {bounded && (
         <div className="mt-2 hidden grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_7rem] gap-x-4 pb-1 sm:grid">
-          <span className={EYEBROW}>
-            Variable
-          </span>
-          <span className={EYEBROW}>
-            Minimum
-          </span>
-          <span className={EYEBROW}>
-            Optimistic
-          </span>
+          <span className={EYEBROW}>Variable</span>
+          <span className={EYEBROW}>Minimum</span>
+          <span className={EYEBROW}>Optimistic</span>
         </div>
       )}
       <div className="divide-y divide-border/60">
@@ -2990,7 +3452,9 @@ function TargetRows({ rows, blockIds }: { rows: TargetRow[]; blockIds: string[] 
               // floating in the middle of a cell three lines tall.
               className="grid items-start gap-x-4 gap-y-0.5 py-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_7rem]"
             >
-              <p className="text-xs font-medium text-foreground">{row.variable}</p>
+              <p className="text-xs font-medium text-foreground">
+                {row.variable}
+              </p>
               <p className="text-xs leading-relaxed text-muted-foreground">
                 <span className={cn(EYEBROW, "sm:hidden")}>Minimum </span>
                 {row.minimum || "—"}
@@ -3002,13 +3466,24 @@ function TargetRows({ rows, blockIds }: { rows: TargetRow[]; blockIds: string[] 
               {/* Against the right edge, matching the numeric-target rows below, which
                   pack their triggers the same way. */}
               <span className="justify-self-end">
-                <DocumentSourceTrace blockIds={row.blockIds} spans={[{ quote: row.quote, block_ids: row.blockIds }]} />
+                <DocumentSourceTrace
+                  blockIds={row.blockIds}
+                  spans={[{ quote: row.quote, block_ids: row.blockIds }]}
+                />
               </span>
             </div>
           ) : (
-            <div key={index} className="flex items-start justify-between gap-3 py-2">
-              <p className="text-xs leading-relaxed text-foreground">{row.text}</p>
-              <DocumentSourceTrace blockIds={row.blockIds} spans={[{ quote: row.quote, block_ids: row.blockIds }]} />
+            <div
+              key={index}
+              className="flex items-start justify-between gap-3 py-2"
+            >
+              <p className="text-xs leading-relaxed text-foreground">
+                {row.text}
+              </p>
+              <DocumentSourceTrace
+                blockIds={row.blockIds}
+                spans={[{ quote: row.quote, block_ids: row.blockIds }]}
+              />
             </div>
           ),
         )}
@@ -3034,7 +3509,8 @@ function ConformityBlock({
     ? formatNumericExpression(target.expression)
     : `${conformity.comparator} ${formatMeasure(conformity.target_value, conformity.unit)}`;
   const dimensions = target ? comparisonDimensions(target) : [];
-  const formatBenchmark = (value: number | null) => formatMeasure(value, conformity.unit);
+  const formatBenchmark = (value: number | null) =>
+    formatMeasure(value, conformity.unit);
   const coverageLabel = CALIBRATION_BASIS_LABEL[conformity.calibration_status];
   const targetRoleLabel = TARGET_ROLE_LABEL[conformity.target_role];
   const view = calibrationView(conformity);
@@ -3057,8 +3533,12 @@ function ConformityBlock({
         {/* The reading, which flexes and wraps inside its own box. Left in the outer row it
             competed with the triggers for width, so a long outcome pushed them off. */}
         <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <span className="text-sm font-medium tabular-nums text-foreground">{targetLabel}</span>
-          <span className="text-[11px] text-muted-foreground">{targetRoleLabel}</span>
+          <span className="text-sm font-medium tabular-nums text-foreground">
+            {targetLabel}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {targetRoleLabel}
+          </span>
           {/* The verdict, and only the verdict. How many comparators there were is the
               trigger's count, and how many met the target is the Comparators panel's own
               description, so naming either here stated it twice. */}
@@ -3090,97 +3570,114 @@ function ConformityBlock({
               this one, in its rightmost cell. */}
           <DocumentSourceTrace
             blockIds={conformity.doc_block_ids}
-            spans={conformity.target_quote && conformity.doc_block_ids?.length
-              ? [{ quote: conformity.target_quote, block_ids: conformity.doc_block_ids }]
-              : []}
+            spans={
+              conformity.target_quote && conformity.doc_block_ids?.length
+                ? [
+                    {
+                      quote: conformity.target_quote,
+                      block_ids: conformity.doc_block_ids,
+                    },
+                  ]
+                : []
+            }
           />
         </span>
       </summary>
 
       <div className={cn(DISCLOSURE_MOTION)}>
-      {conformity.target_quote && (
-        <Quoted size="prominent" className="mt-1.5">
-          {conformity.target_quote}
-        </Quoted>
-      )}
+        {conformity.target_quote && (
+          <Quoted size="prominent" className="mt-1.5">
+            {conformity.target_quote}
+          </Quoted>
+        )}
 
-      {/* What this number is a measure of, one named slot per line. The same profile the
+        {/* What this number is a measure of, one named slot per line. The same profile the
           review checkpoint shows; only the constrained slots, because an unconstrained
           one places no requirement on a comparator. */}
-      {dimensions.length > 0 && target && (
-        <dl className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2">
-          {dimensions.map((dimension) => (
-            <div key={dimension} className="flex min-w-0 gap-2">
-              <dt className="shrink-0 text-[11px] text-muted-foreground">
-                {dimensionLabel(dimension)}
-              </dt>
-              <dd className="min-w-0 text-[11px] text-foreground">
-                {semanticSlotLabel(target.semantic_profile[dimension])}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      {/* The fallback when no structured target was resolved: the label the pipeline composed
+        {dimensions.length > 0 && target && (
+          <dl className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+            {dimensions.map((dimension) => (
+              <div key={dimension} className="flex min-w-0 gap-2">
+                <dt className="shrink-0 text-[11px] text-muted-foreground">
+                  {dimensionLabel(dimension)}
+                </dt>
+                <dd className="min-w-0 text-[11px] text-foreground">
+                  {semanticSlotLabel(target.semantic_profile[dimension])}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {/* The fallback when no structured target was resolved: the label the pipeline composed
           for what was scored, e.g. "adult threshold <=1.0 mL". Full contrast, because it
           stands in for the target itself here, not for anyone's reading of it. */}
-      {!target && conformity.target_label && (
-        <Computed className="mt-2 block text-[11px]">{conformity.target_label}</Computed>
-      )}
+        {!target && conformity.target_label && (
+          <Computed className="mt-2 block text-[11px]">
+            {conformity.target_label}
+          </Computed>
+        )}
 
-      {/* The grid appears at three comparators, where an observed SD exists. Below that it
+        {/* The grid appears at three comparators, where an observed SD exists. Below that it
           was five cells of "Not shown" beside one number - on a real run quartiles were
           presentable for 0 of 12 targets and an SD for 1. */}
-      {view.shape === "full" && (
-        <>
-          {/* Columns follow the cell count, because it is known: four without quartiles, five
+        {view.shape === "full" && (
+          <>
+            {/* Columns follow the cell count, because it is known: four without quartiles, five
               or six with them. At a fixed three, four cells laid out 3 + 1 and the lone cell
               on the second row read as something missing rather than as the fourth of four. */}
-          <dl
-            className={cn(
-              "mt-3 grid grid-cols-2 gap-x-6 gap-y-3",
-              statCellCount % 3 === 0 ? "sm:grid-cols-3" : statCellCount % 2 === 0 ? "sm:grid-cols-2" : "sm:grid-cols-3",
-            )}
-          >
-            <StatCell label="External median" value={formatBenchmark(conformity.benchmark_median)} />
-            <StatCell label={view.observedLabel} value={view.observedValue} />
-            <StatCell
-              label={view.showDeviation ? "Mean · observed SD" : "Mean"}
-              value={view.showDeviation
-                ? formatMeasurePair(
-                    conformity.benchmark_mean,
-                    conformity.benchmark_standard_deviation,
+            <dl
+              className={cn(
+                "mt-3 grid grid-cols-2 gap-x-6 gap-y-3",
+                statCellCount % 3 === 0
+                  ? "sm:grid-cols-3"
+                  : statCellCount % 2 === 0
+                    ? "sm:grid-cols-2"
+                    : "sm:grid-cols-3",
+              )}
+            >
+              <StatCell
+                label="External median"
+                value={formatBenchmark(conformity.benchmark_median)}
+              />
+              <StatCell label={view.observedLabel} value={view.observedValue} />
+              <StatCell
+                label={view.showDeviation ? "Mean · observed SD" : "Mean"}
+                value={
+                  view.showDeviation
+                    ? formatMeasurePair(
+                        conformity.benchmark_mean,
+                        conformity.benchmark_standard_deviation,
+                        conformity.unit,
+                        " · ",
+                      )
+                    : formatBenchmark(conformity.benchmark_mean)
+                }
+              />
+              {view.showQuartiles && (
+                <StatCell
+                  label="Middle 50%"
+                  value={formatMeasurePair(
+                    conformity.benchmark_lower_quartile,
+                    conformity.benchmark_upper_quartile,
                     conformity.unit,
-                    " · ",
-                  )
-                : formatBenchmark(conformity.benchmark_mean)}
-            />
-            {view.showQuartiles && (
-              <StatCell
-                label="Middle 50%"
-                value={formatMeasurePair(
-                  conformity.benchmark_lower_quartile,
-                  conformity.benchmark_upper_quartile,
-                  conformity.unit,
-                  "–",
-                )}
-              />
-            )}
-            {conformity.ambition_percentile != null && view.showQuartiles && (
-              <StatCell
-                label="Ambition percentile"
-                value={formatOrdinal(Math.round(conformity.ambition_percentile * 100))}
-              />
-            )}
-            <StatCell label="Comparator basis" value={coverageLabel} />
-          </dl>
-        </>
-      )}
+                    "–",
+                  )}
+                />
+              )}
+              {conformity.ambition_percentile != null && view.showQuartiles && (
+                <StatCell
+                  label="Ambition percentile"
+                  value={formatOrdinal(
+                    Math.round(conformity.ambition_percentile * 100),
+                  )}
+                />
+              )}
+              <StatCell label="Comparator basis" value={coverageLabel} />
+            </dl>
+          </>
+        )}
 
-      <ComparatorDistributionPlot conformity={conformity} matches={matches} />
-
-
-
+        <ComparatorDistributionPlot conformity={conformity} matches={matches} />
       </div>
     </details>
   );
@@ -3201,12 +3698,22 @@ function ConformityBlock({
  * separates one cell from the next. Dropping the horizontal padding also lines these labels
  * up with that block instead of sitting indented from it.
  */
-function StatCell({ label, value, detail }: { label: string; value: string; detail?: string }) {
+function StatCell({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) {
   return (
     <div className="py-1">
       <dt className={EYEBROW}>{label}</dt>
       <dd className="mt-0.5 text-xs font-medium text-foreground">{value}</dd>
-      {detail && <dd className="text-[11px] text-muted-foreground">{detail}</dd>}
+      {detail && (
+        <dd className="text-[11px] text-muted-foreground">{detail}</dd>
+      )}
     </div>
   );
 }
@@ -3243,10 +3750,18 @@ function DisclosureRow({
     <details className="group/row">
       <summary className="flex cursor-pointer select-none items-center gap-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/row:rotate-180 motion-reduce:transition-none" />
-        {tone && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", TONE_DOT[tone])} />}
+        {tone && (
+          <span
+            className={cn("h-1.5 w-1.5 shrink-0 rounded-full", TONE_DOT[tone])}
+          />
+        )}
         <span className="text-xs font-medium text-foreground">{label}</span>
-        <span className="text-[11px] tabular-nums text-muted-foreground">{count}</span>
-        {note && <span className="text-[11px] text-muted-foreground">{note}</span>}
+        <span className="text-[11px] tabular-nums text-muted-foreground">
+          {count}
+        </span>
+        {note && (
+          <span className="text-[11px] text-muted-foreground">{note}</span>
+        )}
       </summary>
       <div className={cn("pb-2 pl-5", DISCLOSURE_MOTION)}>{children}</div>
     </details>
@@ -3277,14 +3792,18 @@ function SignalVerdict({
   /** Drawn only when nothing the ids named could be found; see `needsFindingFallback`. */
   fallback: Finding[];
 }) {
-  const orphaned = citations.every((entry) => needsFindingFallback(entry.cited));
+  const orphaned = citations.every((entry) =>
+    needsFindingFallback(entry.cited),
+  );
   return (
     <section className="border-t border-border/60 pt-4 first:border-t-0 first:pt-0">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <SectionLabel>{label}</SectionLabel>
         <div className="flex items-center gap-3">
           {chips.map((chip) => (
-            <SignalChip key={chip.text} tone={chip.tone}>{chip.text}</SignalChip>
+            <SignalChip key={chip.text} tone={chip.tone}>
+              {chip.text}
+            </SignalChip>
           ))}
         </div>
       </div>
@@ -3292,7 +3811,9 @@ function SignalVerdict({
           reason in this view. Full contrast is reserved for the tool's own words and the
           document's values, which is the only authorship distinction a reader can act on. */}
       {reason && (
-        <Reading size="prominent" className="mt-1.5">{reason}</Reading>
+        <Reading size="prominent" className="mt-1.5">
+          {reason}
+        </Reading>
       )}
       {/* The same row as a relation bucket, so a verdict's evidence opens the way every
           other group in this field opens. A citation naming an insight the field does not
@@ -3326,9 +3847,7 @@ function SignalVerdict({
             </DisclosureRow>
           ))}
       </div>
-      {orphaned && fallback.length > 0 && (
-        <SourceList findings={fallback} />
-      )}
+      {orphaned && fallback.length > 0 && <SourceList findings={fallback} />}
     </section>
   );
 }
@@ -3366,7 +3885,9 @@ function CitedInsightIndex({ cited }: { cited: Citation }) {
               aria-hidden="true"
             />
             <span className="min-w-0">
-              <span className="sr-only">{RELATIONSHIP_LABEL[match.relation]}: </span>
+              <span className="sr-only">
+                {RELATIONSHIP_LABEL[match.relation]}:{" "}
+              </span>
               {match.insight.statement}
             </span>
           </a>
@@ -3385,7 +3906,10 @@ function CitedInsightIndex({ cited }: { cited: Citation }) {
  * the reader's. Nothing is removed: every insight is still here, and this is its only copy.
  */
 function InsightGroups({ registry }: { registry: InsightRegistry }) {
-  const total = registry.groups.reduce((sum, group) => sum + group.matches.length, 0);
+  const total = registry.groups.reduce(
+    (sum, group) => sum + group.matches.length,
+    0,
+  );
   if (registry.groups.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -3472,8 +3996,13 @@ function revealInsight(id: string): void {
     ancestor.open = true;
     ancestor = ancestor.parentElement?.closest("details") ?? null;
   }
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+  const reduceMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+  target.scrollIntoView({
+    behavior: reduceMotion ? "auto" : "smooth",
+    block: "center",
+  });
 
   // The same arrival ring the document trace uses, and for the same reason: opening the
   // bucket is not enough, because the insight lands mid-screen among up to 43 others that
@@ -3481,12 +4010,10 @@ function revealInsight(id: string): void {
   // field reads like a jump into a passage.
   const marks = ARRIVAL_HIGHLIGHT.split(" ");
   window.clearTimeout(arrivalTimeout);
-  document
-    .querySelectorAll("[data-arrived]")
-    .forEach((stale) => {
-      stale.removeAttribute("data-arrived");
-      stale.classList.remove(...marks);
-    });
+  document.querySelectorAll("[data-arrived]").forEach((stale) => {
+    stale.removeAttribute("data-arrived");
+    stale.classList.remove(...marks);
+  });
   target.setAttribute("data-arrived", "");
   target.classList.add(...marks);
   arrivalTimeout = window.setTimeout(() => {
@@ -3531,10 +4058,11 @@ function ScoutConfiguration({
             max={new Date().toISOString().slice(0, 10)}
           />
           <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-            Only evidence published on or after this date enters the run, so no count or
-            benchmark includes anything older. Sources that can filter by date ask for the
-            window directly, which changes what they rank rather than only what survives.
-            Sources that publish no date, such as web pages, are still included.
+            Only evidence published on or after this date enters the run, so no
+            count or benchmark includes anything older. Sources that can filter
+            by date ask for the window directly, which changes what they rank
+            rather than only what survives. Sources that publish no date, such
+            as web pages, are still included.
           </p>
         </ConfigField>
       </ConfigFieldGrid>

@@ -14,12 +14,30 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const read = (...parts: string[]) => readFileSync(path.join(REPO, ...parts), "utf8");
+
+/** The four tools that render a finished result. */
+const TOOLS = ["scout", "inspector", "aligner", "expert"] as const;
+
+/** Every `.tsx` under `app/` and `components/`, so a check can ask "anywhere but here". */
+function tsxFiles(): string[] {
+  const found: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".tsx")) found.push(full);
+    }
+  };
+  walk(path.join(REPO, "app"));
+  walk(path.join(REPO, "components"));
+  return found;
+}
 
 /** Pages that render sentences a model wrote about a document. */
 const MODEL_AUTHORED_PAGES = [
@@ -170,7 +188,7 @@ test("one verdict has one tone, wherever it is drawn", () => {
 test("no tool keeps its own copy of the shared chip", () => {
   // Scout owned `SignalChip` while three tools reinvented the same row. Promoting it left
   // Scout with a duplicate for one round, which is the smell the promotion was removing.
-  for (const tool of ["scout", "inspector", "aligner", "expert"]) {
+  for (const tool of TOOLS) {
     const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
     assert.ok(
       !/^function SignalChip\(/m.test(page),
@@ -204,4 +222,448 @@ test("a popover can never grow taller than the screen", () => {
   const popover = readFileSync(path.join(REPO, "components", "ui", "popover.tsx"), "utf8");
   assert.match(popover, /max-h-\[var\(--radix-popover-content-available-height\)\]/);
   assert.match(popover, /overflow-y-auto/);
+});
+
+/**
+ * One fact, rendered once.
+ *
+ * A variable the document never wrote has both its sentences templated in
+ * `services/inspector/assembly.py` out of three fields already on the row - the unit name,
+ * its section, and its reason. On a six-variable absent section that was one fact rendered
+ * twenty-five times, and the template text was shown through `Reading`, the treatment that
+ * means a model judged it.
+ */
+
+test("a finding does not restate the fields rendered beside it", () => {
+  const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
+  assert.match(page, /function restatesItself/, "the restatement rule is gone");
+  assert.match(
+    page,
+    /finding\.reason === "missing" && Boolean\(finding\.variable_name\)/,
+    "the rule no longer names the one case it is for",
+  );
+  assert.match(page, /\{!restatesItself\(finding\) && \(/, "the rule is declared but not applied");
+});
+
+test("an absent section still says what it should have covered", () => {
+  // Deliberately narrow. A section declaring no variables keeps its recommendation,
+  // because that one carries the rubric's description of what the section should contain -
+  // which appears nowhere else on screen. Only the per-variable case restates itself.
+  const assembly = readFileSync(
+    path.join(REPO, "..", "services", "inspector", "assembly.py"),
+    "utf8",
+  );
+  assert.match(assembly, /Add a \{section_name\} section covering: \{spec\.description\}/);
+});
+
+test("a unit status has one tone, and the pill and the count row both read it", () => {
+  // Two maps would be one verdict decided twice, which is how a status comes to be one
+  // colour on a unit and another on the section summarising it.
+  const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
+  assert.match(page, /const STATUS_TONE: Record<UnitStatus, Tone>/);
+  assert.match(
+    page,
+    /STATUS_SURFACE[\s\S]{0,120}TONE_TINT\[STATUS_TONE\[status\]\]/,
+    "the tint map decides its own colours again instead of reading the tone",
+  );
+});
+
+test("a section's counts are counts of units, and say so", () => {
+  // They were typed `Record<FindingLevel, number>` and labelled with the finding
+  // vocabulary while counting units, so "Not met 10" on a section and "Not met" on a unit
+  // used one word for two denominators.
+  const api = readFileSync(path.join(REPO, "lib", "api.ts"), "utf8");
+  assert.match(api, /export type SectionShortfall = Extract<UnitStatus,/);
+  assert.match(api, /Record<SectionShortfall, number>/);
+  const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
+  assert.match(page, /label: STATUS_LABEL\[status\]/, "the section row uses the finding words");
+});
+
+/**
+ * Four zones, and what belongs in each.
+ *
+ *   header    who the result is about, and what you can do with the whole run
+ *   tab row   navigation, and nothing else
+ *   toolbar   what filters, searches, counts or explains the content below it
+ *   content   the result, including any summary derived from it
+ *
+ * Every tool had a toolbar and every tool placed it differently. Scout wrote the band twice
+ * and put "How to read" in it on one tab; Inspector put "How to read" on the tab row, where
+ * it reads as an affordance on the tabs rather than on anything they contain; and Scout's
+ * Fields toolbar sat below a coverage line and a priorities panel, so the chrome was inside
+ * the content it controls.
+ */
+
+test("no tool hand-rolls the toolbar band", () => {
+  // Matched on the toolbar's own shape - a column that becomes a centred row - rather than
+  // on the tint alone. Scout's unresolved-field notice shares the tint deliberately and is
+  // not a toolbar; a looser pattern flagged it and would have pushed a notice into a
+  // component for controls.
+  const band = /flex flex-col gap-2 border-b border-border\/60 bg-foreground\/\[0\.045\]/;
+  for (const tool of TOOLS) {
+    const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
+    assert.ok(!band.test(page), `${tool} writes the toolbar band by hand`);
+  }
+});
+
+test("every tool builds its result through the shared layout", () => {
+  // The zones were an arrangement each tool remembered, and each drifted somewhere: Scout's
+  // run-wide coverage sat inside its Fields tab, Inspector's priorities inside Sections,
+  // one tab row drew a heavier rule than the boundaries around it, and "How to read" sat on
+  // a tab row where it explained navigation rather than results.
+  //
+  // Now the zones are arguments. This replaces two tests that asserted their order, because
+  // a component that makes wrong order unexpressible is stronger than a test reporting it.
+  for (const tool of TOOLS) {
+    const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
+    assert.match(page, /<ResultLayout/, `${tool} assembles its own result layout`);
+    assert.ok(
+      !/<TabsList/.test(page),
+      `${tool} builds its own tab row instead of passing triggers to the layout`,
+    );
+  }
+});
+
+test("the layout keeps the header one block and every boundary one weight", () => {
+  const layout = readFileSync(
+    path.join(REPO, "components", "ui", "result-layout.tsx"),
+    "utf8",
+  );
+  // The figures are behind `ResultMetrics` in the header's trailing row and the card's own
+  // rule is off, so the header is one block - name, scope, actions, tabs - ending at one
+  // edge: the tab row's. As a line of its own the figures overlapped the subtitle above
+  // them, two sentences of numbers sharing a count before a single result.
+  assert.match(layout, /<ResultMetrics[\s\S]*?\{metrics\}/, "the figures are a header line again");
+  assert.match(layout, /separated=\{false\}/, "the card rules the header off from the tabs");
+  const header = layout.slice(layout.indexOf("<Tabs "), layout.indexOf("{priorities &&"));
+  // `border-b-0` removes a rule rather than drawing one, so it is not counted: the tab
+  // list clears the underline its own component ships with.
+  assert.equal(
+    (header.match(/border-b border-/g) ?? []).length,
+    1,
+    "the header draws more than the one rule that ends it",
+  );
+  assert.ok(
+    !/border-b border-border\b(?!\/)/.test(layout),
+    "a boundary is drawn at a heavier weight than the others",
+  );
+});
+
+
+
+test("a view says what opening it gives you, once", () => {
+  // The count moved to the toolbar, where the nav states it beside the search. What is left
+  // is the one thing the rows cannot say for themselves: that a section holds every unit
+  // the rubric asks about, not only the ones that produced a finding.
+  const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
+  assert.ok(
+    !page.includes("Each row carries its own counts"),
+    "the description still describes the interface instead of the content",
+  );
+  assert.match(page, /Open a section to see every unit the rubric asks about/);
+  assert.equal(
+    (page.match(/Open a section to see every unit/g) ?? []).length,
+    1,
+    "the sentence is stated twice",
+  );
+});
+
+/**
+ * A result names itself the same way everywhere.
+ *
+ * The card title held four different kinds of thing: Inspector the document, Scout a count
+ * of the rubric, Aligner the tool's own noun, Expert the gate — which its subtitle then
+ * repeated. Scout never named the document it analysed at all, which is the one fact that
+ * tells a reader which run they are looking at.
+ *
+ * `runLabel` already answered this for the run picker and the download filename, so a run
+ * had one name in two places and something else in the third.
+ */
+
+test("every result card is titled by the run's own identity", () => {
+  for (const tool of TOOLS) {
+    const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
+    assert.match(
+      page,
+      new RegExp(`title=\\{runLabel\\(result, "${tool}"\\)\\}`),
+      `${tool} titles its result card with something of its own`,
+    );
+  }
+});
+
+test("a page description says what the tool answers, not how it works", () => {
+  // Five tools described a question and two described a mechanism, in internal vocabulary:
+  // "through one normalized workspace", "for downstream intelligence workflows".
+  const mechanical = /Transform source documents|normalized workspace|downstream intelligence/;
+  for (const tool of ["scout", "inspector", "aligner", "expert", "archivist", "searcher", "chunker"]) {
+    const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
+    assert.ok(!mechanical.test(page), `${tool} describes its mechanism rather than its question`);
+  }
+});
+
+test("the priorities panel starts closed, like everything around it", () => {
+  // It was the one disclosure on the page that opened by default, so a reader who had read
+  // it once closed it again on every run.
+  const panel = readFileSync(path.join(REPO, "components", "ui", "priority-panel.tsx"), "utf8");
+  assert.match(panel, /defaultOpen = false/);
+});
+
+test("a toolbar is never only its right-hand end", () => {
+  // Inspector's toolbars held nothing but "How to read" and a count, so the band read as an
+  // empty strip. The left side takes a control where there is something to filter and the
+  // view's name where there is not - three conflicts do not need a search.
+  //
+  // Across all four now, not just Inspector: the band is shared, so the rule about what
+  // may be in it is one rule. `<ResultSearch` rather than `type="search"`, because the
+  // input moved into its own component and every toolbar reaches it by that name.
+  let checked = 0;
+  for (const tool of TOOLS) {
+    const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
+    for (const band of page.split("<ResultToolbar>").slice(1)) {
+      const inner = band.slice(0, band.indexOf("</ResultToolbar>"));
+      const end = inner.indexOf("<ResultToolbarEnd>");
+      const left = end === -1 ? inner : inner.slice(0, end);
+      assert.ok(
+        /<ResultSearch/.test(left) || /<p /.test(left),
+        `${tool} has a toolbar with nothing on its left: ${inner.slice(0, 80)}`,
+      );
+      checked += 1;
+    }
+  }
+  assert.ok(checked >= 5, `only ${checked} toolbars found; a tool lost its band`);
+});
+
+/**
+ * Three zones should read as three, not as eight strips.
+ *
+ * A rule is a boundary. Once the coverage line, the tab row, the priorities panel and the
+ * toolbar each drew one, the header alone looked like three stacked components — and a
+ * reader counting boxes counts wrong about what belongs to what.
+ */
+
+test("a zone boundary is one rule, at one weight", () => {
+  // `border-border` at full opacity read heavier than the `/60` every other boundary uses,
+  // so the tab row looked like the end of something rather than part of the header.
+  for (const tool of ["scout", "inspector"]) {
+    const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
+    const tabs = page.slice(page.indexOf("<Tabs "), page.indexOf("<TabsList"));
+    assert.ok(
+      !/border-b border-border\b(?!\/)/.test(tabs),
+      `${tool}'s tab row draws a heavier rule than the zones around it`,
+    );
+  }
+});
+
+test("the header draws no rule inside itself", () => {
+  // Identity, figures and navigation are one block. The coverage line used to end with a
+  // border, which split the run's name from the run's numbers.
+  const page = readFileSync(path.join(REPO, "app", "scout", "page.tsx"), "utf8");
+  const coverage = page.slice(page.indexOf("function RunCoverage"));
+  const opening = coverage.slice(0, coverage.indexOf(">"));
+  assert.ok(
+    !opening.includes("border-b"),
+    "the coverage line rules itself off from the title above it",
+  );
+});
+
+
+test("the search box is one component, not a class string four tools copied", () => {
+  // It was copied, character for character, three times. Identical is how a copy starts;
+  // one of them drifting to a different height or focus ring is how it ends, with nobody
+  // able to say which was right. The check is on the input rather than on the class,
+  // because a tool that writes its own `<input type="search">` has already left.
+  const owner = path.join("components", "ui", "result-search.tsx");
+  for (const file of tsxFiles()) {
+    if (file.endsWith(owner)) continue;
+    const source = readFileSync(file, "utf8");
+    assert.ok(
+      !/type="search"/.test(source),
+      `${path.relative(REPO, file)} builds its own search input instead of using ResultSearch`,
+    );
+  }
+});
+
+test("a toolbar ends the shared way, and insets the header figures nowhere but the layout", () => {
+  // One of five toolbars pushed its count right with its own `sm:ml-auto` instead of
+  // `ResultToolbarEnd`, so a change to how a toolbar ends would have reached four of them.
+  for (const tool of TOOLS) {
+    const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
+    for (const toolbar of page.match(/<ResultToolbar>[\s\S]*?<\/ResultToolbar>/g) ?? []) {
+      assert.ok(
+        !/ml-auto/.test(toolbar) || /<ResultToolbarEnd[\s>]/.test(toolbar),
+        `${tool} aligns a toolbar's right-hand end by hand instead of using ResultToolbarEnd`,
+      );
+    }
+    // The figure row is passed bare and the layout insets it. Two tools passed a bare row
+    // and one padded its own, so the same zone was aligned two ways across the four.
+    const metrics = page.slice(page.indexOf("metrics={"), page.indexOf("tabValue="));
+    assert.ok(
+      !/\bpx-5\b/.test(metrics),
+      `${tool} insets its own header figures; the inset belongs to CollapsibleCard's header`,
+    );
+  }
+});
+
+test("the priorities panel shows on the tab its items link into", () => {
+  // It sat above every tab, because it is selected from the whole result. But every item
+  // is a link into one tab, so on Scout's Documents view it nominated fields that were
+  // not on screen, and on the Evidence map it was a closed grey band above the thing you
+  // came for. Selected-from and shown-on are different questions.
+  const layout = read("components", "ui", "result-layout.tsx");
+  assert.match(
+    layout,
+    /priorities\.tab === tabValue/,
+    "the priorities panel renders on every tab again",
+  );
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    if (!page.includes("priorities={")) continue;
+    const slot = page.slice(page.indexOf("priorities={"), page.indexOf("priorities={") + 400);
+    const tab = slot.match(/tab: "([a-z]+)"/);
+    assert.ok(tab, `${tool} supplies a priorities panel without saying which tab it links into`);
+    assert.ok(
+      page.includes(`<TabsTrigger value="${tab[1]}">`),
+      `${tool} points its priorities at "${tab[1]}", which is not one of its tabs`,
+    );
+  }
+});
+
+test("a count that equals its total is not shown", () => {
+  // "36 of 36" is the filter reporting that it is not filtering, beside a subtitle that
+  // already said 36. The decision is made once in `ResultToolbarEnd` rather than at five
+  // call sites, so no tool has to remember to stay quiet.
+  const toolbar = read("components", "ui", "result-toolbar.tsx");
+  assert.match(
+    toolbar,
+    /count\.shown !== count\.total/,
+    "the toolbar shows a count even when nothing is filtered",
+  );
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    for (const band of page.match(/<ResultToolbarEnd[\s\S]*?<\/ResultToolbarEnd>/g) ?? []) {
+      assert.ok(
+        !/\{\s*\w[\w.]*\.length\s*\}\s*of\s*\{/.test(band),
+        `${tool} writes its own "n of m" instead of passing count to ResultToolbarEnd`,
+      );
+    }
+  }
+});
+
+test("the explainer is the last thing on a toolbar", () => {
+  // It is the one item whose width never changes, so it holds the right edge still.
+  // With the count outside it, filtering from "36 of 36" to "4 of 36" shifted the band.
+  const toolbar = read("components", "ui", "result-toolbar.tsx");
+  const end = toolbar.slice(toolbar.indexOf("export function ResultToolbarEnd"));
+  assert.ok(
+    end.indexOf("{count") < end.indexOf("{children}"),
+    "the count renders after the explainer, so the right edge moves as you filter",
+  );
+});
+
+test("the run's figures are stated once, not twice in two grammars", () => {
+  // The subtitle said "36 fields · 1,491 insights in these fields" and the row under it
+  // said "31 of 36 fields stated a target". Two sentences of numbers before a single
+  // result, sharing a 36 the reader had to work out was the same 36. The subtitle keeps
+  // scope - what was examined - and every outcome figure lives behind `ResultMetrics`.
+  const layout = read("components", "ui", "result-layout.tsx");
+  assert.match(layout, /<ResultMetrics/, "the figures are not behind the metrics panel");
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    const call = page.slice(page.indexOf("<ResultLayout"), page.indexOf("tabValue="));
+    const subtitle = call.slice(call.indexOf("subtitle="), call.indexOf("metrics="));
+    // Scope reads as a count of what was examined. An outcome verb in the subtitle means
+    // the header is reporting results again.
+    assert.ok(
+      !/\b(stated|grounded|met|answered|found|flagged)\b/.test(subtitle),
+      `${tool} reports an outcome in its subtitle; the subtitle is scope`,
+    );
+  }
+});
+
+test("the priorities band is flush with the bands around it", () => {
+  // Tab row, priorities, toolbar - three consecutive zones. The middle one was an inset
+  // bordered card between two full-bleed bands, so it read as a component sitting inside
+  // the result rather than as one of its zones, and it was the only one whose left edge
+  // did not line up with the title.
+  const panel = read("components", "ui", "priority-panel.tsx");
+  assert.ok(
+    !/<section className="[^"]*\bborder border-border\b/.test(panel),
+    "the priorities panel draws its own card border inside the layout",
+  );
+  const layout = read("components", "ui", "result-layout.tsx");
+  const band = layout.slice(layout.indexOf("{priorities &&"));
+  assert.ok(
+    !/px-5/.test(band.slice(0, band.indexOf("</div>"))),
+    "the layout insets the priorities band, so it no longer lines up with the tab row",
+  );
+});
+
+test("the caption under a run's name is the configuration, in one grammar", () => {
+  // Four tools, four sentences, each derived from that tool's own output: Scout counted
+  // fields, Inspector sections and units, Aligner comparisons. The counts restated figures
+  // the metrics panel already holds, they were phrased in whatever unit that tool happens
+  // to use, and "36 fields" described the Fields tab rather than the run - on Documents it
+  // named something not on screen.
+  //
+  // Now it is what the reader typed into the header form: indication, intervention class,
+  // document type. Predictable before the run finishes, and identical across the four.
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    const call = page.slice(page.indexOf("<ResultLayout"), page.indexOf("tabValue="));
+    const subtitle = call.match(/subtitle=\{([^}]*)\}/);
+    assert.ok(subtitle, `${tool} states no caption under its run's name`);
+    assert.equal(
+      subtitle[1].trim(),
+      `runScope(result, "${tool}")`,
+      `${tool} builds its own caption instead of naming the run's configuration`,
+    );
+  }
+});
+
+test("the priorities panel is bounded, and says when it is", () => {
+  // Inspector returned its entire worklist - eighteen findings on a normal run, four lines
+  // each with a source trigger - so opening the panel pushed every result off the screen
+  // it was supposed to introduce. Scout capped at eight and the other three did not.
+  //
+  // A cap rather than a scrolling box: the panel opens closed, so a scrollbar inside
+  // something you just opened hides what you asked for, and a nested scroll region
+  // captures the wheel on the way past. Nothing is lost - every order note already says
+  // each item also appears in the list below.
+  const panel = read("components", "ui", "priority-panel.tsx");
+  assert.match(
+    panel,
+    /items\.slice\(0, PRIORITY_LIMIT\)/,
+    "the priorities panel renders every item its tool raised",
+  );
+  assert.ok(
+    !/overflow-y-auto|max-h-/.test(panel),
+    "the priorities panel scrolls inside itself instead of stopping at the limit",
+  );
+  // Bounded by default, not truncated. These are a worklist - every one of Inspector's is
+  // a rubric unit somebody has to fix - so the ones past eight are jobs, and a sentence
+  // pointing at the tab below asks a reader to find rows they cannot identify. The reader
+  // decides how many is enough; the default decides what the panel costs on arrival.
+  assert.match(
+    panel,
+    /items\.length > PRIORITY_LIMIT/,
+    "the panel truncates silently, so a partial list reads as the whole one",
+  );
+  assert.match(
+    panel,
+    /setShowAll/,
+    "the panel drops items with no way to see them",
+  );
+  assert.match(
+    panel,
+    /aria-expanded=\{showAll\}/,
+    "the show-all control does not say whether it is expanded",
+  );
+  // One number. Scout's selector stops at the limit rather than truncating after it, and
+  // the two must not be able to disagree about where that is.
+  const scout = read("lib", "scout-priorities.ts");
+  assert.match(
+    scout,
+    /SCOUT_PRIORITY_LIMIT = PRIORITY_LIMIT/,
+    "Scout keeps its own copy of the priority limit",
+  );
 });

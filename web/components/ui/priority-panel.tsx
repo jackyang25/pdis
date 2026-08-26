@@ -6,7 +6,11 @@ import { ChevronUp } from "lucide-react";
 import { DocumentSourceTrace } from "@/components/document-source-trace";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { PriorityNomination } from "@/lib/api";
+import { PRIORITY_LIMIT, type PriorityItem } from "@/lib/priorities";
 import { cn } from "@/lib/utils";
+
+// Re-exported for the pages that import the panel and its item together.
+export type { PriorityItem } from "@/lib/priorities";
 
 /**
  * The panel a tool opens with: what to look at first, in one shape everywhere.
@@ -44,20 +48,6 @@ import { cn } from "@/lib/utils";
  * contradicted target, and whatever the next tool produces - anything narrower
  * belongs in the tool's own view, not in the panel every tool shares.
  */
-export type PriorityItem = {
-  /** Stable across renders; the tool's own identifier for the thing. */
-  id: string;
-  /** The subject, in bold: a rubric unit, a variable, a target. */
-  label: string;
-  /** Muted trail after the label: where it sits, and why it was raised. */
-  qualifier?: string;
-  /** What is the matter, in the tool's own words. */
-  statement: string;
-  /** What to do about it, when the tool has something to say. */
-  recommendation?: string;
-  /** Source passages behind it, rendered as the shared document trace. */
-  blockIds?: string[];
-};
 
 export function PriorityPanel({
   attribution,
@@ -69,7 +59,15 @@ export function PriorityPanel({
   digestLoading = false,
   digestError,
   title = "Priorities",
-  defaultOpen = true,
+  /**
+   * Closed, like every other disclosure on the page.
+   *
+   * It opened by default and nothing else did, so on a result whose sections, fields and
+   * units all start closed this was the one thing already expanded - and the reader who
+   * had read it once had to close it on every run. The count in its header states how many
+   * there are without opening it, which is what a lede has to do.
+   */
+  defaultOpen = false,
 }: {
   /**
    * Who produced the wording, always as `by <Tool>`.
@@ -116,8 +114,16 @@ export function PriorityPanel({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  // Two disclosures, not one, because they answer different questions: whether to look at
+  // priorities at all, and whether eight is enough of them.
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? items : items.slice(0, PRIORITY_LIMIT);
+  const hidden = items.length - shown.length;
   return (
-    <section className="rounded-lg border border-border">
+    // No border and no corners: this is a band in the result layout, between the tab
+    // row and the toolbar, and both of those are flush. A card here made the middle
+    // one of three consecutive zones look like a component sitting inside the others.
+    <section>
       <div className="flex flex-wrap items-center gap-3 px-5 py-[14px] sm:px-6">
         <p className="flex min-w-0 flex-1 items-center gap-2 text-sm">
           <PriorityGlyph />
@@ -163,7 +169,7 @@ export function PriorityPanel({
           )}
           {items.length > 0 ? (
             <ul className="space-y-3">
-              {items.map((item) => (
+              {shown.map((item) => (
                 <li key={item.id} className="flex gap-2.5 text-sm leading-6">
                   <span aria-hidden className="select-none text-muted-foreground">
                     •
@@ -194,6 +200,24 @@ export function PriorityPanel({
             </ul>
           ) : (
             <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          )}
+          {/* A button, not a sentence pointing at the tab below. These are a worklist -
+              every one of Inspector's is a rubric unit somebody has to go and fix - so
+              the ten it does not show are ten jobs, and "they are in the list below" asks
+              a reader to go and find rows they cannot identify. The default stays eight,
+              which is what keeps an eighteen-item panel from pushing the result off the
+              screen it introduces; how many is enough is the reader's call, not ours. */}
+          {items.length > PRIORITY_LIMIT && (
+            <button
+              type="button"
+              onClick={() => setShowAll((current) => !current)}
+              aria-expanded={showAll}
+              className="mt-3 rounded-md text-xs font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+            >
+              {showAll
+                ? `Show the first ${PRIORITY_LIMIT}`
+                : `Show all ${items.length}, ${hidden} more`}
+            </button>
           )}
           {nominations.length > 0 && (
             /* Its own section, under its own heading. Inside the list it would become a

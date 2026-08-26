@@ -102,8 +102,8 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     // The floor of the shared scale rather than a truer word for it. There is no model
     // call on the read path - the corpus was built and reviewed in advance, so a query is
     // a filter over a few hundred committed rows - but these are read side by side, and
-    // "instant" beside "~15 min" is two scales rather than one comparison.
-    activity: "~1 min",
+    // "instant" beside "approx. 20 min" is two scales rather than one comparison.
+    activity: "approx. 1 min",
     icon: "archivist",
     // Owned by the PST team, who write these profiles, rather than shared: no other
     // tool reads the corpus, which is what makes Chunker and Searcher shared.
@@ -121,7 +121,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     description:
       "One document against its rubric: what is missing, off-template, vague, or internally inconsistent.",
     capability: "Document review",
-    activity: "~1 min",
+    activity: "approx. 1 min",
     icon: "inspector",
     audience: "pst",
     workflow: "document_intelligence",
@@ -135,7 +135,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     description:
       "One document’s targets against external evidence: whether its numbers hold up against comparable measurements and precedent.",
     capability: "Evidence review",
-    activity: "~15 min",
+    activity: "approx. 20 min",
     icon: "scout",
     audience: "pst",
     workflow: "document_intelligence",
@@ -152,7 +152,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     // Same arithmetic as Expert's, one step longer: each comparison reads its
     // reference document once, then fans out over the requirements it found. Two
     // documents is one comparison; three is two, run in sequence.
-    activity: "~1 min",
+    activity: "approx. 1 min",
     icon: "aligner",
     audience: "pst",
     workflow: "document_intelligence",
@@ -170,7 +170,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     // call returns one decision and one sentence — a few hundred bytes — against a
     // document context the provider caches after the first. The count of calls is not
     // what costs time here; the size of each answer is, and these are tiny.
-    activity: "~1 min",
+    activity: "approx. 1 min",
     icon: "expert",
     audience: "pst",
     workflow: "stage_gate",
@@ -184,7 +184,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     description:
       "Turn DOCX and PPTX files into ordered, citable text, table, and image blocks.",
     capability: "Document parsing",
-    activity: "~1 min",
+    activity: "approx. 1 min",
     icon: "chunker",
     audience: "shared",
     workflow: "utility",
@@ -198,7 +198,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     description:
       "Search selected evidence sources directly and review normalized findings in one place.",
     capability: "Direct search",
-    activity: "~5 min",
+    activity: "approx. 5 min",
     icon: "searcher",
     audience: "shared",
     workflow: "utility",

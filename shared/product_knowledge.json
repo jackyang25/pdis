@@ -138,6 +138,10 @@
             {
               "term": "Precedent",
               "description": "How directly prior work matches: Direct precedent, Adjacent precedent, No precedent found, or Precedent unknown. The outcome is reported separately, and is a different question: Favorable outcome, Mixed outcome, Unfavorable outcome, or Outcome unknown."
+            },
+            {
+              "term": "Relation to the uploaded product",
+              "description": "How close a retrieved record's subject is to your product: Direct, Analogous, Adjacent, Unrelated, or Unknown. It asks what a record is about, where Relation to document target asks what a piece of evidence does to a claim. The two share the word Unrelated and mean different things by it, and a record can be Analogous on this axis while its insight is Unrelated on that one. Adjacent here also means something different from Adjacent precedent, which is about how directly prior work matches."
             }
           ]
         },

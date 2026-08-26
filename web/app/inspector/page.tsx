@@ -1,5 +1,15 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
+import { ResultLayout } from "@/components/ui/result-layout";
+import {
+  ResultToolbar,
+  ResultToolbarEnd,
+} from "@/components/ui/result-toolbar";
+import { ResultSearch } from "@/components/ui/result-search";
+import { EXPANDABLE_ROW } from "@/lib/expandable-row";
+import { DISCLOSURE_MOTION } from "@/lib/motion";
+import { SURFACE } from "@/lib/surface";
 import { useTraceFocus } from "@/lib/trace-focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -13,9 +23,7 @@ import {
 } from "@/components/document-source-trace";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { HeaderGuard } from "@/components/header-guard";
-import {
-  InspectorSignalHelp,
-} from "@/components/inspector-signal-help";
+import { InspectorSignalHelp } from "@/components/inspector-signal-help";
 import { InspectorDocumentTrace } from "@/components/inspector-document-trace";
 import { PriorityPanel } from "@/components/ui/priority-panel";
 import { SectionHeading } from "@/components/ui/section-heading";
@@ -25,15 +33,15 @@ import { inspectorAnnotationId } from "@/lib/inspector-document-trace";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
 import { RunHistory } from "@/components/run-history";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   LEVEL_LABELS,
   REASON_DESCRIPTION,
   REASON_LABELS,
-  SHORTFALL_LEVELS,
+  SECTION_SHORTFALLS,
   STATUS_DESCRIPTION,
   STATUS_LABEL,
+  UNIT_STATUSES,
   runInspector,
   sectionShortfalls,
   worklist,
@@ -51,6 +59,7 @@ import {
   isInspectorResultFinal,
   packInspectorResult,
   runLabel,
+  runScope,
   splitResultContext,
   unpackInspectorResult,
   readResultIdentity,
@@ -86,7 +95,9 @@ export default function InspectorPage() {
         description="One document against its rubric: every unit the rubric asks about, and every finding tied to the passage it came from."
       />
       <HeaderGuard>
-        {(header, ready) => <InspectorView header={header as Header} ready={ready} />}
+        {(header, ready) => (
+          <InspectorView header={header as Header} ready={ready} />
+        )}
       </HeaderGuard>
     </>
   );
@@ -123,10 +134,14 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
     setStage(null);
     setProgress(null);
     try {
-      const response = await runInspector(file, header, (nextStage, nextProgress) => {
-        setStage(nextStage);
-        setProgress(nextProgress ?? null);
-      });
+      const response = await runInspector(
+        file,
+        header,
+        (nextStage, nextProgress) => {
+          setStage(nextStage);
+          setProgress(nextProgress ?? null);
+        },
+      );
       addResult(response);
     } catch (runError) {
       setError((runError as Error).message);
@@ -204,7 +219,6 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
   );
 }
 
-
 function InspectionResultView({
   result,
   onNewAnalysis,
@@ -212,7 +226,8 @@ function InspectionResultView({
   result: InspectorResponse;
   onNewAnalysis: () => void;
 }) {
-  const { results, selectedId, selectResult, removeResult } = useInspectorSession();
+  const { results, selectedId, selectResult, removeResult } =
+    useInspectorSession();
   const inspection = result.inspection;
   const final = isInspectorResultFinal(result);
   const [resultTab, setResultTab] = useState("trace");
@@ -223,81 +238,161 @@ function InspectionResultView({
     consume: consumeTraceFocus,
   } = useTraceFocus(revealTrace);
 
+  // Lifted with the panel it feeds. Priorities describe the run, so they are read once
+  // here rather than inside whichever tab happened to render them.
+  const priorityItems = useMemo(
+    () => selectInspectorPriorities(inspection),
+    [inspection],
+  );
+  // `selectedId` already came from the session destructure above; the panel's old home
+  // read it separately because it sat further down the tree.
+  const digest = usePriorityDigest(
+    selectedId
+      ? {
+          resultId: selectedId,
+          // The tool's own catalog sentence, so nothing here restates its authority.
+          authority: toolAuthority("inspector"),
+          orderNote: INSPECTOR_ORDER_NOTE,
+          items: priorityItems,
+          analysis: splitResultContext(inspection).analysis,
+          blockIds: (inspection.blocks ?? []).map((block) => block.id),
+          org: inspection.org ?? "",
+          interventionClass: inspection.intervention_class ?? "",
+          indication: inspection.indication ?? "",
+        }
+      : null,
+  );
+
   const findings = worklist(inspection);
   const sections = inspection.sections ?? [];
-  const unitCount = sections.reduce((total, section) => total + section.units.length, 0);
   const conflicts = inspection.document_findings?.length ?? 0;
-  const subtitle = [
-    `${sections.length} rubric sections`,
-    `${unitCount} units`,
-    `${findings.length} finding${findings.length === 1 ? "" : "s"}`,
-    conflicts > 0 ? `${conflicts} cross-section conflict${conflicts === 1 ? "" : "s"}` : null,
-  ].filter(Boolean).join(" · ");
+  // Scope, and only scope: what was examined, and what kind of run it was. The two
+  // outcome figures that used to end this line - findings, and cross-section conflicts -
+  // moved to the figure row below, where every other tool states how its run came out.
+  // Written to the same grammar as Aligner's and Expert's: size, then class, then what
+  // was read, so the line under the run's name says the same kind of thing in all four.
 
   return (
-    <CollapsibleCard
-      title={inspection.doc_id || "Inspection result"}
-      subtitle={subtitle}
-      defaultOpen
-      contentClassName="px-0 py-0 sm:px-0"
-      trailing={
+    <ResultLayout
+      // The identity the run picker and the download filename already use, so a run is
+      // called one thing in all three places.
+      title={runLabel(result, "inspector")}
+      subtitle={runScope(result, "inspector")}
+      metrics={
+        <RunCoverage
+          sections={sections}
+          findings={findings}
+          conflicts={conflicts}
+        />
+      }
+      // Two denominators. The statuses are units and sum to the unit count; findings and
+      // conflicts do not, because one unit can carry several and a cross-section conflict
+      // belongs to no unit at all.
+      metricsNote="Every rubric unit by status, then what the run found. A unit can carry several findings, and a cross-section conflict belongs to no unit, so the two do not sum to each other."
+
+      tabValue={resultTab}
+      onTabChange={setResultTab}
+      tabs={
         <>
-        <RunHistory
-          runs={results}
-          selectedId={selectedId}
-          onSelect={selectResult}
-          onRemove={removeResult}
-          label={(value) => runLabel(value, "inspector")}
-        />
-        <FinalResultActions
-          onNewAnalysis={onNewAnalysis}
-          download={final ? {
-              filename: inspectorResultFilename(result),
-              data: packInspectorResult(result),
-            } : undefined}
-        />
+          {/* The document is what Inspector is about, so it opens on the
+              document. Scout opens on its evidence for the same reason. */}
+          <TabsTrigger value="trace">Documents</TabsTrigger>
+          <TabsTrigger value="sections">Sections</TabsTrigger>
+          <TabsTrigger value="consistency">Consistency</TabsTrigger>
+        </>
+      }
+      priorities={{
+        // Every item links to a rubric unit, so it shows where the sections are.
+        tab: "sections",
+        panel: (
+          <PriorityPanel
+            attribution="by Inspector"
+            items={priorityItems}
+            emptyMessage={INSPECTOR_EMPTY_MESSAGE}
+            orderNote={INSPECTOR_ORDER_NOTE}
+            digest={
+              digest?.state === "ready" ? digest.digest.digest : undefined
+            }
+            nominations={
+              digest?.state === "ready" ? digest.digest.nominations : []
+            }
+            digestLoading={digest?.state === "loading"}
+            digestError={digest?.state === "failed" ? digest.reason : undefined}
+          />
+        ),
+      }}
+      actions={
+        <>
+          <RunHistory
+            runs={results}
+            selectedId={selectedId}
+            onSelect={selectResult}
+            onRemove={removeResult}
+            label={(value) => runLabel(value, "inspector")}
+          />
+          <FinalResultActions
+            onNewAnalysis={onNewAnalysis}
+            download={
+              final
+                ? {
+                    filename: inspectorResultFilename(result),
+                    data: packInspectorResult(result),
+                  }
+                : undefined
+            }
+          />
         </>
       }
     >
       {!final && (
-        <div className={cn("border-b border-border bg-[hsl(var(--tone-warning))]/[0.06] px-5 py-3 text-sm sm:px-6", TONE_TEXT.warning)}>
-          This assessment is incomplete. Complete the analysis before downloading a final result.
+        <div
+          className={cn(
+            "border-b border-border bg-[hsl(var(--tone-warning))]/[0.06] px-5 py-3 text-sm sm:px-6",
+            TONE_TEXT.warning,
+          )}
+        >
+          This assessment is incomplete. Complete the analysis before
+          downloading a final result.
         </div>
       )}
       <DocumentSourceProvider
         blocks={inspection.blocks}
         onOpenInTrace={openBlockInTrace}
       >
-        <Tabs value={resultTab} onValueChange={setResultTab} className="w-full">
-          <div className="flex items-center justify-between gap-3 border-b border-border px-5 pt-2 sm:px-6">
-            <TabsList className="justify-start border-b-0">
-              {/* The document is what Inspector is about, so it opens on the
-                  document. Scout opens on its evidence for the same reason. */}
-              <TabsTrigger value="trace">Documents</TabsTrigger>
-              <TabsTrigger value="sections">Sections</TabsTrigger>
-              <TabsTrigger value="consistency">Consistency</TabsTrigger>
-            </TabsList>
-            <InspectorSignalHelp />
-          </div>
-          <TabsContent value="trace" className="m-0">
-            <InspectorDocumentTrace
-              result={inspection}
-              focus={traceFocus}
-              onFocusConsumed={consumeTraceFocus}
-            />
-          </TabsContent>
-          <TabsContent value="sections" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
-            <SectionsList sections={sections} inspection={inspection} />
-          </TabsContent>
-          <TabsContent value="consistency" className="m-0 px-5 py-5 sm:px-6 sm:py-6">
+        <TabsContent value="trace" className="m-0">
+          <InspectorDocumentTrace
+            result={inspection}
+            focus={traceFocus}
+            onFocusConsumed={consumeTraceFocus}
+          />
+        </TabsContent>
+        <TabsContent value="sections" className="m-0">
+          <SectionsList sections={sections} inspection={inspection} />
+        </TabsContent>
+        <TabsContent value="consistency" className="m-0">
+          {/* The view's name on the left, because there is nothing here to filter: three
+                conflicts do not need a search, and a band holding only its right-hand end
+                reads as an empty strip. This also stops the heading below being a second
+                copy of the same sentence. */}
+          <ResultToolbar>
+            <p className="min-w-0 flex-1 text-xs font-medium text-foreground">
+              Cross-section conflicts
+            </p>
+            {/* No count. This band does not filter, and the run's figure row above
+                  already states how many cross-section conflicts there are. */}
+            <ResultToolbarEnd>
+              <InspectorSignalHelp />
+            </ResultToolbarEnd>
+          </ResultToolbar>
+          <div className="px-5 py-5 sm:px-6 sm:py-6">
             <ConsistencyView
               findings={inspection.document_findings ?? []}
               status={inspection.consistency_status}
             />
-          </TabsContent>
-        </Tabs>
+          </div>
+        </TabsContent>
       </DocumentSourceProvider>
-    </CollapsibleCard>
+    </ResultLayout>
   );
 }
 
@@ -308,49 +403,57 @@ function SectionsList({
   sections: SectionAssessment[];
   inspection: InspectionResult;
 }) {
-  const items = useMemo(() => selectInspectorPriorities(inspection), [inspection]);
-  // Read here rather than passed down: the store is the session's, and threading a
-  // digest through the view would make every intermediate component know about it.
-  const selectedId = useInspectorSession((state) => state.selectedId);
-  const digest = usePriorityDigest(
-    selectedId
-      ? {
-          resultId: selectedId,
-          // The tool's own catalog sentence, so nothing here restates its authority.
-          authority: toolAuthority("inspector"),
-          orderNote: INSPECTOR_ORDER_NOTE,
-          items,
-          analysis: splitResultContext(inspection).analysis,
-          blockIds: (inspection.blocks ?? []).map((block) => block.id),
-          org: inspection.org ?? "",
-          interventionClass: inspection.intervention_class ?? "",
-          indication: inspection.indication ?? "",
-        }
-      : null,
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  // Matched on a section and on the units inside it, because a reader looking for
+  // "Efficacy" is looking for a unit and does not know which section holds it.
+  const visible = sections.filter(
+    (section) =>
+      !normalizedQuery ||
+      section.section_name.toLowerCase().includes(normalizedQuery) ||
+      section.units.some((unit) =>
+        (unit.variable_name ?? section.section_name)
+          .toLowerCase()
+          .includes(normalizedQuery),
+      ),
   );
 
   return (
-    <div className="space-y-6">
-      <PriorityPanel
-        attribution="by Inspector"
-        items={items}
-        emptyMessage={INSPECTOR_EMPTY_MESSAGE}
-        orderNote={INSPECTOR_ORDER_NOTE}
-        digest={digest?.state === "ready" ? digest.digest.digest : undefined}
-        nominations={digest?.state === "ready" ? digest.digest.nominations : []}
-        digestLoading={digest?.state === "loading"}
-        digestError={digest?.state === "failed" ? digest.reason : undefined}
-      />
-      <div className="space-y-3">
-        <SectionHeading
-          title="Section assessments"
-          description="Each row carries its own counts. Open a section to see every unit the rubric asks about, its findings, and the passages behind them."
+    <>
+      {/* Chrome first, then content. The search is on the left where Scout and Aligner put
+          theirs; without it this band held only its right-hand end and read as an empty
+          strip. */}
+      <ResultToolbar>
+        <ResultSearch
+          label="Search sections and units"
+          placeholder="Find a section or unit…"
+          value={query}
+          onChange={setQuery}
         />
-        {sections.map((section) => (
-          <SectionCard key={section.section_name} section={section} />
-        ))}
+        <ResultToolbarEnd
+          count={{ shown: visible.length, total: sections.length }}
+        >
+          <InspectorSignalHelp />
+        </ResultToolbarEnd>
+      </ResultToolbar>
+      <div className="px-5 py-5 sm:px-6 sm:py-6">
+        <div className="space-y-3">
+          {/* Under the nav, like Consistency's. It says the one thing the rows cannot: that
+            opening a section shows *every* unit the rubric asks about, not only the ones
+            that produced a finding. */}
+          <p className="text-xs leading-5 text-muted-foreground">
+            Open a section to see every unit the rubric asks about, its
+            findings, and the passages behind them.
+          </p>
+          {visible.map((section) => (
+            <SectionCard key={section.section_name} section={section} />
+          ))}
+          {visible.length === 0 && (
+            <EmptyState message="No section or unit matches that search" />
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -373,7 +476,13 @@ function restatesItself(finding: RubricFinding): boolean {
  * The section list and the findings list show the same object, so they share one
  * renderer; two would be two things to keep in step.
  */
-function FindingBody({ finding, showUnit = true }: { finding: RubricFinding; showUnit?: boolean }) {
+function FindingBody({
+  finding,
+  showUnit = true,
+}: {
+  finding: RubricFinding;
+  showUnit?: boolean;
+}) {
   return (
     <div className="min-w-0 flex-1">
       <p className="flex flex-wrap items-baseline gap-x-1.5">
@@ -387,7 +496,10 @@ function FindingBody({ finding, showUnit = true }: { finding: RubricFinding; sho
             five it is not - and this line repeats 32 times in a run. */}
         {/* Short, with the full sentence on hover. The panel explains all six together,
             which is the only place they can be told apart from each other. */}
-        <span className="text-xs text-muted-foreground" title={REASON_DESCRIPTION[finding.reason]}>
+        <span
+          className="text-xs text-muted-foreground"
+          title={REASON_DESCRIPTION[finding.reason]}
+        >
           {REASON_LABELS[finding.reason]}
         </span>
       </p>
@@ -412,7 +524,9 @@ function FindingBody({ finding, showUnit = true }: { finding: RubricFinding; sho
       {!restatesItself(finding) && (
         <>
           <Reading size="prominent">{finding.statement}</Reading>
-          {finding.recommendation && <Reading>{finding.recommendation}</Reading>}
+          {finding.recommendation && (
+            <Reading>{finding.recommendation}</Reading>
+          )}
         </>
       )}
       {finding.cited_block_ids.length > 0 && (
@@ -437,7 +551,10 @@ function SectionCard({ section }: { section: SectionAssessment }) {
       trailing={<ShortfallCounts section={section} />}
       defaultOpen={false}
     >
-      <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+      {/* Dividers, not a second bordered box. The card already draws the boundary; a
+          rounded border inside a rounded border was the third nesting level on a page
+          Scout renders with two. */}
+      <div className="divide-y divide-border/60">
         {section.units.map((unit) => (
           <UnitRow
             key={unit.variable_name ?? section.section_name}
@@ -451,6 +568,69 @@ function SectionCard({ section }: { section: SectionAssessment }) {
 }
 
 /**
+ * How the run came out, in figures that hold on every tab.
+ *
+ * Inspector was the only tool with no figure row. Its outcome lived in the subtitle as
+ * "18 findings · 3 cross-section conflicts" - true, but plain text where the other three
+ * show graded counts, so the one tool whose whole job is grading a document was the one
+ * that showed no grade above the fold.
+ *
+ * Every status, including zeros, which is the opposite of `ShortfallCounts` one level
+ * down and deliberate for the same reason Aligner shows all of its verdicts: the
+ * denominator here is the whole rubric, so a zero says the class was checked and nothing
+ * fell into it. A zero on one *section* says nothing, because that section may not have
+ * been asked.
+ *
+ * Findings and conflicts are counted apart from the statuses rather than beside them.
+ * They are a different denominator - one unit can carry several findings, and a
+ * cross-section conflict belongs to no unit at all - so standing in the same row they
+ * would read as a fifth and sixth status and break the rule that the row sums to the
+ * unit count.
+ */
+function RunCoverage({
+  sections,
+  findings,
+  conflicts,
+}: {
+  sections: SectionAssessment[];
+  findings: RubricFinding[];
+  conflicts: number;
+}) {
+  const counts = UNIT_STATUSES.reduce(
+    (totals, status) => {
+      totals[status] = sections.reduce(
+        (sum, section) => sum + (section.status_counts?.[status] ?? 0),
+        0,
+      );
+      return totals;
+    },
+    {} as Record<UnitStatus, number>,
+  );
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+      <VerdictCounts
+        items={UNIT_STATUSES.map((status) => ({
+          label: STATUS_LABEL[status],
+          count: counts[status],
+          tone: STATUS_TONE[status],
+        }))}
+      />
+      <span className="text-[11px] tabular-nums text-muted-foreground">
+        {findings.length} {findings.length === 1 ? "finding" : "findings"}
+        {conflicts > 0 && (
+          <>
+            {" · "}
+            {conflicts} cross-section{" "}
+            {conflicts === 1 ? "conflict" : "conflicts"}
+          </>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/**
  * A section's units that fall short, by level.
  *
  * A zero says nothing, so it is not shown: on a six-section rubric most of these
@@ -460,7 +640,7 @@ function SectionCard({ section }: { section: SectionAssessment }) {
  */
 function ShortfallCounts({ section }: { section: SectionAssessment }) {
   const counts = sectionShortfalls(section);
-  const shown = SHORTFALL_LEVELS.filter((level) => counts[level] > 0);
+  const shown = SECTION_SHORTFALLS.filter((status) => counts[status] > 0);
   if (shown.length === 0) {
     // The same pill a unit shows. One signal, and it is what this row is about, so it is a
     // tint - the rule in `lib/tone.ts`. "Met" rendered as muted text here and as a pill one
@@ -471,39 +651,85 @@ function ShortfallCounts({ section }: { section: SectionAssessment }) {
   // the document. Expert shows its zeros for the opposite and equally deliberate reason.
   return (
     <VerdictCounts
-      items={shown.map((level) => ({
-        label: LEVEL_LABELS[level],
-        count: counts[level],
-        tone: LEVEL_TONE[level],
+      items={shown.map((status) => ({
+        // The unit vocabulary, because these are units. Reading `STATUS_LABEL` rather
+        // than the finding-level copy also means the section header and the unit pill it
+        // summarises can never disagree about a word.
+        label: STATUS_LABEL[status],
+        count: counts[status],
+        tone: STATUS_TONE[status],
       }))}
     />
   );
 }
 
-function UnitRow({ unit, sectionName }: { unit: UnitAssessment; sectionName: string }) {
-  return (
-    <div className="px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <p className="min-w-0 flex-1 truncate text-sm font-medium">
-          {unit.variable_name ?? sectionName}
-        </p>
-        <div className="flex items-center gap-2">
-          {unit.optional && <Badge variant="outline">Optional</Badge>}
-          <StatusPill status={unit.status} />
-        </div>
+/**
+ * One rubric unit: its name, its verdict, and its findings behind a disclosure.
+ *
+ * Collapsed, which is the change. Every unit used to render all of its findings inline -
+ * each with a reason, a statement, a recommendation and a provenance trigger - so a
+ * thirteen-unit section was sixty lines and adjacent rows differed in height by a factor of
+ * nine. Scout reads a field beside twenty-seven others and collapses; this reads a unit
+ * beside thirty-one and did not.
+ *
+ * A unit with no findings is not a disclosure at all. There is nothing behind it, and a
+ * control that opens to nothing is the same mistake as a citation that resolves to nothing.
+ */
+function UnitRow({
+  unit,
+  sectionName,
+}: {
+  unit: UnitAssessment;
+  sectionName: string;
+}) {
+  const heading = (
+    <>
+      <p className="min-w-0 flex-1 truncate text-sm font-medium">
+        {unit.variable_name ?? sectionName}
+      </p>
+      <div className="flex shrink-0 items-center gap-2">
+        {/* Muted text, not a second pill. `Optional` is the rubric author's decision about
+            this unit, not a verdict about the document, and two pills on one row read as
+            two judgements. */}
+        {unit.optional && (
+          <span className="text-[11px] text-muted-foreground">Optional</span>
+        )}
+        <StatusPill status={unit.status} />
       </div>
-      {unit.findings.length > 0 && (
-        <ul className="mt-2.5 space-y-2.5 text-sm leading-6">
-          {unit.findings.map((finding) => (
-            <li key={finding.id}>
-              {/* The unit's name is the row heading, so the finding does not
-                  repeat it here. */}
-              <FindingBody finding={finding} showUnit={false} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    </>
+  );
+
+  if (unit.findings.length === 0) {
+    return (
+      <div className="flex items-center gap-4 px-5 py-4 sm:px-6">{heading}</div>
+    );
+  }
+
+  return (
+    <details className="group/unit">
+      <summary className={cn(EXPANDABLE_ROW, "items-center")}>
+        <ChevronDown
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/unit:rotate-180 motion-reduce:transition-none"
+          aria-hidden="true"
+        />
+        {heading}
+      </summary>
+      <ul
+        className={cn(
+          "space-y-2.5 px-5 pb-4 text-sm leading-6 sm:px-6",
+          SURFACE.open.body,
+          DISCLOSURE_MOTION,
+        )}
+      >
+        {unit.findings.map((finding) => (
+          <li key={finding.id}>
+            {/* The unit's name is the row heading, so the finding does not
+                repeat it here. */}
+            <FindingBody finding={finding} showUnit={false} />
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -533,28 +759,34 @@ function ConsistencyView({
   }
   return (
     <div className="space-y-3">
-      <SectionHeading
-        title={`${findings.length} cross-section conflict${findings.length === 1 ? "" : "s"}`}
-        description={consistencyDescription(status)}
-      />
+      {/* The count and the name are in the toolbar above; what is left is the one thing a
+          reader cannot see, which is how much of the document the pass actually covered. */}
+      <p className="text-xs leading-5 text-muted-foreground">
+        {consistencyDescription(status)}
+      </p>
       {findings.map((finding) => (
-        <article key={finding.id} className="rounded-lg border border-border p-4">
+        <article
+          key={finding.id}
+          className="rounded-lg border border-border p-4"
+        >
           {/* The model's sentence, like the one in a section card. It was at full
               contrast here and muted there, so the same kind of claim carried two
               authorships depending on which tab you were reading. */}
           <Reading size="prominent">{finding.statement}</Reading>
           {finding.recommendation && (
             <div className="mt-3">
-              <LabeledItem kind="recommendation">{finding.recommendation}</LabeledItem>
+              <LabeledItem kind="recommendation">
+                {finding.recommendation}
+              </LabeledItem>
             </div>
           )}
           <div className="mt-3">
             {/* Named, so the trace opens on this finding's own layer rather than on
               every layer the passage carries. */}
-          <DocumentSourceTrace
-            blockIds={finding.cited_block_ids}
-            annotationId={inspectorAnnotationId(finding.id)}
-          />
+            <DocumentSourceTrace
+              blockIds={finding.cited_block_ids}
+              annotationId={inspectorAnnotationId(finding.id)}
+            />
           </div>
         </article>
       ))}
@@ -562,11 +794,17 @@ function ConsistencyView({
   );
 }
 
-function consistencyDescription(status: InspectionResult["consistency_status"]): string {
-  if (status === "complete") return "The complete retained document context was checked across mapped sections.";
-  if (status === "partial") return "The document exceeded the full-pass context bound; findings reflect the retained section-balanced context.";
-  if (status === "failed") return "The consistency pass did not complete; every section assessment above is unaffected.";
-  if (status === "not_applicable") return "Fewer than two mapped sections were available for a cross-section comparison.";
+function consistencyDescription(
+  status: InspectionResult["consistency_status"],
+): string {
+  if (status === "complete")
+    return "The complete retained document context was checked across mapped sections.";
+  if (status === "partial")
+    return "The document exceeded the full-pass context bound; findings reflect the retained section-balanced context.";
+  if (status === "failed")
+    return "The consistency pass did not complete; every section assessment above is unaffected.";
+  if (status === "not_applicable")
+    return "Fewer than two mapped sections were available for a cross-section comparison.";
   return "This saved result does not record consistency-pass completion.";
 }
 
@@ -596,14 +834,21 @@ function StatusPill({ status }: { status: UnitStatus }) {
 
 // Half of these reached the tone tokens and half wrote the palette out with a hand-kept
 // dark-mode variant beside it, for verdicts that sit in the same row as each other.
-const STATUS_SURFACE: Record<UnitStatus, string> = {
-  met: TONE_TINT.success,
-  could_be_stronger: TONE_TINT.warning,
-  not_met: TONE_TINT.danger,
-  not_applicable: TONE_TINT.neutral,
+/**
+ * One tone per unit status. The only place the judgement is made.
+ *
+ * The pill fills with it and the section's count row dots with it - two shapes, one
+ * decision, per the rule in `lib/tone.ts`. Two maps here would be the same verdict decided
+ * twice, which is how a status came to be one colour on a unit and another on the section
+ * summarising it.
+ */
+const STATUS_TONE: Record<UnitStatus, Tone> = {
+  met: "success",
+  could_be_stronger: "warning",
+  not_met: "danger",
+  not_applicable: "neutral",
 };
 
-const LEVEL_TONE: Record<FindingLevel, Tone> = {
-  not_met: "danger",
-  could_be_stronger: "warning",
-};
+const STATUS_SURFACE: Record<UnitStatus, string> = Object.fromEntries(
+  UNIT_STATUSES.map((status) => [status, TONE_TINT[STATUS_TONE[status]]]),
+) as Record<UnitStatus, string>;

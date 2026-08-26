@@ -27,7 +27,10 @@ const SECTION_ORDER = [
 ];
 const DOCUMENT_SECTIONS = PRODUCT_KNOWLEDGE.sections
   .filter((section) => SECTION_ORDER.includes(section.id))
-  .sort((left, right) => SECTION_ORDER.indexOf(left.id) - SECTION_ORDER.indexOf(right.id));
+  .sort(
+    (left, right) =>
+      SECTION_ORDER.indexOf(left.id) - SECTION_ORDER.indexOf(right.id),
+  );
 
 // The prompt reference sits inside the pipelines section but is worth its own
 // nav entry: a reader looking for "what did the model get told" will not guess
@@ -115,10 +118,16 @@ function DocsNavigation() {
   return (
     <aside className="hidden lg:block">
       <nav aria-label="Documentation sections" className="sticky top-24">
-        <p className="px-2 text-[9px] font-semibold uppercase tracking-[0.11em] text-muted-foreground/70">On this page</p>
+        <p className="px-2 text-[9px] font-semibold uppercase tracking-[0.11em] text-muted-foreground/70">
+          On this page
+        </p>
         <div className="mt-1 space-y-0.5">
           {NAVIGATION.map(([href, label]) => (
-            <a key={href} href={`#${href}`} className="block rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground motion-reduce:transition-none">
+            <a
+              key={href}
+              href={`#${href}`}
+              className="block rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground motion-reduce:transition-none"
+            >
               {label}
             </a>
           ))}
@@ -131,21 +140,44 @@ function DocsNavigation() {
 function MobileContents() {
   return (
     <details className="mt-5 rounded-md border border-border px-3 py-2.5 lg:hidden">
-      <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">On this page</summary>
+      <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
+        On this page
+      </summary>
       <div className="mt-2 grid grid-cols-2 gap-1 border-t border-border pt-2">
         {NAVIGATION.map(([href, label]) => (
-          <a key={href} href={`#${href}`} className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground">{label}</a>
+          <a
+            key={href}
+            href={`#${href}`}
+            className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground"
+          >
+            {label}
+          </a>
         ))}
       </div>
     </details>
   );
 }
 
-function DocSection({ id, title, intro, children }: { id: string; title: string; intro: string; children: React.ReactNode }) {
+function DocSection({
+  id,
+  title,
+  intro,
+  children,
+}: {
+  id: string;
+  title: string;
+  intro: string;
+  children: React.ReactNode;
+}) {
   return (
-    <section id={id} className="scroll-mt-24 border-b border-border py-11 last:border-b-0">
+    <section
+      id={id}
+      className="scroll-mt-24 border-b border-border py-11 last:border-b-0"
+    >
       <h2 className="text-xl font-semibold tracking-[-0.03em]">{title}</h2>
-      <p className="mt-2 max-w-3xl text-[13px] leading-5 text-muted-foreground">{intro}</p>
+      <p className="mt-2 max-w-3xl text-[13px] leading-5 text-muted-foreground">
+        {intro}
+      </p>
       {children}
     </section>
   );

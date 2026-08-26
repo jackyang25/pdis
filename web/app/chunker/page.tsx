@@ -23,17 +23,31 @@ const CHUNKER_STEPS = [
 export default function ChunkerPage() {
   return (
     <>
-      <PageHeader title="Chunker" description="Transform source documents into structured, citable content blocks for downstream intelligence workflows." />
+      <PageHeader
+        title="Chunker"
+        description="One document as the other tools read it: every passage they can cite, with the section each was assigned to."
+      />
       <HeaderGuard>
-        {(header, ready) => <ChunkerView header={header as Header} ready={ready} />}
+        {(header, ready) => (
+          <ChunkerView header={header as Header} ready={ready} />
+        )}
       </HeaderGuard>
     </>
   );
 }
 
 function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
-  const { result, busy, stage, error, addResult, setResult, setBusy, setStage, setError } =
-    useChunkerSession();
+  const {
+    result,
+    busy,
+    stage,
+    error,
+    addResult,
+    setResult,
+    setBusy,
+    setStage,
+    setError,
+  } = useChunkerSession();
   const importInputRef = useRef<HTMLInputElement>(null);
 
   async function handleRun(file: File) {
@@ -116,7 +130,13 @@ function formatMetaValue(v: unknown): string {
 
 /** Renders a provenance dict (structural_meta / style_hint) as compact
  * key=value pairs, so block parsing details are inspectable without the JSON. */
-function MetaLine({ label, meta }: { label: string; meta: Record<string, unknown> }) {
+function MetaLine({
+  label,
+  meta,
+}: {
+  label: string;
+  meta: Record<string, unknown>;
+}) {
   const entries = Object.entries(meta ?? {});
   if (entries.length === 0) return null;
   return (
@@ -124,7 +144,8 @@ function MetaLine({ label, meta }: { label: string; meta: Record<string, unknown
       <span className="text-muted-foreground/40">{label}</span>
       {entries.map(([k, v]) => (
         <span key={k}>
-          {k}=<span className="text-muted-foreground">{formatMetaValue(v)}</span>
+          {k}=
+          <span className="text-muted-foreground">{formatMetaValue(v)}</span>
         </span>
       ))}
     </div>
@@ -132,7 +153,8 @@ function MetaLine({ label, meta }: { label: string; meta: Record<string, unknown
 }
 
 function BlocksList({ result }: { result: ChunkerResult }) {
-  const { results, selectedId, selectResult, removeResult } = useChunkerSession();
+  const { results, selectedId, selectResult, removeResult } =
+    useChunkerSession();
   const blocks = result.blocks;
   const labeledCount = blocks.filter((b) => b.section_label).length;
   return (
@@ -141,19 +163,19 @@ function BlocksList({ result }: { result: ChunkerResult }) {
       subtitle={`${labeledCount} labeled`}
       trailing={
         <>
-        <RunHistory
-          runs={results}
-          selectedId={selectedId}
-          onSelect={selectResult}
-          onRemove={removeResult}
-          label={(value) => runLabel(value, "chunker")}
-        />
-        <DownloadButton
-          filename={runFilename(result, "chunker")}
-          data={result}
-          format="json"
-          label="Download JSON"
-        />
+          <RunHistory
+            runs={results}
+            selectedId={selectedId}
+            onSelect={selectResult}
+            onRemove={removeResult}
+            label={(value) => runLabel(value, "chunker")}
+          />
+          <DownloadButton
+            filename={runFilename(result, "chunker")}
+            data={result}
+            format="json"
+            label="Download JSON"
+          />
         </>
       }
     >
@@ -163,13 +185,16 @@ function BlocksList({ result }: { result: ChunkerResult }) {
             <details className="group/block">
               <summary className="flex cursor-pointer flex-wrap items-center gap-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
                 <Badge variant="outline">{block.block_type}</Badge>
-                {block.section_label && <Badge variant="muted">{block.section_label}</Badge>}
+                {block.section_label && (
+                  <Badge variant="muted">{block.section_label}</Badge>
+                )}
                 <span className="font-mono">{block.id}</span>
                 <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/block:rotate-180 motion-reduce:transition-none" />
               </summary>
               <div className="mt-2 space-y-0.5 rounded-md bg-foreground/[0.045] px-3 py-2 font-mono text-[11px] text-muted-foreground/70">
                 <div>
-                  <span className="text-muted-foreground/40">ordinal</span> #{block.ordinal}
+                  <span className="text-muted-foreground/40">ordinal</span> #
+                  {block.ordinal}
                 </div>
                 <div>
                   <span className="text-muted-foreground/40">stack</span>{" "}
@@ -190,7 +215,9 @@ function BlocksList({ result }: { result: ChunkerResult }) {
                 />
               </figure>
             ) : (
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{block.content}</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
+                {block.content}
+              </p>
             )}
           </li>
         ))}

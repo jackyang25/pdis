@@ -1,6 +1,6 @@
 import type { InspectionResult } from "./api.ts";
 import { REASON_LABELS, worklist } from "./api.ts";
-import type { PriorityItem } from "@/components/ui/priority-panel";
+import type { PriorityItem } from "./priorities.ts";
 
 /**
  * What Inspector puts at the top, and in what order.

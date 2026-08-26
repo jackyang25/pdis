@@ -220,9 +220,24 @@ export function worklist(inspection: InspectionResult): RubricFinding[] {
 }
 
 /** How many units of a section fall at each level, for its collapsed header. */
+/**
+ * A section's units, counted by the two statuses that are shortfalls.
+ *
+ * Units, not findings. It was typed `Record<FindingLevel, number>` and labelled with
+ * `LEVEL_LABELS`, so a count of units wore the finding vocabulary: the numbers were right
+ * and the words said something else, and a reader comparing "Not met 10" on a section with
+ * "Not met" on a unit had no way to know whether the ten counted units or their findings.
+ *
+ * `met` and `not_applicable` are absent because this answers "what needs work here". A
+ * section whose units are all met returns nothing, which the caller shows as `Met`.
+ */
+export type SectionShortfall = Extract<UnitStatus, "not_met" | "could_be_stronger">;
+
+export const SECTION_SHORTFALLS: SectionShortfall[] = ["not_met", "could_be_stronger"];
+
 export function sectionShortfalls(
   section: SectionAssessment,
-): Record<FindingLevel, number> {
+): Record<SectionShortfall, number> {
   return {
     not_met: section.status_counts?.not_met ?? 0,
     could_be_stronger: section.status_counts?.could_be_stronger ?? 0,

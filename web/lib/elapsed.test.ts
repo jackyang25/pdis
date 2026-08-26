@@ -23,7 +23,7 @@ test("it rounds down, never claiming time that has not passed", () => {
 });
 
 test("an hour adds a field rather than counting to ninety minutes", () => {
-  // Scout runs ~15 minutes; an hour means something went wrong, and "1:02:03"
+  // Scout runs about twenty minutes; an hour means something went wrong, and "1:02:03"
   // says so more clearly than "62:03".
   assert.equal(formatElapsed(3_600_000), "1:00:00");
   assert.equal(formatElapsed(3_723_000), "1:02:03");

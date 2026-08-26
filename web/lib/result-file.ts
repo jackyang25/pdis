@@ -5,6 +5,7 @@ import type {
   InspectorResponse,
   ScoutResponse,
 } from "./api";
+import { displayLabel } from "./display-label.ts";
 import { RESULT_CONTRACTS, type ResultType } from "./result-contracts.ts";
 
 export { isScoutResultFinal, pendingQuantitativeReviewCount } from "./result-contracts.ts";
@@ -228,6 +229,73 @@ export function runIdentity(result: unknown, type: RunKeepingTool): string[] {
 export function runLabel(result: unknown, type: RunKeepingTool): string {
   const parts = runIdentity(result, type);
   return parts.length > 0 ? parts.join(" · ") : FALLBACK_LABEL[type];
+}
+
+/**
+ * What the run was configured to be about, in the words the reader typed.
+ *
+ * Indication, then intervention class, then document type - `HIV · Vaccine · iTPP`. The
+ * same three fields the header form asks for, so the line under a run's name is one a
+ * reader can predict before the run finishes, and it reads the same in all four tools.
+ *
+ * It replaced four different sentences, each derived from that tool's own output: Scout
+ * counted fields, Inspector counted sections and units, Aligner counted comparisons. Three
+ * problems with that. The counts were a second statement of figures the metrics panel
+ * already holds. They were phrased in whichever unit that tool happens to use, so the line
+ * changed meaning between tools. And "36 fields" describes the Fields tab, not the run -
+ * on the Documents view it named something not on screen.
+ *
+ * Configuration rather than results, because the question this line answers is "which run
+ * is this", and a reader recognises their own inputs faster than a derived number.
+ *
+ * Not `org`: it is the same for every run a reader makes, so it separates nothing. It is
+ * configuration all the same, and it belongs in the run's identity rather than here.
+ */
+export function runScope(result: unknown, type: RunKeepingTool): string {
+  const config = runConfiguration(result, type);
+  return config.filter(Boolean).map(displayLabel).join(" · ");
+}
+
+function runConfiguration(result: unknown, type: RunKeepingTool): string[] {
+  switch (type) {
+    case "inspector": {
+      const { inspection } = result as InspectorResponse;
+      return [
+        inspection.indication ?? "",
+        inspection.intervention_class ?? "",
+        inspection.source_type ?? "",
+      ];
+    }
+    case "scout": {
+      const scout = result as ScoutResponse;
+      return [scout.indication, scout.intervention_class, scout.source_type];
+    }
+    case "expert": {
+      const { review } = result as ExpertResponse;
+      // The document types, not one: a gate review reads a set, and which types it read
+      // is the configuration for that run. Deduplicated, because two documents of one
+      // type is a fact about the upload rather than about the scope.
+      return [review.indication, review.intervention_class, ...documentTypes(review.documents)];
+    }
+    case "aligner": {
+      const { alignment } = result as AlignerResponse;
+      return [
+        alignment.indication,
+        alignment.intervention_class,
+        ...documentTypes(alignment.documents),
+      ];
+    }
+    default:
+      // Chunker and searcher keep runs but hold no configuration: one parses a file, the
+      // other answers a query. Neither has a scope line to state.
+      return [];
+  }
+}
+
+function documentTypes(documents: readonly { source_type?: string }[]): string[] {
+  return Array.from(
+    new Set(documents.map((document) => document.source_type ?? "").filter(Boolean)),
+  );
 }
 
 /** The same run named for a filesystem, with the tool that produced it. */

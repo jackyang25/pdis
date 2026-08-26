@@ -1,6 +1,6 @@
 import type { EvidenceAssessment, Match, ScoutResponse } from "./api.ts";
 import { sortMatchesForReading } from "./scout-match-order.ts";
-import type { PriorityItem } from "@/components/ui/priority-panel";
+import { PRIORITY_LIMIT, type PriorityItem } from "./priorities.ts";
 
 /**
  * What Scout puts at the top, and in what order.
@@ -33,8 +33,14 @@ export const SCOUT_ORDER_NOTE =
 export const SCOUT_EMPTY_MESSAGE =
   "No contradicted targets, unsupported targets, or unmet quantitative targets were found.";
 
-/** How many to show. A top-of-page panel is a starting point, not the whole result. */
-export const SCOUT_PRIORITY_LIMIT = 8;
+/**
+ * How many to show.
+ *
+ * The shared cap, not a second copy of the number. Scout stops selecting at the limit
+ * rather than selecting everything and truncating, because its tiers are appended in
+ * priority order - the two give the same eight, and stopping early skips work.
+ */
+export const SCOUT_PRIORITY_LIMIT = PRIORITY_LIMIT;
 
 /** Weakest evidence first; anything stronger is not raised here. */
 const RAISED_STRENGTHS: EvidenceAssessment["strength"][] = ["unsupported", "thin"];

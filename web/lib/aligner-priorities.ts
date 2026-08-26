@@ -1,7 +1,7 @@
 import type { AlignmentEdge, AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.ts";
 import { ALIGNMENT_VERDICTS, VERDICT_LABELS } from "./api.ts";
 import { chainWarningText, chainWarnings } from "./aligner-chain.ts";
-import type { PriorityItem } from "@/components/ui/priority-panel";
+import type { PriorityItem } from "./priorities.ts";
 
 /**
  * What Aligner puts at the top, how its verdicts are counted, and how they group.

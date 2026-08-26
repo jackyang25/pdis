@@ -123,17 +123,26 @@ test("every full-width row that opens uses one shape", () => {
   // Four of these existed across four tabs and three agreed. The safety row had a lighter
   // hover, a stronger focus ring, a fainter open tint, no focus background and a minimum
   // height, none of which marked a difference in what the row does.
-  assert.match(PAGE, /const EXPANDABLE_ROW =/);
+  // Now in `lib/expandable-row.ts`, because Inspector needed it too: it rendered all 32 of
+  // its units expanded at once while Scout collapsed 28 fields, which is the same row doing
+  // opposite things in two tools.
+  const shape = readFileSync(
+    path.resolve(import.meta.dirname, "expandable-row.ts"),
+    "utf8",
+  );
+  assert.match(shape, /export const EXPANDABLE_ROW =/);
+  assert.ok(!/const EXPANDABLE_ROW =/.test(PAGE), "Scout kept its own copy of the shape");
   // Shared, not tallied. This asserted a literal 5, which only ever failed when a row was
   // deliberately deleted - a row *added* without the constant leaves the count untouched,
   // so the number never caught the thing the test is named for. What it can check is that
-  // the shape is genuinely shared rather than a constant with one caller; the scope check
-  // below is what catches a row half-adopting it.
-  const uses = PAGE.match(/EXPANDABLE_ROW/g) ?? [];
-  assert.ok(
-    uses.length >= 3,
-    `EXPANDABLE_ROW has ${uses.length - 1} callers; a shape with one caller is not shared`,
+  // the shape has more than one tool using it.
+  const users = ["scout", "inspector"].filter((tool) =>
+    readFileSync(
+      path.resolve(import.meta.dirname, "..", "app", tool, "page.tsx"),
+      "utf8",
+    ).includes("EXPANDABLE_ROW"),
   );
+  assert.deepEqual(users, ["scout", "inspector"], "a tool stopped using the shared row shape");
   // The per-tab group scopes those rows used. A row keeping its own scope is how one would
   // half-adopt the shape: same classes, its own open state.
   for (const scope of ["indicator", "program", "safety", "field"]) {
@@ -201,8 +210,15 @@ test("the run's source count covers every place a source is cited", () => {
 test("the headline says which scope each of its numbers has", () => {
   // "827 sources · 911 insights" under a title reading "28 fields" invited reading both as
   // field-scoped. One is: insights are bound to a field. The other is not.
-  assert.match(PAGE, /insights in these fields/);
-  assert.match(PAGE, /sources across the whole run/);
+  //
+  // The two numbers moved out of the subtitle and into the metrics panel, so the sentence
+  // that separates them moved with them - into `metricsNote`, which is the panel's first
+  // line. The rule is unchanged: wherever the two counts are shown, the reader is told
+  // they do not share a denominator.
+  const note = PAGE.match(/metricsNote="([^"]+)"/);
+  assert.ok(note, "Scout states no note on what its figures count");
+  assert.match(note[1], /within fields/);
+  assert.match(note[1], /whole run/);
 });
 
 test("a count is one size, wherever it appears", () => {

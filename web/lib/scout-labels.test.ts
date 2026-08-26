@@ -257,13 +257,17 @@ test("each tooltip title matches the heading it explains", () => {
     "utf8",
   );
   const titles = [...help.matchAll(/title:\s*"([^"]+)"/g)].map((match) => match[1]);
-  assert.equal(titles.length, 4, "expected four result axes");
+  assert.equal(titles.length, 5, "expected five result axes");
   for (const title of titles) {
-    // Two forms, because two of the four reach `SectionLabel` as a prop on `SignalVerdict`
-    // rather than as literal children.
+    // Three forms. Two of the field axes reach `SectionLabel` as a prop on `SignalVerdict`
+    // rather than as literal children. The fifth, the relation a record has to the uploaded
+    // product, is headed by a filter rather than by a section - the records tabs have no
+    // heading over that axis - so the filter's accessible name is what must match. The rule
+    // is unchanged: a tooltip's title has to be words the reader can already see.
     assert.ok(
-      page.includes(`>${title}</SectionLabel>`) || page.includes(`label="${title}"`),
-      `no section heading renders "${title}"`,
+      page.includes(`>${title}</SectionLabel>`)
+        || page.includes(`label="${title}"`),
+      `nothing on screen renders "${title}"`,
     );
   }
 });
@@ -306,7 +310,7 @@ test("the how-to-read panel is the one place the vocabulary and its prompts live
     !page.includes("ScoutSignalLabel"),
     "Scout reintroduced per-heading tooltips; the panel is the single explanation",
   );
-  assert.ok(page.includes("<ScoutSignalHelp />"), "Scout dropped its how-to-read entry point");
+  assert.ok(page.includes("<ScoutSignalHelp"), "Scout dropped its how-to-read entry point");
 });
 
 test("a tool that publishes a vocabulary explains it in one panel, not per row", () => {
@@ -316,8 +320,8 @@ test("a tool that publishes a vocabulary explains it in one panel, not per row",
   // value cannot show how it differs from the values it is not, and telling them apart is
   // the thing a reader actually gets wrong.
   const tools = [
-    { page: ["app", "scout", "page.tsx"], label: "ScoutSignalLabel", help: "<ScoutSignalHelp />" },
-    { page: ["app", "inspector", "page.tsx"], label: "InspectorSignalLabel", help: "<InspectorSignalHelp />" },
+    { page: ["app", "scout", "page.tsx"], label: "ScoutSignalLabel", help: "<ScoutSignalHelp" },
+    { page: ["app", "inspector", "page.tsx"], label: "InspectorSignalLabel", help: "<InspectorSignalHelp" },
   ];
   for (const tool of tools) {
     const source = readFileSync(path.resolve(import.meta.dirname, "..", ...tool.page), "utf8");
@@ -360,5 +364,55 @@ test("how a source was matched is said in one place, and only where it matters",
   assert.ok(
     !read("components/excluded-measurements.tsx").includes("sourceIdentityCaveat"),
     "the excluded panel caveats a measurement that is not in the cohort",
+  );
+});
+
+test("a toolbar explains the axis it filters on, not the other one", () => {
+  // Scout has two relationship vocabularies and `models.py` names the trap at the
+  // vocabulary itself: a field's relation to a target (Conflicts, Supports, Adds context,
+  // Unrelated) and a record's relation to the uploaded product (Direct, Analogous,
+  // Adjacent, Unrelated). They share the token `unrelated` and mean different things by
+  // it. The how-to-read panel used to show all of Scout's topics wherever it appeared, so
+  // a reader filtering records opened it and read the other axis's definition of the word
+  // in front of them.
+  const page = readFileSync(
+    path.resolve(import.meta.dirname, "..", "app", "scout", "page.tsx"),
+    "utf8",
+  );
+  const toolbar = page.slice(page.indexOf("function ProjectionToolbar"));
+  const scope = toolbar.match(/<ScoutSignalHelp\s+only=\{\[([^\]]*)\]\}/);
+  assert.ok(scope, "the records toolbar explains every Scout topic, not the one it filters on");
+  assert.equal(
+    scope[1].replace(/\s/g, ""),
+    '"targetRelationship"',
+    "the records toolbar explains an axis it does not filter on",
+  );
+});
+
+test("the glossary and the tooltips list the same axes", () => {
+  // Two statements of one vocabulary. The docs page renders the tooltip topics directly -
+  // imported, not restated - but `shared/product_knowledge.json` carries its own "Result
+  // axes" list, and that one is what the Ask assistant reads. A fifth axis was added to
+  // the tooltips and the glossary kept describing four, so the interface explained
+  // something the knowledge base had never heard of.
+  //
+  // Existing checks bound the glossary to the interface and the tooltips to the
+  // interface. Nothing bound the two explanations to each other.
+  const help = readFileSync(
+    path.resolve(import.meta.dirname, "..", "components", "scout-signal-help.tsx"),
+    "utf8",
+  );
+  const titles = [...help.matchAll(/title:\s*"([^"]+)"/g)].map((match) => match[1]);
+  const knowledge = JSON.parse(
+    readFileSync(path.resolve(import.meta.dirname, "..", "..", "shared", "product_knowledge.json"), "utf8"),
+  ) as { sections: { id: string; content: { title?: string; items?: { term: string }[] }[] }[] };
+  const axes = knowledge.sections
+    .find((section) => section.id === "scout")!
+    .content.find((block) => block.title === "Result axes")!
+    .items!.map((item) => item.term);
+  assert.deepEqual(
+    [...axes].sort(),
+    [...titles].sort(),
+    "the glossary and the tooltips disagree about which axes Scout has",
   );
 });

@@ -46,7 +46,7 @@ test("every signal links to a prompt that is actually published", () => {
   // renders, which fails silently: the link opens the docs and stops.
   const published = publishedPrompts();
   const refs = signalPromptRefs();
-  assert.equal(refs.length, 4, "expected one prompt link per Scout result axis");
+  assert.equal(refs.length, 5, "expected one prompt link per Scout result axis");
   for (const ref of refs) {
     assert.ok(
       published.some((prompt) => prompt.tool === ref.tool && prompt.stage === ref.stage),

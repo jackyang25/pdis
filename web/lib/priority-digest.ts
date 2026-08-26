@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 
 import { fetchPriorityDigest, type PriorityDigest } from "./api";
-import type { PriorityItem } from "@/components/ui/priority-panel";
+import type { PriorityItem } from "./priorities.ts";
 
 /**
  * One read over a tool's selected priorities, held for the session and nowhere else.

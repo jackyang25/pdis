@@ -93,7 +93,9 @@ export default function SearcherPage() {
   // Named from the lanes' own declaration, so the note cannot claim a narrowing a
   // provider never applies.
   const regionLabels = sources
-    .filter((source) => selected.has(source.key) && source.reads.includes("region"))
+    .filter(
+      (source) => selected.has(source.key) && source.reads.includes("region"),
+    )
     .map((source) => source.label);
   const dateBoundLabels = sources
     .filter((source) => selected.has(source.key) && source.honors_date_bound)
@@ -168,7 +170,7 @@ export default function SearcherPage() {
     <>
       <PageHeader
         title="Searcher"
-        description="Search registered evidence sources through one normalized workspace."
+        description="Every evidence source Scout can reach, queried directly: what each one returns for a question, before any analysis reads it."
       />
       <div className="flex flex-col gap-6">
         <form
@@ -557,7 +559,9 @@ function Lanes({
 }) {
   if (lanes.length === 0) return null;
   const labels = new Map(sources.map((source) => [source.key, source.label]));
-  const classOf = new Map(sources.map((source) => [source.key, source.evidence_class]));
+  const classOf = new Map(
+    sources.map((source) => [source.key, source.evidence_class]),
+  );
   // Grouped by what each lane is responsible for, in the order the lanes ran. A flat
   // list answers "did this source return anything"; the grouping answers the question a
   // reader actually has, which is whether a kind of evidence came back at all - one
@@ -577,7 +581,12 @@ function Lanes({
       </p>
       {groups.map((group) => (
         <div key={group.name}>
-          <p className={cn("border-b border-border bg-foreground/[0.045] px-4 py-1.5", EYEBROW)}>
+          <p
+            className={cn(
+              "border-b border-border bg-foreground/[0.045] px-4 py-1.5",
+              EYEBROW,
+            )}
+          >
             {group.name}
           </p>
           <ul className="divide-y divide-border">

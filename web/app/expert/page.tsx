@@ -1,5 +1,10 @@
 "use client";
 
+import { ResultLayout } from "@/components/ui/result-layout";
+import {
+  ResultToolbar,
+  ResultToolbarEnd,
+} from "@/components/ui/result-toolbar";
 import { useTraceFocus } from "@/lib/trace-focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, Paperclip, Plus, X } from "lucide-react";
@@ -50,6 +55,7 @@ import {
   expertResultFilename,
   packExpertResult,
   runLabel,
+  runScope,
   unpackExpertResult,
   readResultIdentity,
 } from "@/lib/result-file";
@@ -105,7 +111,9 @@ export default function ExpertPage() {
       .catch(
         (error: Error) =>
           live &&
-          session.setError(`Could not load the gates Expert asks about: ${error.message}`),
+          session.setError(
+            `Could not load the gates Expert asks about: ${error.message}`,
+          ),
       );
     return () => {
       live = false;
@@ -207,13 +215,16 @@ export default function ExpertPage() {
                         with no error anywhere — and a reader cannot tell "no bank for
                         this modality" from "something is broken" without being told.
                       */
-                      header.org && header.intervention_class && gates.length === 0 ? (
+                      header.org &&
+                      header.intervention_class &&
+                      gates.length === 0 ? (
                         <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
                           No stage-gate bank covers{" "}
-                          {displayLabel(header.intervention_class)}. The banks are written
-                          for small-molecule drug programs — they ask about synthetic
-                          routes, salt forms and BCS class — so a review here would ask
-                          questions this modality has no answer to.
+                          {displayLabel(header.intervention_class)}. The banks
+                          are written for small-molecule drug programs — they
+                          ask about synthetic routes, salt forms and BCS class —
+                          so a review here would ask questions this modality has
+                          no answer to.
                         </p>
                       ) : undefined
                     }
@@ -329,7 +340,9 @@ function DocumentChooser({
                 onChange={(value) =>
                   onChange(
                     choices.map((item, position) =>
-                      position === index ? { ...item, sourceType: value } : item,
+                      position === index
+                        ? { ...item, sourceType: value }
+                        : item,
                     ),
                   )
                 }
@@ -386,7 +399,9 @@ function ContextChooser({
 }) {
   function update(index: number, patch: Partial<ContextRow>) {
     onChange(
-      rows.map((item, position) => (position === index ? { ...item, ...patch } : item)),
+      rows.map((item, position) =>
+        position === index ? { ...item, ...patch } : item,
+      ),
     );
   }
 
@@ -394,9 +409,10 @@ function ContextChooser({
     <div className="mt-5 border-t border-border pt-4">
       <p className="text-xs font-medium text-foreground">Additional context</p>
       <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-        Attach material the documents do not contain: a CMC summary, meeting minutes.
-        Its text is read for this run only and never saved, so an answer from it names the
-        source and cites no passage. {CONTEXT_FORMAT_HINT}.
+        Attach material the documents do not contain: a CMC summary, meeting
+        minutes. Its text is read for this run only and never saved, so an
+        answer from it names the source and cites no passage.{" "}
+        {CONTEXT_FORMAT_HINT}.
       </p>
       <div className="mt-3 flex flex-col gap-3">
         {rows.map((row, index) => (
@@ -405,13 +421,17 @@ function ContextChooser({
               <input
                 value={row.label}
                 placeholder="Name this source, e.g. CMC Development Report"
-                onChange={(event) => update(index, { label: event.target.value })}
+                onChange={(event) =>
+                  update(index, { label: event.target.value })
+                }
                 className="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring/20"
               />
               <button
                 type="button"
                 aria-label={`Remove context item ${index + 1}`}
-                onClick={() => onChange(rows.filter((_, position) => position !== index))}
+                onClick={() =>
+                  onChange(rows.filter((_, position) => position !== index))
+                }
                 className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground motion-reduce:transition-none"
               >
                 <X className="h-3.5 w-3.5" />
@@ -433,7 +453,8 @@ function ContextChooser({
                   // close enough to edit; an empty field is one more thing to type.
                   update(index, {
                     file,
-                    label: row.label.trim() || file.name.replace(/\.[^.]+$/, ""),
+                    label:
+                      row.label.trim() || file.name.replace(/\.[^.]+$/, ""),
                   });
                   event.target.value = "";
                 }}
@@ -467,7 +488,8 @@ function ReviewView({
   result: { review: GateReview };
   onNewAnalysis: () => void;
 }) {
-  const { results, selectedId, selectResult, removeResult } = useExpertSession();
+  const { results, selectedId, selectResult, removeResult } =
+    useExpertSession();
   const review = result.review;
   const counts = useMemo(() => countStates(review), [review]);
   const answersByDocument = useMemo(() => answersPerDocument(review), [review]);
@@ -482,77 +504,89 @@ function ReviewView({
     consume: consumeTraceFocus,
   } = useTraceFocus(revealTrace);
 
-  const subtitle = [
-    review.gate_label,
-    displayLabel(review.intervention_class),
-    review.documents.map((document) => displayLabel(document.source_type)).join(", "),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  // The gate is in the title via `runLabel`, so it is not repeated here.
 
   return (
-    <CollapsibleCard
-      title={`${review.gate_label} review`}
-      subtitle={subtitle}
-      defaultOpen
-      contentClassName="px-0 py-0 sm:px-0"
-      trailing={
+    <ResultLayout
+      title={runLabel(result, "expert")}
+      subtitle={runScope(result, "expert")}
+      // Run-wide, so it holds on the Documents tab too. It was inside the Questions tab.
+      metrics={
+        <CountRow
+          counts={counts}
+          requiredOpen={
+            countRequiredInState(review, "not_found") +
+            countRequiredInState(review, "partly_answered")
+          }
+        />
+      }
+      // `answered` and `gaps` show at zero because a model decides those two, so a zero
+      // there says the check ran. The rest come from config and the uploads.
+      metricsNote="Every question in the bank by state. Answered, partly answered and not found appear even at zero, because a zero there says the check ran and found nothing."
+      tabValue={resultTab}
+
+      onTabChange={setResultTab}
+      tabs={
         <>
-        <RunHistory
-          runs={results}
-          selectedId={selectedId}
-          onSelect={selectResult}
-          onRemove={removeResult}
-          label={(value) => runLabel(value, "expert")}
-        />
-        <FinalResultActions
-          onNewAnalysis={onNewAnalysis}
-          download={{
-            filename: expertResultFilename(result),
-            data: packExpertResult(result),
-          }}
-        />
+          {/*
+            Questions first, unlike Inspector, and for the reason Inspector opens
+            on its document: a tool opens on what it is about. Inspector is about
+            one document; Expert is about the gate's questions, and the documents
+            are what it read to answer them.
+          */}
+          <TabsTrigger value="questions">Questions</TabsTrigger>
+          <TabsTrigger value="trace">Documents</TabsTrigger>
+        </>
+      }
+      actions={
+        <>
+          <RunHistory
+            runs={results}
+            selectedId={selectedId}
+            onSelect={selectResult}
+            onRemove={removeResult}
+            label={(value) => runLabel(value, "expert")}
+          />
+          <FinalResultActions
+            onNewAnalysis={onNewAnalysis}
+            download={{
+              filename: expertResultFilename(result),
+              data: packExpertResult(result),
+            }}
+          />
         </>
       }
     >
-      <DocumentSourceProvider blocks={review.blocks} onOpenInTrace={openBlockInTrace}>
-        <Tabs value={resultTab} onValueChange={setResultTab} className="w-full">
-          <div className="flex items-center justify-between gap-3 border-b border-border px-5 pt-2 sm:px-6">
-            <TabsList className="justify-start border-b-0">
-              {/*
-                Questions first, unlike Inspector, and for the reason Inspector opens
-                on its document: a tool opens on what it is about. Inspector is about
-                one document; Expert is about the gate's questions, and the documents
-                are what it read to answer them.
-              */}
-              <TabsTrigger value="questions">Questions</TabsTrigger>
-              <TabsTrigger value="trace">Documents</TabsTrigger>
-            </TabsList>
-            <ExpertSignalHelp />
-          </div>
+      <DocumentSourceProvider
+        blocks={review.blocks}
+        onOpenInTrace={openBlockInTrace}
+      >
+        <TabsContent value="questions" className="m-0">
+          {/* The view's nav: its name, and what explains it. */}
+          <ResultToolbar>
+            <p className="min-w-0 flex-1 text-xs font-medium text-foreground">
+              Questions
+            </p>
+            {/* No count: nothing filters here, and the figure row above already
+                  states every question state and what they sum to. */}
+            <ResultToolbarEnd>
+              <ExpertSignalHelp />
+            </ResultToolbarEnd>
+          </ResultToolbar>
+          <div className="flex flex-col gap-6 px-5 py-5 sm:px-6">
+            <ExpertCoverageStrip
+              review={review}
+              onSelect={(question) => {
+                // A cell opens the passage behind its answer when there is one;
+                // otherwise there is nothing to open and the cell stays inert.
+                const blockId = question.cited_block_ids[0];
+                // No annotation: a coverage cell names a question, not one result on
+                // the passage, so the trace opens showing every layer the block carries.
+                if (blockId) openBlockInTrace({ blockId });
+              }}
+            />
 
-          <TabsContent value="questions" className="m-0">
-            <div className="flex flex-col gap-6 px-5 py-5 sm:px-6">
-              <CountRow
-                counts={counts}
-                requiredOpen={
-                  countRequiredInState(review, "not_found")
-                  + countRequiredInState(review, "partly_answered")
-                }
-              />
-              <ExpertCoverageStrip
-                review={review}
-                onSelect={(question) => {
-                  // A cell opens the passage behind its answer when there is one;
-                  // otherwise there is nothing to open and the cell stays inert.
-                  const blockId = question.cited_block_ids[0];
-                  // No annotation: a coverage cell names a question, not one result on
-                  // the passage, so the trace opens showing every layer the block carries.
-                  if (blockId) openBlockInTrace({ blockId });
-                }}
-              />
-
-              {/*
+            {/*
                 Expert does not use the shared `PriorityPanel`, and that is a deliberate
                 exception rather than drift. For Inspector and Scout the panel digests
                 items scattered across dozens of units into one opening list. Expert's
@@ -561,75 +595,74 @@ function ReviewView({
                 question, so it showed Expert's comment with the question it was about
                 missing. The panel below carries both.
               */}
-              {/*
+            {/*
                 Partials first. They are the only state with a specific ask attached —
                 the material got part of the way and `missing` names the rest — so this
                 is the panel a PPL acts on. Answered needs nothing, and not found is
                 either a reviewer's question or a larger conversation.
               */}
-              <StatePanel
-                title="Partly answered"
-                description="Some of the question is answered and some is not. Each says what is still not stated."
-                state="partly_answered"
-                review={review}
-                defaultOpen
-                orderNote={EXPERT_ORDER_NOTE}
-              />
+            <StatePanel
+              title="Partly answered"
+              description="Some of the question is answered and some is not. Each says what is still not stated."
+              state="partly_answered"
+              review={review}
+              defaultOpen
+              orderNote={EXPERT_ORDER_NOTE}
+            />
 
-              <StatePanel
-                title="Not found in the documents"
-                description="Nothing in the supplied material addresses these. Each shows the discipline that owns it."
-                state="not_found"
-                review={review}
-                emptyMessage={EXPERT_EMPTY_MESSAGE}
-                orderNote={EXPERT_ORDER_NOTE}
-              />
+            <StatePanel
+              title="Not found in the documents"
+              description="Nothing in the supplied material addresses these. Each shows the discipline that owns it."
+              state="not_found"
+              review={review}
+              emptyMessage={EXPERT_EMPTY_MESSAGE}
+              orderNote={EXPERT_ORDER_NOTE}
+            />
 
-              <StatePanel
-                title="Answered"
-                description="What the supplied material already answers."
-                state="answered"
-                review={review}
-                trailing={`${counts.cited} cited to a passage · ${counts.fromContext} from supplied context`}
-              />
+            <StatePanel
+              title="Answered"
+              description="What the supplied material already answers."
+              state="answered"
+              review={review}
+              trailing={`${counts.cited} cited to a passage · ${counts.fromContext} from supplied context`}
+            />
 
-              <BankSource source={review.bank_source} />
-            </div>
-          </TabsContent>
+            <BankSource source={review.bank_source} />
+          </div>
+        </TabsContent>
 
-          <TabsContent value="trace" className="m-0">
-            <div className="border-b border-border px-5 py-3 sm:px-6">
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Which passages carried an answer, whole or partial, and what they
-                answered. The inverse of the questions view. Only answers read from a
-                document appear here: an answer from attached context has no passage, and
-                an unanswered question has nothing to mark.
-              </p>
-              {/*
+        <TabsContent value="trace" className="m-0">
+          <div className="border-b border-border px-5 py-3 sm:px-6">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Which passages carried an answer, whole or partial, and what they
+              answered. The inverse of the questions view. Only answers read
+              from a document appear here: an answer from attached context has
+              no passage, and an unanswered question has nothing to mark.
+            </p>
+            {/*
                 Not addable, and it says so. One question can cite passages from two
                 documents, so these overlap and their sum exceeds the answered count on
                 the questions view. Stating it beats letting a reader add them.
               */}
-              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                {answersByDocument
-                  .map(
-                    (entry) =>
-                      `${displayLabel(entry.sourceType)} answered ${entry.count}`,
-                  )
-                  .join(" · ")}
-                . A question citing both documents is counted in both, so these do not
-                sum to the answered total.
-              </p>
-            </div>
-            <ExpertDocumentTrace
-              review={review}
-              focus={traceFocus}
-              onFocusConsumed={consumeTraceFocus}
-            />
-          </TabsContent>
-        </Tabs>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              {answersByDocument
+                .map(
+                  (entry) =>
+                    `${displayLabel(entry.sourceType)} answered ${entry.count}`,
+                )
+                .join(" · ")}
+              . A question citing both documents is counted in both, so these do
+              not sum to the answered total.
+            </p>
+          </div>
+          <ExpertDocumentTrace
+            review={review}
+            focus={traceFocus}
+            onFocusConsumed={consumeTraceFocus}
+          />
+        </TabsContent>
       </DocumentSourceProvider>
-    </CollapsibleCard>
+    </ResultLayout>
   );
 }
 
@@ -750,8 +783,8 @@ function CountRow({
         </p>
       )}
       <p className="mt-2 border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">
-        {counts.total} questions in this gate. Every one is counted, so the figures
-        above sum to that.{" "}
+        {counts.total} questions in this gate. Every one is counted, so the
+        figures above sum to that.{" "}
         {assessed === 0
           ? "None was read: every question in this bank states that it applies to another intervention class."
           : `${assessed} ${assessed === 1 ? "was" : "were"} read against everything supplied. Any remainder is a question whose own text states it applies to another intervention class.`}
@@ -799,7 +832,10 @@ function StatePanel({
   orderNote?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const groups = useMemo(() => groupedByDiscipline(review, state), [review, state]);
+  const groups = useMemo(
+    () => groupedByDiscipline(review, state),
+    [review, state],
+  );
   const total = groups.reduce((sum, group) => sum + group.questions.length, 0);
   // A panel with an empty message still renders at zero, because "nothing unanswered"
   // is a result. One without stays absent, because an empty state is not news.
@@ -910,7 +946,12 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
             */}
             {question.requirement === "required" && (
               <ExpertSignalLabel topic="requirement">
-                <span className={cn("rounded border border-border px-1.5 py-px", EYEBROW)}>
+                <span
+                  className={cn(
+                    "rounded border border-border px-1.5 py-px",
+                    EYEBROW,
+                  )}
+                >
                   Required
                 </span>
               </ExpertSignalLabel>
@@ -927,7 +968,9 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
         </p>
       </button>
       {question.statement && (
-        <p className="mt-2 text-sm leading-6 text-foreground">{question.statement}</p>
+        <p className="mt-2 text-sm leading-6 text-foreground">
+          {question.statement}
+        </p>
       )}
       {/*
         The ask, given its own line rather than left inside the statement. On a partial

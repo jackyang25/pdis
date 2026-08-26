@@ -121,9 +121,9 @@ export default function ArchivistPage() {
         <EmptyState
           message="Nothing has been indexed yet"
           detail={
-            "The corpus is built from a folder of documents and a reviewed manifest, then "
-            + "committed. Until that has been run there is nothing to read, which is a "
-            + "different state from an archive that holds no answer to your question."
+            "The corpus is built from a folder of documents and a reviewed manifest, then " +
+            "committed. Until that has been run there is nothing to read, which is a " +
+            "different state from an archive that holds no answer to your question."
           }
         />
       )}
@@ -137,7 +137,8 @@ export default function ArchivistPage() {
               </Label>
               <p className="text-xs text-muted-foreground">
                 {corpus.documents.length} profiles
-                {corpus.built_at && ` · indexed ${corpus.built_at.slice(0, 10)}`}
+                {corpus.built_at &&
+                  ` · indexed ${corpus.built_at.slice(0, 10)}`}
               </p>
             </div>
 
@@ -167,7 +168,9 @@ export default function ArchivistPage() {
                   help="Only the indications the archive holds."
                   options={corpus.indications}
                   selected={indications}
-                  onToggle={(value) => setIndications(toggled(indications, value))}
+                  onToggle={(value) =>
+                    setIndications(toggled(indications, value))
+                  }
                 />
               )}
 
@@ -177,7 +180,9 @@ export default function ArchivistPage() {
                   help="Narrows which profiles are read. Answers are never merged across types."
                   options={corpus.source_types}
                   selected={sourceTypes}
-                  onToggle={(value) => setSourceTypes(toggled(sourceTypes, value))}
+                  onToggle={(value) =>
+                    setSourceTypes(toggled(sourceTypes, value))
+                  }
                 />
               )}
 
@@ -279,10 +284,12 @@ function Answer({
   if (answer.documents.length === 0) {
     return (
       <section className="rounded-lg border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold">No profile matches those filters</h2>
+        <h2 className="text-sm font-semibold">
+          No profile matches those filters
+        </h2>
         <p className="mt-2 text-xs leading-5 text-muted-foreground">
-          The archive holds profiles, but none with that combination. This is a fact about
-          the filters, not about what the profiles said.
+          The archive holds profiles, but none with that combination. This is a
+          fact about the filters, not about what the profiles said.
         </p>
       </section>
     );
@@ -295,7 +302,9 @@ function Answer({
       </p>
       {answer.attributes.map((group) => {
         const { answered, total } = attributeTotals(group);
-        const column = columns.find((item) => item.attribute === group.attribute);
+        const column = columns.find(
+          (item) => item.attribute === group.attribute,
+        );
         return (
           <section
             key={group.attribute}
@@ -376,11 +385,17 @@ function SourceType({
             Flagged for review
           </p>
           {group.uncertain.map((record) => (
-            <div key={`${record.document_id} ${record.block_id}`} className="mt-2">
+            <div
+              key={`${record.document_id} ${record.block_id}`}
+              className="mt-2"
+            >
               <p className="text-sm">
                 {record.stated || "No value could be read"}
                 {record.reason && (
-                  <span className="text-muted-foreground"> · {record.reason}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {record.reason}
+                  </span>
                 )}
               </p>
               {record.quote && <Provenance record={record} answer={answer} />}
@@ -392,7 +407,9 @@ function SourceType({
       {group.silent.length > 0 && (
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
           Did not specify it:{" "}
-          {group.silent.map((id) => documentTitle(answer.documents, id)).join(", ")}
+          {group.silent
+            .map((id) => documentTitle(answer.documents, id))
+            .join(", ")}
         </p>
       )}
     </div>

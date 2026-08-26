@@ -13,8 +13,14 @@ import test from "node:test";
 
 import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "./tools.ts";
 
-/** Approximate minutes, rounded to what a reader should budget. */
-const DURATION = /^~\d+ min$/;
+/**
+ * Approximate minutes, rounded to what a reader should budget.
+ *
+ * "approx." rather than a tilde. Beside a duration the tilde reads as a maths operator, and
+ * these sit in a card next to a capability rather than in an expression. One form for all of
+ * them, so the estimates read as one scale.
+ */
+const DURATION = /^approx\. \d+ min$/;
 
 test("every available workspace tool states how long a run takes", () => {
   const available = WORKSPACE_TOOLS.filter((tool) => tool.availability === "available");
@@ -24,7 +30,7 @@ test("every available workspace tool states how long a run takes", () => {
       tool.activity ?? "",
       DURATION,
       `${tool.id} publishes "${tool.activity}", which a reader cannot compare with `
-        + `"~5 min". Estimates are approximate minutes, so they read as one scale.`,
+        + `"approx. 5 min". Estimates are approximate minutes, so they read as one scale.`,
     );
   }
 });
@@ -47,7 +53,9 @@ test("the estimate is a budget, so it rounds up rather than to the middle", () =
   // is worse served than one who finished early, so these came from observed
   // upper ends rather than averages.
   const scout = WORKSPACE_TOOLS.find((tool) => tool.id === "scout");
-  assert.equal(scout?.activity, "~15 min");
+  // "approx." rather than a tilde: beside a duration the tilde reads as a maths operator,
+  // and this sits in a card next to a capability, not in an expression.
+  assert.equal(scout?.activity, "approx. 20 min");
 });
 
 test("an available external tool offers somewhere to go", () => {

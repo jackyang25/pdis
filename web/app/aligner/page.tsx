@@ -1,5 +1,10 @@
 "use client";
 
+import { ResultLayout } from "@/components/ui/result-layout";
+import {
+  ResultToolbar,
+  ResultToolbarEnd,
+} from "@/components/ui/result-toolbar";
 import { VerdictCounts } from "@/components/ui/verdict-counts";
 import { useTraceFocus } from "@/lib/trace-focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,7 +26,10 @@ import {
 } from "@/components/configuration-fields";
 import { ConfigurationShell } from "@/components/ui/config-field";
 import { AlignerDocumentTrace } from "@/components/aligner-document-trace";
-import { AlignerSignalHelp, AlignerSignalLabel } from "@/components/aligner-signal-help";
+import {
+  AlignerSignalHelp,
+  AlignerSignalLabel,
+} from "@/components/aligner-signal-help";
 import { PriorityPanel } from "@/components/ui/priority-panel";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -37,7 +45,11 @@ import {
   type AlignmentResult,
   type AlignmentVerdict,
 } from "@/lib/api";
-import { chainWarningText, chainWarnings, type ChainWarning } from "@/lib/aligner-chain";
+import {
+  chainWarningText,
+  chainWarnings,
+  type ChainWarning,
+} from "@/lib/aligner-chain";
 import {
   ALIGNER_EMPTY_MESSAGE,
   ALIGNER_ORDER_NOTE,
@@ -51,6 +63,7 @@ import {
   alignerResultFilename,
   packAlignerResult,
   runLabel,
+  runScope,
   splitResultContext,
   unpackAlignerResult,
   readResultIdentity,
@@ -96,7 +109,9 @@ export default function AlignerPage() {
     fetchAlignerEdges()
       .then(setDeclaredEdges)
       .catch((error: Error) =>
-        session.setError(`Could not load the comparisons Aligner makes: ${error.message}`),
+        session.setError(
+          `Could not load the comparisons Aligner makes: ${error.message}`,
+        ),
       );
   }, [session.setError]);
 
@@ -111,7 +126,8 @@ export default function AlignerPage() {
   // same rule the service applies, read from the same config it publishes, so the
   // preview cannot promise a comparison the run will not make.
   const comparisons = declaredEdges.filter(
-    (edge) => chosen.includes(edge.reference) && chosen.includes(edge.comparison),
+    (edge) =>
+      chosen.includes(edge.reference) && chosen.includes(edge.comparison),
   );
 
   const slots: readonly DocumentSlot[] = chosen.map((sourceType) => ({
@@ -119,7 +135,8 @@ export default function AlignerPage() {
     label: displayLabel(sourceType),
   }));
   const contextReady = isContextComplete(header);
-  const configured = contextReady && chosen.length >= 2 && comparisons.length > 0;
+  const configured =
+    contextReady && chosen.length >= 2 && comparisons.length > 0;
 
   async function handleRun(files: Record<string, File>) {
     if (!configured || !contextReady) return;
@@ -336,7 +353,10 @@ function ComparisonPreview({
             <li key={`${edge.reference}-${edge.comparison}`}>
               <p className="flex items-center gap-1.5 text-xs font-medium">
                 <span>{displayLabel(edge.reference)}</span>
-                <ArrowRight aria-label="compared against" className="h-3 w-3 text-muted-foreground" />
+                <ArrowRight
+                  aria-label="compared against"
+                  className="h-3 w-3 text-muted-foreground"
+                />
                 <span>{displayLabel(edge.comparison)}</span>
               </p>
               <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
@@ -349,7 +369,10 @@ function ComparisonPreview({
         <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
           These documents form no comparison. Aligner compares{" "}
           {declared
-            .map((edge) => `${displayLabel(edge.reference)} to ${displayLabel(edge.comparison)}`)
+            .map(
+              (edge) =>
+                `${displayLabel(edge.reference)} to ${displayLabel(edge.comparison)}`,
+            )
             .join(", ")}
           .
         </p>
@@ -425,104 +448,118 @@ function AlignmentView({
   // Where two comparisons meet. Computed once per result and read per row, so the panel
   // and the rows cannot disagree about which passages an earlier comparison flagged.
   const warnings = useMemo(() => chainWarnings(result), [result]);
-  const subtitle = [
-    `${result.edges.length} ${result.edges.length === 1 ? "comparison" : "comparisons"}`,
-    displayLabel(result.intervention_class),
-    result.documents.map((document) => displayLabel(document.source_type)).join(", "),
-  ]
-    .filter(Boolean)
-    .join(" · ");
 
   return (
-    <CollapsibleCard
-      title="Alignment"
-      subtitle={subtitle}
-      defaultOpen
-      contentClassName="px-0 py-0 sm:px-0"
-      trailing={
+    <ResultLayout
+      title={runLabel(result, "aligner")}
+      subtitle={runScope(result, "aligner")}
+      // Run-wide, so it holds on the Documents tab too. It was inside the Comparisons tab.
+      metrics={<CountRow counts={counts} />}
+      metricsNote="Every requirement in the rubric by verdict, including the classes nothing fell into. A zero says the class was checked, not that it was skipped."
+
+      tabValue={resultTab}
+      onTabChange={setResultTab}
+      tabs={
         <>
-        <RunHistory
-          runs={results}
-          selectedId={selectedRunId}
-          onSelect={selectResult}
-          onRemove={removeResult}
-          label={(value) => runLabel(value, "aligner")}
-        />
-        <FinalResultActions
-          onNewAnalysis={onNewAnalysis}
-          download={{
-            filename: alignerResultFilename({ alignment: result }),
-            data: packAlignerResult({ alignment: result }),
-          }}
-        />
+          {/*
+            Comparisons first: a tool opens on what it is about. Aligner is about
+            what one document does with another's requirements, and the documents
+            are what it read to decide.
+          */}
+          <TabsTrigger value="comparisons">Comparisons</TabsTrigger>
+          <TabsTrigger value="trace">Documents</TabsTrigger>
+        </>
+      }
+      priorities={{
+        // Every item links to a requirement, so it shows where the comparisons are.
+        tab: "comparisons",
+        panel: (
+          <PriorityPanel
+            attribution="by Aligner"
+            items={priorities}
+            emptyMessage={ALIGNER_EMPTY_MESSAGE}
+            orderNote={ALIGNER_ORDER_NOTE}
+            digest={
+              digest?.state === "ready" ? digest.digest.digest : undefined
+            }
+            nominations={
+              digest?.state === "ready" ? digest.digest.nominations : []
+            }
+            digestLoading={digest?.state === "loading"}
+            digestError={digest?.state === "failed" ? digest.reason : undefined}
+          />
+        ),
+      }}
+      actions={
+        <>
+          <RunHistory
+            runs={results}
+            selectedId={selectedRunId}
+            onSelect={selectResult}
+            onRemove={removeResult}
+            label={(value) => runLabel(value, "aligner")}
+          />
+          <FinalResultActions
+            onNewAnalysis={onNewAnalysis}
+            download={{
+              filename: alignerResultFilename({ alignment: result }),
+              data: packAlignerResult({ alignment: result }),
+            }}
+          />
         </>
       }
     >
-      <DocumentSourceProvider blocks={result.blocks} onOpenInTrace={openBlockInTrace}>
-        <Tabs value={resultTab} onValueChange={setResultTab} className="w-full">
-          <div className="flex items-center justify-between gap-3 border-b border-border px-5 pt-2 sm:px-6">
-            <TabsList className="justify-start border-b-0">
-              {/*
-                Comparisons first: a tool opens on what it is about. Aligner is about
-                what one document does with another's requirements, and the documents
-                are what it read to decide.
-              */}
-              <TabsTrigger value="comparisons">Comparisons</TabsTrigger>
-              <TabsTrigger value="trace">Documents</TabsTrigger>
-            </TabsList>
-            <AlignerSignalHelp />
-          </div>
-
-          <TabsContent value="comparisons" className="m-0">
-            <div className="flex flex-col gap-6 px-5 py-5 sm:px-6">
-              <CountRow counts={counts} />
-
-              <PriorityPanel
-                attribution="by Aligner"
-                items={priorities}
-                emptyMessage={ALIGNER_EMPTY_MESSAGE}
-                orderNote={ALIGNER_ORDER_NOTE}
-                digest={digest?.state === "ready" ? digest.digest.digest : undefined}
-                nominations={digest?.state === "ready" ? digest.digest.nominations : []}
-                digestLoading={digest?.state === "loading"}
-                digestError={digest?.state === "failed" ? digest.reason : undefined}
+      <DocumentSourceProvider
+        blocks={result.blocks}
+        onOpenInTrace={openBlockInTrace}
+      >
+        <TabsContent value="comparisons" className="m-0">
+          {/* The view's nav: its name, and what explains it. */}
+          <ResultToolbar>
+            <p className="min-w-0 flex-1 text-xs font-medium text-foreground">
+              Comparisons
+            </p>
+            {/* No count: nothing filters here, and the subtitle already says how
+                  many comparisons the run made. */}
+            <ResultToolbarEnd>
+              <AlignerSignalHelp />
+            </ResultToolbarEnd>
+          </ResultToolbar>
+          <div className="flex flex-col gap-6 px-5 py-5 sm:px-6">
+            <div className="space-y-3">
+              <SectionHeading
+                title={
+                  <>
+                    Comparisons{" "}
+                    <span className="tabular-nums text-muted-foreground">
+                      {result.edges.length}
+                    </span>
+                  </>
+                }
+                description="Each comparison runs one way: the first document sets the requirements and the second is measured against them. Open one to see every requirement it asked, grouped by what the other document does with it."
               />
-
-              <div className="space-y-3">
-                <SectionHeading
-                  title={
-                    <>
-                      Comparisons{" "}
-                      <span className="tabular-nums text-muted-foreground">
-                        {result.edges.length}
-                      </span>
-                    </>
-                  }
-                  description="Each comparison runs one way: the first document sets the requirements and the second is measured against them. Open one to see every requirement it asked, grouped by what the other document does with it."
+              {groups.map(({ edge, findings }) => (
+                <ComparisonCard
+                  key={edge.edge_id}
+                  edge={edge}
+                  findings={findings}
+                  result={result}
+                  warnings={warnings}
                 />
-                {groups.map(({ edge, findings }) => (
-                  <ComparisonCard
-                    key={edge.edge_id}
-                    edge={edge}
-                    findings={findings}
-                    result={result}
-                    warnings={warnings}
-                  />
-                ))}
-              </div>
+              ))}
             </div>
-          </TabsContent>
+          </div>
+        </TabsContent>
 
-          <TabsContent value="trace" className="m-0">
-            <AlignerDocumentTrace
-              result={result}
-              focus={traceFocus}
-              onFocusConsumed={consumeTraceFocus}
-            />
-          </TabsContent>
-        </Tabs>
+        <TabsContent value="trace" className="m-0">
+          <AlignerDocumentTrace
+            result={result}
+            focus={traceFocus}
+            onFocusConsumed={consumeTraceFocus}
+          />
+        </TabsContent>
       </DocumentSourceProvider>
-    </CollapsibleCard>
+    </ResultLayout>
   );
 }
 
@@ -535,7 +572,10 @@ function AlignmentView({
  * total, so nothing would look wrong.
  */
 function CountRow({ counts }: { counts: Record<AlignmentVerdict, number> }) {
-  const total = ALIGNMENT_VERDICTS.reduce((sum, verdict) => sum + counts[verdict], 0);
+  const total = ALIGNMENT_VERDICTS.reduce(
+    (sum, verdict) => sum + counts[verdict],
+    0,
+  );
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
       <p className="text-xs">
@@ -588,7 +628,8 @@ function ComparisonCard({
       defaultOpen={false}
       trailing={
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-          {findings.length} {findings.length === 1 ? "requirement" : "requirements"}
+          {findings.length}{" "}
+          {findings.length === 1 ? "requirement" : "requirements"}
         </span>
       }
     >
@@ -650,14 +691,19 @@ function FindingRow({
   return (
     <li className="rounded-md border border-border/70 px-3 py-2.5">
       <p className="text-xs font-medium leading-5">
-        <AlignerSignalLabel topic="requirement">{finding.requirement}</AlignerSignalLabel>
+        <AlignerSignalLabel topic="requirement">
+          {finding.requirement}
+        </AlignerSignalLabel>
       </p>
       <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
         {finding.statement}
       </p>
       {finding.gap && (
         <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-foreground/85">
-          <CircleDashed aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <CircleDashed
+            aria-hidden="true"
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
+          />
           <span>
             <span className="text-muted-foreground">Still to close: </span>
             {finding.gap}
@@ -669,7 +715,10 @@ function FindingRow({
           key={warning.upstreamRequirementId}
           className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-[hsl(var(--tone-warning))]"
         >
-          <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <AlertTriangle
+            aria-hidden="true"
+            className="mt-0.5 h-3.5 w-3.5 shrink-0"
+          />
           {/*
             A claim about the passage, not about the requirement: the two comparisons
             cite the same block, which does not prove they mean the same clause of it.
@@ -680,7 +729,9 @@ function FindingRow({
       ))}
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
         <div className="min-w-0">
-          <p className="text-[11px] text-muted-foreground">Requirement stated in</p>
+          <p className="text-[11px] text-muted-foreground">
+            Requirement stated in
+          </p>
           <DocumentSourceTrace blockIds={finding.reference_block_ids} />
         </div>
         {finding.comparison_block_ids.length > 0 && (

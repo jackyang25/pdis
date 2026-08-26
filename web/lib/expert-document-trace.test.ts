@@ -91,11 +91,11 @@ test("a partial is placed too, and carries what it leaves open", () => {
   );
   assert.equal(annotation.kind, "partly_answered");
   assert.equal(annotation.layerLabel, "Partly answered");
-  assert.equal(annotation.emphasis?.tone, "caution");
+  assert.equal(annotation.emphasis?.tone, "warning");
   assert.equal(annotation.sourceRef.missing, "Zone IVb stability data.");
 });
 
-test("a whole answer is success and a partial is caution, in the shared tones", () => {
+test("a whole answer is success and a partial is warning, in the shared tones", () => {
   // Not grey: a passage that answered a question in grey reads as one nobody looked at.
   // And the same tone every other tool uses for "the thing asked for is there", so a
   // reader carries the colours between tools rather than relearning them.
@@ -108,7 +108,7 @@ test("a whole answer is success and a partial is caution, in the shared tones", 
   const [partial] = buildExpertDocumentAnnotations(
     review([partly("B", ["profile:1"])]),
   );
-  assert.equal(partial.emphasis?.tone, "caution");
+  assert.equal(partial.emphasis?.tone, "warning");
 });
 
 test("only answers read from a document are placed", () => {

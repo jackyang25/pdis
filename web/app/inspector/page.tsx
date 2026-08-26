@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { EmptyState } from "@/components/empty-state";
 import { VerdictCounts } from "@/components/ui/verdict-counts";
+import { VerdictPill } from "@/components/ui/verdict-pill";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { ConfigurationFields } from "@/components/configuration-fields";
 import {
@@ -67,7 +68,7 @@ import {
 } from "@/lib/session";
 import { usePriorityDigest } from "@/lib/priority-digest";
 import { toolAuthority } from "@/lib/tools";
-import { TONE_TEXT, TONE_TINT, type Tone } from "@/lib/tone";
+import { TONE_TEXT, type Tone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
 
 const INSPECTOR_STEPS = [
@@ -694,28 +695,24 @@ function consistencyDescription(
 }
 
 function StatusPill({ status }: { status: Verdict }) {
+  // No help affordance. The verdicts are told apart by contrast, so an icon on one of
+  // them cannot do the job: it says what "Insufficient" is without saying how it differs
+  // from "Vague", which is the thing a reader gets wrong. "How to read" shows them
+  // together and is the only place they are explained. Scout reached the same conclusion
+  // for the same reason; the native title stays, because it costs nothing and adds no
+  // mark to the page.
   return (
-    // No help affordance. The verdicts are told apart by contrast, so an icon on one of
-    // them cannot do the job: it says what "Insufficient" is without saying how it
-    // differs from "Vague", which is the thing a reader gets wrong. "How to read" shows
-    // them together and is the only place they are explained. Scout reached the same
-    // conclusion for the same reason; the native title stays, because it costs nothing
-    // and adds no mark to the page.
-    <span
-      title={VERDICT_DESCRIPTION[status]}
-      className={cn(
-        "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
-        VERDICT_SURFACE[status],
-      )}
-    >
-      {VERDICT_LABEL[status]}
-    </span>
+    <VerdictPill
+      label={VERDICT_LABEL[status]}
+      tone={VERDICT_TONE[status]}
+      description={VERDICT_DESCRIPTION[status]}
+    />
   );
 }
 
 /* The short forms live in `lib/api.ts` as `VERDICT_LABEL`. They used to live here, so the
    document trace could not reach them and rendered the description as pill text instead.
-   Colour is still a local concern: see `VERDICT_SURFACE`. */
+   Colour is decided once here as a tone and applied by `VerdictPill`. */
 
 /**
  * One tone per verdict. The only place the judgement is made.
@@ -740,6 +737,5 @@ const VERDICT_TONE: Record<Verdict, Tone> = {
   not_applicable: "neutral",
 };
 
-const VERDICT_SURFACE: Record<Verdict, string> = Object.fromEntries(
-  VERDICTS.map((verdict) => [verdict, TONE_TINT[VERDICT_TONE[verdict]]]),
-) as Record<Verdict, string>;
+/* The tint is applied by `VerdictPill`, which reads the tone directly. A map from
+   verdict to class lived here as well, which is one lookup more than the fact needs. */

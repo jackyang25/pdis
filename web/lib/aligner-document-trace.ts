@@ -70,7 +70,7 @@ const TONE: Record<AlignmentVerdict, DocumentAnnotationEmphasis["tone"]> = Objec
     // The trace calls a caution `caution` and the tone scale calls it `warning`; they are
     // the same reading under two names, which is why the map above is the only place the
     // judgement is made and this is a translation rather than a second opinion.
-    ALIGNMENT_VERDICT_TONE[verdict] === "warning" ? "caution" : ALIGNMENT_VERDICT_TONE[verdict],
+    ALIGNMENT_VERDICT_TONE[verdict],
   ]),
 ) as Record<AlignmentVerdict, DocumentAnnotationEmphasis["tone"]>;
 

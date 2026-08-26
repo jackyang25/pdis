@@ -3286,9 +3286,13 @@ function FieldRow({
                 )}
               </div>
               {/* All four of these sentences are written where the decision is made, so this is
-                the tool accounting for an absence, not a model's view of the field. */}
+                the tool accounting for an absence, not a model's view of the field.
+
+                `content`, not a note: this sentence *is* what the section holds when there
+                are no measurable targets. Boxed, it was the only bordered element on a card
+                of flat prose, so the loudest thing on screen was an absence. */}
               {conformities.length === 0 && quantitativeTargetStatusReason && (
-                <InterfaceNote className="mt-1">
+                <InterfaceNote variant="content" className="mt-1">
                   {quantitativeTargetStatusReason}
                 </InterfaceNote>
               )}
@@ -3455,14 +3459,14 @@ function TargetRows({
               <p className="text-xs font-medium text-foreground">
                 {row.variable}
               </p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
+              <Quoted size="prominent" className="mt-0">
                 <span className={cn(EYEBROW, "sm:hidden")}>Minimum </span>
                 {row.minimum || "—"}
-              </p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
+              </Quoted>
+              <Quoted size="prominent" className="mt-0">
                 <span className={cn(EYEBROW, "sm:hidden")}>Optimistic </span>
                 {row.optimistic || "—"}
-              </p>
+              </Quoted>
               {/* Against the right edge, matching the numeric-target rows below, which
                   pack their triggers the same way. */}
               <span className="justify-self-end">
@@ -3477,9 +3481,12 @@ function TargetRows({
               key={index}
               className="flex items-start justify-between gap-3 py-2"
             >
-              <p className="text-xs leading-relaxed text-foreground">
+              {/* The document's own words, so ruled. It rendered as plain prose here and
+                  as a quote in the trace panel that opens from it - the same text, two
+                  treatments, one of them saying nothing about where it came from. */}
+              <Quoted size="prominent" className="mt-0 min-w-0 flex-1">
                 {row.text}
-              </p>
+              </Quoted>
               <DocumentSourceTrace
                 blockIds={row.blockIds}
                 spans={[{ quote: row.quote, block_ids: row.blockIds }]}
@@ -3884,12 +3891,12 @@ function CitedInsightIndex({ cited }: { cited: Citation }) {
               )}
               aria-hidden="true"
             />
-            <span className="min-w-0">
+            <Reading inline size="prominent" className="min-w-0">
               <span className="sr-only">
                 {RELATIONSHIP_LABEL[match.relation]}:{" "}
               </span>
               {match.insight.statement}
-            </span>
+            </Reading>
           </a>
         </li>
       ))}
@@ -3953,13 +3960,20 @@ function InsightGroups({ registry }: { registry: InsightRegistry }) {
                   // does not shift the statement when nothing has arrived.
                   className="-mx-2 rounded-md px-2 py-1 transition-shadow duration-base ease-enter motion-reduce:transition-none"
                 >
-                  <p className="text-xs leading-relaxed text-foreground">
+                  {/* The model's sentence, so muted and marked. It was at full contrast,
+                      which is the treatment for the tool's own words and the document's
+                      values - and it sat directly above `match.reason`, the model's
+                      judgement *about* it, which was already muted. Two contrasts told a
+                      reader the two lines had different authors when they have one. */}
+                  <Reading size="prominent" className="mt-0">
                     {match.insight.statement}
-                  </p>
-                  {/* No left rule: that shape means "quoted verbatim", and the other seven
-                      places it appears are a document or source quote. This is the model's
-                      reasoning about the insight above, so it reads as muted prose. */}
-                  {match.reason && <Reading>{match.reason}</Reading>}
+                  </Reading>
+                  {/* `continued`, because this is the model's reasoning *about* the
+                      sentence above it - one contribution, one level apart. Marked in its
+                      own right it read as the next item in a list rather than as a note on
+                      the line above. No left rule either: that shape means "quoted
+                      verbatim", and the other seven places it appears are a quote. */}
+                  {match.reason && <Reading continued>{match.reason}</Reading>}
                   {/* Both directions of provenance, both behind a click and neither
                       expanded by default. Rendering every source inline put 1,121 finding
                       rows on one run in front of the statements they support. */}

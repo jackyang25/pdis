@@ -5,7 +5,7 @@ import { ChevronDown, Scale } from "lucide-react";
 import { TracePanelHeader } from "@/components/document-trace-panel";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ProvenanceTrigger, stopRowToggle , PROVENANCE_PANEL} from "@/components/ui/provenance";
-import { Reading, SourceEntry } from "@/components/ui/evidence-text";
+import { Reading, SourceEntry, InterfaceNote } from "@/components/ui/evidence-text";
 import type { Conformity, Insight, Match, Measurement } from "@/lib/api";
 import { SEMANTIC_STATUS_LABEL, sourceIdentityCaveat } from "@/lib/scout-labels";
 import { calibrationView, formatMeasure } from "@/lib/scout-result-view";
@@ -121,8 +121,13 @@ function AdmittedMeasurement({
       quote={measurement.source_quote}
       reading={insight?.statement}
     >
-      {unreviewed && <Reading>{unreviewed}</Reading>}
-      {identity && <Reading>{identity}</Reading>}
+      {/* Not `Reading`, and this is the correction: both are the tool's own words. One is
+          a template built from `admission_status`, the other a lookup on
+          `source_identity_status` - deterministic either way, and no model wrote either.
+          Marked as a model's they would have carried the authorship star, which states
+          the claim outright rather than merely implying it as the muted tone did. */}
+      {unreviewed && <InterfaceNote className="mt-1">{unreviewed}</InterfaceNote>}
+      {identity && <InterfaceNote className="mt-1">{identity}</InterfaceNote>}
       {/* The semantic match is a model's reading too, but per axis and long, so it stays
           collapsed rather than being a fourth line on every entry. */}
       <details className="group/semantic mt-1" open={open} onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
@@ -130,10 +135,18 @@ function AdmittedMeasurement({
           Why it was comparable
           <ChevronDown className="h-2.5 w-2.5 transition-transform group-open/semantic:rotate-180 motion-reduce:transition-none" />
         </summary>
-        <Reading className="pl-3">
-          {SEMANTIC_STATUS_LABEL[measurement.semantic_status]}
-          {measurement.semantic_reason ? `. ${measurement.semantic_reason}` : ""}
-        </Reading>
+        {/* The status is a label lookup and the reason is the model's sentence about it,
+            so the mark goes on the line only when the model actually contributed one. */}
+        {measurement.semantic_reason ? (
+          <Reading className="pl-3">
+            {SEMANTIC_STATUS_LABEL[measurement.semantic_status]}
+            {`. ${measurement.semantic_reason}`}
+          </Reading>
+        ) : (
+          <InterfaceNote className="mt-1 ml-3">
+            {SEMANTIC_STATUS_LABEL[measurement.semantic_status]}
+          </InterfaceNote>
+        )}
       </details>
     </SourceEntry>
   );

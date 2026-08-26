@@ -151,7 +151,7 @@ test("tone follows the verdict, so there is no second table to keep in step", ()
     ["not_present", "danger"],
     ["placeholder", "danger"],
     ["insufficient", "danger"],
-    ["vague", "caution"],
+    ["vague", "warning"],
   ];
   for (const [verdict, tone] of cases) {
     const cited = verdict === "not_present" ? [] : ["b-2"];

@@ -535,16 +535,16 @@ test("block emphasis takes the strongest tone and that claim's badge", () => {
     strongestEmphasis([
       annotation({ id: "a", kind: "field", blockIds: [], emphasis: { tone: "neutral", badge: "A" } }),
       annotation({ id: "f", kind: "field", blockIds: [], emphasis: { tone: "danger", badge: "F" } }),
-      annotation({ id: "c", kind: "field", blockIds: [], emphasis: { tone: "caution", badge: "C" } }),
+      annotation({ id: "c", kind: "field", blockIds: [], emphasis: { tone: "warning", badge: "C" } }),
     ]),
     { tone: "danger", badge: "F" },
   );
   assert.deepEqual(
     strongestEmphasis([
-      annotation({ id: "a", kind: "field", blockIds: [], emphasis: { tone: "caution", badge: "first" } }),
-      annotation({ id: "b", kind: "field", blockIds: [], emphasis: { tone: "caution", badge: "second" } }),
+      annotation({ id: "a", kind: "field", blockIds: [], emphasis: { tone: "warning", badge: "first" } }),
+      annotation({ id: "b", kind: "field", blockIds: [], emphasis: { tone: "warning", badge: "second" } }),
     ]),
-    { tone: "caution", badge: "first" },
+    { tone: "warning", badge: "first" },
     "ties break by declaration order so the rendered badge is deterministic",
   );
 });
@@ -801,7 +801,8 @@ test("one meaning takes one tone, and every tool draws from the same four", () =
     "lib/inspector-document-trace.ts",
   ].map((module) => readFileSync(path.join(WEB_ROOT, module), "utf8"));
 
-  const allowed = new Set(["success", "caution", "danger", "neutral"]);
+  // The shared five, read from the tone module rather than listed again here.
+  const allowed = new Set(["success", "warning", "danger", "info", "neutral"]);
   for (const source of sources) {
     for (const [, tone] of source.matchAll(/tone: "(\w+)"/g)) {
       assert.ok(allowed.has(tone), `${tone} is not one of the shared tones`);
@@ -811,17 +812,17 @@ test("one meaning takes one tone, and every tool draws from the same four", () =
   // "The thing asked for is there" is success everywhere it appears.
   const [expert, aligner] = sources;
   assert.match(expert, /question\.state === "answered"\s*\n?\s*\? \{ tone: "success"/);
-  // Aligner's verdict tones moved to `ALIGNMENT_VERDICT_TONE`, read by both the count row
-  // and this trace, so the judgement is made once and the trace translates `warning` to
-  // its own `caution`. Checked at the source rather than at the translation, which is
-  // where a second opinion would appear if one were ever introduced.
+  // Aligner's verdict tones live in `ALIGNMENT_VERDICT_TONE`, read by both the count row
+  // and this trace, so the judgement is made once. The trace used to *translate* it,
+  // because the trace layer called the middle tone `caution` while the tone system called
+  // it `warning` - one thing under two names, with a line of code whose only job was
+  // renaming. There is one name now, so the trace passes the map through.
   const verdictTone = readFileSync(path.join(WEB_ROOT, "lib", "api.ts"), "utf8");
   assert.match(verdictTone, /meets: "success"/);
   assert.match(verdictTone, /exceeds: "success"/);
-  assert.match(
-    aligner,
-    /ALIGNMENT_VERDICT_TONE\[verdict\] === "warning" \? "caution"/,
-    "the aligner trace decides its own tones again instead of translating the shared map",
+  assert.ok(
+    !/=== "warning" \?/.test(aligner),
+    "the aligner trace renames a tone on its way through instead of passing it",
   );
 });
 

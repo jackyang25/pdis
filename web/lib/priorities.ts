@@ -15,6 +15,18 @@ export type PriorityItem = {
   label: string;
   /** The kind of problem, so a column of these can be scanned for one of them. */
   qualifier?: string;
+  /**
+   * The document's own words, where this priority is about something it states.
+   *
+   * Optional, and separate from `statement` on purpose. Scout's grounding priorities used
+   * to put the document's target *into* `statement` when there was one and the model's
+   * sentence when there was not - one field with two authors, decided per run - and swap
+   * `recommendation` to hold whichever the other one was. Two items in one list came out
+   * with two different shapes, and the authorship marks made it visible: one row led with
+   * a quote and the next led with a model's sentence, for the same kind of finding.
+   */
+  quote?: string;
+  /** The model's sentence about why this is a priority. Always a model's. */
   statement: string;
   recommendation?: string;
   /** Passages behind it, for the source trigger. */

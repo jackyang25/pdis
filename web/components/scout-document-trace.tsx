@@ -19,7 +19,8 @@ import {
   type DocumentTracePassageAccess,
 } from "@/components/document-trace-viewer";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
-import { Reading } from "@/components/ui/evidence-text";
+import { Quoted, Reading } from "@/components/ui/evidence-text";
+import { VerdictPill } from "@/components/ui/verdict-pill";
 import { cn } from "@/lib/utils";
 
 const TRACE_LAYERS: Array<{
@@ -62,21 +63,35 @@ function ScoutTraceInspector({
       />
 
       <div className="px-5 py-5">
+        {/* Tinted by the annotation's own tone, which was already on it and thrown
+            away: the pill was a fixed neutral grey, so the same verdict read as tinted
+            in a list and as unremarkable in the panel that explains it. */}
         {annotation.statusLabel && (
-          <div className="inline-flex min-h-7 items-center rounded-full border border-border/80 bg-foreground/[0.045] px-2.5 text-[10px] font-medium text-foreground/80">
-            {annotation.statusLabel}
-          </div>
+          <VerdictPill
+            label={annotation.statusLabel}
+            tone={annotation.emphasis?.tone ?? "neutral"}
+          />
         )}
 
-        <Reading
-          size="body"
-          className={cn(
-            "whitespace-pre-wrap",
-            annotation.statusLabel && "mt-4",
-          )}
-        >
-          {annotation.summary}
-        </Reading>
+        {/* Two of Scout's six annotation kinds summarise with the document's own words -
+            a field's stated target, and the passage a measurable target was read from.
+            Rendered as a model's they carried the authorship mark, which is the tool
+            claiming it wrote the reader's document. */}
+        {annotation.summaryMode === "quoted" ? (
+          <Quoted size="prominent" className={cn(annotation.statusLabel && "mt-4")}>
+            {annotation.summary}
+          </Quoted>
+        ) : (
+          <Reading
+            size="body"
+            className={cn(
+              "whitespace-pre-wrap",
+              annotation.statusLabel && "mt-4",
+            )}
+          >
+            {annotation.summary}
+          </Reading>
+        )}
 
         <TracePanelSection
           label={connectionLabel}

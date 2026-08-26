@@ -283,10 +283,13 @@ test("a verdict has one tone, and the pill and the count row both read it", () =
   // colour on a unit and another on the section summarising it.
   const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
   assert.match(page, /const VERDICT_TONE: Record<Verdict, Tone>/);
-  assert.match(
-    page,
-    /VERDICT_SURFACE[\s\S]{0,140}TONE_TINT\[VERDICT_TONE\[verdict\]\]/,
-    "the tint map decides its own colours again instead of reading the tone",
+  // The tint is applied by `VerdictPill`, which reads the tone directly. A verdict-to-class
+  // map lived on the page as well, which is one lookup more than the fact needs.
+  const pill = read("components", "ui", "verdict-pill.tsx");
+  assert.match(pill, /TONE_TINT\[tone\]/, "the pill decides its own colours again");
+  assert.ok(
+    !/VERDICT_SURFACE/.test(page),
+    "the page keeps a second map from verdict to class",
   );
 });
 
@@ -747,7 +750,13 @@ test("a model's sentence reaches the page through Reading, never as bare prose",
   // `summary` is qualified by its object: a trace annotation's is a model's sentence,
   // while `topic.summary` in the help panel and `data.summary` in the docs diagram are
   // the tool explaining itself. Naming the field alone caught all three.
-  const AUTHORED = /\{(?:\w+\.(?:statement|recommendation|missing)|(?:annotation|ref)\.summary)\}/;
+  //
+  // The path is `[\w.]+`, not `\w+`. Written to match one segment it missed
+  // `match.insight.statement` twice in Scout - one of them rendered at full contrast,
+  // the treatment reserved for the tool's own words - because nothing said the check
+  // only covered fields exactly one dot deep.
+  const AUTHORED =
+    /\{(?:[\w.]+\.(?:statement|recommendation|missing)|(?:annotation|ref)\.summary)\}/;
   const offenders: string[] = [];
   for (const file of tsxFiles()) {
     const source = readFileSync(file, "utf8");
@@ -767,4 +776,191 @@ test("a model's sentence reaches the page through Reading, never as bare prose",
     [],
     "a model-authored sentence is rendered as a bare paragraph instead of <Reading>",
   );
+});
+
+test("the mark belongs to a contribution, not to every sentence in it", () => {
+  // Two stars stacked read as a list of equals. An insight and the model's note about
+  // that insight are one contribution - same author, one level apart - so the first
+  // carries the mark and the second is indented under it.
+  //
+  // The hierarchy used to come from contrast: the insight at full, the note muted. That
+  // looked right and said the wrong thing, because contrast is the authorship axis and
+  // both lines have one author. Indentation carries level, the mark carries authorship.
+  const text = read("components", "ui", "evidence-text.tsx");
+  assert.match(text, /\{!continued && <ReadingMark \/>\}/, "a continuation is marked again");
+  assert.match(text, /continued && "pl-\[/, "a continuation is no longer indented under its line");
+
+  // Not a source scan for adjacent `Reading`s: two of them in a file are as likely to be
+  // mutually exclusive branches - a skipped search and a failed one - as a stacked pair,
+  // and a check that flags correct code only teaches people to work around it. What is
+  // checkable is that the mechanism exists and that the pairs which do stack use it.
+  for (const [file, first, second] of [
+    [["app", "scout", "page.tsx"], "match.insight.statement", "match.reason"],
+    [["app", "expert", "page.tsx"], "question.statement", "question.missing"],
+    [["components", "ui", "priority-panel.tsx"], "item.statement", "item.recommendation"],
+  ] as const) {
+    const source = read(...file);
+    // The render site, not the first mention: the comment above one of these names the
+    // field in prose, and matching that put the window on the explanation rather than on
+    // the element. `{` is what tells an interpolation from a mention.
+    const at = source.indexOf(`{${second}`);
+    assert.ok(at > 0, `${second} is no longer rendered here`);
+    assert.ok(source.indexOf(`{${first}`) > 0, `${first} is no longer rendered here`);
+    const note = source.slice(at, at + 200);
+    assert.match(
+      note,
+      /continued/,
+      `${second} is marked in its own right, so it reads as a second contribution`,
+    );
+  }
+});
+
+test("the tool's voice is boxed only when it is an aside", () => {
+  // The box says "read this differently from what surrounds it". That is right for a
+  // caveat beside data, a warning above it, or a summary under it - and wrong when the
+  // sentence *is* what the section contains, because then there is nothing to be set off
+  // from. A field with no measurable targets answers with a sentence saying why, and
+  // boxing it made an absence the only bordered element on a card of flat prose: the
+  // loudest thing on screen, for the least information.
+  const text = read("components", "ui", "evidence-text.tsx");
+  assert.match(
+    text,
+    /variant === "note" && "rounded-md border/,
+    "the box is drawn for every interface sentence again, aside or not",
+  );
+  // The box still earns its place on an aside, and this is why: the mark created a
+  // second kind of unstarred muted prose - a `continued` note under a model's sentence.
+  // Without the box, the tool's own voice and a model's continuation would be told apart
+  // by position alone, which is the rule a reader has to have been told.
+  assert.match(text, /variant = "note"/, "an interface sentence defaults to unboxed");
+});
+
+test("a pill's shape says which question it answers", () => {
+  // Three roles, three shapes, one owner each - so a shape never has to be read in
+  // context to know what it means:
+  //
+  //   verdict   how this thing stands, judged.   tinted, rounded-md   VerdictPill
+  //   category  what kind of thing it is.        outlined, rounded-full  Badge
+  //   count     how many of each verdict.        a dot and a number   SignalChip
+  //
+  // The verdict shape had drifted into three. Inspector's list drew the tinted pill while
+  // the Scout and Inspector trace panels each hand-wrote the same neutral outlined one -
+  // character for character identical across two files, for a value that is never
+  // neutral, and both had the tone on the annotation and discarded it.
+  const pill = read("components", "ui", "verdict-pill.tsx");
+  assert.match(pill, /rounded-md/, "a verdict is no longer tinted and square-cornered");
+  const badge = read("components", "ui", "badge.tsx");
+  assert.match(badge, /rounded-full/, "a category is no longer outlined and round");
+
+  // Nobody draws the old neutral trace pill by hand any more.
+  for (const file of tsxFiles()) {
+    const source = readFileSync(file, "utf8");
+    assert.ok(
+      !/rounded-full border border-border\/80 bg-foreground\/\[0\.045\]/.test(source),
+      `${path.relative(REPO, file)} hand-draws a verdict pill instead of using VerdictPill`,
+    );
+  }
+});
+
+test("there is one tone vocabulary, not one per layer", () => {
+  // The trace layer declared its own four and called the middle one `caution` while
+  // `lib/tone.ts` called it `warning`. One thing, two names - and `aligner-document-trace`
+  // carried a line whose entire job was translating between them.
+  const trace = read("lib", "document-trace.ts");
+  assert.match(trace, /tone: Tone;/, "the trace declares its own tone list again");
+  for (const file of [...tsxFiles(), ...["document-trace", "inspector-document-trace",
+    "aligner-document-trace", "expert-document-trace"].map((name) =>
+    path.join(REPO, "lib", `${name}.ts`))]) {
+    const source = readFileSync(file, "utf8");
+    assert.ok(
+      !/tone: "caution"/.test(source),
+      `${path.relative(REPO, file)} uses a second name for the warning tone`,
+    );
+  }
+});
+
+test("a trace summary is marked by who wrote it, not by which panel shows it", () => {
+  // Scout's six annotation kinds draw their summary from six places, and two of them -
+  // a field's stated target and the passage a measurable target was read from - are the
+  // document's own words. Rendering every summary as a model's put the authorship mark
+  // on the reader's own document.
+  //
+  // Declared where the text is chosen rather than derived from `kind` at render time,
+  // which is the same rule the evidence map already follows: the place that picks the
+  // string is the only place that knows who wrote it.
+  const built = read("lib", "scout-document-trace.ts");
+  const quoted = [...built.matchAll(/summary: ([\w.]+),\n\s*\/\/[^\n]*\n\s*summaryMode: "quoted"/g)];
+  assert.equal(quoted.length, 2, "the document-authored summaries no longer say so");
+  assert.deepEqual(
+    quoted.map((match) => match[1]),
+    ["variable.document_target", "target.quote"],
+    "a different pair of summaries is being called the document's words",
+  );
+  const panel = read("components", "scout-document-trace.tsx");
+  assert.match(
+    panel,
+    /annotation\.summaryMode === "quoted" \? \(\s*<Quoted/,
+    "the panel renders every summary the same way again",
+  );
+});
+
+test("a priority states who wrote its statement, and the digest says it is a model's", () => {
+  // Scout's grounding priorities quote the document's own target when there is one and
+  // fall back to the model's sentence when there is not, so one field carries two authors
+  // depending on the run. Rendered as a model's, the document's own words wore the
+  // authorship mark - the tool claiming it wrote the reader's document.
+  // Fixed by splitting the field rather than by labelling which author it holds: two
+  // slots, `quote` for the document's words and `statement` for the model's, so every
+  // row in one list has one shape instead of two.
+  const selector = read("lib", "scout-priorities.ts");
+  assert.ok(
+    !/doc_target \|\| /.test(selector),
+    "one field carries the document's words or the model's again, decided per run",
+  );
+  assert.match(selector, /quote: assessment\.doc_target/);
+  assert.match(selector, /statement: assessment\.reason/);
+  const panel = read("components", "ui", "priority-panel.tsx");
+  assert.match(panel, /item\.quote && \(\s*<Quoted/, "the document's words are unmarked as quoted");
+  assert.match(panel, /<Reading size="prominent">\{item\.statement\}/);
+  // The digest is a model's summary of the list under it, and was the one paragraph on
+  // the page most obviously written by a model that did not say so.
+  assert.match(panel, /<Reading size="body" className="mb-4/, "the digest is unmarked again");
+});
+
+test("a marked sentence has one left edge", () => {
+  // The mark is inline, so without a hanging indent the first line began after it and
+  // every wrapped line fell back to the left of it - one sentence, two left edges - and
+  // the `continued` note below, indented to clear the mark, lined up with neither.
+  const text = read("components", "ui", "evidence-text.tsx");
+  assert.match(
+    text,
+    /!continued && !inline && "pl-\[1\.5em\] -indent-\[1\.5em\]"/,
+    "a marked sentence wraps back past its own mark",
+  );
+  assert.match(text, /continued && "pl-\[1\.5em\]"/, "the note no longer clears the mark");
+});
+
+test("the document's stated target is quoted wherever it is shown", () => {
+  // The same text appeared twice with two treatments: ruled in the trace panel that opens
+  // from this block, and plain full-contrast prose in the block itself. Plain prose is
+  // the treatment for the tool's own words, so the card was presenting the reader's
+  // document as though the tool had written it.
+  //
+  // `row.variable` stays plain on purpose: it is the row's heading, and the field title
+  // above it - also the document's word - is not quoted either. A heading names the thing;
+  // the quote is what the thing says.
+  const page = read("app", "scout", "page.tsx");
+  const block = page.slice(
+    page.indexOf("<SectionLabel>Target stated in document</SectionLabel>"),
+  );
+  const body = block.slice(0, block.indexOf("</section>"));
+  for (const field of ["row.minimum", "row.optimistic", "row.text"]) {
+    const at = body.indexOf(`{${field}`);
+    assert.ok(at > 0, `${field} is no longer rendered here`);
+    assert.match(
+      body.slice(Math.max(0, at - 220), at),
+      /<Quoted/,
+      `${field} is the document's own words and is not rendered as a quotation`,
+    );
+  }
 });

@@ -98,6 +98,7 @@ test("both selectors return the same item shape", () => {
     "qualifier",
     "statement",
     "recommendation",
+    "quote",
     "blockIds",
   ];
   for (const [tool, item] of [

@@ -77,7 +77,7 @@ export function buildExpertDocumentAnnotations(
         emphasis:
           question.state === "answered"
             ? { tone: "success" as const, badge: "Answered" }
-            : { tone: "caution" as const, badge: "Partly answered" },
+            : { tone: "warning" as const, badge: "Partly answered" },
         sourceRef: {
           questionId: question.id,
           discipline: discipline.label,

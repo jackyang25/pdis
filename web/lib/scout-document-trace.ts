@@ -85,6 +85,8 @@ export function buildScoutDocumentAnnotations(
       layerLabel: "Document field",
       title: displayAttributeLabel(variable.name),
       summary: variable.document_target,
+      // The document's own target text, copied. Not a model's sentence about it.
+      summaryMode: "quoted",
       statusLabel: variable.target_resolved ? "Resolved" : "Unresolved",
       blockIds,
       spans: exactSpans(variable.document_spans),
@@ -107,6 +109,8 @@ export function buildScoutDocumentAnnotations(
         ? attributeRefs.map(displayAttributeLabel).join(" · ")
         : target.id,
       summary: target.quote,
+      // The passage the target was read from, verbatim.
+      summaryMode: "quoted",
       statusLabel: target.review_status === "approved"
         ? "Approved"
         : target.review_status === "rejected"

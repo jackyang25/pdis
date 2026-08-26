@@ -56,7 +56,7 @@ const WEAKER_VERDICTS: readonly Verdict[] = ["vague"];
 
 function emphasisFor(item: Assessment): DocumentAnnotationEmphasis {
   return {
-    tone: WEAKER_VERDICTS.includes(item.verdict) ? "caution" : "danger",
+    tone: WEAKER_VERDICTS.includes(item.verdict) ? "warning" : "danger",
     badge: VERDICT_LABEL[item.verdict] ?? item.verdict,
   };
 }

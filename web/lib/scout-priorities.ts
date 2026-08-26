@@ -83,8 +83,9 @@ function unsupportedTargets(result: ScoutResponse): PriorityItem[] {
         assessment.strength === "unsupported"
           ? "No evidence supports this target"
           : "Thin evidence for this target",
-      statement: assessment.doc_target || assessment.reason,
-      recommendation: assessment.doc_target ? assessment.reason : "",
+      // Two slots, each with one meaning, rather than one slot swapping between them.
+      quote: assessment.doc_target,
+      statement: assessment.reason,
       blockIds: assessment.doc_block_ids,
     }));
 }
@@ -103,8 +104,8 @@ function unmetQuantitativeTargets(result: ScoutResponse): PriorityItem[] {
       id: `conformity:${score.target_id}`,
       label: label(score.attribute_refs[0] ?? "target"),
       qualifier: `No comparator met this target (${score.benchmark_count} measured)`,
-      statement: score.target_label,
-      recommendation: score.verdict,
+      quote: score.target_label,
+      statement: score.verdict,
       blockIds: score.doc_block_ids,
     }));
 }

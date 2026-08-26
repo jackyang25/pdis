@@ -1,3 +1,4 @@
+import type { Tone } from "./tone.ts";
 import type { ContentBlock } from "./api.ts";
 
 /**
@@ -22,7 +23,14 @@ import type { ContentBlock } from "./api.ts";
  * shown in grey looked like a passage nobody had looked at.
  */
 export type DocumentAnnotationEmphasis = {
-  tone: "success" | "caution" | "danger" | "neutral";
+  /**
+   * The shared tone, not a second list.
+   *
+   * This declared its own four values and called the middle one `caution` while
+   * `lib/tone.ts` called it `warning`. One thing, two names - and `aligner-document-trace`
+   * carried a line whose whole job was translating between them.
+   */
+  tone: Tone;
   /** Short text, e.g. a grade letter. */
   badge?: string;
 };
@@ -43,6 +51,18 @@ export type DocumentAnnotation<
     blockIds: string[];
   }>;
   emphasis?: DocumentAnnotationEmphasis;
+  /**
+   * Who wrote `summary`. Stated where the text is chosen, not guessed at render time.
+   *
+   * Scout's trace is the reason this is not assumed: its six annotation kinds draw their
+   * summary from six places, and two of them - a field's `document_target` and a target's
+   * `quote` - are the document's own words. Rendered as a model's, they carried the
+   * authorship mark, which is the tool claiming it wrote the reader's document.
+   *
+   * Defaults to `reading` because the other three tools' summaries are all a model's
+   * sentence about the document.
+   */
+  summaryMode?: "quoted" | "reading";
   /**
    * Where to *display* an annotation that has no document lineage.
    *
@@ -631,10 +651,11 @@ export function buildDocumentTrace<
  * outranks `neutral` because "this was found" is a claim and "nothing was found" is the
  * absence of one, so the claim is the more informative of the two.
  */
-const TONE_WEIGHT: Record<DocumentAnnotationEmphasis["tone"], number> = {
+const TONE_WEIGHT: Record<Tone, number> = {
   neutral: 1,
+  info: 1,
   success: 2,
-  caution: 3,
+  warning: 3,
   danger: 4,
 };
 

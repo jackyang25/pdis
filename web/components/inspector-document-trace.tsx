@@ -17,6 +17,7 @@ import { ASSESSED_VERDICTS, VERDICT_DESCRIPTION, VERDICT_LABEL } from "@/lib/api
 import type { InspectionResult } from "@/lib/api";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
 import { Reading } from "@/components/ui/evidence-text";
+import { VerdictPill } from "@/components/ui/verdict-pill";
 import {
   buildInspectorDocumentAnnotations,
   type InspectorDocumentAnnotation,
@@ -65,14 +66,14 @@ function InspectorTraceInspector({
         {/* One pill, because there is one axis. It used to show a unit status here
             beside a reason in the eyebrow above - two words for one judgement, and a
             reader had no way to know they were the same field. */}
-        <span
-          title={VERDICT_DESCRIPTION[ref.verdict]}
-          className="inline-flex min-h-7 items-center rounded-full border border-border/80 bg-foreground/[0.045] px-2.5 text-[10px] font-medium text-foreground/80"
-        >
-          {/* The short form. This rendered the description, which is a sentence, as pill
-              text: "The rubric asks for this and the document does not usably supply it". */}
-          {VERDICT_LABEL[ref.verdict]}
-        </span>
+        {/* The short form, tinted by the annotation's own tone. It rendered the
+            description here once - a whole sentence as pill text - and then a fixed
+            neutral grey, which discarded a tone the annotation already carried. */}
+        <VerdictPill
+          label={VERDICT_LABEL[ref.verdict]}
+          tone={annotation.emphasis?.tone ?? "neutral"}
+          description={VERDICT_DESCRIPTION[ref.verdict]}
+        />
 
         <Reading size="body" className="mt-4 whitespace-pre-wrap">
           {annotation.summary}

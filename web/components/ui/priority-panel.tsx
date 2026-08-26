@@ -6,6 +6,7 @@ import { ChevronUp } from "lucide-react";
 import { DocumentSourceTrace } from "@/components/document-source-trace";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { PriorityNomination } from "@/lib/api";
+import { Quoted } from "@/components/ui/evidence-text";
 import { PRIORITY_LIMIT, type PriorityItem } from "@/lib/priorities";
 import { cn } from "@/lib/utils";
 import { Reading } from "@/components/ui/evidence-text";
@@ -158,10 +159,14 @@ export function PriorityPanel({
               <Skeleton className="h-3.5 w-[88%]" />
             </div>
           )}
+          {/* The model's summary of the list below it, so muted and marked. It was at
+              `text-foreground/85` - a third contrast that is neither the tool's voice nor
+              a model's - and unmarked, so the one paragraph on the page most obviously
+              written by a model was the one that did not say so. */}
           {digest && (
-            <p className="mb-4 whitespace-pre-line text-sm leading-6 text-foreground/85">
+            <Reading size="body" className="mb-4 whitespace-pre-line">
               {digest}
-            </p>
+            </Reading>
           )}
           {!digest && !digestLoading && digestError && (
             <p className="mb-4 text-xs leading-5 text-muted-foreground">
@@ -184,9 +189,21 @@ export function PriorityPanel({
                         </span>
                       )}
                     </p>
+                    {/* The document's words first where there are any, then the model's
+                        sentence about them. Every row has the same shape, so a reader is
+                        not working out per row which half they are looking at. */}
+                    {item.quote && (
+                      <Quoted size="prominent" className="mt-1">
+                        {item.quote}
+                      </Quoted>
+                    )}
                     <Reading size="prominent">{item.statement}</Reading>
+                    {/* `continued`: the ask that follows from the statement above it is
+                        the same contribution one level down, not a second one. */}
                     {item.recommendation && (
-                      <Reading size="prominent">{item.recommendation}</Reading>
+                      <Reading size="prominent" continued>
+                        {item.recommendation}
+                      </Reading>
                     )}
                     {item.blockIds && item.blockIds.length > 0 && (
                       <div className="mt-1.5">

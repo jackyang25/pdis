@@ -120,8 +120,9 @@ function markerGroupLabel(
  */
 const EMPHASIS_SURFACE_CLASS: Record<DocumentAnnotationEmphasis["tone"], string> = {
   success: "bg-[hsl(var(--tone-success))]/[0.07]",
-  caution: "bg-[hsl(var(--tone-warning))]/[0.07]",
+  warning: "bg-[hsl(var(--tone-warning))]/[0.07]",
   danger: "bg-[hsl(var(--tone-danger))]/[0.07]",
+  info: "bg-[hsl(var(--tone-info))]/[0.07]",
   neutral: "bg-[hsl(var(--tone-neutral))]/[0.05]",
 };
 
@@ -137,8 +138,10 @@ const EMPHASIS_SURFACE_CLASS: Record<DocumentAnnotationEmphasis["tone"], string>
 const EMPHASIS_BADGE_CLASS: Record<DocumentAnnotationEmphasis["tone"], string> = {
   success:
     "border-[hsl(var(--tone-success))]/45 bg-[hsl(var(--tone-success))] text-white dark:text-background",
-  caution:
+  warning:
     "border-[hsl(var(--tone-warning))]/45 bg-[hsl(var(--tone-warning))] text-white dark:text-background",
+  info:
+    "border-[hsl(var(--tone-info))]/45 bg-[hsl(var(--tone-info))] text-white dark:text-background",
   danger:
     "border-[hsl(var(--tone-danger))]/45 bg-[hsl(var(--tone-danger))] text-white dark:text-background",
   neutral: "border-border bg-muted text-foreground",

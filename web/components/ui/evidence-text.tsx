@@ -14,10 +14,13 @@ import { cn } from "@/lib/utils";
  *   Quoted    exact words. Cannot be wrong; it is a copy. Ruled on the left, full contrast.
  *             Whose words is shown by the attribution above it, never by the styling.
  *   Reading   a model read or judged this. Muted prose behind a four-pointed star. Needs
- *             review, and is the thing to check first.
+ *             review, and is the thing to check first. The star marks a contribution
+ *             rather than a sentence: a note *about* a marked sentence is `continued`,
+ *             indented under it and unmarked, because it has the same author.
  *   Computed  arithmetic over admitted data. Full contrast and tabular. Wrong only if its
  *             inputs are.
- *   Interface the tool explaining itself. Muted prose in a box. Not about this document.
+ *   Interface the tool explaining itself. Muted prose, in a box when it is an aside and
+ *             in the flow when it is the section's own content. Not a model's words.
  *
  * **Every distinction here is structural, not a new colour.** Reading and Interface are the
  * pair that needed it: both are muted prose, because both are subordinate to the words they
@@ -122,10 +125,17 @@ function ReadingMark() {
     <svg
       aria-hidden
       viewBox="0 0 24 24"
-      // Sized in `em` so it tracks the two `Reading` sizes without a second rule, and
-      // nudged up by a fraction: optically centred on lower-case prose sits above the
-      // baseline, and a glyph sitting on it reads as punctuation.
-      className="mr-1 inline-block h-[0.95em] w-[0.95em] shrink-0 -translate-y-[0.06em] fill-current"
+      // Sized in `em` so it tracks every `Reading` size without a second rule, and
+      // aligned with `align-middle` rather than a hand-tuned nudge.
+      //
+      // The nudge was the bug. An inline-block's baseline is its bottom edge, so a
+      // 0.95em box sat from baseline-0.95em to the baseline while lower-case prose
+      // centres around baseline+0.35em - the mark rode about two pixels high, and a
+      // translate pushed it higher still. Beside a tone dot on the same line the two
+      // markers visibly disagreed about where the line was. `align-middle` puts the
+      // glyph's midpoint on the text's own x-height centre, which is the thing every
+      // other inline marker is aligned to.
+      className="mr-1 inline-block h-[0.85em] w-[0.85em] shrink-0 align-middle fill-current"
     >
       <path d="M12 2c.9 5.1 4 8.2 9.1 9.1v1.8c-5.1.9-8.2 4-9.1 9.1h-1.8C9.3 16.9 6.2 13.8 1.1 12.9v-1.8C6.2 10.2 9.3 7.1 10.2 2Z" />
     </svg>
@@ -134,6 +144,28 @@ function ReadingMark() {
 
 export function Reading({
   children,
+  /**
+   * Render as a `span` rather than a paragraph.
+   *
+   * For the sentences that sit inside a link or a line of their own text, where a
+   * block element is invalid and the mark would otherwise have to be placed by hand -
+   * which is how a model's sentence ends up unmarked.
+   */
+  inline = false,
+  /**
+   * A second sentence in the same authored block, subordinate to the one above it.
+   *
+   * The mark belongs to a *contribution*, not to a sentence. An insight and the model's
+   * note about that insight are one contribution - same author, one level apart - so the
+   * first carries the mark and the second is indented under it.
+   *
+   * Marking both was the mistake. Two stars stacked read as a list of equals, and the
+   * hierarchy that used to distinguish them was contrast: the insight at full, the note
+   * muted. That looked right and said the wrong thing, because contrast is the authorship
+   * axis and both lines have the same author. Indentation carries level; the mark carries
+   * authorship; neither does the other's job.
+   */
+  continued = false,
   /**
    * `body` where the sentence is the content of a panel, `prominent` for the sentence a
    * section turns on, `dense` inside a list.
@@ -147,17 +179,31 @@ export function Reading({
   className,
 }: {
   children: ReactNode;
+  inline?: boolean;
+  continued?: boolean;
   size?: "body" | "prominent" | "dense";
   /** Spacing only. Tone and size belong to this component. */
   className?: string;
 }) {
+  const Tag = inline ? "span" : "p";
   return (
-    <p
+    <Tag
       className={cn(
         "leading-relaxed text-muted-foreground",
         size === "body" && "text-sm leading-6",
-        size === "prominent" && "mt-1 text-xs",
-        size === "dense" && "mt-1 text-[11px]",
+        size === "prominent" && !inline && "mt-1 text-xs",
+        size === "prominent" && inline && "text-xs",
+        size === "dense" && !inline && "mt-1 text-[11px]",
+        size === "dense" && inline && "text-[11px]",
+        // A hanging indent, so every line of a marked sentence starts at the same column
+        // and the mark sits alone in the gutter. Without it the first line began after
+        // the mark and every wrapped line fell back to the left of it, so a two-line
+        // sentence had its own two left edges - and the `continued` note below, indented
+        // to clear the mark, lined up with neither.
+        !continued && !inline && "pl-[1.5em] -indent-[1.5em]",
+        // The note aligns with the text above it rather than with the mark, so it reads
+        // as hanging off that sentence rather than as the next item in a list.
+        continued && "pl-[1.5em]",
         className,
       )}
     >
@@ -166,9 +212,9 @@ export function Reading({
           by position - which is true, and turned out to be the problem: it is a rule a
           reader has to have been told. On screen the sentence looked like the tool's own
           prose. A mark states it instead of implying it. */}
-      <ReadingMark />
+      {!continued && <ReadingMark />}
       {children}
-    </p>
+    </Tag>
   );
 }
 
@@ -206,16 +252,32 @@ export function Computed({
  */
 export function InterfaceNote({
   children,
+  /**
+   * Whether this is an aside or the content itself.
+   *
+   * `note` is the default and is set off in a box: a caveat beside data, a warning above
+   * it, a summary under it. The box says "read this differently from what surrounds it",
+   * which is the whole reason it is there.
+   *
+   * `content` is the same voice with nothing to be set off *from*, because it is what the
+   * section contains. A field whose measurable targets are none answers with a sentence
+   * saying why - that sentence is the section's content, not a footnote on it, and boxing
+   * it made an absence the heaviest element on a card where every real finding is flat
+   * prose. Weight tracks significance, and that had it backwards.
+   */
+  variant = "note",
   className,
 }: {
   children: ReactNode;
+  variant?: "note" | "content";
   /** Spacing only. Border, padding, tone and size belong to this component. */
   className?: string;
 }) {
   return (
     <div
       className={cn(
-        "rounded-md border border-border/60 bg-card px-3 py-2 text-[11px] leading-relaxed text-muted-foreground",
+        "text-[11px] leading-relaxed text-muted-foreground",
+        variant === "note" && "rounded-md border border-border/60 bg-card px-3 py-2",
         className,
       )}
     >

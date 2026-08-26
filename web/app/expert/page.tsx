@@ -979,7 +979,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
         why it was required as a field in the first place.
       */}
       {question.missing && (
-        <Reading size="body" className="mt-1.5">
+        <Reading size="body" continued className="mt-1.5">
           <span className="font-medium">Still not stated: </span>
           {question.missing}
         </Reading>

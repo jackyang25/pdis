@@ -30,8 +30,6 @@ export type ToolSection = {
   toolIds: readonly ToolDefinition["id"][];
   title: string;
   description: string;
-  /** Renders shorter cards, which reads as a footer band rather than a peer group. */
-  compact?: boolean;
 };
 
 export const TOOL_SECTIONS: readonly ToolSection[] = [
@@ -73,7 +71,6 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
     title: "Shared utilities",
     description:
       "Every tool above parses through Chunker, and Scout searches through Searcher. Run either directly when you want the parsed blocks or the raw findings without an analysis around them.",
-    compact: true,
   },
 ];
 

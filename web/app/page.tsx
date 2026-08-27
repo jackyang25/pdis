@@ -12,7 +12,7 @@ import {
   type WorkspaceToolDefinition,
 } from "@/lib/tools";
 import { TOOL_SECTIONS, sectionTools } from "@/lib/tool-sections";
-import { DISPLAY_HEADING } from "@/lib/typography";
+import { COUNT, DISPLAY_HEADING } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
 type AudienceFilter = "all" | Exclude<ToolAudience, "shared">;
@@ -51,7 +51,7 @@ export default function Home() {
             />
             <div className="grid gap-4 sm:grid-cols-2">
               {section.tools.map((tool) => (
-                <ToolCard key={tool.id} tool={tool} compact={section.compact} />
+                <ToolCard key={tool.id} tool={tool} />
               ))}
             </div>
           </section>
@@ -127,11 +127,31 @@ function SectionHeader({
   );
 }
 
-function ToolCard({ tool, compact = false }: { tool: ToolDefinition; compact?: boolean }) {
+function ToolCard({ tool }: { tool: ToolDefinition }) {
   return tool.delivery === "workspace"
-    ? <WorkspaceToolCard tool={tool} compact={compact} />
+    ? <WorkspaceToolCard tool={tool} />
     : <ExternalToolCard tool={tool} />;
 }
+
+/**
+ * How short a card is allowed to be, and why these two numbers.
+ *
+ * Both are the height of a two-line description at natural spacing, added up: 20px of padding
+ * either side, a 25.5px heading line, the 8px above the description, two 20px description
+ * lines, the 20px above the footer, and the footer itself. That last term is the only
+ * difference between them, a 16.5px line of text against a 32px row of chips.
+ *
+ * A floor rather than a fixed height, because rows are sized independently: without one, a row
+ * of one-line cards would come out shorter than the row above it. Sized to the two-line case
+ * because every card has one, so a card sits exactly at its floor and only a third line grows
+ * it.
+ *
+ * They were 176 and 192, from when the mark had a row to itself and the footer carried a
+ * second label. Both were removed, these came down but not to the content, and `mt-auto` pools
+ * every leftover pixel in one place: the gap above the footer, which read as 45px of nothing.
+ */
+const CARD_FLOOR = "min-h-[150px]";
+const SHORTCUT_CARD_FLOOR = "min-h-[166px]";
 
 /**
  * An unavailable card, dimmed as a whole.
@@ -143,15 +163,9 @@ function ToolCard({ tool, compact = false }: { tool: ToolDefinition; compact?: b
  */
 const CARD_UNAVAILABLE = "bg-card/70 opacity-65";
 
-function WorkspaceToolCard({
-  tool,
-  compact = false,
-}: {
-  tool: WorkspaceToolDefinition;
-  compact?: boolean;
-}) {
+function WorkspaceToolCard({ tool }: { tool: WorkspaceToolDefinition }) {
   const comingSoon = tool.availability === "coming_soon";
-  const className = `group flex flex-col rounded-lg border border-border bg-card p-5 ${compact ? "min-h-[150px]" : "min-h-[176px]"}`;
+  const className = `group flex flex-col rounded-lg border border-border bg-card p-5 ${CARD_FLOOR}`;
   const content = (
     <>
       <CardHeading
@@ -199,7 +213,7 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
   return (
     <article
       aria-disabled={comingSoon ? "true" : undefined}
-      className={`flex min-h-[192px] flex-col rounded-lg border border-border bg-card p-5 ${comingSoon ? CARD_UNAVAILABLE : ""}`}
+      className={`flex ${SHORTCUT_CARD_FLOOR} flex-col rounded-lg border border-border bg-card p-5 ${comingSoon ? CARD_UNAVAILABLE : ""}`}
     >
       <CardHeading
         icon={tool.icon}
@@ -287,11 +301,15 @@ function CardHeading({
  * "Evidence review", which in every case was the description's own words compressed and moved
  * to the bottom of the same card. One card, one fact, twice. For the GHIDE tools it restated
  * the title as well.
+ *
+ * Left, not right, and no longer a flex row. `justify-end` was there to hold the two apart;
+ * with one of them gone it left the surviving line the only right-aligned text on the page, at
+ * the far corner from the description it qualifies, and on the opposite edge from the shortcut
+ * chips that occupy this same slot on a GHIDE card. `COUNT` rather than a local size: a
+ * duration in a caption is the same thing as a count in a column, and it was the last
+ * `muted-foreground/80` here.
  */
 function CardMeta({ status }: { status?: string }) {
-  return (
-    <div className="flex items-end justify-end gap-4 text-[11px] text-muted-foreground/80">
-      {status ? <span className="tabular-nums">{status}</span> : null}
-    </div>
-  );
+  if (!status) return null;
+  return <span className={COUNT}>{status}</span>;
 }

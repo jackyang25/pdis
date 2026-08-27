@@ -160,11 +160,19 @@ def absent_unit_assessments(
     spec = next((s for s in config.sections if s.name == section_name), None)
     if spec is None:
         raise ValueError(f"section outside the rubric: {section_name!r}")
+    def absent(optional: bool) -> str:
+        """What absence means for one unit: a shortfall, or the rubric not asking.
+
+        The section is gone either way; whether that is a finding is the rubric author's
+        decision, and it is already recorded on the unit.
+        """
+        return "not_applicable" if optional else "not_present"
+
     if not spec.variables:
         return [
             Assessment(
                 id=unit_id(section_name, None),
-                verdict="not_present",
+                verdict=absent(spec.optional),
                 # The rubric's own description of what this section should contain,
                 # folded into the sentence. It used to sit in a `recommendation` beside
                 # this one - and unlike the per-variable case, where both sentences were
@@ -181,8 +189,12 @@ def absent_unit_assessments(
     return [
         Assessment(
             id=unit_id(section_name, variable.name),
-            verdict="not_present",
-            statement=f"{variable.name} is not present; the {section_name} section is absent.",
+            verdict=absent(spec.optional or variable.optional),
+            statement=(
+                ""
+                if spec.optional or variable.optional
+                else f"{variable.name} is not present; the {section_name} section is absent."
+            ),
             section_name=section_name,
             variable_name=variable.name,
             optional=spec.optional or variable.optional,

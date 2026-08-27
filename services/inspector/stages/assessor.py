@@ -50,7 +50,11 @@ MAX_PARALLEL_UNIT_CALLS = 6
 # interface needs to know.
 _VERDICT_GUIDANCE: tuple[tuple[str, str], ...] = (
     ("specified", "the rubric asks for this and the document supplies it usably. Nothing to say."),
-    ("not_present", "there is no content at all for this unit."),
+    (
+        "not_present",
+        "there is no content at all for this unit. Use this only where the rubric asks "
+        "for it; where the rubric marks the unit optional, absence is not_applicable.",
+    ),
     ("placeholder", "a template token such as <<TBD>>, TBD, a dash, or a blank sits where the value belongs."),
     (
         "insufficient",
@@ -388,11 +392,21 @@ def _parse_unit_payload(
     elif not statement:
         raise ValueError(f"{subject} returned {verdict} with no statement")
 
-    # The rubric decides whether absence is acceptable, so a model claiming
-    # `not_applicable` on a required unit is refused and asked again. Left to stand it
-    # would drop a real shortfall out of the worklist without saying anything.
+    # The rubric decides what absence means, not the model. Both `not_present` and
+    # `not_applicable` say nothing is there; which one it is follows from whether the
+    # rubric asked, and that is recorded on the unit before the model is called.
+    #
+    # The two directions are not symmetrical. A required unit called `not_applicable`
+    # is refused and asked again, because letting it stand drops a real shortfall out
+    # of the worklist silently. An optional unit called `not_present` is corrected in
+    # place: the model saw the same thing the rubric did and filed it under the wrong
+    # one of two words, which is not worth a second request. Left alone, two optional
+    # units both absent in one section came back wearing different verdicts.
     if verdict == "not_applicable" and not optional:
         raise ValueError(f"{subject} is required and cannot be not_applicable")
+    if verdict == "not_present" and optional:
+        verdict = "not_applicable"
+        statement = ""
 
     return Assessment(
         id=unit_id(section_name, variable_name),

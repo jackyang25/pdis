@@ -173,7 +173,7 @@ function WorkspaceToolCard({
           )}
       />
       <div className="mt-auto pt-5">
-        <CardMeta capability={tool.capability} status={tool.activity} />
+        <CardMeta status={tool.activity} />
       </div>
     </>
   );
@@ -208,8 +208,7 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
         trailing={comingSoon ? <AvailabilityBadge /> : undefined}
       />
       <div className="mt-auto pt-5">
-        <CardMeta capability={tool.capability} />
-        <div className="mt-3 flex min-h-8 gap-2">
+        <div className="flex min-h-8 gap-2">
           {tool.shortcuts.map((shortcut) => (
             <a
               key={shortcut.label}
@@ -281,13 +280,18 @@ function CardHeading({
   );
 }
 
-function CardMeta({ capability, status }: { capability: string; status?: string }) {
+/**
+ * How long a run takes.
+ *
+ * It used to sit opposite a `capability`: a two-word label like "Leadership summary" or
+ * "Evidence review", which in every case was the description's own words compressed and moved
+ * to the bottom of the same card. One card, one fact, twice. For the GHIDE tools it restated
+ * the title as well.
+ */
+function CardMeta({ status }: { status?: string }) {
   return (
-    <div className="flex items-end justify-between gap-4 text-[11px] text-muted-foreground/80">
-      <span className="font-medium text-muted-foreground">{capability}</span>
-      {status ? (
-        <span className="shrink-0 text-right">{status}</span>
-      ) : null}
+    <div className="flex items-end justify-end gap-4 text-[11px] text-muted-foreground/80">
+      {status ? <span className="tabular-nums">{status}</span> : null}
     </div>
   );
 }

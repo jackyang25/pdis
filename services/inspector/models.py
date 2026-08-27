@@ -70,7 +70,7 @@ VERDICTS: tuple[Verdict, ...] = (
 display order.
 
 - `specified`        the rubric asks for this and the document supplies it usably
-- `not_present`      nothing is there
+- `not_present`      nothing is there, and the rubric asked for it
 - `placeholder`      a token such as <<TBD>> sits where the value belongs
 - `insufficient`     content is present and does not satisfy the requirement
 - `vague`            the requirement is satisfied but the content is unusable as stated
@@ -181,6 +181,13 @@ class Assessment:
             raise ValueError(f"a {self.verdict} unit has nothing to state")
         if self.variable_name and not self.section_name:
             raise ValueError("a variable assessment must name its section")
+        if self.verdict == "not_present" and self.optional:
+            # Both values mean "nothing is there"; what separates them is whether the
+            # rubric asked for it. An optional unit's absence is accepted by definition,
+            # so `not_present` on one is not a second opinion - it is the same fact filed
+            # as a shortfall. Left expressible, two optional units both absent came back
+            # with different verdicts in the same section.
+            raise ValueError("an optional unit that is absent is not_applicable")
         if self.verdict == "not_applicable" and not self.optional:
             # Whether absence is acceptable is the rubric author's decision, never the
             # model's. Without this a required unit could come back `not_applicable`

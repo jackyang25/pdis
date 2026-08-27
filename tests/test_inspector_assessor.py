@@ -409,3 +409,36 @@ class CrossSectionBoundaryTest(unittest.TestCase):
         text = build_cross_section_prompt(_config())
         self.assertIn("the document disagreeing with itself", text)
         self.assertIn("clinically plausible", text)
+
+
+class AbsenceNormalisationTests(unittest.TestCase):
+    def _parse(self, answer: dict, *, optional: bool):
+        return _parse_unit_payload(
+            answer,
+            section_name="Profile",
+            variable_name="Efficacy",
+            optional=optional,
+            section_blocks=[_block("document:b1", "Profile")],
+        )
+
+    def test_an_optional_absence_is_corrected_rather_than_retried(self) -> None:
+        """The model saw what the rubric saw and filed it under the wrong word.
+
+        Not worth a second request, so it is corrected in place - unlike the opposite
+        direction, where a required unit called `not_applicable` drops a real shortfall
+        out of the worklist and is refused.
+        """
+        parsed = self._parse(_answer("not_present", []), optional=True)
+
+        self.assertEqual(parsed.verdict, "not_applicable")
+        self.assertEqual(parsed.statement, "")
+
+    def test_a_required_absence_stays_a_shortfall(self) -> None:
+        parsed = self._parse(_answer("not_present", []), optional=False)
+
+        self.assertEqual(parsed.verdict, "not_present")
+
+    def test_the_prompt_says_which_of_the_two_absences_applies(self) -> None:
+        prompt = build_assessment_prompt(_section(), _section().variables[0])
+
+        self.assertIn("where the rubric marks the unit optional", prompt)

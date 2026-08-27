@@ -56,7 +56,11 @@ type ToolBase = {
    * sentences match.
    */
   description: string;
-  capability: string;
+  /* No `capability`. It was a two-word label - "Leadership summary", "Evidence review" - and
+     in every case the description's own words, compressed. On a card it sat under that
+     description; in the docs catalogue it was joined to it by a middot inside one sentence; and
+     the assistant received it beside the description it repeated. Three consumers, one fact,
+     said twice in each. */
   icon: ToolIcon;
   audience: ToolAudience;
   workflow: ToolWorkflow;
@@ -98,7 +102,6 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     // because it has none - the corpus is its authority, and a corpus is data.
     description:
       "Look up what past iTPPs and cTPPs required for an attribute, how many said nothing, and the quote behind each value.",
-    capability: "Archive lookup",
     // The floor of the shared scale rather than a truer word for it. There is no model
     // call on the read path - the corpus was built and reviewed in advance, so a query is
     // a filter over a few hundred committed rows - but these are read side by side, and
@@ -120,7 +123,6 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Inspector",
     description:
       "One document against its rubric: what is missing, off-template, vague, or internally inconsistent.",
-    capability: "Document review",
     activity: "approx. 1 min",
     icon: "inspector",
     audience: "pst",
@@ -134,7 +136,6 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Scout",
     description:
       "One document’s targets against external evidence: whether its numbers hold up against comparable measurements and precedent.",
-    capability: "Evidence review",
     activity: "approx. 20 min",
     icon: "scout",
     audience: "pst",
@@ -148,7 +149,6 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Aligner",
     description:
       "The iTPP, cTPP, and IPDP against each other: whether the candidate and the plan deliver what was asked for.",
-    capability: "Document comparison",
     // Same arithmetic as Expert's, one step longer: each comparison reads its
     // reference document once, then fans out over the requirements it found. Two
     // documents is one comparison; three is two, run in sequence.
@@ -165,7 +165,6 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Expert",
     description:
       "The iTPP, cTPP, and IPDP against the stage-gate criteria: what is still unresolved, and which reviewer it goes to.",
-    capability: "Stage-gate preparation",
     // Observed, not estimated. 80 questions at six concurrent is ~14 waves, and each
     // call returns one decision and one sentence — a few hundred bytes — against a
     // document context the provider caches after the first. The count of calls is not
@@ -183,7 +182,6 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Chunker",
     description:
       "Turn DOCX and PPTX files into ordered, citable text, table, and image blocks.",
-    capability: "Document parsing",
     activity: "approx. 1 min",
     icon: "chunker",
     audience: "shared",
@@ -197,7 +195,6 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Searcher",
     description:
       "Search selected evidence sources directly and review normalized findings in one place.",
-    capability: "Direct search",
     activity: "approx. 5 min",
     icon: "searcher",
     audience: "shared",
@@ -216,7 +213,6 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     title: "GHIDE Evaluator",
     description:
       "Evaluate a development plan for funding readiness and identify program risks, evidence gaps, and next actions.",
-    capability: "Funding readiness",
     icon: "evaluator",
     audience: "ghide",
     workflow: "decision_workflow",
@@ -238,7 +234,6 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     title: "GHIDE Roadmap Body Compiler",
     description:
       "Turn evaluation findings and expert feedback into an organized roadmap of recommendations and actions.",
-    capability: "Roadmap development",
     icon: "roadmap",
     audience: "ghide",
     workflow: "decision_workflow",
@@ -260,7 +255,6 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     title: "GHIDE Executive Summary Compiler",
     description:
       "Turn a completed roadmap into a one-page leadership summary of priorities, decisions, and actions.",
-    capability: "Leadership summary",
     icon: "executive-summary",
     audience: "ghide",
     workflow: "decision_workflow",
@@ -282,7 +276,6 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     title: "GHIDE Stage Gate Evaluator",
     description:
       "Evaluate whether a grantee has met stage-gate criteria and identify what is needed to reach the next gate.",
-    capability: "Stage-gate evaluation",
     icon: "stage-gate",
     audience: "ghide",
     workflow: "stage_gate",

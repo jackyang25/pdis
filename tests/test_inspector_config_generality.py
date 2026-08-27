@@ -147,8 +147,22 @@ class EveryRubricTests(unittest.TestCase):
             sections = assess_sections(config, findings)
             ordered = rank_assessments(config, sections)
 
+            # Two verdicts, because a rubric declares two kinds of unit. Absence is a
+            # shortfall where the rubric asked and the rubric not asking where it did
+            # not - the section is gone either way, and which of the two that means is
+            # the author's decision, already recorded on the unit.
             verdicts = {unit.verdict for s in sections for unit in s.units}
-            self.assertTrue(verdicts <= {"not_present"}, config.type_key)
+            self.assertTrue(
+                verdicts <= {"not_present", "not_applicable"}, config.type_key
+            )
+            for section in sections:
+                for unit in section.units:
+                    self.assertEqual(
+                        unit.verdict == "not_applicable",
+                        unit.optional,
+                        f"{config.type_key}: {unit.variable_name} disagrees with its "
+                        "own optional flag about what its absence means",
+                    )
             # Ranks are dense and unique, so a worklist cannot show two items in the
             # same position however many units a rubric declares.
             self.assertEqual(

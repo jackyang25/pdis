@@ -11,7 +11,7 @@ import {
  * axis they may use. A section grouped by anything else (a phase of the process, a
  * kind of analysis) puts two axes at one heading level, and a reader can no longer
  * tell what a heading is telling them. The kind of work a tool does is already
- * expressed per card, in `capability`, which is where a second axis belongs.
+ * expressed per card, by its description, which is where a second axis belongs.
  *
  * Here rather than inside the page so the invariants can be tested: every id
  * resolves, every tool is placed exactly once, and no section reorders the tools

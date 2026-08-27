@@ -184,7 +184,6 @@ export function WorkspaceAsk() {
       id: tool.id,
       title: tool.title,
       description: tool.description,
-      capability: tool.capability,
       audience: tool.audience,
       workflow: tool.workflow,
       availability: tool.availability,

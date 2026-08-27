@@ -429,3 +429,47 @@ class ProvenanceTests(unittest.TestCase):
         )
 
         self.assertEqual(config.mirrors, "")
+
+
+class AbsenceMeaningTests(unittest.TestCase):
+    """What absence means follows from the rubric, never from the model.
+
+    `not_present` and `not_applicable` both say nothing is there. Which one it is
+    depends on whether the rubric asked, and that is recorded on the unit before the
+    model is called - so leaving the model a choice between them meant two optional
+    units both absent in one section could come back wearing different verdicts.
+    """
+
+    def test_an_optional_unit_that_is_absent_is_not_a_shortfall(self) -> None:
+        with self.assertRaises(ValueError):
+            Assessment(
+                id="x",
+                verdict="not_present",
+                statement="Nothing here.",
+                section_name="Additional Variables",
+                variable_name="Companion Test",
+                optional=True,
+            )
+
+    def test_a_required_unit_that_is_absent_is_a_shortfall(self) -> None:
+        with self.assertRaises(ValueError):
+            Assessment(
+                id="x",
+                verdict="not_applicable",
+                section_name="Core Variables",
+                variable_name="Efficacy",
+                optional=False,
+            )
+
+    def test_an_absent_section_files_each_unit_by_its_own_flag(self) -> None:
+        config = _config()
+        absent = absent_unit_assessments(config, "Additional Variables")
+
+        self.assertTrue(all(item.optional for item in absent))
+        self.assertTrue(all(item.verdict == "not_applicable" for item in absent))
+        # The rubric is not asking, so there is no defect to describe.
+        self.assertTrue(all(not item.statement for item in absent))
+
+        required = absent_unit_assessments(config, "Core Variables")
+        self.assertTrue(all(item.verdict == "not_present" for item in required))
+        self.assertTrue(all(item.statement for item in required))

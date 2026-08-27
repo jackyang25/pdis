@@ -16,18 +16,24 @@ import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
  * would mean a block type that looks one way on the page and another inside a tool.
  */
 
-const CATALOG: readonly (readonly [string, string, string])[] = [
+/**
+ * Every tool, as a name and what it does.
+ *
+ * Two columns, not three. Each row used to carry a `capability` as well, joined to the
+ * description with a middot - "Leadership summary · Turn a completed roadmap into a one-page
+ * leadership summary of priorities, decisions, and actions." The label was the description's
+ * own words, so the repetition sat inside one sentence.
+ */
+const CATALOG: readonly (readonly [string, string])[] = [
   ...WORKSPACE_TOOLS.map((tool) => [
     tool.title,
-    tool.capability,
     `${tool.description}${tool.availability === "coming_soon" ? " Coming soon." : ""}`,
   ] as const),
   ...EXTERNAL_TOOLS.map((tool) => [
     tool.title,
-    tool.capability,
     `${tool.description}${tool.availability === "coming_soon" ? " Coming soon." : ""}`,
   ] as const),
-  ["Assistant", "Workspace navigation", "Answers read-only questions across the tool catalog, available results, utility outputs, cited material, and transient conversation attachments from either the floating panel or full-page workspace."],
+  ["Assistant", "Answers read-only questions across the tool catalog, available results, utility outputs, cited material, and transient conversation attachments from either the floating panel or full-page workspace."],
 ];
 
 export function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
@@ -47,7 +53,7 @@ export function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
   if (block.type === "tool_catalog") {
     return (
       <ContentGroup title={block.title}>
-        <DefinitionRows rows={CATALOG.map(([name, role, description]) => [name, `${role} · ${description}`] as const)} />
+        <DefinitionRows rows={CATALOG} />
       </ContentGroup>
     );
   }

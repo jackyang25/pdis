@@ -209,3 +209,22 @@ test("a nav label is the word its destination uses", () => {
   );
   assert.match(page, /Documentation/, "the destination no longer uses the word the link does");
 });
+
+test("a tool states what it does once", () => {
+  // Every tool carried a `capability` as well as a description: a two-word label like
+  // "Leadership summary" or "Evidence review", which in every case was the description's own
+  // words compressed. Three consumers each showed both:
+  //
+  //   the card    the label under the description it repeated
+  //   the docs    joined to it by a middot, inside one sentence
+  //   the ask     handed to a model beside the description it repeated
+  //
+  // With no consumer that needed it, the field went rather than one of its renderings.
+  const source = readFileSync(path.resolve(import.meta.dirname, "tools.ts"), "utf8");
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(!/\bcapability\b/.test(code), "a second field for what a tool does is back");
+
+  for (const tool of [...WORKSPACE_TOOLS, ...EXTERNAL_TOOLS]) {
+    assert.ok(tool.description.trim().length > 20, `${tool.id} states too little`);
+  }
+});

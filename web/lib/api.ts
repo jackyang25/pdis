@@ -32,6 +32,9 @@ export type ContentBlock = {
     data_base64: string;
     sha256: string;
     source_media_type: string;
+    /** The image's own pixel size. Zero when a result predates the field. */
+    width?: number;
+    height?: number;
   } | null;
 };
 

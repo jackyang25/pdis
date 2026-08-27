@@ -153,7 +153,7 @@ import {
   selectScoutPriorities,
 } from "@/lib/scout-priorities";
 import { PriorityPanel } from "@/components/ui/priority-panel";
-import { EYEBROW } from "@/lib/typography";
+import { DISPLAY_HEADING, EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import {
   ARRIVAL_HIGHLIGHT,
@@ -1250,7 +1250,7 @@ function ReviewCheckpointHeader({
             <p className={EYEBROW}>{eyebrow}</p>
             <ReviewHelp>{help}</ReviewHelp>
           </div>
-          <h2 className="mt-1 text-lg font-semibold text-foreground">
+          <h2 className={cn(DISPLAY_HEADING, "mt-1 text-lg font-semibold text-foreground")}>
             {title}
           </h2>
           <SectionDescription>{description}</SectionDescription>

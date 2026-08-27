@@ -44,7 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { EYEBROW } from "@/lib/typography";
+import { DISPLAY_HEADING, EYEBROW } from "@/lib/typography";
 
 type LayerOption<TKind extends string> = {
   value: TKind;
@@ -305,11 +305,25 @@ function BlockText<TKind extends string, TRef>({
     return (
       <figure className="my-7">
         {/* The retained block text is the only available source-authored alternative text. */}
+        {/*
+          `width` and `height` are the image's own pixel size, carried from the parser.
+          Without them the browser reserves no room until the image decodes, so a jump to
+          a passage measured the page with every image above it at zero height and the
+          images then pushed that passage off screen. `scrollIntoView` was landing
+          correctly on a layout that was not yet true.
+
+          With the aspect ratio declared, `max-h`/`max-w` still size it - the attributes
+          only tell the browser the shape to hold before the bytes decode. A result saved
+          before the field carries zero, which is omitted rather than sent as `0`, because
+          `width="0"` would reserve nothing and claim to have measured it.
+        */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={source}
           alt={traceBlock.block.content.trim() ? "" : "Source document image"}
-          className="mx-auto max-h-[34rem] max-w-full rounded-md object-contain outline outline-1 outline-black/10 dark:outline-white/10"
+          width={traceBlock.block.image.width || undefined}
+          height={traceBlock.block.image.height || undefined}
+          className="mx-auto h-auto max-h-[34rem] max-w-full rounded-md object-contain outline outline-1 outline-black/10 dark:outline-white/10"
         />
         {traceBlock.block.content.trim() && (
           <figcaption className="mx-auto mt-2 max-w-2xl text-center text-xs leading-5 text-muted-foreground">
@@ -324,7 +338,7 @@ function BlockText<TKind extends string, TRef>({
 
   if (presentation === "heading-primary") {
     return (
-      <h2 className="m-0 text-balance font-display text-xl font-semibold leading-tight tracking-[-0.02em] text-foreground">
+      <h2 className={cn(DISPLAY_HEADING, "m-0 text-balance text-xl font-semibold leading-tight text-foreground")}>
         {content}
       </h2>
     );
@@ -332,7 +346,7 @@ function BlockText<TKind extends string, TRef>({
 
   if (presentation === "heading-secondary") {
     return (
-      <h3 className="m-0 text-balance font-display text-lg font-semibold leading-tight tracking-[-0.015em] text-foreground">
+      <h3 className={cn(DISPLAY_HEADING, "m-0 text-balance text-lg font-semibold leading-tight text-foreground")}>
         {content}
       </h3>
     );
@@ -340,7 +354,7 @@ function BlockText<TKind extends string, TRef>({
 
   if (presentation === "heading-tertiary") {
     return (
-      <h4 className="m-0 text-balance font-display text-[15px] font-semibold leading-snug text-foreground">
+      <h4 className={cn(DISPLAY_HEADING, "m-0 text-balance text-[15px] font-semibold leading-snug text-foreground")}>
         {content}
       </h4>
     );

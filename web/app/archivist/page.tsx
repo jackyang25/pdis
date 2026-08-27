@@ -250,7 +250,7 @@ function ChipRow({
 }) {
   return (
     <div>
-      <p className="text-xs font-semibold tracking-tight">{title}</p>
+      <p className="text-xs font-semibold">{title}</p>
       <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{help}</p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {options.map((option) => (

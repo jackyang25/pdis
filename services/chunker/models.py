@@ -89,6 +89,22 @@ class ImageAsset:
     data_base64: str
     sha256: str
     source_media_type: str
+    width: int = 0
+    height: int = 0
+    """The image's own pixel size, so a reader can reserve its box before it decodes.
+
+    Recorded here because this is the only place that knows it: the bytes are opened
+    during normalization anyway, and no later layer can learn the size without decoding
+    the image a second time.
+
+    Zero means unknown, which is what a result saved before this field carries. A
+    consumer treats zero as "no reservation" and behaves as it did.
+
+    The document trace is what needed it. An `<img>` with no declared size occupies no
+    height until it decodes, so a jump to a passage measured the page with every image
+    above it collapsed, and the images then pushed the passage off screen. The scroll was
+    correct; the layout was not yet true when it was asked.
+    """
 
     def data_url(self) -> str:
         return f"data:{self.media_type};base64,{self.data_base64}"

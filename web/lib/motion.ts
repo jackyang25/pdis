@@ -101,3 +101,17 @@ export const ARRIVAL_HIGHLIGHT_MS = 2200;
  * that generation is ongoing.
  */
 export const STREAM_CARET_MOTION = "animate-pulse";
+
+/**
+ * The product header leaving on the way down and returning on the way up.
+ *
+ * A transform, so nothing reflows: the page does not shift under a reader's eyes when the
+ * header goes. `duration-base` rather than `fast`, because this is a band the width of the
+ * window and a quick slide of something that large reads as a flinch.
+ *
+ * The reduced-motion companion is that it never hides at all - see `nextHeaderVisibility`.
+ * `transition-none` here as well, so a state change that arrives some other way, from a
+ * keyboard focus or a resize, also arrives without animation.
+ */
+export const HEADER_SLIDE_MOTION =
+  "transition-transform duration-base ease-enter motion-reduce:transition-none";

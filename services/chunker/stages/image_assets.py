@@ -78,12 +78,32 @@ def image_asset_from_bytes(data: bytes, source_media_type: str) -> ImageAsset | 
             return None
         image_bytes = converted
         media_type = "image/png"
+    width, height = _pixel_size(image_bytes)
     return ImageAsset(
         media_type=media_type,
         data_base64=base64.b64encode(image_bytes).decode("ascii"),
         sha256=hashlib.sha256(image_bytes).hexdigest(),
         source_media_type=source_media_type or media_type,
+        width=width,
+        height=height,
     )
+
+
+def _pixel_size(data: bytes) -> tuple[int, int]:
+    """The image's own dimensions, read from its header.
+
+    `Image.open` is lazy: it parses the header and stops, so this costs no decode. A
+    format Pillow cannot read returns zeros rather than raising - the size is a hint for
+    reserving layout, and a document that parses is worth more than one that fails over
+    an image whose box we cannot pre-measure.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(BytesIO(data)) as image:
+            return int(image.width), int(image.height)
+    except Exception:  # noqa: BLE001 - an unreadable header is not a parse failure
+        return 0, 0
 
 
 def _convert_raster_to_png(data: bytes) -> bytes | None:

@@ -3,44 +3,97 @@
 @tailwind utilities;
 
 @layer base {
+  /* Read from the Gates Foundation's own published stylesheet, by their token names:
+     --c-brand-primary-base   #f5f3ed  parchment   -> the page ground
+     --c-brand-secondary-base #313a44  slate       -> text, and the dark appearance
+     --c-brand-tertiary       #ebcb00  yellow-50   -> see --brand-accent below
+     --c-gray-00..100         #f7f7f7 .. #0f0f0f   -> borders, fills, secondary text
+     --c-red-50               #d93027              -> failure
+
+     Their gray ramp is fully desaturated where ours carried a blue cast, and their text is
+     slate rather than near-black. Surfaces follow for free: `lib/surface.ts` tints with the
+     foreground, so slate text gives slate-tinted surfaces without a second decision. */
   :root {
-    --background: 220 20% 98%;
-    --foreground: 224 20% 12%;
+    /* Parchment, their brand primary. Cards stay white, so a result still sits on white and
+       the ground around it carries the identity. */
+    --background: 45 29% 95%;
+    --foreground: 212 16% 23%;
 
     --card: 0 0% 100%;
-    --card-foreground: 224 20% 12%;
+    --card-foreground: 212 16% 23%;
 
-    --primary: 224 20% 12%;
+    --primary: 212 16% 23%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 16% 95%;
-    --secondary-foreground: 224 20% 16%;
+    --secondary: 0 0% 97%;
+    --secondary-foreground: 212 16% 23%;
 
-    --muted: 220 16% 96%;
-    --muted-foreground: 220 8% 43%;
+    --muted: 0 0% 97%;
+    /* Slate at a lighter step, not their gray-60.
 
-    --accent: 220 16% 94%;
-    --accent-foreground: 224 20% 12%;
+       Every other text colour here is slate, which is their own `--c-text-base`; surfaces and
+       edges are the neutral ramp. Secondary text was the one text token in the neutral family,
+       so body copy and the line under it sat in two temperatures in the same paragraph.
 
-    --destructive: 0 70% 52%;
+       An oversight rather than a decision: the dark appearance already had this at `212 10%
+       62%`, in the family, because those hues were changed wholesale while this one was set
+       from their gray ramp by hand. Same lightness, so it reads slightly *better*: 5.76:1 on a
+       card against 5.53. */
+    --muted-foreground: 212 16% 41%;
+
+    --accent: 0 0% 89%;
+    --accent-foreground: 212 16% 23%;
+
+    --destructive: 3 70% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 14% 89%;
-    --input: 220 12% 84%;
-    --ring: 224 20% 12%;
+    /* gray-10, one step down their ramp from gray-05.
+
+       At 89% lightness it was 1.28:1 against the white card it encloses and 1.17:1 against the
+       ground it sits on, while a card is only 1.10:1 against that ground: the border was doing
+       nearly all the work of separating the two, at a contrast where it could barely be seen.
+       Darker rather than thicker, because a 2px line at 1.28:1 is still 1.28:1 and reads as
+       blurred rather than defined. */
+    --border: 0 0% 81%;
+    /* gray-20, one step below the border, which is the relationship these two have always
+       had: an input is a thing you type into, so its edge reads as more defined than the edge
+       of a card. Darkening the border alone collapsed them onto the same value. */
+    --input: 0 0% 73%;
+    --ring: 212 16% 23%;
+
+    /* Their brand yellow, for identity in the page shell and nowhere else.
+
+       Measured before adopting: yellow-50 is `52 100% 46%` and `--tone-marked`, which means "a
+       result cites this passage", is `45 93% 47%`. Seven degrees apart. So this colour beside
+       a result is indistinguishable from a citation, and as text or a dot it is 1.61:1 on
+       white, which is unreadable at any size this interface uses.
+
+       It is legible as a fill behind slate text at 7.19:1, which is how their own site uses
+       it, and how `--c-theme-bg-active-interface` names it: an interface colour, not a
+       verdict. `tone.test` fails if it reaches a result. */
+    --brand-accent: 52 100% 46%;
+    --brand-accent-foreground: 212 16% 23%;
 
     /* 10px surfaces → 8px controls → 6px menu items. */
     --radius: 0.625rem;
 
-    /* Categorical marks for graph nodes, edges, and signal dots. The only
-       place these values live; every value clears 3:1 against --card in both
-       appearances, so a mark stays legible wherever it is used. */
+    /* Categorical marks for graph nodes, edges, and signal dots. The only place these values
+       live. Every tone drawn *as a mark* clears 3:1 against --card in both appearances, so it
+       stays legible wherever it is used.
+
+       Not --tone-marked, which this used to claim and never met: it is 1.98:1, because it is
+       never a mark. Every use is a low-opacity wash behind a passage, where what must stay
+       readable is the text on top. A saturated yellow cannot be both a legible mark and an
+       unobtrusive highlight, and highlight is its job. `brand.test.ts` checks each on the
+       terms it is actually used on. */
     --tone-neutral: 215 16% 47%;
     --tone-neutral-strong: 215 19% 35%;
     --tone-info: 221 83% 53%;
     --tone-success: 161 94% 30%;
     --tone-warning: 32 95% 44%;
-    --tone-danger: 0 72% 51%;
+    /* Their red-50. Ours was `0 72% 51%`, three degrees away, so this is their colour at no
+       cost to the 4.77:1 the tone needs. */
+    --tone-danger: 3 70% 50%;
     /* A passage a result cites. One meaning, both tools: Scout marks an exact
        span, Inspector marks a whole block. Navigation uses a ring, never a
        fill, so "you are here" cannot read as "this is marked". */
@@ -48,39 +101,54 @@
     --tone-external: 262 83% 58%;
   }
 
+  /* Slate's hue family throughout, so the dark appearance is the same colour as their dark
+     sections rather than a different blue. Their site has no dark theme to copy, so the
+     lightnesses are ours: slate itself is 23%, which is a dark band on a light page, not a
+     surface to read a table on. */
   .dark {
-    --background: 225 18% 8%;
-    --foreground: 220 20% 95%;
+    --background: 212 18% 8%;
+    --foreground: 45 20% 95%;
 
-    --card: 225 16% 11%;
-    --card-foreground: 220 20% 95%;
+    --card: 212 16% 11%;
+    --card-foreground: 45 20% 95%;
 
-    --primary: 220 20% 95%;
-    --primary-foreground: 225 18% 8%;
+    --primary: 45 20% 95%;
+    --primary-foreground: 212 18% 8%;
 
-    --secondary: 225 14% 16%;
-    --secondary-foreground: 220 20% 95%;
+    --secondary: 212 14% 16%;
+    --secondary-foreground: 45 20% 95%;
 
-    --muted: 225 14% 16%;
-    --muted-foreground: 220 10% 62%;
+    --muted: 212 14% 16%;
+    --muted-foreground: 212 10% 62%;
 
-    --accent: 225 14% 18%;
-    --accent-foreground: 220 20% 95%;
+    --accent: 212 14% 18%;
+    --accent-foreground: 45 20% 95%;
 
-    --destructive: 5 50% 45%;
-    --destructive-foreground: 40 28% 92%;
+    --destructive: 3 55% 52%;
+    --destructive-foreground: 45 20% 95%;
 
-    --border: 225 12% 21%;
-    --input: 225 12% 25%;
-    --ring: 220 20% 88%;
+    /* 1.39:1 and 1.62:1 against the dark card, and one step apart for the same reason as in
+       the light appearance. Firmer on both sides than they were, matching the light change. */
+    --border: 212 12% 25%;
+    --input: 212 12% 31%;
+    --ring: 45 20% 88%;
+
+    /* Brighter, because the same yellow on a dark ground reads muddier. Still an interface
+       colour only. */
+    --brand-accent: 52 96% 55%;
+    --brand-accent-foreground: 212 18% 8%;
 
     --tone-neutral: 215 20% 65%;
     --tone-neutral-strong: 213 27% 84%;
     --tone-info: 213 94% 68%;
     --tone-success: 158 64% 52%;
     --tone-warning: 43 96% 56%;
-    --tone-danger: 0 91% 71%;
-    --tone-marked: 48 96% 53%;
+    --tone-danger: 3 85% 68%;
+    /* Four points darker than it was. At 53% a passage under the citation wash read at
+       4.37:1, below the 4.5 body text needs, and had since the dark appearance was written.
+       At 48% the text reads at 4.76 and the wash is still 10:1 against the card, so nothing
+       about finding a citation gets harder. */
+    --tone-marked: 48 96% 48%;
     --tone-external: 255 92% 76%;
   }
 }
@@ -92,16 +160,20 @@
   html,
   body {
     @apply bg-background text-foreground antialiased;
-    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "cv11" 1;
-    letter-spacing: -0.006em;
+    /* `rlig` and `calt` only. `ss01` and `cv11` were Inter's own alternate glyph sets - a
+       single-storey `a` and a straight-tailed `l` - and they named a font that is no longer
+       loaded. Left in place they either do nothing or, if Noto Sans happens to define those
+       slots, silently substitute glyphs nobody chose. */
+    font-feature-settings: "rlig" 1, "calt" 1;
+    /* Was -0.006em, tightening Inter. Noto Sans is spaced for reading at small sizes, which
+       is most of this interface, so it is left alone. */
+    letter-spacing: normal;
     min-height: 100%;
   }
-  h1,
-  h2,
-  h3 {
-    font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
-    letter-spacing: -0.025em;
-  }
+  /* No `h1, h2, h3` rule. The display face is applied by `DISPLAY_HEADING` at the headings
+     that title something, because a tag does not say what a heading is doing: `h3` is a tool
+     card title in one place and a field label in a dense list in another, and `h2` is used for
+     a 10px uppercase eyebrow in two. Keyed on the tag, the serif reached all of them. */
   ::selection {
     background: hsl(var(--primary) / 0.16);
   }

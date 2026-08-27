@@ -862,3 +862,28 @@ test("a block claimed twice shows the tone a reader most needs", () => {
   ]);
   assert.equal(quieter.documents[0].blocks[0].emphasis?.tone, "success");
 });
+
+test("a document image reserves its own box before it decodes", () => {
+  // The bug this fixes: an `<img>` with no declared size occupies no height until the
+  // bytes decode, so a jump to a passage measured the page with every image above it
+  // collapsed to zero - and the images then pushed that passage off screen. The scroll
+  // was landing correctly on a layout that was not yet true, which is why it looked
+  // intermittent: a second click, with the images already decoded, worked.
+  //
+  // The size comes from the parser, which is the only layer that knows it without
+  // decoding the image a second time.
+  const viewer = readFileSync(
+    path.join(WEB_ROOT, "components", "document-trace-viewer.tsx"),
+    "utf8",
+  );
+  const tag = viewer.slice(viewer.indexOf("<img"), viewer.indexOf("<img") + 500);
+  assert.match(tag, /width=\{traceBlock\.block\.image\.width \|\| undefined\}/);
+  assert.match(tag, /height=\{traceBlock\.block\.image\.height \|\| undefined\}/);
+  // `|| undefined` rather than the raw value: a result saved before the parser recorded
+  // this carries zero, and `width="0"` would reserve nothing while claiming to have
+  // measured it. Omitted, the browser behaves exactly as it did.
+  assert.ok(
+    !/width=\{traceBlock\.block\.image\.width\}/.test(tag),
+    "a zero size is sent as a measurement rather than omitted",
+  );
+});

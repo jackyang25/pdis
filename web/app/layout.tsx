@@ -1,19 +1,32 @@
 import type { Metadata } from "next";
-import { Inter, Inter_Tight, JetBrains_Mono } from "next/font/google";
+import { JetBrains_Mono, Noto_Sans, Noto_Serif } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import "@xyflow/react/dist/style.css";
 import "./globals.css";
 
-// Inter remains highly readable across dense tables, controls, and long results.
-const sans = Inter({
+/**
+ * The Gates Foundation's own two faces, read from `--font-sans` and `--font-serif` in their
+ * published stylesheet. Replaces Inter and Inter Tight, which were well-chosen placeholders
+ * with no relationship to the organisation whose work this reports on.
+ *
+ * Sans for everything, including headings, and not their serif. Their site sets body copy in
+ * Noto Serif, which reads well at the sizes a marketing page uses and badly at the ones this
+ * interface uses: most of a result is 10 and 11px, in tables and in dense rows. A serif there
+ * costs legibility to gain identity, which is the wrong trade for a tool people read numbers
+ * from.
+ *
+ * `Noto Stats`, their display face, is not public. Their own `--font-display` token falls back
+ * to Noto Serif, so the serif below is used exactly where they use it: a page title, the
+ * wordmark, nothing at a data size.
+ */
+const sans = Noto_Sans({
   subsets: ["latin"],
   variable: "--font-sans",
   display: "swap",
   weight: ["400", "500", "600", "700"],
 });
 
-// Inter Tight gives headings and tool identities a compact display voice.
-const display = Inter_Tight({
+const display = Noto_Serif({
   subsets: ["latin"],
   variable: "--font-display",
   display: "swap",

@@ -34,6 +34,10 @@ class ImageAssetOut(BaseModel):
     data_base64: str
     sha256: str
     source_media_type: str
+    # The image's own pixel size, so a reader can reserve its box before it decodes.
+    # Zero means unknown, which is what a result saved before this field carries.
+    width: int = 0
+    height: int = 0
 
 
 class ContentBlockOut(BaseModel):

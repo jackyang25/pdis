@@ -18,6 +18,15 @@ const config: Config = {
         mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
       colors: {
+        /* The Gates Foundation's brand yellow, for the page shell.
+
+           Named rather than written as an arbitrary value, so `tone.test.ts` can assert where
+           it appears: it is seven degrees from `--tone-marked`, which means "a result cites
+           this passage", and so must never reach a result. */
+        brand: {
+          DEFAULT: "hsl(var(--brand-accent))",
+          foreground: "hsl(var(--brand-accent-foreground))",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

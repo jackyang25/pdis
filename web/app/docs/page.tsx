@@ -3,7 +3,7 @@ import { ArrowRight, BookOpen, ExternalLink, Github } from "lucide-react";
 import { PRODUCT_KNOWLEDGE } from "@/lib/product-knowledge";
 import { AssistantSkills } from "@/components/docs/assistant-skills";
 import { KnowledgeContent } from "@/components/docs/knowledge-content";
-import { EYEBROW } from "@/lib/typography";
+import { EYEBROW, DISPLAY_HEADING } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
 /**
@@ -58,7 +58,7 @@ export default function DocsPage() {
               <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
               Documentation
             </div>
-            <h1 className="mt-3 text-[32px] font-semibold leading-[1.12] tracking-[-0.04em] sm:text-[38px]">
+            <h1 className={cn(DISPLAY_HEADING, "mt-3 text-[32px] font-semibold leading-[1.12] sm:text-[38px]")}>
               {PRODUCT_KNOWLEDGE.title}
             </h1>
             <p className="mt-3 max-w-2xl text-[15px] leading-6 text-muted-foreground">
@@ -174,7 +174,7 @@ function DocSection({
       id={id}
       className="scroll-mt-24 border-b border-border py-11 last:border-b-0"
     >
-      <h2 className="text-xl font-semibold tracking-[-0.03em]">{title}</h2>
+      <h2 className={cn(DISPLAY_HEADING, "text-xl font-semibold")}>{title}</h2>
       <p className="mt-2 max-w-3xl text-[13px] leading-5 text-muted-foreground">
         {intro}
       </p>

@@ -12,6 +12,8 @@ import {
   type WorkspaceToolDefinition,
 } from "@/lib/tools";
 import { TOOL_SECTIONS, sectionTools } from "@/lib/tool-sections";
+import { DISPLAY_HEADING } from "@/lib/typography";
+import { cn } from "@/lib/utils";
 
 type AudienceFilter = "all" | Exclude<ToolAudience, "shared">;
 
@@ -25,7 +27,7 @@ export default function Home() {
   return (
     <div className="pb-10">
       <header className="mb-9 max-w-2xl">
-        <h1 className="text-[32px] font-semibold leading-[1.12] tracking-[-0.04em] sm:text-[36px]">
+        <h1 className={cn(DISPLAY_HEADING, "text-[32px] font-semibold leading-[1.12] sm:text-[36px]")}>
           Tools
         </h1>
         <p className="mt-3 text-[15px] leading-6 text-muted-foreground">
@@ -117,7 +119,7 @@ function SectionHeader({
 }) {
   return (
     <div className="mb-4 max-w-2xl">
-      <h2 id={id} className="text-xl font-semibold tracking-[-0.03em]">
+      <h2 id={id} className={cn(DISPLAY_HEADING, "text-xl font-semibold")}>
         {title}
       </h2>
       <p className="mt-1.5 text-[13px] leading-5 text-muted-foreground">{description}</p>
@@ -149,11 +151,13 @@ function WorkspaceToolCard({
   compact?: boolean;
 }) {
   const comingSoon = tool.availability === "coming_soon";
-  const className = `group flex flex-col rounded-lg border border-border bg-card p-5 ${compact ? "min-h-[190px]" : "min-h-[216px]"}`;
+  const className = `group flex flex-col rounded-lg border border-border bg-card p-5 ${compact ? "min-h-[150px]" : "min-h-[176px]"}`;
   const content = (
     <>
-      <CardHeader
+      <CardHeading
         icon={tool.icon}
+        title={tool.title}
+        description={tool.description}
         trailing={comingSoon
           ? <AvailabilityBadge />
           : (
@@ -163,12 +167,11 @@ function WorkspaceToolCard({
               to reflow anything around it.
             */
             <ArrowUpRight
-              className={`h-4 w-4 ${CARD_AFFORDANCE_MOTION}`}
+              className={`mt-0.5 h-4 w-4 ${CARD_AFFORDANCE_MOTION}`}
               aria-hidden="true"
             />
           )}
       />
-      <CardBody title={tool.title} description={tool.description} />
       <div className="mt-auto pt-5">
         <CardMeta capability={tool.capability} status={tool.activity} />
       </div>
@@ -196,13 +199,14 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
   return (
     <article
       aria-disabled={comingSoon ? "true" : undefined}
-      className={`flex min-h-[232px] flex-col rounded-lg border border-border bg-card p-5 ${comingSoon ? CARD_UNAVAILABLE : ""}`}
+      className={`flex min-h-[192px] flex-col rounded-lg border border-border bg-card p-5 ${comingSoon ? CARD_UNAVAILABLE : ""}`}
     >
-      <CardHeader
+      <CardHeading
         icon={tool.icon}
+        title={tool.title}
+        description={tool.description}
         trailing={comingSoon ? <AvailabilityBadge /> : undefined}
       />
-      <CardBody title={tool.title} description={tool.description} />
       <div className="mt-auto pt-5">
         <CardMeta capability={tool.capability} />
         <div className="mt-3 flex min-h-8 gap-2">
@@ -232,29 +236,46 @@ function AvailabilityBadge() {
   );
 }
 
-function CardHeader({
+/**
+ * A card's mark, its title, and what it opens, on one line.
+ *
+ * These were two rows: the mark alone on the first with the arrow opposite it, then a 24px gap,
+ * then the title. Forty pixels of a card spent to put a 20px glyph on a line of its own, and
+ * the mark ended up further from the name it identifies than from the arrow it has nothing to
+ * do with.
+ *
+ * `items-center` on the mark and the title, which are one label. `items-start` on the row, so
+ * the arrow stays on the first line if a title ever wraps.
+ */
+function CardHeading({
   icon,
+  title,
+  description,
   trailing,
 }: {
   icon: ToolDefinition["icon"];
+  title: string;
+  description: string;
   trailing?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between text-muted-foreground">
-      <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground">
-        <PdisIcon name={icon} className="h-[17px] w-[17px]" />
-      </span>
-      {trailing ? (
-        <span className="transition-colors group-hover:text-foreground motion-reduce:transition-none">{trailing}</span>
-      ) : null}
-    </div>
-  );
-}
-
-function CardBody({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="mt-6">
-      <h3 className="text-[17px] font-semibold tracking-[-0.025em]">{title}</h3>
+    <div>
+      <div className="flex items-start justify-between gap-3 text-muted-foreground">
+        <span className="flex min-w-0 items-center gap-2.5">
+          {/* Bare, at the size the docs graphs draw the same mark. It sat in a 36px bordered
+              tile here and nowhere else, so one icon had two presentations: a border
+              containing something that needs no containing, and its fill was the page ground,
+              which put a box of the surrounding colour on top of the surrounding colour. The
+              mark identifies the tool; the tile identified nothing. */}
+          <PdisIcon name={icon} className="h-5 w-5 shrink-0 text-foreground" />
+          <h3 className={cn(DISPLAY_HEADING, "min-w-0 text-[17px] font-semibold text-foreground")}>
+            {title}
+          </h3>
+        </span>
+        {trailing ? (
+          <span className="shrink-0 transition-colors group-hover:text-foreground motion-reduce:transition-none">{trailing}</span>
+        ) : null}
+      </div>
       <p className="mt-2 text-[13px] leading-5 text-muted-foreground">{description}</p>
     </div>
   );

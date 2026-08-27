@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Separator } from "./ui/separator";
 import { cn } from "@/lib/utils";
+import { DISPLAY_HEADING } from "@/lib/typography";
 
 type Props = {
   title: string;
@@ -64,7 +65,7 @@ export function CollapsibleCard({
           onClick={() => setOpen((current) => !current)}
           className="min-w-0 flex-1 rounded-md py-1 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
         >
-          <h2 className="text-[15px] font-semibold tracking-tight">{title}</h2>
+          <h2 className={cn(DISPLAY_HEADING, "text-[15px] font-semibold")}>{title}</h2>
           {subtitle && <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>}
         </button>
         <div className="ml-auto flex min-w-0 items-center gap-2">

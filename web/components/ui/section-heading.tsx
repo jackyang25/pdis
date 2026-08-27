@@ -25,7 +25,7 @@ export function SectionHeading({
   return (
     <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
       <div className="min-w-0">
-        <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
+        <h3 className="text-sm font-semibold">{title}</h3>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
       </div>
       {trailing && (

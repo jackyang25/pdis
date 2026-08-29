@@ -2,7 +2,7 @@
  * The documentation catalogue must be renderable, not merely valid.
  *
  * `/docs` is statically prerendered, so a lookup that misses does not degrade one
- * card — it fails the whole build. That is exactly what happened when Expert's
+ * card — it fails the whole build. That is exactly what happened when Screener's
  * workflow graph was added to `shared/product_knowledge.json` with no icon entry:
  * `Record<string, …>` compiled cleanly and the export died with "Cannot read
  * properties of undefined (reading 'split')". `npm run build` reports it, but only
@@ -79,7 +79,7 @@ test("an undeclared graph falls back rather than throwing", () => {
 // `every published workflow graph declares an icon` already covers.
 test("every tool that runs a pipeline publishes a graph", () => {
   const published = new Set(architectureGraphs().map((graph) => graph.id));
-  for (const tool of ["chunker", "inspector", "aligner", "expert", "scout"]) {
+  for (const tool of ["chunker", "inspector", "aligner", "screener", "scout"]) {
     assert.ok(published.has(tool), `${tool} publishes no workflow graph`);
   }
 });

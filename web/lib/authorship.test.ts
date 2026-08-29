@@ -22,7 +22,7 @@ const REPO = path.resolve(import.meta.dirname, "..");
 const read = (...parts: string[]) => readFileSync(path.join(REPO, ...parts), "utf8");
 
 /** The four tools that render a finished result. */
-const TOOLS = ["scout", "inspector", "aligner", "expert"] as const;
+const TOOLS = ["scout", "inspector", "aligner", "screener"] as const;
 
 /** Every `.tsx` under `app/` and `components/`, so a check can ask "anywhere but here". */
 function tsxFiles(): string[] {
@@ -398,7 +398,7 @@ test("a view says what opening it gives you, once", () => {
  * A result names itself the same way everywhere.
  *
  * The card title held four different kinds of thing: Inspector the document, Scout a count
- * of the rubric, Aligner the tool's own noun, Expert the gate — which its subtitle then
+ * of the rubric, Aligner the tool's own noun, Screener the gate — which its subtitle then
  * repeated. Scout never named the document it analysed at all, which is the one fact that
  * tells a reader which run they are looking at.
  *
@@ -421,7 +421,7 @@ test("a page description says what the tool answers, not how it works", () => {
   // Five tools described a question and two described a mechanism, in internal vocabulary:
   // "through one normalized workspace", "for downstream intelligence workflows".
   const mechanical = /Transform source documents|normalized workspace|downstream intelligence/;
-  for (const tool of ["scout", "inspector", "aligner", "expert", "archivist", "searcher", "chunker"]) {
+  for (const tool of ["scout", "inspector", "aligner", "screener", "archivist", "searcher", "chunker"]) {
     const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
     assert.ok(!mechanical.test(page), `${tool} describes its mechanism rather than its question`);
   }
@@ -796,7 +796,7 @@ test("the mark belongs to a contribution, not to every sentence in it", () => {
   // checkable is that the mechanism exists and that the pairs which do stack use it.
   for (const [file, first, second] of [
     [["app", "scout", "page.tsx"], "match.insight.statement", "match.reason"],
-    [["app", "expert", "page.tsx"], "question.statement", "question.missing"],
+    [["app", "screener", "page.tsx"], "question.statement", "question.missing"],
     [["components", "ui", "priority-panel.tsx"], "item.statement", "item.recommendation"],
   ] as const) {
     const source = read(...file);
@@ -869,7 +869,7 @@ test("there is one tone vocabulary, not one per layer", () => {
   const trace = read("lib", "document-trace.ts");
   assert.match(trace, /tone: Tone;/, "the trace declares its own tone list again");
   for (const file of [...tsxFiles(), ...["document-trace", "inspector-document-trace",
-    "aligner-document-trace", "expert-document-trace"].map((name) =>
+    "aligner-document-trace", "screener-document-trace"].map((name) =>
     path.join(REPO, "lib", `${name}.ts`))]) {
     const source = readFileSync(file, "utf8");
     assert.ok(
@@ -963,4 +963,233 @@ test("the document's stated target is quoted wherever it is shown", () => {
       `${field} is the document's own words and is not rendered as a quotation`,
     );
   }
+});
+
+test("every tool hands its run-identity readers the saved shape", () => {
+  // `runLabel` and `runScope` read a *saved result*, which for every tool is an
+  // envelope: `{ alignment: ... }`, `{ inspection: ... }`, `{ review: ... }`. Aligner's
+  // view was handed the alignment inside its envelope, so both readers dereferenced
+  // `undefined.documents` and the page threw a client-side exception on every run.
+  //
+  // Checked at the call site rather than by loosening the readers: a reader that accepts
+  // either shape cannot tell a run it was given from one it was handed the inside of,
+  // and would return a label built from nothing rather than failing.
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    const call = page.match(new RegExp(`runScope\\((\\w+), "${tool}"\\)`));
+    assert.ok(call, `${tool} does not name its run's configuration`);
+    const held = call[1];
+    // Whatever that identifier is, the same one must be what `runLabel` reads, and it
+    // must not be the unwrapped inner result.
+    assert.match(
+      page,
+      new RegExp(`runLabel\\(${held}, "${tool}"\\)`),
+      `${tool} identifies its run from one object and scopes it from another`,
+    );
+    assert.ok(
+      !new RegExp(`result=\\{[\\w.]*\\.(alignment|inspection|review)\\}`).test(page),
+      `${tool} hands its view the inside of a saved result rather than the result`,
+    );
+  }
+});
+
+test("an Aligner finding carries one sentence, not two", () => {
+  // `gap` sat beside `statement` on two verdicts, asked to name the distance from the
+  // bar. The distance is not a third fact: it is the requirement and the statement, and
+  // a reader has both - the requirement heads the row. What came back said so:
+  //
+  //   requirement  The target population minimum target is pregnant women 24-36 weeks.
+  //   statement    The candidate sets the minimum as pregnant women at least 28 weeks.
+  //   gap          Pregnant women 24-36 weeks required versus at least 28 weeks offered.
+  //
+  // The prompt said "do not restate the requirement". It restated the requirement on
+  // every one of sixty-nine rows, because on a shortfall there is nothing else to say.
+  for (const file of [
+    ["lib", "api.ts"],
+    ["lib", "aligner-chain.ts"],
+    ["lib", "aligner-document-trace.ts"],
+    ["app", "aligner", "page.tsx"],
+  ] as const) {
+    const source = read(...file);
+    // The field, not the word: these files explain in prose what they no longer do,
+    // and Tailwind's `gap-4` is a layout class.
+    assert.ok(
+      !/[.\s]gap:|\.gap\b/.test(source),
+      `${file.join("/")} carries a second sentence per finding again`,
+    );
+  }
+});
+
+test("an Aligner requirement is a row, not a box inside a box", () => {
+  // It was a bordered card inside a verdict group inside a collapsible card inside a
+  // tab - the fourth box a reader counts down, and the nesting Inspector lost when a
+  // unit stopped being a disclosure.
+  const page = read("app", "aligner", "page.tsx");
+  const row = page.slice(page.indexOf("function FindingRow"));
+  const li = row.slice(row.indexOf("<li"), row.indexOf(">", row.indexOf("<li")));
+  assert.ok(!/border/.test(li), "a finding draws its own box again");
+  // And no help icon per row: sixty-nine of them, and an icon on one requirement cannot
+  // say how a requirement differs from a verdict, which is what a reader gets wrong.
+  assert.ok(
+    !/AlignerSignalLabel topic="requirement"/.test(page),
+    "the per-row help affordance is back",
+  );
+});
+
+test("a mark is never rendered with nothing after it", () => {
+  // A statement is empty where a tool has nothing to describe - Aligner's `not_addressed`
+  // and Inspector's `specified`. Rendered anyway it is a four-pointed star followed by
+  // blank space, which reads as a broken row rather than as silence.
+  for (const [file, field] of [
+    [["components", "aligner-document-trace.tsx"], "ref.statement"],
+    [["components", "ui", "priority-panel.tsx"], "item.statement"],
+    [["app", "inspector", "page.tsx"], "item.statement"],
+  ] as const) {
+    const source = read(...file);
+    const at = source.indexOf(`{${field}}`);
+    assert.ok(at > 0, `${field} is no longer rendered in ${file.join("/")}`);
+    assert.match(
+      source.slice(Math.max(0, at - 260), at),
+      new RegExp(`${field.replace(".", "[.]")} && [(]`),
+      `${file.join("/")} renders ${field} without checking it says anything`,
+    );
+  }
+});
+
+test("a how-to-read panel is a reference, not an essay", () => {
+  // A popover a reader opens mid-task, so each topic has to be readable in one look.
+  // Aligner's ran to 593 words across five topics and Screener's to 637 across four,
+  // one of them 278 - four to five times Inspector's, which is short because collapsing
+  // three vocabularies into one left it less to explain.
+  //
+  // The cap is per topic rather than per panel: a tool with five real distinctions
+  // should be allowed five, and what makes a panel unreadable is one topic that turns
+  // into prose, not the number of them.
+  for (const tool of ["inspector", "scout", "aligner", "screener"]) {
+    const source = read("components", `${tool}-signal-help.tsx`);
+    const topics = [...source.matchAll(/title: "([^"]+)"[\s\S]*?detail:\s*\n?\s*"([^"]+)"/g)];
+    assert.ok(topics.length > 0, `${tool} publishes no topics`);
+    for (const [, title, detail] of topics) {
+      const words = detail.split(/\s+/).length;
+      assert.ok(
+        words <= 90,
+        `${tool}'s "${title}" runs to ${words} words; a topic a reader takes in at a `
+          + "glance is under ninety",
+      );
+    }
+  }
+});
+
+test("both sides of a comparison say which document they came from", () => {
+  // A row holds two model sentences - the bar read out of one document, the answer read
+  // out of the other - and they are deliberately parallel so the difference is legible:
+  // "24-36 wks" beside "at least 28 weeks". Neither is a quotation, because the
+  // extractor is asked for "one short sentence stating the requirement in the document's
+  // own terms", which is the model's words carrying the document's numbers. A left rule
+  // on the first would claim a verbatimness the pipeline never promised, and marking
+  // both as a model's leaves nothing to tell them apart.
+  //
+  // What separates them is which document, so each line leads with its name. That used
+  // to sit at the bottom of the row on two triggers both reading "In document".
+  const page = read("app", "aligner", "page.tsx");
+  assert.match(
+    page,
+    /<Attributed\s+document=\{referenceName\}/,
+    "the bar does not say which document states it",
+  );
+  assert.match(
+    page,
+    /<Attributed\s+document=\{comparisonName\}/,
+    "the answer does not say which document it was read from",
+  );
+  assert.ok(
+    !/<Quoted[^>]*>\{finding\.requirement\}/.test(page),
+    "a requirement is ruled as a quotation, which the extractor never promises",
+  );
+});
+
+test("every tool reports its outcome through the one metrics row", () => {
+  // Four tools, four shapes for one question - how did this run come out. Inspector drew
+  // dotted counts anchored to nothing, Aligner put a help icon on its denominator,
+  // Screener used a `dl` of value-label pairs with neither dot nor total and then
+  // restated the total in a closing paragraph, and Scout wrote prose.
+  //
+  // The first fix made three of them *contain* the right parts, which is not the same as
+  // their being the same shape - Screener still stacked its total above its dots while
+  // the other two put them on one line, and this test passed. Containment was the wrong
+  // thing to assert. The row is now a component, so the shape is an argument rather than
+  // an arrangement, and what is left to check is that nobody re-implements it.
+  for (const tool of ["inspector", "aligner", "screener", "scout"]) {
+    const page = read("app", tool, "page.tsx");
+    const start = Math.max(
+      page.indexOf("function RunCoverage"),
+      page.indexOf("function CountRow"),
+    );
+    const body = page.slice(start, page.indexOf("\n}\n", start));
+    assert.match(body, /<MetricsRow/, `${tool} builds its own metrics panel`);
+    assert.match(
+      body,
+      /total=\{/,
+      `${tool} shows counts with no denominator, so a figure is anchored to nothing`,
+    );
+    assert.match(body, /items=\{/, `${tool} states no distribution over its denominator`);
+    // Whether a figure is inside the distribution or outside it is the one judgement the
+    // row cannot make for a tool: Inspector's cross-section conflicts and Screener's
+    // required-and-open count are true of the run and are not buckets, and either one
+    // standing in the row would break the sum a reader was invited to check.
+    assert.ok(
+      !/<VerdictCounts/.test(body),
+      `${tool} draws the distribution itself, beside the row that exists to draw it`,
+    );
+  }
+});
+
+test("the metrics panel carries no help affordance", () => {
+  // `ResultLayout` requires a `metricsNote`, which opens the panel with a sentence saying
+  // what the figures count. A tooltip inside answers a question the reader had answered
+  // three lines above. Aligner had one on its denominator and Screener one on its aside,
+  // and the first pass removed only Aligner's - because the check was written against
+  // Aligner by name rather than against the rule.
+  for (const tool of ["inspector", "aligner", "screener", "scout"]) {
+    const page = read("app", tool, "page.tsx");
+    const start = Math.max(
+      page.indexOf("function RunCoverage"),
+      page.indexOf("function CountRow"),
+    );
+    const body = page.slice(start, page.indexOf("\n}\n", start));
+    assert.ok(
+      !/SignalLabel|SignalHelp/.test(body),
+      `${tool}'s metrics panel explains itself twice`,
+    );
+  }
+  // And the note actually says what the row sums to, which is the sentence the tooltips
+  // were standing in for.
+  for (const tool of ["inspector", "aligner", "screener", "scout"]) {
+    assert.match(
+      read("app", tool, "page.tsx"),
+      /metricsNote="[^"]*(sums to|by verdict|by state|including the classes)/,
+      `${tool} never says what its figures count`,
+    );
+  }
+});
+
+test("one tone decision per vocabulary, wherever it is drawn", () => {
+  // Screener's question states carried their own background classes inside the coverage
+  // strip - a fifth tone vocabulary beside the four on the shared scale, and unreachable
+  // from the metrics row, which is why its counts were the only ones with no dot.
+  //
+  // The grid still fills a cell where a row draws a dot; what moved is the *decision*
+  // about which state is which tone.
+  const api = read("lib", "api.ts");
+  assert.match(api, /QUESTION_STATE_TONE: Record<QuestionState, Tone>/);
+  const strip = read("components", "screener-coverage-strip.tsx");
+  assert.ok(
+    !/cell: "bg-\[hsl/.test(strip),
+    "the coverage strip decides its own tones again",
+  );
+  assert.match(strip, /QUESTION_STATE_TONE\[/, "the strip no longer reads the shared tone");
+  // Silence is neutral in both tools that have a word for it: Aligner's `not_addressed`
+  // and Screener's `not_found` both say the material says nothing, which is not a failure.
+  assert.match(api, /not_found: "neutral"/);
+  assert.match(api, /not_addressed: "neutral"/);
 });

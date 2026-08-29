@@ -206,7 +206,7 @@ test("a result signal uses a tone token, never a raw palette colour", () => {
   // result.
   //
   // This covered red alone for a long time, and the gap showed: `success` and `warning` had
-  // tokens that Expert and Aligner used while Scout wrote `bg-emerald-500` and
+  // tokens that Screener and Aligner used while Scout wrote `bg-emerald-500` and
   // `bg-amber-400` eighteen times and Inspector wrote the palette with a hand-kept `dark:`
   // variant beside it. **None of Scout's eighteen had a dark-mode variant at all**, so a
   // verdict that read at one contrast in light mode read at another in dark. A token cannot
@@ -223,27 +223,51 @@ test("a result signal uses a tone token, never a raw palette colour", () => {
   );
 });
 
-test("the tone scale is declared once, and every tone has all three shapes", () => {
-  // A signal appears as a dot, as a word, or as a filled chip, and nowhere else. A tone
-  // missing one of the three is how a call site comes to reach for the palette again.
+/**
+ * The four forms one tone takes. A signal appears as a dot, a word, a filled chip, or -
+ * where the surface cannot take a class at all - a raw colour value for an SVG stroke.
+ * A tone missing one of the four is how a call site comes to reach for the palette again,
+ * which is what the evidence map did: it needed a stroke, found none, and wrote out all
+ * five colours beside a private tone scale named after the colours themselves.
+ */
+const TONE_SHAPES = ["TONE_DOT", "TONE_TEXT", "TONE_TINT", "TONE_STROKE"];
+
+test("the tone scale is declared once, and every tone has all four shapes", () => {
   const tone = FILES.find(({ relative }) => relative === TONE_SOURCE);
   if (!tone) throw new Error("lib/tone.ts is missing");
-  for (const shape of ["TONE_DOT", "TONE_TEXT", "TONE_TINT"]) {
+  for (const shape of TONE_SHAPES) {
     assert.match(tone.text, new RegExp(`export const ${shape}: Record<Tone, string>`));
   }
   const source: string = tone.text;
   for (const name of ["success", "warning", "danger", "info", "neutral"]) {
     const shapes: number = source.split(new RegExp(`^  ${name}:`, "m")).length - 1;
-    assert.equal(shapes, 3, `${name} is missing one of the three shapes`);
+    assert.equal(shapes, TONE_SHAPES.length, `${name} is missing one of the four shapes`);
   }
 });
 
 test("nothing re-declares the tone scale", () => {
   const offenders = FILES.filter(
     ({ relative, text }) =>
-      relative !== TONE_SOURCE && /export const TONE_(DOT|TEXT|TINT)\b/.test(text),
+      relative !== TONE_SOURCE &&
+      /export const TONE_(DOT|TEXT|TINT|STROKE)\b/.test(text),
   ).map(({ relative }) => relative);
   assert.deepEqual(offenders, [], "a second tone scale defeats the point of having one");
+});
+
+test("no surface names a tone after its colour", () => {
+  // `EvidenceMapSignalTone` was `green | blue | amber | red | neutral` - the shared scale
+  // with the meanings replaced by the colours they happen to render as. It is the one
+  // rename that cannot be reconciled with anything: a reader cannot tell whether `blue`
+  // agrees with `info`, and the map's `neutral` had in fact drifted to a different colour
+  // from every other neutral in the interface.
+  //
+  // The scale is `success | warning | danger | info | neutral` because those are readings.
+  // A palette that says what a thing means survives a change of palette.
+  const offenders = FILES.filter(({ text }) =>
+    /\b(?:tone|Tone)\b[^\n]*=\s*"(?:green|blue|amber|red|orange|yellow)"/.test(text)
+    || /^\s*\|\s*"(?:green|blue|amber|red)"$/m.test(text),
+  ).map(({ relative }) => relative);
+  assert.deepEqual(offenders, [], "a tone named after a colour is a second scale");
 });
 
 test("an eyebrow label is one shape, not a letter-spacing per author", () => {

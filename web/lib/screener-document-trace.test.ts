@@ -13,8 +13,8 @@ import test from "node:test";
 import type { ContentBlock, GateReview, QuestionAssessment } from "./api.ts";
 import {
   answersPerDocument,
-  buildExpertDocumentAnnotations,
-} from "./expert-document-trace.ts";
+  buildScreenerDocumentAnnotations,
+} from "./screener-document-trace.ts";
 
 function block(id: string, docId: string): ContentBlock {
   return {
@@ -86,7 +86,7 @@ const partly = (id: string, blockIds: string[]) =>
 test("a partial is placed too, and carries what it leaves open", () => {
   // The passages a document got part of the way with are the most useful thing in the
   // trace, because that is where a specific ask to the grantee comes from.
-  const [annotation] = buildExpertDocumentAnnotations(
+  const [annotation] = buildScreenerDocumentAnnotations(
     review([partly("A", ["profile:1"])]),
   );
   assert.equal(annotation.kind, "partly_answered");
@@ -99,20 +99,20 @@ test("a whole answer is success and a partial is warning, in the shared tones", 
   // Not grey: a passage that answered a question in grey reads as one nobody looked at.
   // And the same tone every other tool uses for "the thing asked for is there", so a
   // reader carries the colours between tools rather than relearning them.
-  const [answered] = buildExpertDocumentAnnotations(
+  const [answered] = buildScreenerDocumentAnnotations(
     review([cited("A", ["profile:1"])]),
   );
   assert.equal(answered.emphasis?.tone, "success");
   assert.equal(answered.sourceRef.missing, "");
 
-  const [partial] = buildExpertDocumentAnnotations(
+  const [partial] = buildScreenerDocumentAnnotations(
     review([partly("B", ["profile:1"])]),
   );
   assert.equal(partial.emphasis?.tone, "warning");
 });
 
 test("only answers read from a document are placed", () => {
-  const annotations = buildExpertDocumentAnnotations(
+  const annotations = buildScreenerDocumentAnnotations(
     review([
       cited("A", ["profile:1"]),
       question("B", "not_found", { statement: "Not stated." }),
@@ -135,7 +135,7 @@ test("only answers read from a document are placed", () => {
 test("an unanswered question is never anchored to a probable block", () => {
   // The hint names a document. If it ever became a display anchor, the viewer would
   // show a guess as provenance.
-  const annotations = buildExpertDocumentAnnotations(
+  const annotations = buildScreenerDocumentAnnotations(
     review([question("A", "not_found", { })]),
   );
   assert.deepEqual(annotations, []);
@@ -144,16 +144,16 @@ test("an unanswered question is never anchored to a probable block", () => {
 test("an answer with an empty citation list is not placed", () => {
   // The service contract refuses this, so it should be unreachable — but the trace
   // must not produce a marker with nothing behind it if it ever arrives.
-  const annotations = buildExpertDocumentAnnotations(
+  const annotations = buildScreenerDocumentAnnotations(
     review([question("A", "answered", { source: "document", cited_block_ids: [] })]),
   );
   assert.deepEqual(annotations, []);
 });
 
 test("annotations claim whole blocks and never invent a span", () => {
-  // Expert records block lineage, not quotations. A synthesised span would be a
+  // Screener records block lineage, not quotations. A synthesised span would be a
   // provenance claim the model never made.
-  const [annotation] = buildExpertDocumentAnnotations(
+  const [annotation] = buildScreenerDocumentAnnotations(
     review([cited("A", ["profile:1"])]),
   );
   assert.deepEqual(annotation.spans, []);
@@ -162,7 +162,7 @@ test("annotations claim whole blocks and never invent a span", () => {
 });
 
 test("annotations keep bank order across disciplines", () => {
-  const annotations = buildExpertDocumentAnnotations(
+  const annotations = buildScreenerDocumentAnnotations(
     review([], {
       disciplines: [
         { id: "cmc", label: "CMC", questions: [cited("C1", ["profile:1"])] },
@@ -181,7 +181,7 @@ test("annotations keep bank order across disciplines", () => {
 });
 
 test("a question the gate requires is labelled as one", () => {
-  const [annotation] = buildExpertDocumentAnnotations(
+  const [annotation] = buildScreenerDocumentAnnotations(
     review([cited("A", ["profile:1"])]),
   );
   assert.equal(annotation.statusLabel, "Required at this gate");

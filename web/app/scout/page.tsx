@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
+import { MetricsRow } from "@/components/ui/metrics-row";
 import { RunPanel } from "@/components/run-panel";
 import { RunHistory } from "@/components/run-history";
 import {
@@ -66,6 +67,7 @@ import {
   type SourceRole,
   type TargetRelationship,
   type PrecedentSignal,
+  type DocumentSpan,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -114,6 +116,9 @@ import {
   displayRecordTypeLabel,
   queryTrackLabel,
   sourceDisplayLabel,
+  GROUNDING_TONE,
+  RELATIONSHIP_TONE,
+  OUTCOME_TONE,
 } from "@/lib/scout-labels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScoutDocumentTrace } from "@/components/scout-document-trace";
@@ -162,7 +167,8 @@ import {
   SURFACE_ENTRY_MOTION,
 } from "@/lib/motion";
 import { SURFACE } from "@/lib/surface";
-import { TONE_DOT, TONE_TEXT, type Tone } from "@/lib/tone";
+import { TONE_TEXT, type Tone } from "@/lib/tone";
+import { ToneDot } from "@/components/ui/tone-dot";
 import {
   applyEvidenceReviewRecommendations,
   evidenceReviewRecommendationSummary,
@@ -171,7 +177,6 @@ import {
 import {
   DocumentSourceProvider,
   DocumentSourceTrace,
-  type DocumentSpan,
 } from "@/components/document-source-trace";
 import {
   filterProjectionsByRelationship,
@@ -228,26 +233,20 @@ const SCOUT_STEPS = [
 const SOURCE_LIST_LIMIT = 5;
 
 /**
- * The tone each grounding verdict carries. Only the tone.
+ * Grounding, strongest first, with the fields nobody could ground last.
  *
- * The words come from `GROUNDING_LABEL`, which the evidence map and the document trace
- * already read. A second copy here is exactly how "Partial" and "Partly grounded" came to
- * render in two tabs of one run.
+ * `EvidenceStrength` is a closed vocabulary but an unordered one, and a distribution read
+ * left to right wants an order. Strongest first so the row opens with what held up; "no
+ * target stated" ends it because it is the one bucket that is not a verdict on evidence.
  */
-const EVIDENCE_TONE: Record<EvidenceAssessment["strength"], Tone> = {
-  well_grounded: "success",
-  partial: "info",
-  thin: "warning",
-  unsupported: "danger",
-  unknown: "neutral",
-};
-
-const RELATION_TONE: Record<Match["relation"], Tone> = {
-  contradicts: "danger",
-  extends: "warning",
-  confirms: "success",
-  unrelated: "neutral",
-};
+const GROUNDING_ORDER = [
+  "well_grounded",
+  "partial",
+  "thin",
+  "unsupported",
+  "unknown",
+  "not_stated",
+] as const;
 
 function formatNumericExpression(expression: NumericExpression): string {
   const unit = expression.unit ?? "";
@@ -279,25 +278,6 @@ function formatFieldLinks(
     "Document claim",
   );
 }
-
-/**
- * The tone each outcome carries. Only the tone, like `EVIDENCE_TONE` above.
- *
- * The words come from `OUTCOME_LABEL` and `PRECEDENT_LABEL`. This file used to hold both
- * the tones and its own copies of the words, and the copies had already drifted: the shared
- * vocabulary said "Unknown" while the copy here said "Outcome unknown", so one run rendered
- * that value two ways in two views. The drift test guarded the *name* `OUTCOME_LABEL`, and
- * a copy called `OUTCOME_META` walked straight past it.
- *
- * Precedent coverage needs no map: every value is neutral, because how closely prior work
- * matches is not good or bad news on its own.
- */
-const OUTCOME_TONE: Record<PrecedentSignal["outcome"], Tone> = {
-  favorable: "success",
-  mixed: "warning",
-  unfavorable: "danger",
-  unknown: "neutral",
-};
 
 function precedentView(signal: PrecedentSignal) {
   return {
@@ -470,7 +450,7 @@ export default function ScoutPage() {
     <>
       <PageHeader
         title="Scout"
-        description="One document’s targets against external evidence: whether its numbers hold up against live measurements, comparators, and development precedent."
+        description="One document’s targets against external evidence: whether its numbers hold up against comparable measurements and development precedent. Feasibility, not completeness — it never checks a document against a template or against another document."
       />
       <HeaderGuard>
         {(header, ready) => (
@@ -1217,7 +1197,7 @@ function DocumentTargetReviewCheckpoint({
 function ReviewCount({ tone, label }: { tone: Tone; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT[tone])} />
+      <ToneDot tone={tone} />
       {label}
     </span>
   );
@@ -2366,7 +2346,7 @@ function FieldGrid({
           // The two counts have different scopes, and a reader auditing one against the
           // other comes up short: 156 sources are cited only by development and safety
           // records, which have findings but no insights.
-          metricsNote="Insights are counted within fields. The source count is the whole run, including records that carry no insight."
+          metricsNote="Every field by how well evidence supports its target, so the row sums to the number of fields examined. Precedent and calibration are separate axes and are listed below rather than counted here: a field can carry both, neither, or several, so they partition nothing. Insights are counted within fields; the source count is the whole run, including records that carry no insight."
           tabValue={resultTab}
           onTabChange={setResultTab}
           tabs={
@@ -3014,74 +2994,89 @@ function RunCoverage({
   /** Distinct sources across the whole run, records included. */
   sources: number;
 }) {
-  const analysed = headline.fieldCount - headline.notStatedCount;
   return (
-    // Every figure at one weight, every word at another. It read `**31** of 36 fields`
-    // then `34 numeric targets, **34** with no comparable` - three numbers, two of them
-    // emphasised and one not, which made the plain one look like a different kind of
-    // fact. The rule: the number is the foreground, the sentence around it is not.
-    <p className="flex flex-col gap-1.5 text-[11px] tabular-nums text-muted-foreground">
-      <span>
-        <span className="font-medium text-foreground">
-          {insights.toLocaleString()}
-        </span>{" "}
-        insights from{" "}
-        <span className="font-medium text-foreground">
-          {sources.toLocaleString()}
-        </span>{" "}
-        sources
-      </span>
-      <span>
-        <span className="font-medium text-foreground">{analysed}</span> of{" "}
-        {headline.fieldCount} fields stated a target
-      </span>
-      {headline.numericTargets > 0 && (
-        <span>
-          <span className="font-medium text-foreground">
-            {headline.numericTargets}
-          </span>{" "}
-          {headline.numericTargets === 1 ? "numeric target" : "numeric targets"}
-          {headline.uncalibratedTargets > 0 && (
-            <>
-              {", "}
+    <MetricsRow
+      total={headline.fieldCount}
+      unit={["field", "fields"]}
+      // Grounding, because it is the one axis every field has exactly one of. Precedent
+      // and calibration are real signals and they are not distributions: a field can
+      // carry both, neither, or several conformities, so counts of them do not partition
+      // anything and belong below as facts rather than buckets.
+      //
+      // Zeros are dropped. A strength nothing fell into is not a fact about the run the
+      // way Screener's zero `answered` is - nobody decided it, the shape of the evidence
+      // did - and six buckets of which three are zero reads as a wider spread than the
+      // run has.
+      items={GROUNDING_ORDER.flatMap((strength) => {
+        const count = headline.groundingCounts[strength];
+        if (count === 0) return [];
+        return [{
+          label: strength === "not_stated"
+            ? "No target stated"
+            : GROUNDING_LABEL[strength],
+          count,
+          tone: strength === "not_stated" ? ("neutral" as const) : GROUNDING_TONE[strength],
+        }];
+      })}
+      aside={
+        // Everything true of the run that is not one field's grounding. Every figure at
+        // one weight and every word at another: it read `**31** of 36 fields` then `34
+        // numeric targets, **34** with no comparable`, three numbers with two emphasised,
+        // which made the plain one look like a different kind of fact.
+        <p className="flex flex-col gap-1.5 text-[11px] tabular-nums text-muted-foreground">
+          <span>
+            <span className="font-medium text-foreground">
+              {insights.toLocaleString()}
+            </span>{" "}
+            insights from{" "}
+            <span className="font-medium text-foreground">
+              {sources.toLocaleString()}
+            </span>{" "}
+            sources
+          </span>
+          {headline.numericTargets > 0 && (
+            <span>
               <span className="font-medium text-foreground">
-                {headline.uncalibratedTargets}
+                {headline.numericTargets}
               </span>{" "}
-              with no comparable measurement
-            </>
+              {headline.numericTargets === 1 ? "numeric target" : "numeric targets"}
+              {headline.uncalibratedTargets > 0 && (
+                <>
+                  {", "}
+                  <span className="font-medium text-foreground">
+                    {headline.uncalibratedTargets}
+                  </span>{" "}
+                  with no comparable measurement
+                </>
+              )}
+            </span>
           )}
-        </span>
-      )}
-      {headline.wellGroundedCount > 0 && (
-        <span>
-          <span className="font-medium text-foreground">
-            {headline.wellGroundedCount}
-          </span>{" "}
-          well grounded
-        </span>
-      )}
-      {/* Counted, not named. An unfavourable precedent is the one signal `PriorityPanel`
-          has no tier for, so the count belongs somewhere - but the field name is right
-          below and one of them renders as "I E Ddi", which helps nobody. */}
-      {headline.unfavorableFields.length > 0 && (
-        <span>
-          <span className="font-medium text-foreground">
-            {headline.unfavorableFields.length}
-          </span>{" "}
-          unfavourable precedent
-        </span>
-      )}
-      {headline.unresolvedCount > 0 && (
-        <span>
-          <span className="font-medium text-foreground">
-            {headline.unresolvedCount}
-          </span>{" "}
-          interpretation unresolved
-        </span>
-      )}
-    </p>
+          {/* Counted, not named. An unfavourable precedent is the one signal
+              `PriorityPanel` has no tier for, so the count belongs somewhere - but the
+              field name is right below and one of them renders as "I E Ddi", which helps
+              nobody. */}
+          {headline.unfavorableFields.length > 0 && (
+            <span>
+              <span className="font-medium text-foreground">
+                {headline.unfavorableFields.length}
+              </span>{" "}
+              unfavourable precedent
+            </span>
+          )}
+          {headline.unresolvedCount > 0 && (
+            <span>
+              <span className="font-medium text-foreground">
+                {headline.unresolvedCount}
+              </span>{" "}
+              interpretation unresolved
+            </span>
+          )}
+        </p>
+      }
+    />
   );
 }
+
 
 function FieldRow({
   name,
@@ -3121,7 +3116,7 @@ function FieldRow({
   evidenceDomain: Variable["evidence_domain"];
   targetsById: Map<string, QuantitativeTarget>;
 }) {
-  const evidenceTone = assessment ? EVIDENCE_TONE[assessment.strength] : null;
+  const evidenceTone = assessment ? GROUNDING_TONE[assessment.strength] : null;
   const precedentMeta = precedent ? precedentView(precedent) : null;
   const counts = relationCounts(matches);
   const comparatorCount = conformities.reduce(
@@ -3165,12 +3160,12 @@ function FieldRow({
                standing judgments, then how many numeric targets there are to open. */
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
               {counts.contradicts > 0 && (
-                <SignalChip tone={RELATION_TONE.contradicts}>
+                <SignalChip tone={RELATIONSHIP_TONE.contradicts}>
                   {`${RELATIONSHIP_LABEL.contradicts} ${counts.contradicts}`}
                 </SignalChip>
               )}
               {counts.confirms > 0 && (
-                <SignalChip tone={RELATION_TONE.confirms}>
+                <SignalChip tone={RELATIONSHIP_TONE.confirms}>
                   {`${RELATIONSHIP_LABEL.confirms} ${counts.confirms}`}
                 </SignalChip>
               )}
@@ -3758,9 +3753,7 @@ function DisclosureRow({
       <summary className="flex cursor-pointer select-none items-center gap-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/row:rotate-180 motion-reduce:transition-none" />
         {tone && (
-          <span
-            className={cn("h-1.5 w-1.5 shrink-0 rounded-full", TONE_DOT[tone])}
-          />
+          <ToneDot tone={tone} />
         )}
         <span className="text-xs font-medium text-foreground">{label}</span>
         <span className="text-[11px] tabular-nums text-muted-foreground">
@@ -3884,13 +3877,7 @@ function CitedInsightIndex({ cited }: { cited: Citation }) {
             onClick={() => revealInsight(insightAnchor(match) ?? "")}
             className="flex items-start gap-2 rounded text-xs leading-relaxed text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
           >
-            <span
-              className={cn(
-                "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
-                TONE_DOT[RELATION_TONE[match.relation]],
-              )}
-              aria-hidden="true"
-            />
+            <ToneDot tone={RELATIONSHIP_TONE[match.relation]} className="mt-1.5" />
             <Reading inline size="prominent" className="min-w-0">
               <span className="sr-only">
                 {RELATIONSHIP_LABEL[match.relation]}:{" "}
@@ -3948,7 +3935,7 @@ function InsightGroups({ registry }: { registry: InsightRegistry }) {
           <DisclosureRow
             key={group.relation}
             label={RELATIONSHIP_LABEL[group.relation]}
-            tone={RELATION_TONE[group.relation]}
+            tone={RELATIONSHIP_TONE[group.relation]}
             count={group.matches.length}
           >
             <ul className="space-y-4">

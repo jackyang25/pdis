@@ -2,7 +2,7 @@
  * A heading and one line of explanation, above a list inside a result.
  *
  * Shared rather than repeated: this began as a local helper in Inspector's page,
- * and Expert is the second consumer. Lifting it here on the second, not the third,
+ * and Screener is the second consumer. Lifting it here on the second, not the third,
  * is what keeps two near-identical headings from drifting a font weight apart.
  */
 export function SectionHeading({

@@ -225,7 +225,7 @@ class PromptTests(unittest.TestCase):
         """One prompt serves every tool; a fifth is served by it unchanged."""
         prompt = build_system_prompt().lower()
         for word in (
-            "inspector", "aligner", "scout", "expert",
+            "inspector", "aligner", "scout", "screener",
             "itpp", "ctpp", "ipdp", "vaccine", "tuberculosis",
         ):
             self.assertNotIn(word, prompt, word)

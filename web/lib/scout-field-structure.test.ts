@@ -141,7 +141,7 @@ test("every full-width row that opens uses one shape", () => {
   // Anyone who opens a full-width row reaches for the shared shape rather than writing
   // the classes again. A tool that stopped having such rows is not a failure; a tool
   // that has them and spells them itself is.
-  for (const tool of ["scout", "inspector", "aligner", "expert"]) {
+  for (const tool of ["scout", "inspector", "aligner", "screener"]) {
     const source = readFileSync(
       path.resolve(import.meta.dirname, "..", "app", tool, "page.tsx"),
       "utf8",

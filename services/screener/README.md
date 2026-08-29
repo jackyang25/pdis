@@ -1,11 +1,11 @@
-# Expert
+# Screener
 
 A set of product-development documents against one stage gate's question bank: what
 is still unresolved, and which reviewer it goes to.
 
 ## Background
 
-Expert renders no verdict. It triages: for one gate, it reports which of the bank's
+Screener renders no verdict. It triages: for one gate, it reports which of the bank's
 questions the supplied material answers, cited to the passage, and which it does not —
 each of those alongside the discipline that owns it.
 
@@ -25,14 +25,14 @@ rest addressed to the right person.
 
 Judging one document against its own template is Inspector's responsibility, and
 judging a document's targets against external evidence is Scout's; the tools have
-different authorities and none substitutes for another. Expert shares no code or
+different authorities and none substitutes for another. Screener shares no code or
 configuration with Inspector. The resemblance — a list of sections holding units,
 one model call per unit — is structural only.
 
 ## Usage
 
 Import `run_pipeline`, `find_config`, `available_gates`, `resolve_questions`, public
-models, and the contract from `services.expert`.
+models, and the contract from `services.screener`.
 
 ## Contract
 
@@ -83,9 +83,9 @@ readings:
 | `properties (crystallinity, solubility/pKa, LogP/LogD…)` | the parenthetical says what counts as addressing *the properties* — not five demands |
 | `documentation final - stability reports, batch record…` | a dash or colon enumerates what the author wants, so each item is its own clause |
 | `Is a plan being initiated…` | answered when the material says it is under way; a finished plan is a later gate's question |
-| `Have CMC experts assessed…` | answered when the substance is there; a document states findings and rarely narrates who produced them |
+| `Have CMC screeners assessed…` | answered when the substance is there; a document states findings and rarely narrates who produced them |
 
-`test_expert.py` pins each reading, and pins that the bank still contains the wording that
+`test_screener.py` pins each reading, and pins that the bank still contains the wording that
 made them necessary — so if the source is ever rewritten, the rules stop carrying weight
 visibly rather than silently.
 

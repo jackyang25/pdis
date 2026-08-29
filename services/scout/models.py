@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from shared.openai_client import ModelTask
+from shared.spans import DocumentSpan
 
 from services.searcher import Finding, QueryFacets, source_keys
 from shared.vocabulary import (
@@ -256,20 +257,6 @@ def parse_evidence_entities(raw: object) -> list[EvidenceEntity]:
         if entity not in entities:
             entities.append(entity)
     return entities
-
-
-@dataclass
-class DocumentSpan:
-    """One exact document quotation supporting a canonical document fact."""
-
-    quote: str
-    block_ids: list[str] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        self.quote = " ".join(self.quote.split())
-        self.block_ids = list(dict.fromkeys(self.block_ids))
-        if not self.quote or not self.block_ids:
-            raise ValueError("document span requires a quote and block IDs")
 
 
 @dataclass

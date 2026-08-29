@@ -99,7 +99,7 @@ disciplines:
       - id: CMC.LCS.1
         requirement: required
         text: >-
-          Have CMC experts assessed the physicochemical properties (crystallinity,
+          Have CMC screeners assessed the physicochemical properties (crystallinity,
           solubility/pKa, LogP/LogD, permeability, Lipinski) of the lead series, and do they
           support a developable, adequately bioavailable candidate?
 

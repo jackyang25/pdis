@@ -5,7 +5,7 @@ requires_any:
   - inspector
   - aligner
   - scout
-  - expert
+  - screener
 ---
 
 Answer one question: what can be said about this result, in a few sentences, that stays
@@ -29,7 +29,7 @@ Read the tool's own vocabulary before writing a word about it.
   never checks whether a claim is true.
 - **Scout** tested the document's targets against external evidence. It says what the
   literature it retrieved supports or disputes, within the window that run admitted.
-- **Expert** triaged one gate's question bank. It says which questions the supplied
+- **Screener** triaged one gate's question bank. It says which questions the supplied
   material answers. It does not answer them, and it renders no verdict on the documents.
 
 Name the authority in the passage itself. "Against the PDID template", "against the

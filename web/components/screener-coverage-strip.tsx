@@ -1,6 +1,8 @@
 "use client";
 
 import type { GateReview, QuestionAssessment, QuestionState } from "@/lib/api";
+import { QUESTION_STATE_LABEL, QUESTION_STATE_TONE } from "@/lib/api";
+import type { Tone } from "@/lib/tone";
 
 /**
  * The whole gate at a glance: one cell per question, one row per discipline.
@@ -34,11 +36,11 @@ function Cell({
   question: QuestionAssessment;
   onSelect?: (question: QuestionAssessment) => void;
 }) {
-  const tone = TONE[question.state];
-  const title = `${question.id} · ${tone.label}${
+  const tone = QUESTION_STATE_TONE[question.state];
+  const title = `${question.id} · ${QUESTION_STATE_LABEL[question.state].toLowerCase()}${
     question.statement ? ` · ${question.statement}` : ""
   }`;
-  const shape = `h-3.5 w-3.5 rounded-[3px] ${tone.cell}`;
+  const shape = `h-3.5 w-3.5 rounded-[3px] ${CELL[tone]}`;
   const openable = Boolean(onSelect) && question.cited_block_ids.length > 0;
 
   if (!openable) {
@@ -55,31 +57,24 @@ function Cell({
   );
 }
 
-const TONE: Record<QuestionState, { cell: string; label: string }> = {
-  answered: {
-    cell: "bg-[hsl(var(--tone-success))]",
-    label: "answered",
-  },
-  partly_answered: {
-    // Between the two it sits between, and on the caution token rather than a tint of
-    // either — a lighter green would read as "nearly answered", which is a judgment
-    // about progress this tool does not make.
-    cell: "bg-[hsl(var(--tone-warning))]",
-    label: "partly answered",
-  },
-  not_found: {
-    // The strongest mark, because it is the actionable one — not because it is a
-    // failure. `not_found` says the material did not answer it, nothing more.
-    cell: "bg-foreground/45",
-    label: "not found",
-  },
-  not_applicable: {
-    cell: "bg-border",
-    label: "not applicable",
-  },
+/**
+ * The grid's own cell colours, read from the shared tone rather than declared again.
+ *
+ * A heatmap needs a filled cell where a metrics row needs a dot, so the shapes differ -
+ * but the *decision* about which state is which tone is made once, in `lib/api.ts`, and
+ * read here. This map used to carry that decision itself in hand-written background
+ * classes, which made it a fifth tone vocabulary and left the metrics row unable to
+ * reach it: Screener's counts were the only ones on the suite with no dot beside them.
+ */
+const CELL: Record<Tone, string> = {
+  success: "bg-[hsl(var(--tone-success))]",
+  warning: "bg-[hsl(var(--tone-warning))]",
+  danger: "bg-[hsl(var(--tone-danger))]",
+  info: "bg-[hsl(var(--tone-info))]",
+  neutral: "bg-foreground/45",
 };
 
-export function ExpertCoverageStrip({
+export function ScreenerCoverageStrip({
   review,
   onSelect,
 }: {
@@ -114,12 +109,14 @@ export function ExpertCoverageStrip({
       </ul>
 
       <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
-        {(Object.keys(TONE) as QuestionState[])
+        {(Object.keys(QUESTION_STATE_TONE) as QuestionState[])
           .filter((state) => present.has(state))
           .map((state) => (
             <span key={state} className="inline-flex items-center gap-1.5">
-              <span className={`h-2.5 w-2.5 rounded-[2px] ${TONE[state].cell}`} />
-              {TONE[state].label}
+              <span
+                className={`h-2.5 w-2.5 rounded-[2px] ${CELL[QUESTION_STATE_TONE[state]]}`}
+              />
+              {QUESTION_STATE_LABEL[state].toLowerCase()}
             </span>
           ))}
         <span>Bank order, left to right. Every question the gate asks appears.</span>

@@ -18,6 +18,7 @@ from tempfile import TemporaryDirectory
 from docx import Document
 
 from services.aligner import DocumentInput, load_config, run_pipeline
+from shared.spans import span_block_ids
 
 
 def write_docx(path: Path, paragraphs: list[str]) -> None:
@@ -45,26 +46,35 @@ class ScriptedClient:
     ):
         if schema_name == "aligner_requirements":
             offered = schema["properties"]["requirements"]["items"]["properties"][
-                "block_ids"
-            ]["items"]["enum"]
+                "spans"
+            ]["items"]["properties"]["block_id"]["enum"]
             self.extractions.append({"message": user_message, "offered": offered})
             return {
                 "requirements": [
                     {
                         "text": f"Requirement {index} from {offered[0].split('/')[0]}.",
-                        "block_ids": [offered[0]],
+                        "spans": [
+                            {
+                                "block_id": offered[0],
+                                "start_line": 1,
+                                "end_line": 1,
+                            }
+                        ],
                     }
                     for index in range(1, self.requirements_per_document + 1)
                 ]
             }
         if schema_name == "aligner_requirement_verdict":
-            offered = schema["properties"]["block_ids"]["items"]["enum"]
+            offered = schema["properties"]["spans"]["items"]["properties"]["block_id"][
+                "enum"
+            ]
             self.verdicts.append({"message": user_message, "offered": offered})
             return {
                 "verdict": "meets",
                 "statement": "The document states it.",
-                "gap": "",
-                "block_ids": [offered[0]],
+                "spans": [
+                    {"block_id": offered[0], "start_line": 1, "end_line": 1}
+                ],
             }
         if schema_name == "chunker_section_labels":
             ids = schema["properties"]["labels"]["items"]["properties"]["id"]["enum"]
@@ -180,14 +190,20 @@ class PipelineTests(unittest.TestCase):
             blocks_by_doc.setdefault(block.doc_id, set()).add(block.id)
 
         for finding in result.findings:
-            self.assertTrue(finding.reference_block_ids)
-            self.assertTrue(finding.comparison_block_ids)
+            self.assertTrue(finding.reference_spans)
+            self.assertTrue(finding.comparison_spans)
             self.assertTrue(
-                set(finding.reference_block_ids) <= blocks_by_doc["profile"]
+                set(span_block_ids(finding.reference_spans))
+                <= blocks_by_doc["profile"]
             )
             self.assertTrue(
-                set(finding.comparison_block_ids) <= blocks_by_doc["candidate"]
+                set(span_block_ids(finding.comparison_spans))
+                <= blocks_by_doc["candidate"]
             )
+            # The quote is the document's own text, not the model's: the fake client
+            # only ever returns a line range, and every quote here came out of a block.
+            for span in finding.reference_spans + finding.comparison_spans:
+                self.assertTrue(span.quote)
 
     def test_progress_reports_both_analysis_steps(self) -> None:
         """A run that only reported parsing would look finished halfway through."""

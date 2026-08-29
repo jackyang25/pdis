@@ -11,7 +11,7 @@ import {
 import { Check, Copy, FileText, LocateFixed } from "lucide-react";
 import { BlockReferenceId } from "@/components/block-reference";
 import { TracePanelHeader } from "@/components/document-trace-panel";
-import type { ContentBlock } from "@/lib/api";
+import type { ContentBlock, DocumentSpan } from "@/lib/api";
 import { sourcePassageAriaLabel } from "@/lib/block-reference";
 import { CitedMark, Quoted } from "@/components/ui/evidence-text";
 import { markCitedText } from "@/lib/cited-text";
@@ -21,8 +21,6 @@ import type { TraceFocus } from "@/lib/trace-focus";
 import { EmptyState } from "@/components/empty-state";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
-
-export type DocumentSpan = { quote: string; block_ids: string[] };
 
 type DocumentSourceContextValue = {
   blocks: ContentBlock[];

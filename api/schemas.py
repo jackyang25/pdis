@@ -716,6 +716,17 @@ class InspectorRunResponse(BaseModel):
     inspection: InspectionResultOut
 
 
+class DocumentSpanOut(BaseModel):
+    """One exact document quotation, and the block it was copied out of.
+
+    The quote is never typed by a model: it selects a line range and deterministic code
+    copies those lines, so this is document text or it is a contract failure.
+    """
+
+    quote: str
+    block_ids: list[str] = Field(default_factory=list)
+
+
 class AlignmentDocumentOut(BaseModel):
     doc_id: str
     source_type: str
@@ -751,10 +762,11 @@ class AlignerEdgesResponse(BaseModel):
 class AlignmentFindingOut(BaseModel):
     """What became of one requirement in the document measured against it.
 
-    Two citation lists, and they are not interchangeable: `reference_block_ids` is
-    where the bar is stated, `comparison_block_ids` is what was read to judge it. The
-    service contract checks each against its own document, so a reader resolving either
-    one lands in the file that actually says it.
+    Two citation lists, and they are not interchangeable: `reference_spans` quote where
+    the bar is stated, `comparison_spans` quote what was read to judge it. The service
+    contract checks each against its own document and against its own text, so a reader
+    resolving either one lands in the file that actually says it, on the line that says
+    it.
 
     `verdict` is asymmetric by design. The vocabulary this replaced described how two
     documents differ, which gave a candidate that beat its target and one that missed it
@@ -764,13 +776,10 @@ class AlignmentFindingOut(BaseModel):
     requirement_id: str
     edge_id: str
     requirement: str
-    reference_block_ids: list[str] = Field(default_factory=list)
+    reference_spans: list[DocumentSpanOut] = Field(default_factory=list)
     verdict: str
     statement: str = ""
-    #: What the measured document would have to close. Present only where the verdict
-    #: is `falls_short` or `not_comparable`.
-    gap: str = ""
-    comparison_block_ids: list[str] = Field(default_factory=list)
+    comparison_spans: list[DocumentSpanOut] = Field(default_factory=list)
 
 
 class AlignmentResultOut(BaseModel):
@@ -802,7 +811,7 @@ class GateSpecOut(BaseModel):
     ordinal: int
 
 
-class ExpertGatesResponse(BaseModel):
+class ScreenerGatesResponse(BaseModel):
     gates: list[GateSpecOut]
 
 
@@ -876,7 +885,7 @@ class GateReviewOut(BaseModel):
     blocks: list[ContentBlockOut] = Field(default_factory=list)
 
 
-class ExpertRunResponse(BaseModel):
+class ScreenerRunResponse(BaseModel):
     review: GateReviewOut
 
 

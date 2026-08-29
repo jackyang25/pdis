@@ -6,12 +6,12 @@ import { cn } from "@/lib/utils";
  * How many of each verdict, in one row.
  *
  * Every tool needed this and every tool built it: Scout as dot chips, Inspector as tinted
- * pills, Aligner as plain muted text, Expert as labelled cells. Four presentations of one
+ * pills, Aligner as plain muted text, Screener as labelled cells. Four presentations of one
  * idea, which a reader moving between tools has to learn four times, and none of them
  * wrong on its own - that is what made it survive.
  *
  * What each caller keeps is the part that is genuinely theirs: **which entries appear**.
- * Expert shows `answered` and `not found` even at zero, because those two are decided by a
+ * Screener shows `answered` and `not found` even at zero, because those two are decided by a
  * model and a zero there says the check ran and found nothing; Inspector hides a zero,
  * because a shortfall that did not occur is not a fact about the document. That is a
  * judgement about the data and belongs to the tool. How the row looks is not.

@@ -13,6 +13,7 @@ import {
   OUTCOME_LABEL,
 } from "./scout-labels.ts";
 import type { DocumentAnnotation } from "./document-trace.ts";
+import { traceSpans } from "./document-trace.ts";
 
 export type ScoutDocumentTraceKind =
   | "field"
@@ -54,20 +55,6 @@ function hasLineage(blockIds: string[]): boolean {
   return blockIds.length > 0;
 }
 
-function exactSpans(
-  spans: Array<{ quote: string; block_ids: string[] }>,
-): Array<{ quote: string; blockIds: string[] }> {
-  const seen = new Set<string>();
-  return spans.flatMap((span) => {
-    const quote = span.quote.trim();
-    const blockIds = unique(span.block_ids);
-    const key = `${quote}\u241f${blockIds.join("\u241f")}`;
-    if (!quote || !blockIds.length || seen.has(key)) return [];
-    seen.add(key);
-    return [{ quote, blockIds }];
-  });
-}
-
 export function buildScoutDocumentAnnotations(
   result: ScoutResponse,
 ): ScoutDocumentAnnotation[] {
@@ -89,7 +76,7 @@ export function buildScoutDocumentAnnotations(
       summaryMode: "quoted",
       statusLabel: variable.target_resolved ? "Resolved" : "Unresolved",
       blockIds,
-      spans: exactSpans(variable.document_spans),
+      spans: traceSpans(variable.document_spans),
       sourceRef: { type: "field", attributeRef: variable.name },
     });
   }
@@ -117,7 +104,7 @@ export function buildScoutDocumentAnnotations(
           ? "Rejected"
           : "Needs review",
       blockIds,
-      spans: exactSpans(target.provenance_spans),
+      spans: traceSpans(target.provenance_spans),
       sourceRef: { type: "quantitative_target", targetId: target.id, attributeRefs },
     });
   }

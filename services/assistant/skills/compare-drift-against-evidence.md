@@ -16,9 +16,10 @@ them a candidate failed to meet.
 
 ## Which side the evidence lands on decides the question
 
-An Aligner finding cites two documents. `reference_block_ids` are passages of the
-document that sets the bar; `comparison_block_ids` are passages of the document measured
-against it. Scout runs on one document at a time, so which of those its evidence touches
+An Aligner finding cites two documents. `reference_spans` quote the document that sets
+the bar; `comparison_spans` quote the document measured against it. Each span carries the
+exact lines and the block they came from, so you can reproduce the sentence verbatim
+rather than describing the passage it sits in. Scout runs on one document at a time, so which of those its evidence touches
 determines what a pair can say:
 
 - Evidence meeting the **requirement** side asks **is the bar achievable**.
@@ -45,10 +46,10 @@ the cTPP" is two different findings and a reader cannot tell which one you made.
 ## Read in this order
 
 1. `find_result` for `findings` in the Aligner result. Each carries `requirement`,
-   `verdict`, `statement`, `gap`, `edge_id`, and both citation lists.
+   `verdict`, `statement`, `edge_id`, and both citation lists.
 2. Take the verdicts that leave something open: `falls_short`, `not_comparable`, and
    `not_addressed`. `meets` and `exceeds` still matter, but only for pair 2 below.
-3. `read_result` at each finding's path for its exact block IDs and its `gap` sentence.
+3. `read_result` at each finding's path for its quoted spans and its `statement`.
 4. `find_result` for `matches` and any assessments in the Scout result. Each carries an
    insight, its relation to the document (`contradicts`, `extends`, `confirms`,
    `unrelated`), and the document blocks it was assessed against.
@@ -66,8 +67,8 @@ here: the gap is in the profile, not in the candidate. Say plainly that the bar 
 the evidence disputes, and do not report it as a candidate deficiency.
 
 **A shortfall the evidence leaves standing.** `falls_short`, and evidence `confirms` the
-requirement or is silent on it. The bar survives, so the `gap` sentence is the ask.
-Quote it.
+requirement or is silent on it. The bar survives, so the ask is the requirement itself,
+and the `statement` is how far the document currently gets. Quote both.
 
 **A met requirement whose claim the evidence contradicts.** `meets` or `exceeds`, and
 Scout on the comparison document `contradicts` that passage. Aligner checks conformance,
@@ -99,14 +100,15 @@ comparison, `falls_short` in the first, and every verdict correct. Read the seco
 comparison alone and it is all good news.
 
 Find it the same way you pair with evidence, by shared passage: take each finding whose
-verdict is `falls_short` or `not_comparable`, note the `comparison_block_ids` it cites,
-and look for a later comparison whose findings cite any of those same blocks in
-`reference_block_ids`. Where they overlap, the later document is delivering against a
+verdict is `falls_short` or `not_comparable`, note the blocks its `comparison_spans`
+cite, and look for a later comparison whose findings cite any of those same blocks in
+`reference_spans`. Where they overlap, the later document is delivering against a
 commitment the earlier comparison already questioned.
 
 Say it as a claim about the passage, not about the requirement: a paragraph can carry
 several facts, so a shared citation does not prove both comparisons meant the same clause.
-Quote the earlier finding's `gap`. Do not change either verdict — the plan does meet the
+Quote the earlier finding's requirement and its `statement` — the two together are the
+shortfall, and neither alone is. Do not change either verdict — the plan does meet the
 document it was measured against, and that is the point.
 
 Then layer evidence on top if you have it. A commitment that falls short of the profile,

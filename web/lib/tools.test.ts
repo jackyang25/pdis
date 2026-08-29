@@ -228,3 +228,178 @@ test("a tool states what it does once", () => {
     assert.ok(tool.description.trim().length > 20, `${tool.id} states too little`);
   }
 });
+
+test("every judging tool names its territory and its neighbour's", () => {
+  // The four differ by the authority they judge against - a rubric, another document,
+  // external evidence, a gate's questions - and a reader choosing between them is
+  // comparing. Without the boundary clause they infer it from the first half, which is
+  // how "does the plan actually work" gets asked of Aligner and "is this complete" of
+  // Scout.
+  const TERRITORY: Record<string, [string, string]> = {
+    inspector: ["Completeness", "correctness"],
+    aligner: ["Coherence", "feasibility"],
+    scout: ["Feasibility", "completeness"],
+    // "Stage gate" is load-bearing, and it is what the process is formally called.
+    // `Readiness` alone sits beside `Completeness` - a gate cannot be answered by an
+    // incomplete document - so the two read as one question at two scopes. Inspector
+    // asks about one document against its template; Screener asks about the whole set
+    // against a named decision point in the process.
+    screener: ["Stage gate readiness", "judgement"],
+  };
+  // Checked on the page, not the card. A catalogue of six with six boundary clauses is
+  // a second sentence on every card for a distinction that only matters once a reader
+  // has chosen one - so the card says what the tool judges, and the page it opens says
+  // where that stops.
+  for (const [id, [owns, disowns]] of Object.entries(TERRITORY)) {
+    assert.ok(
+      WORKSPACE_TOOLS.some((entry) => entry.id === id),
+      `${id} is no longer catalogued`,
+    );
+    const page = readFileSync(
+      path.resolve(import.meta.dirname, "..", "app", id, "page.tsx"),
+      "utf8",
+    );
+    assert.match(
+      page,
+      new RegExp(`${owns}, not ${disowns}`),
+      `${id}'s page does not say what it owns and what it leaves to another tool`,
+    );
+  }
+
+  // No two own the same word: that is the whole point of stating them together.
+  const owned = Object.values(TERRITORY).map(([owns]) => owns);
+  assert.equal(new Set(owned).size, owned.length, "two tools claim one territory");
+
+  // And a disowned word has to point at something. Scout once said "not compliance",
+  // which named nothing in the system - compliance with what? - so it disclaimed a
+  // territory no reader could go and find. Each disowned word is either another tool's
+  // own word, or one of the two things the system deliberately leaves to a person.
+  const NOT_OURS = new Set(["judgement", "correctness", "a recommendation"]);
+  const claimed = new Set(owned.map((word) => word.toLowerCase().replace("stage gate ", "")));
+  for (const [id, [, disowns]] of Object.entries(TERRITORY)) {
+    assert.ok(
+      claimed.has(disowns) || NOT_OURS.has(disowns),
+      `${id} disclaims "${disowns}", which is neither another tool's territory nor `
+        + "one of the things no tool does",
+    );
+  }
+});
+
+test("the process is named the way the organisation names it", () => {
+  // "Stage gate" is the formal name, and the first time a reader meets the thing is on
+  // the card and on the page header. After that "the gate" is ordinary shortening, not
+  // drift - you introduce a term once and then use the short form.
+  const tool = WORKSPACE_TOOLS.find((entry) => entry.id === "screener")!;
+  assert.match(tool.description, /stage gate/, "the card names the process informally");
+  // The two places a reader arrives cold, so each introduces the term itself. Checked on
+  // the prose a reader sees, not on source order - the file's first "gate" is a variable.
+  for (const [file, prop, what] of [
+    [["app", "screener", "page.tsx"], "description", "the page header"],
+    [["components", "screener-signal-help.tsx"], "intro", "the how-to-read panel"],
+  ] as const) {
+    const source = readFileSync(path.resolve(import.meta.dirname, "..", ...file), "utf8");
+    const [, prose] = source.match(new RegExp(`${prop}="([^"]+)"`)) ?? [];
+    assert.ok(prose, `${what} states no ${prop}`);
+    assert.match(prose, /stage gate/i, `${what} names the process informally`);
+  }
+});
+
+test("no card carries a boundary clause", () => {
+  // The boundary - which territory a tool owns and which it leaves to a neighbour -
+  // lives on the tool's own page, where a reader who has chosen it has room for it. Six
+  // of them on a catalogue of six is a second sentence per card for a distinction that
+  // only matters once you are about to run one.
+  //
+  // Archivist is the tempting exception: it is unbuilt, so it has no page, and it is the
+  // one tool that judges nothing - a reader can take "past iTPPs required twelve months"
+  // as advice to require twelve months. Its limit still waits for its page, because one
+  // card carrying a sentence the other five do not is the inconsistency this avoids.
+  for (const tool of WORKSPACE_TOOLS) {
+    assert.ok(
+      !/\b\w+, not \w+/.test(tool.description),
+      `${tool.title}'s card carries a boundary clause; that belongs on its page`,
+    );
+  }
+});
+
+test("a tool's page says the same thing its card does", () => {
+  // A reader meets the description twice - on the catalogue card and again as the page
+  // header - and the two drifted before: the card said "what is missing, off-template,
+  // vague" while the page said "every unit the rubric asks about". One tool, two
+  // accounts of what it does.
+  for (const id of ["inspector", "aligner", "scout", "screener"]) {
+    const page = readFileSync(
+      path.resolve(import.meta.dirname, "..", "app", id, "page.tsx"),
+      "utf8",
+    );
+    const tool = WORKSPACE_TOOLS.find((entry) => entry.id === id)!;
+    // The page may say more; it may not say something different. Its first sentence is
+    // the card's first sentence.
+    const [opening] = tool.description.split(". ");
+    assert.ok(
+      page.includes(opening),
+      `${id}'s page describes the tool differently from its card`,
+    );
+  }
+});
+
+test("no tool is named for a person, and none for a judgement it does not make", () => {
+  // `Expert` failed both. The name promised the thing its own boundary forbids -
+  // "Readiness, not judgement" under a word meaning someone whose judgement you trust -
+  // and it was the only name that was not an activity:
+  //
+  //   Inspector  one who inspects
+  //   Aligner    one who aligns
+  //   Scout      one who scouts
+  //   Expert     one who ... knows things
+  //
+  // It also took the phrase the system needs for the thing no tool does. That collision
+  // happened in conversation about the architecture before it happened here.
+  const FORBIDDEN = /^(Expert|Reviewer|Auditor|Judge|Adviser|Advisor|Analyst)$/i;
+  for (const tool of WORKSPACE_TOOLS) {
+    assert.ok(
+      !FORBIDDEN.test(tool.title),
+      `${tool.title} names a person or a judgement rather than an activity`,
+    );
+  }
+});
+
+test("every reading tool's card is one sentence in one grammar", () => {
+  // `<what is read> against|across <the authority>: <what you learn>`
+  //
+  // Archivist's was the odd one - an imperative and a three-item list, "Look up what
+  // past iTPPs and cTPPs required for an attribute, how many said nothing, and the quote
+  // behind each value" - so on a page of five it read as a different kind of thing for
+  // no reason a reader could name.
+  //
+  // The preposition carries the one real difference: you hold a document *against* a
+  // standard, and you look *across* a corpus. Archivist is the tool that judges nothing,
+  // and that shows before the boundary clause on its page ever does.
+  const READING = ["inspector", "scout", "aligner", "screener", "archivist"];
+  for (const id of READING) {
+    const tool = WORKSPACE_TOOLS.find((entry) => entry.id === id);
+    assert.ok(tool, `${id} is no longer catalogued`);
+    assert.match(
+      tool.description,
+      / (against|across) .+: /,
+      `${tool.title}'s card is not "<what is read> against|across <authority>: <what you learn>"`,
+    );
+    assert.equal(
+      id === "archivist" ? / across /.test(tool.description) : / against /.test(tool.description),
+      true,
+      id === "archivist"
+        ? "Archivist judges nothing, so it looks across a corpus rather than against a standard"
+        : `${tool.title} returns a verdict, so it holds something against an authority`,
+    );
+  }
+
+  // Chunker and Searcher are operations, not readings: they turn a file into blocks or
+  // run a query, so they name no authority and their imperative grammar is correct.
+  for (const id of ["chunker", "searcher"]) {
+    const tool = WORKSPACE_TOOLS.find((entry) => entry.id === id)!;
+    assert.ok(
+      !/ (against|across) .+: /.test(tool.description),
+      `${tool.title} claims an authority; it performs an operation`,
+    );
+  }
+});

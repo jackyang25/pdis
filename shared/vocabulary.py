@@ -10,7 +10,7 @@ other for a definition.
 The intervention-class readers below are the same idea for
 ``shared/indications.yaml``: its top-level keys have always been the intervention
 vocabulary, and two callers now need them — the config route to list indications,
-and Expert to validate that a question bank names classes that exist. Reading the
+and Screener to validate that a question bank names classes that exist. Reading the
 file in both places would be two answers that could disagree.
 """
 

@@ -17,10 +17,10 @@ import type { GateReview } from "@/lib/api";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
 import { Reading } from "@/components/ui/evidence-text";
 import {
-  buildExpertDocumentAnnotations,
-  type ExpertDocumentAnnotation,
-  type ExpertDocumentTraceKind,
-} from "@/lib/expert-document-trace";
+  buildScreenerDocumentAnnotations,
+  type ScreenerDocumentAnnotation,
+  type ScreenerDocumentTraceKind,
+} from "@/lib/screener-document-trace";
 
 /**
  * The inverse of the panels: which passages carried an answer, and what they answered.
@@ -33,17 +33,17 @@ import {
  * is where the specific ask to a grantee comes from, and the most useful filter the
  * trace has.
  */
-const TRACE_LAYERS: Array<{ value: ExpertDocumentTraceKind; label: string }> = [
+const TRACE_LAYERS: Array<{ value: ScreenerDocumentTraceKind; label: string }> = [
   { value: "answered", label: "Answered" },
   { value: "partly_answered", label: "Partly answered" },
 ];
 
-function ExpertTraceInspector({
+function ScreenerTraceInspector({
   annotation,
   connection,
   passages,
 }: {
-  annotation: ExpertDocumentAnnotation;
+  annotation: ScreenerDocumentAnnotation;
   connection: DocumentTraceConnection;
   passages: DocumentTracePassageAccess;
 }) {
@@ -81,7 +81,7 @@ function ExpertTraceInspector({
           className="mt-5"
         >
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            This answer was read from every passage listed below. Expert records block
+            This answer was read from every passage listed below. Screener records block
             lineage rather than exact quotations, so the whole passage is marked rather
             than a span within it. A compound question is often answered across several,
             which is also where a partial answer shows how far the document got.
@@ -97,7 +97,7 @@ function ExpertTraceInspector({
   );
 }
 
-export function ExpertDocumentTrace({
+export function ScreenerDocumentTrace({
   review,
   focus,
   onFocusConsumed,
@@ -107,7 +107,7 @@ export function ExpertDocumentTrace({
   onFocusConsumed?: (focus: TraceFocus) => void;
 }) {
   const annotations = useMemo(
-    () => buildExpertDocumentAnnotations(review),
+    () => buildScreenerDocumentAnnotations(review),
     [review],
   );
 
@@ -121,7 +121,7 @@ export function ExpertDocumentTrace({
       focus={focus}
       onFocusConsumed={onFocusConsumed}
       renderInspector={(annotation, connection, passages) => (
-        <ExpertTraceInspector
+        <ScreenerTraceInspector
           annotation={annotation}
           connection={connection}
           passages={passages}

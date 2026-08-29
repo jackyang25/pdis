@@ -1,7 +1,7 @@
 import type {
   AlignerResponse,
   ContentBlock,
-  ExpertResponse,
+  ScreenerResponse,
   InspectorResponse,
   ScoutResponse,
 } from "./api";
@@ -52,7 +52,7 @@ const ANALYSIS_VERSIONS = {
   // questions under different gate ids, with a per-question WHO-PQ marker and a hint
   // about where an answer usually lives, neither of which exists now — so it is not a
   // stale version of this review, it is a review of something else.
-  expert: 4,
+  screener: 4,
   inspector: 2,
   scout: 1,
 } as const satisfies Record<ResultType, number>;
@@ -121,8 +121,8 @@ type InspectorAnalysis = {
 type AlignerAnalysis = {
   alignment: Omit<AlignerResponse["alignment"], "blocks">;
 };
-type ExpertAnalysis = {
-  review: Omit<ExpertResponse["review"], "blocks">;
+type ScreenerAnalysis = {
+  review: Omit<ScreenerResponse["review"], "blocks">;
 };
 
 
@@ -169,7 +169,7 @@ export type RunKeepingTool = ResultType | "chunker" | "searcher";
  * One list per tool, feeding two things that must agree: the row in the run picker and
  * the name of the exported file. They were written separately — a lambda in the page and
  * a function here — so they drifted, and the drift was invisible from either side.
- * Expert's picker showed only the gate, so two runs of one gate on different documents
+ * Screener's picker showed only the gate, so two runs of one gate on different documents
  * were two identical rows while their files differed; Aligner's picker named documents
  * and its file named types.
  *
@@ -195,8 +195,8 @@ export function runIdentity(result: unknown, type: RunKeepingTool): string[] {
         ? documents
         : [scout.indication, scout.source_type].filter(Boolean);
     }
-    case "expert": {
-      const review = (result as ExpertResponse).review;
+    case "screener": {
+      const review = (result as ScreenerResponse).review;
       // The gate first, then the documents: the same set is triaged again at every gate,
       // and the same gate is run against different sets. Either alone collides.
       return [
@@ -206,8 +206,9 @@ export function runIdentity(result: unknown, type: RunKeepingTool): string[] {
     }
     case "aligner": {
       const alignment = (result as AlignerResponse).alignment;
-      // The documents, not the comparisons: a run holds any number of either, and the
-      // documents are what a reader recognises.
+      // The document types, not their names: a three-document run reads as what it
+      // compared rather than as two filenames with a third silently dropped, and this
+      // same string is the download's filename.
       return alignment.documents
         .map((document) => document.source_type || document.doc_id)
         .filter(Boolean);
@@ -252,8 +253,19 @@ export function runLabel(result: unknown, type: RunKeepingTool): string {
  * configuration all the same, and it belongs in the run's identity rather than here.
  */
 export function runScope(result: unknown, type: RunKeepingTool): string {
-  const config = runConfiguration(result, type);
-  return config.filter(Boolean).map(displayLabel).join(" · ");
+  // Whatever the run's name already says is dropped here. Aligner names a run by its
+  // document types, and its configuration is those same types plus the indication and
+  // the class - so the card read `itpp · ctpp · ipdp` over `RSV · Vaccine · iTPP ·
+  // cTPP · IPDP`, the second line repeating the first.
+  //
+  // One rule rather than a per-tool exception: the scope line says what the name does
+  // not. For the other three the name is a document or a gate, so nothing is dropped
+  // and the line is unchanged.
+  const named = new Set(runIdentity(result, type).map((part) => part.toLowerCase()));
+  return runConfiguration(result, type)
+    .filter((part) => part && !named.has(part.toLowerCase()))
+    .map(displayLabel)
+    .join(" · ");
 }
 
 function runConfiguration(result: unknown, type: RunKeepingTool): string[] {
@@ -270,8 +282,8 @@ function runConfiguration(result: unknown, type: RunKeepingTool): string[] {
       const scout = result as ScoutResponse;
       return [scout.indication, scout.intervention_class, scout.source_type];
     }
-    case "expert": {
-      const { review } = result as ExpertResponse;
+    case "screener": {
+      const { review } = result as ScreenerResponse;
       // The document types, not one: a gate review reads a set, and which types it read
       // is the configuration for that run. Deduplicated, because two documents of one
       // type is a fact about the upload rather than about the scope.
@@ -313,7 +325,7 @@ export function runFilename(result: unknown, type: RunKeepingTool): string {
 const FALLBACK_LABEL: Record<RunKeepingTool, string> = {
   inspector: "Inspection",
   scout: "Scout result",
-  expert: "Gate review",
+  screener: "Gate review",
   aligner: "Alignment",
   chunker: "Parsed document",
   searcher: "Search",
@@ -374,25 +386,25 @@ export function packAlignerResult(
   };
 }
 
-export function packExpertResult(
-  result: ExpertResponse,
-): ResultFile<"expert", ExpertAnalysis> {
-  RESULT_CONTRACTS.expert(result);
+export function packScreenerResult(
+  result: ScreenerResponse,
+): ResultFile<"screener", ScreenerAnalysis> {
+  RESULT_CONTRACTS.screener(result);
   const { blocks, ...review } = result.review;
   return {
     schema: RESULT_SCHEMA,
     envelope_version: ENVELOPE_VERSION,
-    analysis_version: ANALYSIS_VERSIONS.expert,
+    analysis_version: ANALYSIS_VERSIONS.screener,
     state: "final",
     ...stamp(),
-    result_type: "expert",
+    result_type: "screener",
     analysis: { review },
     source_documents: groupDocuments(blocks),
   };
 }
 
-export function expertResultFilename(result: ExpertResponse): string {
-  return runFilename(result, "expert");
+export function screenerResultFilename(result: ScreenerResponse): string {
+  return runFilename(result, "screener");
 }
 
 export function alignerResultFilename(result: AlignerResponse): string {
@@ -439,16 +451,16 @@ export function unpackAlignerResult(value: unknown): AlignerResponse {
   return result;
 }
 
-export function unpackExpertResult(value: unknown): ExpertResponse {
-  const file = requireResultFile(value, "expert");
-  const analysis = file.analysis as ExpertAnalysis;
+export function unpackScreenerResult(value: unknown): ScreenerResponse {
+  const file = requireResultFile(value, "screener");
+  const analysis = file.analysis as ScreenerAnalysis;
   const result = {
     review: {
       ...(analysis.review ?? {}),
       blocks: flattenDocuments(file.source_documents),
     },
-  } as ExpertResponse;
-  RESULT_CONTRACTS.expert(result);
+  } as ScreenerResponse;
+  RESULT_CONTRACTS.screener(result);
   return result;
 }
 

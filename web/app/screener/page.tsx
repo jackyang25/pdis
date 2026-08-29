@@ -1,6 +1,7 @@
 "use client";
 
 import { ResultLayout } from "@/components/ui/result-layout";
+import { MetricsRow } from "@/components/ui/metrics-row";
 import {
   ResultToolbar,
   ResultToolbarEnd,
@@ -16,9 +17,9 @@ import {
 } from "@/components/document-source-trace";
 import { ErrorMessage } from "@/components/ui/error-message";
 import {
-  ExpertSignalHelp,
-  ExpertSignalLabel,
-} from "@/components/expert-signal-help";
+  ScreenerSignalHelp,
+  ScreenerSignalLabel,
+} from "@/components/screener-signal-help";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel, type DocumentSlot } from "@/components/run-panel";
@@ -34,32 +35,35 @@ import {
 } from "@/components/ui/config-field";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExpertCoverageStrip } from "@/components/expert-coverage-strip";
-import { ExpertDocumentTrace } from "@/components/expert-document-trace";
-import { answersPerDocument } from "@/lib/expert-document-trace";
+import { ScreenerCoverageStrip } from "@/components/screener-coverage-strip";
+import { ScreenerDocumentTrace } from "@/components/screener-document-trace";
+import { answersPerDocument } from "@/lib/screener-document-trace";
 import {
-  fetchExpertGates,
-  runExpert,
+  fetchScreenerGates,
+  runScreener,
   type GateReview,
   type GateSpec,
   type QuestionAssessment,
+  QUESTION_STATE_LABEL,
+  QUESTION_STATE_TONE,
+  type QuestionState,
 } from "@/lib/api";
 import {
-  EXPERT_EMPTY_MESSAGE,
-  EXPERT_ORDER_NOTE,
+  SCREENER_EMPTY_MESSAGE,
+  SCREENER_ORDER_NOTE,
   countStates,
   groupedByDiscipline,
   countRequiredInState,
-} from "@/lib/expert-priorities";
+} from "@/lib/screener-priorities";
 import {
-  expertResultFilename,
-  packExpertResult,
+  screenerResultFilename,
+  packScreenerResult,
   runLabel,
   runScope,
-  unpackExpertResult,
+  unpackScreenerResult,
   readResultIdentity,
 } from "@/lib/result-file";
-import { useExpertSession } from "@/lib/session";
+import { useScreenerSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
 import { CONTEXT_ACCEPT, CONTEXT_FORMAT_HINT } from "@/lib/document-formats";
@@ -85,8 +89,8 @@ type ContextRow = { key: string; label: string; file: File | null };
 
 const INITIAL_CHOICES: DocumentChoice[] = [{ key: "d1", sourceType: "" }];
 
-export default function ExpertPage() {
-  const session = useExpertSession();
+export default function ScreenerPage() {
+  const session = useScreenerSession();
   const header = useHeaderStore((state) => state.header);
   const [gates, setGates] = useState<GateSpec[]>([]);
   const [gate, setGate] = useState("");
@@ -107,13 +111,13 @@ export default function ExpertPage() {
     let live = true;
     // Surfaced rather than swallowed: without the declared gates there is nothing
     // to select, so Run would gate with no way for the user to learn why.
-    fetchExpertGates(header.org, header.intervention_class)
+    fetchScreenerGates(header.org, header.intervention_class)
       .then((loaded) => live && setGates(loaded))
       .catch(
         (error: Error) =>
           live &&
           session.setError(
-            `Could not load the gates Expert asks about: ${error.message}`,
+            `Could not load the gates Screener asks about: ${error.message}`,
           ),
       );
     return () => {
@@ -149,7 +153,7 @@ export default function ExpertPage() {
     session.setStage(null);
     session.setProgress(null);
     try {
-      const result = await runExpert(
+      const result = await runScreener(
         // Read from the slots this page declared, never from every file the panel is
         // holding: a type the user switched away from may still have one.
         chosen.map((sourceType) => ({ file: files[sourceType], sourceType })),
@@ -177,7 +181,7 @@ export default function ExpertPage() {
     session.setError(null);
     try {
       const raw = JSON.parse(await file.text());
-      session.addResult(unpackExpertResult(raw), readResultIdentity(raw));
+      session.addResult(unpackScreenerResult(raw), readResultIdentity(raw));
     } catch (error) {
       session.setError(`Could not import result: ${(error as Error).message}`);
     }
@@ -186,8 +190,8 @@ export default function ExpertPage() {
   return (
     <>
       <PageHeader
-        title="Expert"
-        description="The iTPP, cTPP, and IPDP against the stage-gate criteria: what is still unresolved, and which reviewer it goes to."
+        title="Screener"
+        description="The iTPP, cTPP, and IPDP against a stage gate’s question bank: what is still unanswered, and which discipline it goes to. Stage gate readiness, not judgement — it reports what the material does not answer, and decides nothing."
       />
       <div className="flex flex-col gap-6">
         {(!session.result || showSetup) && (
@@ -307,7 +311,7 @@ function runHint(
  *
  * Each row offers only the types no other row has taken, so two documents of one
  * type — which the service refuses — cannot be selected in the first place. One
- * document is a valid run: Expert checks coverage rather than comparing, so it has
+ * document is a valid run: Screener checks coverage rather than comparing, so it has
  * no minimum pair. Fewer documents move questions to "needs a document"; they never
  * change the denominator.
  */
@@ -490,7 +494,7 @@ function ReviewView({
   onNewAnalysis: () => void;
 }) {
   const { results, selectedId, selectResult, removeResult } =
-    useExpertSession();
+    useScreenerSession();
   const review = result.review;
   const counts = useMemo(() => countStates(review), [review]);
   const answersByDocument = useMemo(() => answersPerDocument(review), [review]);
@@ -509,8 +513,8 @@ function ReviewView({
 
   return (
     <ResultLayout
-      title={runLabel(result, "expert")}
-      subtitle={runScope(result, "expert")}
+      title={runLabel(result, "screener")}
+      subtitle={runScope(result, "screener")}
       // Run-wide, so it holds on the Documents tab too. It was inside the Questions tab.
       metrics={
         <CountRow
@@ -523,7 +527,7 @@ function ReviewView({
       }
       // `answered` and `gaps` show at zero because a model decides those two, so a zero
       // there says the check ran. The rest come from config and the uploads.
-      metricsNote="Every question in the bank by state. Answered, partly answered and not found appear even at zero, because a zero there says the check ran and found nothing."
+      metricsNote="Every question in the bank by state, so the row sums to the number of questions this gate asks. Answered, partly answered and not found appear even at zero, because a zero there says the check ran and found nothing. A question is required when the bank states this gate needs it answered now, rather than at a later one."
       tabValue={resultTab}
 
       onTabChange={setResultTab}
@@ -532,7 +536,7 @@ function ReviewView({
           {/*
             Questions first, unlike Inspector, and for the reason Inspector opens
             on its document: a tool opens on what it is about. Inspector is about
-            one document; Expert is about the gate's questions, and the documents
+            one document; Screener is about the gate's questions, and the documents
             are what it read to answer them.
           */}
           <TabsTrigger value="questions">Questions</TabsTrigger>
@@ -546,13 +550,13 @@ function ReviewView({
             selectedId={selectedId}
             onSelect={selectResult}
             onRemove={removeResult}
-            label={(value) => runLabel(value, "expert")}
+            label={(value) => runLabel(value, "screener")}
           />
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
             download={{
-              filename: expertResultFilename(result),
-              data: packExpertResult(result),
+              filename: screenerResultFilename(result),
+              data: packScreenerResult(result),
             }}
           />
         </>
@@ -571,11 +575,11 @@ function ReviewView({
             {/* No count: nothing filters here, and the figure row above already
                   states every question state and what they sum to. */}
             <ResultToolbarEnd>
-              <ExpertSignalHelp />
+              <ScreenerSignalHelp />
             </ResultToolbarEnd>
           </ResultToolbar>
           <div className="flex flex-col gap-6 px-5 py-5 sm:px-6">
-            <ExpertCoverageStrip
+            <ScreenerCoverageStrip
               review={review}
               onSelect={(question) => {
                 // A cell opens the passage behind its answer when there is one;
@@ -588,12 +592,12 @@ function ReviewView({
             />
 
             {/*
-                Expert does not use the shared `PriorityPanel`, and that is a deliberate
+                Screener does not use the shared `PriorityPanel`, and that is a deliberate
                 exception rather than drift. For Inspector and Scout the panel digests
-                items scattered across dozens of units into one opening list. Expert's
+                items scattered across dozens of units into one opening list. Screener's
                 unanswered questions are already one flat list, so the panel showed the
                 same items a second time — and `PriorityItem` cannot carry a 40-60 word
-                question, so it showed Expert's comment with the question it was about
+                question, so it showed Screener's comment with the question it was about
                 missing. The panel below carries both.
               */}
             {/*
@@ -608,7 +612,7 @@ function ReviewView({
               state="partly_answered"
               review={review}
               defaultOpen
-              orderNote={EXPERT_ORDER_NOTE}
+              orderNote={SCREENER_ORDER_NOTE}
             />
 
             <StatePanel
@@ -616,8 +620,8 @@ function ReviewView({
               description="Nothing in the supplied material addresses these. Each shows the discipline that owns it."
               state="not_found"
               review={review}
-              emptyMessage={EXPERT_EMPTY_MESSAGE}
-              orderNote={EXPERT_ORDER_NOTE}
+              emptyMessage={SCREENER_EMPTY_MESSAGE}
+              orderNote={SCREENER_ORDER_NOTE}
             />
 
             <StatePanel
@@ -656,7 +660,7 @@ function ReviewView({
               not sum to the answered total.
             </p>
           </div>
-          <ExpertDocumentTrace
+          <ScreenerDocumentTrace
             review={review}
             focus={traceFocus}
             onFocusConsumed={consumeTraceFocus}
@@ -727,70 +731,54 @@ function CountRow({
   /** Questions this gate requires answered now that nothing supplied answers. */
   requiredOpen: number;
 }) {
-  // `answered` and `gaps` are always shown, even at zero, because those two are the
-  // only states a model decides: a zero there says the check ran and found nothing,
-  // which is information. Hiding it made a run that assessed almost nothing look
-  // like a run with no such concept — the figures still summed to the total, so
-  // nothing seemed wrong. The other three come from config and the uploads, so a
-  // zero in them genuinely has nothing to report.
-  const cells = [
-    { label: "answered", value: counts.answered, always: true },
-    { label: "partly answered", value: counts.partlyAnswered, always: true },
-    { label: "not found", value: counts.notFound, always: true },
-    { label: "not applicable", value: counts.notApplicable, always: false },
-  ].filter((cell) => cell.always || cell.value > 0);
+  // Every state, including the zeros. `answered`, `partly answered` and `not found`
+  // are decided by a model, so a zero there says the check ran and found nothing -
+  // which is information. Hiding it made a run that assessed almost nothing look like a
+  // run with no such concept. `not applicable` comes from the bank and the uploads, so
+  // a zero in it genuinely has nothing to report.
+  const shown: { state: QuestionState; count: number }[] = [
+    { state: "answered" as const, count: counts.answered },
+    { state: "partly_answered" as const, count: counts.partlyAnswered },
+    { state: "not_found" as const, count: counts.notFound },
+    { state: "not_applicable" as const, count: counts.notApplicable },
+  ].filter((cell) => cell.state !== "not_applicable" || cell.count > 0);
 
   const assessed = counts.answered + counts.partlyAnswered + counts.notFound;
   return (
-    <div>
-      {/*
-        No `SignalHelp` here. It moved to the tab row above, which is the control row
-        Inspector and Scout put theirs on; leaving a copy beside the counts would put
-        the same affordance on screen twice.
-      */}
-      <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1.5">
-        {cells.map((cell) => (
-          <div key={cell.label} className="flex items-baseline gap-1.5">
-            <dd
-              className={`text-sm font-semibold tabular-nums ${cell.value > 0 ? "text-foreground" : "text-muted-foreground"}`}
-            >
-              {cell.value}
-            </dd>
-            <dt className="text-xs text-muted-foreground">{cell.label}</dt>
-          </div>
-        ))}
-      </dl>
-      {/*
-        Said as a sentence rather than added to the row above, because it is not a sixth
-        state — it is a cut across two of them, and standing beside the states it would
-        break the rule that the row sums to the total. It is the one figure worth quoting
-        in a review: the bank says which questions this gate requires, so an unanswered
-        required question is what holds the gate, and an unanswered anticipatory one is
-        early warning about the next.
-      */}
-      {requiredOpen > 0 && (
-        <p className="mt-2 text-xs text-foreground">
-          {/* The whole sentence is the label, not a clause inside it: SignalLabel
-              puts its help icon after its children, so wrapping the middle left
-              the icon standing between "are" and "still unanswered". */}
-          <ExpertSignalLabel topic="requirement">
-            <span>
+    <MetricsRow
+      total={counts.total}
+      unit={["question", "questions"]}
+      items={shown.map((cell) => ({
+        label: QUESTION_STATE_LABEL[cell.state],
+        count: cell.count,
+        tone: QUESTION_STATE_TONE[cell.state],
+      }))}
+      aside={
+        <>
+          {/* A cut across two states, not a sixth one: standing in the row above it would
+              break the sum a reader has just been invited to check. It is the figure worth
+              quoting in a review - the bank says which questions this gate requires, so an
+              unanswered required question is what holds the gate. */}
+          {requiredOpen > 0 && (
+            <p className="text-xs text-foreground">
               <span className="font-semibold tabular-nums">{requiredOpen}</span>{" "}
               {requiredOpen === 1
                 ? "question this gate requires is still unanswered."
                 : "questions this gate requires are still unanswered."}
-            </span>
-          </ExpertSignalLabel>
-        </p>
-      )}
-      <p className="mt-2 border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">
-        {counts.total} questions in this gate. Every one is counted, so the
-        figures above sum to that.{" "}
-        {assessed === 0
-          ? "None was read: every question in this bank states that it applies to another intervention class."
-          : `${assessed} ${assessed === 1 ? "was" : "were"} read against everything supplied. Any remainder is a question whose own text states it applies to another intervention class.`}
-      </p>
-    </div>
+            </p>
+          )}
+          {/* What the bank could not be read against, which is not a verdict on anything.
+              It used to open by restating the total and saying the figures sum to it - the
+              third time that number appeared in one panel, after `metricsNote` and the
+              denominator. The note says that once now. */}
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {assessed === 0
+              ? "None was read: every question in this bank states that it applies to another intervention class."
+              : `${assessed} ${assessed === 1 ? "was" : "were"} read against everything supplied. Any remainder is a question whose own text states it applies to another intervention class.`}
+          </p>
+        </>
+      }
+    />
   );
 }
 
@@ -946,7 +934,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
               this was the only one a reader could not ask about.
             */}
             {question.requirement === "required" && (
-              <ExpertSignalLabel topic="requirement">
+              <ScreenerSignalLabel topic="requirement">
                 <span
                   className={cn(
                     "rounded border border-border px-1.5 py-px",
@@ -955,7 +943,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
                 >
                   Required
                 </span>
-              </ExpertSignalLabel>
+              </ScreenerSignalLabel>
             )}
             <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
               {question.id}

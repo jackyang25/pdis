@@ -15,7 +15,7 @@ export const PDIS_ICON_PATHS = {
   inspector: "freehand/form-edition-clipboard-check--Streamline-Freehand.svg",
   aligner: "freehand/business-workflow-compare--Streamline-Freehand.svg",
   scout: "freehand/hierarchy-web--Streamline-Freehand.svg",
-  expert: "freehand/human-resources-rating-man--Streamline-Freehand.svg",
+  screener: "freehand/human-resources-rating-man--Streamline-Freehand.svg",
   chunker: "freehand/data-transfer-document-module--Streamline-Freehand.svg",
   searcher: "freehand/search-magnifier--Streamline-Freehand.svg",
   archivist: "freehand/archive-drawer-1--Streamline-Freehand.svg",
@@ -36,7 +36,7 @@ export type PdisIconName = keyof typeof PDIS_ICON_PATHS;
  * The product icon for one published workflow graph.
  *
  * Here rather than in the graph component, because a component that renders during
- * static export is the wrong place for a lookup that can miss: adding Expert's graph
+ * static export is the wrong place for a lookup that can miss: adding Screener's graph
  * to `shared/product_knowledge.json` without an entry compiled cleanly and then
  * failed the whole `/docs` prerender with "Cannot read properties of undefined
  * (reading 'split')". A missing entry now shows the wrong picture, and
@@ -45,7 +45,7 @@ export type PdisIconName = keyof typeof PDIS_ICON_PATHS;
 const GRAPH_ICONS: Record<string, PdisIconName> = {
   inspector: "inspector",
   aligner: "aligner",
-  expert: "expert",
+  screener: "screener",
   scout: "scout",
   chunker: "chunker",
   searcher: "searcher",

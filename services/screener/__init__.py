@@ -1,13 +1,13 @@
-"""Expert — stage-gate question triage across a set of product-development documents.
+"""Screener — stage-gate question triage across a set of product-development documents.
 
-A gate review asks a fixed bank of SME questions. Expert does not answer them: it
+A gate review asks a fixed bank of SME questions. Screener does not answer them: it
 sorts them into what the documents already answer with a citation, what they should
 answer and do not, and what no document could ever answer — those routed to the
 discipline that owns them.
 
 Its authority is the gate's question bank, which is what separates it from
 Inspector. Inspector asks whether one document is complete against its own
-template; Expert asks whether the evidence exists anywhere in the set for a
+template; Screener asks whether the evidence exists anywhere in the set for a
 reviewer to close a question. Neither substitutes for the other.
 """
 

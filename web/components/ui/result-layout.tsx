@@ -94,7 +94,7 @@ export function ResultLayout({
   /**
    * What to look at first, and the tab those items link into.
    *
-   * Omitted by a tool that nominates nothing - Expert's questions are already one flat
+   * Omitted by a tool that nominates nothing - Screener's questions are already one flat
    * list, so a panel of them would show the same items twice.
    */
   priorities?: { tab: string; panel: ReactNode };

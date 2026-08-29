@@ -128,9 +128,9 @@ API_OWNED: dict[frozenset[str], str] = {
     ),
     frozenset({"complete", "unknown"}): "Inspector's assessment status",
     frozenset({"answered", "not_applicable", "not_found", "partly_answered"}): (
-        "Expert's answer states, declared in its own service"
+        "Screener's answer states, declared in its own service"
     ),
-    frozenset({"context", "document"}): "where Expert read an answer from",
+    frozenset({"context", "document"}): "where Screener read an answer from",
     frozenset({"meets", "exceeds", "falls_short", "not_comparable", "not_addressed"}): (
         "Aligner's verdicts, declared in its own service"
     ),

@@ -44,7 +44,7 @@ test("the catalog leads with the order a PPL uses the tools in", () => {
   const pst = WORKSPACE_TOOLS.filter((tool) => tool.audience === "pst").map(
     (tool) => tool.id,
   );
-  assert.deepEqual(pst, ["archivist", "inspector", "scout", "aligner", "expert"]);
+  assert.deepEqual(pst, ["archivist", "inspector", "scout", "aligner", "screener"]);
 });
 
 // Sections group by audience and nothing else. A section mixing in another axis -
@@ -67,21 +67,23 @@ test("a section renders the tools it declares, in that order", () => {
   assert.ok(pst);
   assert.deepEqual(
     sectionTools(pst, () => true).map((tool) => tool.id),
-    ["archivist", "inspector", "scout", "aligner", "expert"],
+    ["archivist", "inspector", "scout", "aligner", "screener"],
   );
 });
 
 test("a section drops the tools a filter excludes without resorting", () => {
   const pst = TOOL_SECTIONS.find((section) => section.id === "pst-workflows");
   assert.ok(pst);
-  // A synthetic predicate rather than `availability`, because no tool is currently
-  // filtered out and an assertion that nothing is dropped proves nothing. The
-  // guarantee under test is that the survivors keep the section's declared order
+  // A synthetic predicate rather than `availability`, because availability is not a
+  // filter: a coming-soon tool still gets a card, dimmed and unclickable, so asserting
+  // over it would prove nothing about dropping. The audience filter is the only thing
+  // that removes a card, and it can remove any of them.
+  // The guarantee under test is that the survivors keep the section's declared order
   // rather than closing the gap - which is what breaks if `sectionTools` ever
   // filters the catalog instead of walking `toolIds`.
   assert.deepEqual(
     sectionTools(pst, (tool) => tool.id !== "scout").map((tool) => tool.id),
-    ["archivist", "inspector", "aligner", "expert"],
+    ["archivist", "inspector", "aligner", "screener"],
   );
 });
 

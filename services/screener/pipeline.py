@@ -1,4 +1,4 @@
-"""Expert's run: resolve, parse, assess, assemble.
+"""Screener's run: resolve, parse, assess, assemble.
 
 Two code stages and one model stage. Resolution happens before parsing for the
 same reason Aligner resolves its comparisons first — fail before the expensive
@@ -65,7 +65,7 @@ def run_pipeline(
 ) -> GateReview:
     """Triage one gate's questions against a set of documents."""
     if not documents:
-        raise ValueError("Expert needs at least one document to read.")
+        raise ValueError("Screener needs at least one document to read.")
 
     items = list(context_items)
     _reject_duplicate_labels(items)

@@ -2,7 +2,7 @@
 name: draft-the-grantee-ask
 description: Turn the open items in a result into one consolidated list of requests to send
 requires_any:
-  - expert
+  - screener
   - aligner
   - inspector
 ---
@@ -18,13 +18,14 @@ decide what matters, and it does not soften or sharpen a single ask.
 
 Take only these. Each is a sentence a tool wrote for exactly this purpose.
 
-- **Expert** — `missing` on every `partly_answered` question: what the documents leave
+- **Screener** — `missing` on every `partly_answered` question: what the documents leave
   open. Plus `not_found` questions, whose ask is the question itself. Both carry the
   discipline that owns them.
-- **Aligner** — `gap` on every `falls_short` and `not_comparable` finding: what the
-  measured document would have to close.
-- **Inspector** — `recommendation` on every finding that carries one, and the finding's
-  `statement` where it does not.
+- **Aligner** — the `requirement` and the `statement` on every `falls_short` and
+  `not_comparable` finding. The distance between them is what the measured document
+  would have to close; neither sentence alone is the ask.
+- **Inspector** — the `statement` on every assessment whose `verdict` is not
+  `specified`, read against the variable it belongs to.
 
 If the workspace holds more than one of these for the same product, use all of them and
 say which tool each ask came from. Confirm they are the same product first: `org`,
@@ -34,7 +35,7 @@ say which tool each ask came from. Confirm they are the same product first: `org
 
 1. `find_result` for the structures above, then `read_result` for the sentences and their
    block IDs.
-2. Group by who answers. Expert's discipline is the routing where it exists. Otherwise
+2. Group by who answers. Screener's discipline is the routing where it exists. Otherwise
    group by document — an ask about the profile goes to whoever owns the profile.
 3. Merge duplicates only when two asks name the same thing about the same passage. Cite
    both sources on the merged line. Two asks that read alike but cite different passages
@@ -65,7 +66,7 @@ and `not_addressed` means the document made no commitment; neither is a claim th
 recipient did something wrong. Ask for the thing, not for an explanation of its absence.
 
 Do not attach urgency the tools did not state. Inspector grades severity and nothing else
-does; an Aligner shortfall is not more urgent than an Expert partial because it appears
+does; an Aligner shortfall is not more urgent than an Screener partial because it appears
 first in this list.
 
 Say what is not in it. Name the tools that did run and the ones that did not, because a

@@ -8,6 +8,8 @@
  * limit below is a value, so the first thing it did was break the test runner.
  */
 
+import type { DocumentSpan } from "./api.ts";
+
 /** One thing to look at first, in the tool's own words. */
 export type PriorityItem = {
   id: string;
@@ -31,6 +33,13 @@ export type PriorityItem = {
   recommendation?: string;
   /** Passages behind it, for the source trigger. */
   blockIds?: string[];
+  /**
+   * The exact lines inside those passages, where the tool has them.
+   *
+   * With these the trigger underlines the sentence; without them it opens the whole
+   * block, which on a table is several hundred words to read for one row.
+   */
+  spans?: DocumentSpan[];
 };
 
 /**

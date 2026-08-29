@@ -2,7 +2,7 @@
 
 import type { TraceFocus } from "@/lib/trace-focus";
 import { useMemo } from "react";
-import { CircleDashed, FileText, HelpCircle, Link2, Target } from "lucide-react";
+import { FileText, HelpCircle, Link2, Target } from "lucide-react";
 
 import {
   DocumentTraceViewer,
@@ -72,16 +72,10 @@ function AlignerTraceInspector({
           </p>
         </TracePanelSection>
 
-        {!isRequirement && (
+        {!isRequirement && ref.statement && (
           <Reading size="body" className="mt-5 whitespace-pre-wrap">
             {ref.statement}
           </Reading>
-        )}
-
-        {ref.gap && !isRequirement && (
-          <TracePanelSection label="Still to close" icon={CircleDashed} className="mt-5">
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">{ref.gap}</p>
-          </TracePanelSection>
         )}
 
         <TracePanelSection

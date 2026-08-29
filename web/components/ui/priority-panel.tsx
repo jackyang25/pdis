@@ -108,7 +108,7 @@ export function PriorityPanel({
   /**
    * Overridden only by a tool whose own published vocabulary names this list
    * better than "Priorities" does. No tool currently does: Inspector's "Findings"
-   * and Expert's "Gaps" were both removed, because a reader who learns this panel
+   * and Screener's "Gaps" were both removed, because a reader who learns this panel
    * in one tool should recognise it in the next, and the tool's own noun is already
    * on every row beneath it.
    */
@@ -197,7 +197,11 @@ export function PriorityPanel({
                         {item.quote}
                       </Quoted>
                     )}
-                    <Reading size="prominent">{item.statement}</Reading>
+                    {/* Empty where a tool has nothing to describe - Aligner's silence
+                        verdict is one. A mark with nothing after it reads as a bug. */}
+                    {item.statement && (
+                      <Reading size="prominent">{item.statement}</Reading>
+                    )}
                     {/* `continued`: the ask that follows from the statement above it is
                         the same contribution one level down, not a second one. */}
                     {item.recommendation && (
@@ -207,7 +211,7 @@ export function PriorityPanel({
                     )}
                     {item.blockIds && item.blockIds.length > 0 && (
                       <div className="mt-1.5">
-                        <DocumentSourceTrace blockIds={item.blockIds} />
+                        <DocumentSourceTrace blockIds={item.blockIds} spans={item.spans} />
                       </div>
                     )}
                   </div>

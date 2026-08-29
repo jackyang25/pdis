@@ -1,6 +1,7 @@
 "use client";
 
 import { ResultLayout } from "@/components/ui/result-layout";
+import { MetricsRow } from "@/components/ui/metrics-row";
 import {
   ResultToolbar,
   ResultToolbarEnd,
@@ -83,7 +84,7 @@ export default function InspectorPage() {
     <>
       <PageHeader
         title="Inspector"
-        description="One document against its rubric: every unit the rubric asks about, and every finding tied to the passage it came from."
+        description="One document against its rubric: whether it states what the template asks for, usably. Completeness, not correctness — what a shortfall costs a programme is not something Inspector can see."
       />
       <HeaderGuard>
         {(header, ready) => (
@@ -260,7 +261,7 @@ function InspectionResultView({
   // Scope, and only scope: what was examined, and what kind of run it was. The two
   // outcome figures that used to end this line - findings, and cross-section conflicts -
   // moved to the figure row below, where every other tool states how its run came out.
-  // Written to the same grammar as Aligner's and Expert's: size, then class, then what
+  // Written to the same grammar as Aligner's and Screener's: size, then class, then what
   // was read, so the line under the run's name says the same kind of thing in all four.
 
   return (
@@ -567,25 +568,29 @@ function RunCoverage({
     {} as Record<Verdict, number>,
   );
 
+  const unitTotal = sections.reduce((sum, section) => sum + section.units.length, 0);
+
   // A conflict belongs to no unit, so it is not one of them. Everything else on this
   // row is a unit and the row sums to the unit count.
   const unitVerdicts = VERDICTS.filter((verdict) => verdict !== "section_conflict");
 
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-      <VerdictCounts
-        items={unitVerdicts.map((verdict) => ({
-          label: VERDICT_LABEL[verdict],
-          count: counts[verdict],
-          tone: VERDICT_TONE[verdict],
-        }))}
-      />
-      {conflicts > 0 && (
-        <span className="text-[11px] tabular-nums text-muted-foreground">
-          {conflicts} cross-section {conflicts === 1 ? "conflict" : "conflicts"}
-        </span>
-      )}
-    </div>
+    <MetricsRow
+      total={unitTotal}
+      unit={["unit", "units"]}
+      items={unitVerdicts.map((verdict) => ({
+        label: VERDICT_LABEL[verdict],
+        count: counts[verdict],
+        tone: VERDICT_TONE[verdict],
+      }))}
+      aside={
+        conflicts > 0 && (
+          <p className="text-[11px] tabular-nums text-muted-foreground">
+            {conflicts} cross-section {conflicts === 1 ? "conflict" : "conflicts"}
+          </p>
+        )
+      }
+    />
   );
 }
 
@@ -607,7 +612,7 @@ function ShortfallCounts({ section }: { section: SectionAssessment }) {
     return <StatusPill status="specified" />;
   }
   // A zero is hidden here on purpose: a shortfall that did not occur is not a fact about
-  // the document. Expert shows its zeros for the opposite and equally deliberate reason.
+  // the document. Screener shows its zeros for the opposite and equally deliberate reason.
   return (
     <VerdictCounts
       items={shown.map((verdict) => ({

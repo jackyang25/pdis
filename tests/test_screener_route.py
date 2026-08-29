@@ -1,4 +1,4 @@
-"""Expert's route rejects a bad request before it opens a stream.
+"""Screener's route rejects a bad request before it opens a stream.
 
 Every guard here exists so a failure is an HTTP status the interface can show,
 rather than an error event arriving on a 200 response after the upload was read.
@@ -53,7 +53,7 @@ class GatesEndpointTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_gates_are_published_in_development_order(self) -> None:
-        response = self.client.get("/api/expert/gates")
+        response = self.client.get("/api/screener/gates")
         self.assertEqual(response.status_code, 200)
         gates = response.json()["gates"]
         self.assertTrue(gates)
@@ -63,7 +63,7 @@ class GatesEndpointTests(unittest.TestCase):
         )
 
     def test_an_unknown_org_publishes_no_gates(self) -> None:
-        response = self.client.get("/api/expert/gates", params={"org": "nobody"})
+        response = self.client.get("/api/screener/gates", params={"org": "nobody"})
         self.assertEqual(response.json()["gates"], [])
 
 
@@ -74,7 +74,7 @@ class RunGuardTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def post(self, files, **overrides):
-        return self.client.post("/api/expert/run", files=files, data=form(**overrides))
+        return self.client.post("/api/screener/run", files=files, data=form(**overrides))
 
     def test_a_document_without_a_type_is_refused(self) -> None:
         response = self.post([docx(), docx("plan.docx")])
@@ -115,8 +115,8 @@ class RunGuardTests(unittest.TestCase):
     def test_the_gate_list_offers_nothing_for_a_modality_no_bank_covers(self) -> None:
         """Surfaced where the gate is chosen, so the refusal above is a backstop rather
         than the first a reader hears of it."""
-        drug = self.client.get("/api/expert/gates", params={"intervention": "drug"})
-        vaccine = self.client.get("/api/expert/gates", params={"intervention": "vaccine"})
+        drug = self.client.get("/api/screener/gates", params={"intervention": "drug"})
+        vaccine = self.client.get("/api/screener/gates", params={"intervention": "vaccine"})
         self.assertTrue(drug.json()["gates"])
         self.assertEqual(vaccine.json()["gates"], [])
 

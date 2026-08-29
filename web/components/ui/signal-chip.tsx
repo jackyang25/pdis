@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
-import { TONE_DOT, type Tone } from "@/lib/tone";
+import { ToneDot } from "@/components/ui/tone-dot";
+import type { Tone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
 
 /**
@@ -30,7 +31,7 @@ export function SignalChip({
         className,
       )}
     >
-      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", TONE_DOT[tone])} />
+      <ToneDot tone={tone} />
       {children}
     </span>
   );

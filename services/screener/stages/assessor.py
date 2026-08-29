@@ -250,7 +250,7 @@ def assess_question(
         message = user_message
         if attempt:
             message += (
-                "\n\nThe prior decision failed the Expert contract: "
+                "\n\nThe prior decision failed the Screener contract: "
                 f"{first_error}. Cite the exact supplied block IDs when answering "
                 "from a document, name a supplied context item when answering from "
                 "context, and cite nothing when the question is unanswered."
@@ -260,7 +260,7 @@ def assess_question(
             system_prompt,
             message,
             max_tokens=max_tokens,
-            schema_name="expert_question_triage",
+            schema_name="screener_question_triage",
             schema=schema,
             images=images or None,
         )
@@ -275,7 +275,7 @@ def assess_question(
             )
         except ValueError as exc:
             first_error = str(exc)
-    raise ValueError(f"Expert could not triage {question.id}: {first_error}")
+    raise ValueError(f"Screener could not triage {question.id}: {first_error}")
 
 
 # ---------------------------------------------------------------------------

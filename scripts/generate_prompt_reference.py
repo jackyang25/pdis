@@ -18,7 +18,7 @@ from services.archivist.prompt_catalog import PROMPT_CATALOG as ARCHIVIST_CATALO
 from services.assistant.skills import available_skills
 from services.chunker import available_configs as chunker_configs
 from services.chunker.prompt_catalog import PROMPT_CATALOG as CHUNKER_CATALOG
-from services.expert.prompt_catalog import PROMPT_CATALOG as EXPERT_CATALOG
+from services.screener.prompt_catalog import PROMPT_CATALOG as SCREENER_CATALOG
 from services.inspector.prompt_catalog import PROMPT_CATALOG as INSPECTOR_CATALOG
 from services.inspector import available_configs as inspector_configs
 from services.scout import available_configs as scout_configs
@@ -37,14 +37,14 @@ CATALOGS = (
     INSPECTOR_CATALOG,
     ALIGNER_CATALOG,
     SCOUT_CATALOG,
-    EXPERT_CATALOG,
+    SCREENER_CATALOG,
     ARCHIVIST_CATALOG,
 )
 
 # Where each tool's configurations come from.
 #
-# Aligner, Expert and Archivist are absent, and for the same reason: none of their
-# prompts has a framing slot. Expert's bank supplies each question's whole text, and Aligner's role
+# Aligner, Screener and Archivist are absent, and for the same reason: none of their
+# prompts has a framing slot. Screener's bank supplies each question's whole text, and Aligner's role
 # description and edge question travel in the user message per requirement, so in both
 # cases there is no configuration field interpolated into a system prompt for a reader
 # to be shown. Archivist has no configurations at all - what varies per reading is an

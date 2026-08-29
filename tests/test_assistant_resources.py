@@ -103,11 +103,11 @@ class SkillContractTests(unittest.TestCase):
             description="d",
             requires=(),
             body="b",
-            requires_any=("inspector", "expert"),
+            requires_any=("inspector", "screener"),
         )
-        self.assertEqual(general.missing_from(frozenset({"expert"})), [])
+        self.assertEqual(general.missing_from(frozenset({"screener"})), [])
         self.assertEqual(
-            general.missing_from(frozenset({"scout"})), ["inspector or expert"]
+            general.missing_from(frozenset({"scout"})), ["inspector or screener"]
         )
 
     def test_an_unknown_result_type_fails_at_load(self) -> None:
@@ -134,9 +134,9 @@ class SkillContractTests(unittest.TestCase):
             "not_comparable/not_addressed",
             "modified": "a symmetric relation; the verdicts replaced it",
             "introduced": "a symmetric relation; the verdicts replaced it",
-            "not_answerable": "Expert's states are answered/partly_answered/"
+            "not_answerable": "Screener's states are answered/partly_answered/"
             "not_found/not_applicable",
-            "not_assessable": "Expert's states are answered/partly_answered/"
+            "not_assessable": "Screener's states are answered/partly_answered/"
             "not_found/not_applicable",
         }
         for skill in skills.available_skills():

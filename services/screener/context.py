@@ -1,6 +1,6 @@
 """Read an attached file into the text of one context item.
 
-This is the whole of the file boundary for Expert's transient context. Nothing above or
+This is the whole of the file boundary for Screener's transient context. Nothing above or
 below it changes: a `ContextItem` is still a label and a body of text, still travels only
 into a prompt, is still never chunked, never cited, and never checked against a quote.
 What changed is where the text comes from — an attachment rather than a paste, because

@@ -28,7 +28,7 @@
         {
           "type": "note",
           "title": "Why this matters",
-          "text": "Inspector, Aligner, Expert, and Scout intentionally produce different outputs, because each judges against a different authority. None is a funding recommendation or a universal product score."
+          "text": "Inspector, Aligner, Screener, and Scout intentionally produce different outputs, because each judges against a different authority. None is a funding recommendation or a universal product score."
         }
       ]
     },
@@ -60,7 +60,7 @@
             },
             {
               "term": "Services",
-              "description": "Run stateless Inspector, Aligner, Expert, Scout, Chunker, Searcher, and Assistant workflows through typed contracts."
+              "description": "Run stateless Inspector, Aligner, Screener, Scout, Chunker, Searcher, and Assistant workflows through typed contracts."
             },
             {
               "term": "Shared",
@@ -82,7 +82,7 @@
             },
             {
               "term": "Portable results",
-              "description": "Final Inspector, Aligner, Expert, and Scout artifacts package analysis separately from their parsed source documents."
+              "description": "Final Inspector, Aligner, Screener, and Scout artifacts package analysis separately from their parsed source documents."
             },
             {
               "term": "Model boundaries",
@@ -278,7 +278,7 @@
     {
       "id": "results",
       "title": "Saved results",
-      "intro": "Every tool that produces a result (Inspector, Aligner, Expert, and Scout) downloads a portable, versioned artifact. Their analysis and source documents travel together.",
+      "intro": "Every tool that produces a result (Inspector, Aligner, Screener, and Scout) downloads a portable, versioned artifact. Their analysis and source documents travel together.",
       "content": [
         {
           "type": "definitions",
@@ -353,7 +353,7 @@
             },
             {
               "question": "Can I compare two runs?",
-              "answer": "Only where the authority is fixed. Inspector and Expert compare line by line, because the same rubric and the same question bank are asked every time. Aligner does not: its requirements are read out of the reference document, so two runs may find a different number of them and neither total is a baseline. Scout compares only within the same published-since window."
+              "answer": "Only where the authority is fixed. Inspector and Screener compare line by line, because the same rubric and the same question bank are asked every time. Aligner does not: its requirements are read out of the reference document, so two runs may find a different number of them and neither total is a baseline. Scout compares only within the same published-since window."
             },
             {
               "question": "What happens if I choose the wrong document type?",
@@ -879,8 +879,8 @@
               ]
             },
             {
-              "id": "expert",
-              "title": "Expert",
+              "id": "screener",
+              "title": "Screener",
               "summary": "Sorts one stage gate's question bank against a set of documents: what they answer, cited to the passage, and what they do not, alongside the discipline that owns it. Only the gate, the discipline and the question text decide anything. The bank also states whether each question is required at this gate or anticipatory, which is what separates a blocker from early warning.",
               "nodes": [
                 {

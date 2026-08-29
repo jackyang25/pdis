@@ -1,3 +1,4 @@
+import { spanBlockIds } from "./api.ts";
 import type { AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.ts";
 
 /**
@@ -28,7 +29,7 @@ import type { AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.
 /**
  * Verdicts that leave a requirement unestablished against its bar.
  *
- * Exactly the two that carry a `gap`. `not_addressed` cannot appear here even in
+ * Exactly the two shortfalls. `not_addressed` cannot appear here even in
  * principle: it cites no passage, so there is nothing for a later comparison to join to.
  */
 const UNSETTLED: AlignmentVerdict[] = ["falls_short", "not_comparable"];
@@ -37,7 +38,7 @@ const UNSETTLED: AlignmentVerdict[] = ["falls_short", "not_comparable"];
  * Verdicts worth warning about downstream.
  *
  * Only the two that read as good news. A downstream `falls_short` is already in the
- * priorities and already carries its own gap, so flagging it again would put one
+ * priorities and already states its own shortfall, so flagging it again would put one
  * requirement in the panel twice for two different reasons.
  */
 const SILENT_ABOUT_IT: AlignmentVerdict[] = ["meets", "exceeds"];
@@ -49,8 +50,6 @@ export type ChainWarning = {
   upstreamRequirementId: string;
   /** Its verdict on the shared passage — `falls_short` or `not_comparable`. */
   upstreamVerdict: AlignmentVerdict;
-  /** Its own account of what is still to close. Quoted, never rewritten. */
-  gap: string;
   /** The document that sets the bar the shared passage falls short of. */
   upstreamReference: string;
   /** The document holding the shared passage. */
@@ -99,7 +98,7 @@ export function chainWarnings(
     for (const other of upstream) {
       for (const finding of findingsByEdge.get(other.edge_id) ?? []) {
         if (!UNSETTLED.includes(finding.verdict)) continue;
-        for (const blockId of finding.comparison_block_ids) {
+        for (const blockId of spanBlockIds(finding.comparison_spans)) {
           const held = unsettledByBlock.get(blockId) ?? [];
           held.push(finding);
           unsettledByBlock.set(blockId, held);
@@ -111,7 +110,7 @@ export function chainWarnings(
     for (const finding of findingsByEdge.get(edge.edge_id) ?? []) {
       if (!SILENT_ABOUT_IT.includes(finding.verdict)) continue;
       const byUpstreamId = new Map<string, ChainWarning>();
-      for (const blockId of finding.reference_block_ids) {
+      for (const blockId of spanBlockIds(finding.reference_spans)) {
         for (const earlier of unsettledByBlock.get(blockId) ?? []) {
           const existing = byUpstreamId.get(earlier.requirement_id);
           if (existing) {
@@ -127,7 +126,6 @@ export function chainWarnings(
             requirementId: finding.requirement_id,
             upstreamRequirementId: earlier.requirement_id,
             upstreamVerdict: earlier.verdict,
-            gap: earlier.gap,
             upstreamReference: upstreamEdge
               ? names.get(upstreamEdge.reference_doc_id) ?? upstreamEdge.reference_doc_id
               : "",
@@ -150,14 +148,17 @@ export function chainWarnings(
  *
  * A claim about the passage, deliberately: "this passage also falls short" is true
  * however many facts the passage holds, where "this requirement falls short" would be
- * asserting the two comparisons are about the same one. The gap sentence is the upstream
- * finding's own, quoted rather than rewritten, so there is one authority for the wording.
+ * asserting the two comparisons are about the same one.
+ *
+ * It quoted the upstream finding's `gap` sentence, which no longer exists: that sentence
+ * restated the upstream requirement, and a reader following this warning arrives at the
+ * upstream finding where the requirement is the heading. The warning's job is to say
+ * there is something to follow, not to summarise it here.
  */
 export function chainWarningText(warning: ChainWarning): string {
   const verdict =
     warning.upstreamVerdict === "falls_short"
       ? `falls short of the ${warning.upstreamReference}`
       : `cannot be compared with the ${warning.upstreamReference}`;
-  const gap = warning.gap ? `: ${warning.gap}` : ".";
-  return `This passage of the ${warning.sharedDocument} also ${verdict}${gap}`;
+  return `This passage of the ${warning.sharedDocument} also ${verdict}.`;
 }

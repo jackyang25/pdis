@@ -1,4 +1,4 @@
-# Expert
+# Screener
 
 > **Superseded on the bank (2026-08-10).** The 560-question document this was designed
 > against was the wrong source. The shipped bank is now *Stage Gate Questions - All
@@ -8,7 +8,7 @@
 > point of it — but the counts, the discipline list, the `[PQ]` marker and the `likely_in`
 > hint no longer describe what ships.
 
-Expert — stage-gate question triage
+Screener — stage-gate question triage
 
 **Status: built and available.** Service, route, web page, result contract, Ask
 legend, docs graph, published prompt, and tests are all in place. All seven gates are
@@ -81,15 +81,15 @@ Seven things changed during it. Each is a correction, not a compromise:
    that case is only reachable once the parse has run.
 8. **Every bank declares `mirrors`, and it is required.** Inspector's configs
    already carry this field — provenance naming the authored source, published on the
-   docs page with the caveat that nothing in the repo can verify it. Expert follows
+   docs page with the caveat that nothing in the repo can verify it. Screener follows
    the convention and makes it mandatory, because the whole tool is a transcription.
    It is also carried onto the result as `bank_source` and checked by the contract, so
    a downloaded review states which version of the bank produced it: a v5 triage and
    a v6 triage are different answers, and only that line distinguishes them.
 9. **`load_config` is cached on file mtime.** Not added speculatively: a bank is 80
-   questions of prose, and `/api/configs/document-types` asks whether Expert can read
+   questions of prose, and `/api/configs/document-types` asks whether Screener can read
    each of a dozen document types, each answer walking every gate. Measured at
-   **9.7 seconds** before caching and 245 ms after, with `/api/expert/gates` going
+   **9.7 seconds** before caching and 245 ms after, with `/api/screener/gates` going
    390 ms to 2 ms. Keyed on mtime so a hand-edited bank is picked up immediately,
    which matters because hand-editing is how these are maintained. It caches
    immutable files, not session state.
@@ -100,7 +100,7 @@ A gate review asks a fixed set of questions. The bank is a matrix: 7 gates × 8
 disciplines × 10 questions = 560, authored by SMEs, with `[PQ]` marking WHO
 prequalification questions carried inside the DTL ten.
 
-Expert does not answer those questions. It **triages** them. For one gate, given
+Screener does not answer those questions. It **triages** them. For one gate, given
 the investment's documents, it reports which questions the documents already
 answer with a citation, which they should answer and don't, and which no document
 could ever answer — those routed to the discipline that owns them.
@@ -113,7 +113,7 @@ the question bank.
 
 ## 2. Its authority, and the Inspector boundary
 
-Each tool judges against a different authority. Expert's is the gate's question
+Each tool judges against a different authority. Screener's is the gate's question
 bank. It reads several documents at once, which no judging tool currently does.
 
 The boundary that must be written into `AGENTS.md`, because these two will
@@ -121,10 +121,10 @@ otherwise drift into each other:
 
 > **Inspector** asks *is this document complete and well-formed against its own
 > template.* One document, its rubric.
-> **Expert** asks *does the evidence exist anywhere in this set for a reviewer to
+> **Screener** asks *does the evidence exist anywhere in this set for a reviewer to
 > close this question.* Several documents, a gate's bank.
 
-Expert shares no code and no config with Inspector. The resemblance is
+Screener shares no code and no config with Inspector. The resemblance is
 structural only — a list of sections holding units, one model call per unit — and
 that resemblance is what makes the scale predictable, not a dependency.
 
@@ -141,7 +141,7 @@ per-question exceptions. Keying files by class would mean editing one question i
 five places, which is the drift.
 
 ```yaml
-# services/expert/configs/bmgf_eop1.yaml
+# services/screener/configs/bmgf_eop1.yaml
 org: bmgf
 
 gate:
@@ -423,20 +423,20 @@ Structural only. It authorises model output; it does not replace semantic review
 
 | Concern | File | Change |
 |---|---|---|
-| Envelope | `web/lib/result-file.ts` | `ResultType` gains `expert`; `ANALYSIS_VERSIONS.expert: 1`; `packExpertResult` / `unpackExpertResult`; `expertResultFilename` — gate plus joined source types |
-| Readability | `web/lib/result-contracts.ts` | `assertExpertReadable`. The `satisfies Record<ResultType, ResultContract>` map refuses to compile without it |
-| API types | `web/lib/api.ts` | `ToolName` gains `"expert"`; `ExpertResponse`, `GateReview`, `QuestionAssessment`, `DisciplineReview`; `fetchGates()`; `runExpert(documents, gate, contextItems, header, onStage)` |
-| Document support | `api/routes/configs.py` | `supports["expert"]`, true when a chunker config exists for the type **and** that `source_type` appears in some bank's `answerable_from` for that org and class. Computed without a gate, so the picker works before one is chosen |
-| Gate list | `api/routes/expert.py` | `GET /gates` returns the declared gates in `ordinal` order, so the selector reads the service's own config rather than a copy in TypeScript. Same reason Aligner publishes `GET /edges` |
-| Tool routing | `web/components/configuration-fields.tsx` | `PATH_TO_TOOL` gains `/expert` |
-| Ask | `services/assistant/legends.py` | `EXPERT_LEGEND` + registration in `_LEGENDS`; the workspace legend's `result_type` sentence gains Expert. The legend must state that a `context`-sourced answer has no block lineage and must never be presented as cited, and that `not_applicable` is not a shortfall |
-| Docs | `shared/product_knowledge.json` | a workflow graph: documents and gate → resolve → parse → assess → result. `tests/test_product_knowledge_contract.py` gains `expert` to its published-workflow tuple |
-| Prompts | `services/expert/prompt_catalog.py`, `shared/prompt_reference.json` | one `CatalogEntry` for the assessment prompt; regenerate with `PYTHONPATH=. python scripts/generate_prompt_reference.py`. `tests/test_prompt_reference.py` gains `("expert", "assessment")` and `expert` to the published-tools set |
-| Card | `web/lib/tools.ts` | `availability` → `available`, add `href: "/expert"` and an `activity` estimate |
-| Invariants | `AGENTS.md` | an `### Expert` section under Tool contracts: the Inspector boundary, the five states and their owners, the no-reconciliation rule, and that transient input never enters the contract |
-| Service docs | `services/expert/README.md` | background, usage, contract table, request scope |
+| Envelope | `web/lib/result-file.ts` | `ResultType` gains `screener`; `ANALYSIS_VERSIONS.screener: 1`; `packScreenerResult` / `unpackScreenerResult`; `screenerResultFilename` — gate plus joined source types |
+| Readability | `web/lib/result-contracts.ts` | `assertScreenerReadable`. The `satisfies Record<ResultType, ResultContract>` map refuses to compile without it |
+| API types | `web/lib/api.ts` | `ToolName` gains `"screener"`; `ScreenerResponse`, `GateReview`, `QuestionAssessment`, `DisciplineReview`; `fetchGates()`; `runScreener(documents, gate, contextItems, header, onStage)` |
+| Document support | `api/routes/configs.py` | `supports["screener"]`, true when a chunker config exists for the type **and** that `source_type` appears in some bank's `answerable_from` for that org and class. Computed without a gate, so the picker works before one is chosen |
+| Gate list | `api/routes/screener.py` | `GET /gates` returns the declared gates in `ordinal` order, so the selector reads the service's own config rather than a copy in TypeScript. Same reason Aligner publishes `GET /edges` |
+| Tool routing | `web/components/configuration-fields.tsx` | `PATH_TO_TOOL` gains `/screener` |
+| Ask | `services/assistant/legends.py` | `SCREENER_LEGEND` + registration in `_LEGENDS`; the workspace legend's `result_type` sentence gains Screener. The legend must state that a `context`-sourced answer has no block lineage and must never be presented as cited, and that `not_applicable` is not a shortfall |
+| Docs | `shared/product_knowledge.json` | a workflow graph: documents and gate → resolve → parse → assess → result. `tests/test_product_knowledge_contract.py` gains `screener` to its published-workflow tuple |
+| Prompts | `services/screener/prompt_catalog.py`, `shared/prompt_reference.json` | one `CatalogEntry` for the assessment prompt; regenerate with `PYTHONPATH=. python scripts/generate_prompt_reference.py`. `tests/test_prompt_reference.py` gains `("screener", "assessment")` and `screener` to the published-tools set |
+| Card | `web/lib/tools.ts` | `availability` → `available`, add `href: "/screener"` and an `activity` estimate |
+| Invariants | `AGENTS.md` | an `### Screener` section under Tool contracts: the Inspector boundary, the five states and their owners, the no-reconciliation rule, and that transient input never enters the contract |
+| Service docs | `services/screener/README.md` | background, usage, contract table, request scope |
 
-New service files: `services/expert/{__init__,models,contract,pipeline,prompt_catalog}.py`,
+New service files: `services/screener/{__init__,models,contract,pipeline,prompt_catalog}.py`,
 `stages/assessor.py`, `configs/bmgf_*.yaml`, `README.md`.
 
 Nothing in Inspector, Aligner, Scout, Chunker, or Searcher changes. `ToolName`,
@@ -454,24 +454,24 @@ compile rather than at runtime.
 reader who learned the question-mark affordance in Inspector already knows it here.
 
 One thing to promote rather than copy: `SectionHeading` is currently a local
-function inside `web/app/inspector/page.tsx`. Expert is its second consumer, and
+function inside `web/app/inspector/page.tsx`. Screener is its second consumer, and
 `AGENTS.md` says to move a mechanic to shared on the second consumer, not the
 third. Lift it to `web/components/ui/` rather than writing a near-identical one.
 
 **Use `PriorityPanel`.** It is the panel every tool opens with, and it does not
 decide priority — a tool passes items already selected and already ordered, with
-`orderNote` stating the rule. Expert's items are the `absent` questions in bank
+`orderNote` stating the rule. Screener's items are the `absent` questions in bank
 order, and the note is *"In the order the question bank asks them."* Refusing the
 shared panel because "priority implies weights" would be the drift; the panel
 exists precisely so no tool invents its own opening.
 
-The selector lives in `web/lib/expert-priorities.ts`, as Inspector's and Scout's
+The selector lives in `web/lib/screener-priorities.ts`, as Inspector's and Scout's
 do, so changing what qualifies touches one file in `lib` and no component.
 
-### Bespoke to Expert
+### Bespoke to Screener
 
 The gate selector, the labelled context rows, the five-state vocabulary in
-`web/components/expert-signal-help.tsx`, and the state panels below.
+`web/components/screener-signal-help.tsx`, and the state panels below.
 
 ### What is shown where
 
@@ -567,7 +567,7 @@ line.
 
 **Product:**
 
-4. Do Stage Gate Notes and Meeting Notes belong in Expert's input set? They were
+4. Do Stage Gate Notes and Meeting Notes belong in Screener's input set? They were
    scoped as context-only earlier, but for this tool prior-gate commitments are
    arguably the most relevant auxiliary source. Worth asking Janet rather than
    deciding.
@@ -581,32 +581,32 @@ line.
 
 | Concern | File |
 |---|---|
-| Bank, states, resolution, config loading | `services/expert/models.py` |
-| Structural contract | `services/expert/contract.py` |
-| Run | `services/expert/pipeline.py` |
-| One model call | `services/expert/stages/assessor.py` |
-| Published prompt | `services/expert/prompt_catalog.py` |
-| LCS bank | `services/expert/configs/bmgf_lcs.yaml` |
-| Service docs | `services/expert/README.md` |
-| Route and gate list | `api/routes/expert.py`, registered in `api/main.py` |
+| Bank, states, resolution, config loading | `services/screener/models.py` |
+| Structural contract | `services/screener/contract.py` |
+| Run | `services/screener/pipeline.py` |
+| One model call | `services/screener/stages/assessor.py` |
+| Published prompt | `services/screener/prompt_catalog.py` |
+| LCS bank | `services/screener/configs/bmgf_lcs.yaml` |
+| Service docs | `services/screener/README.md` |
+| Route and gate list | `api/routes/screener.py`, registered in `api/main.py` |
 | Wire shapes | `api/schemas.py` (`GateReviewOut` and below) |
-| Document support | `api/routes/configs.py` — `supports["expert"]` |
+| Document support | `api/routes/configs.py` — `supports["screener"]` |
 | Types, fetchers | `web/lib/api.ts` |
-| Envelope | `web/lib/result-file.ts` — `ANALYSIS_VERSIONS.expert: 1` |
-| Readability | `web/lib/result-contracts.ts` — `assertExpertReadable` |
-| Selectors and counts | `web/lib/expert-priorities.ts` |
-| Page | `web/app/expert/page.tsx` |
-| Vocabulary popovers | `web/components/expert-signal-help.tsx` |
+| Envelope | `web/lib/result-file.ts` — `ANALYSIS_VERSIONS.screener: 1` |
+| Readability | `web/lib/result-contracts.ts` — `assertScreenerReadable` |
+| Selectors and counts | `web/lib/screener-priorities.ts` |
+| Page | `web/app/screener/page.tsx` |
+| Vocabulary popovers | `web/components/screener-signal-help.tsx` |
 | Shared heading | `web/components/ui/section-heading.tsx` |
-| Ask | `services/assistant/legends.py` — `EXPERT_LEGEND` |
+| Ask | `services/assistant/legends.py` — `SCREENER_LEGEND` |
 | Docs graph | `shared/product_knowledge.json` |
-| Invariants | `AGENTS.md` — `### Expert` |
+| Invariants | `AGENTS.md` — `### Screener` |
 | Intervention vocabulary | `shared/vocabulary.py` — `intervention_classes()` |
 
-Tests: `tests/test_expert.py` (bank, validation, resolution, contract, assessor,
-catalog), `tests/test_expert_route.py` (every guard fails the request rather than the
-stream), `tests/test_expert_pipeline.py` (a real DOCX end to end through chunker, the
-assessor, and the contract), and `web/lib/expert-priorities.test.ts` (the counts sum
+Tests: `tests/test_screener.py` (bank, validation, resolution, contract, assessor,
+catalog), `tests/test_screener_route.py` (every guard fails the request rather than the
+stream), `tests/test_screener_pipeline.py` (a real DOCX end to end through chunker, the
+assessor, and the contract), and `web/lib/screener-priorities.test.ts` (the counts sum
 to the total, and missing documents are read from the questions rather than a
 hardcoded list).
 
@@ -645,7 +645,7 @@ entirely routed**, because a TPP carries presentation, stability and price *targ
 while an IPDP carries plans, and neither carries process chemistry or a bottom-up
 cost model. **DTF is the most routed gate**, because almost every question there asks
 whether a dossier module, validation or inspection readiness exists — and the dossier
-is not among Expert's inputs.
+is not among Screener's inputs.
 
 Take one gate and one real iTPP/cTPP/IPDP, hand-sort the questions, and compare
 against what `resolve_questions` predicts. The config is where these judgments live

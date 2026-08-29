@@ -48,7 +48,7 @@ DEFAULT_MAX_OUTPUT_TOKENS = 12000
 MAX_PARALLEL_DOCUMENTS = 3
 
 # Requirements are judged independently, so they are judged at once. The same bound
-# Expert uses for its questions: enough to keep a run to about a minute, low enough that
+# Screener uses for its questions: enough to keep a run to about a minute, low enough that
 # one run does not exhaust a shared rate limit.
 MAX_PARALLEL_REQUIREMENTS = 6
 

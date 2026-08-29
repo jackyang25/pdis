@@ -32,7 +32,7 @@ from api.routes import (
     assistant,
     chunker,
     configs,
-    expert,
+    screener,
     inspector,
     scout,
     searcher,
@@ -69,7 +69,7 @@ app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
 app.include_router(chunker.router, prefix="/api/chunker", tags=["chunker"])
 app.include_router(aligner.router, prefix="/api/aligner", tags=["aligner"])
 app.include_router(inspector.router, prefix="/api/inspector", tags=["inspector"])
-app.include_router(expert.router, prefix="/api/expert", tags=["expert"])
+app.include_router(screener.router, prefix="/api/screener", tags=["screener"])
 app.include_router(searcher.router, prefix="/api/searcher", tags=["searcher"])
 app.include_router(scout.router, prefix="/api/scout", tags=["scout"])
 app.include_router(archivist.router, prefix="/api/archivist", tags=["archivist"])

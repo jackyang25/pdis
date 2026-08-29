@@ -39,7 +39,7 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
     // check a document, test what it claims, check the documents against each other,
     // and take them to the gate. Archivist is first because it is what you consult
     // before drafting, not a step in reviewing what you drafted.
-    toolIds: ["archivist", "inspector", "scout", "aligner", "expert"],
+    toolIds: ["archivist", "inspector", "scout", "aligner", "screener"],
     title: "PST team workflows",
     // The only place the cycle is stated. Each card states what its tool is judged
     // against; none of them repeats this. Keep the clauses in the same order as

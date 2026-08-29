@@ -59,7 +59,7 @@ test("every picker names its runs through the one shared identity", () => {
   // whether a run is a document, a comparison, a gate or a query — but that is an
   // argument for one function per tool, not for a lambda per page.
   //
-  // Written as lambdas, two of them drifted from the filename beside them: Expert's
+  // Written as lambdas, two of them drifted from the filename beside them: Screener's
   // picker showed only the gate while its file named the documents, so two runs of one
   // gate on different documents were two identical rows. Neither side could see the
   // other. `runLabel` and `runFilename` now read one `runIdentity`, so a name has one

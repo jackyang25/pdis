@@ -5,7 +5,7 @@
  * Only `danger` was actually reached through them everywhere; `success` and `warning` were
  * written as raw palette classes in two tools:
  *
- *   Expert, Aligner   bg-[hsl(var(--tone-success))]      the token
+ *   Screener, Aligner   bg-[hsl(var(--tone-success))]      the token
  *   Scout             bg-emerald-500, bg-amber-400       the palette, 18 times
  *   Inspector         bg-emerald-500/10 text-emerald-700 the palette, with a hand-written
  *                                                        dark: variant beside it
@@ -50,6 +50,21 @@ export const TONE_DOT: Record<Tone, string> = {
   // Not `--tone-neutral`. Nothing is being signalled, so this is the muted foreground the
   // rest of the interface uses for absence, at the weight a dot needs to stay a dot.
   neutral: "bg-muted-foreground/40",
+};
+
+/**
+ * The same tone as a colour value, for a surface that cannot take a class.
+ *
+ * SVG strokes, essentially: the evidence map draws its edges as `stroke` attributes. It
+ * exists so a canvas and the text beside it cannot disagree about what `warning` looks
+ * like, which they did while the map held its own copy of these five values.
+ */
+export const TONE_STROKE: Record<Tone, string> = {
+  success: "hsl(var(--tone-success))",
+  warning: "hsl(var(--tone-warning))",
+  danger: "hsl(var(--tone-danger))",
+  info: "hsl(var(--tone-info))",
+  neutral: "hsl(var(--muted-foreground))",
 };
 
 /** The verdict word itself. */

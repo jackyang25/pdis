@@ -4,7 +4,7 @@ import { create } from "zustand";
 import type {
   ContentBlock,
   AlignerResponse,
-  ExpertResponse,
+  ScreenerResponse,
   ScoutResponse,
   InspectorResponse,
   SearcherResponse,
@@ -188,11 +188,11 @@ export type InspectorResult = InspectorResponse;
 export type SearcherResult = SearcherResponse;
 export type ScoutResult = ScoutResponse;
 export type AlignerResult = AlignerResponse;
-export type ExpertResult = ExpertResponse;
+export type ScreenerResult = ScreenerResponse;
 
 export const useChunkerSession = createToolSession<ChunkerResult>();
 export const useInspectorSession = createToolSession<InspectorResult>();
 export const useSearcherSession = createToolSession<SearcherResult>();
 export const useScoutSession = createToolSession<ScoutResult>();
 export const useAlignerSession = createToolSession<AlignerResult>();
-export const useExpertSession = createToolSession<ExpertResult>();
+export const useScreenerSession = createToolSession<ScreenerResult>();

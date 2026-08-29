@@ -1,4 +1,4 @@
-"""Expert end to end: a real DOCX in, a complete gate review out.
+"""Screener end to end: a real DOCX in, a complete gate review out.
 
 Every other stage is unit-tested, but nothing exercised the wiring between them —
 resolve's output feeding the assessor, blocks reaching the right questions, and the
@@ -16,7 +16,7 @@ from tempfile import TemporaryDirectory
 
 from docx import Document
 
-from services.expert import (
+from services.screener import (
     ContextItem,
     DocumentInput,
     GateConfig,
@@ -24,8 +24,8 @@ from services.expert import (
     find_config,
     run_pipeline,
 )
-from services.expert.models import DisciplineSpec
-from services.expert.stages.assessor import (
+from services.screener.models import DisciplineSpec
+from services.screener.stages.assessor import (
     DECISION_NOT_FOUND,
     DECISION_FROM_CONTEXT,
     DECISION_FROM_DOCUMENT,
@@ -53,7 +53,7 @@ class ScriptedClient:
     def call_structured(
         self, system_prompt, user_message, max_tokens, *, schema_name, schema, **_
     ):
-        if schema_name == "expert_question_triage":
+        if schema_name == "screener_question_triage":
             self.triage_calls.append(user_message)
             return self.decisions.pop(0) if self.decisions else {
                 "decision": DECISION_NOT_FOUND,
@@ -108,7 +108,7 @@ class PipelineTests(unittest.TestCase):
             ],
         )
 
-    def run_expert(
+    def run_screener(
         self,
         config: GateConfig,
         decisions: list[dict],
@@ -148,7 +148,7 @@ class PipelineTests(unittest.TestCase):
                 applies_to=frozenset({"monoclonal_antibody"}),
             ),
         )
-        review, client = self.run_expert(config, [])
+        review, client = self.run_screener(config, [])
         states = {item.id: item.state for item in review.assessments()}
         self.assertEqual(states["Q1"], "not_found")
         self.assertEqual(states["Q2"], "not_found")
@@ -163,7 +163,7 @@ class PipelineTests(unittest.TestCase):
         config = bank(
             QuestionSpec(id="Q1", text="Is the plan costed?", requirement="anticipatory")
         )
-        review, _ = self.run_expert(config, [])
+        review, _ = self.run_screener(config, [])
         assessment = review.assessments()[0]
         self.assertEqual(assessment.state, "not_found")
         self.assertEqual(assessment.requirement, "anticipatory")
@@ -174,7 +174,7 @@ class PipelineTests(unittest.TestCase):
         config = bank(
             QuestionSpec(id="Q1", text="Is dosing stated?", requirement="anticipatory")
         )
-        _, client = self.run_expert(config, [])
+        _, client = self.run_screener(config, [])
         self.assertNotIn("anticipatory", client.triage_calls[0].lower())
 
     def test_every_question_sees_the_same_material(self) -> None:
@@ -183,14 +183,14 @@ class PipelineTests(unittest.TestCase):
             QuestionSpec(id="Q1", text="Is dosing stated?"),
             QuestionSpec(id="Q2", text="Is the plan costed?"),
         )
-        _, client = self.run_expert(config, [])
+        _, client = self.run_screener(config, [])
         self.assertEqual(len(client.triage_calls), 2)
         prefixes = {call.split("Question (")[0] for call in client.triage_calls}
         self.assertEqual(len(prefixes), 1, "the material differed between questions")
 
     def test_the_uploaded_document_reaches_the_prompt(self) -> None:
         config = bank(QuestionSpec(id="Q1", text="Is dosing stated?"))
-        _, client = self.run_expert(config, [])
+        _, client = self.run_screener(config, [])
         self.assertEqual(len(client.triage_calls), 1)
         self.assertIn("Dosing regimen", client.triage_calls[0])
 
@@ -199,12 +199,12 @@ class PipelineTests(unittest.TestCase):
             QuestionSpec(id="Q1", text="Is dosing stated?")
         )
         # Discover the real block ids by running once, then answer citing one.
-        first, _ = self.run_expert(config, [])
+        first, _ = self.run_screener(config, [])
         self.assertTrue(first.blocks, "the document produced no blocks")
         block_id = first.blocks[0].id
         self.assertTrue(block_id.startswith("profile"), block_id)
 
-        review, _ = self.run_expert(
+        review, _ = self.run_screener(
             config,
             [
                 {
@@ -225,7 +225,7 @@ class PipelineTests(unittest.TestCase):
         config = bank(
             QuestionSpec(id="Q1", text="What is the COGS?")
         )
-        review, _ = self.run_expert(
+        review, _ = self.run_screener(
             config,
             [
                 {
@@ -250,7 +250,7 @@ class PipelineTests(unittest.TestCase):
             QuestionSpec(id="Q1", text="What is the COGS?")
         )
         secret = "COGS is USD 1.20 and this string must not survive"
-        review, _ = self.run_expert(
+        review, _ = self.run_screener(
             config,
             [],
             context_items=[ContextItem(label="CMC Report", text=secret)],
@@ -263,7 +263,7 @@ class PipelineTests(unittest.TestCase):
             QuestionSpec(id="Q1", text="Has the procedure been tested?"),
             QuestionSpec(id="Q2", text="Would we fund this today?"),
         )
-        review, client = self.run_expert(config, [])
+        review, client = self.run_screener(config, [])
         self.assertEqual(len(client.triage_calls), 2)
         self.assertEqual(
             [item.state for item in review.assessments()],
@@ -277,7 +277,7 @@ class PipelineTests(unittest.TestCase):
             )
         )
         with self.assertRaises(ValueError) as caught:
-            self.run_expert(config, [])
+            self.run_screener(config, [])
         self.assertIn("drug", str(caught.exception))
 
     def test_a_run_without_documents_is_refused(self) -> None:
@@ -293,7 +293,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_two_context_items_sharing_a_label_are_refused(self) -> None:
         with self.assertRaises(ValueError):
-            self.run_expert(
+            self.run_screener(
                 bank(QuestionSpec(id="Q1", text="t")),
                 [],
                 context_items=[
@@ -309,7 +309,7 @@ class PipelineTests(unittest.TestCase):
         itself to a class other than vaccine. That is the honest cost of not guessing.
         """
         config = find_config("bmgf", "lcs")
-        review, client = self.run_expert(config, [])
+        review, client = self.run_screener(config, [])
         self.assertEqual(len(review.assessments()), len(config.questions()))
         self.assertEqual(
             [discipline.id for discipline in review.disciplines],

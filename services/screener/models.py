@@ -1,6 +1,6 @@
-"""Expert's question bank, its resolution rules, and its result shape.
+"""Screener's question bank, its resolution rules, and its result shape.
 
-Expert judges a set of documents against one stage gate's question bank. The bank
+Screener judges a set of documents against one stage gate's question bank. The bank
 is authored by SMEs as prose and **transcribed** into the YAML here — deliberately
 not parsed from that prose, because a reader for someone else's document format is
 a normalization layer that breaks every time the document is edited. The prose is
@@ -47,7 +47,7 @@ CONFIGS_DIR = Path(__file__).parent / "configs"
 
 
 class LLMClientProtocol(Protocol):
-    """The model surface Expert needs, published so callers can inject one."""
+    """The model surface Screener needs, published so callers can inject one."""
 
     def call_structured(
         self,
@@ -423,7 +423,7 @@ def load_config(path: str) -> GateConfig:
 
     Cached on the file's modification time. A bank is 80 questions of prose and
     parsing all seven takes most of a second, which is fine once per run and not
-    fine for `available_gates` in a loop — the config route asks whether Expert can
+    fine for `available_gates` in a loop — the config route asks whether Screener can
     read each document type, and without this that endpoint spent nine seconds
     re-parsing the same files. Keying on mtime rather than path alone keeps a
     hand-edited bank picked up immediately, which matters because editing these by
@@ -579,7 +579,7 @@ def available_gates(org: str, intervention_class: str | None = None) -> list[Gat
     that was never going to answer them. Surfaced where the gate is chosen rather than as
     an error after choosing.
 
-    Which gates exist is Expert's fact. Callers that present them read this rather
+    Which gates exist is Screener's fact. Callers that present them read this rather
     than the config directory, and rather than a copy in TypeScript that could
     disagree with the banks.
     """
@@ -615,7 +615,7 @@ def find_config(org: str, gate: str) -> GateConfig:
         config = load_config(str(path))
         if config.org == org and config.gate_id == gate:
             return config
-    raise LookupError(f"No Expert question bank for org={org!r} gate={gate!r}")
+    raise LookupError(f"No Screener question bank for org={org!r} gate={gate!r}")
 
 
 def has_config(org: str, gate: str) -> bool:

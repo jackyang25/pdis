@@ -61,7 +61,7 @@ test("every tool asks for a passage the same way", () => {
   // Four pages each held the same useState and the same two callbacks, identical down to
   // the tab they switch to. That is how the annotation half would have been added to three
   // of them and forgotten in the fourth.
-  for (const tool of ["scout", "inspector", "aligner", "expert"]) {
+  for (const tool of ["scout", "inspector", "aligner", "screener"]) {
     const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
     assert.match(page, /useTraceFocus\(/, `${tool} hand-rolls its trace focus state`);
     assert.ok(

@@ -226,7 +226,7 @@ class UploadParityTests(unittest.TestCase):
     """The API refuses what the parser refuses, before a stream opens."""
 
     #: Every route that takes a document upload. All of them go through one guard.
-    DOCUMENT_ROUTES = ("chunker", "inspector", "scout", "aligner", "expert")
+    DOCUMENT_ROUTES = ("chunker", "inspector", "scout", "aligner", "screener")
 
     def test_supported_formats_are_accepted(self) -> None:
         self.assertEqual(

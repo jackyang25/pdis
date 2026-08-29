@@ -2,7 +2,7 @@
  * Every tool that produces a result offers openers, and none of them promises
  * something its tool does not do.
  *
- * Three tools had no entry and fell through to a single generic line, so Expert,
+ * Three tools had no entry and fell through to a single generic line, so Screener,
  * Chunker, and Searcher each opened with one chip while the others opened with
  * two. The gap was invisible because the fallback was valid text.
  */

@@ -32,9 +32,9 @@ import type { DocumentAnnotation } from "./document-trace.ts";
  * is changes what a reader does next. Filtering to partials is a list of the passages
  * that got close — the most useful thing in the trace.
  */
-export type ExpertDocumentTraceKind = "answered" | "partly_answered";
+export type ScreenerDocumentTraceKind = "answered" | "partly_answered";
 
-export type ExpertDocumentTraceRef = {
+export type ScreenerDocumentTraceRef = {
   questionId: string;
   discipline: string;
   question: string;
@@ -44,20 +44,20 @@ export type ExpertDocumentTraceRef = {
   requirement: QuestionAssessment["requirement"];
 };
 
-export type ExpertDocumentAnnotation = DocumentAnnotation<
-  ExpertDocumentTraceKind,
-  ExpertDocumentTraceRef
+export type ScreenerDocumentAnnotation = DocumentAnnotation<
+  ScreenerDocumentTraceKind,
+  ScreenerDocumentTraceRef
 >;
 
-export function buildExpertDocumentAnnotations(
+export function buildScreenerDocumentAnnotations(
   review: GateReview,
-): ExpertDocumentAnnotation[] {
+): ScreenerDocumentAnnotation[] {
   return review.disciplines.flatMap((discipline) =>
     discipline.questions
       .filter(citesADocument)
       .map((question) => ({
         id: question.id,
-        kind: question.state as ExpertDocumentTraceKind,
+        kind: question.state as ScreenerDocumentTraceKind,
         layerLabel: question.state === "answered" ? "Answered" : "Partly answered",
         // The discipline leads, because that is what a reader scanning the gutter
         // recognises; the id qualifies it for anyone matching against the bank.
@@ -67,7 +67,7 @@ export function buildExpertDocumentAnnotations(
         // row, which marks nothing.
         statusLabel: question.requirement === "required" ? "Required at this gate" : undefined,
         blockIds: question.cited_block_ids,
-        // Expert carries no quotes, only block ids, so annotations claim whole
+        // Screener carries no quotes, only block ids, so annotations claim whole
         // blocks. Searching block text for a phrase to underline would invent a
         // span the model never asserted.
         spans: [],
@@ -114,7 +114,7 @@ export function answersPerDocument(
   for (const block of review.blocks ?? []) byBlock.set(block.id, block.doc_id);
 
   const counts = new Map<string, number>();
-  for (const annotation of buildExpertDocumentAnnotations(review)) {
+  for (const annotation of buildScreenerDocumentAnnotations(review)) {
     // One question can cite passages from two documents. It counts once for each,
     // because the question here is "what did this document answer", not "how many
     // questions are there" — the panels own that total.

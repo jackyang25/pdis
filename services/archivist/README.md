@@ -5,7 +5,7 @@ Read what the Foundation's own product profiles have said before.
 ## Background
 
 Archivist is the one workspace tool that judges nothing. Inspector holds a document
-to a rubric, Scout to external evidence, Aligner to another document, and Expert to a
+to a rubric, Scout to external evidence, Aligner to another document, and Screener to a
 gate's question bank — each returns a verdict against an authority. Archivist's
 authority is the corpus itself, and a corpus is data rather than judgment, so what it
 returns is a selection of rows plus counts a reader could recompute from them. There is

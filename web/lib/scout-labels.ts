@@ -14,6 +14,7 @@
 // Relative specifiers keep their `.ts` extension: `node --test` resolves value
 // imports at runtime, so an extensionless path fails there even though tsc
 // accepts it. Type-only imports are erased and would work either way.
+import type { Tone } from "./tone.ts";
 import type {
   Conformity,
   EvidenceAssessment,
@@ -55,6 +56,23 @@ export const GROUNDING_LABEL: Record<EvidenceAssessment["strength"], string> = {
 };
 
 /** Whether prior work resembling this target exists. Never the outcome of it. */
+/**
+ * The tone each grounding verdict carries. Only the tone.
+ *
+ * Beside `GROUNDING_LABEL` for the reason stated there: the word and the colour are one
+ * decision about one verdict, and split across files they drift. They had, twice - the
+ * page held this map in tone words while the evidence map held it in colour words
+ * (`green`, `blue`, `amber`), so a strength was `info` in one tab and `blue` in another
+ * and nothing connected them.
+ */
+export const GROUNDING_TONE: Record<EvidenceAssessment["strength"], Tone> = {
+  well_grounded: "success",
+  partial: "info",
+  thin: "warning",
+  unsupported: "danger",
+  unknown: "neutral",
+};
+
 export const PRECEDENT_LABEL: Record<PrecedentSignal["precedent"], string> = {
   direct: "Direct precedent",
   adjacent: "Adjacent precedent",
@@ -98,6 +116,27 @@ const RECORD_TYPE_LABELS: Record<string, string> = {
  * the four are not failures at all. A TB incidence trend was never a candidate for
  * calibration, so "not calibrated" would name an attempt that never happened.
  */
+/** What a relation means for the document, on the shared scale. */
+export const RELATIONSHIP_TONE: Record<Match["relation"], Tone> = {
+  contradicts: "danger",
+  extends: "warning",
+  confirms: "success",
+  unrelated: "neutral",
+};
+
+/**
+ * Whether prior work of this kind went well. Never whether it resembles this target.
+ *
+ * `PRECEDENT_LABEL` needs no matching map: every value there is neutral, because how
+ * closely prior work matches this target is not good or bad news on its own.
+ */
+export const OUTCOME_TONE: Record<PrecedentSignal["outcome"], Tone> = {
+  favorable: "success",
+  mixed: "warning",
+  unfavorable: "danger",
+  unknown: "neutral",
+};
+
 export const DISPOSITION_LABEL: Record<
   QuantitativeStatementDisposition["disposition"],
   string

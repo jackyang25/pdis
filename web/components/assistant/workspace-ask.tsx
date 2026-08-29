@@ -11,7 +11,7 @@ import {
 import {
   useAlignerSession,
   useChunkerSession,
-  useExpertSession,
+  useScreenerSession,
   useInspectorSession,
   useSearcherSession,
   useScoutSession,
@@ -23,12 +23,12 @@ import { usePriorityDigestStore } from "@/lib/priority-digest";
 type WorkspaceResult = {
   id: string;
   // Every tool that produces a result the assistant can read. A tool absent here has
-  // a legend nothing ever reaches: Expert shipped with `EXPERT_LEGEND` registered and
+  // a legend nothing ever reaches: Screener shipped with `SCREENER_LEGEND` registered and
   // no session collected, so Ask could interpret a gate review it was never handed.
   result_type:
     | "inspector"
     | "aligner"
-    | "expert"
+    | "screener"
     | "scout"
     | "chunker"
     | "searcher";
@@ -64,7 +64,7 @@ export function WorkspaceAsk() {
   const chunker = useChunkerSession((state) => state.results);
   const inspector = useInspectorSession((state) => state.results);
   const aligner = useAlignerSession((state) => state.results);
-  const expert = useExpertSession((state) => state.results);
+  const screener = useScreenerSession((state) => state.results);
   const scout = useScoutSession((state) => state.results);
   const searcher = useSearcherSession((state) => state.results);
 
@@ -145,15 +145,15 @@ export function WorkspaceAsk() {
       );
     }
 
-    for (const entry of expert) {
-      const expert = entry.result;
+    for (const entry of screener) {
+      const screener = entry.result;
       // Named by the gate, because the same documents are triaged again at every one
       // and the gate is what distinguishes two reviews of the same set.
       addResult(
         entry.id,
-        "expert",
-        runLabel(expert.review.gate_label || "Gate review", entry.created_at),
-        expert.review,
+        "screener",
+        runLabel(screener.review.gate_label || "Gate review", entry.created_at),
+        screener.review,
       );
     }
 
@@ -201,7 +201,7 @@ export function WorkspaceAsk() {
       },
       resultCount: results.length,
     };
-  }, [aligner, chunker, digests, expert, inspector, scout, searcher, selected]);
+  }, [aligner, chunker, digests, screener, inspector, scout, searcher, selected]);
 
   return (
     <Ask

@@ -29,14 +29,14 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         title="Reference document requirements",
         builder_name="build_requirements_prompt",
         render=build_requirements_prompt,
-        # No framing slot, for the reason Expert has none: the comparison's question
+        # No framing slot, for the reason Screener has none: the comparison's question
         # and the document's role description reach the model in the user message, per
         # requirement, not interpolated into this prompt. The system prompt is the same
         # text for every edge, which is what a reader of the reference is being shown.
         framing_slot=None,
         result_fields=(
             "findings[].requirement",
-            "findings[].reference_block_ids",
+            "findings[].reference_spans",
         ),
         ui_labels=("requirement",),
     ),
@@ -52,7 +52,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
             "findings[].verdict",
             "findings[].statement",
             "findings[].gap",
-            "findings[].comparison_block_ids",
+            "findings[].comparison_spans",
         ),
         ui_labels=("meets", "exceeds", "falls short", "not comparable", "not addressed"),
     ),

@@ -157,19 +157,19 @@ test("no two maps in the suite disagree about one word", () => {
 test("reader-facing copy uses no em dash, in any tool", () => {
   // It hides whether a clause explains, qualifies, or restarts, which is the one thing a
   // reader needs from a connective in a sentence about evidence. The rule covered three
-  // Scout files and left eighteen in Expert's and Aligner's help panels, where the prose is
+  // Scout files and left eighteen in Screener's and Aligner's help panels, where the prose is
   // longest and the ambiguity costs most.
   //
   // Comments keep theirs: they are for whoever maintains this, not for a reader of a result.
   const files = [
     "components/scout-signal-help.tsx",
-    "components/expert-signal-help.tsx",
+    "components/screener-signal-help.tsx",
     "components/aligner-signal-help.tsx",
     "components/inspector-signal-help.tsx",
     "components/evidence-provenance.tsx",
     "components/excluded-measurements.tsx",
     "components/comparator-cohort.tsx",
-    "components/expert-coverage-strip.tsx",
+    "components/screener-coverage-strip.tsx",
   ];
   const offenders: string[] = [];
   for (const file of files) {

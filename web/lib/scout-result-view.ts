@@ -22,6 +22,7 @@ import type {
   Match,
   PrecedentSignal,
   Variable,
+  EvidenceStrength,
 } from "./api.ts";
 
 /**
@@ -420,6 +421,20 @@ export type RunHeadline = {
      and a source link. A second list of the same names is a second authority on the same
      fact, and the weaker one. */
   unfavorableFields: string[];
+  /**
+   * Every field by how well evidence supports its target, summing to `fieldCount`.
+   *
+   * Scout was the one tool whose metrics stated no distribution, and the reason given was
+   * that it has three axes over three denominators - grounding, precedent, calibration -
+   * so nothing sums. That is true of the three together and false of grounding alone,
+   * which every field has exactly one of.
+   *
+   * The buckets are `EvidenceStrength` plus one for a field the document never stated a
+   * target for. Those are not `unknown`: "we looked and could not tell" and "there was
+   * nothing to look at" are different answers, and folding them together would hide the
+   * figure that decides whether a run is worth reading at all.
+   */
+  groundingCounts: Record<EvidenceStrength | "not_stated", number>;
   wellGroundedCount: number;
   notStatedCount: number;
   unresolvedCount: number;
@@ -433,8 +448,22 @@ export function runHeadline(rows: FieldSummaryInput[]): RunHeadline {
   const named = (predicate: (row: FieldSummaryInput) => boolean) =>
     rows.filter(predicate).map((row) => row.variable.name);
   const conformities = rows.flatMap((row) => row.conformities);
+
+  const groundingCounts = {
+    well_grounded: 0, partial: 0, thin: 0, unsupported: 0, unknown: 0, not_stated: 0,
+  } as Record<EvidenceStrength | "not_stated", number>;
+  for (const row of rows) {
+    // Order matters: a field with no target has no grounding to report, whatever an
+    // assessment left over from an earlier state might say.
+    const bucket = !(row.variable.document_target || "").trim()
+      ? "not_stated"
+      : row.assessment?.strength ?? "unknown";
+    groundingCounts[bucket] += 1;
+  }
+
   return {
     unfavorableFields: named((row) => row.precedent?.outcome === "unfavorable"),
+    groundingCounts,
     wellGroundedCount: rows.filter((row) => row.assessment?.strength === "well_grounded")
       .length,
     // Stated by the document or not: the distinction the reader needs before reading any

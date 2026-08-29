@@ -6,7 +6,7 @@ export type Header = {
   indication: string;
 };
 
-export type ToolName = "chunker" | "aligner" | "expert" | "inspector" | "scout";
+export type ToolName = "chunker" | "aligner" | "screener" | "inspector" | "scout";
 
 export type DocumentType = {
   key: string;
@@ -637,12 +637,36 @@ export type IndicatorReading = {
  * disease.
  */
 
+/**
+ * One exact document quotation, and the block it was copied out of.
+ *
+ * The quote is never typed by a model. It selects a line range and deterministic code
+ * copies those lines from the block, which is what lets the trace underline a sentence
+ * instead of shading the table around it.
+ *
+ * Lives here rather than beside the trace that renders it: it is what the API sends,
+ * and three wire types spelled the shape out by hand before this existed.
+ */
+export type DocumentSpan = { quote: string; block_ids: string[] };
+
+/**
+ * Every block a set of spans reaches, in order, once each.
+ *
+ * Derived rather than sent. A finding carrying both its spans and a block list has one
+ * fact in two fields, and a reader trusting the citation is trusting them not to
+ * disagree. Mirrors `shared.spans.span_block_ids`, which is where the same rule is kept
+ * on the service side.
+ */
+export function spanBlockIds(spans: DocumentSpan[]): string[] {
+  return Array.from(new Set(spans.flatMap((span) => span.block_ids)));
+}
+
 export type Variable = {
   name: string;
   description: string;
   block_ids?: string[];
   document_target: string;
-  document_spans: Array<{ quote: string; block_ids: string[] }>;
+  document_spans: DocumentSpan[];
   definition_mode: "fixed" | "dynamic";
   target_resolved: boolean;
   target_resolution_reason: string;
@@ -684,11 +708,8 @@ export type QuantitativeTarget = {
     scope: string;
     reason: string;
   }>;
-  semantic_provenance: Record<keyof QuantitativeSemanticProfile, Array<{
-    quote: string;
-    block_ids: string[];
-  }>>;
-  provenance_spans: Array<{ quote: string; block_ids: string[] }>;
+  semantic_provenance: Record<keyof QuantitativeSemanticProfile, DocumentSpan[]>;
+  provenance_spans: DocumentSpan[];
   ai_recommendation: "confirm" | "exclude" | "flag";
   ai_review_reason: string;
   review_status: "needs_review" | "approved" | "rejected";
@@ -859,22 +880,20 @@ export const VERDICT_LABELS: Record<AlignmentVerdict, string> = {
 /**
  * One requirement, and what the document being measured does with it.
  *
- * Two citation lists that are not interchangeable: `reference_block_ids` is where the
- * bar is stated, `comparison_block_ids` is what was read to judge it. The service
- * contract checks each against its own document, so resolving either one lands a reader
- * in the file that actually says it.
+ * Two citation lists that are not interchangeable: `reference_spans` quote where the bar
+ * is stated, `comparison_spans` quote what was read to judge it. The service contract
+ * checks each against its own document and against its own text, so resolving either one
+ * lands a reader in the file that actually says it, on the line that says it.
  */
 export type AlignmentFinding = {
   requirement_id: string;
   edge_id: string;
   requirement: string;
-  reference_block_ids: string[];
+  reference_spans: DocumentSpan[];
   verdict: AlignmentVerdict;
   statement: string;
-  /** What the measured document would have to close. Only on the two verdicts that
-   * have a gap — `falls_short` and `not_comparable`. */
-  gap: string;
-  comparison_block_ids: string[];
+  /** Empty exactly on `not_addressed`, which is a claim about the absence of text. */
+  comparison_spans: DocumentSpan[];
 };
 
 /** One comparison Aligner declares, by document type, before any run. */
@@ -955,7 +974,7 @@ export async function fetchPriorityDigest(
   });
 }
 
-// --- Expert ------------------------------------------------------------------
+// --- Screener ------------------------------------------------------------------
 
 /** One declared stage gate, for a selector that has not chosen one yet. */
 export type GateSpec = {
@@ -992,6 +1011,34 @@ export type QuestionState =
  * that way can never be verified from the saved file. There is no third value, so
  * nothing can look cited without being so.
  */
+/**
+ * One tone per question state, on the shared scale.
+ *
+ * It lived in `screener-coverage-strip.tsx` as hand-written background classes, which
+ * made it a fifth tone vocabulary beside the four the scale already holds - and it was
+ * unreachable from the metrics row, which is why Screener's counts were the only ones
+ * with no dot beside them.
+ *
+ * `not_found` is `neutral`, matching Aligner's `not_addressed`: both say the material is
+ * silent on the subject, and silence is not a failure. Its own comment said so - "the
+ * strongest mark, because it is the actionable one, not because it is a failure" - and a
+ * danger tone would have made exactly the claim it was refusing.
+ */
+/** What each state is called where a reader sees it. */
+export const QUESTION_STATE_LABEL: Record<QuestionState, string> = {
+  answered: "Answered",
+  partly_answered: "Partly answered",
+  not_found: "Not found",
+  not_applicable: "N/A",
+};
+
+export const QUESTION_STATE_TONE: Record<QuestionState, Tone> = {
+  answered: "success",
+  partly_answered: "warning",
+  not_found: "neutral",
+  not_applicable: "neutral",
+};
+
 export type AnswerSource = "document" | "context";
 
 export type QuestionAssessment = {
@@ -1059,7 +1106,7 @@ export type GateReview = {
   blocks: ContentBlock[];
 };
 
-export type ExpertResponse = { review: GateReview };
+export type ScreenerResponse = { review: GateReview };
 
 export type StageProgress = { completed: number; total: number };
 export type StageEvent = { event: "stage"; name: string; completed?: number; total?: number };
@@ -1313,19 +1360,19 @@ export async function runAligner(
 }
 
 /**
- * The gates Expert can review for this org and intervention.
+ * The gates Screener can review for this org and intervention.
  *
  * Filtered by intervention on the service side, because a bank is written for the
  * modalities it names — the current ones derive from a drug milestone dictionary and ask
  * about synthetic routes and salt forms. So a modality no bank covers offers no gate,
  * which is the honest thing to show at the point of choosing.
  */
-export async function fetchExpertGates(
+export async function fetchScreenerGates(
   org: string,
   interventionClass: string,
 ): Promise<GateSpec[]> {
   const data = await jsonRequest<{ gates: GateSpec[] }>(
-    `/api/expert/gates?org=${encodeURIComponent(org)}`
+    `/api/screener/gates?org=${encodeURIComponent(org)}`
       + `&intervention=${encodeURIComponent(interventionClass)}`,
   );
   return data.gates;
@@ -1336,7 +1383,7 @@ export async function fetchExpertGates(
  * stored. Only the labels come back on the result, which is what lets an answer
  * name its source without the tool taking the content into its contract.
  */
-export async function runExpert(
+export async function runScreener(
   documents: { file: File; sourceType: string }[],
   configuration: {
     gate: string;
@@ -1351,7 +1398,7 @@ export async function runExpert(
    */
   contextItems: { label: string; file: File }[],
   onStage?: (stage: string, progress?: StageProgress) => void,
-): Promise<ExpertResponse> {
+): Promise<ScreenerResponse> {
   const form = new FormData();
   documents.forEach(({ file, sourceType }) => {
     form.append("files", file);
@@ -1362,7 +1409,7 @@ export async function runExpert(
     form.append("context_labels", label);
     form.append("context_files", file);
   });
-  return streamRequest("/api/expert/run", form, onStage);
+  return streamRequest("/api/screener/run", form, onStage);
 }
 
 // --- Ask: read-only, grounded chat over any result object ---

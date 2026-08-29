@@ -1,9 +1,15 @@
 import type { AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.ts";
-import { ALIGNMENT_VERDICTS, ALIGNMENT_VERDICT_TONE, VERDICT_LABELS } from "./api.ts";
+import {
+  ALIGNMENT_VERDICTS,
+  ALIGNMENT_VERDICT_TONE,
+  VERDICT_LABELS,
+  spanBlockIds,
+} from "./api.ts";
 import type {
   DocumentAnnotation,
   DocumentAnnotationEmphasis,
 } from "./document-trace.ts";
+import { traceSpans } from "./document-trace.ts";
 
 /**
  * Projects a finished alignment into shared document annotations.
@@ -42,8 +48,6 @@ export type AlignerDocumentTraceRef = {
   question: string;
   verdict: AlignmentVerdict;
   statement: string;
-  /** What the measured document would have to close. Only on the two verdicts with a gap. */
-  gap: string;
   /** Which side of the comparison this annotation is placed on. */
   side: "reference" | "comparison";
 };
@@ -56,7 +60,7 @@ export type AlignerDocumentAnnotation = DocumentAnnotation<
 /**
  * Which tone each verdict takes, from the set every tool's trace shares.
  *
- * `meets` and `exceeds` are `success` for the same reason Expert's `answered` is: the
+ * `meets` and `exceeds` are `success` for the same reason Screener's `answered` is: the
  * thing asked for is there. Grey would read as "nobody looked".
  *
  * `falls_short` and `not_comparable` are caution, not danger: falling short of a target
@@ -98,37 +102,34 @@ export function buildAlignerDocumentAnnotations(
       question: edge.question,
       verdict: finding.verdict,
       statement: finding.statement,
-      gap: finding.gap,
       side,
     });
 
     const annotations: AlignerDocumentAnnotation[] = [];
-    if (finding.reference_block_ids.length > 0) {
+    if (finding.reference_spans.length > 0) {
       annotations.push({
         id: `${finding.requirement_id}:requirement`,
         kind: "requirement",
         layerLabel: "Requirement",
         title: `${comparison} · ${finding.requirement_id}`,
         summary: finding.requirement,
-        blockIds: finding.reference_block_ids,
-        // Aligner records block lineage, not quotations. Searching a block for a phrase
-        // to underline would invent a span the model never asserted.
-        spans: [],
+        blockIds: spanBlockIds(finding.reference_spans),
+        spans: traceSpans(finding.reference_spans),
         // Neutral: the requirement side states what was asked, and claims nothing about
         // whether it was met. The verdict on the other document carries that.
         emphasis: { tone: "neutral", badge: "Requirement" },
         sourceRef: ref("reference"),
       });
     }
-    if (finding.comparison_block_ids.length > 0) {
+    if (finding.comparison_spans.length > 0) {
       annotations.push({
         id: `${finding.requirement_id}:verdict`,
         kind: finding.verdict,
         layerLabel: VERDICT_LABELS[finding.verdict],
         title: `${comparison} · ${finding.requirement_id}`,
         summary: finding.statement,
-        blockIds: finding.comparison_block_ids,
-        spans: [],
+        blockIds: spanBlockIds(finding.comparison_spans),
+        spans: traceSpans(finding.comparison_spans),
         emphasis: {
           tone: TONE[finding.verdict],
           badge: VERDICT_LABELS[finding.verdict],
@@ -178,6 +179,6 @@ export function findingsPerDocument(
 /** Findings with no lineage on the measured side, which is every `not_addressed`. */
 export function unplacedFindings(result: AlignmentResult): AlignmentFinding[] {
   return result.findings.filter(
-    (finding) => finding.comparison_block_ids.length === 0,
+    (finding) => finding.comparison_spans.length === 0,
   );
 }

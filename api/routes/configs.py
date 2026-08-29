@@ -45,10 +45,10 @@ def list_document_types() -> DocumentTypesResponse:
                     # Aligner uses the Chunker contract for both documents and
                     # owns one source-type-neutral alignment configuration.
                     "aligner": True,
-                    # Expert reads every document type. Its question banks are keyed
+                    # Screener reads every document type. Its question banks are keyed
                     # by gate and place no restriction on which documents a run may
                     # supply, so a parseable type is a usable one.
-                    "expert": True,
+                    "screener": True,
                     "inspector": _has_inspector_config(org, source_type, intervention),
                     "scout": _has_scout_config(org, source_type, intervention),
                 },

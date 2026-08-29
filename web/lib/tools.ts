@@ -2,7 +2,7 @@ export type ToolIcon =
   | "inspector"
   | "aligner"
   | "scout"
-  | "expert"
+  | "screener"
   | "chunker"
   | "searcher"
   | "archivist"
@@ -25,8 +25,8 @@ type ToolBase = {
    * What the tool reads, against the authority it is judged by, then what you
    * learn — one sentence, in that order.
    *
-   * Inspector, Aligner, Expert, and Scout are told apart by their authority alone —
-   * a rubric, the other documents, a gate's question bank, outside evidence — so
+   * Inspector, Aligner, Screener, and Scout are told apart by their authority alone —
+   * a rubric, the other documents, a stage gate's question bank, outside evidence — so
    * stating it in one shape is
    * what keeps their scopes legible. Never write what a tool does not do; if the
    * boundary is unclear, the positive statement is too vague.
@@ -54,6 +54,39 @@ type ToolBase = {
    * tool that judges nothing would have none to name and would state what it reports
    * and where that came from instead - do not invent an authority to make the
    * sentences match.
+   */
+  /**
+   * What this tool judges, against what, and what it is not.
+   *
+   * One grammar for all four, because a reader choosing between them is comparing:
+   * `<what is judged> against <the authority>: <what you learn>. <Territory>, not
+   * <the neighbour's territory>.`
+   *
+   * One grammar for every tool that reads documents:
+   *
+   *     <what is read>  against | across  <the authority>:  <what you learn>
+   *
+   * `against` for the four that judge, `across` for Archivist, which does not. The
+   * preposition is where the difference sits: you hold a document *against* a standard
+   * and you look *across* a corpus, and a reader meets that distinction before reading
+   * a word of the boundary clause on the page.
+   *
+   * Chunker and Searcher are outside it. They are operations rather than readings -
+   * they turn a file into blocks, or run a query - so they have no authority to name
+   * and their imperative grammar is correct for what they are.
+   *
+   * A card states what the tool judges and against what. The boundary clause - which
+   * territory it owns and which it leaves to a neighbour - lives on the tool's own page,
+   * where a reader who has chosen it has room to read it. On a catalogue of six, six
+   * boundary clauses is a second sentence on every card for a distinction that only
+   * matters once you are about to run one.
+   *
+   * No exception for Archivist, though it is the one tool that would need a different
+   * clause: it judges nothing, so it owns no territory to name, and what it needs headed
+   * off instead is a reader taking "past iTPPs required twelve months" as advice to
+   * require twelve months. Its limit arrives with its page, like everyone else's. One
+   * card carrying a sentence the other five do not is the inconsistency it was meant to
+   * fix.
    */
   description: string;
   /* No `capability`. It was a two-word label - "Leadership summary", "Evidence review" - and
@@ -95,18 +128,20 @@ export type ToolDefinition = WorkspaceToolDefinition | ExternalToolDefinition;
 export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
   {
     id: "archivist",
-    href: "/archivist",
+    // No `href` while this is coming soon. The card would not link either way - the card
+    // checks `comingSoon || !href` - but this is the only link to `/archivist` anywhere in
+    // the app, so leaving it would be a route offered by nothing and reachable by one
+    // stale value. The page under `app/archivist` is untouched and still answers if the
+    // URL is typed; what is being withdrawn is the way in.
     title: "Archivist",
     // Imperative, like Chunker and Searcher, and for the reason the family rule gives:
     // this performs a lookup rather than judging a document. It names no authority
     // because it has none - the corpus is its authority, and a corpus is data.
     description:
-      "Look up what past iTPPs and cTPPs required for an attribute, how many said nothing, and the quote behind each value.",
-    // The floor of the shared scale rather than a truer word for it. There is no model
-    // call on the read path - the corpus was built and reviewed in advance, so a query is
-    // a filter over a few hundred committed rows - but these are read side by side, and
-    // "instant" beside "approx. 20 min" is two scales rather than one comparison.
-    activity: "approx. 1 min",
+      "One attribute across every past iTPP and cTPP: what each one required, how many never mentioned it, and the line every value was read from.",
+    // No `activity`. It read "approx. 1 min", the floor of the shared scale, chosen so a
+    // corpus query would not sit beside "approx. 20 min" as a second scale. An estimate is
+    // a promise about a run, and there is nothing here to run yet.
     icon: "archivist",
     // Owned by the PST team, who write these profiles, rather than shared: no other
     // tool reads the corpus, which is what makes Chunker and Searcher shared.
@@ -115,14 +150,14 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     // rendering a verdict - which is a different axis from who owns it.
     workflow: "utility",
     delivery: "workspace",
-    availability: "available",
+    availability: "coming_soon",
   },
   {
     id: "inspector",
     href: "/inspector",
     title: "Inspector",
     description:
-      "One document against its rubric: what is missing, off-template, vague, or internally inconsistent.",
+      "One document against its rubric: whether it states what the template asks for, usably.",
     activity: "approx. 1 min",
     icon: "inspector",
     audience: "pst",
@@ -135,7 +170,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/scout",
     title: "Scout",
     description:
-      "One document’s targets against external evidence: whether its numbers hold up against comparable measurements and precedent.",
+      "One document’s targets against external evidence: whether its numbers hold up against comparable measurements and development precedent.",
     activity: "approx. 20 min",
     icon: "scout",
     audience: "pst",
@@ -148,8 +183,8 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/aligner",
     title: "Aligner",
     description:
-      "The iTPP, cTPP, and IPDP against each other: whether the candidate and the plan deliver what was asked for.",
-    // Same arithmetic as Expert's, one step longer: each comparison reads its
+      "The iTPP, cTPP, and IPDP against each other: whether each honours the one before it, requirement by requirement.",
+    // Same arithmetic as Screener's, one step longer: each comparison reads its
     // reference document once, then fans out over the requirements it found. Two
     // documents is one comparison; three is two, run in sequence.
     activity: "approx. 1 min",
@@ -160,17 +195,17 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     availability: "available",
   },
   {
-    id: "expert",
-    href: "/expert",
-    title: "Expert",
+    id: "screener",
+    href: "/screener",
+    title: "Screener",
     description:
-      "The iTPP, cTPP, and IPDP against the stage-gate criteria: what is still unresolved, and which reviewer it goes to.",
+      "The iTPP, cTPP, and IPDP against a stage gate’s question bank: what is still unanswered, and which discipline it goes to.",
     // Observed, not estimated. 80 questions at six concurrent is ~14 waves, and each
     // call returns one decision and one sentence — a few hundred bytes — against a
     // document context the provider caches after the first. The count of calls is not
     // what costs time here; the size of each answer is, and these are tiny.
     activity: "approx. 1 min",
-    icon: "expert",
+    icon: "screener",
     audience: "pst",
     workflow: "stage_gate",
     delivery: "workspace",
@@ -233,7 +268,7 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
     id: "ghide-roadmap-body-compiler",
     title: "GHIDE Roadmap Body Compiler",
     description:
-      "Turn evaluation findings and expert feedback into an organized roadmap of recommendations and actions.",
+      "Turn evaluation findings and screener feedback into an organized roadmap of recommendations and actions.",
     icon: "roadmap",
     audience: "ghide",
     workflow: "decision_workflow",

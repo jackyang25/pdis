@@ -1,4 +1,4 @@
-"""Expert: the bank loads, resolution is deterministic, and the contract holds.
+"""Screener: the bank loads, resolution is deterministic, and the contract holds.
 
 Resolution is where four of the five states are decided with no model involved, so
 it is the part worth testing hardest — a wrong state here is a wrong answer that no
@@ -13,7 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from services.chunker import ContentBlock
-from services.expert import (
+from services.screener import (
     ANSWER_SOURCES,
     MODEL_STATES,
     QUESTION_STATES,
@@ -32,8 +32,8 @@ from services.expert import (
     resolve_questions,
     validate_result_contract,
 )
-from services.expert.prompt_catalog import PROMPT_CATALOG
-from services.expert.stages.assessor import (
+from services.screener.prompt_catalog import PROMPT_CATALOG
+from services.screener.stages.assessor import (
     DECISION_NOT_FOUND,
     DECISION_FROM_CONTEXT,
     DECISION_FROM_DOCUMENT,
@@ -42,7 +42,7 @@ from services.expert.stages.assessor import (
     build_assessment_prompt,
 )
 
-CONFIGS = Path(__file__).resolve().parents[1] / "services" / "expert" / "configs"
+CONFIGS = Path(__file__).resolve().parents[1] / "services" / "screener" / "configs"
 
 
 def block(block_id: str, doc_id: str, source_type: str, content: str = "text") -> ContentBlock:
@@ -635,7 +635,7 @@ class AssessorTests(unittest.TestCase):
         self.assertEqual(result.cited_block_ids, [])
 
     def test_a_partial_answer_names_what_is_still_missing(self) -> None:
-        from services.expert.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
+        from services.screener.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
 
         client = FakeClient(
             {
@@ -660,7 +660,7 @@ class AssessorTests(unittest.TestCase):
 
     def test_a_partial_answer_with_no_account_is_refused(self) -> None:
         """That sentence is the only record of what the question leaves open."""
-        from services.expert.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
+        from services.screener.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
 
         client = FakeClient(
             {
@@ -704,7 +704,7 @@ class AssessorTests(unittest.TestCase):
 
     def test_a_partial_is_offered_even_without_context(self) -> None:
         """Completeness is independent of source, so it is never gated on context."""
-        from services.expert.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
+        from services.screener.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
 
         schema = assessment_schema(self.BLOCKS, [])
         self.assertIn(
@@ -780,7 +780,7 @@ class AssessorTests(unittest.TestCase):
         Reversed — as this was — each call had a different first line and shared no
         cacheable prefix, so the documents were paid for once per question.
         """
-        from services.expert.stages.assessor import build_user_message
+        from services.screener.stages.assessor import build_user_message
 
         message = build_user_message(
             spec("Q1"),
@@ -797,7 +797,7 @@ class AssessorTests(unittest.TestCase):
         can only mean the hint leaked — a block header legitimately names its own
         document type, which is a fact about the material rather than a judgment.
         """
-        from services.expert.stages.assessor import build_user_message
+        from services.screener.stages.assessor import build_user_message
 
         message = build_user_message(
             spec("Q1"),
@@ -809,10 +809,10 @@ class AssessorTests(unittest.TestCase):
 
 
 class PromptCatalogTests(unittest.TestCase):
-    def test_expert_publishes_its_single_prompt(self) -> None:
+    def test_screener_publishes_its_single_prompt(self) -> None:
         self.assertEqual(len(PROMPT_CATALOG), 1)
         entry = PROMPT_CATALOG[0]
-        self.assertEqual(entry.tool, "expert")
+        self.assertEqual(entry.tool, "screener")
         self.assertTrue(entry.render().strip())
 
     def test_the_published_prompt_is_the_variant_with_context(self) -> None:
@@ -839,7 +839,7 @@ class ReadingRuleTests(unittest.TestCase):
     def prompt(self) -> str:
         """The prompt as one line, because it is wrapped for reading and these probes
         are about what it says rather than where it breaks."""
-        from services.expert.stages.assessor import build_assessment_prompt
+        from services.screener.stages.assessor import build_assessment_prompt
 
         return " ".join(build_assessment_prompt(True).lower().split())
 

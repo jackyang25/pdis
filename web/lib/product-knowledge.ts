@@ -30,7 +30,7 @@ export type ArchitectureGraph = {
   id:
     | "inspector"
     | "aligner"
-    | "expert"
+    | "screener"
     | "scout"
     | "chunker"
     | "searcher"

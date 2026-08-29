@@ -21,8 +21,11 @@ from __future__ import annotations
 from typing import Any
 
 from shared.ai import request_structured
+from shared.spans import LINE_SPAN_JSON_INSTRUCTION, line_span_schema
 
 from services.chunker import ContentBlock
+
+from ..context import format_blocks, image_inputs, read_spans
 
 from ..models import (
     LLMClientProtocol,
@@ -59,20 +62,26 @@ For each requirement:
 - `text` is one short sentence (max 30 words) stating the requirement in the document's
   own terms, including any number, unit, population, or timeframe it gives. Write it so
   it stands alone: a reader who cannot see the document must know what is being asked.
-- `block_ids` MUST cite the exact supplied blocks the requirement was read from. A
+- `spans` MUST select the exact source lines the requirement was read from. A
   requirement with no citation cannot be checked, and an uncheckable bar is worse than
-  a missing one.
+  a missing one. Select the narrowest range that states the requirement: a table row
+  rather than the whole table, one sentence rather than the paragraph around it.
+
+{LINE_SPAN_JSON_INSTRUCTION}
 
 List them in the order the document states them. Do not merge two requirements because
 they are adjacent, and do not repeat one because it is mentioned twice — cite both
-blocks on the single requirement instead."""
+passages on the single requirement instead."""
 
 
 def requirements_schema(blocks: list[ContentBlock]) -> dict[str, Any]:
     """The closed shape the extraction must take.
 
-    `block_ids` is an enum of the blocks actually supplied, so a citation to something
-    that does not exist is unrepresentable rather than merely invalid.
+    A citation is a selected line range, never typed text. The model picks a block and
+    two line numbers and deterministic code copies those lines out, so a quotation that
+    appears in no document cannot be produced - and the block enum is the blocks actually
+    supplied, so a citation to something that does not exist is unrepresentable rather
+    than merely invalid.
 
     There is no cap on how many requirements may come back. The reference document is
     the authority for what it demands, and a cap would quietly redefine the bar as
@@ -89,15 +98,12 @@ def requirements_schema(blocks: list[ContentBlock]) -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["text", "block_ids"],
+                    "required": ["text", "spans"],
                     "properties": {
                         "text": {"type": "string"},
-                        "block_ids": {
+                        "spans": {
                             "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": [block.id for block in blocks],
-                            },
+                            "items": line_span_schema([block.id for block in blocks]),
                         },
                     },
                 },
@@ -118,7 +124,7 @@ def build_user_message(role: str, question: str, blocks: list[ContentBlock]) -> 
     return "\n\n".join([
         f"This document: {role}",
         f"The comparison that will use these requirements asks: {question}",
-        "Document blocks:\n" + _format_blocks(blocks),
+        "Document blocks:\n" + format_blocks(blocks),
     ])
 
 
@@ -140,7 +146,6 @@ def extract_requirements(
     system_prompt = build_requirements_prompt()
     user_message = build_user_message(role, question, blocks)
     schema = requirements_schema(blocks)
-    valid_block_ids = {block.id for block in blocks}
 
     first_error = "model returned no structured requirements"
     for attempt in range(2):
@@ -148,9 +153,9 @@ def extract_requirements(
         if attempt:
             message += (
                 "\n\nThe prior extraction failed the Aligner contract: "
-                f"{first_error}. Cite the exact supplied block IDs for every "
-                "requirement, and state each requirement in one self-contained "
-                "sentence."
+                f"{first_error}. Select real [line:N] ranges inside the supplied "
+                "blocks for every requirement, and state each requirement in one "
+                "self-contained sentence."
             )
         payload = request_structured(
             llm_client,
@@ -159,13 +164,13 @@ def extract_requirements(
             max_tokens=max_tokens,
             schema_name="aligner_requirements",
             schema=schema,
-            images=_image_inputs(blocks) or None,
+            images=image_inputs(blocks) or None,
         )
         try:
             if payload is None:
                 raise ValueError("model returned no structured requirements")
             return _parse_payload(
-                payload, edge_id=edge_id, valid_block_ids=valid_block_ids
+                payload, edge_id=edge_id, blocks=blocks
             )
         except ValueError as exc:
             first_error = str(exc)
@@ -183,7 +188,7 @@ def _parse_payload(
     payload: object,
     *,
     edge_id: str,
-    valid_block_ids: set[str],
+    blocks: list[ContentBlock],
 ) -> list[Requirement]:
     if not isinstance(payload, dict):
         raise ValueError("extraction must be an object")
@@ -208,42 +213,17 @@ def _parse_payload(
         if key in seen:
             continue
         seen.add(key)
-        block_ids = list(dict.fromkeys(_string_list(item.get("block_ids"))))
-        if not block_ids:
-            raise ValueError(f"requirement {index} cites no block")
-        unknown = [block_id for block_id in block_ids if block_id not in valid_block_ids]
-        if unknown:
+        spans = read_spans(item.get("spans"), blocks)
+        if not spans:
             raise ValueError(
-                f"requirement {index} cites block(s) not in the reference document: "
-                f"{unknown}"
+                f"requirement {index} selected no readable source lines in the "
+                "reference document"
             )
         requirements.append(
             Requirement(
                 id=requirement_id(edge_id, len(requirements) + 1),
                 text=text,
-                cited_block_ids=tuple(block_ids),
+                cited_spans=tuple(spans),
             )
         )
     return requirements
-
-
-def _string_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _format_blocks(blocks: list[ContentBlock]) -> str:
-    return "\n\n".join(
-        f"[{block.id}] ({block.source_type} · {block.block_type})\n{block.content}"
-        for block in blocks
-    )
-
-
-def _image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
-    """Slide and figure images, so a requirement stated in a picture is readable."""
-    return [
-        {"block_id": block.id, "data_url": block.image.data_url()}
-        for block in blocks
-        if block.image
-    ]

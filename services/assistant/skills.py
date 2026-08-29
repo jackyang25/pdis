@@ -47,7 +47,7 @@ SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 # when a skill is offered. It belongs here on the day a reading becomes something you can
 # keep, and not before.
 KNOWN_RESULT_TYPES = frozenset(
-    {"inspector", "aligner", "scout", "chunker", "searcher", "expert"}
+    {"inspector", "aligner", "scout", "chunker", "searcher", "screener"}
 )
 
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.S)

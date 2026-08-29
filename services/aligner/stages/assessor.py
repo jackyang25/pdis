@@ -12,9 +12,13 @@ a candidate that beat its target and one that missed it by years carried the sam
                     the requirement, so neither meeting nor missing can be claimed
     not_addressed   it says nothing on the subject
 
-The schema offers only the comparison document's block IDs, so a verdict cannot be
+The schema offers only the comparison document's blocks, so a verdict cannot be
 justified by citing the document that set the bar. That is the one guarantee worth
 having here: "the candidate says X" always points into the candidate's own file.
+
+The citation is a selected line range, not typed text: `shared.spans` copies the chosen
+lines out of the block, so the sentence a reader sees underlined is the document's, never
+the model's recollection of it.
 """
 
 from __future__ import annotations
@@ -22,8 +26,11 @@ from __future__ import annotations
 from typing import Any
 
 from shared.ai import request_structured
+from shared.spans import LINE_SPAN_JSON_INSTRUCTION, line_span_schema
 
 from services.chunker import ContentBlock
+
+from ..context import format_blocks, image_inputs, read_spans
 
 from ..models import (
     ALIGNMENT_VERDICTS,
@@ -31,7 +38,6 @@ from ..models import (
     LLMClientProtocol,
     Requirement,
     VERDICTS_REQUIRING_CITATION,
-    VERDICTS_REQUIRING_GAP,
 )
 
 # One requirement per request. Another requirement in this prompt would influence the
@@ -60,58 +66,81 @@ def build_assessment_prompt() -> str:
 
 Return ONLY valid JSON. No markdown fences, no preamble, no explanation.
 
+What honouring a requirement means depends on the kind of document this is, and the
+first line of the message tells you which one you are reading.
+
+- A **profile** — an intervention or candidate target product profile — honours a
+  requirement by STATING A VALUE that satisfies it. Committing to numbers is its job.
+- A **plan** — an integrated product development plan — honours a commitment by
+  CONTAINING THE WORK directed at it: a study, an activity, a milestone, a decision
+  point. Saying how is its job, and restating the number is not. A plan that names the
+  work honours the commitment even though it states no value of its own; a plan that
+  repeats the number and schedules nothing does not.
+
+Judge presence, never sufficiency. Whether stated work is enough to reach a target, or
+whether a target is achievable at all, is not answerable from these two documents and
+is not what you are being asked.
+
 Verdicts:
-- meets: this document states something that satisfies the requirement. Cite the blocks.
-- exceeds: it states something better than the requirement asks — sooner, cheaper,
-  longer, broader. Cite the blocks, and say in `gap` nothing at all.
-- falls_short: it addresses the requirement and states less than it asks. Cite the
-  blocks, and put in `gap` one short sentence naming the distance — what the
-  requirement asks for against what this document offers.
+- meets: this document honours the requirement — a profile by stating a value that
+  satisfies it, a plan by carrying the work for it. Cite the blocks.
+- exceeds: it honours the requirement beyond what was asked — sooner, cheaper, longer,
+  broader, or more work than the commitment needs. Cite the lines.
+- falls_short: it addresses the requirement and honours only part of it — a value below
+  the bar, or work reaching only some of what was committed to. Cite the lines.
 - not_comparable: it addresses the same subject but not in terms that can be measured
   against the requirement — a qualitative claim against a numeric bar, a different
-  population, a different endpoint. Cite the blocks, and put in `gap` one short
-  sentence naming what would have to be stated for the two to be comparable. Use this
-  rather than guessing: reporting `falls_short` here would assert this document is
-  worse, which it does not say.
-- not_addressed: nothing in this document speaks to the requirement. Leave `block_ids`
-  empty and `gap` blank. This is the right answer for a requirement this document was
+  population, a different endpoint. Cite the lines. Use this rather than guessing:
+  reporting `falls_short` here would assert this document is worse, which it does not
+  say.
+- not_addressed: nothing in this document speaks to the requirement. Leave `spans`
+  and `statement` empty. This is the right answer for a requirement this document was
   never meant to carry as much as for one it should have.
 
-Lineage is required, not optional. Every verdict except `not_addressed` MUST cite the
-exact supplied block IDs it was read from. A citation you cannot point at is worse than
-reporting the requirement unaddressed.
+Lineage is required, not optional. Every verdict except `not_addressed` MUST select the
+exact source lines it was read from. A citation you cannot point at is worse than
+reporting the requirement unaddressed. Select the narrowest range that carries the
+answer: a table row rather than the whole table, one sentence rather than the paragraph
+around it.
 
-`statement` is one short factual sentence (max 25 words) saying what this document
-states on the subject, or that it states nothing. Describe the document; do not instruct
-the reader, and do not restate the requirement.
+{LINE_SPAN_JSON_INSTRUCTION}
 
-`gap` is one short sentence (max 25 words), on `falls_short` and `not_comparable` and
-nowhere else. It is read as the thing to take back to whoever wrote this document, so
-name what is needed rather than what is absent: "24-month shelf life against the 36
-months required" rather than "the shelf life is not good enough"."""
+`statement` is the only sentence you write, and it is one short factual sentence (max
+25 words) saying what this document does about the subject — the value a profile states,
+or the work a plan carries.
+
+Leave it empty on `not_addressed`. "This document states nothing about X" is the verdict
+in a sentence, under a heading that already names X.
+
+Describe the document. Do not instruct the reader, do not restate the requirement, and
+do not name the distance between the two: the requirement is shown directly above your
+sentence, so "24-month shelf life" against a bar of 36 months is the whole finding and
+"24 months against the 36 required" only says the bar again.
+
+Do not name the document either. Start with the subject, not with what kind of file this
+is: "The optimistic dosing schedule is a single IM dose", never "The candidate states a
+single IM dose". The reader is shown which document your sentence describes, on the same
+line as your sentence, so the prefix is four words of chrome before every finding - and
+it reads as a claim about the document when the fact is about the product."""
 
 
 def assessment_schema(blocks: list[ContentBlock]) -> dict[str, Any]:
     """The closed shape one verdict must take.
 
-    `block_ids` enumerates the **comparison** document's blocks and nothing else, which
-    is how the direction of the comparison survives into the citation: the model cannot
-    prove a candidate meets a bar by pointing at the document that set it.
+    The block enum offers the **comparison** document and nothing else, which is how the
+    direction of the comparison survives into the citation: the model cannot prove a
+    candidate meets a bar by pointing at the document that set it.
     """
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["verdict", "statement", "gap", "block_ids"],
+        "required": ["verdict", "statement", "spans"],
         "properties": {
             "verdict": {"type": "string", "enum": list(ALIGNMENT_VERDICTS)},
             "statement": {"type": "string"},
-            # Always present, blank unless the verdict requires it. A conditional
-            # requirement is the one thing this schema cannot express, so the verdict
-            # carries the condition and code checks the pairing.
-            "gap": {"type": "string"},
-            "block_ids": {
+            "spans": {
                 "type": "array",
-                "items": {"type": "string", "enum": [block.id for block in blocks]},
+                "items": line_span_schema([block.id for block in blocks]),
             },
         },
     }
@@ -138,7 +167,7 @@ def build_user_message(
     return "\n\n".join([
         f"This document: {role}",
         f"The question being answered: {question}",
-        "Document blocks:\n" + _format_blocks(blocks),
+        "Document blocks:\n" + format_blocks(blocks),
         f"Requirement to check ({requirement.id}):\n{requirement.text}",
     ])
 
@@ -157,7 +186,6 @@ def assess_requirement(
     system_prompt = build_assessment_prompt()
     user_message = build_user_message(requirement, role, question, blocks)
     schema = assessment_schema(blocks)
-    valid_block_ids = {block.id for block in blocks}
 
     first_error = "model returned no structured verdict"
     for attempt in range(2):
@@ -165,9 +193,8 @@ def assess_requirement(
         if attempt:
             message += (
                 "\n\nThe prior verdict failed the Aligner contract: "
-                f"{first_error}. Cite the exact supplied block IDs unless the "
-                "requirement is not addressed at all, and name the distance in `gap` "
-                "when the document falls short or cannot be compared."
+                f"{first_error}. Select real [line:N] ranges inside the supplied "
+                "blocks unless the requirement is not addressed at all."
             )
         payload = request_structured(
             llm_client,
@@ -176,7 +203,7 @@ def assess_requirement(
             max_tokens=max_tokens,
             schema_name="aligner_requirement_verdict",
             schema=schema,
-            images=_image_inputs(blocks) or None,
+            images=image_inputs(blocks) or None,
         )
         try:
             if payload is None:
@@ -185,7 +212,7 @@ def assess_requirement(
                 payload,
                 requirement=requirement,
                 edge_id=edge_id,
-                valid_block_ids=valid_block_ids,
+                blocks=blocks,
             )
         except ValueError as exc:
             first_error = str(exc)
@@ -204,7 +231,7 @@ def _parse_payload(
     *,
     requirement: Requirement,
     edge_id: str,
-    valid_block_ids: set[str],
+    blocks: list[ContentBlock],
 ) -> AlignmentFinding:
     if not isinstance(payload, dict):
         raise ValueError("verdict must be an object")
@@ -213,59 +240,27 @@ def _parse_payload(
         raise ValueError(f"unknown verdict {verdict!r}")
 
     statement = str(payload.get("statement") or "").strip()
-    if not statement:
-        raise ValueError("every verdict must carry a statement")
+    # Silence has nothing to describe: the sentence would be the verdict again, under a
+    # heading that already names the requirement. Every other verdict says what this
+    # document does about it, which the verdict alone cannot.
+    if verdict == "not_addressed":
+        statement = ""
+    elif not statement:
+        raise ValueError(f"{verdict} must say what this document does about the subject")
 
     finding = requirement.finding(edge_id, verdict)  # type: ignore[arg-type]
     finding.statement = statement
 
-    gap = str(payload.get("gap") or "").strip()
-    if verdict in VERDICTS_REQUIRING_GAP and not gap:
-        raise ValueError(
-            f"{verdict} must name the distance from the requirement, because that "
-            "sentence is the only account of what is actually missing"
-        )
-    if gap and verdict not in VERDICTS_REQUIRING_GAP:
-        raise ValueError(
-            f"{verdict} cannot carry a gap: the requirement is either satisfied or "
-            "not addressed at all"
-        )
-    finding.gap = gap
-
-    block_ids = list(dict.fromkeys(_string_list(payload.get("block_ids"))))
+    spans = read_spans(payload.get("spans"), blocks)
     if verdict in VERDICTS_REQUIRING_CITATION:
-        if not block_ids:
-            raise ValueError(f"{verdict} must cite the passages it was read from")
-        unknown = [block_id for block_id in block_ids if block_id not in valid_block_ids]
-        if unknown:
+        if not spans:
             raise ValueError(
-                f"cited block(s) that are not in the document being checked: {unknown}"
+                f"{verdict} must select the source lines it was read from, inside the "
+                "document being checked"
             )
-    elif block_ids:
+    elif spans:
         raise ValueError(
             "not_addressed cannot cite a passage: it is a claim about the absence of one"
         )
-    finding.comparison_block_ids = block_ids
+    finding.comparison_spans = spans
     return finding
-
-
-def _string_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _format_blocks(blocks: list[ContentBlock]) -> str:
-    return "\n\n".join(
-        f"[{block.id}] ({block.source_type} · {block.block_type})\n{block.content}"
-        for block in blocks
-    )
-
-
-def _image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
-    """Slide and figure images, so a commitment made in a picture is readable."""
-    return [
-        {"block_id": block.id, "data_url": block.image.data_url()}
-        for block in blocks
-        if block.image
-    ]

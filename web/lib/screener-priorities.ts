@@ -1,10 +1,10 @@
 import type { GateReview, QuestionAssessment } from "./api.ts";
 
 /**
- * What Expert counts, and how its result view slices the questions.
+ * What Screener counts, and how its result view slices the questions.
  *
- * There is no `PriorityItem` selector here. Expert declines the shared
- * `PriorityPanel` — see the note at its call site in `app/expert/page.tsx` — because
+ * There is no `PriorityItem` selector here. Screener declines the shared
+ * `PriorityPanel` — see the note at its call site in `app/screener/page.tsx` — because
  * a 40-60 word gate question has nowhere to go in that shape, and the panel restated
  * a list that was already flat. `questionsInState` feeds the panels instead, which
  * carry the question alongside the statement about it.
@@ -16,11 +16,11 @@ import type { GateReview, QuestionAssessment } from "./api.ts";
  * It no longer says "each one also appears in its discipline below", because the
  * duplicate list it referred to is gone.
  */
-export const EXPERT_ORDER_NOTE =
-  "Wording is Expert's. The order is not: questions appear in the order the "
+export const SCREENER_ORDER_NOTE =
+  "Wording is Screener's. The order is not: questions appear in the order the "
   + "question bank asks them, discipline by discipline. Nothing here is ranked.";
 
-export const EXPERT_EMPTY_MESSAGE =
+export const SCREENER_EMPTY_MESSAGE =
   "Every question this gate asks is answered by the material supplied.";
 
 /**

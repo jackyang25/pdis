@@ -30,7 +30,7 @@ is complete, whether two documents agree, and whether stated targets are
 supported by external evidence. PDIS keeps those responsibilities separate
 instead of collapsing them into one score.
 
-The system is stateless. Inspector, Aligner, Expert, and Scout produce portable,
+The system is stateless. Inspector, Aligner, Screener, and Scout produce portable,
 versioned result files containing their parsed source blocks and retained
 visuals. Imported final results are read-only and Assistant never performs a new
 search.
@@ -109,7 +109,7 @@ export/import is the durable boundary.
 | [Inspector](services/inspector/README.md) | Grade document completeness, adherence, rigor, and consistency.     |
 | [Aligner](services/aligner/README.md)     | Check one document against another's requirements, one requirement at a time. |
 | [Scout](services/scout/README.md)         | Test document targets against evidence, comparators, and precedent. |
-| [Expert](services/expert/README.md)       | Decide which stage-gate questions the supplied documents answer.    |
+| [Screener](services/screener/README.md)       | Decide which stage-gate questions the supplied documents answer.    |
 | [Archivist](services/archivist/README.md) | Report what past profiles required for an attribute, and how many said nothing. |
 | [Chunker](services/chunker/README.md)     | Produce ordered, citable text, table, and image blocks.             |
 | [Searcher](services/searcher/README.md)   | Execute normalized retrieval across registered evidence sources.    |

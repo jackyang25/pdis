@@ -3,10 +3,13 @@ import {
   displayAttributeLabel,
   sourceDisplayLabel,
   GROUNDING_LABEL,
+  GROUNDING_TONE,
   RELATIONSHIP_LABEL,
   PRECEDENT_LABEL,
   OUTCOME_LABEL,
+  OUTCOME_TONE,
 } from "./scout-labels.ts";
+import type { Tone } from "./tone.ts";
 import type {
   Conformity,
   EvidenceAssessment,
@@ -20,17 +23,11 @@ export { displayAttributeLabel };
 
 export type EvidenceMapNodeKind = "document" | "field" | "insight" | "source";
 
-export type EvidenceMapSignalTone =
-  | "neutral"
-  | "blue"
-  | "amber"
-  | "red"
-  | "green";
 
 export type EvidenceMapSignal = {
   label: string;
   value: string;
-  tone: EvidenceMapSignalTone;
+  tone: Tone;
 };
 
 export type EvidenceMapSource = {
@@ -93,28 +90,9 @@ export type EvidenceMapProjection = {
 
 export type EvidenceMapMode = "focused" | "all";
 
-const GROUNDING_TONE: Record<
-  EvidenceAssessment["strength"],
-  EvidenceMapSignalTone
-> = {
-  well_grounded: "green",
-  partial: "blue",
-  thin: "amber",
-  unsupported: "red",
-  unknown: "neutral",
-};
 
 
 
-const OUTCOME_TONE: Record<
-  PrecedentSignal["outcome"],
-  EvidenceMapSignalTone
-> = {
-  favorable: "green",
-  mixed: "amber",
-  unfavorable: "red",
-  unknown: "neutral",
-};
 
 
 

@@ -29,8 +29,10 @@ import {
   type EvidenceMapEdge,
   type EvidenceMapNode,
   type EvidenceMapNodeKind,
-  type EvidenceMapSignalTone,
 } from "@/lib/scout-evidence-map";
+import { RELATIONSHIP_TONE } from "@/lib/scout-labels";
+import { ToneDot } from "@/components/ui/tone-dot";
+import { TONE_STROKE } from "@/lib/tone";
 import {
   InterfaceNote,
   Literal,
@@ -63,34 +65,10 @@ const NODE_SIZE: Record<EvidenceMapNodeKind, { width: number; height: number }> 
   source: { width: 220, height: 106 },
 };
 
-// Relation marks and edges read from the shared tone tokens, so they follow the
-// active appearance instead of holding one fixed value for both.
-const RELATION_STYLE = {
-  contradicts: {
-    dot: "bg-[hsl(var(--tone-danger))]",
-    edge: "hsl(var(--tone-danger))",
-  },
-  extends: {
-    dot: "bg-[hsl(var(--tone-warning))]",
-    edge: "hsl(var(--tone-warning))",
-  },
-  confirms: {
-    dot: "bg-[hsl(var(--tone-success))]",
-    edge: "hsl(var(--tone-success))",
-  },
-  unrelated: {
-    dot: "bg-muted-foreground/40",
-    edge: "hsl(var(--muted-foreground))",
-  },
-} as const;
-
-const SIGNAL_DOT: Record<EvidenceMapSignalTone, string> = {
-  neutral: "bg-[hsl(var(--tone-neutral))]",
-  blue: "bg-[hsl(var(--tone-info))]",
-  amber: "bg-[hsl(var(--tone-warning))]",
-  red: "bg-[hsl(var(--tone-danger))]",
-  green: "bg-[hsl(var(--tone-success))]",
-};
+// A relation's mark and its edge are the same tone in two forms: the mark takes a class,
+// the edge is an SVG `stroke` and needs the value. Both come from `RELATIONSHIP_TONE`, so
+// a line and the dot at the end of it cannot disagree - which they could while this held
+// its own copy of all four colours.
 
 const KIND_ICON = {
   document: FileText,
@@ -101,7 +79,7 @@ const KIND_ICON = {
 
 function EvidenceNode({ data, selected }: NodeProps<EvidenceFlowNode>) {
   const Icon = KIND_ICON[data.kind];
-  const relationStyle = data.relation ? RELATION_STYLE[data.relation] : null;
+  const relationTone = data.relation ? RELATIONSHIP_TONE[data.relation] : null;
   return (
     <GraphNodeFrame selected={selected} className="px-3.5 py-3">
       <Handle
@@ -119,7 +97,7 @@ function EvidenceNode({ data, selected }: NodeProps<EvidenceFlowNode>) {
           <Icon className="h-3 w-3 shrink-0" />
           <span className="truncate">{data.eyebrow}</span>
         </div>
-        {relationStyle && <span className={cn("h-1.5 w-1.5 rounded-full", relationStyle.dot)} />}
+        {relationTone && <ToneDot tone={relationTone} />}
       </div>
       <p className="mt-2 line-clamp-2 text-xs font-semibold leading-[1.35] text-foreground">
         {data.title}
@@ -158,7 +136,7 @@ function edgeColor(edge: EvidenceMapEdge): string {
     edge.kind === "confirms" ||
     edge.kind === "unrelated"
   ) {
-    return RELATION_STYLE[edge.kind].edge;
+    return TONE_STROKE[RELATIONSHIP_TONE[edge.kind]];
   }
   // Structural edges carry no relation meaning, so they use the border token.
   return "hsl(var(--border))";
@@ -240,7 +218,7 @@ function NodeSummary({
 
 function Inspector({ node }: { node: EvidenceMapNode }) {
   const Icon = KIND_ICON[node.kind];
-  const relationStyle = node.relation ? RELATION_STYLE[node.relation] : null;
+  const relationTone = node.relation ? RELATIONSHIP_TONE[node.relation] : null;
   return (
     <GraphInspectorShell className="xl:h-[560px] xl:min-h-0 xl:overflow-y-auto xl:border-l xl:border-t-0">
       <div className={cn("flex items-center gap-2", EYEBROW)}>
@@ -254,9 +232,9 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
         <p className="mt-1 text-[11px] text-muted-foreground">{node.meta}</p>
       )}
 
-      {node.relation && relationStyle && (
+      {node.relation && relationTone && (
         <div className="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-foreground">
-          <span className={cn("h-1.5 w-1.5 rounded-full", relationStyle.dot)} />
+          <ToneDot tone={relationTone} />
           Relation to document target
         </div>
       )}
@@ -283,7 +261,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
                   infer from a stub is worse than a second line. The dot sits on
                   the first line's optical centre: (16px leading - 6px) / 2. */}
               <dd className="flex min-w-0 items-start gap-1.5 font-medium text-foreground">
-                <span className={cn("mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full", SIGNAL_DOT[signal.tone])} />
+                <ToneDot tone={signal.tone} className="mt-[5px]" />
                 <span className="text-end">{signal.value}</span>
               </dd>
             </div>

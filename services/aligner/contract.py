@@ -13,12 +13,13 @@ result that mixed them would read perfectly and be unfalsifiable.
 
 from __future__ import annotations
 
+from shared.spans import DocumentSpan, span_block_ids
+
 from .models import (
     ALIGNMENT_VERDICTS,
     AlignmentConfig,
     AlignmentResult,
     VERDICTS_REQUIRING_CITATION,
-    VERDICTS_REQUIRING_GAP,
     describe_document,
 )
 
@@ -74,9 +75,9 @@ def validate_result_contract(
 def _validate_findings(result: AlignmentResult) -> None:
     """Every finding belongs to a comparison, cites the right side, and is unique."""
     edges_by_id = {edge.edge_id: edge for edge in result.edges}
-    blocks_by_doc: dict[str, set[str]] = {}
+    blocks_by_doc: dict[str, dict[str, str]] = {}
     for block in result.blocks:
-        blocks_by_doc.setdefault(block.doc_id, set()).add(block.id)
+        blocks_by_doc.setdefault(block.doc_id, {})[block.id] = block.content
 
     seen: set[str] = set()
     for finding in result.findings:
@@ -102,52 +103,48 @@ def _validate_findings(result: AlignmentResult) -> None:
             raise ValueError(
                 f"Aligner finding {finding.requirement_id} states no requirement"
             )
-        if not finding.statement.strip():
-            raise ValueError(
-                f"Aligner finding {finding.requirement_id} carries no statement of "
-                "what the compared document says"
-            )
-
-        if bool(finding.gap.strip()) != (finding.verdict in VERDICTS_REQUIRING_GAP):
+        # Silence has nothing to describe, and every other verdict does. The sentence
+        # on a `not_addressed` finding was the verdict restated under a heading that
+        # already names the requirement.
+        if bool(finding.statement.strip()) == (finding.verdict == "not_addressed"):
             raise ValueError(
                 f"Aligner finding {finding.requirement_id} is {finding.verdict} and "
-                "must "
                 + (
-                    "name the distance from the requirement in `gap`"
-                    if finding.verdict in VERDICTS_REQUIRING_GAP
-                    else "carry no `gap`"
+                    "cannot carry a statement: there is nothing to describe"
+                    if finding.verdict == "not_addressed"
+                    else "must say what the compared document does about the subject"
                 )
             )
 
         # The bar is stated in the reference document, so that is where its citation
         # must point. A requirement citing the document being measured would mean the
         # comparison quietly checked a document against itself.
-        _require_blocks_in(
-            finding.reference_block_ids,
+        _require_spans_in(
+            finding.reference_spans,
             document=edge.reference_doc_id,
             blocks_by_doc=blocks_by_doc,
             what=f"requirement {finding.requirement_id}",
             side="reference",
         )
-        if not finding.reference_block_ids:
+        if not finding.reference_spans:
             raise ValueError(
                 f"Aligner requirement {finding.requirement_id} cites no passage in the "
                 "document that sets the bar, so the bar cannot be checked"
             )
 
         if finding.verdict in VERDICTS_REQUIRING_CITATION:
-            if not finding.comparison_block_ids:
+            if not finding.comparison_spans:
                 raise ValueError(
                     f"Aligner finding {finding.requirement_id} is {finding.verdict} "
                     "and must cite the passages it was read from"
                 )
-        elif finding.comparison_block_ids:
+        elif finding.comparison_spans:
             raise ValueError(
                 f"Aligner finding {finding.requirement_id} is {finding.verdict} and "
                 "cannot cite a passage: it is a claim about the absence of one"
             )
-        _require_blocks_in(
-            finding.comparison_block_ids,
+        _require_spans_in(
+            finding.comparison_spans,
             document=edge.comparison_doc_id,
             blocks_by_doc=blocks_by_doc,
             what=f"finding {finding.requirement_id}",
@@ -155,18 +152,41 @@ def _validate_findings(result: AlignmentResult) -> None:
         )
 
 
-def _require_blocks_in(
-    block_ids: list[str],
+def _require_spans_in(
+    spans: list[DocumentSpan],
     *,
     document: str,
-    blocks_by_doc: dict[str, set[str]],
+    blocks_by_doc: dict[str, dict[str, str]],
     what: str,
     side: str,
 ) -> None:
-    known = blocks_by_doc.get(document, set())
-    unknown = [block_id for block_id in block_ids if block_id not in known]
+    """Every cited passage names a block of this document, and is text in that block.
+
+    Two checks because there are two ways a citation lies. Naming the wrong document is
+    the one the direction of the comparison depends on. Quoting text the block does not
+    contain is the one the *quotation* depends on: the pipeline copies its quotes out of
+    the block deterministically, so this can only fail on a result assembled some other
+    way - which is exactly when a reader has no other way to find out.
+
+    Compared on normalised whitespace, because a quote is stored normalised and a block
+    keeps the line breaks the parse gave it. A table row spanning three source lines is
+    the same text either way, and it is the commonest thing worth quoting here.
+    """
+    known = blocks_by_doc.get(document, {})
+    unknown = [
+        block_id for block_id in span_block_ids(spans) if block_id not in known
+    ]
     if unknown:
         raise ValueError(
             f"Aligner {what} cites {unknown} on the {side} side, which is not in "
             f"{document!r}"
         )
+    for span in spans:
+        haystack = " ".join(
+            " ".join(known[block_id].split()) for block_id in span.block_ids
+        )
+        if span.quote not in haystack:
+            raise ValueError(
+                f"Aligner {what} quotes {span.quote!r} on the {side} side, which does "
+                f"not appear in the passage it cites"
+            )

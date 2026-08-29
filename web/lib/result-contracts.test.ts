@@ -13,7 +13,7 @@ import test from "node:test";
 
 import { RESULT_CONTRACTS, type ResultType } from "./result-contracts.ts";
 
-const TOOLS: ResultType[] = ["aligner", "expert", "inspector", "scout"];
+const TOOLS: ResultType[] = ["aligner", "screener", "inspector", "scout"];
 
 test("every tool has exactly one contract, and no tool is missing one", () => {
   assert.deepEqual(Object.keys(RESULT_CONTRACTS).sort(), [...TOOLS].sort());
@@ -99,11 +99,11 @@ test("Aligner refuses a result that cannot form a comparison", () => {
         requirement_id: "a-to-b/r-001",
         edge_id: "a-to-b",
         requirement: "Annual dosing.",
-        reference_block_ids: ["a:1"],
+        reference_spans: [{ quote: "cited", block_ids: ["a:1"] }],
         verdict: "meets",
         statement: "It states annual dosing.",
         gap: "",
-        comparison_block_ids: ["b:1"],
+        comparison_spans: [{ quote: "cited", block_ids: ["b:1"] }],
       },
     ],
   };
@@ -151,11 +151,11 @@ test("Aligner refuses a result whose findings cannot be placed or read", () => {
         requirement_id: "a-to-b/r-001",
         edge_id: "a-to-b",
         requirement: "Annual dosing.",
-        reference_block_ids: ["a:1"],
+        reference_spans: [{ quote: "cited", block_ids: ["a:1"] }],
         verdict: "meets",
         statement: "It states annual dosing.",
         gap: "",
-        comparison_block_ids: ["b:1"],
+        comparison_spans: [{ quote: "cited", block_ids: ["b:1"] }],
       },
     ],
   };

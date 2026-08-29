@@ -12,6 +12,12 @@ from typing import Iterable
 
 from services.chunker import ContentBlock
 
+from shared.spans import (
+    LINE_SPAN_JSON_INSTRUCTION,
+    line_addressable,
+    selected_source_lines,
+)
+
 from .models import Attribute
 
 WHOLE_DOCUMENT_CONTEXT_CHARS = 500_000
@@ -33,12 +39,6 @@ BLOCK_ID_JSON_INSTRUCTION = (
     "the [block:...] wrapper, shorten the ID, or invent an ID."
 )
 
-LINE_SPAN_JSON_INSTRUCTION = (
-    "Document text lines are labeled [line:N] within each [block:<id>]. For every "
-    "source span, select one complete bare block_id plus inclusive start_line and "
-    "end_line values exactly as displayed. Do not retype or paraphrase source text; "
-    "deterministic code will copy the selected lines from the original block."
-)
 
 
 def render_document_context(blocks: Iterable[ContentBlock]) -> str:
@@ -165,53 +165,20 @@ def rendered_block_texts(document_context: str) -> dict[str, str]:
 
 
 def render_line_addressable_context(document_context: str) -> str:
-    """Label physical source lines without changing their canonical text.
+    """Label every rendered block's source lines, leaving its header alone.
 
-    This wire view lets a model select source passages while deterministic code
-    remains solely responsible for copying exact quotations into result data.
+    The labelling itself is `shared.spans.line_addressable`; what is here is Scout's own
+    wire format - blocks separated by a blank line, each opening with a `[block:<id>]`
+    header that is addressed by ID rather than by line.
     """
     rendered_blocks = re.split(r"\n\n(?=\[block:[^\]]+\])", document_context)
     addressed: list[str] = []
     for rendered_block in rendered_blocks:
-        lines = rendered_block.splitlines()
-        if not lines:
+        header, _, content = rendered_block.partition("\n")
+        if not header:
             continue
-        header, content_lines = lines[0], lines[1:]
-        addressed.append(
-            "\n".join(
-                [header]
-                + [f"[line:{index}] {line}" for index, line in enumerate(content_lines, 1)]
-            )
-        )
+        addressed.append("\n".join([header, line_addressable(content)]).rstrip("\n"))
     return "\n\n".join(addressed)
-
-
-def selected_source_lines(
-    raw_span: object,
-    source_blocks: dict[str, str],
-) -> tuple[str, str] | None:
-    """Resolve one model-selected line range to exact canonical source text."""
-    if not isinstance(raw_span, dict):
-        return None
-    block_id = str(raw_span.get("block_id", "")).strip()
-    if block_id not in source_blocks:
-        return None
-    start_line = raw_span.get("start_line")
-    end_line = raw_span.get("end_line")
-    if (
-        isinstance(start_line, bool)
-        or isinstance(end_line, bool)
-        or not isinstance(start_line, int)
-        or not isinstance(end_line, int)
-    ):
-        return None
-    lines = source_blocks[block_id].splitlines()
-    if not (1 <= start_line <= end_line <= len(lines)):
-        return None
-    quote = "\n".join(lines[start_line - 1:end_line]).strip()
-    if not quote:
-        return None
-    return quote, block_id
 
 
 def validated_block_ids(raw: object, allowed: set[str]) -> list[str]:

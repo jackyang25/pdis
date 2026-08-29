@@ -68,9 +68,9 @@ const SUGGESTIONS: Record<string, string[]> = {
   aligner: ["Which requirements does the candidate fall short of?", "What is still to close?"],
   inspector: ["What needs the most attention?", "Summarize the cross-section conflicts."],
   scout: ["Which targets conflict with current evidence?", "Where is the evidence weakest?"],
-  // Expert reports only whether the supplied material answers each gate question,
+  // Screener reports only whether the supplied material answers each gate question,
   // so both openers stay on that axis rather than implying a verdict.
-  expert: ["Which gate questions are unanswered?", "What evidence is still needed?"],
+  screener: ["Which gate questions are unanswered?", "What evidence is still needed?"],
   // Chunker, Searcher and Archivist produce material rather than judgments; asking any
   // of them "what needs attention" would invite an assessment none of them made.
   // Archivist's second opener is the silence, which is the thing only it can answer.

@@ -1,6 +1,6 @@
 """Any file in, one body of prose out, and it knows nothing about the document.
 
-The reader is the whole file boundary for Expert's transient context. What it must not
+The reader is the whole file boundary for Screener's transient context. What it must not
 become is a parser with opinions: no document type, no section names, no expectation of
 headings or tables. It reads what the file says and hands it over, which is exactly why a
 format with no declared structure is safe here and refused for an upload.
@@ -14,7 +14,7 @@ from tempfile import TemporaryDirectory
 
 from docx import Document
 
-from services.expert import (
+from services.screener import (
     CONTEXT_SUFFIXES,
     MAX_CONTEXT_CHARACTERS,
     ContextReadError,

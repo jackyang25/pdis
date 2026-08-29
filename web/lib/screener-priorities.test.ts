@@ -1,5 +1,5 @@
 /**
- * What Expert counts, and the numbers a reader is asked to trust.
+ * What Screener counts, and the numbers a reader is asked to trust.
  *
  * The counts are derived rather than carried, so this is where "the figures sum to
  * the total" is actually guaranteed. If it stops holding, the header row silently
@@ -15,7 +15,7 @@ import {
   groupedByDiscipline,
   countRequiredInState,
   questionsInState,
-} from "./expert-priorities.ts";
+} from "./screener-priorities.ts";
 
 function question(
   id: string,

@@ -749,7 +749,7 @@ test("every tool adapter presents the same surface", () => {
   const ADAPTERS = [
     { module: "lib/scout-document-trace.ts", build: "buildScoutDocumentAnnotations" },
     { module: "lib/inspector-document-trace.ts", build: "buildInspectorDocumentAnnotations" },
-    { module: "lib/expert-document-trace.ts", build: "buildExpertDocumentAnnotations" },
+    { module: "lib/screener-document-trace.ts", build: "buildScreenerDocumentAnnotations" },
   ];
   for (const { module, build } of ADAPTERS) {
     const text = readFileSync(path.join(WEB_ROOT, module), "utf8");
@@ -775,7 +775,7 @@ test("no inspector renders a passage count in place of the passages", () => {
   const INSPECTORS = [
     "components/scout-document-trace.tsx",
     "components/inspector-document-trace.tsx",
-    "components/expert-document-trace.tsx",
+    "components/screener-document-trace.tsx",
   ];
   for (const module of INSPECTORS) {
     const text = readFileSync(path.join(WEB_ROOT, module), "utf8");
@@ -796,7 +796,7 @@ test("one meaning takes one tone, and every tool draws from the same four", () =
   // the same colour for two meanings, both break that — and neither is visible from
   // inside a single tool's file.
   const sources = [
-    "lib/expert-document-trace.ts",
+    "lib/screener-document-trace.ts",
     "lib/aligner-document-trace.ts",
     "lib/inspector-document-trace.ts",
   ].map((module) => readFileSync(path.join(WEB_ROOT, module), "utf8"));
@@ -810,8 +810,8 @@ test("one meaning takes one tone, and every tool draws from the same four", () =
   }
 
   // "The thing asked for is there" is success everywhere it appears.
-  const [expert, aligner] = sources;
-  assert.match(expert, /question\.state === "answered"\s*\n?\s*\? \{ tone: "success"/);
+  const [screener, aligner] = sources;
+  assert.match(screener, /question\.state === "answered"\s*\n?\s*\? \{ tone: "success"/);
   // Aligner's verdict tones live in `ALIGNMENT_VERDICT_TONE`, read by both the count row
   // and this trace, so the judgement is made once. The trace used to *translate* it,
   // because the trace layer called the middle tone `caution` while the tone system called

@@ -48,7 +48,7 @@ const PATH_TO_TOOL: Record<string, ToolName> = {
   "/inspector": "inspector",
   "/scout": "scout",
   "/aligner": "aligner",
-  "/expert": "expert",
+  "/screener": "screener",
 };
 
 /**
@@ -272,7 +272,7 @@ export function SourceTypeField({
  *
  * Deliberately says "what it is read against" rather than "which rubric": the type
  * selects Inspector's rubric and Scout's attribute configuration, but Aligner holds
- * one source-type-neutral configuration and Expert's bank is keyed by gate. Naming
+ * one source-type-neutral configuration and Screener's bank is keyed by gate. Naming
  * the rubric would be precise for two tools and false for two.
  *
  * It lives here rather than in each tool's copy because the sentence is about the

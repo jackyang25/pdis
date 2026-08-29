@@ -14,18 +14,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.ts";
+import type { AlignmentFinding, AlignmentResult, AlignmentVerdict , DocumentSpan} from "./api.ts";
 import { chainWarningText, chainWarnings } from "./aligner-chain.ts";
+
+/** One cited passage. The chain pairs on blocks, so only the block ID has to be real. */
+function cite(blockId: string): DocumentSpan {
+  return { quote: `Content of ${blockId}.`, block_ids: [blockId] };
+}
 
 function finding(
   overrides: Partial<AlignmentFinding> & Pick<AlignmentFinding, "requirement_id" | "edge_id" | "verdict">,
 ): AlignmentFinding {
   return {
     requirement: `Requirement ${overrides.requirement_id}`,
-    reference_block_ids: [],
+    reference_spans: [],
     statement: "The document states something.",
-    gap: "",
-    comparison_block_ids: [],
+    comparison_spans: [],
     ...overrides,
   };
 }
@@ -75,18 +79,16 @@ function chain(
         edge_id: "itpp-to-ctpp",
         verdict: upstreamVerdict,
         requirement: "Annual dosing.",
-        reference_block_ids: ["profile/b-0001"],
-        comparison_block_ids: upstreamBlocks,
-        gap: upstreamVerdict === "meets" || upstreamVerdict === "exceeds" ? "" : gap,
+        reference_spans: [cite("profile/b-0001")],
+        comparison_spans: upstreamBlocks.map(cite),
       }),
       finding({
         requirement_id: "ctpp-to-ipdp/r-001",
         edge_id: "ctpp-to-ipdp",
         verdict: downstreamVerdict,
         requirement: "Six-monthly dosing.",
-        reference_block_ids: downstreamBlocks,
-        comparison_block_ids: ["plan/b-0007"],
-        gap: downstreamVerdict === "falls_short" ? "Something." : "",
+        reference_spans: downstreamBlocks.map(cite),
+        comparison_spans: [cite("plan/b-0007")],
       }),
     ],
   };
@@ -98,7 +100,9 @@ test("a plan meeting a commitment that falls short upstream is linked", () => {
   assert.ok(warning, "the downstream finding should carry a warning");
   assert.equal(warning.upstreamRequirementId, "itpp-to-ctpp/r-001");
   assert.equal(warning.upstreamVerdict, "falls_short");
-  assert.equal(warning.gap, "Annual dosing against six-monthly offered.");
+  // No gap on the warning: it restated the upstream requirement, and a reader
+  // following the warning arrives where that requirement is the heading.
+  assert.ok(!("gap" in warning), "the warning carries a second sentence again");
   assert.equal(warning.upstreamReference, "iTPP");
   assert.equal(warning.sharedDocument, "cTPP");
   assert.deepEqual(warning.blockIds, ["candidate/b-0042"]);
@@ -124,7 +128,6 @@ test("not_comparable upstream is linked too, in its own words", () => {
   const warnings = chainWarnings(
     chain({
       upstreamVerdict: "not_comparable",
-      gap: "A dosing interval in months.",
     }),
   );
   const [warning] = warnings.get("ctpp-to-ipdp/r-001") ?? [];
@@ -145,7 +148,10 @@ test("the warning claims something about the passage, never about the requiremen
   const text = chainWarningText(warning);
   assert.match(text, /^This passage of the cTPP/);
   assert.doesNotMatch(text, /requirement/i);
-  assert.match(text, /Annual dosing against six-monthly offered\./);
+  // One sentence, and it ends there. It used to quote the upstream finding's `gap`,
+  // which restated that finding's requirement - so a reader following the warning
+  // arrived at a heading they had just been shown.
+  assert.match(text, /falls short of the iTPP\.$/);
 });
 
 test("the chain is read from the edges, not from document types", () => {
@@ -166,16 +172,15 @@ test("the chain is read from the edges, not from document types", () => {
       requirement_id: "a-to-b/r-001",
       edge_id: "a-to-b",
       verdict: "falls_short",
-      reference_block_ids: ["a/b-0001"],
-      comparison_block_ids: ["b/b-0001"],
-      gap: "Short of it.",
+      reference_spans: [cite("a/b-0001")],
+      comparison_spans: [cite("b/b-0001")],
     }),
     finding({
       requirement_id: "b-to-c/r-001",
       edge_id: "b-to-c",
       verdict: "meets",
-      reference_block_ids: ["b/b-0001"],
-      comparison_block_ids: ["c/b-0001"],
+      reference_spans: [cite("b/b-0001")],
+      comparison_spans: [cite("c/b-0001")],
     }),
   ];
 
@@ -209,9 +214,8 @@ test("two upstream findings on one passage are two things to read", () => {
       edge_id: "itpp-to-ctpp",
       verdict: "falls_short",
       requirement: "Presented in a single-dose vial.",
-      reference_block_ids: ["profile/b-0002"],
-      comparison_block_ids: ["candidate/b-0042"],
-      gap: "Single-dose against ten-dose offered.",
+      reference_spans: [cite("profile/b-0002")],
+      comparison_spans: [cite("candidate/b-0042")],
     }),
   );
   const warnings = chainWarnings(result).get("ctpp-to-ipdp/r-001") ?? [];

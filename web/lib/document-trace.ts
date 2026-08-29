@@ -679,3 +679,28 @@ export function strongestEmphasis<TKind extends string, TRef>(
   }
   return strongest;
 }
+
+/**
+ * Wire spans as the trace draws them: exact, deduplicated, camelCased.
+ *
+ * The API sends `block_ids` and an annotation holds `blockIds`, so something has to
+ * cross that boundary; this is the one place that does. It also drops the two spans an
+ * annotation cannot use - one with no quote, and one with no block to put the quote in -
+ * because a span that reaches `markCitedText` with an empty quote matches everything.
+ *
+ * Scout had this to itself while Aligner passed `spans: []` and settled for shading whole
+ * blocks. Two tools underlining the same way is the point of it being here.
+ */
+export function traceSpans(
+  spans: Array<{ quote: string; block_ids: string[] }>,
+): Array<{ quote: string; blockIds: string[] }> {
+  const seen = new Set<string>();
+  return spans.flatMap((span) => {
+    const quote = span.quote.trim();
+    const blockIds = Array.from(new Set(span.block_ids));
+    const key = `${quote}\u241f${blockIds.join("\u241f")}`;
+    if (!quote || !blockIds.length || seen.has(key)) return [];
+    seen.add(key);
+    return [{ quote, blockIds }];
+  });
+}

@@ -43,7 +43,7 @@ export const ATTACHMENT_FORMAT_HINT = `${DOCUMENT_FORMAT_HINT}, or image files`;
  * Wider than the analysis path, and the gap is the point: an uploaded document becomes
  * citable blocks, so its structure has to be declared in the file. Context is read once
  * into a prompt and never chunked, cited, or quote-checked, so a format that declares
- * nothing loses nothing. `services/expert/context.py` owns the same list; the test keeps
+ * nothing loses nothing. `services/screener/context.py` owns the same list; the test keeps
  * the two agreeing.
  */
 export const CONTEXT_SUFFIXES = [".pdf", ".docx", ".txt", ".md"] as const;

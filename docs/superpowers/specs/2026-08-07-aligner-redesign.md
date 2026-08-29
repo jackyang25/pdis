@@ -87,7 +87,7 @@ Not units extracted from both sides and linked. Extraction reads **only** the
 reference document, and each requirement is then judged against the other, one
 call each. That is what makes the comparison asymmetric by construction rather
 than by a labelling convention, and it is the same shape as Inspector walking an
-authored rubric and Expert walking a question bank — a fixed list of items, one
+authored rubric and Screener walking a question bank — a fixed list of items, one
 judgement each, against a single authority.
 
 Extraction is one call per comparison, because how many requirements a document
@@ -106,7 +106,7 @@ dosing" against "annual dosing" is neither worse nor silent, and forcing it into
 `falls_short` asserts something the text does not say.
 
 `falls_short` and `not_comparable` carry a required `gap`; the other three refuse
-one. Same reasoning as Expert's `missing`: the sentence a reader acts on should be
+one. Same reasoning as Screener's `missing`: the sentence a reader acts on should be
 a field the contract enforces, not a convention prose usually follows.
 
 ### 4. What shipped
@@ -118,7 +118,7 @@ a field the contract enforces, not a convention prose usually follows.
 | Identity | `edge_id` on `AlignmentEdge`, `requirement_id` namespaced by it |
 | Contract | each side's citations checked against its own document; one verdict per requirement; the gap and citation rules enforced both ways |
 | Envelope | `ANALYSIS_VERSIONS.aligner` 2 → 3; a v2 file carries no findings, so it would render as a run that compared nothing |
-| Prompts | two `CatalogEntry` declarations, neither with a framing slot — the role and the question travel in the user message, as Expert's questions do |
+| Prompts | two `CatalogEntry` declarations, neither with a framing slot — the role and the question travel in the user message, as Screener's questions do |
 | UI | `PriorityPanel`, a five-verdict count row, per-comparison groups, a Documents trace placing **both** sides, `AlignerSignalHelp` |
 | Chain | `web/lib/aligner-chain.ts` links two comparisons at the passage they share, so a plan delivering a commitment that falls short upstream is visible without reading both lists |
 | Tests | `test_aligner.py` (57) and `test_aligner_pipeline.py` (6) |

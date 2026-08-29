@@ -2,7 +2,7 @@
 
 import { PromptReference } from "@/components/docs/prompt-reference";
 import { ALIGNER_TOPIC_LIST } from "@/components/aligner-signal-help";
-import { EXPERT_TOPIC_LIST } from "@/components/expert-signal-help";
+import { SCREENER_TOPIC_LIST } from "@/components/screener-signal-help";
 import { INSPECTOR_TOPIC_LIST } from "@/components/inspector-signal-help";
 import { SCOUT_TOPIC_LIST } from "@/components/scout-signal-help";
 import type { SignalTopic } from "@/components/ui/signal-help";
@@ -24,7 +24,7 @@ const PUBLISHED_TOOLS: readonly string[] = [
   "chunker",
   "inspector",
   "aligner",
-  "expert",
+  "screener",
   "scout",
 ];
 
@@ -39,7 +39,7 @@ const TOOL_TOPICS: Partial<Record<ToolKey, readonly SignalTopic[]>> = {
   scout: SCOUT_TOPIC_LIST,
   inspector: INSPECTOR_TOPIC_LIST,
   aligner: ALIGNER_TOPIC_LIST,
-  expert: EXPERT_TOPIC_LIST,
+  screener: SCREENER_TOPIC_LIST,
 };
 
 function isPublished(toolId: string): toolId is ToolKey {

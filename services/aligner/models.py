@@ -16,7 +16,7 @@ documents differ and never whether one meets the bar the other sets:
 One label, opposite meanings for the investment. So a comparison here runs one way: the
 reference document's requirements are the rubric, and every verdict is that requirement's
 fate in the comparison document. It is the same shape as Inspector walking an authored
-rubric and Expert walking a question bank — a fixed list of items, one judgement each,
+rubric and Screener walking a question bank — a fixed list of items, one judgement each,
 against a single authority. Aligner's authority is the other document.
 """
 
@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, Sequence
 import yaml
 
 from shared.openai_client import ModelTask
+from shared.spans import DocumentSpan
 
 if TYPE_CHECKING:
     from services.chunker import ContentBlock
@@ -77,14 +78,6 @@ ALIGNMENT_VERDICTS: tuple[AlignmentVerdict, ...] = (
     "not_comparable",
     "not_addressed",
 )
-
-#: Verdicts that must name the distance from the bar in `gap`.
-#:
-#: `falls_short` without it is a claim with no content — a reader cannot act on "worse"
-#: — and `not_comparable` without it does not say which terms failed to line up.
-#: `meets` and `exceeds` have no gap, and `not_addressed`'s whole account is its
-#: statement, so a note there would only restate it.
-VERDICTS_REQUIRING_GAP: frozenset[str] = frozenset({"falls_short", "not_comparable"})
 
 #: Verdicts the comparison document must be cited for.
 #:
@@ -167,22 +160,23 @@ class Requirement:
 
     Atomic on purpose. A requirement carrying three clauses forces one verdict onto
     three separate facts, and the answer to "does the candidate meet this" stops being
-    a single fact — the mistake Expert had to add a whole state to recover from. The
+    a single fact — the mistake Screener had to add a whole state to recover from. The
     extraction stage splits compound sentences instead.
 
-    `cited_block_ids` are blocks of the **reference** document: this is where the bar
-    was read from, so a reader can check that the bar is real before arguing about
-    whether it was met.
+    `cited_spans` quote the **reference** document: this is where the bar was read from,
+    so a reader can check that the bar is real before arguing about whether it was met.
+    They carry the sentence, not just the block, because the block is often a table and
+    the bar is one row of it.
     """
 
     id: str
     text: str
-    cited_block_ids: tuple[str, ...] = ()
+    cited_spans: tuple[DocumentSpan, ...] = ()
 
     def finding(self, edge: str, verdict: AlignmentVerdict) -> "AlignmentFinding":
         """The one place a requirement's fields are copied onto its finding.
 
-        Expert learned this the hard way: the same three fields were written in two
+        Screener learned this the hard way: the same three fields were written in two
         modules, and they drifted. A finding is always made from the requirement it
         judges, so there is one function that knows how.
         """
@@ -190,7 +184,7 @@ class Requirement:
             requirement_id=self.id,
             edge_id=edge,
             requirement=self.text,
-            reference_block_ids=list(self.cited_block_ids),
+            reference_spans=list(self.cited_spans),
             verdict=verdict,
         )
 
@@ -199,22 +193,50 @@ class Requirement:
 class AlignmentFinding:
     """What became of one requirement in the document being measured against it.
 
-    Two citation lists, and they are not interchangeable. `reference_block_ids` is
-    where the bar is stated; `comparison_block_ids` is what was read to judge it. The
-    contract checks each against its own document, so "the candidate says X" can only
-    ever point into the candidate's file.
+    Two citation lists, and they are not interchangeable. `reference_spans` quote where
+    the bar is stated; `comparison_spans` quote what was read to judge it. The contract
+    checks each against its own document, so "the candidate says X" can only ever point
+    into the candidate's file.
+
+    Each span carries the exact sentence, copied out of the block by `shared.spans` from
+    a line range the model selected. Block IDs are not stored beside them: they are
+    `span_block_ids(...)` of the spans, and a finding holding both would have one fact in
+    two fields that can disagree.
     """
 
     requirement_id: str
     edge_id: str
     requirement: str
-    reference_block_ids: list[str]
+    reference_spans: list[DocumentSpan]
     verdict: AlignmentVerdict
     statement: str = ""
-    #: What the comparison document would have to close to meet the bar. Required on
-    #: `falls_short` and `not_comparable`, refused on the rest.
-    gap: str = ""
-    comparison_block_ids: list[str] = field(default_factory=list)
+    """What this document does about the subject, in one sentence.
+
+    Empty exactly on `not_addressed`, where there is nothing to describe: "this document
+    states nothing about X" is the verdict written out, under a heading that already
+    names X.
+
+    "Does about" rather than "states", because what honouring a requirement looks like
+    depends on the kind of document. A profile honours a target by stating a value; a
+    plan honours a commitment by carrying the work for it - a study, a milestone, a
+    decision point. A plan that schedules a stability study honours a stability
+    commitment without stating a temperature, and reading it as silence was the tool
+    judging a plan by a profile's test.
+
+    The only sentence. A `gap` sat beside it on `falls_short` and `not_comparable`,
+    asked to name the distance from the bar - and the distance is not a third fact. It
+    is the requirement and this statement, which a reader already has: the requirement
+    heads the row and this sits under it. What the model returned said so plainly:
+
+        requirement  The target population minimum target is pregnant women 24-36 weeks.
+        statement    The candidate sets the minimum as pregnant women at least 28 weeks.
+        gap          Pregnant women 24-36 weeks required versus at least 28 weeks offered.
+
+    The prompt told it not to restate the requirement and it restated the requirement,
+    because on a shortfall there is nothing else to say. The same three lines on every
+    one of sixty-nine rows.
+    """
+    comparison_spans: list[DocumentSpan] = field(default_factory=list)
 
 
 @dataclass

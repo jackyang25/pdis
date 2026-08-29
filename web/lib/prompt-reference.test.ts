@@ -81,7 +81,7 @@ test("an anchor is matched to the tool that owns it", () => {
 test("a fragment that is not a prompt anchor matches no tool", () => {
   // The docs page uses ordinary section anchors too; the handler must ignore them rather
   // than treat every hash change as a prompt link.
-  for (const tool of ["chunker", "inspector", "aligner", "expert", "scout"] as ToolKey[]) {
+  for (const tool of ["chunker", "inspector", "aligner", "screener", "scout"] as ToolKey[]) {
     assert.equal(isPromptAnchorFor("architecture", tool), false);
     assert.equal(isPromptAnchorFor("", tool), false);
   }
@@ -90,7 +90,7 @@ test("a fragment that is not a prompt anchor matches no tool", () => {
 test("no tool's anchors are a prefix of another's", () => {
   // What `isPromptAnchorFor` rests on. A tool named `scout2` would make every
   // `prompt-scout-…` link load that section too.
-  const tools: ToolKey[] = ["chunker", "inspector", "aligner", "expert", "scout"];
+  const tools: ToolKey[] = ["chunker", "inspector", "aligner", "screener", "scout"];
   for (const tool of tools) {
     for (const other of tools) {
       if (tool === other) continue;

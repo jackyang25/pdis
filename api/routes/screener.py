@@ -1,7 +1,7 @@
-"""Expert route — triage one gate's question bank against a set of documents.
+"""Screener route — triage one gate's question bank against a set of documents.
 
 Documents arrive as parallel lists, as Aligner's do, because how many there are is
-Expert's business rather than this route's. Context items arrive the same way and go
+Screener's business rather than this route's. Context items arrive the same way and go
 no further than the prompt: their text is never stored, so nothing here persists it
 and no schema carries it.
 """
@@ -17,7 +17,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from services.chunker import find_config as find_chunker_config
-from services.expert import (
+from services.screener import (
     ContextItem,
     ContextReadError,
     DocumentInput,
@@ -32,8 +32,8 @@ from services.expert import (
 
 from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import (
-    ExpertGatesResponse,
-    ExpertRunResponse,
+    ScreenerGatesResponse,
+    ScreenerRunResponse,
     GateReviewOut,
     GateSpecOut,
 )
@@ -45,9 +45,9 @@ router = APIRouter()
 DEFAULT_MAX_TOKENS = 16000
 
 
-@router.get("/gates", response_model=ExpertGatesResponse)
-def list_gates(org: str = "bmgf", intervention: str | None = None) -> ExpertGatesResponse:
-    """The gates Expert declares for this org and intervention, in development order.
+@router.get("/gates", response_model=ScreenerGatesResponse)
+def list_gates(org: str = "bmgf", intervention: str | None = None) -> ScreenerGatesResponse:
+    """The gates Screener declares for this org and intervention, in development order.
 
     Published rather than mirrored in the web app: the banks are the one place that
     decides which gates exist, and a copy in TypeScript would be a second answer
@@ -56,7 +56,7 @@ def list_gates(org: str = "bmgf", intervention: str | None = None) -> ExpertGate
     Filtered by intervention when one is given, so a modality no bank covers offers no
     gate rather than offering one that would ask it about synthetic routes.
     """
-    return ExpertGatesResponse(
+    return ScreenerGatesResponse(
         gates=[
             GateSpecOut(id=gate.id, label=gate.label, ordinal=gate.ordinal)
             for gate in available_gates(org, intervention)
@@ -65,7 +65,7 @@ def list_gates(org: str = "bmgf", intervention: str | None = None) -> ExpertGate
 
 
 @router.post("/run")
-async def run_expert(
+async def run_screener(
     files: list[UploadFile] = File(...),
     source_types: list[str] = Form(...),
     gate: str = Form(...),
@@ -86,7 +86,7 @@ async def run_expert(
 
     uploads: list[tuple[UploadFile, str, str, str]] = []
     for upload, source_type in zip(files, source_types):
-        doc_id, suffix = document_upload_parts(upload.filename, tool="Expert")
+        doc_id, suffix = document_upload_parts(upload.filename, tool="Screener")
         uploads.append((upload, source_type, doc_id, suffix))
 
     doc_ids = [doc_id for _, _, doc_id, _ in uploads]
@@ -218,7 +218,7 @@ async def run_expert(
                 max_tokens=DEFAULT_MAX_TOKENS,
                 progress_callback=progress,
             )
-            return ExpertRunResponse(review=GateReviewOut(**asdict(result))).model_dump()
+            return ScreenerRunResponse(review=GateReviewOut(**asdict(result))).model_dump()
         finally:
             for temp_path in temp_paths:
                 if os.path.exists(temp_path):

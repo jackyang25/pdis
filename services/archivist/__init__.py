@@ -4,7 +4,7 @@ Public contract: consumers import from this package root only. Internals (`stage
 `quantity.py`, the build script's helpers) are not part of the contract.
 
 Archivist is the one workspace tool that judges nothing. Inspector holds a document to a
-rubric, Scout to external evidence, Aligner to another document, Expert to a gate's
+rubric, Scout to external evidence, Aligner to another document, Screener to a gate's
 question bank - each returns a verdict against an authority. Archivist's authority is the
 corpus itself, and a corpus is data rather than judgment, so what it returns is a
 selection of rows and the counts a reader could recompute from them.

@@ -117,7 +117,7 @@ class GraphIntegrityTests(unittest.TestCase):
 
     def test_every_tool_with_a_workflow_publishes_one(self) -> None:
         published = {graph["id"] for graph in self._graphs()}
-        for tool in ("inspector", "aligner", "expert", "scout", "chunker"):
+        for tool in ("inspector", "aligner", "screener", "scout", "chunker"):
             self.assertIn(tool, published, f"{tool} publishes no workflow")
 
 

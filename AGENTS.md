@@ -97,9 +97,9 @@ web/ → api/ → services/ → shared/
   1. **`PriorityPanel` is the opening panel**, and `attribution` is always
      `by <Tool>` — never a description of the ordering, which is what `orderNote`
      is for. A tool may decline the panel only when its atom does not fit
-     `PriorityItem`; Expert is the one case, because a 40–60 word gate question has
+     `PriorityItem`; Screener is the one case, because a 40–60 word gate question has
      nowhere to go in that shape and the panel would restate a list already flat.
-     Record the reason at the call site, as Expert does.
+     Record the reason at the call site, as Screener does.
   2. **The priority panel is three layers, and they stay apart.** The deterministic list
      answers what qualifies and in what order; the `digest` says what that list amounts
      to and may introduce nothing and re-rank nothing; `nominations` are items the
@@ -120,12 +120,12 @@ web/ → api/ → services/ → shared/
      run that assessed almost nothing look like a run with no such concept, and the
      figures still summed to the total, so nothing looked wrong.
   5. **`SignalHelp` is an affordance, not a section.** It sits right-aligned on the
-     control row beside what it explains — Inspector's and Scout's tab rows, Expert's
+     control row beside what it explains — Inspector's and Scout's tab rows, Screener's
      count row — never as its own left-aligned block in the vertical stack, where a
      reader takes it for a heading.
   6. **A trace places only lineage the result carries.** An annotation with no cited
      passage does not get anchored at a probable block to make the viewer look
-     complete: that would turn a hint into provenance. Expert places answers read from
+     complete: that would turn a hint into provenance. Screener places answers read from
      a document and nothing else — an unanswered question has no passage, and an answer
      from attached context was never chunked. A document with no marks is accounted for in
      the panels, not papered over in the trace.
@@ -175,7 +175,7 @@ web/ → api/ → services/ → shared/
   raster bytes, normalize other rasters with Pillow, and use LibreOffice only
   for vector fallback and PPTX slide rendering.
 - Every multimodal call labels an image with its exact block ID. Preserve that
-  association through Inspector, Aligner, Expert, Scout, Ask, and portable JSON.
+  association through Inspector, Aligner, Screener, Scout, Ask, and portable JSON.
 - Result JSON embeds parsed blocks and image bytes, not the original uploaded
   binary. Larger image-bearing artifacts are expected.
 
@@ -335,18 +335,18 @@ it. `document_findings[]` holds the conflicts no unit owns.
   Inspector's and Scout's authorities, and a tool with two authorities can
   contradict the tool that owns one.
 
-### Expert
+### Screener
 
-Expert's authority is one stage gate's question bank. It reads several documents at
+Screener's authority is one stage gate's question bank. It reads several documents at
 once and **renders no verdict on them**: it reports which of the gate's questions the
 supplied material answers and which it does not.
 
 - The boundary against Inspector, which shares no code or config with it: Inspector
-  asks whether *one* document is complete against its own template; Expert asks
+  asks whether *one* document is complete against its own template; Screener asks
   whether the evidence exists *anywhere in the set* for a reviewer to close a
   question. The resemblance is structural — a list of sections holding units, one call
   per unit — and structural only.
-- The bank is **transcribed** into `services/expert/configs/*.yaml`, never parsed from
+- The bank is **transcribed** into `services/screener/configs/*.yaml`, never parsed from
   the authored document. A reader for someone else's prose format is a normalization
   layer that breaks whenever that document is edited.
 - **Only what the source document guarantees may decide anything.** That is the gate,
@@ -362,7 +362,7 @@ supplied material answers and which it does not.
 - Transcribed counts come from the source and are never rounded. LCS Regulatory holds
   nine questions where every other cell holds ten; a tenth typed to tidy the grid would
   put a question in the bank that no reviewer wrote, which is the worst error this file
-  can hold. `test_expert.py` pins the exception.
+  can hold. `test_screener.py` pins the exception.
 - **The prompt states how to read the bank's own wording, or the model decides and decides
   strictly.** A five-item parenthetical read as five independent judgements comes back
   fully answered about 17% of the time at a 70% chance each — an amber grid produced by
@@ -371,7 +371,7 @@ supplied material answers and which it does not.
   because there the author is enumerating what they want; a question about work being
   planned or under way is answered when the material says it is; and a question about
   something being assessed is answered by the substance, not by the document narrating who
-  produced it. `test_expert.py` pins each reading and pins that the bank still contains the
+  produced it. `test_screener.py` pins each reading and pins that the bank still contains the
   wording that made it necessary.
 - `statement` and `missing` divide a partial between them and must not overlap: the first
   is the part the documents cover, the second the part they do not, so both halves are
@@ -431,7 +431,7 @@ supplied material answers and which it does not.
   publish a combined coverage figure.
 - Transient context is prompt-only: attached, read into text once, never chunked, never
   stored. It arrives as a file — PDF, DOCX, TXT, or MD — and the reader that flattens it
-  lives in `services/expert/context.py`, never in Chunker: Chunker's contract is declared
+  lives in `services/screener/context.py`, never in Chunker: Chunker's contract is declared
   structure in and citable blocks out, and this produces a string that becomes neither.
   That is also why the two format allowlists differ and must not be merged. An upload
   becomes citable blocks whose meaning depends on structure being read rather than
@@ -634,7 +634,7 @@ reproducible, and a summary of them is not.
   `scripts/generate_prompt_reference.py` reads the slots from the catalogs rather
   than a list of its own. A declared slot that publishes nothing, or inserted text no
   entry declares, is a documentation gap the generator can no longer hide.
-- Inspector, Aligner, Expert, and Scout use the versioned `pdis.result` envelope in
+- Inspector, Aligner, Screener, and Scout use the versioned `pdis.result` envelope in
   `web/lib/result-file.ts`, separating `analysis` from `source_documents`.
 - A saved file carries two versions, and they answer different questions.
   `ENVELOPE_VERSION` covers the wrapper all three tools share, so bumping it

@@ -569,11 +569,13 @@ function ReviewView({
         <TabsContent value="questions" className="m-0">
           {/* The view's nav: its name, and what explains it. */}
           <ResultToolbar>
+            {/* Named again, though the tab says the same word: the priorities panel sits
+                between the two, so this re-anchors what the rows below are. No count:
+                nothing filters here, and the figure row above already states every state
+                and what they sum to. */}
             <p className="min-w-0 flex-1 text-xs font-medium text-foreground">
               Questions
             </p>
-            {/* No count: nothing filters here, and the figure row above already
-                  states every question state and what they sum to. */}
             <ResultToolbarEnd>
               <ScreenerSignalHelp />
             </ResultToolbarEnd>

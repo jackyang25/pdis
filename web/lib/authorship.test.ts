@@ -1193,3 +1193,65 @@ test("one tone decision per vocabulary, wherever it is drawn", () => {
   assert.match(api, /not_found: "neutral"/);
   assert.match(api, /not_addressed: "neutral"/);
 });
+
+test("only a band that filters says how much of the result you are seeing", () => {
+  // `ResultToolbarEnd` takes a `count` and stays quiet when `shown === total`, so a band
+  // that is not filtering shows no number. That is the whole affordance: the count means
+  // "you are looking at part of this", and it is meaningless where nothing is hidden.
+  //
+  // Inspector and Screener label their non-filtering bands and stop there, each with a
+  // comment saying why. Aligner wrote `Comparisons 2` beside its label - not through the
+  // shared affordance, so the silence rule could not apply - counting the one or two cards
+  // directly beneath it, each of which is titled.
+  for (const tool of ["inspector", "aligner", "screener", "scout"]) {
+    const page = read("app", tool, "page.tsx");
+    for (let at = page.indexOf("<ResultToolbar>"); at >= 0; at = page.indexOf("<ResultToolbar>", at + 1)) {
+      const band = page.slice(at, page.indexOf("</ResultToolbar>", at));
+      const filters = /<ResultSearch|<Select\b/.test(band);
+      if (filters) continue;
+      assert.ok(
+        !/\.length\}|tabular-nums/.test(band),
+        `${tool} counts something in a toolbar that does not filter, so the number `
+          + "answers a question the reader did not ask",
+      );
+    }
+  }
+});
+
+test("a group of results is closable wherever it is drawn", () => {
+  // The heading was already one shape everywhere - a dot for the verdict, the word, the
+  // count - but only Scout's closed. Aligner drew the same chip over an open list, five
+  // verdict groups deep, so a reader who came for six shortfalls scrolled the forty-seven
+  // requirements that were fine to reach the next group.
+  //
+  // Same mark, half the affordance, and nothing recorded that as a decision - which is the
+  // shape of every drift found here: not a wrong choice, an unmade one.
+  for (const [tool, marker] of [
+    ["scout", "DisclosureRow"],
+    ["aligner", "DisclosureRow"],
+  ] as const) {
+    const page = read("app", tool, "page.tsx");
+    assert.match(
+      page,
+      new RegExp(`import \\{ ${marker} \\} from "@/components/ui/disclosure-row"`),
+      `${tool} groups results without the row that knows how to close`,
+    );
+  }
+  // And nobody hand-writes the shape it owns. Narrowly: a `summary` carrying a tone dot,
+  // which is a verdict heading a group of results and is exactly this row's job.
+  //
+  // Not "no `summary` anywhere" - that flagged three correct disclosures in Scout: an
+  // inline "Review unresolved fields" toggle, and two rows where a whole record expands.
+  // Those are a different thing wearing the same tag, and a test that fails on correct
+  // code teaches people to work around it rather than to read it.
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    for (let at = page.indexOf("<summary"); at >= 0; at = page.indexOf("<summary", at + 1)) {
+      const summary = page.slice(at, page.indexOf("</summary>", at));
+      assert.ok(
+        !/<ToneDot/.test(summary),
+        `${tool} heads a group with a verdict dot outside the row that owns that shape`,
+      );
+    }
+  }
+});

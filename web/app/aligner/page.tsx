@@ -1,6 +1,8 @@
 "use client";
 
 import { ResultLayout } from "@/components/ui/result-layout";
+import { DisclosureRow } from "@/components/ui/disclosure-row";
+
 import { MetricsRow } from "@/components/ui/metrics-row";
 import {
   ResultToolbar,
@@ -533,11 +535,18 @@ function AlignmentView({
               section heading, and again in the paragraph under it - and that paragraph
               said what "How to read" three inches to its right already explains. */}
           <ResultToolbar>
+            {/* Named again, though the tab says the same word, because the priorities
+                panel sits between the two: a reader arrives here past a band about
+                something else, and this re-anchors what the rows below are. A toolbar is
+                never only its right-hand end - a band holding one link reads as an empty
+                strip - so the choice is this word or a control, and there is nothing here
+                to filter.
+
+                No count, though. This band does not filter, so a number is not telling a
+                reader how much of the result they are seeing; it counted the one or two
+                cards directly beneath it, each already titled. */}
             <p className="min-w-0 flex-1 text-xs font-medium text-foreground">
-              Comparisons{" "}
-              <span className="tabular-nums text-muted-foreground">
-                {alignment.edges.length}
-              </span>
+              Comparisons
             </p>
             <ResultToolbarEnd>
               <AlignerSignalHelp />
@@ -638,20 +647,24 @@ function ComparisonCard({
           const inVerdict = findingsWithVerdict(findings, verdict);
           if (inVerdict.length === 0) return null;
           return (
-            <section key={verdict}>
-              {/* A dot and a count, the shape Scout's relation groups use and Inspector's
-                  section counts use - so a group heading reads the same in all three.
-                  No help icon: it was the same tooltip on every group, and an icon on
-                  "Falls short" cannot say how it differs from "Not comparable", which is
-                  what a reader gets wrong. "How to read" shows the five together and is
-                  the only place they can be told apart. */}
-              <SignalChip tone={ALIGNMENT_VERDICT_TONE[verdict]}>
-                {VERDICT_LABELS[verdict]}
-                <span className="tabular-nums text-muted-foreground">
-                  {inVerdict.length}
-                </span>
-              </SignalChip>
-              <ul className="mt-2 divide-y divide-border/60">
+            // Closable, the shape Scout's relation groups use. The heading was a bare
+            // chip over an open list, so a reader who came for the six shortfalls
+            // scrolled the forty-seven requirements that were fine to reach the next
+            // group. Open by default: this tab exists to show these, and five closed
+            // rows would be a second navigation step to what was already navigated to.
+            //
+            // No help icon on the heading. It was the same tooltip five times, and an
+            // icon on "Falls short" cannot say how it differs from "Not comparable" -
+            // which is the thing a reader gets wrong. "How to read" shows all five
+            // together and is the only place they can be told apart.
+            <DisclosureRow
+              key={verdict}
+              label={VERDICT_LABELS[verdict]}
+              tone={ALIGNMENT_VERDICT_TONE[verdict]}
+              count={inVerdict.length}
+              defaultOpen
+            >
+              <ul className="divide-y divide-border/60">
                 {inVerdict.map((finding) => (
                   <FindingRow
                     key={finding.requirement_id}
@@ -662,7 +675,7 @@ function ComparisonCard({
                   />
                 ))}
               </ul>
-            </section>
+            </DisclosureRow>
           );
         })}
       </div>

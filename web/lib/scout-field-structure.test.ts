@@ -67,7 +67,17 @@ test("every axis heading has a headline beside it", () => {
 test("groups inside a field use one row shape", () => {
   // Four hand-written `<summary>` rows existed for the same idea. `DisclosureRow` owns the
   // chevron, the optional tone dot, the label and the count.
-  assert.match(PAGE, /function DisclosureRow\(/);
+  //
+  // It is a shared component now rather than a private one here: Aligner grouped its
+  // verdicts under a bare chip over an open list - the same heading, without the closing -
+  // so a reader who came for six shortfalls scrolled forty-seven requirements that were
+  // fine to reach the next group.
+  assert.match(PAGE, /import \{ DisclosureRow \} from "@\/components\/ui\/disclosure-row"/);
+  const shared = readFileSync(
+    path.resolve(import.meta.dirname, "..", "components", "ui", "disclosure-row.tsx"),
+    "utf8",
+  );
+  assert.match(shared, /function DisclosureRow\(/);
   // Three call sites, not four rows: the relation buckets and the two verdict citations are
   // each a `.map`, so the row count is data and the call count is what can be asserted.
   const uses = PAGE.match(/<DisclosureRow/g) ?? [];

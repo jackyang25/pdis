@@ -16,11 +16,13 @@ them a candidate failed to meet.
 
 ## Which side the evidence lands on decides the question
 
-An Aligner finding cites two documents. `reference_spans` quote the document that sets
-the bar; `comparison_spans` quote the document measured against it. Each span carries the
-exact lines and the block they came from, so you can reproduce the sentence verbatim
-rather than describing the passage it sits in. Scout runs on one document at a time, so which of those its evidence touches
-determines what a pair can say:
+An Aligner finding cites two documents. `reference_spans` quote the document that sets the
+bar; `comparison_spans` quote the document measured against it. Each span carries the exact
+lines and the block they came from, so a pair can reproduce both sentences verbatim rather
+than describing the passages they sit in.
+
+Scout runs on one document at a time, so which of those two its evidence touches decides
+what a pair can say:
 
 - Evidence meeting the **requirement** side asks **is the bar achievable**.
 - Evidence meeting the **verdict** side asks **is this document's claim supported**.
@@ -48,7 +50,8 @@ the cTPP" is two different findings and a reader cannot tell which one you made.
 1. `find_result` for `findings` in the Aligner result. Each carries `requirement`,
    `verdict`, `statement`, `edge_id`, and both citation lists.
 2. Take the verdicts that leave something open: `falls_short`, `not_comparable`, and
-   `not_addressed`. `meets` and `exceeds` still matter, but only for pair 2 below.
+   `not_addressed`. `meets` and `exceeds` still matter, but only for the one pair that
+   turns on them: a met requirement whose claim the evidence contradicts.
 3. `read_result` at each finding's path for its quoted spans and its `statement`.
 4. `find_result` for `matches` and any assessments in the Scout result. Each carries an
    insight, its relation to the document (`contradicts`, `extends`, `confirms`,
@@ -62,18 +65,48 @@ the cTPP" is two different findings and a reader cannot tell which one you made.
 Each is a different decision, so name which one you are making.
 
 **A shortfall the evidence says is unachievable.** `falls_short`, and Scout on the
-reference document `contradicts` that requirement. This is the most consequential pair
-here: the gap is in the profile, not in the candidate. Say plainly that the bar is what
-the evidence disputes, and do not report it as a candidate deficiency.
+reference document `contradicts` that requirement. The gap is in the profile, not in the
+candidate: say plainly that the bar is what the evidence disputes, and do not report it as
+a candidate deficiency.
+
+**A shortfall the evidence undercuts on both sides.** `falls_short`, and Scout on the
+**comparison** document contradicts the value that document offers. The candidate is short
+of the bar, and the weaker value it offers instead is itself unsupported — so the bar is
+further out of reach than the shortfall alone suggests.
+
+This is the one place evidence about the comparison document may be read against the
+requirement, and it is arithmetic rather than inference: `falls_short` means the document
+does less than the requirement asks, on that requirement's own axis and in that direction.
+Evidence that cannot reach the lesser value cannot reach the greater one. State it that
+way, showing both values, so a reader can check the step rather than take it.
+
+It holds only where all three are true, and saying so is part of the finding:
+
+- the verdict is `falls_short` — on `not_comparable` the two documents share no axis,
+  which is what that verdict means, so there is no direction to argue along
+- the evidence is against the value, not merely thin on it — an unsupported target and an
+  unstudied one are different findings
+- the requirement and the statement are the same quantity — "under $3 a dose" against
+  "under $5 a dose", not a cost against a schedule
+
+The ask changes entirely: not about moving the grantee from its value to the bar, but about
+whether the bar was ever reachable.
+
+These two are the findings this skill exists to produce, because they are the only ones
+that change who the next conversation is with. They reach it from opposite sides — the
+first from evidence about the document that set the bar, the second from evidence about
+the document measured against it — so a run where Scout read only one of the two documents
+can still reach it, by exactly one of the two routes.
 
 **A shortfall the evidence leaves standing.** `falls_short`, and evidence `confirms` the
 requirement or is silent on it. The bar survives, so the ask is the requirement itself,
 and the `statement` is how far the document currently gets. Quote both.
 
 **A met requirement whose claim the evidence contradicts.** `meets` or `exceeds`, and
-Scout on the comparison document `contradicts` that passage. Aligner checks conformance,
-never truth, so an alignment can be correct and the claim still unsupported. Report it as
-the alignment being no assurance, not as Aligner being wrong.
+Scout on the comparison document `contradicts` that passage. Aligner judges coherence,
+never feasibility, so a document can honour a requirement exactly and the value it states
+still be one nothing supports. Report it as the alignment being no assurance, not as
+Aligner being wrong.
 
 **An incomparable requirement the evidence can make comparable.** `not_comparable`, and
 Scout holds external measurements for that attribute. The evidence supplies the terms the
@@ -84,6 +117,13 @@ concrete ask rather than repeating that the two cannot be compared.
 comparators cluster at the value the candidate offers. The candidate is at the state of
 the art and the profile is ahead of the field. This is a different conversation from a
 lagging candidate; say which one it is.
+
+Not to be confused with *a shortfall the evidence undercuts on both sides*, which carries
+the same verdict and the same evidence on the same document. What separates them is where
+the comparators fall relative to the value the candidate offers: *at* it, and the candidate
+is as good as the field gets; *short of* it, and the candidate's own value is unsupported
+too. The first says the profile is ahead of the field; the second says it is further ahead
+than anyone had noticed. Read the comparators before choosing, and quote them either way.
 
 **Absent on both sides.** `not_addressed`, and Scout found nothing on the subject either.
 Unknown territory rather than an omission. Report it separately, because asking a grantee
@@ -120,7 +160,8 @@ disputes.
 
 Order by what a reader would act on differently, not by the order you found things:
 
-1. A bar the evidence disputes. It changes who the next conversation is with.
+1. A bar the evidence disputes, by either route. It changes who the next conversation is
+   with. Say which document the evidence read, because that is what a reader will check.
 2. A met requirement whose claim the evidence contradicts. It withdraws a reassurance
    the alignment appeared to give.
 3. A commitment delivered downstream that an earlier comparison questioned.

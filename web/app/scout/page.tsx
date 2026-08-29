@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
+import { DisclosureRow } from "@/components/ui/disclosure-row";
 import { MetricsRow } from "@/components/ui/metrics-row";
 import { RunPanel } from "@/components/run-panel";
 import { RunHistory } from "@/components/run-history";
@@ -3733,40 +3734,6 @@ function StatCell({
  * The dot is optional because it carries a relation's tone, and only relations have one.
  * `note` is for the exceptional case a count cannot state on its own.
  */
-function DisclosureRow({
-  label,
-  tone,
-  count,
-  note,
-  children,
-}: {
-  label: string;
-  /** The verdict this row groups, when it groups one. */
-  tone?: Tone;
-  count: number;
-  /** Shown only when something is off, e.g. a citation naming an insight not retained. */
-  note?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <details className="group/row">
-      <summary className="flex cursor-pointer select-none items-center gap-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/row:rotate-180 motion-reduce:transition-none" />
-        {tone && (
-          <ToneDot tone={tone} />
-        )}
-        <span className="text-xs font-medium text-foreground">{label}</span>
-        <span className="text-[11px] tabular-nums text-muted-foreground">
-          {count}
-        </span>
-        {note && (
-          <span className="text-[11px] text-muted-foreground">{note}</span>
-        )}
-      </summary>
-      <div className={cn("pb-2 pl-5", DISCLOSURE_MOTION)}>{children}</div>
-    </details>
-  );
-}
 
 /**
  * A signal's verdict, its reason, and a pointer to the insights behind it.

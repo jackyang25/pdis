@@ -901,7 +901,31 @@ export type AlignmentEdgeSpec = {
   reference: string;
   comparison: string;
   question: string;
+  /**
+   * The document type whose presence makes this comparison redundant.
+   *
+   * The declared comparisons form a chain, and a chain is broken when its middle
+   * document is not supplied. An edge carrying this stands in for the missing link. An
+   * iTPP and an IPDP with no cTPP between them compare directly; the same two with a
+   * cTPP present do not, because the two-step chain already explains those differences.
+   */
+  when_absent?: string | null;
 };
+
+/**
+ * Whether a declared comparison is one these document types make.
+ *
+ * Mirrors `services.aligner.models.edge_applies`. Both sides need it - the service to
+ * build a run, the picker to say what a run would compare before making one - and the
+ * preview promising a comparison the run then skips is the failure this prevents.
+ */
+export function edgeApplies(edge: AlignmentEdgeSpec, chosen: string[]): boolean {
+  return (
+    chosen.includes(edge.reference) &&
+    chosen.includes(edge.comparison) &&
+    !(edge.when_absent && chosen.includes(edge.when_absent))
+  );
+}
 
 /**
  * Identified documents, the comparisons they resolve, their parsed source, and findings.

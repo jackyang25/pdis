@@ -230,9 +230,9 @@ test("a result signal uses a tone token, never a raw palette colour", () => {
  * which is what the evidence map did: it needed a stroke, found none, and wrote out all
  * five colours beside a private tone scale named after the colours themselves.
  */
-const TONE_SHAPES = ["TONE_DOT", "TONE_TEXT", "TONE_TINT", "TONE_STROKE"];
+const TONE_SHAPES = ["TONE_DOT", "TONE_TEXT", "TONE_TINT", "TONE_STROKE", "TONE_FILL"];
 
-test("the tone scale is declared once, and every tone has all four shapes", () => {
+test("the tone scale is declared once, and every tone has all five shapes", () => {
   const tone = FILES.find(({ relative }) => relative === TONE_SOURCE);
   if (!tone) throw new Error("lib/tone.ts is missing");
   for (const shape of TONE_SHAPES) {
@@ -241,7 +241,7 @@ test("the tone scale is declared once, and every tone has all four shapes", () =
   const source: string = tone.text;
   for (const name of ["success", "warning", "danger", "info", "neutral"]) {
     const shapes: number = source.split(new RegExp(`^  ${name}:`, "m")).length - 1;
-    assert.equal(shapes, TONE_SHAPES.length, `${name} is missing one of the four shapes`);
+    assert.equal(shapes, TONE_SHAPES.length, `${name} is missing one of the five shapes`);
   }
 });
 
@@ -249,7 +249,7 @@ test("nothing re-declares the tone scale", () => {
   const offenders = FILES.filter(
     ({ relative, text }) =>
       relative !== TONE_SOURCE &&
-      /export const TONE_(DOT|TEXT|TINT|STROKE)\b/.test(text),
+      /export const TONE_(DOT|TEXT|TINT|STROKE|FILL)\b/.test(text),
   ).map(({ relative }) => relative);
   assert.deepEqual(offenders, [], "a second tone scale defeats the point of having one");
 });

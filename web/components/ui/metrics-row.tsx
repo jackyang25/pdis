@@ -1,5 +1,3 @@
-import type { ReactNode } from "react";
-
 import { VerdictCounts, type VerdictCount } from "@/components/ui/verdict-counts";
 
 /**
@@ -36,7 +34,7 @@ export function MetricsRow({
   total,
   unit,
   items,
-  aside,
+  facts = [],
 }: {
   /** How many things were examined. The denominator every count below is part of. */
   total: number;
@@ -56,8 +54,19 @@ export function MetricsRow({
    * document.
    */
   items: readonly VerdictCount[];
-  /** Facts about the run that are not part of the distribution. Rendered after it. */
-  aside?: ReactNode;
+  /**
+   * Figures about the run that are not part of the distribution.
+   *
+   * A list rather than free markup, and that is the whole point. This was a `ReactNode`,
+   * so the three tools that use it wrote three different things into it: Inspector a
+   * figure, Scout four figures joined by prose, Screener two full sentences with a rule
+   * above one of them. One panel per tool, three ideas of what a panel is.
+   *
+   * A fact is a figure and what it counts. Anything that is not - a caveat, a definition,
+   * an explanation of how the counts relate - is prose about the figures and belongs in
+   * `metricsNote`, which is the one place this panel says anything in sentences.
+   */
+  facts?: readonly { value: string | number; label: string }[];
 }) {
   return (
     <div className="space-y-2">
@@ -69,7 +78,23 @@ export function MetricsRow({
         </p>
         <VerdictCounts items={items} />
       </div>
-      {aside}
+      {/* One line each, figure then what it counts - the same reading order as the
+          denominator above, so the whole panel is figures in one direction. No dots:
+          a dot marks a member of the distribution, and these are outside it. */}
+      {facts.length > 0 && (
+        <ul className="space-y-1">
+          {facts.map((fact) => (
+            <li key={fact.label} className="text-[11px] text-muted-foreground">
+              <span className="font-medium tabular-nums text-foreground">
+                {typeof fact.value === "number"
+                  ? fact.value.toLocaleString()
+                  : fact.value}
+              </span>{" "}
+              {fact.label}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

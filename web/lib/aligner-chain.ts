@@ -46,8 +46,19 @@ const SILENT_ABOUT_IT: AlignmentVerdict[] = ["meets", "exceeds"];
 export type ChainWarning = {
   /** The downstream finding this warns about. */
   requirementId: string;
-  /** The upstream finding that knows better, so a reader can go and read it. */
-  upstreamRequirementId: string;
+  /**
+   * The upstream findings that know better, so a reader can go and read them.
+   *
+   * A list because a passage can be cited by several. One warning used to be made per
+   * upstream finding, which contradicted the claim it renders: the sentence says *this
+   * passage* also falls short, and says nothing about which upstream requirement said
+   * so. Four upstream findings over one passage therefore drew four lines carrying two
+   * distinct sentences, two of them exact duplicates of the others.
+   *
+   * The claim decides the key. A warning is one passage against one bar under one
+   * verdict, and everything that reached it is recorded here.
+   */
+  upstreamRequirementIds: string[];
   /** Its verdict on the shared passage — `falls_short` or `not_comparable`. */
   upstreamVerdict: AlignmentVerdict;
   /** The document that sets the bar the shared passage falls short of. */
@@ -109,34 +120,41 @@ export function chainWarnings(
 
     for (const finding of findingsByEdge.get(edge.edge_id) ?? []) {
       if (!SILENT_ABOUT_IT.includes(finding.verdict)) continue;
-      const byUpstreamId = new Map<string, ChainWarning>();
+      // Keyed by the claim the reader is shown: one bar, one verdict. Keying by the
+      // upstream requirement instead produced one line per upstream finding, and since
+      // the sentence names neither the requirement nor anything else that varies, the
+      // extra lines were literally the same words repeated.
+      const byClaim = new Map<string, ChainWarning>();
       for (const blockId of spanBlockIds(finding.reference_spans)) {
         for (const earlier of unsettledByBlock.get(blockId) ?? []) {
-          const existing = byUpstreamId.get(earlier.requirement_id);
-          if (existing) {
-            // One upstream finding reached through two shared passages is one warning
-            // citing both, not two warnings saying the same thing.
-            if (!existing.blockIds.includes(blockId)) existing.blockIds.push(blockId);
-            continue;
-          }
           const upstreamEdge = result.edges.find(
             (item) => item.edge_id === earlier.edge_id,
           );
-          byUpstreamId.set(earlier.requirement_id, {
+          const upstreamReference = upstreamEdge
+            ? names.get(upstreamEdge.reference_doc_id) ?? upstreamEdge.reference_doc_id
+            : "";
+          const key = `${earlier.verdict}\u241f${upstreamReference}`;
+          const existing = byClaim.get(key);
+          if (existing) {
+            if (!existing.blockIds.includes(blockId)) existing.blockIds.push(blockId);
+            if (!existing.upstreamRequirementIds.includes(earlier.requirement_id)) {
+              existing.upstreamRequirementIds.push(earlier.requirement_id);
+            }
+            continue;
+          }
+          byClaim.set(key, {
             requirementId: finding.requirement_id,
-            upstreamRequirementId: earlier.requirement_id,
+            upstreamRequirementIds: [earlier.requirement_id],
             upstreamVerdict: earlier.verdict,
-            upstreamReference: upstreamEdge
-              ? names.get(upstreamEdge.reference_doc_id) ?? upstreamEdge.reference_doc_id
-              : "",
+            upstreamReference,
             sharedDocument:
               names.get(edge.reference_doc_id) ?? edge.reference_doc_id,
             blockIds: [blockId],
           });
         }
       }
-      if (byUpstreamId.size > 0) {
-        warnings.set(finding.requirement_id, [...byUpstreamId.values()]);
+      if (byClaim.size > 0) {
+        warnings.set(finding.requirement_id, [...byClaim.values()]);
       }
     }
   }
@@ -156,9 +174,13 @@ export function chainWarnings(
  * there is something to follow, not to summarise it here.
  */
 export function chainWarningText(warning: ChainWarning): string {
+  const many = warning.blockIds.length > 1;
   const verdict =
     warning.upstreamVerdict === "falls_short"
-      ? `falls short of the ${warning.upstreamReference}`
+      ? `${many ? "fall" : "falls"} short of the ${warning.upstreamReference}`
       : `cannot be compared with the ${warning.upstreamReference}`;
-  return `This passage of the ${warning.sharedDocument} also ${verdict}.`;
+  const subject = many
+    ? `These ${warning.blockIds.length} passages of the ${warning.sharedDocument}`
+    : `This passage of the ${warning.sharedDocument}`;
+  return `${subject} also ${verdict}.`;
 }

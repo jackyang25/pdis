@@ -1,6 +1,7 @@
 "use client";
 
 import { ResultLayout } from "@/components/ui/result-layout";
+import { matchesQuery, normalizeQuery } from "@/lib/result-search";
 import { MetricsRow } from "@/components/ui/metrics-row";
 import {
   ResultToolbar,
@@ -391,19 +392,30 @@ function SectionsList({
   inspection: InspectionResult;
 }) {
   const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  // Matched on a section and on the units inside it, because a reader looking for
-  // "Efficacy" is looking for a unit and does not know which section holds it.
-  const visible = sections.filter(
-    (section) =>
-      !normalizedQuery ||
-      section.section_name.toLowerCase().includes(normalizedQuery) ||
-      section.units.some((unit) =>
-        (unit.variable_name ?? section.section_name)
-          .toLowerCase()
-          .includes(normalizedQuery),
-      ),
-  );
+  const normalizedQuery = normalizeQuery(query);
+  // Matched on the units, because a reader looking for "Efficacy" is looking for a unit
+  // and does not know which section holds it.
+  //
+  // The units, and not only the section: a search used to keep a section whose units
+  // matched and then show every unit in it, so finding one row returned twenty with
+  // nothing marking the hit. The rule the other three follow is that a query filters the
+  // leaf rows and a container left with nothing disappears.
+  //
+  // A section whose own name matches keeps all of its units, which is not an exception:
+  // matching the name is a reader asking for that section, and the units are what it is.
+  const visible = sections
+    .map((section) =>
+      !normalizedQuery
+        || matchesQuery(normalizedQuery, section.section_name)
+        ? section
+        : {
+            ...section,
+            units: section.units.filter((unit) =>
+              matchesQuery(normalizedQuery, unit.variable_name ?? section.section_name),
+            ),
+          },
+    )
+    .filter((section) => section.units.length > 0);
 
   return (
     <>
@@ -583,12 +595,16 @@ function RunCoverage({
         count: counts[verdict],
         tone: VERDICT_TONE[verdict],
       }))}
-      aside={
-        conflicts > 0 && (
-          <p className="text-[11px] tabular-nums text-muted-foreground">
-            {conflicts} cross-section {conflicts === 1 ? "conflict" : "conflicts"}
-          </p>
-        )
+      // A conflict belongs to no unit, so it is not in the sum above.
+      facts={
+        conflicts > 0
+          ? [
+              {
+                value: conflicts,
+                label: `cross-section ${conflicts === 1 ? "conflict" : "conflicts"}`,
+              },
+            ]
+          : []
       }
     />
   );

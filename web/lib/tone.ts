@@ -67,6 +67,26 @@ export const TONE_STROKE: Record<Tone, string> = {
   neutral: "hsl(var(--muted-foreground))",
 };
 
+/**
+ * The tone as a filled area: a cell in a grid, a bar, anything with size.
+ *
+ * Distinct from `TONE_DOT` on `neutral` alone, and that is the whole reason it exists. A
+ * dot's neutral is `muted-foreground/40` so that it stays a dot rather than becoming a
+ * blob; a cell at that weight disappears among forty-eight others, and "not found" is the
+ * commonest state in a coverage strip - the one a reader most needs to see the shape of.
+ *
+ * Screener's strip carried its own copy of all five values to get that one difference,
+ * which made it a second tone scale for the sake of a legitimate variation. The variation
+ * belongs here.
+ */
+export const TONE_FILL: Record<Tone, string> = {
+  success: "bg-[hsl(var(--tone-success))]",
+  warning: "bg-[hsl(var(--tone-warning))]",
+  danger: "bg-[hsl(var(--tone-danger))]",
+  info: "bg-[hsl(var(--tone-info))]",
+  neutral: "bg-foreground/45",
+};
+
 /** The verdict word itself. */
 export const TONE_TEXT: Record<Tone, string> = {
   success: "text-[hsl(var(--tone-success))]",

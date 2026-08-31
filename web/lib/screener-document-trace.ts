@@ -99,35 +99,3 @@ function citesADocument(question: QuestionAssessment): boolean {
     && question.cited_block_ids.length > 0
   );
 }
-
-/**
- * How many questions each supplied document answered.
- *
- * Counted from the same annotations the trace renders, so the tab's count and its
- * contents cannot disagree. A document that answered nothing is still listed, at
- * zero, because its absence from the list would read as "not uploaded".
- */
-export function answersPerDocument(
-  review: GateReview,
-): { docId: string; sourceType: string; count: number }[] {
-  const byBlock = new Map<string, string>();
-  for (const block of review.blocks ?? []) byBlock.set(block.id, block.doc_id);
-
-  const counts = new Map<string, number>();
-  for (const annotation of buildScreenerDocumentAnnotations(review)) {
-    // One question can cite passages from two documents. It counts once for each,
-    // because the question here is "what did this document answer", not "how many
-    // questions are there" — the panels own that total.
-    for (const docId of new Set(
-      annotation.blockIds.map((id) => byBlock.get(id)).filter(Boolean) as string[],
-    )) {
-      counts.set(docId, (counts.get(docId) ?? 0) + 1);
-    }
-  }
-
-  return review.documents.map((document) => ({
-    docId: document.doc_id,
-    sourceType: document.source_type,
-    count: counts.get(document.doc_id) ?? 0,
-  }));
-}

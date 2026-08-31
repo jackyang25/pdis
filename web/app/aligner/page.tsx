@@ -1,6 +1,9 @@
 "use client";
 
 import { ResultLayout } from "@/components/ui/result-layout";
+import { Attributed } from "@/components/ui/attributed";
+import { ResultSearch } from "@/components/ui/result-search";
+import { matchesQuery, normalizeQuery } from "@/lib/result-search";
 import { DisclosureRow } from "@/components/ui/disclosure-row";
 
 import { MetricsRow } from "@/components/ui/metrics-row";
@@ -48,6 +51,7 @@ import {
   type AlignmentResult,
   type AlignmentVerdict,
   spanBlockIds,
+  edgeApplies,
 } from "@/lib/api";
 import {
   chainWarningText,
@@ -58,7 +62,7 @@ import {
   ALIGNER_EMPTY_MESSAGE,
   ALIGNER_ORDER_NOTE,
   comparisonLabel,
-  documentName,
+  documentType,
   countVerdicts,
   findingsByComparison,
   findingsWithVerdict,
@@ -78,7 +82,7 @@ import { toolAuthority } from "@/lib/tools";
 import { useAlignerSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
-import { Quoted, Reading } from "@/components/ui/evidence-text";
+import { Quoted, Reading, InterfaceNote } from "@/components/ui/evidence-text";
 import { SignalChip } from "@/components/ui/signal-chip";
 
 const STEPS = [
@@ -132,10 +136,7 @@ export default function AlignerPage() {
   // Every declared comparison whose two documents are both present. This is the
   // same rule the service applies, read from the same config it publishes, so the
   // preview cannot promise a comparison the run will not make.
-  const comparisons = declaredEdges.filter(
-    (edge) =>
-      chosen.includes(edge.reference) && chosen.includes(edge.comparison),
-  );
+  const comparisons = declaredEdges.filter((edge) => edgeApplies(edge, chosen));
 
   const slots: readonly DocumentSlot[] = chosen.map((sourceType) => ({
     id: sourceType,
@@ -464,6 +465,26 @@ function AlignmentView({
   // and the rows cannot disagree about which passages an earlier comparison flagged.
   const warnings = useMemo(() => chainWarnings(alignment), [alignment]);
 
+  // Filters the requirements themselves, not the two cards holding them: with two
+  // containers, narrowing containers is no help, and the rows are what a reader came to
+  // find. A group or a card left with nothing disappears rather than standing empty.
+  const [query, setQuery] = useState("");
+  const normalizedQuery = normalizeQuery(query);
+  const matching = useMemo(
+    () =>
+      groups.map(({ edge, findings }) => ({
+        edge,
+        findings: findings.filter((finding) =>
+          matchesQuery(normalizedQuery, finding.requirement, finding.statement),
+        ),
+      })),
+    [groups, normalizedQuery],
+  );
+  const shownFindings = matching.reduce(
+    (sum, group) => sum + group.findings.length,
+    0,
+  );
+
   return (
     <ResultLayout
       title={runLabel(result, "aligner")}
@@ -535,34 +556,40 @@ function AlignmentView({
               section heading, and again in the paragraph under it - and that paragraph
               said what "How to read" three inches to its right already explains. */}
           <ResultToolbar>
-            {/* Named again, though the tab says the same word, because the priorities
-                panel sits between the two: a reader arrives here past a band about
-                something else, and this re-anchors what the rows below are. A toolbar is
-                never only its right-hand end - a band holding one link reads as an empty
-                strip - so the choice is this word or a control, and there is nothing here
-                to filter.
-
-                No count, though. This band does not filter, so a number is not telling a
-                reader how much of the result they are seeing; it counted the one or two
-                cards directly beneath it, each already titled. */}
-            <p className="min-w-0 flex-1 text-xs font-medium text-foreground">
-              Comparisons
-            </p>
-            <ResultToolbarEnd>
+            {/* A search, not the word "Comparisons". The band led with a label because
+                there was nothing else to put in it, and the label was the word the tab
+                directly above already said. Ninety requirements sit below this across two
+                cards, each closed, each grouped again inside - which is exactly the
+                content a reader cannot scan by eye. */}
+            <ResultSearch
+              label="Search requirements"
+              placeholder="Find a requirement…"
+              value={query}
+              onChange={setQuery}
+            />
+            <ResultToolbarEnd count={{ shown: shownFindings, total: alignment.findings.length }}>
               <AlignerSignalHelp />
             </ResultToolbarEnd>
           </ResultToolbar>
           <div className="flex flex-col gap-6 px-5 py-5 sm:px-6">
             <div className="space-y-3">
-              {groups.map(({ edge, findings }) => (
-                <ComparisonCard
-                  key={edge.edge_id}
-                  edge={edge}
-                  findings={findings}
-                  result={alignment}
-                  warnings={warnings}
-                />
-              ))}
+              {matching
+                .filter(({ findings }) => findings.length > 0)
+                .map(({ edge, findings }) => (
+                  <ComparisonCard
+                    key={edge.edge_id}
+                    edge={edge}
+                    findings={findings}
+                    result={alignment}
+                    warnings={warnings}
+                    filtering={normalizedQuery.length > 0}
+                  />
+                ))}
+              {shownFindings === 0 && (
+                <p className="py-6 text-center text-xs text-muted-foreground">
+                  No requirement matches that search.
+                </p>
+              )}
             </div>
           </div>
         </TabsContent>
@@ -619,11 +646,21 @@ function ComparisonCard({
   findings,
   result,
   warnings,
+  filtering,
 }: {
   edge: AlignmentEdge;
   findings: AlignmentFinding[];
   result: AlignmentResult;
   warnings: Map<string, ChainWarning[]>;
+  /**
+   * Whether a search is narrowing what is shown.
+   *
+   * Opens the card and its groups. Closed is right on arrival, where the headings are
+   * this comparison's distribution; it is wrong the moment a reader has typed, because
+   * then every row still here is one they asked for and hiding them behind two more
+   * clicks answers a question with a filing cabinet.
+   */
+  filtering: boolean;
 }) {
   return (
     <CollapsibleCard
@@ -634,7 +671,7 @@ function ComparisonCard({
       // enumeration, and open it puts forty requirements between them and the second
       // comparison. The row still states which comparison it is, what it asks, and how
       // many requirements it holds.
-      defaultOpen={false}
+      defaultOpen={filtering}
       trailing={
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
           {findings.length}{" "}
@@ -647,11 +684,17 @@ function ComparisonCard({
           const inVerdict = findingsWithVerdict(findings, verdict);
           if (inVerdict.length === 0) return null;
           return (
-            // Closable, the shape Scout's relation groups use. The heading was a bare
-            // chip over an open list, so a reader who came for the six shortfalls
-            // scrolled the forty-seven requirements that were fine to reach the next
-            // group. Open by default: this tab exists to show these, and five closed
-            // rows would be a second navigation step to what was already navigated to.
+            // Closable, the shape Scout's relation groups use, and closed like every
+            // other group in the suite. The heading was a bare chip over an open list, so
+            // opening one comparison put fifty-three requirements on the screen and a
+            // reader who came for the six shortfalls scrolled the forty-seven that were
+            // fine to reach the next group.
+            //
+            // Closed, these five headings are the distribution for this comparison, which
+            // is stated nowhere else: the figure row above is run-wide and sums both
+            // comparisons together. So the closed state is not an empty index a reader has
+            // to click through - it is the one place a single comparison's outcome is
+            // shown, with each row opening the requirements behind it.
             //
             // No help icon on the heading. It was the same tooltip five times, and an
             // icon on "Falls short" cannot say how it differs from "Not comparable" -
@@ -662,7 +705,7 @@ function ComparisonCard({
               label={VERDICT_LABELS[verdict]}
               tone={ALIGNMENT_VERDICT_TONE[verdict]}
               count={inVerdict.length}
-              defaultOpen
+              defaultOpen={filtering}
             >
               <ul className="divide-y divide-border/60">
                 {inVerdict.map((finding) => (
@@ -670,8 +713,8 @@ function ComparisonCard({
                     key={finding.requirement_id}
                     finding={finding}
                     warnings={warnings.get(finding.requirement_id) ?? []}
-                    referenceName={documentName(edge.reference_doc_id, result)}
-                    comparisonName={documentName(edge.comparison_doc_id, result)}
+                    referenceName={documentType(edge.reference_doc_id, result)}
+                    comparisonName={documentType(edge.comparison_doc_id, result)}
                   />
                 ))}
               </ul>
@@ -699,40 +742,6 @@ const VERDICT_ORDER: AlignmentVerdict[] = [
 ];
 
 /** One requirement, what the measured document says about it, and both lineages. */
-/**
- * One model sentence, and the document it was read out of.
- *
- * Aligner's row holds two of these - the bar from one document, the answer from the
- * other - and they are deliberately parallel so the difference between them is legible:
- * "24-36 wks" beside "at least 28 weeks". Both are a model's reading, so the authorship
- * mark cannot separate them and neither can tone.
- *
- * The document can. It used to sit at the bottom of the row on two triggers that both
- * read "In document", so a reader met two near-identical sentences and learned which was
- * which only after reading both. The name leads the line instead.
- */
-function Attributed({
-  document,
-  children,
-  trigger,
-}: {
-  document: string;
-  children: React.ReactNode;
-  /** The passages this line was read from, opened in the trace. */
-  trigger?: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-2">
-      <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
-        {document}
-      </span>
-      <Reading size="prominent" className="mt-0 min-w-0 flex-1">
-        {children}
-      </Reading>
-      {trigger}
-    </div>
-  );
-}
 
 function FindingRow({
   finding,
@@ -769,8 +778,8 @@ function FindingRow({
           triggers that both read "In document", so a reader met two near-identical
           sentences and learned which was which only after both. */}
       <Attributed
-        document={referenceName}
-        trigger={
+        label={referenceName}
+        trailing={
           <DocumentSourceTrace
             blockIds={spanBlockIds(finding.reference_spans)}
             spans={finding.reference_spans}
@@ -785,8 +794,8 @@ function FindingRow({
           would then be a name attached to silence. */}
       {finding.statement && (
         <Attributed
-          document={comparisonName}
-          trigger={
+          label={comparisonName}
+          trailing={
             finding.comparison_spans.length > 0 ? (
               <DocumentSourceTrace
                 blockIds={spanBlockIds(finding.comparison_spans)}
@@ -798,22 +807,34 @@ function FindingRow({
           {finding.statement}
         </Attributed>
       )}
+      {/* Boxed, because the words are the tool's. The two lines above are a model's and
+          carry the mark that says so; this sentence is assembled by `chainWarningText`
+          from two document names and a verdict, and rendered as flowing prose it read as
+          a third judgement of the same kind. The rule the app already follows is
+          structural: prose in the column is a model's, prose in a box is the tool's.
+
+          The warning tone stays, on the icon rather than the text. Voice and urgency are
+          two axes and the box only states the first. */}
       {warnings.map((warning) => (
-        <p
-          key={warning.upstreamRequirementId}
-          className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-[hsl(var(--tone-warning))]"
+        <InterfaceNote
+          key={`${warning.upstreamVerdict}:${warning.upstreamReference}`}
+          className="mt-2 flex items-start gap-1.5"
         >
           <AlertTriangle
             aria-hidden="true"
-            className="mt-0.5 h-3.5 w-3.5 shrink-0"
+            className="mt-px h-3.5 w-3.5 shrink-0 text-[hsl(var(--tone-warning))]"
           />
           {/*
             A claim about the passage, not about the requirement: the two comparisons
             cite the same block, which does not prove they mean the same clause of it.
             True either way, and it sends a reader to the right place.
           */}
-          <span>{chainWarningText(warning)}</span>
-        </p>
+          <span className="min-w-0 flex-1">{chainWarningText(warning)}</span>
+          {/* The passages it is about, openable like every other citation here. It named
+              evidence in another comparison and handed the reader no way to reach it -
+              the one claim in Aligner that cited something and could not be followed. */}
+          <DocumentSourceTrace blockIds={warning.blockIds} />
+        </InterfaceNote>
       ))}
 
     </li>

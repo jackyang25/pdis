@@ -748,11 +748,18 @@ class AlignmentEdgeOut(BaseModel):
 
 
 class AlignmentEdgeSpecOut(BaseModel):
-    """One declared comparison, by source type, for the picker to preview."""
+    """One declared comparison, by source type, for the picker to preview.
+
+    `when_absent` is published because the picker applies the same resolution rule the
+    service does, before a run exists to ask. Without it the preview would offer the
+    iTPP-to-IPDP comparison on a three-document run, which the service then would not
+    make.
+    """
 
     reference: str
     comparison: str
     question: str
+    when_absent: str | None = None
 
 
 class AlignerEdgesResponse(BaseModel):

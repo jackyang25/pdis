@@ -1,7 +1,11 @@
 "use client";
 
 import { ResultLayout } from "@/components/ui/result-layout";
+import { ResultSearch } from "@/components/ui/result-search";
+import { matchesQuery, normalizeQuery } from "@/lib/result-search";
 import { MetricsRow } from "@/components/ui/metrics-row";
+import { Attributed } from "@/components/ui/attributed";
+import { DisclosureRow } from "@/components/ui/disclosure-row";
 import {
   ResultToolbar,
   ResultToolbarEnd,
@@ -16,10 +20,7 @@ import {
   DocumentSourceTrace,
 } from "@/components/document-source-trace";
 import { ErrorMessage } from "@/components/ui/error-message";
-import {
-  ScreenerSignalHelp,
-  ScreenerSignalLabel,
-} from "@/components/screener-signal-help";
+import { ScreenerSignalHelp } from "@/components/screener-signal-help";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel, type DocumentSlot } from "@/components/run-panel";
@@ -37,7 +38,6 @@ import { SectionHeading } from "@/components/ui/section-heading";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScreenerCoverageStrip } from "@/components/screener-coverage-strip";
 import { ScreenerDocumentTrace } from "@/components/screener-document-trace";
-import { answersPerDocument } from "@/lib/screener-document-trace";
 import {
   fetchScreenerGates,
   runScreener,
@@ -497,11 +497,32 @@ function ReviewView({
     useScreenerSession();
   const review = result.review;
   const counts = useMemo(() => countStates(review), [review]);
-  const answersByDocument = useMemo(() => answersPerDocument(review), [review]);
 
   // Same handoff Inspector uses: a citation anywhere opens that passage in the trace,
   // so the two views are one navigation rather than two places to look.
   const [resultTab, setResultTab] = useState("questions");
+  // One box for the whole tab: a reader searching "shelf life" is asking the gate, not
+  // one state of it, so the query filters every panel below rather than each holding its
+  // own. The count beside it is over the whole bank, for the same reason.
+  const [query, setQuery] = useState("");
+  const normalizedQuery = normalizeQuery(query);
+  const shownQuestions = useMemo(
+    () =>
+      review.disciplines.reduce(
+        (sum, discipline) =>
+          sum
+          + discipline.questions.filter((question) =>
+              matchesQuery(
+                normalizedQuery,
+                question.text,
+                question.statement,
+                question.missing,
+              ),
+            ).length,
+        0,
+      ),
+    [review, normalizedQuery],
+  );
   const revealTrace = useCallback(() => setResultTab("trace"), []);
   const {
     focus: traceFocus,
@@ -527,7 +548,7 @@ function ReviewView({
       }
       // `answered` and `gaps` show at zero because a model decides those two, so a zero
       // there says the check ran. The rest come from config and the uploads.
-      metricsNote="Every question in the bank by state, so the row sums to the number of questions this gate asks. Answered, partly answered and not found appear even at zero, because a zero there says the check ran and found nothing. A question is required when the bank states this gate needs it answered now, rather than at a later one."
+      metricsNote={screenerMetricsNote(counts)}
       tabValue={resultTab}
 
       onTabChange={setResultTab}
@@ -569,14 +590,18 @@ function ReviewView({
         <TabsContent value="questions" className="m-0">
           {/* The view's nav: its name, and what explains it. */}
           <ResultToolbar>
-            {/* Named again, though the tab says the same word: the priorities panel sits
-                between the two, so this re-anchors what the rows below are. No count:
-                nothing filters here, and the figure row above already states every state
-                and what they sum to. */}
-            <p className="min-w-0 flex-1 text-xs font-medium text-foreground">
-              Questions
-            </p>
-            <ResultToolbarEnd>
+            {/* A search, not the word "Questions". The band led with a label because
+                there was nothing else to put in it, and the label repeated the tab
+                directly above. A gate bank runs to seventy-odd questions across eight
+                collapsed disciplines in three panels, which is the content least
+                scannable by eye in the suite. */}
+            <ResultSearch
+              label="Search questions"
+              placeholder="Find a question…"
+              value={query}
+              onChange={setQuery}
+            />
+            <ResultToolbarEnd count={{ shown: shownQuestions, total: counts.total }}>
               <ScreenerSignalHelp />
             </ResultToolbarEnd>
           </ResultToolbar>
@@ -613,6 +638,7 @@ function ReviewView({
               description="Some of the question is answered and some is not. Each says what is still not stated."
               state="partly_answered"
               review={review}
+              query={normalizedQuery}
               defaultOpen
               orderNote={SCREENER_ORDER_NOTE}
             />
@@ -622,6 +648,7 @@ function ReviewView({
               description="Nothing in the supplied material addresses these. Each shows the discipline that owns it."
               state="not_found"
               review={review}
+              query={normalizedQuery}
               emptyMessage={SCREENER_EMPTY_MESSAGE}
               orderNote={SCREENER_ORDER_NOTE}
             />
@@ -631,6 +658,7 @@ function ReviewView({
               description="What the supplied material already answers."
               state="answered"
               review={review}
+              query={normalizedQuery}
               trailing={`${counts.cited} cited to a passage · ${counts.fromContext} from supplied context`}
             />
 
@@ -638,30 +666,16 @@ function ReviewView({
           </div>
         </TabsContent>
 
+        {/*
+          The component alone, as in Inspector, Aligner and Scout. A band above it
+          restated two things the page already shows: the split between answers cited to
+          a passage and answers from attached context, which the Answered row states
+          beside its own count, and a per-document tally, which the trace viewer prints
+          live beside the document it is showing. The tally also printed both documents
+          at once, so it had to end by asking the reader not to add them - a caution that
+          only existed because the numbers were there.
+        */}
         <TabsContent value="trace" className="m-0">
-          <div className="border-b border-border px-5 py-3 sm:px-6">
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Which passages carried an answer, whole or partial, and what they
-              answered. The inverse of the questions view. Only answers read
-              from a document appear here: an answer from attached context has
-              no passage, and an unanswered question has nothing to mark.
-            </p>
-            {/*
-                Not addable, and it says so. One question can cite passages from two
-                documents, so these overlap and their sum exceeds the answered count on
-                the questions view. Stating it beats letting a reader add them.
-              */}
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {answersByDocument
-                .map(
-                  (entry) =>
-                    `${displayLabel(entry.sourceType)} answered ${entry.count}`,
-                )
-                .join(" · ")}
-              . A question citing both documents is counted in both, so these do
-              not sum to the answered total.
-            </p>
-          </div>
           <ScreenerDocumentTrace
             review={review}
             focus={traceFocus}
@@ -725,6 +739,26 @@ function splitTrailingUrl(source: string): [string, string | null] {
  * "an SME will answer it" would tell a governance committee something untrue,
  * which is the same reason Scout refuses to blend its axes into a score.
  */
+/**
+ * What the figures count, said once, above them.
+ *
+ * The panel's only prose. Two sentences used to sit *under* the counts instead - one
+ * restating the total, one explaining what was read against what - which put an
+ * explanation of the figures below the figures and made the panel prose, numbers, prose.
+ * A caveat about how counts relate is prose about figures, and this is where that goes.
+ */
+function screenerMetricsNote(counts: ReturnType<typeof countStates>): string {
+  const assessed = counts.answered + counts.partlyAnswered + counts.notFound;
+  return [
+    "Every question in the bank by state, so the row sums to the number of questions this gate asks.",
+    "Answered, partly answered and not found appear even at zero, because a zero there says the check ran and found nothing.",
+    assessed === 0
+      ? "None was read: every question in this bank states that it applies to another intervention class."
+      : `${assessed} of them ${assessed === 1 ? "was" : "were"} read against everything supplied; any remainder is a question whose own text states it applies to another intervention class.`,
+    "A question is required when the bank states this gate needs it answered now, rather than at a later one.",
+  ].join(" ");
+}
+
 function CountRow({
   counts,
   requiredOpen,
@@ -745,7 +779,6 @@ function CountRow({
     { state: "not_applicable" as const, count: counts.notApplicable },
   ].filter((cell) => cell.state !== "not_applicable" || cell.count > 0);
 
-  const assessed = counts.answered + counts.partlyAnswered + counts.notFound;
   return (
     <MetricsRow
       total={counts.total}
@@ -755,30 +788,22 @@ function CountRow({
         count: cell.count,
         tone: QUESTION_STATE_TONE[cell.state],
       }))}
-      aside={
-        <>
-          {/* A cut across two states, not a sixth one: standing in the row above it would
-              break the sum a reader has just been invited to check. It is the figure worth
-              quoting in a review - the bank says which questions this gate requires, so an
-              unanswered required question is what holds the gate. */}
-          {requiredOpen > 0 && (
-            <p className="text-xs text-foreground">
-              <span className="font-semibold tabular-nums">{requiredOpen}</span>{" "}
-              {requiredOpen === 1
-                ? "question this gate requires is still unanswered."
-                : "questions this gate requires are still unanswered."}
-            </p>
-          )}
-          {/* What the bank could not be read against, which is not a verdict on anything.
-              It used to open by restating the total and saying the figures sum to it - the
-              third time that number appeared in one panel, after `metricsNote` and the
-              denominator. The note says that once now. */}
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            {assessed === 0
-              ? "None was read: every question in this bank states that it applies to another intervention class."
-              : `${assessed} ${assessed === 1 ? "was" : "were"} read against everything supplied. Any remainder is a question whose own text states it applies to another intervention class.`}
-          </p>
-        </>
+      // Cuts across the states above rather than being one of them, so it is a fact
+      // and not a bucket: standing in the row it would break the sum a reader has just
+      // been invited to check. It was two sentences here, one of them explaining how the
+      // counts relate - which is prose about the figures, and now sits in the note.
+      facts={
+        requiredOpen > 0
+          ? [
+              {
+                value: requiredOpen,
+                label:
+                  requiredOpen === 1
+                    ? "question this gate requires, still unanswered"
+                    : "questions this gate requires, still unanswered",
+              },
+            ]
+          : []
       }
     />
   );
@@ -810,6 +835,7 @@ function StatePanel({
   defaultOpen = false,
   emptyMessage,
   orderNote,
+  query,
 }: {
   title: string;
   description: string;
@@ -821,91 +847,93 @@ function StatePanel({
   emptyMessage?: string;
   /** How the order was decided. Stated because nothing here re-ranks. */
   orderNote?: string;
+  /**
+   * The search narrowing the questions, or empty.
+   *
+   * Threaded from the toolbar rather than held here, because one box filters every panel
+   * on the tab: a reader searching "shelf life" is asking the gate, not one state of it.
+   */
+  query?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const groups = useMemo(
-    () => groupedByDiscipline(review, state),
-    [review, state],
+    () => groupedByDiscipline(review, state, query),
+    [review, state, query],
   );
   const total = groups.reduce((sum, group) => sum + group.questions.length, 0);
-  // A panel with an empty message still renders at zero, because "nothing unanswered"
-  // is a result. One without stays absent, because an empty state is not news.
-  if (total === 0 && !emptyMessage) return null;
+  // A panel with an empty message still renders at zero, because "nothing unanswered" is
+  // a result. One without stays absent, because an empty state is not news.
+  //
+  // Under a search neither holds: zero here means the query matched nothing in this
+  // state, which is the filter working rather than a finding about the gate, and
+  // "nothing unanswered" would be a false claim about the run.
+  if (total === 0 && (!emptyMessage || query)) return null;
 
   return (
-    <section className="rounded-lg border border-border">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-        className="flex w-full items-start gap-3 px-4 py-3.5 text-left"
-      >
-        <span className="min-w-0 flex-1">
-          <SectionHeading
-            title={
-              <>
-                {title}{" "}
-                <span className="font-normal tabular-nums text-muted-foreground">
-                  {total}
-                </span>
-              </>
-            }
-            description={description}
-            trailing={trailing}
-          />
+    // A card, drawn by the component that draws cards. This was a `section` with its own
+    // border, its own chevron, its own rotation and its own padding, standing beside
+    // `CollapsibleCard` and doing the same job slightly differently - which is how the
+    // nesting below happened: a hand-rolled card does not know it is one, so putting
+    // cards inside it looked like a fresh decision rather than a repeat.
+    <CollapsibleCard
+      title={title}
+      subtitle={description}
+      // The count in the trailing slot, where every other card in the suite puts it,
+      // rather than trailing the title inside the heading. It was inside because this
+      // card drew its own header and could put anything anywhere.
+      trailing={
+        <span className="flex shrink-0 items-center gap-3 text-[11px] text-muted-foreground">
+          {trailing && <span>{trailing}</span>}
+          <span className="tabular-nums">{total}</span>
         </span>
-        <ChevronDown
-          className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-base motion-reduce:transition-none ${open ? "" : "-rotate-90"}`}
-        />
-      </button>
-      {open && (
-        <>
-          {total === 0 ? (
-            <p className="border-t border-border px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-              {emptyMessage}
-            </p>
-          ) : (
-            /*
-              One collapsed card per discipline, which is what Inspector does with its
-              rubric sections. A plain heading was worse than no grouping: with nine
-              long questions under it the heading scrolled away immediately and there
-              was nothing to say which discipline you were reading until the next one,
-              seventy rows later.
+      }
+      defaultOpen={defaultOpen}
+    >
+      {total === 0 ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {emptyMessage}
+        </p>
+      ) : (
+        /*
+          A group, not a card. One discipline is a labelled subset of this state with a
+          count - which is what `DisclosureRow` is, and what Aligner's verdicts and
+          Scout's relations already use. It was a `CollapsibleCard`, so a bordered box sat
+          inside a bordered box: Inspector had already found that and written down why it
+          is wrong, and the comment here cited Inspector's sections as the precedent
+          without noticing that those are the outermost container in their tab and these
+          are not.
 
-              Not tabs. This already sits inside the Questions tab, so a second tab
-              level would put two of them on one screen, and eight tabs labelled
-              "Preclinical Pharmacology / Toxicology / PK" do not fit a row anyway.
-            */
-            <div className="flex flex-col gap-2 border-t border-border px-4 py-4">
-              {groups.map((group) => (
-                <CollapsibleCard
-                  key={group.id}
-                  title={group.label}
-                  defaultOpen={false}
-                  contentClassName="px-0 py-0 sm:px-0"
-                  trailing={
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {group.questions.length}
-                    </span>
-                  }
-                >
-                  <ul className="divide-y divide-border border-t border-border">
-                    {group.questions.map((question) => (
-                      <QuestionRow key={question.id} question={question} />
-                    ))}
-                  </ul>
-                </CollapsibleCard>
-              ))}
-            </div>
-          )}
-          {orderNote && total > 0 && (
-            <p className="border-t border-border px-4 py-3 text-[11px] leading-relaxed text-muted-foreground">
-              {orderNote}
-            </p>
-          )}
-        </>
+          Still grouped, which was the right call: with nine long questions under a plain
+          heading the heading scrolled away immediately and nothing said which discipline
+          you were reading until the next one, seventy rows later.
+        */
+        <div>
+          {groups.map((group) => (
+            <DisclosureRow
+              key={group.id}
+              label={group.label}
+              count={group.questions.length}
+              defaultOpen={Boolean(query)}
+            >
+              <ul className="divide-y divide-border/60">
+                {group.questions.map((question) => (
+                  <QuestionRow key={question.id} question={question} />
+                ))}
+              </ul>
+            </DisclosureRow>
+          ))}
+        </div>
       )}
-    </section>
+      {orderNote && total > 0 && (
+        // Inset with the content, because the card pads its own. This card used to turn
+        // that padding off and re-add it on every child - three cards in the suite, two
+        // ways of attaching one style, and the only way to tell which a card used was to
+        // read it.
+        <p className="mt-3 border-t border-border pt-3 text-[11px] leading-relaxed text-muted-foreground">
+          {orderNote}
+        </p>
+      )}
+    </CollapsibleCard>
   );
 }
 
@@ -927,52 +955,74 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
         onClick={() => setOpen((current) => !current)}
         className="w-full text-left"
       >
-        <span className="flex items-baseline justify-end gap-3">
+        {/*
+          The question and what identifies it on one line, not two. The badge and the ID
+          were a right-aligned row of their own above the text, so the two floated apart:
+          a label at the far right of an empty line, and the thing it labels beginning
+          under the left margin. Same shape as `Attributed` - the subject takes the line
+          and what names it sits at the end of it.
+
+          No explainer on the badge. It carried one, on the reasoning that every other
+          label in this result is explainable and this was the only one a reader could not
+          ask about - true, but the icon was the wrong answer. It repeated identically on
+          every required row, and it could not teach the thing a reader needs: `required`
+          only means something against `anticipatory`, and an anticipatory question has no
+          badge for an icon to sit on. "How to read" is on the toolbar and lists every
+          topic beside the ones it contrasts with.
+        */}
+        <span className="flex items-baseline gap-3">
+          <span
+            className={`min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground ${open ? "" : "line-clamp-2"}`}
+          >
+            {question.text}
+          </span>
           <span className="flex shrink-0 items-center gap-2">
-            {/*
-              The badge keeps its own border; the explainer sits outside it, so the
-              pill reads as one token rather than as a bordered box containing a
-              question mark. Every other label in this result is explainable, and
-              this was the only one a reader could not ask about.
-            */}
             {question.requirement === "required" && (
-              <ScreenerSignalLabel topic="requirement">
-                <span
-                  className={cn(
-                    "rounded border border-border px-1.5 py-px",
-                    EYEBROW,
-                  )}
-                >
-                  Required
-                </span>
-              </ScreenerSignalLabel>
+              <span
+                className={cn(
+                  "rounded border border-border px-1.5 py-px",
+                  EYEBROW,
+                )}
+              >
+                Required
+              </span>
             )}
             <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
               {question.id}
             </span>
           </span>
         </span>
-        <p
-          className={`mt-1 text-xs leading-relaxed text-muted-foreground ${open ? "" : "line-clamp-2"}`}
-        >
-          {question.text}
-        </p>
       </button>
-      {/* The model's answer, so muted and marked - it was at full contrast, which is
-          the treatment for the tool's own words and the document's values. */}
+      {/* The model's answer, so muted and marked - it was at full contrast, which is the
+          treatment for the tool's own words and the document's values.
+
+          `prominent`, like every other result row in the suite. It was `body`, which is
+          the size for a panel's own paragraph - a trace panel, the priority digest - and
+          at 14px it made the answer larger than the question it answers and left the
+          11px label beside it looking stranded. */}
       {question.statement && (
-        <Reading size="body" className="mt-2">{question.statement}</Reading>
+        <Reading size="prominent" className="mt-2">{question.statement}</Reading>
       )}
       {/*
         The ask, given its own line rather than left inside the statement. On a partial
         this is the sentence that goes back to the grantee, and burying it in prose is
         why it was required as a field in the first place.
       */}
+      {/*
+        The ask, given its own line rather than left inside the statement. On a partial
+        this is the sentence that goes back to the grantee, and burying it in prose is why
+        it was required as a field in the first place.
+
+        Labelled rather than marked: this and the statement above are both a model's
+        reading, so the authorship mark cannot separate them and neither can tone. The
+        label used to sit *inside* the sentence, which put the tool's word inside a
+        model's - the thing `Attributed` exists to avoid, and which Aligner had already
+        solved for its two parallel sentences.
+      */}
       {question.missing && (
-        <Reading size="body" continued className="mt-1.5">
-          <span className="font-medium">Still not stated: </span>
+        <Attributed label="Still not stated" continued className="mt-1.5">
           {question.missing}
-        </Reading>
+        </Attributed>
       )}
       {open && <Provenance question={question} />}
     </li>

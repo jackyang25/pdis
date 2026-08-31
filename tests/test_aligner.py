@@ -134,10 +134,18 @@ class ConfigTests(unittest.TestCase):
             describe_document(config, "itpp"), describe_document(config, "ipdp")
         )
 
-    def test_the_shipped_config_declares_the_two_comparisons(self) -> None:
-        """The chain, not a mesh: there is deliberately no itpp/ipdp pair."""
+    def test_the_shipped_config_declares_a_chain_and_not_a_mesh(self) -> None:
+        """Two unconditional comparisons, in order, and no unconditional itpp/ipdp pair.
+
+        Stated against the *unconditional* edges rather than all of them, because a third
+        pair now exists and is a fallback: it resolves only where no cTPP was supplied, so
+        no run ever makes all three. An unconditional itpp/ipdp edge would be the mesh -
+        one shortfall reported twice, under two questions.
+        """
+        config = load_config()
+        unconditional = [spec for spec in config.edges if spec.when_absent is None]
         self.assertEqual(
-            [(spec.reference, spec.comparison) for spec in load_config().edges],
+            [(spec.reference, spec.comparison) for spec in unconditional],
             [("itpp", "ctpp"), ("ctpp", "ipdp")],
         )
 
@@ -877,3 +885,83 @@ class StatementVoiceTests(unittest.TestCase):
         prompt = build_assessment_prompt()
         self.assertIn("do not restate the requirement", prompt)
         self.assertIn("do not name the distance between the two", prompt)
+
+
+class ChainGapTests(unittest.TestCase):
+    """The chain without its middle link.
+
+    Declared comparisons form a chain, and a chain has a gap when its middle document is
+    not supplied. An iTPP and an IPDP with no cTPP between them resolved to no comparison
+    at all and failed the run outright - the commonest two-document pairing after
+    iTPP/cTPP, because a programme often has a profile and a plan and no candidate profile
+    written yet.
+
+    `when_absent` closes the gap as configuration, which is the point: which documents
+    compare is data, and a rule about *when* they compare is the same kind of fact.
+    """
+
+    def setUp(self) -> None:
+        self.config = load_config()
+
+    def resolve(self, *types: str) -> list[str]:
+        documents = [
+            AlignmentDocument(
+                doc_id=f"{source}_file", source_type=source, display_name=source
+            )
+            for source in types
+        ]
+        return [edge.edge_id for edge in resolve_edges(self.config, documents)]
+
+    def test_a_profile_and_a_plan_compare_directly(self) -> None:
+        """The case that failed. One comparison, not none."""
+        self.assertEqual(self.resolve("itpp", "ipdp"), ["itpp-to-ipdp"])
+
+    def test_the_middle_document_supersedes_the_direct_comparison(self) -> None:
+        """A fallback, not a third edge.
+
+        With all three, iTPP-to-IPDP would report differences the two-step chain already
+        explains, and a reader would see one shortfall twice under two questions.
+        """
+        self.assertEqual(
+            self.resolve("itpp", "ctpp", "ipdp"),
+            ["itpp-to-ctpp", "ctpp-to-ipdp"],
+        )
+
+    def test_the_unconditional_pairs_are_unaffected(self) -> None:
+        self.assertEqual(self.resolve("itpp", "ctpp"), ["itpp-to-ctpp"])
+        self.assertEqual(self.resolve("ctpp", "ipdp"), ["ctpp-to-ipdp"])
+
+    def conditional(self, when_absent: str) -> str:
+        return CONFIG + f"    when_absent: {when_absent}\n"
+
+    def test_a_condition_naming_an_undeclared_type_is_refused(self) -> None:
+        """A typo would make the edge unconditional, which is silent and wrong."""
+        with self.assertRaises(ValueError) as caught:
+            load_config(write_config(self.conditional("typo")))
+        self.assertIn("document_roles does not declare", str(caught.exception))
+
+    def test_a_condition_on_its_own_endpoint_is_refused(self) -> None:
+        """It could never resolve: the edge needs both documents and this forbids one."""
+        with self.assertRaises(ValueError) as caught:
+            load_config(write_config(self.conditional("ipdp")))
+        self.assertIn("could never resolve", str(caught.exception))
+
+    def test_the_condition_is_stated_when_a_run_makes_no_comparison(self) -> None:
+        """The error lists what is declared, so it has to say what is conditional."""
+        self.assertIn("only without a ctpp", describe_edges(self.config))
+
+    def test_the_fallback_asks_its_own_question(self) -> None:
+        """Not the two steps concatenated.
+
+        The question frames the whole extraction. What is asked here is whether a plan
+        carries the work for a target the intervention profile states - not what a grantee
+        committed to, because no grantee document was supplied.
+        """
+        spec = next(
+            edge
+            for edge in self.config.edges
+            if edge.reference == "itpp" and edge.comparison == "ipdp"
+        )
+        self.assertEqual(spec.when_absent, "ctpp")
+        questions = {edge.question for edge in self.config.edges}
+        self.assertEqual(len(questions), len(self.config.edges))

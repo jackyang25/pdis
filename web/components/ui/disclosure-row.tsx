@@ -40,17 +40,20 @@ export function DisclosureRow({
   /** Shown only when something is off, e.g. a citation naming an insight not retained. */
   note?: string;
   /**
-   * Whether the group starts open.
+   * Whether the group starts open. Closed unless a caller has a reason.
    *
-   * A judgement about the data, so it stays with the caller. Scout's groups start closed
-   * because a field carries several and most hold nothing a reader has to act on; Aligner
-   * opens its verdict groups because the tab exists to show them and a column of five
-   * closed rows is a second navigation step to the thing already navigated to.
+   * The one reason so far is a search: on arrival a closed group states its verdict and
+   * its count, which is the answer for most readers, but once someone has typed, every
+   * row still here is one they asked for and two more clicks to reach it is a filing
+   * cabinet in place of a result.
    */
   defaultOpen?: boolean;
   children: ReactNode;
 }) {
   return (
+    // Closed on arrival, like every other group in the suite. A heading states its
+    // verdict and its count, so the closed row already answers most of what a reader came
+    // for; opening one is for the single group they want the requirements behind.
     <details className="group/row" open={defaultOpen}>
       <summary className="flex cursor-pointer select-none items-center gap-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/row:rotate-180 motion-reduce:transition-none" />

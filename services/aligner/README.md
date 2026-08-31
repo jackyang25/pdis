@@ -119,6 +119,32 @@ gap          Pregnant women 24-36 weeks required versus at least 28 weeks offere
 The prompt told it not to restate the requirement; it restated the requirement, on
 every one of sixty-nine rows, because on a shortfall there is nothing else to say.
 
+### The chain, and the link that stands in for a missing one
+
+`configs/alignment.yaml` declares iTPP to cTPP and cTPP to IPDP. That is a chain,
+not a mesh: a plan is written against the candidate profile, so comparing it to
+the Foundation's profile as well would report the same shortfall twice under two
+questions.
+
+A chain breaks when its middle document is not supplied, and iTPP with IPDP and
+no cTPP is a common upload — a programme often has a profile and a plan before a
+candidate profile exists. That combination used to resolve no comparison at all
+and fail the run.
+
+`when_absent` closes it. An edge carrying one resolves only while the named type
+is missing, so the direct iTPP-to-IPDP comparison is made when there is no cTPP
+between them and skipped when there is. It is a fallback, not a third comparison,
+which is why it is a condition on one edge rather than another entry.
+
+It carries its own question rather than the two it stands in for, because the
+question frames the whole extraction: what is asked is whether a plan carries the
+work for a target the intervention profile states, not what a grantee committed
+to, since no grantee document was supplied.
+
+`edge_applies` is the one place the rule lives. The picker previews what a run
+would compare before there is a run, so the rule is applied twice and a second
+copy would let the preview promise a comparison the run then skips.
+
 ### Two citation lists, and they are not interchangeable
 
 `reference_spans` quote the document that sets the bar; `comparison_spans` quote

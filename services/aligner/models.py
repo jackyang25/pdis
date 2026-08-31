@@ -100,6 +100,26 @@ class EdgeSpec:
     reference: str
     comparison: str
     question: str
+    when_absent: str | None = None
+    """The document type whose presence makes this comparison redundant.
+
+    Declared comparisons form a chain, and a chain has a gap when the middle document
+    is not supplied. An iTPP and an IPDP with no cTPP between them resolved to no
+    comparison at all, so the commonest two-document pairing after iTPP/cTPP failed the
+    run outright - and the plan really is written against the Foundation's profile when
+    there is no candidate profile to sit between them.
+
+    A **fallback**, not an addition, which is why it is a condition rather than another
+    edge. With all three supplied, iTPP-to-IPDP would report differences the two-step
+    chain already explains, and a reader would be shown the same shortfall twice under
+    two questions. Naming `ctpp` here says: make this comparison only when nothing
+    stands between its two documents.
+
+    A condition rather than something derived from the chain, because the question is
+    the part that cannot be derived. It frames the whole extraction, and "does the plan
+    deliver what the intervention profile asks for" is a different sentence from either
+    step it stands in for - not the two concatenated.
+    """
 
 
 @dataclass
@@ -321,7 +341,7 @@ def resolve_edges(
             question=spec.question,
         )
         for spec in config.edges
-        if spec.reference in by_source_type and spec.comparison in by_source_type
+        if edge_applies(spec, set(by_source_type))
     ]
     if not edges:
         supplied = ", ".join(sorted(by_source_type)) or "nothing"
@@ -350,9 +370,28 @@ def requirement_id(edge: str, index: int) -> str:
     return f"{edge}/r-{index:03d}"
 
 
+def edge_applies(spec: EdgeSpec, supplied: set[str]) -> bool:
+    """Whether this declared comparison is one the supplied documents make.
+
+    Both its documents present, and nothing present that supersedes it. The one place
+    the rule lives, because it is applied twice - here to build a run, and again in the
+    picker to preview what a run would compare before making it. Two copies of it would
+    let the preview promise a comparison the run does not make.
+    """
+    return (
+        spec.reference in supplied
+        and spec.comparison in supplied
+        and (spec.when_absent is None or spec.when_absent not in supplied)
+    )
+
+
 def describe_edges(config: AlignmentConfig) -> str:
     """The declared comparisons as readable text, for error messages."""
-    return ", ".join(f"{spec.reference} to {spec.comparison}" for spec in config.edges)
+    return ", ".join(
+        f"{spec.reference} to {spec.comparison}"
+        + (f" (only without a {spec.when_absent})" if spec.when_absent else "")
+        for spec in config.edges
+    )
 
 
 def alignment_result_to_dict(result: AlignmentResult) -> dict[str, Any]:
@@ -387,6 +426,7 @@ def _edges(value: Any, document_roles: dict[str, str]) -> list[EdgeSpec]:
         reference = item.get("reference")
         comparison = item.get("comparison")
         question = item.get("question")
+        when_absent = item.get("when_absent")
         for label, text in (
             ("reference", reference),
             ("comparison", comparison),
@@ -408,6 +448,21 @@ def _edges(value: Any, document_roles: dict[str, str]) -> list[EdgeSpec]:
                     f"Aligner edges[{index}].{label} names {source_type!r}, which "
                     "document_roles does not declare"
                 )
+        # The same three checks as the pair itself: a condition naming a type nothing
+        # declares is a typo that would make the edge unconditional, and a condition
+        # naming its own endpoints would make it unreachable - the edge cannot resolve
+        # without both documents and cannot fire while either is present.
+        if when_absent is not None:
+            if not isinstance(when_absent, str) or when_absent not in named:
+                raise ValueError(
+                    f"Aligner edges[{index}].when_absent names {when_absent!r}, which "
+                    "document_roles does not declare"
+                )
+            if when_absent in (reference, comparison):
+                raise ValueError(
+                    f"Aligner edges[{index}] is conditional on {when_absent!r}, which "
+                    "is one of the two documents it compares, so it could never resolve"
+                )
         if (reference, comparison) in seen:
             raise ValueError(
                 f"Aligner declares {reference} to {comparison} more than once"
@@ -418,6 +473,7 @@ def _edges(value: Any, document_roles: dict[str, str]) -> list[EdgeSpec]:
                 reference=reference,
                 comparison=comparison,
                 question=question.strip(),
+                when_absent=when_absent,
             )
         )
     return specs

@@ -1,4 +1,5 @@
 import type { AlignmentEdge, AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.ts";
+import { displayLabel } from "./display-label.ts";
 import { ALIGNMENT_VERDICTS, VERDICT_LABELS, spanBlockIds } from "./api.ts";
 import { chainWarningText, chainWarnings } from "./aligner-chain.ts";
 import type { PriorityItem } from "./priorities.ts";
@@ -80,7 +81,7 @@ export function selectAlignerPriorities(result: AlignmentResult): PriorityItem[]
       (warnings.get(finding.requirement_id) ?? []).map((warning) => ({
         // Qualified by the upstream finding, because one downstream requirement can sit
         // on two flagged passages and each is a separate thing to go and read.
-        id: `${finding.requirement_id}+${warning.upstreamRequirementId}`,
+        id: `${finding.requirement_id}+${warning.upstreamVerdict}`,
         label: finding.requirement,
         qualifier: `${VERDICT_LABELS[finding.verdict]} here · flagged upstream · ${comparisonLabel(edges.get(finding.edge_id), result)}`,
         statement: finding.statement,
@@ -146,4 +147,22 @@ export function comparisonLabel(
 export function documentName(docId: string, result: AlignmentResult): string {
   const document = result.documents.find((item) => item.doc_id === docId);
   return document?.display_name || document?.source_type || docId;
+}
+
+/**
+ * The document's type, for a label that only has to tell two sides apart.
+ *
+ * `documentName` gives the file's own title - "Vaccine Intervention TPP" - which is what
+ * identifies a document and belongs where a reader first meets it: the comparison card's
+ * heading, the trace, the run history. Repeated as a row label it was two hundred pixels
+ * of every row, fifty-three times, saying what the heading two lines up had already said.
+ *
+ * A row label has a smaller job. The heading has already bound each side to a document,
+ * so the label only has to say which side this line is, and the shortest thing that does
+ * that is the type. A run cannot hold two documents of one type - `resolve_edges` refuses
+ * it - so the type is unambiguous within a comparison.
+ */
+export function documentType(docId: string, result: AlignmentResult): string {
+  const document = result.documents.find((item) => item.doc_id === docId);
+  return displayLabel(document?.source_type || docId);
 }

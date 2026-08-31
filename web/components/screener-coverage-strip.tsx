@@ -2,7 +2,8 @@
 
 import type { GateReview, QuestionAssessment, QuestionState } from "@/lib/api";
 import { QUESTION_STATE_LABEL, QUESTION_STATE_TONE } from "@/lib/api";
-import type { Tone } from "@/lib/tone";
+import { TONE_FILL } from "@/lib/tone";
+
 
 /**
  * The whole gate at a glance: one cell per question, one row per discipline.
@@ -40,7 +41,7 @@ function Cell({
   const title = `${question.id} · ${QUESTION_STATE_LABEL[question.state].toLowerCase()}${
     question.statement ? ` · ${question.statement}` : ""
   }`;
-  const shape = `h-3.5 w-3.5 rounded-[3px] ${CELL[tone]}`;
+  const shape = `h-3.5 w-3.5 rounded-[3px] ${TONE_FILL[tone]}`;
   const openable = Boolean(onSelect) && question.cited_block_ids.length > 0;
 
   if (!openable) {
@@ -57,22 +58,6 @@ function Cell({
   );
 }
 
-/**
- * The grid's own cell colours, read from the shared tone rather than declared again.
- *
- * A heatmap needs a filled cell where a metrics row needs a dot, so the shapes differ -
- * but the *decision* about which state is which tone is made once, in `lib/api.ts`, and
- * read here. This map used to carry that decision itself in hand-written background
- * classes, which made it a fifth tone vocabulary and left the metrics row unable to
- * reach it: Screener's counts were the only ones on the suite with no dot beside them.
- */
-const CELL: Record<Tone, string> = {
-  success: "bg-[hsl(var(--tone-success))]",
-  warning: "bg-[hsl(var(--tone-warning))]",
-  danger: "bg-[hsl(var(--tone-danger))]",
-  info: "bg-[hsl(var(--tone-info))]",
-  neutral: "bg-foreground/45",
-};
 
 export function ScreenerCoverageStrip({
   review,
@@ -108,13 +93,18 @@ export function ScreenerCoverageStrip({
         ))}
       </ul>
 
+      {/* Squares, not dots, though the figure row above shows these same three states as
+          dots. A legend shows the mark of the thing it explains, and the thing here is a
+          grid of squares: keying it with dots would leave a reader matching one shape to
+          another. The rule and the two other cases are in `components/ui/tone-dot.tsx`.
+          The colours are the same either way - one tone scale, whatever the shape. */}
       <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
         {(Object.keys(QUESTION_STATE_TONE) as QuestionState[])
           .filter((state) => present.has(state))
           .map((state) => (
             <span key={state} className="inline-flex items-center gap-1.5">
               <span
-                className={`h-2.5 w-2.5 rounded-[2px] ${CELL[QUESTION_STATE_TONE[state]]}`}
+                className={`h-2.5 w-2.5 rounded-[2px] ${TONE_FILL[QUESTION_STATE_TONE[state]]}`}
               />
               {QUESTION_STATE_LABEL[state].toLowerCase()}
             </span>

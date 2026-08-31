@@ -2410,7 +2410,7 @@ function FieldGrid({
             </>
           }
         >
-          <TabsContent value="fields" className="mt-0">
+          <TabsContent value="fields" className="m-0">
             {(unresolvedFieldCount > 0 ||
               result.quantitative_ledger.status === "uncertain") && (
               <div className="flex items-start gap-2 border-b border-border/60 bg-foreground/[0.045] px-5 py-3 text-xs text-muted-foreground sm:px-6">
@@ -2525,7 +2525,7 @@ function FieldGrid({
             )}
           </TabsContent>
           {developmentLandscape.length > 0 && (
-            <TabsContent value="landscape" className="mt-0">
+            <TabsContent value="landscape" className="m-0">
               <DevelopmentLandscape
                 programs={developmentLandscape}
                 stats={result.stats}
@@ -2533,14 +2533,14 @@ function FieldGrid({
             </TabsContent>
           )}
           {safetyObservations.length > 0 && (
-            <TabsContent value="safety" className="mt-0">
+            <TabsContent value="safety" className="m-0">
               <SafetyObservations observations={safetyObservations} />
             </TabsContent>
           )}
-          <TabsContent value="map" className="mt-0">
+          <TabsContent value="map" className="m-0">
             <ScoutEvidenceMap result={result} />
           </TabsContent>
-          <TabsContent value="trace" className="mt-0">
+          <TabsContent value="trace" className="m-0">
             <ScoutDocumentTrace
               result={result}
               focus={traceFocus}
@@ -3019,61 +3019,57 @@ function RunCoverage({
           tone: strength === "not_stated" ? ("neutral" as const) : GROUNDING_TONE[strength],
         }];
       })}
-      aside={
-        // Everything true of the run that is not one field's grounding. Every figure at
-        // one weight and every word at another: it read `**31** of 36 fields` then `34
-        // numeric targets, **34** with no comparable`, three numbers with two emphasised,
-        // which made the plain one look like a different kind of fact.
-        <p className="flex flex-col gap-1.5 text-[11px] tabular-nums text-muted-foreground">
-          <span>
-            <span className="font-medium text-foreground">
-              {insights.toLocaleString()}
-            </span>{" "}
-            insights from{" "}
-            <span className="font-medium text-foreground">
-              {sources.toLocaleString()}
-            </span>{" "}
-            sources
-          </span>
-          {headline.numericTargets > 0 && (
-            <span>
-              <span className="font-medium text-foreground">
-                {headline.numericTargets}
-              </span>{" "}
-              {headline.numericTargets === 1 ? "numeric target" : "numeric targets"}
-              {headline.uncalibratedTargets > 0 && (
-                <>
-                  {", "}
-                  <span className="font-medium text-foreground">
-                    {headline.uncalibratedTargets}
-                  </span>{" "}
-                  with no comparable measurement
-                </>
-              )}
-            </span>
-          )}
-          {/* Counted, not named. An unfavourable precedent is the one signal
-              `PriorityPanel` has no tier for, so the count belongs somewhere - but the
-              field name is right below and one of them renders as "I E Ddi", which helps
-              nobody. */}
-          {headline.unfavorableFields.length > 0 && (
-            <span>
-              <span className="font-medium text-foreground">
-                {headline.unfavorableFields.length}
-              </span>{" "}
-              unfavourable precedent
-            </span>
-          )}
-          {headline.unresolvedCount > 0 && (
-            <span>
-              <span className="font-medium text-foreground">
-                {headline.unresolvedCount}
-              </span>{" "}
-              interpretation unresolved
-            </span>
-          )}
-        </p>
-      }
+      // Everything true of the run that is not one field's grounding. Precedent and
+      // calibration are real signals and not distributions - a field can carry both,
+      // neither, or several conformities - so counts of them partition nothing and are
+      // facts rather than buckets.
+      //
+      // Figures with labels, like the other two tools. This was a paragraph of spans with
+      // the numbers emphasised and the words between them not, so `34 numeric targets, 34
+      // with no comparable` read as one fact when it is two. How the counts relate is in
+      // the note, which is where sentences about figures go.
+      facts={[
+        { value: insights, label: "insights" },
+        { value: sources, label: "sources" },
+        ...(headline.numericTargets > 0
+          ? [
+              {
+                value: headline.numericTargets,
+                label:
+                  headline.numericTargets === 1
+                    ? "numeric target"
+                    : "numeric targets",
+              },
+            ]
+          : []),
+        ...(headline.uncalibratedTargets > 0
+          ? [
+              {
+                value: headline.uncalibratedTargets,
+                label: "with no comparable measurement",
+              },
+            ]
+          : []),
+        // Counted, not named. An unfavourable precedent is the one signal `PriorityPanel`
+        // has no tier for, so the count belongs somewhere - but the field name is right
+        // below and one of them renders as "I E Ddi", which helps nobody.
+        ...(headline.unfavorableFields.length > 0
+          ? [
+              {
+                value: headline.unfavorableFields.length,
+                label: "unfavourable precedent",
+              },
+            ]
+          : []),
+        ...(headline.unresolvedCount > 0
+          ? [
+              {
+                value: headline.unresolvedCount,
+                label: "interpretation unresolved",
+              },
+            ]
+          : []),
+      ]}
     />
   );
 }

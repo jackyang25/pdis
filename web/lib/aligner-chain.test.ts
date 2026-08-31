@@ -98,7 +98,7 @@ test("a plan meeting a commitment that falls short upstream is linked", () => {
   const warnings = chainWarnings(chain());
   const [warning] = warnings.get("ctpp-to-ipdp/r-001") ?? [];
   assert.ok(warning, "the downstream finding should carry a warning");
-  assert.equal(warning.upstreamRequirementId, "itpp-to-ctpp/r-001");
+  assert.deepEqual(warning.upstreamRequirementIds, ["itpp-to-ctpp/r-001"]);
   assert.equal(warning.upstreamVerdict, "falls_short");
   // No gap on the warning: it restated the upstream requirement, and a reader
   // following the warning arrives where that requirement is the heading.
@@ -206,7 +206,21 @@ test("one upstream finding reached through two passages is one warning", () => {
   assert.deepEqual(warnings[0].blockIds, ["candidate/b-0042", "candidate/b-0043"]);
 });
 
-test("two upstream findings on one passage are two things to read", () => {
+test("two upstream findings making one claim are one warning", () => {
+  // What a reader was shown on a real run:
+  //
+  //   ⚠ This passage of the cTPP also cannot be compared with the iTPP.
+  //   ⚠ This passage of the cTPP also cannot be compared with the iTPP.
+  //   ⚠ This passage of the cTPP also falls short of the iTPP.
+  //   ⚠ This passage of the cTPP also falls short of the iTPP.
+  //
+  // Four upstream findings over one passage, and the sentence names neither the
+  // requirement nor anything else that varies between them - so two of the four lines
+  // were word-for-word repeats of the other two.
+  //
+  // The warning is a claim about the passage, which is what makes it safe on a dense
+  // block that carries several facts. Keyed by the upstream requirement it was a claim
+  // about the requirement, which is the thing the module refuses to assert.
   const result = chain();
   result.findings.push(
     finding({
@@ -219,8 +233,54 @@ test("two upstream findings on one passage are two things to read", () => {
     }),
   );
   const warnings = chainWarnings(result).get("ctpp-to-ipdp/r-001") ?? [];
+  assert.equal(warnings.length, 1, "one claim about one passage is one line");
+  // Both are still recorded, so a reader following the warning finds both to read.
+  assert.deepEqual(warnings[0].upstreamRequirementIds, [
+    "itpp-to-ctpp/r-001",
+    "itpp-to-ctpp/r-002",
+  ]);
+  assert.equal(
+    chainWarningText(warnings[0]),
+    "This passage of the cTPP also falls short of the iTPP.",
+  );
+});
+
+test("two upstream verdicts on one passage are two claims", () => {
+  // Not collapsed to one: "falls short" and "cannot be compared" say different things
+  // about the same passage, and the second is not a weaker version of the first - it
+  // says the two documents share no axis to be measured on.
+  const result = chain();
+  result.findings.push(
+    finding({
+      requirement_id: "itpp-to-ctpp/r-002",
+      edge_id: "itpp-to-ctpp",
+      verdict: "not_comparable",
+      requirement: "Presented in a single-dose vial.",
+      reference_spans: [cite("profile/b-0002")],
+      comparison_spans: [cite("candidate/b-0042")],
+    }),
+  );
+  const warnings = chainWarnings(result).get("ctpp-to-ipdp/r-001") ?? [];
   assert.deepEqual(
-    warnings.map((warning) => warning.upstreamRequirementId),
-    ["itpp-to-ctpp/r-001", "itpp-to-ctpp/r-002"],
+    warnings.map(chainWarningText),
+    [
+      "This passage of the cTPP also falls short of the iTPP.",
+      "This passage of the cTPP also cannot be compared with the iTPP.",
+    ],
+  );
+});
+
+test("a warning over several passages says so, and agrees with itself", () => {
+  // The sentence counts what it is about. It read "This passage" over two blocks, which
+  // is the singular claiming to be the plural - and the count is the reader's only clue
+  // to how much sits behind one line.
+  const result = chain({
+    upstreamBlocks: ["candidate/b-0042", "candidate/b-0043"],
+    downstreamBlocks: ["candidate/b-0042", "candidate/b-0043"],
+  });
+  const [warning] = chainWarnings(result).get("ctpp-to-ipdp/r-001") ?? [];
+  assert.equal(
+    chainWarningText(warning),
+    "These 2 passages of the cTPP also fall short of the iTPP.",
   );
 });

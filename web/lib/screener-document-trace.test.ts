@@ -12,7 +12,6 @@ import test from "node:test";
 
 import type { ContentBlock, GateReview, QuestionAssessment } from "./api.ts";
 import {
-  answersPerDocument,
   buildScreenerDocumentAnnotations,
 } from "./screener-document-trace.ts";
 
@@ -186,49 +185,4 @@ test("a question the gate requires is labelled as one", () => {
   );
   assert.equal(annotation.statusLabel, "Required at this gate");
   assert.equal(annotation.sourceRef.requirement, "required");
-});
-
-test("the per-document counts come from the same annotations the trace renders", () => {
-  const counts = answersPerDocument(
-    review([], {
-      documents: [
-        { doc_id: "profile", source_type: "itpp" },
-        { doc_id: "plan", source_type: "ipdp" },
-      ],
-      blocks: [block("profile:1", "profile"), block("plan:1", "plan")],
-      disciplines: [
-        {
-          id: "cmc",
-          label: "CMC",
-          questions: [
-            cited("A", ["profile:1"]),
-            // Cites both, so it counts once for each: the question asked here is what
-            // a document answered, not how many questions exist.
-            cited("B", ["profile:1", "plan:1"]),
-            question("C", "not_found"),
-          ],
-        },
-      ],
-    }),
-  );
-  assert.deepEqual(counts, [
-    { docId: "profile", sourceType: "itpp", count: 2 },
-    { docId: "plan", sourceType: "ipdp", count: 1 },
-  ]);
-});
-
-test("a document that answered nothing is still listed, at zero", () => {
-  // Omitting it would read as "not uploaded", which is a different fact.
-  const counts = answersPerDocument(
-    review([question("A", "not_found")], {
-      documents: [
-        { doc_id: "profile", source_type: "itpp" },
-        { doc_id: "plan", source_type: "ipdp" },
-      ],
-    }),
-  );
-  assert.deepEqual(
-    counts.map((entry) => [entry.sourceType, entry.count]),
-    [["itpp", 0], ["ipdp", 0]],
-  );
 });

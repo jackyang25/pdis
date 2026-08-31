@@ -1091,15 +1091,20 @@ test("both sides of a comparison say which document they came from", () => {
   //
   // What separates them is which document, so each line leads with its name. That used
   // to sit at the bottom of the row on two triggers both reading "In document".
+  //
+  // `document` became `label` when the component moved to `components/ui/attributed.tsx`:
+  // Screener needed the same shape for a sentence whose label is not a document but what
+  // the material still leaves open, and a prop named for one caller's data is a prop the
+  // second caller has to misuse.
   const page = read("app", "aligner", "page.tsx");
   assert.match(
     page,
-    /<Attributed\s+document=\{referenceName\}/,
+    /<Attributed\s+label=\{referenceName\}/,
     "the bar does not say which document states it",
   );
   assert.match(
     page,
-    /<Attributed\s+document=\{comparisonName\}/,
+    /<Attributed\s+label=\{comparisonName\}/,
     "the answer does not say which document it was read from",
   );
   assert.ok(
@@ -1163,11 +1168,15 @@ test("the metrics panel carries no help affordance", () => {
     );
   }
   // And the note actually says what the row sums to, which is the sentence the tooltips
-  // were standing in for.
-  for (const tool of ["inspector", "aligner", "screener", "scout"]) {
+  // were standing in for. Matched on the page rather than inside the attribute, because a
+  // note whose wording depends on the run is built by a function and passed as an
+  // expression - Screener's says how many questions were read against the uploads.
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    assert.match(page, /metricsNote[={]/, `${tool} states no metrics note`);
     assert.match(
-      read("app", tool, "page.tsx"),
-      /metricsNote="[^"]*(sums to|by verdict|by state|including the classes)/,
+      page,
+      /(sums to|by verdict|by state|including the classes)/,
       `${tool} never says what its figures count`,
     );
   }
@@ -1254,4 +1263,388 @@ test("a group of results is closable wherever it is drawn", () => {
       );
     }
   }
+});
+
+test("a group arrives closed unless a search is narrowing it", () => {
+  // Everything in the suite that groups results defaults closed - Inspector's sections,
+  // Screener's disciplines, Scout's relation groups, Aligner's verdicts. Aligner opened
+  // its five, so expanding one comparison put fifty-three requirements on screen.
+  //
+  // Closed, the headings are that comparison's distribution, which is stated nowhere else:
+  // the metrics row is run-wide and sums both comparisons together. So the closed state
+  // carries the answer, and opening a row is for the one group a reader wants behind it.
+  //
+  // The exception is a search, and it is the only one: once someone has typed, every row
+  // still here is one they asked for, and two more clicks to reach it is a filing cabinet
+  // in place of a result. Which is why this checks that nothing opens *unconditionally*
+  // rather than that nothing opens.
+  const row = read("components", "ui", "disclosure-row.tsx");
+  assert.match(
+    row,
+    /defaultOpen = false/,
+    "the shared group row no longer arrives closed",
+  );
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    assert.ok(
+      !/<DisclosureRow[^>]*\bdefaultOpen(?!=)/s.test(page),
+      `${tool} opens its groups unconditionally`,
+    );
+    for (const [, expression] of page.matchAll(/\bdefaultOpen=\{([^}]*)\}/g)) {
+      assert.ok(
+        !/^(true|!!true)$/.test(expression.trim()),
+        `${tool} opens a group on a constant`,
+      );
+    }
+  }
+});
+
+test("every result band leads with a search, and none leads with the tab's own word", () => {
+  // Two tools had a search and two led their band with a label - and the label was the
+  // word the tab directly above already said, because with nothing to filter there was
+  // nothing else to put there. The band cannot be only its right-hand end, so "Questions"
+  // and "Comparisons" were standing in for a control that had not been built.
+  //
+  // Both have plenty to search: a gate bank runs to seventy-odd questions across eight
+  // collapsed disciplines, and a three-document alignment to ninety requirements across
+  // two collapsed cards grouped again inside.
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    for (let at = page.indexOf("<ResultToolbar>"); at >= 0; at = page.indexOf("<ResultToolbar>", at + 1)) {
+      const band = page.slice(at, page.indexOf("</ResultToolbar>", at));
+      const end = band.indexOf("<ResultToolbarEnd");
+      const left = end === -1 ? band : band.slice(0, end);
+      // Inspector's Consistency band is the one that stays a label: it heads the
+      // cross-section conflicts, which is a different phrase from its tab ("Consistency")
+      // and names the rows rather than repeating the view.
+      const label = left.match(/>\s*([A-Z][^<>{]*?)\s*</)?.[1];
+      if (!label) continue;
+      const tab = page.match(new RegExp(`<TabsTrigger value="[^"]*">${label}</TabsTrigger>`));
+      assert.ok(
+        !tab,
+        `${tool} leads a band with "${label}", which is the word on the tab above it`,
+      );
+    }
+  }
+});
+
+test("a search filters the rows, not the boxes around them", () => {
+  // Inspector kept a section whose units matched and then showed every unit in it, so
+  // searching "efficacy" returned a section of twenty rows with nothing marking the hit.
+  // Scout already filtered leaves because its leaves are its top level; the rule is now
+  // written once and the three nested tools follow it.
+  const shared = read("lib", "result-search.ts");
+  assert.match(shared, /export function matchesQuery/);
+  assert.match(shared, /export function normalizeQuery/);
+  // Each tool checked against its own source, and against the shape it actually drops.
+  // Concatenating the three and matching once passed while Inspector filtered only
+  // sections - one tool's correct code answering for another's is the whole failure mode
+  // a drift test exists to catch.
+  const DROPS_EMPTY: [string, string[], RegExp][] = [
+    [
+      "inspector",
+      ["app", "inspector", "page.tsx"],
+      /\.filter\(\(section\) => section\.units\.length > 0\)/,
+    ],
+    [
+      "aligner",
+      ["app", "aligner", "page.tsx"],
+      /\.filter\(\(\{ findings \}\) => findings\.length > 0\)/,
+    ],
+    [
+      "screener",
+      ["lib", "screener-priorities.ts"],
+      /\.filter\(\(group\) => group\.questions\.length > 0\)/,
+    ],
+  ];
+  for (const [tool, file, drops] of DROPS_EMPTY) {
+    const source = read(...file);
+    assert.match(
+      source,
+      /matchesQuery/,
+      `${tool} decides for itself what a search matches`,
+    );
+    assert.match(
+      source,
+      drops,
+      `${tool} leaves a container on screen after a search empties it`,
+    );
+  }
+});
+
+test("the chain warning speaks in the tool's voice, and can be followed", () => {
+  // It sits under two `Reading` lines - a model's words, marked as such - and rendered as
+  // flowing prose it read as a third judgement of the same kind. Its words are the tool's:
+  // `chainWarningText` fills a template with two document names and a verdict. The app's
+  // rule for that is structural, not tonal - prose in the column is a model's, prose in a
+  // box is the tool's - so amber text and a triangle did not state it. They said "this is
+  // a warning", which is a different axis.
+  const page = read("app", "aligner", "page.tsx");
+  const at = page.indexOf("{warnings.map((warning)");
+  const block = page.slice(at, page.indexOf("</li>", at));
+  assert.match(block, /<InterfaceNote/, "the warning renders as a model's sentence would");
+  // The urgency survives, on the icon rather than the text: voice and tone are two axes
+  // and the box only carries the first.
+  assert.match(block, /AlertTriangle/);
+  assert.match(block, /tone-warning/);
+  // And it hands over what it cites. It named a finding in another comparison - a
+  // different card, further up the same page - and was the one claim in Aligner that
+  // pointed at evidence with no way to reach it.
+  assert.match(
+    block,
+    /<DocumentSourceTrace blockIds=\{warning\.blockIds\}/,
+    "the warning cites passages a reader cannot open",
+  );
+});
+
+test("a result is built from the four layers, and nothing hand-rolls one", () => {
+  // Four tools drew boxes wherever a box looked right. Screener put bordered cards inside
+  // a bordered card - which Inspector had already found in its own sections and written
+  // down why it is wrong - and the outer "card" was not a card at all but a `section`
+  // with a hand-rolled border, chevron, rotation and padding standing beside the
+  // component that does exactly that. A hand-rolled card does not know it is one, which
+  // is how putting cards inside it read as a fresh decision rather than a repeat.
+  //
+  // The rule is depth: card, group, row, leaf. `lib/result-layers.ts` states it.
+  const layers = read("lib", "result-layers.ts");
+  for (const level of ["card", "group", "row", "leaf"]) {
+    assert.match(layers, new RegExp(`${level}:`), `the layering omits ${level}`);
+  }
+
+  // Nobody draws a card by hand. `rounded-lg border` plus a chevron is a `CollapsibleCard`
+  // with a different name, and the two will not stay identical.
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    for (let at = page.indexOf('"rounded-lg border'); at >= 0; at = page.indexOf('"rounded-lg border', at + 1)) {
+      const near = page.slice(at, at + 900);
+      assert.ok(
+        !/ChevronDown/.test(near),
+        `${tool} hand-rolls a card beside the component that draws one`,
+      );
+    }
+  }
+});
+
+test("a group inside a card is a row, not a second card", () => {
+  // The nesting Inspector fixed and Screener kept: a rounded border inside a rounded
+  // border reads as a third subject rather than as a part of the second. A discipline, a
+  // verdict and a relation are all the same thing - a labelled subset with a count - and
+  // all three now draw as `DisclosureRow`.
+  const nested: [string, RegExp][] = [
+    // Aligner: comparison card → verdict groups → findings.
+    ["aligner", /<CollapsibleCard[\s\S]*?<DisclosureRow/],
+    // Screener: state card → discipline groups → questions.
+    ["screener", /<CollapsibleCard[\s\S]*?<DisclosureRow/],
+  ];
+  for (const [tool, shape] of nested) {
+    const page = read("app", tool, "page.tsx");
+    assert.match(page, shape, `${tool} does not group inside its cards`);
+    // And exactly one card level: a second `CollapsibleCard` in the same tool is the
+    // nesting again unless it is a different tab's outermost container.
+    assert.equal(
+      (page.match(/<CollapsibleCard/g) ?? []).length,
+      1,
+      `${tool} draws more than one level of card`,
+    );
+  }
+});
+
+test("a tone is a dot unless it explains marks that already exist", () => {
+  // One screen shows `answered` as a dot in the figure row and as a square in the coverage
+  // strip below it, which reads as arbitrary until the rule is stated: the shape says what
+  // kind of thing is marked, never which vocabulary it belongs to. A grid cell is the
+  // datum - it has area because a square of them is the run - and a legend shows the mark
+  // of the thing it explains, so a grid's legend is squares and a chart's legend is the
+  // chart's own points.
+  //
+  // What may not differ is the colour. Three shapes, one scale.
+  const dot = read("components", "ui", "tone-dot.tsx");
+  assert.match(dot, /grid cell/, "the shape rule is not written down");
+  assert.match(dot, /plot key/);
+
+  // Everything that draws a tone reads its colour from the one scale, whatever shape it
+  // draws. The strip held its own background classes once, which is how its neutral came
+  // to be a different grey from every other neutral in the interface.
+  for (const file of [
+    ["components", "screener-coverage-strip.tsx"],
+    ["components", "ui", "tone-dot.tsx"],
+  ] as const) {
+    const source = read(...file);
+    assert.ok(
+      !/bg-\[hsl\(var\(--tone-(success|warning|danger|info)\)\)\]/.test(source),
+      `${file.join("/")} writes a tone colour out instead of reading the scale`,
+    );
+  }
+});
+
+test("a card pads its own content, and no card opts out to do it by hand", () => {
+  // Screener turned the card's padding off and re-added `px-5 sm:px-6` on each child,
+  // while Inspector's and Aligner's cards let the card pad. Three cards, two ways of
+  // attaching one style, and the only way to know which a card used was to read it - so a
+  // child moved between them lands with either double padding or none.
+  //
+  // `ResultLayout` is the exception and states why in its own file: it sets `p-0` because
+  // its children are full-bleed bands, a tab row and a priorities panel, which draw to the
+  // card's edge on purpose.
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    assert.ok(
+      !/contentClassName="p-0"/.test(page),
+      `${tool} switches off its card's padding and re-adds it by hand`,
+    );
+  }
+});
+
+test("an explainer sits on a control row, never on a repeating result row", () => {
+  // Three tools put a help icon beside a value in a list and each hit the same two
+  // problems. It repeats: Aligner's was the same tooltip on five verdict groups, and
+  // Screener's was on every required question. And it can only explain the value it sits
+  // on, which is half a vocabulary - `required` means something against `anticipatory`,
+  // and an anticipatory question carries no badge for an icon to attach to.
+  //
+  // "How to read" is on the toolbar, once per tab, and lists every topic beside the ones
+  // it contrasts with. That is where a vocabulary can actually be taught.
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    // Inside a row component - anything rendering one item of a list - there is no help.
+    for (const name of ["QuestionRow", "FindingRow", "AssessmentRow"]) {
+      const at = page.indexOf(`function ${name}(`);
+      if (at < 0) continue;
+      const body = page.slice(at, page.indexOf("\n}\n", at));
+      assert.ok(
+        !/SignalLabel|SignalHelp/.test(body),
+        `${tool}'s ${name} explains a value on every row instead of once on the toolbar`,
+      );
+    }
+  }
+});
+
+test("a metrics panel is prose once, then figures only", () => {
+  // The top of the panel was standardised and the bottom was not, so the same slot held
+  // three different ideas: Inspector put a figure in it, Scout four figures joined by
+  // prose, Screener two whole sentences with a rule above one of them. It was a
+  // `ReactNode`, which is to say it had no shape at all.
+  //
+  // The panel is now four zones and each has one form:
+  //
+  //   note          prose, once, at the top - what the figures count, and any caveat
+  //                 about how they relate
+  //   denominator   a figure and its unit
+  //   distribution  dotted counts summing to it
+  //   facts         figures outside that sum, one per line, no dots
+  //
+  // Anything a tool wants to say in a sentence goes in the note. A figure goes in a slot
+  // that renders figures. There is nowhere left to put a paragraph beside a count.
+  const row = read("components", "ui", "metrics-row.tsx");
+  assert.match(
+    row,
+    /facts\?: readonly \{ value: string \| number; label: string \}\[\]/,
+    "the panel takes free markup again, so a tool can put anything below its counts",
+  );
+  assert.ok(
+    !/aside\?: ReactNode/.test(row),
+    "the panel still has a slot with no shape",
+  );
+  for (const tool of TOOLS) {
+    const page = read("app", tool, "page.tsx");
+    const at = page.indexOf("<MetricsRow");
+    if (at < 0) continue;
+    const call = page.slice(at, page.indexOf("/>", at));
+    assert.ok(
+      !/aside=/.test(call),
+      `${tool} passes free markup to its metrics panel`,
+    );
+  }
+});
+
+test("a labelled sentence is one line, in both tools that have one", () => {
+  // Screener's question row put the badge and the ID on a right-aligned line of their own
+  // above the question, so the two floated apart: a label at the far right of an empty
+  // line, and the thing it labels starting under the left margin. And its "Still not
+  // stated" label sat *inside* the sentence, which puts the tool's word inside a model's.
+  //
+  // Aligner had already solved both for its two parallel sentences, in a component
+  // private to its page. Two tools needing one shape is what `components/ui/attributed`
+  // is for.
+  const shared = read("components", "ui", "attributed.tsx");
+  assert.match(shared, /export function Attributed/);
+  for (const tool of ["aligner", "screener"]) {
+    const page = read("app", tool, "page.tsx");
+    assert.match(
+      page,
+      /import \{ Attributed \} from "@\/components\/ui\/attributed"/,
+      `${tool} does not use the shared labelled sentence`,
+    );
+    assert.ok(
+      !/function Attributed\(/.test(page),
+      `${tool} keeps its own copy of the labelled sentence`,
+    );
+  }
+  // The label leads the line rather than sitting above it: same flex row, one baseline.
+  assert.match(shared, /flex flex-wrap items-baseline/);
+  assert.ok(
+    !/justify-end/.test(read("app", "screener", "page.tsx").slice(
+      read("app", "screener", "page.tsx").indexOf("function QuestionRow"),
+      read("app", "screener", "page.tsx").indexOf("function Provenance"),
+    )),
+    "the question's identifiers sit on a right-aligned line of their own again",
+  );
+});
+
+test("a result row is one size, and the panel size is for panels", () => {
+  // `Reading` offers three sizes and they are levels, not preferences: `body` is a
+  // panel's own paragraph, `prominent` is a row in a list of results, `dense` is a row
+  // inside one of those.
+  //
+  // Screener's question rows used `body`, so its answers rendered at 14px where every
+  // other tool's rows are 12px - larger than the question they answer, and leaving the
+  // 11px label beside them looking stranded. Nothing distinguished them from a trace
+  // panel's paragraph except that they are not one.
+  const PANEL_PROSE = [
+    ["components", "scout-document-trace.tsx"],
+    ["components", "inspector-document-trace.tsx"],
+    ["components", "aligner-document-trace.tsx"],
+    ["components", "screener-document-trace.tsx"],
+    ["components", "ui", "priority-panel.tsx"],
+  ] as const;
+  const allowed = new Set(PANEL_PROSE.map((parts) => parts.join("/")));
+  for (const tool of TOOLS) {
+    const file = ["app", tool, "page.tsx"];
+    if (allowed.has(file.join("/"))) continue;
+    assert.ok(
+      !/size="body"/.test(read(...file)),
+      `${tool} renders a result row at the size reserved for a panel's own paragraph`,
+    );
+  }
+  // And the panels that do use it still do, so this is a boundary rather than a ban.
+  for (const parts of PANEL_PROSE) {
+    assert.match(
+      read(...parts),
+      /size="body"/,
+      `${parts.join("/")} no longer sets its own paragraph apart from the rows around it`,
+    );
+  }
+});
+
+test("a row label distinguishes, and the heading identifies", () => {
+  // Aligner's rows led with the document's own title - "Vaccine Intervention TPP" - on
+  // both lines of every finding. Two hundred pixels of every row, fifty-three times,
+  // saying what the comparison heading two lines above had already said.
+  //
+  // The two jobs are different. A heading meets a document for the first time and has to
+  // identify it, so it uses the file's title. A row label only has to say which of the
+  // two sides this line is, and the heading has already bound each side - so the type is
+  // enough, and a run cannot hold two documents of one type for it to be ambiguous.
+  const page = read("app", "aligner", "page.tsx");
+  assert.match(
+    page,
+    /referenceName=\{documentType\(/,
+    "a row repeats the document's full title instead of naming its side",
+  );
+  assert.match(page, /title=\{comparisonLabel\(/, "the card no longer identifies its pair");
+  const helpers = read("lib", "aligner-priorities.ts");
+  assert.match(helpers, /export function documentType/);
+  // The heading still uses the title, so this is a split rather than a rename.
+  assert.match(helpers, /export function documentName/);
+  assert.match(helpers, /documentName\(edge\.reference_doc_id, result\)/);
 });

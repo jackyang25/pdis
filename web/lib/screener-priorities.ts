@@ -1,4 +1,5 @@
 import type { GateReview, QuestionAssessment } from "./api.ts";
+import { matchesQuery, normalizeQuery } from "./result-search.ts";
 
 /**
  * What Screener counts, and how its result view slices the questions.
@@ -109,12 +110,24 @@ export function questionsInState(
 export function groupedByDiscipline(
   review: GateReview,
   state: QuestionAssessment["state"],
+  query = "",
 ): { id: string; label: string; questions: QuestionAssessment[] }[] {
+  // The question text and the sentence about it, not the discipline label: a reader
+  // searching "shelf life" wants the question, and matching the label instead would
+  // return every question in a discipline whose name happened to contain the word.
+  //
+  // A discipline with nothing left disappears. It is a container, and one standing empty
+  // says a category exists rather than that a result does.
+  const normalized = normalizeQuery(query);
   return review.disciplines
     .map((discipline) => ({
       id: discipline.id,
       label: discipline.label,
-      questions: discipline.questions.filter((question) => question.state === state),
+      questions: discipline.questions.filter(
+        (question) =>
+          question.state === state
+          && matchesQuery(normalized, question.text, question.statement, question.missing),
+      ),
     }))
     .filter((group) => group.questions.length > 0);
 }

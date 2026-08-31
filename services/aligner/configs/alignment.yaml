@@ -21,10 +21,14 @@ document_roles:
 # against it. The direction is the whole point - it is not a symmetric diff.
 #
 # A run compares every declared pair whose documents were both supplied, so two
-# documents produce one comparison and three produce two. There is deliberately
-# no itpp/ipdp pair: a plan is written against the candidate, not against the
-# Foundation's abstract goal, so that comparison reports differences the cTPP
-# pair already explains.
+# documents produce one comparison and three produce two.
+#
+# The pairs form a chain, and a chain has a gap when its middle document is not
+# supplied. `when_absent` closes it: an edge carrying one is a fallback that
+# resolves only while the named type is missing. So an iTPP with an IPDP and no
+# cTPP between them compares directly, and the same two documents with a cTPP
+# present do not - the two-step chain already explains those differences, and
+# reporting them twice under two questions would show one shortfall as two.
 #
 # The two entries below ask structurally different questions - one asks whether a
 # candidate clears a bar, the other whether a plan delivers a commitment. Nothing
@@ -37,3 +41,16 @@ edges:
   - reference: ctpp
     comparison: ipdp
     question: Does the plan deliver what the candidate profile commits to?
+  # The chain without its middle link. A plan is normally written against the
+  # candidate profile, which is why this is conditional rather than a third
+  # comparison — but with no candidate profile supplied, the Foundation's profile
+  # is the only bar the plan can be read against, and the alternative is a run
+  # that compares nothing.
+  #
+  # Its own question, not the two above concatenated: what is being asked is
+  # whether a plan carries the work for a target, and the target here is stated by
+  # the intervention profile rather than committed to by a grantee.
+  - reference: itpp
+    comparison: ipdp
+    question: Does the plan deliver what the intervention profile asks for?
+    when_absent: ctpp

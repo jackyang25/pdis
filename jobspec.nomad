@@ -62,8 +62,6 @@ job "__REPO__NAME__" {
       port "http" { to = 8000 }
     }
 
-
-
     service {
       name     = "__REPO__NAME__-api"
       port     = "http"
@@ -180,8 +178,6 @@ job "__REPO__NAME__" {
       port "http" { to = 3000 }
     }
 
-
-
     service {
       name     = "__REPO__NAME__-web"
       port     = "http"
@@ -243,8 +239,6 @@ job "__REPO__NAME__" {
     network {
       port "http" { to = 8080 }
     }
-
-
 
     service {
       name     = "__REPO__NAME__-tooluniverse"

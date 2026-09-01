@@ -89,27 +89,82 @@ def get_search_integrations(
 
 
 def _tooluniverse_base_url() -> str:
-    """Resolve an explicit URL or Render-injected private service address."""
-    if explicit := os.environ.get("TOOLUNIVERSE_BASE_URL", "").strip():
-        return explicit
-    host = os.environ.get("TOOLUNIVERSE_HOST", "").strip()
-    if not host:
-        return ""
-    port = os.environ.get("TOOLUNIVERSE_PORT", "8080").strip() or "8080"
-    return f"http://{host}:{port}"
+    """Resolve the connector's address, or empty when no connector is configured.
+
+    One variable, because one is enough: a host and port pair says nothing a URL
+    cannot, and two ways to state an address means a deployment can set both and
+    be wrong in a way neither value reveals. Platforms that publish a private
+    service as host and port compose them in the deployment manifest - see the
+    `template` block in `jobspec.nomad`, which resolves the connector through
+    service discovery and writes this variable.
+    """
+    return os.environ.get("TOOLUNIVERSE_BASE_URL", "").strip()
+
+
+class ConfigurationError(RuntimeError):
+    """A configuration value is present but cannot be read as what it must be.
+
+    Distinct from `MissingCredentialError`: an absent credential is a deployment
+    that has not finished, and is reported to the caller that needs it, whereas
+    an unparseable number is a typo that will never resolve itself. Raising it
+    keeps a malformed value from being silently replaced by a default that
+    happens to work, which is how a tuning change appears to take effect and
+    does not.
+    """
 
 
 def _positive_int(name: str, default: int) -> int:
-    try:
-        value = int(os.environ.get(name, str(default)))
-    except ValueError:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
         return default
-    return value if value > 0 else default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ConfigurationError(
+            f"{name} must be a positive integer, got {raw!r}"
+        ) from None
+    if value <= 0:
+        raise ConfigurationError(f"{name} must be a positive integer, got {value}")
+    return value
 
 
 def _positive_float(name: str, default: float) -> float:
-    try:
-        value = float(os.environ.get(name, str(default)))
-    except ValueError:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
         return default
-    return value if value > 0 else default
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ConfigurationError(
+            f"{name} must be a positive number, got {raw!r}"
+        ) from None
+    if value <= 0:
+        raise ConfigurationError(f"{name} must be a positive number, got {value}")
+    return value
+
+
+# Every numeric setting the gateway reads, with the default that applies when it
+# is unset. `validate_configuration()` parses all of them at import time so a
+# typo stops the process at boot with the variable's name, rather than surfacing
+# later as a default that quietly replaced the value someone meant to set.
+NUMERIC_SETTINGS: tuple[tuple[str, int | float], ...] = (
+    ("SEARCH_GLOBAL_WORKER_LIMIT", 48),
+    ("TOOLUNIVERSE_TIMEOUT_SECONDS", 30.0),
+    ("TAVILY_TIMEOUT_SECONDS", 30.0),
+    ("MAX_CONCURRENT_RUNS", 2),
+)
+
+
+def validate_configuration() -> None:
+    """Parse every numeric setting once, at startup.
+
+    Credentials are deliberately not checked here. Their absence is reported to
+    the request that needs one, for the reason `MissingCredentialError` records:
+    these constructors run inside streaming workers. Parsing has no such
+    constraint, so it happens as early as it can.
+    """
+    for name, default in NUMERIC_SETTINGS:
+        if isinstance(default, int):
+            _positive_int(name, default)
+        else:
+            _positive_float(name, default)

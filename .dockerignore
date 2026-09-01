@@ -20,5 +20,10 @@ node_modules/
 AGENTS.md
 README.md
 compose.yaml
-render.yaml
 .DS_Store
+
+# Deployment manifests. They describe how the image is run, and are read by the
+# CI host rather than by anything inside it.
+.drone.yml
+jobspec.nomad
+jobspec_acc.nomad

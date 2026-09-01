@@ -262,38 +262,41 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         self.assertGreaterEqual(sleep.call_args.args[0], 0.59)
         self.assertGreater(semantic_scholar_source.MIN_REQUEST_INTERVAL_SECONDS, 1.0)
 
-    def test_render_private_address_composes_without_machine_specific_url(self) -> None:
+    def test_the_connector_is_configured_from_one_address_variable(self) -> None:
+        """A URL, and nothing to compose it from.
+
+        A host and port pair said nothing this cannot, and two ways to state one
+        address let a deployment set both and be wrong in a way neither value
+        shows. Platforms that publish a private service as host and port compose
+        them where the deployment is described - `jobspec.nomad` resolves the
+        connector through service discovery and writes this variable.
+        """
         with patch.dict(
             "os.environ",
             {
-                "TOOLUNIVERSE_HOST": "pdis-tooluniverse.internal",
-                "TOOLUNIVERSE_PORT": "8080",
+                "TOOLUNIVERSE_BASE_URL": "http://pdis-tooluniverse.internal:8080",
                 "TOOLUNIVERSE_API_TOKEN": "generated-token",
-            },
-            clear=True,
-        ):
-            integrations = get_search_integrations()
-
-        connector = integrations["tooluniverse"]
-        self.assertEqual(
-            connector.base_url,
-            "http://pdis-tooluniverse.internal:8080",
-        )
-        self.assertEqual(connector.api_token, "generated-token")
-
-    def test_explicit_tooluniverse_url_overrides_render_address(self) -> None:
-        with patch.dict(
-            "os.environ",
-            {
-                "TOOLUNIVERSE_BASE_URL": "https://tools.example.test",
-                "TOOLUNIVERSE_HOST": "ignored.internal",
-                "TOOLUNIVERSE_PORT": "8080",
             },
             clear=True,
         ):
             connector = get_search_integrations()["tooluniverse"]
 
-        self.assertEqual(connector.base_url, "https://tools.example.test")
+        self.assertEqual(connector.base_url, "http://pdis-tooluniverse.internal:8080")
+        self.assertEqual(connector.api_token, "generated-token")
+
+    def test_no_connector_is_built_without_an_address(self) -> None:
+        """Retrieval degrades to the direct-HTTP lanes rather than constructing a
+        connector pointed at nothing. A host/port pair left over from an older
+        deployment must not be enough to bring one back."""
+        with patch.dict(
+            "os.environ",
+            {
+                "TOOLUNIVERSE_HOST": "leftover.internal",
+                "TOOLUNIVERSE_PORT": "8080",
+            },
+            clear=True,
+        ):
+            self.assertNotIn("tooluniverse", get_search_integrations())
 
     def test_http_connector_enforces_allowlist_and_contract(self) -> None:
         connector = ToolUniverseHTTPConnector(

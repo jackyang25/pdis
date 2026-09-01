@@ -1148,9 +1148,30 @@ export type StreamEvent<T> = StageEvent | CompleteEvent<T> | ErrorEvent;
 const configuredApiUrl = process.env.NEXT_PUBLIC_PDIS_API_URL?.replace(/\/+$/, "");
 const configuredApiHost = process.env.NEXT_PUBLIC_PDIS_API_HOST?.trim();
 
+/**
+ * Where requests go when nothing is configured.
+ *
+ * Empty string in a production build, which makes every call relative and so
+ * same-origin: the deployed client and gateway share one hostname, and the
+ * ingress routes `/api/*` to the gateway. That is the only default that can be
+ * correct without knowing the deployment's hostname.
+ *
+ * `NEXT_PUBLIC_*` values are inlined by Next.js at build time, not read at
+ * runtime, so a hostname baked in here is fixed for the life of the image. That
+ * is why the production default must not be a literal host: setting one at
+ * runtime would be ignored, and the previous `http://localhost:8000` default
+ * shipped in the browser bundle and failed in the user's browser with nothing
+ * in any server log to explain it.
+ *
+ * Local development keeps the explicit fallback, because there the client is on
+ * :3000 and the gateway on :8000 and relative calls cannot reach it.
+ */
+const unconfiguredApiBase =
+  process.env.NODE_ENV === "production" ? "" : "http://localhost:8000";
+
 export const API_BASE =
   configuredApiUrl ||
-  (configuredApiHost ? `https://${configuredApiHost}` : "http://localhost:8000");
+  (configuredApiHost ? `https://${configuredApiHost}` : unconfiguredApiBase);
 
 async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
@@ -1205,7 +1226,30 @@ async function streamRequest<T>(
   }
 
   if (error) throw new Error(error);
-  if (result === null) throw new Error("Stream ended without complete event");
+  if (result === null) {
+    // The stream closed without a `complete` event. The cause is not knowable
+    // from here: an allocation reclaimed by the host, a deploy, a dropped
+    // connection and a proxy timeout are the same observation to this reader.
+    // So this says what happened and what to do, and does not name a cause it
+    // would be guessing at.
+    //
+    // Worth being clear rather than terse: a run costs the reader up to half an
+    // hour, and the previous text ("Stream ended without complete event")
+    // reached the screen verbatim and told them neither that the work was lost
+    // nor that trying again was the fix.
+    //
+    // Says nothing about what to re-run, because this is reached from seven
+    // calls and they do not lose the same thing. A first run has produced
+    // nothing, so the document is the starting point. `continueScout` is the
+    // second half of a run whose draft and completed review checkpoint the
+    // client still holds, so telling that reader to start again from the
+    // document would throw away work they had already done. What is true
+    // everywhere is that this attempt produced nothing and changed nothing.
+    throw new Error(
+      "The run stopped before it finished and produced no result. " +
+        "Nothing already on screen was changed. Try again.",
+    );
+  }
   return result;
 }
 

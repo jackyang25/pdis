@@ -9,7 +9,6 @@ from services.searcher import Finding
 
 from .models import (
     DevelopmentProgram,
-    IndicatorReading,
     SafetyObservation,
 )
 

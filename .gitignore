@@ -13,8 +13,9 @@ build/
 dist/
 *.egg-info/
 
-# test and coverage artifacts
+# test, lint, and coverage artifacts
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 
@@ -28,6 +29,10 @@ web/tsconfig.tsbuildinfo
 .env.*
 !.env.example
 !.env.tooluniverse.example
+# Browser-exposed, and the only one of the three that holds no secret. It was
+# caught by `.env.*` above and so never tracked, which left `make dev` and the
+# README telling a fresh clone to copy a file it does not have.
+!web/.env.local.example
 
 # editor and os files
 .DS_Store

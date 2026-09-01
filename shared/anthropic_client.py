@@ -34,8 +34,6 @@ class AnthropicQuantitativeClient:
         self.model = (
             model
             or os.environ.get("ANTHROPIC_QUANTITATIVE_MODEL")
-            # Environment import boundary for existing local/deployed setups.
-            or os.environ.get("ANTHROPIC_EXTRACTION_MODEL")
             or DEFAULT_QUANTITATIVE_MODEL
         )
 

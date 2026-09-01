@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import unittest
-from pathlib import Path
 
 from scripts.generate_prompt_reference import CATALOGS, REFERENCE, build_reference
 from shared.prompt_catalog import catalog_reference

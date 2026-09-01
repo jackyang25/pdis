@@ -327,7 +327,7 @@ class ScopeReachesQueryGenerationTests(unittest.TestCase):
         extractor's call left every test above passing - a correct function nothing
         invokes with the value it needs.
         """
-        from services.scout.models import RetrievalScopeLedger, load_config
+        from services.scout.models import load_config
         from services.scout.stages.query_extractor import extract_queries_for_variable
 
         seen: list[str] = []

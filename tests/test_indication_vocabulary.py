@@ -14,7 +14,6 @@ beside the indication, and it reached both as `mab`.
 
 from __future__ import annotations
 
-import re
 import unittest
 from pathlib import Path
 

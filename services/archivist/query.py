@@ -24,7 +24,7 @@ the suite follows for anything a reader could recompute.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from services.archivist.indexed_attributes import indexed_attributes
 from services.archivist.models import Corpus, CorpusDocument, CorpusRecord

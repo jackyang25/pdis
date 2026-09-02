@@ -312,10 +312,14 @@ class RouteTest(unittest.TestCase):
         """Archivist reads a reviewed artifact. There is nothing to run and nothing to
         upload, and an endpoint implying otherwise would suggest the archive is built on
         demand."""
+        # Read the published schema rather than walking `app.routes`. Starlette 1.0
+        # stopped flattening included routers into that list, so the walk silently
+        # finds nothing and an absence assertion passes for the wrong reason. The
+        # OpenAPI document is the contract this test is actually about.
         paths = {
-            route.path
-            for route in app.routes
-            if getattr(route, "path", "").startswith("/api/archivist")
+            path
+            for path in app.openapi()["paths"]
+            if path.startswith("/api/archivist")
         }
         self.assertEqual(paths, {"/api/archivist/corpus", "/api/archivist/query"})
 

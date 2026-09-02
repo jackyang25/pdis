@@ -370,15 +370,6 @@ class BoundaryWiringTests(unittest.TestCase):
                 get_search_integrations()[TAVILY_INTEGRATION].search_depth, "basic"
             )
 
-    def test_the_deploy_declares_the_key_without_committing_it(self):
-        import pathlib
-
-        render = pathlib.Path("render.yaml").read_text()
-        self.assertIn("TAVILY_API_KEY", render)
-        # `sync: false` is what keeps it out of the repository.
-        block = render[render.index("TAVILY_API_KEY"):]
-        self.assertIn("sync: false", block[:120])
-
 
 if __name__ == "__main__":
     unittest.main()

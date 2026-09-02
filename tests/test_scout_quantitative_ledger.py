@@ -22,7 +22,6 @@ from services.scout.models import (
 )
 from services.scout.stages.conformity import (
     assemble_quantitative_document_ledger,
-    empty_conformity_scores,
     extract_quantitative_ledger_batch,
     finalize_quantitative_document_review,
     prepare_quantitative_ledger_batches,

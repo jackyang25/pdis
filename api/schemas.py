@@ -29,6 +29,26 @@ class IndicationsResponse(BaseModel):
     indications: list[str]
 
 
+class DocumentSpanOut(BaseModel):
+    """One exact document quotation, and the block it was copied out of.
+
+    The quote is never typed by a model: it selects a line range and deterministic code
+    copies those lines, so this is document text or it is a contract failure.
+
+    The bounds are not defensive. `shared.spans.DocumentSpan.__post_init__` refuses to
+    construct a span without both, so a span reaching the wire always has both; stating
+    it here is what makes the published schema describe the values that can occur.
+
+    Placed here with the other cross-service types rather than inside one service's
+    block: Scout and Aligner both cite spans, and the copy that used to sit beside
+    Aligner - redefining the name instead of reaching back for it - is how the two
+    diverged in the first place.
+    """
+
+    quote: str = Field(min_length=1)
+    block_ids: list[str] = Field(min_length=1)
+
+
 class ImageAssetOut(BaseModel):
     media_type: str
     data_base64: str
@@ -287,11 +307,6 @@ class QuantitativeSemanticProfileOut(BaseModel):
         if self.measure.state != "specified":
             raise ValueError("quantitative semantic profile requires a specified measure")
         return self
-
-
-class DocumentSpanOut(BaseModel):
-    quote: str = Field(min_length=1)
-    block_ids: list[str] = Field(min_length=1)
 
 
 class NumericExpressionOut(BaseModel):
@@ -714,17 +729,6 @@ class InspectionResultOut(BaseModel):
 
 class InspectorRunResponse(BaseModel):
     inspection: InspectionResultOut
-
-
-class DocumentSpanOut(BaseModel):
-    """One exact document quotation, and the block it was copied out of.
-
-    The quote is never typed by a model: it selects a line range and deterministic code
-    copies those lines, so this is document text or it is a contract failure.
-    """
-
-    quote: str
-    block_ids: list[str] = Field(default_factory=list)
 
 
 class AlignmentDocumentOut(BaseModel):

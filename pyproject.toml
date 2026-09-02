@@ -1,0 +1,89 @@
+[project]
+name = "pdis"
+version = "0.1.0"
+description = "Product Development Intelligence Suite for Health Interventions"
+readme = "README.md"
+
+# 3.11 because that is what the Dockerfile ships and what the Nomad allocation
+# runs. Testing on an older interpreter than production means the suite can pass
+# against semantics the deployed image does not have; this pins the two together.
+requires-python = ">=3.11,<3.12"
+
+# Complete backend runtime deps for the FastAPI gateway + all services.
+# Upper bounds are deliberate: `uv.lock` fixes the exact resolution, and these
+# ceilings state which major versions the contract tests have actually run
+# against, so a lock refresh cannot silently cross a breaking release.
+#
+# FastAPI is held below 0.129 on purpose. Resolving it freely picks up 0.141 and
+# Starlette 1.6, and Starlette 1.0 stopped flattening included routers into
+# `app.routes`. Nothing observable broke - every endpoint still serves, and the
+# suite still passes - but a Starlette major and a platform migration must not
+# land together: when acceptance goes wrong, you need to know which one did it.
+# Lift this ceiling as its own change once the Nomad deploy is verified.
+dependencies = [
+    "fastapi>=0.110,<0.129",
+    "uvicorn[standard]>=0.27,<1.0",
+    "python-multipart>=0.0.9,<1.0",
+    "python-dotenv>=1.0,<2.0",
+    "pydantic>=2.6,<3.0",
+
+    # LLM + config/vocab
+    "openai>=1.0.0,<3.0",
+    "anthropic>=0.49.0,<1.0",
+    "pyyaml>=6.0,<7.0",
+
+    # Document parsing (chunker)
+    "python-docx>=0.8.11,<2.0",
+    "python-pptx>=1.0.0,<2.0",
+    # Renders PPTX slides after LibreOffice converts them; not a PDF input parser.
+    "pypdfium2>=4.30.0,<6.0",
+    "pillow>=10.0.0,<13.0",
+
+    # PubMed/PMC backend uses stdlib urllib - no extra dep.
+]
+
+[dependency-groups]
+# Not installed in the runtime image. The Dockerfile installs only the resolved
+# runtime group, so linting and test tooling never reach a deployed allocation.
+dev = [
+    "ruff>=0.16,<0.17",
+    "pytest>=8.0,<9.0",
+    "httpx>=0.27,<1.0",
+]
+
+[tool.uv]
+# An application, not a distributable package. Imports resolve from the repo
+# root (`api/`, `services/`, `shared/`), which is why there is no build backend
+# and no src layout: `AGENTS.md` fixes that directory shape as a boundary.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The project is not installed (`package = false`), so `import services` resolves
+# from the repo root - the same directory shape AGENTS.md fixes as a boundary and
+# that `api/main.py` puts on sys.path for the server.
+#
+# Stated here rather than left to the invocation: `python -m pytest` happens to
+# add the working directory, and a bare `pytest` or `uv run pytest` does not, so
+# without this the suite passes one way and fails the other with
+# `ModuleNotFoundError: No module named 'services'`.
+pythonpath = ["."]
+# The suite is written against `unittest`; pytest is the CI runner because it
+# reports failures per test rather than aborting a discovery pass. Both work -
+# `python -m unittest discover -s tests` stays valid.
+python_files = ["test_*.py"]
+
+[tool.ruff]
+target-version = "py311"
+# Matches the evident intent of the existing code: p95 line length is 86.
+# `ruff format` is deliberately NOT part of the CI gate yet - it would rewrite
+# 150 of 224 files. Formatting is a separate, reviewable commit.
+line-length = 88
+extend-exclude = [".venv", "web", "docs"]
+
+[tool.ruff.lint]
+# Narrow on purpose. These are the rules that catch defects rather than style:
+# undefined names, unreachable code, redefinitions, unused imports. The wider
+# default set reports ~364 findings here; adopting those is a separate decision
+# per rule family, not something a CI gate should discover for you.
+select = ["E9", "F"]

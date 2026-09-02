@@ -12,10 +12,14 @@ from typing import Iterable
 
 from services.chunker import ContentBlock
 
+# `LINE_SPAN_JSON_INSTRUCTION` and `selected_source_lines` are unused here and
+# re-exported on purpose: the stages that address line spans (`target_resolver`,
+# `unit_extractor`) take the whole span vocabulary from this module, so context
+# construction and span resolution stay one import for a reader.
 from shared.spans import (
-    LINE_SPAN_JSON_INSTRUCTION,
+    LINE_SPAN_JSON_INSTRUCTION,  # noqa: F401 - re-exported for scout stages
     line_addressable,
-    selected_source_lines,
+    selected_source_lines,  # noqa: F401 - re-exported for scout stages
 )
 
 from .models import Attribute

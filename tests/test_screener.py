@@ -8,7 +8,6 @@ later stage can detect.
 from __future__ import annotations
 
 import unittest
-from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 

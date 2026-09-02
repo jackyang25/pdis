@@ -11,7 +11,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from shared.openai_client import ModelTask
 from shared.spans import DocumentSpan

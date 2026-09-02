@@ -33,8 +33,9 @@ HEARTBEAT_SECONDS = 15
 # responses, and a LibreOffice process -- so a third simultaneous upload
 # exceeds a 2 GB instance, and the resulting OOM kill takes every tool down
 # rather than only the one that was overloaded. The ceiling is a fact about the
-# deployed instance rather than about this code, so render.yaml declares it
-# beside `plan`.
+# deployed instance rather than about this code, so the deployment manifest
+# declares it beside the memory limit it was sized against - see the `api` group
+# in jobspec.nomad, where the two are set together and commented as one decision.
 #
 # This counter is process-local, which equals instance-local only because the
 # image runs one uvicorn worker. A `--workers` flag would silently multiply the

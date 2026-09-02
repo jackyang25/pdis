@@ -11,7 +11,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
-from services.scout.models import ScoutResult, SearchTrace
+from services.scout.models import ScoutResult
 from services.scout.pipeline import _search_all
 from services.searcher import Finding
 from services.searcher.models import SearchOutcome, SearchRequest

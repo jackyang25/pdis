@@ -45,11 +45,12 @@ on it. Reading it involves no model call.
 Docker Desktop is the recommended local environment.
 
 ```sh
-cp .env.example .env
-cp .env.tooluniverse.example .env.tooluniverse
-cp web/.env.local.example web/.env.local
+make dev
 docker compose up --build
 ```
+
+`make dev` copies the three example environment files and installs
+dependencies; `make help` lists every target.
 
 Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and a shared
 `TOOLUNIVERSE_API_TOKEN` in `.env`. Set `SEMANTIC_SCHOLAR_API_KEY` in
@@ -57,21 +58,32 @@ Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and a shared
 
 Open the application at [http://localhost:3000](http://localhost:3000). The API health endpoint and
 OpenAPI reference are available at [http://localhost:8000/api/health](http://localhost:8000/api/health) and
-[http://localhost:8000/docs](http://localhost:8000/docs).
+[http://localhost:8000/api/docs](http://localhost:8000/api/docs).
+
+Every backend route lives under `/api`, including the OpenAPI documents. That is
+what lets one hostname serve both the client and the gateway in a deployment,
+and it makes browser calls same-origin.
 
 ### Dependencies
 
-Native development requires Python 3.11 and Node.js 20. ToolUniverse can remain
-in Docker while the API and web application run locally.
+Native development requires Python 3.11 and Node.js 20, and [uv](https://docs.astral.sh/uv/)
+to install from the lockfile. ToolUniverse can remain in Docker while the API and
+web application run locally.
+
+Python is pinned to 3.11 in `pyproject.toml` because that is what the image
+ships. An older interpreter will run the suite, and will run it against
+semantics the deployed image does not have.
 
 ```sh
 docker compose up -d tooluniverse
 
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python -m uvicorn api.main:app --reload --port 8000
+uv sync --frozen --all-groups
+uv run uvicorn api.main:app --reload --port 8000
 ```
+
+`uv.lock` is committed and `--frozen` refuses to resolve around it, so two
+installs of one commit produce the same dependency set. After changing a
+dependency in `pyproject.toml`, run `uv lock` and commit the result.
 
 In another terminal:
 
@@ -137,14 +149,14 @@ documentation page and Assistant read that same versioned source.
 Run the contract and build checks before merging cross-layer changes.
 
 ```sh
-PYTHONPYCACHEPREFIX=/tmp/pdis-pycache \
-  .venv/bin/python -m compileall -q shared services api tests
-.venv/bin/python -m unittest discover -s tests
-npm --prefix web test
-npm --prefix web run typecheck
-npm --prefix web run build
+make check
 git diff --check
 ```
+
+`make check` runs Ruff, the backend suite, the web tests, the type check, and the
+production web build - the same commands, under the same names, that `.drone.yml`
+runs in CI. The suite is written against `unittest`, so
+`python -m unittest discover -s tests` remains valid.
 
 Build the images when a Dockerfile or a published `shared/` artifact changes, since
 the image build has its own copy rules.
@@ -157,11 +169,52 @@ Implementation invariants are documented in [AGENTS.md](AGENTS.md).
 
 ## Deployment
 
-[render.yaml](render.yaml) creates one `PDIS` project with a `Production`
-environment: a free public Next.js client, a Starter Docker API, and a Starter
-private ToolUniverse connector. Create it with **New → Blueprint**, provide the
-prompted provider credentials, and let Render derive all cross-service hosts and
-the shared ToolUniverse token.
+PDIS deploys to the foundation's Nomad cluster. Three files in this repository
+describe it, and a fourth lives in the tenant repository.
+
+| File | Owns |
+| --- | --- |
+| [.drone.yml](.drone.yml) | Test, build, and push the three images; deploy to acceptance on merge and to production on promote |
+| [jobspec.nomad](jobspec.nomad) | The production job: three groups, their resources, and the ingress rules |
+| [jobspec_acc.nomad](jobspec_acc.nomad) | The acceptance job, identical but for its hostname |
+| `tf_nomad_tenant_configuration/prod/main` | The `module "aws-pdis"` block that creates the namespace and the CI secrets |
+
+The client and the gateway share one hostname. Traefik routes `/api/*` to the
+gateway and everything else to the client, which is why the client's bundle
+carries no API hostname and why CORS is unset in production. The ToolUniverse
+connector carries no routing tag at all: that absence is the only thing keeping
+it off the public internet, and `tests/test_jobspec_parity.py` asserts it.
+
+Onboarding is a pull request to `tf_nomad_tenant_configuration/prod/main`:
+
+```hcl
+module "aws-pdis" {
+  source                   = "../_modules/aws_application"
+  namespace                = "pdis"
+  repo                     = "pdis"
+  zone_id                  = var.zone_id
+  cluster_ingress_hostname = var.aws_cluster_ingress_hostname
+  docker_password          = var.docker_password
+  acceptance_domain        = "pdis-acc.bmgf.io"
+  production_domain        = "pdis.bmgf.io"
+}
+```
+
+Merging it creates the Nomad namespace and the Drone secrets the pipeline
+expects: `AWS_NOMAD_TOKEN`, `DOCKER_PASSWORD`, `NAMESPACE`,
+`NOMAD_VAR_domain_acc_aws`, and `NOMAD_VAR_domain_prod_aws`. Activate the
+repository at [cicd.bmgf.io](https://cicd.bmgf.io) first.
+
+Acceptance deploys automatically on merge to `main`. Production is a manual
+promote of a build that already passed acceptance:
+
+```sh
+drone build promote gatesfoundation/pdis <build> production
+```
+
+Both jobspecs and the pipeline are drafts pending reconciliation with
+[nomad-sre-patterns](https://github.com/gatesfoundation/nomad-sre-patterns);
+the entries marked `TODO` are cluster facts this repository cannot know.
 
 ## Contributing
 

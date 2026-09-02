@@ -1,0 +1,320 @@
+# PDIS build, test, and deploy.
+#
+# Adapted from nomad-sre-patterns/examples/docker-pattern/.drone.yml. The
+# platform conventions are kept: the multi-pipeline shape, the Azure registry and
+# `drone-push` user, `gatesfoundation/nomad-client` for deploys, the sed
+# substitutions into the jobspecs, promotion by `acc`/`prod` target, and
+# `dockerhubcreds` for pulling plugin images.
+#
+# Three deviations, each because PDIS is not a one-container app:
+#
+#  1. A verification pipeline runs before anything is built. The template starts
+#     at a Docker dry run; this repository has a test suite and a type check, and
+#     a registry that only receives images from a green pipeline is what makes a
+#     build number worth rolling back to.
+#  2. Three images per build, not one: `-api`, `-web`, and `-tooluniverse`.
+#  3. The web image builds from the repository root rather than `web/`, because
+#     it copies published artifacts out of `shared/`. See web/Dockerfile.
+
+kind: pipeline
+name: Verify
+
+steps:
+  # The Makefile is the one definition of these commands; these steps supply the
+  # toolchain each needs and call it.
+  - name: backend
+    image: python:3.11-slim
+    environment:
+      UV_PROJECT_ENVIRONMENT: /drone/src/.venv
+      # The image is 3.11 and pyproject pins that range. Downloading another
+      # interpreter would test a Python the deployed image does not run.
+      UV_PYTHON_DOWNLOADS: "never"
+    commands:
+      - apt-get update && apt-get install -y --no-install-recommends make
+      - pip install --no-cache-dir uv==0.12.8
+      # `make install-python` runs `uv sync --frozen`, which fails when uv.lock
+      # is stale against pyproject.toml, so a dependency change that was never
+      # locked cannot reach a build.
+      - make install-python
+      - make lint
+      - make test
+
+  - name: web
+    image: node:20-alpine
+    commands:
+      - apk add --no-cache make
+      - make install-web
+      # `make test-web` includes the production build, because Next.js inlines
+      # NEXT_PUBLIC_* at build time: a build-only failure is a runtime failure in
+      # the browser with nothing in a server log to explain it.
+      - make test-web
+
+trigger:
+  branch:
+    - main
+  event:
+    - push
+    - pull_request
+
+image_pull_secrets:
+  - dockerhubcreds
+
+---
+kind: pipeline
+name: Test Build
+
+steps:
+  - name: dry run api
+    image: plugins/docker
+    settings:
+      dry_run: true
+      registry: bmgfsre.azurecr.io
+      repo: bmgfsre.azurecr.io/${DRONE_REPO_NAME,,}-api
+      username: drone-push
+      password:
+        from_secret: DOCKER_PASSWORD
+      dockerfile: Dockerfile
+      tags:
+        - "${DRONE_BUILD_NUMBER}"
+
+  - name: dry run web
+    image: plugins/docker
+    settings:
+      dry_run: true
+      registry: bmgfsre.azurecr.io
+      repo: bmgfsre.azurecr.io/${DRONE_REPO_NAME,,}-web
+      username: drone-push
+      password:
+        from_secret: DOCKER_PASSWORD
+      dockerfile: web/Dockerfile
+      # The web image copies published artifacts out of shared/, so its build
+      # context is the repository root rather than web/.
+      context: .
+      tags:
+        - "${DRONE_BUILD_NUMBER}"
+      # No NEXT_PUBLIC_PDIS_API_URL build arg on purpose. The deployed client and
+      # gateway share one hostname, so requests go out relative and there is no
+      # hostname to bake in. Passing one would fix it into the browser bundle for
+      # the life of the image.
+
+  - name: dry run tooluniverse
+    image: plugins/docker
+    settings:
+      dry_run: true
+      registry: bmgfsre.azurecr.io
+      repo: bmgfsre.azurecr.io/${DRONE_REPO_NAME,,}-tooluniverse
+      username: drone-push
+      password:
+        from_secret: DOCKER_PASSWORD
+      dockerfile: deploy/tooluniverse/Dockerfile
+      context: deploy/tooluniverse
+      tags:
+        - "${DRONE_BUILD_NUMBER}"
+
+trigger:
+  branch:
+    - main
+  event:
+    - pull_request
+
+image_pull_secrets:
+  - dockerhubcreds
+
+---
+kind: pipeline
+name: Build and Deploy to Acc
+
+steps:
+  - name: build api
+    image: plugins/docker
+    settings:
+      registry: bmgfsre.azurecr.io
+      repo: bmgfsre.azurecr.io/${DRONE_REPO_NAME,,}-api
+      username: drone-push
+      password:
+        from_secret: DOCKER_PASSWORD
+      dockerfile: Dockerfile
+      tags:
+        - "${DRONE_BUILD_NUMBER}"
+        - "latest"
+
+  - name: build web
+    image: plugins/docker
+    settings:
+      registry: bmgfsre.azurecr.io
+      repo: bmgfsre.azurecr.io/${DRONE_REPO_NAME,,}-web
+      username: drone-push
+      password:
+        from_secret: DOCKER_PASSWORD
+      dockerfile: web/Dockerfile
+      context: .
+      tags:
+        - "${DRONE_BUILD_NUMBER}"
+        - "latest"
+
+  - name: build tooluniverse
+    image: plugins/docker
+    settings:
+      registry: bmgfsre.azurecr.io
+      repo: bmgfsre.azurecr.io/${DRONE_REPO_NAME,,}-tooluniverse
+      username: drone-push
+      password:
+        from_secret: DOCKER_PASSWORD
+      dockerfile: deploy/tooluniverse/Dockerfile
+      context: deploy/tooluniverse
+      tags:
+        - "${DRONE_BUILD_NUMBER}"
+        - "latest"
+
+  - name: Deploy to Nomad (acc)
+    image: gatesfoundation/nomad-client:latest
+    environment:
+      NOMAD_ADDR: https://aws-nomad.bmgf.io
+      NOMAD_REGION: us-west-2
+      NOMAD_TOKEN:
+        from_secret: AWS_NOMAD_TOKEN
+      NOMAD_VAR_domain_acc:
+        from_secret: NOMAD_VAR_domain_acc_aws
+      NAMESPACE:
+        from_secret: NAMESPACE
+
+      # Runtime credentials. Stored in Drone and substituted into the jobspec
+      # below, which is the platform pattern SRE confirmed. `|` is the sed
+      # delimiter rather than `/` because a base64 secret can contain a slash
+      # and would terminate the expression early.
+      OPENAI_API_KEY:
+        from_secret: OPENAI_API_KEY
+      ANTHROPIC_API_KEY:
+        from_secret: ANTHROPIC_API_KEY
+      NCBI_API_KEY:
+        from_secret: NCBI_API_KEY
+      TAVILY_API_KEY:
+        from_secret: TAVILY_API_KEY
+      TOOLUNIVERSE_API_TOKEN:
+        from_secret: TOOLUNIVERSE_API_TOKEN
+      SEMANTIC_SCHOLAR_API_KEY:
+        from_secret: SEMANTIC_SCHOLAR_API_KEY
+    commands:
+      - sed -i "s/__REPO__NAME__/${DRONE_REPO_NAME,,}/g" ./jobspec_acc.nomad
+      - sed -i "s/__BUILD__NUMBER__/$DRONE_BUILD_NUMBER/g" ./jobspec_acc.nomad
+      - sed -i "s/__NAMESPACE__/$NAMESPACE/g" ./jobspec_acc.nomad
+      - sed -i "s|__OPENAI_API_KEY__|$OPENAI_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__ANTHROPIC_API_KEY__|$ANTHROPIC_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec_acc.nomad
+      - sed -i "s|__SEMANTIC_SCHOLAR_API_KEY__|$SEMANTIC_SCHOLAR_API_KEY|g" ./jobspec_acc.nomad
+      - nomad job run ./jobspec_acc.nomad
+
+trigger:
+  branch:
+    - main
+  event:
+    - push
+
+image_pull_secrets:
+  - dockerhubcreds
+
+---
+kind: pipeline
+name: Deploy to Acceptance
+
+steps:
+  - name: Deploy to Nomad (acc)
+    image: gatesfoundation/nomad-client:latest
+    environment:
+      NOMAD_ADDR: https://aws-nomad.bmgf.io
+      NOMAD_REGION: us-west-2
+      NOMAD_TOKEN:
+        from_secret: AWS_NOMAD_TOKEN
+      NOMAD_VAR_domain_acc:
+        from_secret: NOMAD_VAR_domain_acc_aws
+      NAMESPACE:
+        from_secret: NAMESPACE
+
+      # Runtime credentials. Stored in Drone and substituted into the jobspec
+      # below, which is the platform pattern SRE confirmed. `|` is the sed
+      # delimiter rather than `/` because a base64 secret can contain a slash
+      # and would terminate the expression early.
+      OPENAI_API_KEY:
+        from_secret: OPENAI_API_KEY
+      ANTHROPIC_API_KEY:
+        from_secret: ANTHROPIC_API_KEY
+      NCBI_API_KEY:
+        from_secret: NCBI_API_KEY
+      TAVILY_API_KEY:
+        from_secret: TAVILY_API_KEY
+      TOOLUNIVERSE_API_TOKEN:
+        from_secret: TOOLUNIVERSE_API_TOKEN
+      SEMANTIC_SCHOLAR_API_KEY:
+        from_secret: SEMANTIC_SCHOLAR_API_KEY
+    commands:
+      - sed -i "s/__REPO__NAME__/${DRONE_REPO_NAME,,}/g" ./jobspec_acc.nomad
+      - sed -i "s/__BUILD__NUMBER__/$DRONE_BUILD_PARENT/g" ./jobspec_acc.nomad
+      - sed -i "s/__NAMESPACE__/$NAMESPACE/g" ./jobspec_acc.nomad
+      - sed -i "s|__OPENAI_API_KEY__|$OPENAI_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__ANTHROPIC_API_KEY__|$ANTHROPIC_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec_acc.nomad
+      - sed -i "s|__SEMANTIC_SCHOLAR_API_KEY__|$SEMANTIC_SCHOLAR_API_KEY|g" ./jobspec_acc.nomad
+      - nomad job run ./jobspec_acc.nomad
+
+trigger:
+  target:
+    - acc
+
+image_pull_secrets:
+  - dockerhubcreds
+
+---
+kind: pipeline
+name: Deploy to Production
+
+steps:
+  - name: Deploy to Nomad
+    image: gatesfoundation/nomad-client:latest
+    environment:
+      NOMAD_ADDR: https://aws-nomad.bmgf.io
+      NOMAD_REGION: us-west-2
+      NOMAD_TOKEN:
+        from_secret: AWS_NOMAD_TOKEN
+      NOMAD_VAR_domain_prod:
+        from_secret: NOMAD_VAR_domain_prod_aws
+      NAMESPACE:
+        from_secret: NAMESPACE
+
+      # Runtime credentials. Stored in Drone and substituted into the jobspec
+      # below, which is the platform pattern SRE confirmed. `|` is the sed
+      # delimiter rather than `/` because a base64 secret can contain a slash
+      # and would terminate the expression early.
+      OPENAI_API_KEY:
+        from_secret: OPENAI_API_KEY
+      ANTHROPIC_API_KEY:
+        from_secret: ANTHROPIC_API_KEY
+      NCBI_API_KEY:
+        from_secret: NCBI_API_KEY
+      TAVILY_API_KEY:
+        from_secret: TAVILY_API_KEY
+      TOOLUNIVERSE_API_TOKEN:
+        from_secret: TOOLUNIVERSE_API_TOKEN
+      SEMANTIC_SCHOLAR_API_KEY:
+        from_secret: SEMANTIC_SCHOLAR_API_KEY
+    commands:
+      - sed -i "s/__REPO__NAME__/${DRONE_REPO_NAME,,}/g" ./jobspec.nomad
+      - sed -i "s/__BUILD__NUMBER__/$DRONE_BUILD_PARENT/g" ./jobspec.nomad
+      - sed -i "s/__NAMESPACE__/$NAMESPACE/g" ./jobspec.nomad
+      - sed -i "s|__OPENAI_API_KEY__|$OPENAI_API_KEY|g" ./jobspec.nomad
+      - sed -i "s|__ANTHROPIC_API_KEY__|$ANTHROPIC_API_KEY|g" ./jobspec.nomad
+      - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec.nomad
+      - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec.nomad
+      - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec.nomad
+      - sed -i "s|__SEMANTIC_SCHOLAR_API_KEY__|$SEMANTIC_SCHOLAR_API_KEY|g" ./jobspec.nomad
+      - nomad job run ./jobspec.nomad
+
+trigger:
+  target:
+    - prod
+
+image_pull_secrets:
+  - dockerhubcreds

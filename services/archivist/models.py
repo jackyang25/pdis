@@ -27,7 +27,7 @@ Deliberately absent, and each absence is a decision:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Iterable
 
 from services.archivist.indexed_attributes import indexed_attributes

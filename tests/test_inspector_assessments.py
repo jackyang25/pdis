@@ -32,7 +32,6 @@ from services.inspector.models import (
     Assessment,
     InspectionConfig,
     InspectionResult,
-    SectionAssessment,
     SectionSpec,
     VariableSpec,
 )

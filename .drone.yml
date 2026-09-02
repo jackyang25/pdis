@@ -40,7 +40,7 @@ steps:
       - make test
 
   - name: web
-    image: node:20-alpine
+    image: node:22-alpine
     commands:
       - apk add --no-cache make
       - make install-web

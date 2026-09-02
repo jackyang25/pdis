@@ -66,7 +66,7 @@ and it makes browser calls same-origin.
 
 ### Dependencies
 
-Native development requires Python 3.11 and Node.js 20, and [uv](https://docs.astral.sh/uv/)
+Native development requires Python 3.11 and Node.js 22, and [uv](https://docs.astral.sh/uv/)
 to install from the lockfile. ToolUniverse can remain in Docker while the API and
 web application run locally.
 

@@ -177,10 +177,33 @@ steps:
         from_secret: NOMAD_VAR_domain_acc_aws
       NAMESPACE:
         from_secret: NAMESPACE
+
+      # Runtime credentials. Stored in Drone and substituted into the jobspec
+      # below, which is the platform pattern SRE confirmed. `|` is the sed
+      # delimiter rather than `/` because a base64 secret can contain a slash
+      # and would terminate the expression early.
+      OPENAI_API_KEY:
+        from_secret: OPENAI_API_KEY
+      ANTHROPIC_API_KEY:
+        from_secret: ANTHROPIC_API_KEY
+      NCBI_API_KEY:
+        from_secret: NCBI_API_KEY
+      TAVILY_API_KEY:
+        from_secret: TAVILY_API_KEY
+      TOOLUNIVERSE_API_TOKEN:
+        from_secret: TOOLUNIVERSE_API_TOKEN
+      SEMANTIC_SCHOLAR_API_KEY:
+        from_secret: SEMANTIC_SCHOLAR_API_KEY
     commands:
       - sed -i "s/__REPO__NAME__/${DRONE_REPO_NAME,,}/g" ./jobspec_acc.nomad
       - sed -i "s/__BUILD__NUMBER__/$DRONE_BUILD_NUMBER/g" ./jobspec_acc.nomad
       - sed -i "s/__NAMESPACE__/$NAMESPACE/g" ./jobspec_acc.nomad
+      - sed -i "s|__OPENAI_API_KEY__|$OPENAI_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__ANTHROPIC_API_KEY__|$ANTHROPIC_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec_acc.nomad
+      - sed -i "s|__SEMANTIC_SCHOLAR_API_KEY__|$SEMANTIC_SCHOLAR_API_KEY|g" ./jobspec_acc.nomad
       - nomad job run ./jobspec_acc.nomad
 
 trigger:
@@ -208,10 +231,33 @@ steps:
         from_secret: NOMAD_VAR_domain_acc_aws
       NAMESPACE:
         from_secret: NAMESPACE
+
+      # Runtime credentials. Stored in Drone and substituted into the jobspec
+      # below, which is the platform pattern SRE confirmed. `|` is the sed
+      # delimiter rather than `/` because a base64 secret can contain a slash
+      # and would terminate the expression early.
+      OPENAI_API_KEY:
+        from_secret: OPENAI_API_KEY
+      ANTHROPIC_API_KEY:
+        from_secret: ANTHROPIC_API_KEY
+      NCBI_API_KEY:
+        from_secret: NCBI_API_KEY
+      TAVILY_API_KEY:
+        from_secret: TAVILY_API_KEY
+      TOOLUNIVERSE_API_TOKEN:
+        from_secret: TOOLUNIVERSE_API_TOKEN
+      SEMANTIC_SCHOLAR_API_KEY:
+        from_secret: SEMANTIC_SCHOLAR_API_KEY
     commands:
       - sed -i "s/__REPO__NAME__/${DRONE_REPO_NAME,,}/g" ./jobspec_acc.nomad
       - sed -i "s/__BUILD__NUMBER__/$DRONE_BUILD_PARENT/g" ./jobspec_acc.nomad
       - sed -i "s/__NAMESPACE__/$NAMESPACE/g" ./jobspec_acc.nomad
+      - sed -i "s|__OPENAI_API_KEY__|$OPENAI_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__ANTHROPIC_API_KEY__|$ANTHROPIC_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec_acc.nomad
+      - sed -i "s|__SEMANTIC_SCHOLAR_API_KEY__|$SEMANTIC_SCHOLAR_API_KEY|g" ./jobspec_acc.nomad
       - nomad job run ./jobspec_acc.nomad
 
 trigger:
@@ -237,10 +283,33 @@ steps:
         from_secret: NOMAD_VAR_domain_prod_aws
       NAMESPACE:
         from_secret: NAMESPACE
+
+      # Runtime credentials. Stored in Drone and substituted into the jobspec
+      # below, which is the platform pattern SRE confirmed. `|` is the sed
+      # delimiter rather than `/` because a base64 secret can contain a slash
+      # and would terminate the expression early.
+      OPENAI_API_KEY:
+        from_secret: OPENAI_API_KEY
+      ANTHROPIC_API_KEY:
+        from_secret: ANTHROPIC_API_KEY
+      NCBI_API_KEY:
+        from_secret: NCBI_API_KEY
+      TAVILY_API_KEY:
+        from_secret: TAVILY_API_KEY
+      TOOLUNIVERSE_API_TOKEN:
+        from_secret: TOOLUNIVERSE_API_TOKEN
+      SEMANTIC_SCHOLAR_API_KEY:
+        from_secret: SEMANTIC_SCHOLAR_API_KEY
     commands:
       - sed -i "s/__REPO__NAME__/${DRONE_REPO_NAME,,}/g" ./jobspec.nomad
       - sed -i "s/__BUILD__NUMBER__/$DRONE_BUILD_PARENT/g" ./jobspec.nomad
       - sed -i "s/__NAMESPACE__/$NAMESPACE/g" ./jobspec.nomad
+      - sed -i "s|__OPENAI_API_KEY__|$OPENAI_API_KEY|g" ./jobspec.nomad
+      - sed -i "s|__ANTHROPIC_API_KEY__|$ANTHROPIC_API_KEY|g" ./jobspec.nomad
+      - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec.nomad
+      - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec.nomad
+      - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec.nomad
+      - sed -i "s|__SEMANTIC_SCHOLAR_API_KEY__|$SEMANTIC_SCHOLAR_API_KEY|g" ./jobspec.nomad
       - nomad job run ./jobspec.nomad
 
 trigger:

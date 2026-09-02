@@ -25,6 +25,9 @@
 #     same-origin, so the client bundle carries no API hostname.
 #  4. `count` and `resources` differ per group, and the gateway carries far more
 #     memory than the template's 512 MB. See the sizing note on that group.
+#
+# Secrets follow the platform pattern confirmed by SRE: stored in Drone and
+# substituted here by sed, the same mechanism as the repo name and build number.
 
 variable "domain_acc" {
   type        = string
@@ -135,6 +138,20 @@ job "__REPO__NAME__-acc" {
         # Allocation stdout is read by an aggregator, not a person.
         LOG_FORMAT = "json"
         LOG_LEVEL  = "INFO"
+
+        # Credentials, substituted by .drone.yml from Drone secrets. This is the
+        # platform pattern rather than a Nomad Variables or Vault lookup: the
+        # placeholders are `__NAME__` for the same reason the repo name and
+        # build number are, and the deploy step seds all of them together.
+        #
+        # A consequence worth knowing: the substituted values land in the job
+        # definition Nomad stores, so `nomad job inspect` in this namespace
+        # shows them. Namespace access is what protects them.
+        OPENAI_API_KEY         = "__OPENAI_API_KEY__"
+        ANTHROPIC_API_KEY      = "__ANTHROPIC_API_KEY__"
+        NCBI_API_KEY           = "__NCBI_API_KEY__"
+        TAVILY_API_KEY         = "__TAVILY_API_KEY__"
+        TOOLUNIVERSE_API_TOKEN = "__TOOLUNIVERSE_API_TOKEN__"
       }
 
       # The connector's address comes from service discovery, not an env
@@ -147,28 +164,6 @@ job "__REPO__NAME__-acc" {
           TOOLUNIVERSE_BASE_URL="http://{{ range nomadService "__REPO__NAME__-acc-tooluniverse" }}{{ .Address }}:{{ .Port }}{{ end }}"
         EOH
         destination = "local/tooluniverse.env"
-        env         = true
-        change_mode = "restart"
-      }
-
-      # Credentials come from the cluster's secret store, never from this file.
-      # tests/test_deploy_secrets.py enforces that no manifest carries a literal.
-      #
-      # DRAFT - the platform examples show no secret handling, so this is written
-      # against Nomad Variables. Confirm with SRE whether the cluster fronts
-      # Vault; if so, swap `nomadVar` for `{{ with secret "..." }}` and the
-      # variable names and shape stay as they are.
-      template {
-        data        = <<-EOH
-          {{- with nomadVar "nomad/jobs/__REPO__NAME__-acc" }}
-          OPENAI_API_KEY={{ .openai_api_key }}
-          ANTHROPIC_API_KEY={{ .anthropic_api_key }}
-          NCBI_API_KEY={{ .ncbi_api_key }}
-          TAVILY_API_KEY={{ .tavily_api_key }}
-          TOOLUNIVERSE_API_TOKEN={{ .tooluniverse_api_token }}
-          {{- end }}
-        EOH
-        destination = "secrets/providers.env"
         env         = true
         change_mode = "restart"
       }
@@ -279,18 +274,11 @@ job "__REPO__NAME__-acc" {
 
       env {
         PORT = "8080"
-      }
 
-      template {
-        data        = <<-EOH
-          {{- with nomadVar "nomad/jobs/__REPO__NAME__-acc" }}
-          TOOLUNIVERSE_API_TOKEN={{ .tooluniverse_api_token }}
-          SEMANTIC_SCHOLAR_API_KEY={{ .semantic_scholar_api_key }}
-          {{- end }}
-        EOH
-        destination = "secrets/connector.env"
-        env         = true
-        change_mode = "restart"
+        # The same token the gateway is given, so the two authenticate to each
+        # other, plus the connector's own provider key.
+        TOOLUNIVERSE_API_TOKEN   = "__TOOLUNIVERSE_API_TOKEN__"
+        SEMANTIC_SCHOLAR_API_KEY = "__SEMANTIC_SCHOLAR_API_KEY__"
       }
     }
   }

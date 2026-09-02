@@ -11,6 +11,11 @@ capability is discovered by a user.
 This replaces a check that read `render.yaml` and asserted `sync: false` beside
 `TAVILY_API_KEY`. The platform changed; the property did not.
 
+On this platform a credential reaches a container as a `__NAME__` placeholder in
+the jobspec that the deploy step seds a Drone secret into, so a placeholder is a
+binding and not a value. `tests/test_jobspec_parity.py` separately asserts every
+placeholder has a matching sed, which is what stops one being left unfilled.
+
 The literal check is deliberately blunt - a NAME=value assignment for a known
 credential, anywhere in a committed manifest. A blunt rule with no exceptions is
 one nobody has to interpret at the moment they are least inclined to.
@@ -72,10 +77,13 @@ class DeploySecretTests(unittest.TestCase):
                         stripped = line.strip()
                         if stripped.startswith("#") or credential not in stripped:
                             continue
-                        # A binding reads from somewhere: a template
-                        # interpolation, a CI secret reference, or a shell
-                        # expansion of a value supplied at runtime.
-                        if re.search(r"\{\{|from_secret|\$\{|\$[A-Z_]", stripped):
+                        # A binding reads from somewhere rather than stating a
+                        # value: a `__NAME__` placeholder the deploy step seds a
+                        # Drone secret into, a CI secret reference, a template
+                        # interpolation, or a shell expansion.
+                        if re.search(
+                            r"__[A-Z_]+__|\{\{|from_secret|\$\{|\$[A-Z_]", stripped
+                        ):
                             continue
                         # An assignment with anything after it that is not a
                         # reference is a committed value.

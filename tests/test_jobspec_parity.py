@@ -136,7 +136,10 @@ class JobspecParityTests(unittest.TestCase):
             # can be checked is the property that matters - run the real seds,
             # and nothing placeholder-shaped is left.
             substituted = directives
-            for pattern in re.findall(r'sed -i "s/([^/]+)/[^"]*/g"', commands):
+            # Delimiter-agnostic: the repo and namespace seds use `/`, and the
+            # credential seds use `|` because a base64 secret can contain a
+            # slash. Capture whichever character follows `s` and match to it.
+            for _, pattern in re.findall(r'sed -i "s(.)(.+?)\1', commands):
                 substituted = substituted.replace(pattern, "substituted")
 
             leftover = sorted(set(re.findall(r"__\w*?__", substituted)))

@@ -117,6 +117,13 @@ trigger:
   event:
     - pull_request
 
+# Drone runs top-level pipelines concurrently unless told otherwise, so without
+# this the images build while the suite is still running - and push even when it
+# fails. A registry that only receives images from a green pipeline is the whole
+# reason the Verify stage exists.
+depends_on:
+  - Verify
+
 image_pull_secrets:
   - dockerhubcreds
 
@@ -211,6 +218,10 @@ trigger:
     - main
   event:
     - push
+
+# See the note on Test Build: this gates the push and the deploy on a green suite.
+depends_on:
+  - Verify
 
 image_pull_secrets:
   - dockerhubcreds

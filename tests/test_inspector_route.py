@@ -9,6 +9,12 @@ stream rather than as a status code.
 
 The other four upload routes bind both halves of `document_upload_parts`. Inspector was
 the only one that did not.
+
+The provider client is stubbed rather than supplied. These tests are about argument
+binding, and the route acquires a client before it reaches the pipeline call, so without
+the stub they assert nothing in an environment holding no credential - which is every
+environment except a developer's machine with a populated `.env`. They passed locally and
+failed in CI for exactly that reason.
 """
 
 from __future__ import annotations
@@ -24,6 +30,15 @@ from api.main import app
 
 class SENTINEL(Exception):
     """Raised by the stubbed pipeline, to prove the call was reached."""
+
+
+class RouteArgumentTestCase(unittest.TestCase):
+    """Stubs the client acquisition every route performs before its pipeline call."""
+
+    def setUp(self) -> None:
+        patcher = patch("api.routes.inspector.get_openai_client")
+        self.addCleanup(patcher.stop)
+        patcher.start()
 
 
 def _run(**overrides) -> object:
@@ -48,7 +63,7 @@ def _run(**overrides) -> object:
     )
 
 
-class RouteArgumentTests(unittest.TestCase):
+class RouteArgumentTests(RouteArgumentTestCase):
     def test_the_pipeline_call_is_reached_with_every_argument_bound(self) -> None:
         """The regression. A stub that raises proves the arguments evaluated: an unbound
         name fails while building the call, before the stub can run at all.

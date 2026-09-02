@@ -155,6 +155,36 @@ class JobspecParityTests(unittest.TestCase):
                 self.assertIn(f'variable "{domain_var}"', text)
                 self.assertIn(f"NOMAD_VAR_{domain_var}", environment)
 
+    def test_no_image_is_pushed_before_the_suite_passes(self) -> None:
+        """Drone runs top-level pipelines concurrently unless a dependency says
+        otherwise, so a verification pipeline sitting above a build pipeline in
+        the file gates nothing. The first real build pushed an image while the
+        suite was still failing, which is what this asserts against.
+
+        The promote pipelines are exempt on purpose: `Verify` does not run on a
+        promote event, and depending on a pipeline that did not run skips the
+        dependent one. They deploy an image a push build already verified.
+        """
+        import yaml
+
+        pipelines = [p for p in yaml.safe_load_all((ROOT / ".drone.yml").read_text()) if p]
+        by_name = {p["name"]: p for p in pipelines}
+
+        for name, pipeline in by_name.items():
+            events = set(pipeline.get("trigger", {}).get("event") or [])
+            builds_or_deploys = any(
+                "docker" in step.get("image", "") or "nomad" in step.get("image", "")
+                for step in pipeline["steps"]
+            )
+            if not builds_or_deploys or not events & {"push", "pull_request"}:
+                continue
+            with self.subTest(pipeline=name):
+                self.assertIn(
+                    "Verify",
+                    pipeline.get("depends_on", []),
+                    f"{name} can build or deploy while the suite is still failing",
+                )
+
     def test_the_gateway_memory_and_run_cap_are_stated_together(self) -> None:
         """They are one decision: the cap is what the memory limit was sized for.
         Finding one without the other means the pair can be changed singly."""

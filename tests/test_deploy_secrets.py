@@ -100,7 +100,7 @@ class DeploySecretTests(unittest.TestCase):
         still comes up healthy. Nothing reports it but the absent capability."""
         for name in ("jobspec.nomad", "jobspec_acc.nomad"):
             text = _manifest(name)
-            gateway = text[: text.index('group "web"')]
+            gateway = text[text.index('task "api"') : text.index('task "tooluniverse"')]
             for credential in GATEWAY_CREDENTIALS:
                 with self.subTest(jobspec=name, credential=credential):
                     # assertTrue rather than assertIn: the haystack is the whole
@@ -117,8 +117,8 @@ class DeploySecretTests(unittest.TestCase):
         generates it now, which makes forgetting one side the likely failure."""
         for name in ("jobspec.nomad", "jobspec_acc.nomad"):
             text = _manifest(name)
-            connector = text[text.index('group "tooluniverse"') :]
-            gateway = text[: text.index('group "web"')]
+            gateway = text[text.index('task "api"') : text.index('task "tooluniverse"')]
+            connector = text[text.index('task "tooluniverse"') :]
             with self.subTest(jobspec=name):
                 self.assertIn("TOOLUNIVERSE_API_TOKEN", gateway)
                 self.assertIn("TOOLUNIVERSE_API_TOKEN", connector)

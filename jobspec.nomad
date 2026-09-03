@@ -5,20 +5,18 @@
 # constraints, the `__PLACEHOLDER__` substitutions .drone.yml fills with sed, the
 # `domain_prod` variable name, and the Traefik tag set including sticky sessions.
 #
-# Four deviations from that template, each because PDIS is not a one-container
+# Three deviations from that template, each because PDIS is not a one-container
 # app. Flag these to SRE when they review:
 #
-#  1. Three groups, not one. The gateway, the client, and the private
-#     ToolUniverse connector are one deployable unit: the client is useless
-#     without the gateway, and the gateway loses retrieval without the connector.
-#  2. Three images from one repository, named `__REPO__NAME__-api`,
-#     `-web`, and `-tooluniverse`. The template assumes one image per repo.
+#  1. Two groups. The gateway and the private ToolUniverse connector run as two
+#     tasks in one group, because they must always be reachable to each other;
+#     the Next.js client is its own group because it is independent of both.
+#  2. Three images from one repository, named `__REPO__NAME__-api`, `-web`, and
+#     `-tooluniverse`. The template assumes one image per repo.
 #  3. Path routing on the single production domain. The module grants one
 #     hostname, and every backend route is under `/api`, so one prefix rule
 #     splits gateway from client. This is also what keeps browser calls
 #     same-origin, so the client bundle carries no API hostname.
-#  4. `count` and `resources` differ per group, and the gateway carries far more
-#     memory than the template's 512 MB. See the sizing note on that group.
 #
 # Secrets follow the platform pattern confirmed by SRE: stored in Drone and
 # substituted here by sed, the same mechanism as the repo name and build number.
@@ -56,13 +54,29 @@ job "__REPO__NAME__" {
     progress_deadline = "15m"
   }
 
-  # ---- Gateway -------------------------------------------------------------
-
+  # ---- Gateway and its connector -------------------------------------------
+  #
+  # One group, two tasks, because the gateway is useless without the connector
+  # and the connector is used by nothing else. Tasks in a group share a network
+  # namespace, which is what lets the gateway address the connector at a fixed
+  # loopback port instead of discovering it.
+  #
+  # That is the whole reason they are grouped. Render injected the connector's
+  # address at deploy time, so it was always correct; resolving it at runtime
+  # through service discovery introduced a startup race Render never had, where
+  # a gateway rendering its template before the connector registered came up
+  # pointing at nothing and failed every Scout run. Co-location removes the race
+  # rather than tolerating it.
+  #
+  # count is 1, matching the topology this app ran on before. Raising it
+  # multiplies the whole allocation, connector included, so raise it only after
+  # watching one allocation's memory under load.
   group "api" {
-    count = 2
+    count = 1
 
     network {
       port "http" { to = 8000 }
+      port "tooluniverse" { to = 8080 }
     }
 
     service {
@@ -104,8 +118,7 @@ job "__REPO__NAME__" {
     # 24 in flight (MAX_PARALLEL_SECTIONS x MAX_PARALLEL_UNIT_CALLS, 4 x 6, both
     # in services/inspector/stages/assessor.py), each holding a request and a
     # response alongside the parsed document and a LibreOffice process.
-    # MAX_CONCURRENT_RUNS admits two per allocation, so ~1.1 GB over an ~80 MB
-    # baseline.
+    # MAX_CONCURRENT_RUNS admits two, so ~1.1 GB over an ~80 MB baseline.
     #
     # This limit and MAX_CONCURRENT_RUNS are one decision. Raising the memory
     # without raising the cap wastes it; raising the cap without the memory gets
@@ -133,10 +146,14 @@ job "__REPO__NAME__" {
         LOG_FORMAT = "json"
         LOG_LEVEL  = "INFO"
 
-        # Credentials, substituted by .drone.yml from Drone secrets. This is the
-        # platform pattern rather than a Nomad Variables or Vault lookup: the
-        # placeholders are `__NAME__` for the same reason the repo name and
-        # build number are, and the deploy step seds all of them together.
+        # The connector shares this group's network namespace, so its address is
+        # a fixed fact rather than something to look up. 127.0.0.1 rather than
+        # localhost because services/searcher/net.py documents this stack
+        # resolving to an unroutable IPv6 address inside containers.
+        TOOLUNIVERSE_BASE_URL = "http://127.0.0.1:8080"
+
+        # Credentials, substituted by .drone.yml from Drone secrets, the same
+        # mechanism as the repo name and build number.
         #
         # A consequence worth knowing: the substituted values land in the job
         # definition Nomad stores, so `nomad job inspect` in this namespace
@@ -147,27 +164,42 @@ job "__REPO__NAME__" {
         TAVILY_API_KEY         = "__TAVILY_API_KEY__"
         TOOLUNIVERSE_API_TOKEN = "__TOOLUNIVERSE_API_TOKEN__"
       }
+    }
 
-      # The connector's address comes from service discovery, not an env
-      # interpolation: `NOMAD_PORT_*` only names ports in this task's own group,
-      # so writing the connector's port that way silently yields this group's
-      # port instead. `api/deps.py` reads TOOLUNIVERSE_BASE_URL, so this needs no
-      # code change.
-      template {
-        # The whole assignment sits inside the range, so a connector that is not
-        # yet registered yields no variable at all. Writing the scheme outside it
-        # produced `TOOLUNIVERSE_BASE_URL="http://"` - a value that is non-empty,
-        # so the gateway treated it as configured, and malformed, so building the
-        # connector raised and every Scout run returned 500. Absent is a state
-        # retrieval already handles by disabling the lane; half-present is not.
-        data        = <<-EOH
-          {{- range nomadService "__REPO__NAME__-tooluniverse" }}
-          TOOLUNIVERSE_BASE_URL="http://{{ .Address }}:{{ .Port }}"
-          {{- end }}
-        EOH
-        destination = "local/tooluniverse.env"
-        env         = true
-        change_mode = "restart"
+    # ---- Private connector -------------------------------------------------
+    #
+    # A task beside the gateway rather than a group of its own, and deliberately
+    # without a `service` block: nothing registers it and nothing routes to it,
+    # so it is reachable only over this group's loopback. It holds
+    # SEMANTIC_SCHOLAR_API_KEY and authenticates with a bearer token only, so
+    # giving it a service with Traefik tags would publish it. Review any change
+    # that adds one as a security change.
+    #
+    # Retrieval fans out to searcher's global_worker_limit (48) concurrent calls
+    # per run, and the gateway admits MAX_CONCURRENT_RUNS at once, so this
+    # single-worker process can hold ~96 requests and their responses. That
+    # exceeded 512 MB and was killed. Raising the gateway's cap raises this
+    # ceiling too.
+    task "tooluniverse" {
+      driver = "docker"
+
+      config {
+        image = "bmgfsre.azurecr.io/__REPO__NAME__-tooluniverse:__BUILD__NUMBER__"
+        ports = ["tooluniverse"]
+      }
+
+      resources {
+        cpu    = 1000
+        memory = 2048
+      }
+
+      env {
+        PORT = "8080"
+
+        # The same token the gateway is given, so the two authenticate to each
+        # other, plus the connector's own provider key.
+        TOOLUNIVERSE_API_TOKEN   = "__TOOLUNIVERSE_API_TOKEN__"
+        SEMANTIC_SCHOLAR_API_KEY = "__SEMANTIC_SCHOLAR_API_KEY__"
       }
     }
   }
@@ -225,62 +257,6 @@ job "__REPO__NAME__" {
       env {
         PORT     = "${NOMAD_PORT_http}"
         HOSTNAME = "0.0.0.0"
-      }
-    }
-  }
-
-  # ---- Private connector ---------------------------------------------------
-  #
-  # No Traefik tags anywhere in this group, and that absence is the only thing
-  # keeping the connector off the ingress. It holds SEMANTIC_SCHOLAR_API_KEY and
-  # authenticates with a bearer token only, so adding `traefik.enable=true` here
-  # would publish it. Review changes to this group's tags as a security change.
-
-  group "tooluniverse" {
-    count = 1
-
-    network {
-      port "http" { to = 8080 }
-    }
-
-    service {
-      name     = "__REPO__NAME__-tooluniverse"
-      port     = "http"
-      provider = "nomad"
-
-      check {
-        type     = "http"
-        path     = "/health"
-        interval = "30s"
-        timeout  = "5s"
-      }
-    }
-
-    # Retrieval fans out to searcher's global_worker_limit (48) concurrent calls
-    # per run, and each gateway allocation admits MAX_CONCURRENT_RUNS at once, so
-    # this single-worker process can hold many requests and their responses.
-    # That exceeded 512 MB and was killed. Raising the gateway's cap or its count
-    # raises this ceiling too.
-    task "tooluniverse" {
-      driver = "docker"
-
-      config {
-        image = "bmgfsre.azurecr.io/__REPO__NAME__-tooluniverse:__BUILD__NUMBER__"
-        ports = ["http"]
-      }
-
-      resources {
-        cpu    = 1000
-        memory = 2048
-      }
-
-      env {
-        PORT = "8080"
-
-        # The same token the gateway is given, so the two authenticate to each
-        # other, plus the connector's own provider key.
-        TOOLUNIVERSE_API_TOKEN   = "__TOOLUNIVERSE_API_TOKEN__"
-        SEMANTIC_SCHOLAR_API_KEY = "__SEMANTIC_SCHOLAR_API_KEY__"
       }
     }
   }

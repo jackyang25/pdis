@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -19,6 +18,18 @@ from services.searcher.connectors.tavily import DEFAULT_BASE_URL, DEFAULT_SEARCH
 from services.searcher.sources.tavily import TAVILY_INTEGRATION
 
 TOOLUNIVERSE_INTEGRATION = "tooluniverse"
+
+
+class ConfigurationError(RuntimeError):
+    """A configuration value is present but cannot be read as what it must be.
+
+    Distinct from `MissingCredentialError`: an absent credential is a deployment
+    that has not finished, and is reported to the caller that needs it, whereas
+    an unparseable number is a typo that will never resolve itself. Raising it
+    keeps a malformed value from being silently replaced by a default that
+    happens to work, which is how a tuning change appears to take effect and
+    does not.
+    """
 
 
 class MissingCredentialError(RuntimeError):
@@ -100,34 +111,18 @@ def _tooluniverse_base_url() -> str:
     `template` block in `jobspec.nomad`, which resolves the connector through
     service discovery and writes this variable.
 
-    A value that names no host is treated as absent, and logged. Retrieval
-    already handles an absent connector by disabling that lane, so degrading is
-    the behaviour a reader of a Scout result can interpret; the alternative is
-    what happened in acceptance, where a template rendered `http://` before the
-    connector registered and every Scout run failed with an unhandled error at
-    connector construction, telling the user nothing.
+    Unset means no connector, which retrieval already handles by disabling that
+    lane. Set but naming no host is a misconfiguration, and is refused rather
+    than treated as either - the same rule `validate_configuration` applies to
+    every other setting, for the same reason: a value someone meant to set and
+    got wrong should say so, not disappear into a default.
     """
     configured = os.environ.get("TOOLUNIVERSE_BASE_URL", "").strip()
     if configured and not urlparse(configured).netloc:
-        logging.getLogger(__name__).warning(
-            "Ignoring TOOLUNIVERSE_BASE_URL with no host: %r. Retrieval will run "
-            "without the ToolUniverse lane.",
-            configured,
+        raise ConfigurationError(
+            f"TOOLUNIVERSE_BASE_URL must be an absolute URL, got {configured!r}"
         )
-        return ""
     return configured
-
-
-class ConfigurationError(RuntimeError):
-    """A configuration value is present but cannot be read as what it must be.
-
-    Distinct from `MissingCredentialError`: an absent credential is a deployment
-    that has not finished, and is reported to the caller that needs it, whereas
-    an unparseable number is a typo that will never resolve itself. Raising it
-    keeps a malformed value from being silently replaced by a default that
-    happens to work, which is how a tuning change appears to take effect and
-    does not.
-    """
 
 
 def _positive_int(name: str, default: int) -> int:
@@ -185,3 +180,4 @@ def validate_configuration() -> None:
             _positive_int(name, default)
         else:
             _positive_float(name, default)
+    _tooluniverse_base_url()

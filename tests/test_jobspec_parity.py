@@ -67,18 +67,31 @@ class JobspecParityTests(unittest.TestCase):
 
     def test_the_connector_is_never_exposed_through_the_ingress(self) -> None:
         """The connector holds SEMANTIC_SCHOLAR_API_KEY and authenticates with a
-        bearer token only. Nothing but the absence of a routing tag keeps it off
-        the public internet, and an absence is not visible in review the way a
-        rule is - so it is asserted here instead."""
+        bearer token only. It runs as a task beside the gateway with no service
+        block at all, so nothing registers it and nothing can route to it.
+
+        Two absences hold that in place - no `service`, no Traefik tag - and an
+        absence is not visible in review the way a rule is, so both are asserted.
+        """
         for path in (PRODUCTION, ACCEPTANCE):
             with self.subTest(jobspec=path.name):
                 text = path.read_text()
-                start = text.index('group "tooluniverse"')
-                group = text[start:]
+                connector = text[text.index('task "tooluniverse"') :]
+                connector = connector[: connector.index("# ---- Client")]
+                directives = "\n".join(
+                    line
+                    for line in connector.splitlines()
+                    if not line.strip().startswith("#")
+                )
                 self.assertNotIn(
-                    "traefik.enable=true",
-                    group,
-                    f"{path.name} exposes the ToolUniverse connector through Traefik",
+                    "traefik",
+                    directives,
+                    f"{path.name} tags the connector for the ingress",
+                )
+                self.assertNotIn(
+                    "service {",
+                    directives,
+                    f"{path.name} registers the connector as a service",
                 )
 
     def test_no_image_floats_on_a_mutable_tag(self) -> None:

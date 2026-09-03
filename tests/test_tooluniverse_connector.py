@@ -284,6 +284,23 @@ class ToolUniverseConnectorTests(unittest.TestCase):
         self.assertEqual(connector.base_url, "http://pdis-tooluniverse.internal:8080")
         self.assertEqual(connector.api_token, "generated-token")
 
+    def test_an_address_naming_no_host_is_treated_as_absent(self) -> None:
+        """The acceptance regression. A Nomad template wrote the URL scheme
+        outside its service-discovery loop, so a connector that had not yet
+        registered produced `http://`: non-empty, so the gateway treated it as
+        configured, and malformed, so building the connector raised. Every Scout
+        run returned 500 while Inspector, which builds no search runtime, worked.
+
+        Retrieval already degrades when the connector is absent. Half-present has
+        to reach the same state, because no caller can act on the difference.
+        """
+        with patch.dict(
+            "os.environ",
+            {"TOOLUNIVERSE_BASE_URL": "http://", "TOOLUNIVERSE_API_TOKEN": "tok"},
+            clear=True,
+        ):
+            self.assertNotIn("tooluniverse", get_search_integrations())
+
     def test_no_connector_is_built_without_an_address(self) -> None:
         """Retrieval degrades to the direct-HTTP lanes rather than constructing a
         connector pointed at nothing. A host/port pair left over from an older

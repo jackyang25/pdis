@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Mapping
+from urllib.parse import urlparse
 
 from shared.anthropic_client import AnthropicQuantitativeClient
 from shared.openai_client import OpenAIClient
@@ -97,8 +99,23 @@ def _tooluniverse_base_url() -> str:
     service as host and port compose them in the deployment manifest - see the
     `template` block in `jobspec.nomad`, which resolves the connector through
     service discovery and writes this variable.
+
+    A value that names no host is treated as absent, and logged. Retrieval
+    already handles an absent connector by disabling that lane, so degrading is
+    the behaviour a reader of a Scout result can interpret; the alternative is
+    what happened in acceptance, where a template rendered `http://` before the
+    connector registered and every Scout run failed with an unhandled error at
+    connector construction, telling the user nothing.
     """
-    return os.environ.get("TOOLUNIVERSE_BASE_URL", "").strip()
+    configured = os.environ.get("TOOLUNIVERSE_BASE_URL", "").strip()
+    if configured and not urlparse(configured).netloc:
+        logging.getLogger(__name__).warning(
+            "Ignoring TOOLUNIVERSE_BASE_URL with no host: %r. Retrieval will run "
+            "without the ToolUniverse lane.",
+            configured,
+        )
+        return ""
+    return configured
 
 
 class ConfigurationError(RuntimeError):

@@ -160,8 +160,16 @@ job "__REPO__NAME__-acc" {
       # port instead. `api/deps.py` reads TOOLUNIVERSE_BASE_URL, so this needs no
       # code change.
       template {
+        # The whole assignment sits inside the range, so a connector that is not
+        # yet registered yields no variable at all. Writing the scheme outside it
+        # produced `TOOLUNIVERSE_BASE_URL="http://"` - a value that is non-empty,
+        # so the gateway treated it as configured, and malformed, so building the
+        # connector raised and every Scout run returned 500. Absent is a state
+        # retrieval already handles by disabling the lane; half-present is not.
         data        = <<-EOH
-          TOOLUNIVERSE_BASE_URL="http://{{ range nomadService "__REPO__NAME__-acc-tooluniverse" }}{{ .Address }}:{{ .Port }}{{ end }}"
+          {{- range nomadService "__REPO__NAME__-acc-tooluniverse" }}
+          TOOLUNIVERSE_BASE_URL="http://{{ .Address }}:{{ .Port }}"
+          {{- end }}
         EOH
         destination = "local/tooluniverse.env"
         env         = true

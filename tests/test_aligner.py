@@ -965,3 +965,49 @@ class ChainGapTests(unittest.TestCase):
         self.assertEqual(spec.when_absent, "ctpp")
         questions = {edge.question for edge in self.config.edges}
         self.assertEqual(len(questions), len(self.config.edges))
+
+
+class EdgesEndpointTests(unittest.TestCase):
+    """The published comparisons carry every field the picker decides with.
+
+    The regression: `AlignmentEdgeSpecOut.when_absent` existed, the config declared it,
+    the service honoured it, and the route that publishes the specs never passed it. The
+    schema defaulted it to `None`, so every edge went out unconditional and the picker
+    offered the iTPP-to-IPDP comparison on a three-document run - the exact case that
+    field was added to suppress, and the one its docstring describes.
+
+    Asserted against the loaded config rather than a literal, because what failed was a
+    mapping between the two. A fixture here would have been copied from the same
+    misunderstanding.
+    """
+
+    def setUp(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from api.main import app
+
+        self.client = TestClient(app)
+
+    def test_every_declared_field_reaches_the_wire(self) -> None:
+        from services.aligner.models import load_config
+
+        published = self.client.get("/api/aligner/edges").json()["edges"]
+        declared = load_config().edges
+        self.assertEqual(len(published), len(declared))
+        for edge, spec in zip(published, declared):
+            with self.subTest(edge=f"{spec.reference}-to-{spec.comparison}"):
+                self.assertEqual(edge["reference"], spec.reference)
+                self.assertEqual(edge["comparison"], spec.comparison)
+                self.assertEqual(edge["question"], spec.question)
+                self.assertEqual(edge["when_absent"], spec.when_absent)
+
+    def test_the_conditional_edge_is_published_as_conditional(self) -> None:
+        """Named rather than left to the loop above: this is the one edge whose
+        absence from the wire changed what the picker offered, and a config that
+        stopped declaring it would make that loop pass while the bug returned."""
+        published = self.client.get("/api/aligner/edges").json()["edges"]
+        conditional = [edge for edge in published if edge["when_absent"]]
+        self.assertEqual(
+            [(edge["reference"], edge["comparison"], edge["when_absent"]) for edge in conditional],
+            [("itpp", "ipdp", "ctpp")],
+        )

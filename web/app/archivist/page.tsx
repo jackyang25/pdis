@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Archive, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -8,6 +8,7 @@ import { ErrorMessage } from "@/components/ui/error-message";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { ConfigChip, ConfigFieldHelp, ConfigHelp } from "@/components/ui/config-field";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { CitedMark, Quoted } from "@/components/ui/evidence-text";
 import { markCitedText } from "@/lib/cited-text";
@@ -130,23 +131,22 @@ export default function ArchivistPage() {
 
       {corpus && !empty && (
         <div className="flex flex-col gap-6">
-          <section className="rounded-lg border border-border bg-card p-5">
+          <section className="rounded-lg border border-border bg-card p-5 sm:p-6">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <Label asChild>
-                <h2>Read the archive</h2>
-              </Label>
+              <h2 className="text-sm font-semibold">Read the archive</h2>
               <p className="text-xs text-muted-foreground">
                 {corpus.documents.length} profiles
                 {corpus.built_at &&
                   ` · indexed ${corpus.built_at.slice(0, 10)}`}
               </p>
             </div>
+            <ConfigHelp>Leave optional filters empty to include all values.</ConfigHelp>
 
             <div className="mt-5 flex flex-col gap-5">
               {corpus.intervention_classes.length > 1 && (
                 <ChipRow
                   title="Intervention class"
-                  help="Which columns exist at all is declared per class."
+                  help="Selects the archived profiles and available attributes for this class."
                   options={corpus.intervention_classes}
                   selected={new Set([interventionClass])}
                   onToggle={setRequestedClass}
@@ -165,7 +165,7 @@ export default function ArchivistPage() {
               {corpus.indications.length > 1 && (
                 <ChipRow
                   title="Indication"
-                  help="Only the indications the archive holds."
+                  help="Filters profiles by indication. Leave empty to include all indications in the archive."
                   options={corpus.indications}
                   selected={indications}
                   onToggle={(value) =>
@@ -190,7 +190,8 @@ export default function ArchivistPage() {
                 <ChipRow
                   key={column.attribute}
                   title={attributeLabel(column.attribute)}
-                  help={`Keeps the profiles written for these. ${fenceSummary(column)}`}
+                  help="Keeps the profiles written for these values."
+                  note={fenceSummary(column)}
                   options={column.tags}
                   selected={tags[column.attribute] ?? new Set()}
                   onToggle={(value) =>
@@ -236,6 +237,7 @@ function toggled(current: Set<string>, value: string): Set<string> {
 function ChipRow({
   title,
   help,
+  note,
   options,
   selected,
   onToggle,
@@ -243,34 +245,34 @@ function ChipRow({
 }: {
   title: string;
   help: string;
+  note?: string;
   options: readonly string[];
   selected: Set<string>;
   onToggle: (value: string) => void;
   labelFor?: (value: string) => string;
 }) {
+  const helpId = useId();
   return (
-    <div>
-      <p className="text-xs font-semibold">{title}</p>
-      <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{help}</p>
+    <fieldset className="min-w-0" aria-describedby={note ? helpId : undefined}>
+      <legend>
+        <span className="flex min-h-6 items-center gap-1">
+          <Label asChild><span>{title}</span></Label>
+          <ConfigFieldHelp label={title}>{help}</ConfigFieldHelp>
+        </span>
+      </legend>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {options.map((option) => (
-          <button
+          <ConfigChip
             key={option}
-            type="button"
             onClick={() => onToggle(option)}
-            aria-pressed={selected.has(option)}
-            className={cn(
-              "rounded-full border px-2.5 py-1 text-[11px] font-medium leading-4 transition-colors motion-reduce:transition-none",
-              selected.has(option)
-                ? "border-transparent bg-secondary text-secondary-foreground"
-                : "border-border bg-card text-muted-foreground hover:text-foreground",
-            )}
+            selected={selected.has(option)}
           >
             {labelFor(option)}
-          </button>
+          </ConfigChip>
         ))}
       </div>
-    </div>
+      {note && <div id={helpId}><ConfigHelp>{note}</ConfigHelp></div>}
+    </fieldset>
   );
 }
 

@@ -1,68 +1,284 @@
-# Indications — shared vocabulary across services.
-# Keyed by intervention_class. Each entry is the set of valid indication
-# tags for that intervention. Read by:
-#   - the header picker (drives the Indication dropdown)
-#   - Inspector (labels the inspected document)
-# Stamped on every output (block, claim, review result).
-
-# A tag is a stable key AND a search term, because it is stamped on every output and
-# also substituted into retrieval prompts and joined into query text. Those two jobs
-# used to conflict: the fallback de-underscored an attribute name beside an indication
-# it left alone, so a multi-word name could only reach a query as one underscored
-# token. That confined the vocabulary to single words — which is how the two names
-# needing more than one became `tb` and `gbs`, the two worst search terms here.
+# MeSH-aligned indication contexts, reviewed against the NLM 2026 descriptor release.
+# Source: https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/xmlmesh/desc2026.gz
+# Naming/maintenance rules and verification command: docs/indication-vocabulary.md.
 #
-# `shared.vocabulary.search_term` now de-underscores the tag once, upstream in Scout's
-# pipeline, after blocks are stamped and before the tag becomes text. So a tag may be
-# several words joined by underscores: store the key, and it reads correctly wherever
-# it is used. Prefer the full name over an acronym unless the acronym is what a
-# literature search actually uses — `hiv` and `hpv` qualify; `tb` and `gbs` did not.
-#
-# Nothing else belongs here, because every other axis already has an owner:
-#   - prevention vs treatment -> intervention_class
-#   - population, endpoint, measure, regimen -> the document, as cited semantic
-#     slots with explicit unknown states
-# `rsv` and `hpv` already follow this. An RSV program is infant prevention and
-# an HPV program is cervical cancer prevention, and neither tag says so.
-vaccine:
-  - malaria
-  - hiv
-  - tuberculosis
-  - rsv
-  - influenza
-  - covid19
-  - dengue
-  - cholera
-  - hpv
-  - pneumococcus
-  - klebsiella
-  # Not `gbs`: in a vaccine context that abbreviation is both Group B Streptococcus
-  # and Guillain-Barre Syndrome, and the second is a classic vaccine adverse event of
-  # special interest — so a safety search for `gbs` could return literature about the
-  # wrong one entirely.
-  - group_b_streptococcus
-  - polio
+# One list for every supported class. Context is not template support, portfolio
+# membership, an approved use, or proof that an intervention exists for a disease.
+# key is the ONLY runtime/display/search value. search_term derives its words;
+# mesh.term is the cited NLM entry term, never an alternate runtime spelling.
+# match=exact means that entry term belongs to the stated descriptor AND concept.
+# match=narrower flags a local qualifier that MeSH does not represent exactly.
+# Legacy keys are recognized only when validating existing corpus artifacts; they
+# never appear as new choices, rewrite saved results, or expand search requests.
+# In particular, never use gbs: it can also mean Guillain-Barre syndrome.
+vaccine: &indication_contexts
+  - key: malaria
+    mesh: {descriptor: D008288, concept: M0012910, term: "Malaria"}
+    match: exact
+  - key: hiv
+    mesh: {descriptor: D006678, concept: M0010470, term: "HIV"}
+    match: exact
+    note: Virus context, not an HIV infection diagnosis or an AIDS diagnosis.
+  - key: tuberculosis
+    mesh: {descriptor: D014376, concept: M0022106, term: "Tuberculosis"}
+    match: exact
+  - key: respiratory_syncytial_virus
+    mesh: {descriptor: D012136, concept: M0018912, term: "Respiratory Syncytial Virus"}
+    match: exact
+    legacy_keys: [rsv]
+    note: Virus group context; does not assert human species or an infection diagnosis.
+  - key: influenza
+    mesh: {descriptor: D007251, concept: M0011309, term: "Influenza"}
+    match: exact
+  - key: covid_19
+    mesh: {descriptor: D000086382, concept: M000732426, term: "COVID-19"}
+    match: exact
+    legacy_keys: [covid19]
+  - key: dengue
+    mesh: {descriptor: D003715, concept: M0005831, term: "Dengue"}
+    match: exact
+  - key: cholera
+    mesh: {descriptor: D002771, concept: M0004244, term: "Cholera"}
+    match: exact
+  - key: human_papillomavirus
+    mesh: {descriptor: D000094302, concept: M000598251, term: "Human Papillomavirus"}
+    match: exact
+    legacy_keys: [hpv]
+    note: Human virus group context; does not assert infection, genotype or cancer.
+  - key: streptococcus_pneumoniae
+    mesh: {descriptor: D013296, concept: M0020574, term: "Streptococcus pneumoniae"}
+    match: exact
+    legacy_keys: [pneumococcus]
+  - key: klebsiella
+    mesh: {descriptor: D007709, concept: M0012058, term: "Klebsiella"}
+    match: exact
+    note: Genus context; does not assert K. pneumoniae, a resistance phenotype or an infection diagnosis.
+  - key: streptococcus_agalactiae
+    mesh: {descriptor: D013292, concept: M0020570, term: "Streptococcus agalactiae"}
+    match: exact
+    legacy_keys: [group_b_streptococcus]
+  - key: poliomyelitis
+    mesh: {descriptor: D011051, concept: M0017112, term: "Poliomyelitis"}
+    match: exact
+    legacy_keys: [polio]
+  - key: hepatitis_a
+    mesh: {descriptor: D006506, concept: M0010206, term: "Hepatitis A"}
+    match: exact
+  - key: hepatitis_b
+    mesh: {descriptor: D006509, concept: M0010210, term: "Hepatitis B"}
+    match: exact
+  - key: hepatitis_c
+    mesh: {descriptor: D006526, concept: M0010234, term: "Hepatitis C"}
+    match: exact
+  - key: hepatitis_e
+    mesh: {descriptor: D016751, concept: M0025508, term: "Hepatitis E"}
+    match: exact
+  - key: measles
+    mesh: {descriptor: D008457, concept: M0013152, term: "Measles"}
+    match: exact
+  - key: mumps
+    mesh: {descriptor: D009107, concept: M0014202, term: "Mumps"}
+    match: exact
+  - key: rubella
+    mesh: {descriptor: D012409, concept: M0019292, term: "Rubella"}
+    match: exact
+  - key: tetanus
+    mesh: {descriptor: D013742, concept: M0021200, term: "Tetanus"}
+    match: exact
+  - key: diphtheria
+    mesh: {descriptor: D004165, concept: M0006520, term: "Diphtheria"}
+    match: exact
+  - key: pertussis
+    mesh: {descriptor: D014917, concept: M0022977, term: "Pertussis"}
+    match: exact
+  - key: rotavirus
+    mesh: {descriptor: D012401, concept: M0019280, term: "Rotavirus"}
+    match: exact
+  - key: norovirus
+    mesh: {descriptor: D029322, concept: M0384449, term: "Norovirus"}
+    match: exact
+  - key: shigellosis
+    mesh: {descriptor: D004405, concept: M0446975, term: "Shigellosis"}
+    match: exact
+  - key: typhoid_fever
+    mesh: {descriptor: D014435, concept: M0022185, term: "Typhoid Fever"}
+    match: exact
+  - key: invasive_nontyphoidal_salmonella_infections
+    mesh: {descriptor: D012480, concept: M0019393, term: "Salmonella Infections"}
+    match: narrower
+    legacy_keys: [invasive_nontyphoidal_salmonella]
+    note: Invasive non-typhoidal infections only; MeSH also includes typhoidal and non-invasive infections.
+  - key: meningococcal_disease
+    mesh: {descriptor: D008589, concept: M0013373, term: "Meningococcal Disease"}
+    match: exact
+  - key: haemophilus_influenzae_type_b
+    mesh: {descriptor: D019741, concept: M0029308, term: "Haemophilus influenzae type b"}
+    match: exact
+  - key: gonorrhea
+    mesh: {descriptor: D006069, concept: M0009553, term: "Gonorrhea"}
+    match: exact
+    legacy_keys: [gonorrhoea]
+  - key: syphilis
+    mesh: {descriptor: D013587, concept: M0020966, term: "Syphilis"}
+    match: exact
+  - key: chlamydia
+    mesh: {descriptor: D002689, concept: M0004105, term: "Chlamydia"}
+    match: exact
+    note: Genus context; does not assert C. trachomatis or a genital infection diagnosis.
+  - key: genital_herpes
+    mesh: {descriptor: D006558, concept: M0010276, term: "Genital Herpes"}
+    match: exact
+  - key: ebola_virus_disease
+    mesh: {descriptor: D019142, concept: M0028540, term: "Ebola Virus Disease"}
+    match: exact
+  - key: marburg_virus_disease
+    mesh: {descriptor: D008379, concept: M0013025, term: "Marburg Virus Disease"}
+    match: exact
+  - key: lassa_fever
+    mesh: {descriptor: D007835, concept: M0012249, term: "Lassa Fever"}
+    match: exact
+  - key: nipah_virus_infection
+    mesh: {descriptor: D045464, concept: M000622434, term: "Nipah Virus Infection"}
+    match: exact
+  - key: mpox
+    mesh: {descriptor: D045908, concept: M0450226, term: "Mpox"}
+    match: exact
+  - key: zika_virus_disease
+    mesh: {descriptor: D000071243, concept: M000613823, term: "Zika Virus Disease"}
+    match: exact
+  - key: chikungunya_fever
+    mesh: {descriptor: D065632, concept: M0530384, term: "Chikungunya Fever"}
+    match: exact
+    legacy_keys: [chikungunya]
+  - key: yellow_fever
+    mesh: {descriptor: D015004, concept: M0023087, term: "Yellow Fever"}
+    match: exact
+  - key: japanese_encephalitis
+    mesh: {descriptor: D004672, concept: M0007357, term: "Japanese Encephalitis"}
+    match: exact
+  - key: rabies
+    mesh: {descriptor: D011818, concept: M0018366, term: "Rabies"}
+    match: exact
+  - key: leishmaniasis
+    mesh: {descriptor: D007896, concept: M0012333, term: "Leishmaniasis"}
+    match: exact
+  - key: chagas_disease
+    mesh: {descriptor: D014355, concept: M0022076, term: "Chagas Disease"}
+    match: exact
+  - key: human_african_trypanosomiasis
+    mesh: {descriptor: D014353, concept: M0022074, term: "African Trypanosomiasis"}
+    match: narrower
+    note: Human disease only; the MeSH concept also covers animal disease.
+  - key: schistosomiasis
+    mesh: {descriptor: D012552, concept: M0019481, term: "Schistosomiasis"}
+    match: exact
+  - key: soil_transmitted_helminthiases
+    mesh: {descriptor: D006373, concept: M0010007, term: "Helminthiasis"}
+    match: narrower
+    note: Soil-transmitted infections only; MeSH covers helminth infections regardless of transmission.
+  - key: lymphatic_filariasis
+    mesh: {descriptor: D004605, concept: M0007230, term: "Lymphatic Filariasis"}
+    match: exact
+  - key: onchocerciasis
+    mesh: {descriptor: D009855, concept: M0015295, term: "Onchocerciasis"}
+    match: exact
+  - key: trachoma
+    mesh: {descriptor: D014141, concept: M0021752, term: "Trachoma"}
+    match: exact
+  - key: leprosy
+    mesh: {descriptor: D007918, concept: M0012361, term: "Leprosy"}
+    match: exact
+  - key: buruli_ulcer
+    mesh: {descriptor: D054312, concept: M0503954, term: "Buruli Ulcer"}
+    match: exact
+  - key: scabies
+    mesh: {descriptor: D012532, concept: M0019458, term: "Scabies"}
+    match: exact
+  - key: snakebite_envenoming
+    mesh: {descriptor: D012909, concept: M000763107, term: "Snakebite Envenoming"}
+    match: exact
+  - key: cryptococcal_meningitis
+    mesh: {descriptor: D016919, concept: M0025746, term: "Cryptococcal Meningitis"}
+    match: exact
+  - key: pneumonia
+    mesh: {descriptor: D011014, concept: M0017064, term: "Pneumonia"}
+    match: exact
+  - key: sepsis
+    mesh: {descriptor: D018805, concept: M0028155, term: "Sepsis"}
+    match: exact
+  - key: neonatal_sepsis
+    mesh: {descriptor: D000071074, concept: M000612999, term: "Neonatal Sepsis"}
+    match: exact
+  - key: preterm_birth
+    mesh: {descriptor: D047928, concept: M0012118, term: "Preterm Birth"}
+    match: exact
+  - key: neonatal_respiratory_distress_syndrome
+    mesh: {descriptor: D012127, concept: M0018890, term: "Neonatal Respiratory Distress Syndrome"}
+    match: exact
+  - key: neonatal_jaundice
+    mesh: {descriptor: D007567, concept: M0011824, term: "Neonatal Jaundice"}
+    match: exact
+  - key: postpartum_hemorrhage
+    mesh: {descriptor: D006473, concept: M0010156, term: "Postpartum Hemorrhage"}
+    match: exact
+    legacy_keys: [postpartum_haemorrhage]
+  - key: pre_eclampsia
+    mesh: {descriptor: D011225, concept: M0017443, term: "Pre-Eclampsia"}
+    match: exact
+  - key: iron_deficiency_anemia
+    mesh: {descriptor: D018798, concept: M0028144, term: "Iron-Deficiency Anemia"}
+    match: exact
+    legacy_keys: [iron_deficiency_anaemia]
+  - key: acute_malnutrition
+    mesh: {descriptor: D044342, concept: M0015121, term: "Malnutrition"}
+    match: narrower
+    note: Acute malnutrition without an assumed severity. Do not substitute Severe Acute Malnutrition.
+  - key: childhood_stunting
+    mesh: {descriptor: D006130, concept: M0009654, term: "Stunting"}
+    match: narrower
+    note: Stunting in children only; the MeSH concept is not restricted to children and includes other growth disorders.
+  - key: sickle_cell_disease
+    mesh: {descriptor: D000755, concept: M0001140, term: "Sickle Cell Disease"}
+    match: exact
+  - key: type_1_diabetes
+    mesh: {descriptor: D003922, concept: M0006152, term: "Type 1 Diabetes"}
+    match: exact
+  - key: type_2_diabetes
+    mesh: {descriptor: D003924, concept: M0006155, term: "Type 2 Diabetes"}
+    match: exact
+  - key: hypertension
+    mesh: {descriptor: D006973, concept: M0010859, term: "Hypertension"}
+    match: exact
+  - key: asthma
+    mesh: {descriptor: D001249, concept: M0001885, term: "Asthma"}
+    match: exact
+  - key: chronic_obstructive_pulmonary_disease
+    mesh: {descriptor: D029424, concept: M0384655, term: "Chronic Obstructive Pulmonary Disease"}
+    match: exact
+  - key: chronic_kidney_disease
+    mesh: {descriptor: D051436, concept: M0560882, term: "Chronic Kidney Disease"}
+    match: exact
+  - key: cervical_cancer
+    mesh: {descriptor: D002583, concept: M0003943, term: "Cervical Cancer"}
+    match: exact
+  - key: breast_cancer
+    mesh: {descriptor: D001943, concept: M0002909, term: "Breast Cancer"}
+    match: exact
+  - key: colorectal_cancer
+    mesh: {descriptor: D015179, concept: M000655646, term: "Colorectal Cancer"}
+    match: exact
+  - key: lung_cancer
+    mesh: {descriptor: D008175, concept: M0012750, term: "Lung Cancer"}
+    match: exact
+  - key: epilepsy
+    mesh: {descriptor: D004827, concept: M0007564, term: "Epilepsy"}
+    match: exact
+  - key: depression
+    mesh: {descriptor: D003863, concept: M0006028, term: "Depression"}
+    match: exact
+    note: Depressive state context; do not substitute Major Depressive Disorder.
 
-drug:
-  - malaria
-  - hiv
-  - tuberculosis
-
-# A monoclonal antibody is assessed against the drug profile, so it offers the
-# same indications. See services/inspector/configs/bmgf_*_monoclonal_antibody.yaml.
-#
-# Spelled out for the reason stated above: an intervention class is a search term and a
-# prompt sentence exactly as an indication is, and `mab` is not what a literature search
-# uses. It was the only class that read as an acronym; the rest were already words.
-monoclonal_antibody:
-  - malaria
-  - hiv
-  - tuberculosis
-
-diagnostic:
-  - malaria
-  - hiv
-  - tuberculosis
-
-device:
-  - malaria
+drug: *indication_contexts
+monoclonal_antibody: *indication_contexts
+diagnostic: *indication_contexts
+device: *indication_contexts

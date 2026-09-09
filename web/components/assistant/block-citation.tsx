@@ -5,6 +5,8 @@ import { useContext, useMemo } from "react";
 import { DocumentSourceContext } from "@/components/document-source-trace";
 import { BlockReferenceId } from "@/components/block-reference";
 import { resolveBlock } from "@/lib/block-reference";
+import { documentBlockLocationLabel } from "@/lib/document-extraction";
+import { DocumentExtractionNotice } from "@/components/document-extraction-notice";
 import {
   Popover,
   PopoverContent,
@@ -40,10 +42,7 @@ export function BlockCitation({
 
   if (!block) return <>{children}</>;
 
-  const heading =
-    block.section_label
-    || block.heading_stack[block.heading_stack.length - 1]
-    || "Source passage";
+  const heading = documentBlockLocationLabel(block) || "Source passage";
 
   return (
     <Popover>
@@ -62,6 +61,7 @@ export function BlockCitation({
         <p className={EYEBROW}>
           {heading}
         </p>
+        <DocumentExtractionNotice blocks={[block]} />
         <p className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-foreground">
           {block.content}
         </p>

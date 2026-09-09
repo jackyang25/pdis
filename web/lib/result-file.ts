@@ -52,7 +52,9 @@ const ANALYSIS_VERSIONS = {
   // questions under different gate ids, with a per-question WHO-PQ marker and a hint
   // about where an answer usually lives, neither of which exists now — so it is not a
   // stale version of this review, it is a review of something else.
-  screener: 4,
+  // 5: every answer cites retained document blocks. Older context answers carry only
+  // labels, so their missing evidence cannot be reconstructed during import.
+  screener: 5,
   inspector: 2,
   scout: 1,
 } as const satisfies Record<ResultType, number>;
@@ -201,7 +203,7 @@ export function runIdentity(result: unknown, type: RunKeepingTool): string[] {
       // and the same gate is run against different sets. Either alone collides.
       return [
         review.gate_label || review.gate_id,
-        ...review.documents.map((document) => document.source_type || document.doc_id),
+        ...review.documents.map((document) => document.doc_id),
       ].filter(Boolean);
     }
     case "aligner": {
@@ -284,10 +286,7 @@ function runConfiguration(result: unknown, type: RunKeepingTool): string[] {
     }
     case "screener": {
       const { review } = result as ScreenerResponse;
-      // The document types, not one: a gate review reads a set, and which types it read
-      // is the configuration for that run. Deduplicated, because two documents of one
-      // type is a fact about the upload rather than about the scope.
-      return [review.indication, review.intervention_class, ...documentTypes(review.documents)];
+      return [review.indication, review.intervention_class];
     }
     case "aligner": {
       const { alignment } = result as AlignerResponse;

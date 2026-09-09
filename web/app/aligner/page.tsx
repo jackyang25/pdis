@@ -13,11 +13,12 @@ import {
 } from "@/components/ui/result-toolbar";
 import { VerdictCounts } from "@/components/ui/verdict-counts";
 import { useTraceFocus } from "@/lib/trace-focus";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowRight, Plus, X } from "lucide-react";
 import { RunHistory } from "@/components/run-history";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ErrorMessage } from "@/components/ui/error-message";
+import { Button } from "@/components/ui/button";
 import {
   DocumentSourceProvider,
   DocumentSourceTrace,
@@ -28,9 +29,9 @@ import { RunPanel, type DocumentSlot } from "@/components/run-panel";
 import {
   ContextFields,
   SourceTypeField,
-  useSupportedDocumentTypes,
 } from "@/components/configuration-fields";
-import { ConfigurationShell } from "@/components/ui/config-field";
+import { useSupportedDocumentTypes } from "@/lib/use-configuration-catalog";
+import { ConfigSectionHeading, ConfigurationShell } from "@/components/ui/config-field";
 import { AlignerDocumentTrace } from "@/components/aligner-document-trace";
 import {
   AlignerSignalHelp,
@@ -108,7 +109,6 @@ export default function AlignerPage() {
   const [declaredEdges, setDeclaredEdges] = useState<AlignmentEdgeSpec[]>([]);
   const [choices, setChoices] = useState<DocumentChoice[]>(INITIAL_CHOICES);
   const [showSetup, setShowSetup] = useState(!session.result);
-  const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (session.result) setShowSetup(false);
@@ -203,10 +203,12 @@ export default function AlignerPage() {
             runDisabled={!configured}
             hint={runHint(contextReady, chosen, comparisons, declaredEdges)}
             runLabel="Run alignment"
+            emptyDocumentsHint="Choose document types in Configuration to add files."
             busyLabel="Aligning"
             configuration={
               <ConfigurationShell>
                 <ContextFields />
+                <ConfigSectionHeading>Document selection</ConfigSectionHeading>
                 <DocumentChooser
                   choices={choices}
                   disabled={!contextReady}
@@ -219,30 +221,7 @@ export default function AlignerPage() {
                 />
               </ConfigurationShell>
             }
-            extraControls={
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>Or view a previously downloaded result:</span>
-                <button
-                  type="button"
-                  onClick={() => importRef.current?.click()}
-                  disabled={session.busy}
-                  className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
-                >
-                  Import JSON
-                </button>
-                <input
-                  ref={importRef}
-                  type="file"
-                  accept=".json,application/json"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void handleImport(file);
-                    event.target.value = "";
-                  }}
-                />
-              </div>
-            }
+            onImport={handleImport}
           />
         )}
 
@@ -287,55 +266,57 @@ function DocumentChooser({
   const canAdd = !disabled && choices.length < available;
 
   return (
-    <div className="mt-4">
-      <div className="mt-1 flex flex-col gap-3">
-        {choices.map((choice, index) => (
-          <SourceTypeField
-            key={choice.key}
-            label={`Document ${index + 1}`}
-            value={choice.sourceType || undefined}
-            exclude={taken}
-            // Once, under the first row: the note is about what the field does,
-            // not about one document, so repeating it per row is noise.
-            hint={index === 0}
-            // Handed to the field rather than placed beside it, so it lines up with
-            // the select. Beside it, the button aligned to the bottom of the row —
-            // which on the row carrying the help text put it next to the prose.
-            action={
-              <button
-                type="button"
-                aria-label={`Remove document ${index + 1}`}
-                disabled={disabled || choices.length <= 2}
-                onClick={() =>
-                  onChange(choices.filter((_, position) => position !== index))
-                }
-                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            }
-            onChange={(value) =>
-              onChange(
-                choices.map((item, position) =>
-                  position === index ? { ...item, sourceType: value } : item,
-                ),
-              )
-            }
-          />
-        ))}
-      </div>
-      <button
+    <>
+      {choices.map((choice, index) => (
+        <SourceTypeField
+          key={choice.key}
+          label={`Document ${index + 1}`}
+          value={choice.sourceType || undefined}
+          exclude={taken}
+          // Once, under the first row: the note is about what the field does,
+          // not about one document, so repeating it per row is noise.
+          hint={index === 0}
+          // Handed to the field rather than placed beside it, so it lines up with
+          // the select. Beside it, the button aligned to the bottom of the row —
+          // which on the row carrying the help text put it next to the prose.
+          action={
+            <Button
+              variant="ghost"
+              size="icon"
+              type="button"
+              aria-label={`Remove document ${index + 1}`}
+              disabled={disabled || choices.length <= 2}
+              onClick={() =>
+                onChange(choices.filter((_, position) => position !== index))
+              }
+              className="text-muted-foreground"
+            >
+              <X aria-hidden="true" className="h-3.5 w-3.5" />
+            </Button>
+          }
+          onChange={(value) =>
+            onChange(
+              choices.map((item, position) =>
+                position === index ? { ...item, sourceType: value } : item,
+              ),
+            )
+          }
+        />
+      ))}
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         disabled={!canAdd}
         onClick={() =>
           onChange([...choices, { key: `d${Date.now()}`, sourceType: "" }])
         }
-        className="mt-2.5 flex items-center gap-1.5 text-xs font-medium text-primary transition-opacity hover:opacity-75 disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none"
+        className="self-start justify-self-start gap-1.5 text-muted-foreground"
       >
-        <Plus className="h-3.5 w-3.5" />
+        <Plus aria-hidden="true" className="h-3.5 w-3.5" />
         Add document
-      </button>
-    </div>
+      </Button>
+    </>
   );
 }
 
@@ -357,7 +338,7 @@ function ComparisonPreview({
   if (chosen.length < 2) return null;
 
   return (
-    <div className="mt-5 border-t border-border pt-4">
+    <div className="sm:col-span-2 lg:col-span-1">
       <p className="text-xs font-medium">Comparisons</p>
       {comparisons.length > 0 ? (
         <ul className="mt-2 flex flex-col gap-2.5">

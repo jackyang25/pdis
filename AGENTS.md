@@ -17,6 +17,9 @@ web/ → api/ → services/ → shared/
   and result state; do not introduce hidden server sessions.
 - API composition owns provider clients, credentials, and connector injection.
   Browser requests cannot choose providers or model names.
+- HTTP and MCP adapters share application operations in `api/operations/`;
+  transport code never duplicates service validation or result assembly. MCP is
+  opt-in, employee-authenticated, and shares run capacity through `api/execution.py`.
 - Model stages use schema-bound structured outputs. Do not add plain-text JSON,
   markdown-fence recovery, or provider-signature compatibility to runtime
   services; saved-result compatibility belongs only at the import boundary.
@@ -64,6 +67,9 @@ web/ → api/ → services/ → shared/
 - Document tools use `org`, `source_type`, `intervention_class`, and
   `indication`. The first three select configuration; all four are output
   provenance. Never reintroduce `therapeutic_area`.
+  Screener selects its bank by `(org, gate)` and accepts unclassified evidence
+  documents: document identity is `doc_id`, and its blocks carry no `source_type`.
+  Do not invent a generic document configuration to make that field non-null.
 - The two tags that name subject matter — `indication` and `intervention_class` — are
   each a key **and** a search term, so the tag is spelled as the term a literature
   search actually uses (`tuberculosis`, not `tb`; `monoclonal_antibody`, not `mab`;
@@ -75,21 +81,27 @@ web/ → api/ → services/ → shared/
   stamped on every block, so a stored spelling could disagree with the key it was
   selected by. Reading `{config.intervention_class}` aloud in a prompt is what
   `test_indication_vocabulary.py` forbids.
-- A tool's configuration rail holds three buckets, and which one a field belongs
-  to is decided by a single question: **does the value leave the tool?**
-  1. **Context** — `org`, `intervention_class`, `indication`. Always one each,
-     every tool, from the shared store via `ContextFields`.
-  2. **Document type** — `source_type`, via `SourceTypeField`. One per document,
-     so one for most tools and several for Aligner.
-  3. **Run parameters** — a tool's own knobs. Composed from the primitives in
-     `ui/config-field.tsx`, owned entirely by that tool's page.
-
-  Buckets 1 and 2 are contract data: they select configuration, are stamped on
-  every block, travel in saved results, and are read across tools by Ask. They
-  have one implementation each and take no field list — a shared component that
-  could be configured is one that lets two tools disagree. Bucket 3 never leaves
-  its tool, so nothing shared owns it. The split between 1 and 2 is cardinality,
-  not status.
+- Indication names follow `docs/indication-vocabulary.md`: each canonical key has
+  a reviewed MeSH descriptor/concept citation in `shared/indications.yaml`.
+  Narrower local contexts are marked explicitly, never claimed as exact matches.
+  Citation terms are metadata, not alternate runtime text. Retired keys remain
+  readable at artifact boundaries without rewriting saved provenance or expanding
+  search requests.
+- Configuration ownership is separate from visual grouping. `ConfigurationShell`
+  owns one field layout; `ContextFields` supplies shared org/intervention/indication
+  fields, and `SourceTypeField` supplies a document type where required. Neither
+  wraps itself in another layout. Tool-specific controls join that same layout,
+  without a separator for “shared” versus “bespoke”.
+- `ui/config-field.tsx` owns field presentation, control labels and descriptions.
+  `lib/use-configuration-catalog.ts` owns catalog loading and tool availability.
+  `configuration-fields.tsx` owns shared selector meaning and dependent selection
+  resets. Tool pages own field order, local parameters and request composition.
+  Shared context and document-type catalogs remain independent.
+- Sharing a label or appearance does not make two controls the same domain concept.
+  Searcher's free-text search scope and Archivist's corpus filters keep their own
+  data and selection rules while reusing field primitives where applicable. Ask
+  keeps conversation controls. Do not turn those into document configuration fields
+  or add a generic form schema to accommodate tool-specific behaviour.
 - `itpp`, `ctpp`, and `ipdp` differences belong in configuration framing and
   unit providers, not downstream conditionals.
 - A result view is read by someone who learned the previous tool, so ten things
@@ -125,9 +137,9 @@ web/ → api/ → services/ → shared/
      reader takes it for a heading.
   6. **A trace places only lineage the result carries.** An annotation with no cited
      passage does not get anchored at a probable block to make the viewer look
-     complete: that would turn a hint into provenance. Screener places answers read from
-     a document and nothing else — an unanswered question has no passage, and an answer
-     from attached context was never chunked. A document with no marks is accounted for in
+     complete: that would turn a hint into provenance. Screener places answered and
+     partly answered questions at their cited document blocks — an unanswered question
+     has no passage. A document with no marks is accounted for in
      the panels, not papered over in the trace.
   7. **Lineage is listed, never counted.** A trace inspector shows every passage its
      result was read from, each one openable, via the shared `TracePassageList`. Three
@@ -161,16 +173,17 @@ web/ → api/ → services/ → shared/
 - Chunker emits ordered, citable `ContentBlock`s with stable IDs. API routes
   pass the original filename stem as `doc_id`; temporary filenames must never
   appear in block IDs.
-- A supported document format declares its own structure, so tables, rows,
-  headings, and reading order are read from the file rather than inferred from
-  where glyphs landed on a page. `DOCUMENT_SUFFIXES` is the one authority for that
-  set, and every layer gates on it rather than restating it. Do not add a
-  rendering format: a table reconstructed from geometry can merge unrelated
-  columns into one block whose text still satisfies exact-quote validation, and no
-  structural check downstream can detect that. A format carrying declared
-  structure — a tagged PDF, for example — would qualify; a rendered one never
-  does. PDF remains an internal rasterizing step for slide rendering, never a
-  document source.
+- Document input capabilities live in `services/chunker/formats.py`.
+  `DOCUMENT_SUFFIXES` defaults to DOCX/PPTX, which declare structure. Only
+  Screener opts into `TEXT_EXTRACTION_SUFFIXES`, adding text-based PDF sources.
+  This is an explicit quality tradeoff, not structural parity: PDF produces
+  page-level text blocks, never inferred headings or table cells. A quote match
+  cannot establish correct table or column interpretation. Every PDF block
+  carries its page and `pdf_text_only` extraction warning through results and
+  Ask; the UI displays the limitation. Encrypted, malformed, over-limit files
+  and any page without extractable text fail the whole document, including blank
+  pages rather than guessing why extraction was empty. No OCR or PDF image
+  extraction. Other tools and Ask attachments keep the default input capability.
 - Images are canonical blocks, not generated descriptions. Retain supported
   raster bytes, normalize other rasters with Pillow, and use LibreOffice only
   for vector fallback and PPTX slide rendering.
@@ -337,7 +350,7 @@ it. `document_findings[]` holds the conflicts no unit owns.
 
 ### Screener
 
-Screener's authority is one stage gate's question bank. It reads several documents at
+Screener's authority is one stage gate's question bank. It reads one or more documents at
 once and **renders no verdict on them**: it reports which of the gate's questions the
 supplied material answers and which it does not.
 
@@ -409,10 +422,10 @@ supplied material answers and which it does not.
   a PPL takes back to the grantee, and leaving it to prose meant it was usually present
   and never guaranteed. `partly_answered` is never presented as progress and never
   added to `answered`: there is no score.
-- The assessor's decision enum is the cross product of completeness and source, not two
-  fields. Five values reads wide, but a conditional requirement — "`missing` is required
-  only when partial" — is the one thing the schema cannot express, so the decision
-  carries the condition and code checks the pairing.
+- The assessor offers only `answered`, `partly_answered`, and `not_found`.
+  All answers come from the same retained block collection; there is no source enum
+  or context attribution field. Both answered states require citations, and only
+  a partial carries `missing`. Configuration alone sets `not_applicable`.
 - **The routing is the discipline**, which the source document guarantees. Grouping
   unanswered questions by discipline is the tool's main output; a claim that no
   document could ever answer one is not.
@@ -429,19 +442,18 @@ supplied material answers and which it does not.
 - The denominator never shrinks, and counts are derived by readers rather than carried:
   a stored count is a second authority that can disagree with its own list. Never
   publish a combined coverage figure.
-- Transient context is prompt-only: attached, read into text once, never chunked, never
-  stored. It arrives as a file — PDF, DOCX, TXT, or MD — and the reader that flattens it
-  lives in `services/screener/context.py`, never in Chunker: Chunker's contract is declared
-  structure in and citable blocks out, and this produces a string that becomes neither.
-  That is also why the two format allowlists differ and must not be merged. An upload
-  becomes citable blocks whose meaning depends on structure being read rather than
-  inferred, so it stays DOCX/PPTX; context is read once into a prompt, so a format that
-  declares nothing loses nothing. The reader claims no structure beyond the page markers
-  a PDF actually declares, and a PDF with no text layer fails loudly rather than becoming
-  a named source that answers nothing. Only its label
-  reaches the result, so an answer sourced from it carries attribution without lineage
-  and can never be presented as cited. A label is free text the user typed, never a
-  `source_type`.
+- **One evidence path.** Every upload conforms to Chunker's `TEXT_EXTRACTION_SUFFIXES`
+  and passes through its parse-only pipeline. There is no separate context reader,
+  TXT/Markdown/standalone-image upload, document-type configuration lookup, or
+  section-mapping call. Supported images embedded in DOCX/PPTX remain canonical blocks.
+  All parsed blocks reach every applicable question and are retained in the result.
+  The shared trace, portable result envelope and Ask consume those same block IDs.
+- Documents are identified by `doc_id`, never their business type or upload slot.
+  Multiple reports of the same kind are valid; duplicate identities fail before
+  parsing. A document must not be silently discarded because it produces no content.
+- Removing transient evidence changes Screener's saved-result contract. Compatibility
+  belongs at the versioned import boundary; never fabricate passages for old context
+  answers or retain a second live pipeline to serve them.
 - **No reconciliation or deduplication stage.** The bank's coordination map has
   Translational Medicine and Clinical Pharmacology reach dose selection independently
   and disagree in public at EOP1 and EOP2. Merging their answers would destroy the one

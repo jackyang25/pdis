@@ -15,12 +15,14 @@ import logging
 import os
 from typing import Any, Iterator, Literal
 
+from shared.chat import ChatDelta, ChatTurn, ToolCall
+
 logger = logging.getLogger(__name__)
 
 ModelTask = Literal["fast", "reasoning"]
 
 DEFAULT_FAST_MODEL = "gpt-5.4-mini"
-DEFAULT_REASONING_MODEL = "gpt-5.4"
+DEFAULT_REASONING_MODEL = "gpt-6-astra"
 
 
 class OpenAIClient:
@@ -156,31 +158,12 @@ class OpenAIClient:
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = 4000,
         task: ModelTask = "reasoning",
-    ) -> Any:
-        """Chat-completions call with optional tool (function) calling.
-
-        Returns the first choice's `message` object; callers read `.content`
-        and `.tool_calls`. Powers the Ask assistant's hand-rolled agent loop.
-        """
-        kwargs: dict[str, Any] = {
-            "model": self.model_for(task),
-            "max_completion_tokens": max_tokens,
-            "messages": messages,
-        }
-        if tools:
-            kwargs["tools"] = tools
-        try:
-            response = self.client.chat.completions.create(**kwargs)
-        except Exception as exc:  # noqa: BLE001 - degrade on content refusal, re-raise the rest
-            if _is_content_refusal(exc):
-                logger.warning("Chat prompt refused by content policy; returning None.")
-                return None
-            raise
-        choices = getattr(response, "choices", [])
-        if not choices:
-            logger.warning("OpenAI chat response had no choices")
-            return None
-        return choices[0].message
+    ) -> ChatTurn:
+        """One tool-capable turn, independent of the provider's wire format."""
+        response = self.client.responses.create(
+            **self._chat_request(messages, tools, max_tokens, task),
+        )
+        return _chat_turn(response)
 
     def chat_stream(
         self,
@@ -189,36 +172,44 @@ class OpenAIClient:
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = 4000,
         task: ModelTask = "reasoning",
-    ) -> Iterator[Any]:
-        """Stream chat-completion chunks with optional function calling.
+    ) -> Iterator[ChatDelta]:
+        """Stream text; publish tool calls only after the full turn succeeds.
 
-        This is the streaming counterpart to :meth:`chat`. The assistant owns
-        tool execution; this wrapper deliberately exposes the provider chunks
-        without embedding any agent or UI semantics in the shared client.
+        The SDK assembles completed output items, including encrypted reasoning.
+        Services never parse provider deltas or reconstruct partial tool calls.
+        The context manager closes the provider stream on failure or cancellation.
         """
-        kwargs: dict[str, Any] = {
-            "model": self.model_for(task),
-            "max_completion_tokens": max_tokens,
-            "messages": messages,
-            "stream": True,
-        }
-        if tools:
-            kwargs["tools"] = tools
+        with self.client.responses.stream(
+            **self._chat_request(messages, tools, max_tokens, task),
+        ) as stream:
+            for event in stream:
+                if event.type in ("response.output_text.delta", "response.refusal.delta"):
+                    yield ChatDelta(text=event.delta)
+                elif event.type == "error":
+                    raise RuntimeError("OpenAI chat stream failed")
+            yield ChatDelta(turn=_chat_turn(stream.get_final_response()))
 
-        stream = None
-        try:
-            stream = self.client.chat.completions.create(**kwargs)
-            for chunk in stream:
-                yield chunk
-        except Exception as exc:  # noqa: BLE001 - same refusal behavior as chat()
-            if _is_content_refusal(exc):
-                logger.warning("Streaming chat prompt refused by content policy.")
-                return
-            raise
-        finally:
-            close = getattr(stream, "close", None)
-            if callable(close):
-                close()
+    def _chat_request(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        max_tokens: int,
+        task: ModelTask,
+    ) -> dict[str, Any]:
+        return {
+            "model": self.model_for(task),
+            "input": _chat_input(messages),
+            "max_output_tokens": max_tokens,
+            "store": False,
+            "include": ["reasoning.encrypted_content"],
+            # Responses otherwise normalizes function schemas to strict mode,
+            # making previously optional navigation arguments required.
+            "tools": [
+                {"type": "function", **tool["function"],
+                 "strict": tool["function"].get("strict", False)}
+                for tool in tools or []
+            ],
+        }
 
     def search_web(
         self,
@@ -263,6 +254,54 @@ class OpenAIClient:
                         return None
                     raise
             raise
+
+
+def _chat_input(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Translate application messages once; replay completed provider items intact."""
+    items: list[dict[str, Any]] = []
+    for message in messages:
+        if message.get("continuation") is not None:
+            items.extend(message["continuation"])
+        elif message["role"] == "tool":
+            items.append({
+                "type": "function_call_output",
+                "call_id": message["tool_call_id"],
+                "output": message["content"],
+            })
+        else:
+            content = message["content"]
+            if isinstance(content, list):
+                content = [_chat_content(part) for part in content]
+            items.append({"role": message["role"], "content": content})
+    return items
+
+
+def _chat_content(part: dict[str, Any]) -> dict[str, Any]:
+    if part["type"] == "text":
+        return {"type": "input_text", "text": part["text"]}
+    if part["type"] == "image_url":
+        image = part["image_url"]
+        return {"type": "input_image", "image_url": image["url"],
+                "detail": image.get("detail", "auto")}
+    raise ValueError(f"Unsupported chat content type: {part['type']}")
+
+
+def _chat_turn(response: Any) -> ChatTurn:
+    if response.status != "completed":
+        raise RuntimeError(f"OpenAI chat response did not complete: {response.status}")
+    output = tuple(item.model_dump(exclude_none=True) for item in response.output)
+    calls = tuple(
+        ToolCall(id=item["call_id"], name=item["name"], arguments=item["arguments"])
+        for item in output if item["type"] == "function_call"
+    )
+    text = "".join(
+        part["text"] if part["type"] == "output_text" else part["refusal"]
+        for item in output if item["type"] == "message"
+        for part in item["content"] if part["type"] in ("output_text", "refusal")
+    )
+    if not text.strip() and not calls:
+        raise RuntimeError("OpenAI chat response contained no answer or tool calls")
+    return ChatTurn(text=text, tool_calls=calls, continuation=output)
 
 
 def _is_content_refusal(exc: Exception) -> bool:

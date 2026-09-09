@@ -188,3 +188,7 @@ Add a source by implementing and registering one adapter, injecting any optional
 connector through `SearchRuntime.integrations`, preserving input lineage, and
 enabling its key in Scout config. ToolUniverse is a connector, not an autonomous
 router or generic evidence lane.
+
+The website and [PDIS MCP server](../../api/mcp/README.md) call the same
+`api/operations/searcher.py` application operation for validation, runtime setup,
+and public result assembly. Their transport formats differ; this service does not.

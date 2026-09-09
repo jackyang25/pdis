@@ -29,9 +29,7 @@ function question(
     requirement: "required",
     statement: "",
     missing: "",
-    source: null,
     cited_block_ids: [],
-    context_label: "",
     ...overrides,
   };
 }
@@ -44,9 +42,8 @@ function review(
     gate_id: "ep1",
     gate_label: "End of Phase 1",
     bank_source: "Stage Gate Questions - All Gates.docx, test fixture",
-    documents: [{ doc_id: "profile", source_type: "itpp" }],
+    documents: [{ doc_id: "profile" }],
     disciplines,
-    context_labels: [],
     org: "bmgf",
     intervention_class: "vaccine",
     indication: "malaria",
@@ -62,8 +59,8 @@ test("the counts sum to the total, so the header row checks itself", () => {
         id: "cd",
         label: "Clinical Development",
         questions: [
-          question("A", "answered", { source: "document", cited_block_ids: ["b1"] }),
-          question("B", "answered", { source: "context", context_label: "Report" }),
+          question("A", "answered", { cited_block_ids: ["b1"] }),
+          question("B", "answered", { cited_block_ids: ["b2"] }),
           question("C", "partly_answered", { missing: "The rest." }),
           question("D", "not_found"),
           question("E", "not_applicable"),
@@ -78,9 +75,7 @@ test("the counts sum to the total, so the header row checks itself", () => {
   );
 });
 
-test("a partial is counted, and its provenance counted with the answers", () => {
-  // Whether an answer can be checked is the same question for a partial, so a partial
-  // read from a document belongs in `cited` alongside a whole one.
+test("a partial is counted separately from whole answers", () => {
   const counts = countStates(
     review([
       {
@@ -88,13 +83,10 @@ test("a partial is counted, and its provenance counted with the answers", () => 
         label: "CD",
         questions: [
           question("A", "partly_answered", {
-            source: "document",
             cited_block_ids: ["b1"],
             missing: "Zone IVb data.",
           }),
           question("B", "partly_answered", {
-            source: "context",
-            context_label: "Report",
             missing: "The VVM category.",
           }),
         ],
@@ -102,8 +94,6 @@ test("a partial is counted, and its provenance counted with the answers", () => 
     ]),
   );
   assert.equal(counts.partlyAnswered, 2);
-  assert.equal(counts.cited, 1);
-  assert.equal(counts.fromContext, 1);
   assert.equal(counts.answered, 0);
 });
 
@@ -117,8 +107,6 @@ test("the count row covers exactly the four states and nothing more", () => {
   );
   assert.deepEqual(Object.keys(counts).sort(), [
     "answered",
-    "cited",
-    "fromContext",
     "notApplicable",
     "notFound",
     "partlyAnswered",
@@ -126,24 +114,21 @@ test("the count row covers exactly the four states and nothing more", () => {
   ]);
 });
 
-test("answered is split by whether the answer can be checked", () => {
+test("all answered questions count together", () => {
   const counts = countStates(
     review([
       {
         id: "cd",
         label: "CD",
         questions: [
-          question("A", "answered", { source: "document", cited_block_ids: ["b1"] }),
-          question("B", "answered", { source: "context", context_label: "Report" }),
-          question("C", "answered", { source: "context", context_label: "Report" }),
+          question("A", "answered", { cited_block_ids: ["b1"] }),
+          question("B", "answered", { cited_block_ids: ["b2"] }),
+          question("C", "answered", { cited_block_ids: ["b2"] }),
         ],
       },
     ]),
   );
   assert.equal(counts.answered, 3);
-  assert.equal(counts.cited, 1);
-  assert.equal(counts.fromContext, 2);
-  assert.equal(counts.cited + counts.fromContext, counts.answered);
 });
 
 test("the routing is by discipline, which the question bank guarantees", () => {
@@ -154,7 +139,7 @@ test("the routing is by discipline, which the question bank guarantees", () => {
         id: "cd",
         label: "CD",
         questions: [
-          question("D1", "answered", { source: "document", cited_block_ids: ["b"] }),
+          question("D1", "answered", { cited_block_ids: ["b"] }),
         ],
       },
       {
@@ -203,7 +188,7 @@ test("the required count is the number that can hold a gate", () => {
         question("A", "not_found"),
         question("B", "not_found", { requirement: "anticipatory" }),
         question("C", "not_found", { requirement: "anticipatory" }),
-        question("D", "answered", { source: "document", cited_block_ids: ["b1"] }),
+        question("D", "answered", { cited_block_ids: ["b1"] }),
       ],
     },
   ]);
@@ -227,7 +212,7 @@ test("only questions in the asked-for state are returned", () => {
         label: "Clinical Development",
         questions: [
           question("A", "not_found", { statement: "No stopping criteria are stated." }),
-          question("B", "answered", { source: "document", cited_block_ids: ["b1"] }),
+          question("B", "answered", { cited_block_ids: ["b1"] }),
           question("C", "not_applicable"),
         ],
       },
@@ -248,7 +233,7 @@ test("questionsInState keeps bank order and names the discipline", () => {
         label: "CMC",
         questions: [
           question("C1", "not_found"),
-          question("C2", "answered", { source: "document", cited_block_ids: ["b"] }),
+          question("C2", "answered", { cited_block_ids: ["b"] }),
         ],
       },
       { id: "cd", label: "CD", questions: [question("D1", "not_found")] },

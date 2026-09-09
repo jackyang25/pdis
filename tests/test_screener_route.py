@@ -8,15 +8,19 @@ from __future__ import annotations
 
 import io
 import unittest
+import json
+from unittest.mock import patch
+
+from docx import Document
 
 from fastapi.testclient import TestClient
 
 from api.main import app
+from tests.pdf_fixtures import pdf_bytes
 
 
 def form(**overrides) -> dict:
     data = {
-        "source_types": ["itpp"],
         "gate": ["lcs"],
         "org": ["bmgf"],
         # `drug`, because that is what these banks are written for. A vaccine request is
@@ -41,11 +45,6 @@ def docx(name: str = "profile.docx") -> tuple[str, tuple[str, io.BytesIO, str]]:
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ),
     )
-
-
-def context(name: str = "notes.md", body: bytes = b"Agreed 24 months.") -> tuple:
-    """One context attachment. Markdown, so the guard under test is the one that runs."""
-    return ("context_files", (name, io.BytesIO(body), "text/markdown"))
 
 
 class GatesEndpointTests(unittest.TestCase):
@@ -76,31 +75,113 @@ class RunGuardTests(unittest.TestCase):
     def post(self, files, **overrides):
         return self.client.post("/api/screener/run", files=files, data=form(**overrides))
 
-    def test_a_document_without_a_type_is_refused(self) -> None:
-        response = self.post([docx(), docx("plan.docx")])
+    def test_legacy_input_fields_are_refused_not_ignored(self) -> None:
+        for field in ("source_types", "context_labels"):
+            with self.subTest(field=field):
+                response = self.post([docx()], **{field: ["old"]})
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(field, response.json()["detail"])
+        response = self.post([docx(), ("context_files", ("notes.md", b"notes", "text/markdown"))])
         self.assertEqual(response.status_code, 400)
-        self.assertIn("document type", response.json()["detail"])
+        self.assertIn("context_files", response.json()["detail"])
+
+    def test_standalone_images_and_plain_text_are_refused(self) -> None:
+        for suffix in ("png", "jpg", "txt", "md"):
+            with self.subTest(suffix=suffix):
+                response = self.post([("files", ("report." + suffix, b"data", "application/octet-stream"))])
+                self.assertEqual(response.status_code, 400)
+
+    def test_multiple_untyped_documents_reach_the_retained_result(self) -> None:
+        from tests.test_screener_pipeline import ScriptedClient
+
+        uploads = []
+        for filename, text in (("report.docx", "Laboratory evidence."), ("minutes.docx", "Study planning.")):
+            document = Document()
+            document.add_paragraph(text)
+            payload = io.BytesIO()
+            document.save(payload)
+            uploads.append(("files", (filename, payload.getvalue(), "application/octet-stream")))
+        with patch("api.routes.screener.get_openai_client", return_value=ScriptedClient([])):
+            response = self.post(uploads)
+        self.assertEqual(response.status_code, 200)
+        events = [json.loads(line) for line in response.text.splitlines() if line]
+        self.assertFalse([event for event in events if event.get("event") == "error"], events)
+        completed = next(event for event in events if event.get("event") == "complete")
+        review = completed["result"]["review"]
+        self.assertEqual(review["documents"], [{"doc_id": "report"}, {"doc_id": "minutes"}])
+        self.assertEqual({block["doc_id"] for block in review["blocks"]}, {"report", "minutes"})
 
     def test_an_unsupported_format_is_refused(self) -> None:
         response = self.post(
-            [("files", ("profile.pdf", io.BytesIO(b"%PDF"), "application/pdf"))]
+            [("files", ("profile.rtf", io.BytesIO(b"data"), "application/rtf"))]
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("DOCX", response.json()["detail"])
 
+    def test_pdf_and_docx_share_the_retained_citation_collection(self):
+        from tests.test_screener_pipeline import ScriptedClient
+        document = Document()
+        document.add_paragraph("Supporting plan.")
+        payload = io.BytesIO()
+        document.save(payload)
+        client = ScriptedClient([{
+            "decision": "answered", "statement": "The trial is planned.",
+            "missing": "", "block_ids": ["study/b-0001"],
+        }])
+        with patch("api.routes.screener.get_openai_client", return_value=client):
+            response = self.post([
+                ("files", ("study.PDF", pdf_bytes("The trial is planned."), "application/pdf")),
+                ("files", ("plan.docx", payload.getvalue(), "application/octet-stream")),
+            ])
+        self.assertEqual(response.status_code, 200)
+        events = [json.loads(line) for line in response.text.splitlines()]
+        self.assertFalse([e for e in events if e["event"] == "error"], events)
+        review = next(e["result"]["review"] for e in events if e["event"] == "complete")
+        self.assertEqual(review["documents"], [{"doc_id": "study"}, {"doc_id": "plan"}])
+        self.assertEqual({b["doc_id"] for b in review["blocks"]}, {"study", "plan"})
+        self.assertEqual(review["blocks"][0]["structural_meta"]["page"], 1)
+        self.assertTrue(any(q["cited_block_ids"] == ["study/b-0001"]
+                            for d in review["disciplines"] for q in d["questions"]))
+        self.assertTrue(all("The trial is planned." in call and "Supporting plan." in call
+                            for call in client.triage_calls))
+
+    def test_unreadable_pdf_fails_without_assessment_or_partial_result(self):
+        from tests.test_screener_pipeline import ScriptedClient
+        client = ScriptedClient([])
+        with patch("api.routes.screener.get_openai_client", return_value=client):
+            response = self.post([("files", ("study.pdf", pdf_bytes("Text", None), "application/pdf"))])
+        events = [json.loads(line) for line in response.text.splitlines()]
+        self.assertTrue(any(e["event"] == "error" for e in events), events)
+        self.assertFalse(any(e["event"] == "complete" for e in events))
+        self.assertEqual(client.triage_calls, [])
+
+    def test_other_document_routes_still_refuse_pdf(self):
+        data = {"org": "bmgf", "source_type": "itpp", "intervention_class": "drug", "indication": "malaria"}
+        for tool in ("chunker", "inspector", "scout"):
+            with self.subTest(tool=tool):
+                response = self.client.post(f"/api/{tool}/run", data=data,
+                    files={"files" if tool == "scout" else "file":
+                           ("study.pdf", pdf_bytes("Text"), "application/pdf")})
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertIn("DOCX", response.json()["detail"])
+
+    def test_aligner_still_refuses_pdf_with_an_otherwise_valid_document_pair(self):
+        response = self.client.post("/api/aligner/run", data={
+            "org": "bmgf", "source_types": ["itpp", "ctpp"],
+            "intervention_class": "drug", "indication": "malaria",
+        }, files=[
+            ("files", ("reference.pdf", pdf_bytes("Text"), "application/pdf")),
+            ("files", ("candidate.docx", b"unused", "application/octet-stream")),
+        ])
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("DOCX", response.json()["detail"])
+
     def test_two_documents_with_one_filename_are_refused(self) -> None:
         response = self.post(
-            [docx(), docx()], source_types=["itpp", "ipdp"]
+            [docx(), docx()]
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("distinct filename", response.json()["detail"])
-
-    def test_two_documents_of_one_type_are_refused(self) -> None:
-        response = self.post(
-            [docx("a.docx"), docx("b.docx")], source_types=["itpp", "itpp"]
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("different type", response.json()["detail"])
 
     def test_a_modality_the_bank_does_not_serve_is_refused(self) -> None:
         """These banks ask about synthetic routes and salt forms. Returning a review in
@@ -124,50 +205,6 @@ class RunGuardTests(unittest.TestCase):
         response = self.post([docx()], gate=["no-such-gate"])
         self.assertEqual(response.status_code, 404)
         self.assertIn("question bank", response.json()["detail"])
-
-    def test_an_unknown_document_type_is_refused(self) -> None:
-        response = self.post([docx()], source_types=["pdss"])
-        self.assertEqual(response.status_code, 404)
-
-    def test_a_context_attachment_without_a_label_is_refused(self) -> None:
-        """The label is what an answer is attributed to, so it cannot be absent."""
-        response = self.post([docx(), context()])
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("label", response.json()["detail"])
-
-    def test_two_context_items_sharing_a_label_are_refused(self) -> None:
-        response = self.post(
-            [docx(), context("a.md"), context("b.md")],
-            context_labels=["Report", "Report"],
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("share a label", response.json()["detail"])
-
-    def test_a_context_format_the_reader_refuses_fails_before_the_stream(self) -> None:
-        """A PPTX is a fine document and not context: it would be read as flat prose,
-        losing the structure that makes it citable in the first place."""
-        response = self.post(
-            [docx(), context("deck.pptx")],
-            context_labels=["Deck"],
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("deck.pptx", response.json()["detail"])
-
-    def test_a_scanned_pdf_is_refused_with_the_reason(self) -> None:
-        """Silence here would be a named source that answers nothing."""
-        response = self.post(
-            [docx(), context("scan.pdf", b"not a pdf at all")],
-            context_labels=["Scan"],
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("scan.pdf", response.json()["detail"])
-
-    def test_an_empty_context_attachment_is_refused(self) -> None:
-        response = self.post(
-            [docx(), context("empty.md", b"")],
-            context_labels=["Empty"],
-        )
-        self.assertEqual(response.status_code, 400)
 
     def test_a_missing_gate_field_is_refused(self) -> None:
         response = self.post([docx()], gate=None)

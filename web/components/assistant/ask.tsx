@@ -431,7 +431,7 @@ export function Ask({
             Working…
           </p>
         )}
-        {error && <p className="text-xs text-destructive">{error.message}</p>}
+        {error && <p role="alert" className="text-xs text-destructive">{error.message}</p>}
       </div>
       </DocumentSourceProvider>
 

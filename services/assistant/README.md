@@ -16,7 +16,7 @@ and attachments share the web client's in-memory workspace lifecycle.
 
 ## Usage
 
-Import `answer`, `answer_stream`, `ChatLLMProtocol`, and
+Import `answer_stream`, `ChatLLMProtocol`, and
 `StreamingChatLLMProtocol` from `services.assistant`.
 
 ## Contract
@@ -24,7 +24,7 @@ Import `answer`, `answer_stream`, `ChatLLMProtocol`, and
 | Direction | Value |
 |---|---|
 | Input | Workspace/result JSON, context type, source blocks, conversation history, and an injected chat client |
-| Output | One answer or a plain-text token stream |
+| Output | Typed text/activity chunks; the API frames these as SSE |
 
 The bounded tool loop can find and read canonical product documentation,
 traverse the submitted catalog and result trees, find and page exact document
@@ -35,6 +35,16 @@ final result is present; they do not expose an active review draft. The API
 exposes `POST /api/assistant/ask/stream`. The
 floating panel and `/ask` page are two views of the same client-held workspace
 context and conversation component.
+
+The OpenAI adapter uses Responses for tool-capable chat. It emits the shared
+`ChatDelta`/`ChatTurn` contract, so the agent executes completed calls rather than
+parsing provider deltas. Completed provider output (including encrypted reasoning)
+is carried opaquely between tool steps within the request, with `store=False` and
+no provider session IDs. The tool registry and document-block labels are unchanged.
+
+The SSE boundary sends `done` only on success and a sanitized `error` event on
+failure. The browser treats a stream ending without `done` as interrupted, and
+shows failures outside the answer text; provider diagnostics remain server-side.
 
 ## Development
 

@@ -1,4 +1,5 @@
 import type { Tone } from "./tone.ts";
+import { documentBlockLocationLabel } from "./document-extraction.ts";
 import type { ContentBlock } from "./api.ts";
 
 /**
@@ -215,10 +216,7 @@ export function documentTracePassages<TKind extends string, TRef>(
       passages.push({
         blockId: traceBlock.block.id,
         documentId: document.docId,
-        sectionLabel:
-          traceBlock.block.section_label
-          ?? traceBlock.block.heading_stack.at(-1)
-          ?? "",
+        sectionLabel: documentBlockLocationLabel(traceBlock.block),
         preview: passagePreview(traceBlock.block.content),
         connection: exact ? "exact" : "block",
       });

@@ -41,9 +41,7 @@ function question(
     requirement: "required",
     statement: "",
     missing: "",
-    source: null,
     cited_block_ids: [],
-    context_label: "",
     ...overrides,
   };
 }
@@ -56,9 +54,8 @@ function review(
     gate_id: "ep2",
     gate_label: "End of Phase 2",
     bank_source: "Stage Gate Questions - All Gates.docx, test fixture",
-    documents: [{ doc_id: "profile", source_type: "itpp" }],
+    documents: [{ doc_id: "profile" }],
     disciplines: [{ id: "cmc", label: "CMC", questions }],
-    context_labels: [],
     org: "bmgf",
     intervention_class: "vaccine",
     indication: "malaria",
@@ -69,14 +66,12 @@ function review(
 
 const cited = (id: string, blockIds: string[]) =>
   question(id, "answered", {
-    source: "document",
     cited_block_ids: blockIds,
     statement: "The profile states it.",
   });
 
 const partly = (id: string, blockIds: string[]) =>
   question(id, "partly_answered", {
-    source: "document",
     cited_block_ids: blockIds,
     statement: "The profile states the target.",
     missing: "Zone IVb stability data.",
@@ -110,19 +105,12 @@ test("a whole answer is success and a partial is warning, in the shared tones", 
   assert.equal(partial.emphasis?.tone, "warning");
 });
 
-test("only answers read from a document are placed", () => {
+test("only answered questions with citations are placed", () => {
   const annotations = buildScreenerDocumentAnnotations(
     review([
       cited("A", ["profile:1"]),
       question("B", "not_found", { statement: "Not stated." }),
       question("C", "not_applicable"),
-      question("D", "answered", { source: "context", context_label: "CMC Report" }),
-      // A partial from pasted context has no passage either.
-      question("E", "partly_answered", {
-        source: "context",
-        context_label: "CMC Report",
-        missing: "The rest.",
-      }),
     ]),
   );
   assert.deepEqual(
@@ -144,7 +132,7 @@ test("an answer with an empty citation list is not placed", () => {
   // The service contract refuses this, so it should be unreachable — but the trace
   // must not produce a marker with nothing behind it if it ever arrives.
   const annotations = buildScreenerDocumentAnnotations(
-    review([question("A", "answered", { source: "document", cited_block_ids: [] })]),
+    review([question("A", "answered", { cited_block_ids: [] })]),
   );
   assert.deepEqual(annotations, []);
 });

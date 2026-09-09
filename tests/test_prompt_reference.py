@@ -42,7 +42,8 @@ class PromptReferenceTest(unittest.TestCase):
             ("inspector", "verdict"),
             ("inspector", "consistency"),
             ("screener", "answered"),
-            ("screener", "absent"),
+            ("screener", "partly_answered"),
+            ("screener", "not_found"),
         }
         self.assertEqual(
             expected - published,

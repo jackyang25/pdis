@@ -17,9 +17,6 @@ import type { DocumentAnnotation } from "./document-trace.ts";
  *                    invent provenance from an expectation about where an answer
  *                    ought to live, which nothing in the bank states.
  *   not_applicable   no model read the question at all.
- *   from context     the pasted text is never chunked, so it has no blocks. Placing
- *                    such an answer in the document trace would show it as
- *                    checkable against a document it was not read from.
  *
  * So the trace answers the inverse of the panels: the panels ask what became of each
  * question, this asks which passages carried an answer and what they answered. A
@@ -95,7 +92,6 @@ function citesADocument(question: QuestionAssessment): boolean {
   // document got part of the way there, and the trace shows how far.
   return (
     (question.state === "answered" || question.state === "partly_answered")
-    && question.source === "document"
     && question.cited_block_ids.length > 0
   );
 }

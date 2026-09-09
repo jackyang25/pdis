@@ -199,7 +199,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/screener",
     title: "Screener",
     description:
-      "The iTPP, cTPP, and IPDP against a stage gate’s question bank: what is still unanswered, and which discipline it goes to.",
+      "Your documents against a stage gate’s question bank: what is answered, what remains open, and which discipline owns each question.",
     // Observed, not estimated. 80 questions at six concurrent is ~14 waves, and each
     // call returns one decision and one sentence — a few hundred bytes — against a
     // document context the provider caches after the first. The count of calls is not

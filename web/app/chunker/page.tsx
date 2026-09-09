@@ -1,6 +1,5 @@
 "use client";
 
-import { useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ErrorMessage } from "@/components/ui/error-message";
@@ -48,7 +47,6 @@ function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
     setStage,
     setError,
   } = useChunkerSession();
-  const importInputRef = useRef<HTMLInputElement>(null);
 
   async function handleRun(file: File) {
     setBusy(true);
@@ -90,30 +88,7 @@ function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
         currentStage={stage}
         runDisabled={!ready}
         hint={ready ? undefined : "Complete the configuration to run."}
-        extraControls={
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>Or view a previously downloaded result:</span>
-            <button
-              type="button"
-              onClick={() => importInputRef.current?.click()}
-              disabled={busy}
-              className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
-            >
-              Import JSON
-            </button>
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleImport(f);
-                e.target.value = "";
-              }}
-            />
-          </div>
-        }
+        onImport={handleImport}
       />
       {error && <ErrorMessage>{error}</ErrorMessage>}
       {result && <BlocksList result={result} />}

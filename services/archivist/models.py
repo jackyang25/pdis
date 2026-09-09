@@ -33,7 +33,7 @@ from typing import Iterable
 from services.archivist.indexed_attributes import indexed_attributes
 from shared.vocabulary import (
     attribute_definitions,
-    indications_for,
+    is_known_indication,
     intervention_classes,
 )
 
@@ -89,7 +89,7 @@ class CorpusDocument:
             raise ValueError(
                 f"{self.id}: unknown intervention class {self.intervention_class!r}"
             )
-        if self.indication not in indications_for(self.intervention_class):
+        if not is_known_indication(self.intervention_class, self.indication):
             raise ValueError(
                 f"{self.id}: {self.indication!r} is not an indication declared for "
                 f"{self.intervention_class}"

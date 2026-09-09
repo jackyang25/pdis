@@ -12,6 +12,7 @@ import { CircleDashed, FileText, Layers3, Link2, X } from "lucide-react";
 import { BlockReferenceId } from "@/components/block-reference";
 import { TracePanelHeader } from "@/components/document-trace-panel";
 import type { ContentBlock } from "@/lib/api";
+import { groupDocumentTraceSurfaces } from "@/lib/document-trace-surfaces";
 import {
   documentBlockPresentation,
   documentBlockSpacing,
@@ -575,6 +576,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
     ? documentId
     : trace.documents[0]?.docId ?? "";
   const activeDocument = trace.documents.find((document) => document.docId === activeDocumentId) ?? null;
+  const surfaces = groupDocumentTraceSurfaces(activeDocument?.blocks ?? []);
   const unresolvedAnnotations = trace.unresolvedAnnotationIds
     .map((id) => annotationsById.get(id))
     .filter((annotation): annotation is DocumentAnnotation<TKind, TRef> => Boolean(annotation));
@@ -902,179 +904,201 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
           <article
             aria-label={`Reconstructed source document: ${displayDocumentName(activeDocumentId)}`}
             className={cn(
-              "relative mx-auto min-h-full",
+              "relative mx-auto min-h-full space-y-8",
               railMode === "inline"
-                ? "max-w-[52rem] rounded-lg bg-card px-5 py-8 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_14px_36px_hsl(var(--foreground)/0.035)] sm:px-10 sm:py-12"
-                : "max-w-[60rem] py-12",
+                ? "max-w-[52rem]"
+                : "max-w-[60rem]",
             )}
           >
-            {railMode === "external" && (
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 left-[7.25rem] right-0 rounded-lg bg-card shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_14px_36px_hsl(var(--foreground)/0.035)]"
-              />
-            )}
-            {activeDocument?.blocks.map((traceBlock, blockIndex) => {
-              const markerGroups = groupDocumentTraceMarkers(traceBlock.markers);
-              // A block becomes its own click target when it carries a visible
-              // mark and no span buttons of its own to nest inside.
-              const blockIsMarkTarget = Boolean(
-                emphasisVisible
-                  && traceBlock.emphasis
-                  && markerGroups.length > 0
-                  && !traceBlock.segments.some((segment) => segment.annotationIds.length > 0),
-              );
-              const spacing = documentBlockSpacing(documentBlockPresentation(traceBlock.block));
-              return (
-                <section
-                  ref={(element) => {
-                    if (element) blockRefs.current.set(traceBlock.block.id, element);
-                    else blockRefs.current.delete(traceBlock.block.id);
-                  }}
-                  key={traceBlock.block.id}
-                  data-block-id={traceBlock.block.id}
-                  tabIndex={-1}
-                  className={cn(
-                    "group/trace-block relative grid scroll-mt-6 outline-none",
-                    blockIndex > 0 && blockSpacingClass(spacing),
-                    // Arrival is a transient outline, not a fill: a filled block
-                    // already means "a result marks this", and the two always coincide
-                    // — a jump can only land on a cited block. On the row rather than
-                    // its text so it rings the whole passage, gutter included, and
-                    // survives the row's own paint containment.
-                    "transition-shadow duration-slow motion-reduce:transition-none",
-                    focusedBlockId === traceBlock.block.id && ARRIVAL_HIGHLIGHT,
-                    railMode === "inline"
-                      ? "grid-cols-1 gap-1"
-                      : "grid-cols-[6rem_minmax(0,1fr)] gap-5",
-                  )}
-                  /* No `content-visibility: auto` here. It skips rendering an offscreen
-                     block and substitutes a fixed placeholder height, so a block that had
-                     never been painted counted as 72px however tall it really was. Every
-                     scroll position computed from that was wrong: `scrollIntoView({ block:
-                     "center" })` aimed using the estimates, the blocks above then painted
-                     at their true heights, and the target ended up near the bottom of the
-                     view — further off the deeper into the document the jump went. Its
-                     paint containment also clipped anything drawn at a row's edge. Landing
-                     on the right passage is what this view is for, and the browser gets
-                     that exactly right when nothing misreports its own height. */
-                >
-                  <div className={cn(
-                    "relative z-10 flex min-w-0 flex-row flex-wrap items-center gap-1",
-                    railMode === "inline"
-                      ? "mb-2"
-                      : "justify-end self-start pt-1",
-                  )}>
-                    <BlockReferenceId
-                      blockId={traceBlock.block.id}
-                      className="inline-flex h-6 max-w-full items-center px-1 text-[10px] text-muted-foreground/50 transition-colors group-hover/trace-block:text-muted-foreground motion-reduce:transition-none"
-                    />
-                    {/* Counts appear only for connections with no visible mark
-                        in the paper. When the block itself is marked, the mark is
-                        the target and a second control here would duplicate it. */}
-                    {!blockIsMarkTarget && markerGroups.map((group) => {
-                      const isActive = group.annotationIds.some((id) => activeAnnotationIds.includes(id));
-                      const label = markerGroupLabel(group.reason, group.annotationIds.length);
-                      return (
-                        <button
-                          key={group.reason}
-                          type="button"
-                          onClick={(event) => selectAnnotations(group.annotationIds, event.currentTarget, {
-                            type: "block",
-                            blockId: traceBlock.block.id,
-                            markerReason: group.reason,
-                            unmatchedQuotes: group.unmatchedQuotes,
-                          })}
-                          aria-pressed={isActive}
-                          aria-label={`View ${label} connected to source passage ${traceBlock.block.id}`}
-                          className={cn(
-                            "inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-md border border-border/70 bg-background px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none",
-                            isActive && "border-foreground/25 bg-foreground text-background",
-                          )}
-                          title={label}
-                        >
-                          <Link2 aria-hidden="true" className="h-3 w-3 shrink-0" />
-                          <span className="tabular-nums">{group.annotationIds.length}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+            {surfaces.map((surface) => (
+              <section
+                key={surface.key}
+                data-trace-surface={surface.key}
+                aria-label={surface.boundary?.label}
+                className={cn(
+                  "relative",
+                  railMode === "inline"
+                    ? "rounded-lg bg-card px-5 py-8 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_14px_36px_hsl(var(--foreground)/0.035)] sm:px-10 sm:py-12"
+                    : "py-12",
+                )}
+              >
+                {railMode === "external" && (
                   <div
-                    className={cn(
-                      "relative z-10 min-w-0 rounded-md transition-[background-color,box-shadow] duration-slow motion-reduce:transition-none",
-                      railMode === "external" && "px-10 py-1",
-                      emphasisVisible
-                        && traceBlock.emphasis
-                        && EMPHASIS_SURFACE_CLASS[traceBlock.emphasis.tone],
-                      "group-hover/trace-block:bg-foreground/[0.045] group-focus-within/trace-block:bg-foreground/[0.045]",
-                      blockIsMarkTarget
-                        && "cursor-pointer hover:bg-[hsl(var(--tone-marked))]/10 focus-within:bg-[hsl(var(--tone-marked))]/10",
-                    )}
-                    onClick={blockIsMarkTarget ? (event) => {
-                      // Selecting text inside a marked block must not open its
-                      // detail, or the passage becomes impossible to quote.
-                      if (!window.getSelection()?.isCollapsed) return;
-                      const badge = event.currentTarget.querySelector("button");
-                      if (badge instanceof HTMLElement) badge.click();
-                    } : undefined}
-                  >
-                    <BlockText
-                      traceBlock={traceBlock}
-                      annotationsById={annotationsById}
-                      activeAnnotationIds={activeAnnotationIds}
-                      onSelect={selectAnnotations}
-                    />
-                    {blockIsMarkTarget && traceBlock.emphasis && (
-                      // The grade is the focusable control; the surrounding block
-                      // is a convenience target handled above. An overlay covering
-                      // the block would be a larger hit area but would also make
-                      // its text unselectable and swallow a wide table's sideways
-                      // drag, so the affordance stays out of the content's way.
-                      <button
-                        type="button"
-                        onClick={(event) => selectAnnotations(
-                          markerGroups.flatMap((group) => group.annotationIds),
-                          event.currentTarget,
-                          { type: "block", blockId: traceBlock.block.id, markerReason: "block_only" },
-                        )}
-                        aria-pressed={markerGroups.some((group) =>
-                          group.annotationIds.some((id) => activeAnnotationIds.includes(id)))}
-                        aria-label={`View the result marking source passage ${traceBlock.block.id}, graded ${traceBlock.emphasis.badge ?? "unrated"}`}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-[7.25rem] right-0 rounded-lg bg-card shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_14px_36px_hsl(var(--foreground)/0.035)]"
+                  />
+                )}
+                {surface.boundary && (
+                  <p className={cn(
+                    "relative z-10 pb-6 text-xs font-medium text-muted-foreground",
+                    railMode === "external" && "ml-[7.25rem] px-10",
+                  )}>
+                    {surface.boundary.label}
+                  </p>
+                )}
+                {surface.blocks.map((traceBlock, blockIndex) => {
+                  const markerGroups = groupDocumentTraceMarkers(traceBlock.markers);
+                  // A block becomes its own click target when it carries a visible
+                  // mark and no span buttons of its own to nest inside.
+                  const blockIsMarkTarget = Boolean(
+                    emphasisVisible
+                      && traceBlock.emphasis
+                      && markerGroups.length > 0
+                      && !traceBlock.segments.some((segment) => segment.annotationIds.length > 0),
+                  );
+                  const spacing = documentBlockSpacing(documentBlockPresentation(traceBlock.block));
+                  return (
+                    <section
+                      ref={(element) => {
+                        if (element) blockRefs.current.set(traceBlock.block.id, element);
+                        else blockRefs.current.delete(traceBlock.block.id);
+                      }}
+                      key={traceBlock.block.id}
+                      data-block-id={traceBlock.block.id}
+                      tabIndex={-1}
+                      className={cn(
+                        "group/trace-block relative grid scroll-mt-6 outline-none",
+                        blockIndex > 0 && blockSpacingClass(spacing),
+                        // Arrival is a transient outline, not a fill: a filled block
+                        // already means "a result marks this", and the two always coincide
+                        // — a jump can only land on a cited block. On the row rather than
+                        // its text so it rings the whole passage, gutter included, and
+                        // survives the row's own paint containment.
+                        "transition-shadow duration-slow motion-reduce:transition-none",
+                        focusedBlockId === traceBlock.block.id && ARRIVAL_HIGHLIGHT,
+                        railMode === "inline"
+                          ? "grid-cols-1 gap-1"
+                          : "grid-cols-[6rem_minmax(0,1fr)] gap-5",
+                      )}
+                      /* No `content-visibility: auto` here. It skips rendering an offscreen
+                         block and substitutes a fixed placeholder height, so a block that had
+                         never been painted counted as 72px however tall it really was. Every
+                         scroll position computed from that was wrong: `scrollIntoView({ block:
+                         "center" })` aimed using the estimates, the blocks above then painted
+                         at their true heights, and the target ended up near the bottom of the
+                         view — further off the deeper into the document the jump went. Its
+                         paint containment also clipped anything drawn at a row's edge. Landing
+                         on the right passage is what this view is for, and the browser gets
+                         that exactly right when nothing misreports its own height. */
+                    >
+                      <div className={cn(
+                        "relative z-10 flex min-w-0 flex-row flex-wrap items-center gap-1",
+                        railMode === "inline"
+                          ? "mb-2"
+                          : "justify-end self-start pt-1",
+                      )}>
+                        <BlockReferenceId
+                          blockId={traceBlock.block.id}
+                          className="inline-flex h-6 max-w-full items-center px-1 text-[10px] text-muted-foreground/50 transition-colors group-hover/trace-block:text-muted-foreground motion-reduce:transition-none"
+                        />
+                        {/* Counts appear only for connections with no visible mark
+                            in the paper. When the block itself is marked, the mark is
+                            the target and a second control here would duplicate it. */}
+                        {!blockIsMarkTarget && markerGroups.map((group) => {
+                          const isActive = group.annotationIds.some((id) => activeAnnotationIds.includes(id));
+                          const label = markerGroupLabel(group.reason, group.annotationIds.length);
+                          return (
+                            <button
+                              key={group.reason}
+                              type="button"
+                              onClick={(event) => selectAnnotations(group.annotationIds, event.currentTarget, {
+                                type: "block",
+                                blockId: traceBlock.block.id,
+                                markerReason: group.reason,
+                                unmatchedQuotes: group.unmatchedQuotes,
+                              })}
+                              aria-pressed={isActive}
+                              aria-label={`View ${label} connected to source passage ${traceBlock.block.id}`}
+                              className={cn(
+                                "inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-md border border-border/70 bg-background px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none",
+                                isActive && "border-foreground/25 bg-foreground text-background",
+                              )}
+                              title={label}
+                            >
+                              <Link2 aria-hidden="true" className="h-3 w-3 shrink-0" />
+                              <span className="tabular-nums">{group.annotationIds.length}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div
                         className={cn(
-                          "absolute bottom-1.5 right-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px] font-semibold tabular-nums transition-opacity duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none",
-                          // Hidden while the block is hovered or focused, so the text it
-                          // covers is readable without moving the label somewhere it
-                          // would no longer read as belonging to this block. Kept
-                          // visible on keyboard focus of the badge itself, or it would
-                          // vanish under the cursor that is about to click it.
-                          "group-hover/trace-block:opacity-0 group-focus-within/trace-block:opacity-0 focus-visible:!opacity-100",
-                          EMPHASIS_BADGE_CLASS[traceBlock.emphasis.tone],
+                          "relative z-10 min-w-0 rounded-md transition-[background-color,box-shadow] duration-slow motion-reduce:transition-none",
+                          railMode === "external" && "px-10 py-1",
+                          emphasisVisible
+                            && traceBlock.emphasis
+                            && EMPHASIS_SURFACE_CLASS[traceBlock.emphasis.tone],
+                          "group-hover/trace-block:bg-foreground/[0.045] group-focus-within/trace-block:bg-foreground/[0.045]",
+                          blockIsMarkTarget
+                            && "cursor-pointer hover:bg-[hsl(var(--tone-marked))]/10 focus-within:bg-[hsl(var(--tone-marked))]/10",
                         )}
+                        onClick={blockIsMarkTarget ? (event) => {
+                          // Selecting text inside a marked block must not open its
+                          // detail, or the passage becomes impossible to quote.
+                          if (!window.getSelection()?.isCollapsed) return;
+                          const badge = event.currentTarget.querySelector("button");
+                          if (badge instanceof HTMLElement) badge.click();
+                        } : undefined}
                       >
-                        {traceBlock.emphasis.badge}
-                      </button>
-                    )}
-                  </div>
-                  {traceBlock.anchored.length > 0 && (
-                    // Its own grid row, outside the block body: inside it, the row
-                    // would sit on the block's emphasis tint and borrow that
-                    // block's grade colour — re-attaching the gap to a passage it
-                    // does not describe.
-                    <div className={cn(
-                      "relative z-10 min-w-0",
-                      railMode === "external" && "col-start-2 px-10",
-                    )}>
-                      <SectionGapRow
-                        annotations={traceBlock.anchored}
-                        sectionLabel={traceBlock.block.section_label}
-                        activeAnnotationIds={activeAnnotationIds}
-                        onSelect={selectAnnotations}
-                      />
-                    </div>
-                  )}
-                </section>
-              );
-            })}
+                        <BlockText
+                          traceBlock={traceBlock}
+                          annotationsById={annotationsById}
+                          activeAnnotationIds={activeAnnotationIds}
+                          onSelect={selectAnnotations}
+                        />
+                        {blockIsMarkTarget && traceBlock.emphasis && (
+                          // The grade is the focusable control; the surrounding block
+                          // is a convenience target handled above. An overlay covering
+                          // the block would be a larger hit area but would also make
+                          // its text unselectable and swallow a wide table's sideways
+                          // drag, so the affordance stays out of the content's way.
+                          <button
+                            type="button"
+                            onClick={(event) => selectAnnotations(
+                              markerGroups.flatMap((group) => group.annotationIds),
+                              event.currentTarget,
+                              { type: "block", blockId: traceBlock.block.id, markerReason: "block_only" },
+                            )}
+                            aria-pressed={markerGroups.some((group) =>
+                              group.annotationIds.some((id) => activeAnnotationIds.includes(id)))}
+                            aria-label={`View the result marking source passage ${traceBlock.block.id}, graded ${traceBlock.emphasis.badge ?? "unrated"}`}
+                            className={cn(
+                              "absolute bottom-1.5 right-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded border px-1 text-[10px] font-semibold tabular-nums transition-opacity duration-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none",
+                              // Hidden while the block is hovered or focused, so the text it
+                              // covers is readable without moving the label somewhere it
+                              // would no longer read as belonging to this block. Kept
+                              // visible on keyboard focus of the badge itself, or it would
+                              // vanish under the cursor that is about to click it.
+                              "group-hover/trace-block:opacity-0 group-focus-within/trace-block:opacity-0 focus-visible:!opacity-100",
+                              EMPHASIS_BADGE_CLASS[traceBlock.emphasis.tone],
+                            )}
+                          >
+                            {traceBlock.emphasis.badge}
+                          </button>
+                        )}
+                      </div>
+                      {traceBlock.anchored.length > 0 && (
+                        // Its own grid row, outside the block body: inside it, the row
+                        // would sit on the block's emphasis tint and borrow that
+                        // block's grade colour — re-attaching the gap to a passage it
+                        // does not describe.
+                        <div className={cn(
+                          "relative z-10 min-w-0",
+                          railMode === "external" && "col-start-2 px-10",
+                        )}>
+                          <SectionGapRow
+                            annotations={traceBlock.anchored}
+                            sectionLabel={traceBlock.block.section_label}
+                            activeAnnotationIds={activeAnnotationIds}
+                            onSelect={selectAnnotations}
+                          />
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+              </section>
+            ))}
             {activeDocument && visibleAnnotations.length === 0 && (
               <p className="mt-8 rounded-md bg-foreground/[0.045] px-4 py-3 text-center text-xs leading-5 text-muted-foreground">
                 This layer has no source connections in the saved result. The full retained document remains visible.

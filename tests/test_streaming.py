@@ -4,7 +4,7 @@ import threading
 import unittest
 from pathlib import Path
 
-import api.streaming as streaming
+import api.execution as execution
 from api.streaming import QUEUED_STAGE, run_with_progress
 
 
@@ -37,11 +37,11 @@ class RunCapacityTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self._slots = streaming._run_slots
-        self.addCleanup(setattr, streaming, "_run_slots", self._slots)
+        self._slots = execution._run_slots
+        self.addCleanup(setattr, execution, "_run_slots", self._slots)
 
     def use_capacity(self, limit: int) -> None:
-        streaming._run_slots = threading.Semaphore(limit)
+        execution._run_slots = threading.Semaphore(limit)
 
     def test_a_run_beyond_the_cap_waits_instead_of_starting(self) -> None:
         self.use_capacity(1)
@@ -105,9 +105,9 @@ class RunCapacityTests(unittest.TestCase):
         # Probed without blocking: a slot lost to a failed run retires capacity
         # until the next restart, and asserting that by starting another run
         # would hang the suite instead of reporting the leak.
-        recovered = streaming._run_slots.acquire(blocking=False)
+        recovered = execution._run_slots.acquire(blocking=False)
         self.assertTrue(recovered, "a failed run did not return its capacity")
-        streaming._run_slots.release()
+        execution._run_slots.release()
 
         def succeeding(progress):
             return {"ok": True}

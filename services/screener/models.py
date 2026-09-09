@@ -98,14 +98,6 @@ MODEL_STATES: tuple[QuestionState, ...] = (
     "not_found",
 )
 
-AnswerSource = Literal["document", "context"]
-
-#: Where an answer came from. `document` carries block IDs and is checkable;
-#: `context` carries the label of a transient item the user supplied for this run
-#: and is not. There is no third value, so nothing can look cited without being so.
-ANSWER_SOURCES: tuple[AnswerSource, ...] = ("document", "context")
-
-
 # ---------------------------------------------------------------------------
 # The bank
 # ---------------------------------------------------------------------------
@@ -248,28 +240,10 @@ class GateSpec:
 
 @dataclass(frozen=True)
 class DocumentInput:
-    """One canonical document to parse: a file, its type, and its stable id."""
+    """One evidence document to parse: a file and its stable id."""
 
     file_path: str
-    source_type: str
     doc_id: str
-
-
-@dataclass(frozen=True)
-class ContextItem:
-    """One transient item, supplied for this run only.
-
-    The text goes into the prompt and is never stored. Only `label` survives onto
-    the result, so a reader can see which source answered a question without the
-    tool having taken the content into its contract — no config, no chunking, no
-    block IDs, and nothing for Ask to interpret beyond a name.
-
-    `label` is free text the user typed. The moment it becomes a `source_type`,
-    transient input has entered the contract.
-    """
-
-    label: str
-    text: str
 
 
 # ---------------------------------------------------------------------------
@@ -360,10 +334,7 @@ class QuestionAssessment:
     #: a PPL takes back to the grantee — leaving it to prose meant it was usually there
     #: and never guaranteed.
     missing: str = ""
-    source: AnswerSource | None = None
     cited_block_ids: list[str] = field(default_factory=list)
-    #: Which transient item answered it. Set only when `source` is "context".
-    context_label: str = ""
 
 
 @dataclass
@@ -376,7 +347,6 @@ class DisciplineReview:
 @dataclass
 class ReviewDocument:
     doc_id: str
-    source_type: str
 
 
 @dataclass
@@ -402,8 +372,6 @@ class GateReview:
     bank_source: str = ""
     documents: list[ReviewDocument] = field(default_factory=list)
     disciplines: list[DisciplineReview] = field(default_factory=list)
-    #: Labels of the transient items supplied, never their text.
-    context_labels: list[str] = field(default_factory=list)
     org: str = ""
     intervention_class: str = ""
     indication: str = ""
@@ -569,6 +537,17 @@ def _string_list(value: object, key: str, path: str) -> list[str]:
     return [item.strip() for item in value]
 
 
+def available_configs() -> list[GateConfig]:
+    """Every authored bank, ordered by organization and development sequence.
+
+    Loading errors propagate: a malformed bank is a broken gate, not an absent one.
+    """
+    return sorted(
+        [load_config(str(path)) for path in sorted(CONFIGS_DIR.glob("*.yaml"))],
+        key=lambda config: (config.org, config.ordinal, config.gate_id),
+    )
+
+
 def available_gates(org: str, intervention_class: str | None = None) -> list[GateSpec]:
     """Every gate declared for an org, in development order.
 
@@ -588,8 +567,7 @@ def available_gates(org: str, intervention_class: str | None = None) -> list[Gat
     # to skip. Swallowing them once made a renamed field empty the gate selector with
     # no error anywhere — the picker simply offered nothing.
     gates: list[GateSpec] = []
-    for path in sorted(CONFIGS_DIR.glob("*.yaml")):
-        config = load_config(str(path))
+    for config in available_configs():
         if config.org != org:
             continue
         if intervention_class and not config.serves(intervention_class):
@@ -611,8 +589,7 @@ def find_config(org: str, gate: str) -> GateConfig:
     rather than selecting which bank to read, so taking it here would be a
     parameter that does not affect the lookup.
     """
-    for path in sorted(CONFIGS_DIR.glob("*.yaml")):
-        config = load_config(str(path))
+    for config in available_configs():
         if config.org == org and config.gate_id == gate:
             return config
     raise LookupError(f"No Screener question bank for org={org!r} gate={gate!r}")

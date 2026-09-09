@@ -1,8 +1,9 @@
 /**
  * The one web-side statement of which document formats PDIS accepts.
  *
- * `services/chunker/pipeline.py` owns the decision — a format qualifies only if
- * it declares its own structure. This mirrors that set for the browser, and
+ * `services/chunker/formats.py` owns document capabilities. Defaults require
+ * declared structure; PDF text extraction is an explicit opt-in. This mirrors
+ * those sets for the browser, and
  * `document-formats.test.ts` fails if the two stop matching.
  *
  * Upload controls derive both their `accept` attribute and their visible hint
@@ -10,21 +11,39 @@
  * one set while accepting another.
  */
 export const DOCUMENT_SUFFIXES = [".docx", ".pptx"] as const;
+export const TEXT_EXTRACTION_SUFFIXES = [...DOCUMENT_SUFFIXES, ".pdf"] as const;
+
+export type DocumentFormats = {
+  suffixes: readonly string[];
+  accept: string;
+  hint: string;
+  note?: string;
+};
+
+function documentFormats(suffixes: readonly string[]): DocumentFormats {
+  return {
+    suffixes, accept: suffixes.join(","),
+    hint: suffixes.map((suffix) => suffix.slice(1).toUpperCase()).join(", "),
+  };
+}
+
+export const STRUCTURED_DOCUMENT_FORMATS = documentFormats(DOCUMENT_SUFFIXES);
+export const TEXT_EXTRACTION_FORMATS: DocumentFormats = {
+  ...documentFormats(TEXT_EXTRACTION_SUFFIXES),
+  note: "PDFs: text-based, unlocked files only, up to 20 MB and 200 pages. Every page needs readable text. Images are not read, and table or column order may be inaccurate.",
+};
 
 /** Value for an `<input type="file">` accept attribute. */
-export const DOCUMENT_ACCEPT = DOCUMENT_SUFFIXES.join(",");
+export const DOCUMENT_ACCEPT = STRUCTURED_DOCUMENT_FORMATS.accept;
 
 /** Reader-facing format list, e.g. `DOCX, PPTX`. */
-export const DOCUMENT_FORMAT_HINT = DOCUMENT_SUFFIXES.map((suffix) =>
-  suffix.replace(".", "").toUpperCase(),
-).join(", ");
+export const DOCUMENT_FORMAT_HINT = STRUCTURED_DOCUMENT_FORMATS.hint;
 
 /**
  * Media-type prefixes a conversation attachment may add on top of documents.
  *
- * `services/chunker/pipeline.py` owns this set too. An attachment is read once
- * and discarded rather than analysed, so it may accept a format the analysis
- * path refuses — but never fewer than that path accepts.
+ * `services/chunker/pipeline.py` owns this set. Attachments add images to the
+ * default document set; a tool's PDF opt-in does not widen Ask's attachment picker.
  */
 export const ATTACHMENT_MEDIA_PREFIXES = ["image/"] as const;
 
@@ -36,26 +55,6 @@ export const ATTACHMENT_ACCEPT = [
 
 /** Reader-facing attachment list, e.g. `DOCX, PPTX, or image files`. */
 export const ATTACHMENT_FORMAT_HINT = `${DOCUMENT_FORMAT_HINT}, or image files`;
-
-/**
- * Formats a transient context attachment may carry.
- *
- * Wider than the analysis path, and the gap is the point: an uploaded document becomes
- * citable blocks, so its structure has to be declared in the file. Context is read once
- * into a prompt and never chunked, cited, or quote-checked, so a format that declares
- * nothing loses nothing. `services/screener/context.py` owns the same list; the test keeps
- * the two agreeing.
- */
-export const CONTEXT_SUFFIXES = [".pdf", ".docx", ".txt", ".md"] as const;
-
-/** Value for a context `<input type="file">` accept attribute. */
-export const CONTEXT_ACCEPT = CONTEXT_SUFFIXES.join(",");
-
-/** Reader-facing context list, e.g. `PDF, DOCX, TXT, or MD`. */
-export const CONTEXT_FORMAT_HINT = (() => {
-  const names = CONTEXT_SUFFIXES.map((suffix) => suffix.replace(".", "").toUpperCase());
-  return `${names.slice(0, -1).join(", ")}, or ${names[names.length - 1]}`;
-})();
 
 /**
  * What a clipboard or a drag holds that could be attached, and what won.
@@ -93,7 +92,7 @@ export function attachablePaste(transfer: DataTransfer | null): AttachablePaste 
 }
 
 /** Whether a picked file carries a supported document extension. */
-export function isSupportedDocument(name: string): boolean {
+export function isSupportedDocument(name: string, suffixes: readonly string[] = DOCUMENT_SUFFIXES): boolean {
   const lowered = name.toLowerCase();
-  return DOCUMENT_SUFFIXES.some((suffix) => lowered.endsWith(suffix));
+  return suffixes.some((suffix) => lowered.endsWith(suffix));
 }

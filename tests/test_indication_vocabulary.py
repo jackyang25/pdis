@@ -24,27 +24,12 @@ VOCAB = ROOT / "shared" / "indications.yaml"
 SERVICES = ROOT / "services"
 
 
-#: Classes whose indication set is narrower than every other non-vaccine class, and the
-#: question that raises.
-#:
-#: `drug`, `diagnostic` and `monoclonal_antibody` all declare exactly malaria, HIV and
-#: tuberculosis. `device` declares malaria alone, while carrying a full set of Inspector
-#: and Scout configs - so a device run can only ever be about malaria however the
-#: document is written.
-#:
-#: Recorded rather than filled in. Which indications a class serves is a statement about
-#: the portfolio, and nothing in this repository states it: the device configs describe
-#: how to judge a device and never name a disease. Inventing two entries here would put
-#: an unsourced claim about the portfolio into the vocabulary every output is stamped
-#: with.
-NARROWER_THAN_PEERS = {
-    "device": "declares malaria alone where drug, diagnostic and monoclonal_antibody share malaria, HIV and tuberculosis",
+# Representative contexts, not a frozen count or exhaustive medical taxonomy.
+CONTEXT_EXAMPLES = {
+    "malaria", "hiv", "tuberculosis", "hepatitis_b", "schistosomiasis",
+    "postpartum_hemorrhage", "neonatal_sepsis", "iron_deficiency_anemia",
+    "type_2_diabetes", "cervical_cancer",
 }
-
-#: What the non-vaccine classes share, and the baseline `NARROWER_THAN_PEERS` is measured
-#: against. Vaccine is deliberately excluded: its set is a superset, which is a portfolio
-#: fact rather than an inconsistency.
-PEER_BASELINE = ("malaria", "hiv", "tuberculosis")
 
 
 def _configured_intervention_classes() -> set[str]:
@@ -79,39 +64,36 @@ class CoverageTests(unittest.TestCase):
         configured = _configured_intervention_classes()
         self.assertEqual(sorted(intervention_classes() - configured), [])
 
-    def test_the_peer_baseline_is_what_the_peers_actually_share(self) -> None:
-        """So the baseline cannot drift from the file it describes."""
-        peers = [
-            intervention_class
-            for intervention_class in intervention_classes()
-            if intervention_class not in {"vaccine"} | set(NARROWER_THAN_PEERS)
-        ]
-        self.assertTrue(peers)
-        for intervention_class in peers:
+    def test_context_coverage_is_not_restricted_by_intervention_class(self) -> None:
+        baseline = indications_for("vaccine")
+        for intervention_class in intervention_classes():
             with self.subTest(intervention_class=intervention_class):
-                self.assertEqual(
-                    sorted(indications_for(intervention_class)), sorted(PEER_BASELINE)
-                )
+                values = indications_for(intervention_class)
+                self.assertEqual(values, baseline)
+                self.assertLessEqual(CONTEXT_EXAMPLES, set(values))
+                self.assertEqual(len(values), len(set(values)))
 
-    def test_a_narrower_class_is_still_narrower(self) -> None:
-        for intervention_class in NARROWER_THAN_PEERS:
-            with self.subTest(intervention_class=intervention_class):
-                self.assertLess(
-                    len(indications_for(intervention_class)), len(PEER_BASELINE)
-                )
+    def test_new_selections_use_explicit_mesh_names_not_retired_shorthand(self) -> None:
+        renames = {
+            "rsv": "respiratory_syncytial_virus",
+            "hpv": "human_papillomavirus",
+            "pneumococcus": "streptococcus_pneumoniae",
+            "group_b_streptococcus": "streptococcus_agalactiae",
+            "polio": "poliomyelitis",
+            "covid19": "covid_19",
+            "gonorrhoea": "gonorrhea",
+            "postpartum_haemorrhage": "postpartum_hemorrhage",
+            "iron_deficiency_anaemia": "iron_deficiency_anemia",
+            "chikungunya": "chikungunya_fever",
+        }
+        for intervention in intervention_classes():
+            choices = indications_for(intervention)
+            for old, new in renames.items():
+                self.assertIn(new, choices)
+                self.assertNotIn(old, choices)
 
-    def test_a_class_that_caught_up_leaves_the_list(self) -> None:
-        """So the note cannot outlive the gap and understate what a run can cover."""
-        stale = [
-            intervention_class
-            for intervention_class in NARROWER_THAN_PEERS
-            if len(indications_for(intervention_class)) >= len(PEER_BASELINE)
-        ]
-        self.assertEqual(stale, [])
-
-    def test_vaccine_is_a_superset_of_the_baseline(self) -> None:
-        """A broader set is a portfolio fact; a set missing the baseline is a gap."""
-        self.assertLessEqual(set(PEER_BASELINE), set(indications_for("vaccine")))
+    def test_unknown_class_does_not_acquire_configuration_support(self) -> None:
+        self.assertEqual(indications_for("unsupported_class"), [])
 
 
 class TagShapeTests(unittest.TestCase):
@@ -144,7 +126,7 @@ class TagShapeTests(unittest.TestCase):
         self.assertNotIn("tb", tags)
         self.assertNotIn("gbs", tags)
         self.assertIn("tuberculosis", tags)
-        self.assertIn("group_b_streptococcus", tags)
+        self.assertIn("streptococcus_agalactiae", tags)
 
     def test_the_file_records_why_underscores_are_allowed(self) -> None:
         """The rule changed, so the reason has to be findable where the rule is."""

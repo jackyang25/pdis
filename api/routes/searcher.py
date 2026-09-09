@@ -5,29 +5,16 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import StreamingResponse
 
-from services.searcher import (
-    ENTITY_TYPES,
-    RetrievalEntity,
-    findings_to_dicts,
-    outcomes_to_dicts,
-    run_pipeline,
-    source_specs,
-    unconfigured_source_keys,
-    validate_source_keys,
-)
+from services.searcher import ENTITY_TYPES, RetrievalEntity
 
-from api.deps import (
-    MissingCredentialError,
-    get_search_integrations,
-    get_search_runtime,
+from api.operations.errors import OperationError
+from api.operations.searcher import (
+    SearchInput,
+    execute_search,
+    list_sources as discover_sources,
+    prepare_search,
 )
-from api.schemas import (
-    FindingOut,
-    SearchLaneOut,
-    SearcherRunResponse,
-    SearchSourceOut,
-    SourceAttributionOut,
-)
+from api.schemas import SearchSourceOut
 from api.streaming import run_with_progress
 
 router = APIRouter()
@@ -58,31 +45,10 @@ def _parse_entities(raw: str) -> tuple[RetrievalEntity, ...]:
 @router.get("/sources", response_model=list[SearchSourceOut])
 def list_sources() -> list[SearchSourceOut]:
     """Expose registered source metadata so clients do not mirror an allowlist."""
-    integrations = get_search_integrations()
-    return [
-        SearchSourceOut(
-            key=source.key,
-            label=source.label,
-            default_enabled=source.default_enabled,
-            configured=(not source.integration_key or source.integration_key in integrations),
-            evidence_domains=list(source.evidence_domains),
-            required_entity_types=list(source.required_entity_types),
-            reads=list(source.reads),
-            evidence_class=source.evidence_class,
-            jurisdiction=source.jurisdiction,
-            honors_date_bound=source.honors_date_bound,
-            attribution=(
-                SourceAttributionOut(
-                    label=source.attribution.label,
-                    url=source.attribution.url,
-                    prefix=source.attribution.prefix,
-                )
-                if source.attribution
-                else None
-            ),
-        )
-        for source in source_specs()
-    ]
+    try:
+        return discover_sources()
+    except OperationError as exc:
+        raise HTTPException(status_code=500, detail=exc.message) from exc
 
 
 @router.post("/run")
@@ -112,47 +78,33 @@ async def run_searcher(
     region: str = Form(""),
     published_since: str = Form(""),
 ) -> StreamingResponse:
-    requested = tuple(source.strip() for source in sources.split(",") if source.strip())
     try:
-        selected = validate_source_keys(requested) if requested else tuple(
-            source.key for source in source_specs() if source.default_enabled
+        prepared = prepare_search(
+            SearchInput(
+                query=query,
+                sources=[
+                    source.strip() for source in sources.split(",") if source.strip()
+                ],
+                condition=condition,
+                intervention=intervention,
+                entities=[
+                    {"name": entity.name, "entity_type": entity.entity_type}
+                    for entity in _parse_entities(entities)
+                ],
+                product=product,
+                population=population,
+                outcome=outcome,
+                region=region,
+                published_since=published_since,
+            )
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    try:
-        stated_entities = _parse_entities(entities)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    try:
-        runtime = get_search_runtime()
-    except MissingCredentialError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    missing = unconfigured_source_keys(selected, runtime)
-    if missing:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unconfigured retrieval source(s): {', '.join(missing)}",
-        )
+    except OperationError as exc:
+        status = 500 if exc.code == "missing_configuration" else 422
+        raise HTTPException(status_code=status, detail=exc.message) from exc
 
     def work(progress):
-        report = run_pipeline(
-            query,
-            runtime=runtime,
-            sources=selected,
-            condition=condition.strip() or None,
-            intervention=intervention.strip() or None,
-            entities=stated_entities,
-            product=product.strip() or None,
-            region=region.strip(),
-            published_since=published_since.strip(),
-            population=population.strip() or None,
-            outcome=outcome.strip() or None,
-            progress_callback=progress,
-        )
-        return SearcherRunResponse(
-            query=query,
-            findings=[FindingOut(**d) for d in findings_to_dicts(report.findings)],
-            lanes=[SearchLaneOut(**d) for d in outcomes_to_dicts(report.outcomes)],
-        ).model_dump()
+        return execute_search(prepared, progress).model_dump()
 
     return StreamingResponse(run_with_progress(work), media_type="application/x-ndjson")

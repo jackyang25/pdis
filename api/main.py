@@ -8,6 +8,7 @@ are the only surface this gateway calls into.
 from __future__ import annotations
 
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -15,7 +16,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from api.cors import GatewayCORSMiddleware
 
 try:
     from dotenv import load_dotenv
@@ -47,6 +48,20 @@ from api.routes import (
     scout,
     searcher,
 )
+from api.mcp.server import create_mcp_app
+from api.mcp.settings import load_mcp_settings
+
+mcp_settings = load_mcp_settings()
+mcp_app = create_mcp_app(mcp_settings) if mcp_settings else None
+
+
+@asynccontextmanager
+async def lifespan(app):
+    if mcp_app is None:
+        yield
+    else:
+        async with mcp_app.router.lifespan_context(mcp_app):
+            yield
 
 # Every route this gateway serves lives under `/api`, which is what lets one
 # hostname carry both services: the ingress sends `/api/*` here and everything
@@ -60,6 +75,7 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 def _cors_origins() -> list[str]:
@@ -84,7 +100,8 @@ def _cors_origins() -> list[str]:
 allow_origins = _cors_origins()
 
 app.add_middleware(
-    CORSMiddleware,
+    GatewayCORSMiddleware,
+    mcp_origins=mcp_settings.allowed_origins if mcp_settings else [],
     allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
@@ -115,3 +132,9 @@ app.include_router(assistant.router, prefix="/api/assistant", tags=["assistant"]
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# Register last: existing HTTP routes keep their exact precedence and contracts.
+# The child serves only /mcp and its advertised OAuth metadata route.
+if mcp_app is not None:
+    app.mount("/api", mcp_app)

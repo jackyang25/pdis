@@ -122,18 +122,29 @@ test("an event split across network chunks is not truncated", async () => {
   assert.equal(text, "half and half");
 });
 
-test("a turn with no answer still closes the message", async () => {
-  const kinds = (await collect('event: activity\ndata: "Working"\n\n')).map((c) => c.type);
-  assert.deepEqual(kinds, ["start", "start-step", "data-activity", "finish-step", "finish"]);
+test("a stream that ends without completion reports interruption", async () => {
+  await assert.rejects(collect('event: activity\ndata: "Working"\n\n', false, false), /interrupted/i);
+});
+
+test("provider errors become chat errors, not answer text or successful completion", async () => {
+  await assert.rejects(collect([
+    'data: "Partial answer"\n\n',
+    'event: error\ndata: {"code":"assistant_stream_failed","message":"Please try again."}\n\n',
+  ], true, false), /Please try again/);
+});
+
+test("an empty response cannot silently close as a successful answer", async () => {
+  await assert.rejects(collect('', false, false), /interrupted/i);
 });
 
 /** Drive the real transport over a body, optionally split into network chunks. */
-async function collect(body: string | string[], preSplit = false) {
+async function collect(body: string | string[], preSplit = false, complete = true) {
   const pieces = preSplit ? (body as string[]) : [body as string];
   const encoder = new TextEncoder();
   const source = new ReadableStream<Uint8Array>({
     start(controller) {
       for (const piece of pieces) controller.enqueue(encoder.encode(piece));
+      if (complete) controller.enqueue(encoder.encode('event: done\ndata: {}\n\n'));
       controller.close();
     },
   });

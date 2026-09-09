@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/result-toolbar";
 import { ResultSearch } from "@/components/ui/result-search";
 import { useTraceFocus } from "@/lib/trace-focus";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { EmptyState } from "@/components/empty-state";
 import { VerdictCounts } from "@/components/ui/verdict-counts";
@@ -114,7 +114,6 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
     setProgress,
     setError,
   } = useInspectorSession();
-  const importInputRef = useRef<HTMLInputElement>(null);
   const [showRunPanel, setShowRunPanel] = useState(!result);
 
   useEffect(() => {
@@ -175,30 +174,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
           progress={progress}
           runDisabled={!ready}
           hint={ready ? undefined : "Complete the configuration to run."}
-          extraControls={
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>Or view a previously downloaded result:</span>
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                disabled={busy}
-                className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
-              >
-                Import JSON
-              </button>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept=".json,application/json"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) handleImport(file);
-                  event.target.value = "";
-                }}
-              />
-            </div>
-          }
+          onImport={handleImport}
         />
       )}
       {error && <ErrorMessage>{error}</ErrorMessage>}

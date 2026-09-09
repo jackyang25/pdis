@@ -21,18 +21,15 @@ The accepted set itself stays in the chunker, which owns it.
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Set
 
 from fastapi import HTTPException
 
 from services.chunker import DOCUMENT_SUFFIXES
 
-#: Reader-facing format list, e.g. "DOCX or PPTX".
-DOCUMENT_FORMAT_HINT = " or ".join(
-    sorted(suffix.removeprefix(".").upper() for suffix in DOCUMENT_SUFFIXES)
-)
-
-
-def document_upload_parts(filename: str | None, *, tool: str) -> tuple[str, str]:
+def document_upload_parts(
+    filename: str | None, *, tool: str, accepted_suffixes: Set[str] = DOCUMENT_SUFFIXES,
+) -> tuple[str, str]:
     """Validate one upload's format and return its `(doc_id, suffix)`.
 
     Args:
@@ -46,10 +43,13 @@ def document_upload_parts(filename: str | None, *, tool: str) -> tuple[str, str]
         HTTPException: 400, before any work begins and before the stream opens.
     """
     suffix = Path(filename or "").suffix.lower()
-    if suffix not in DOCUMENT_SUFFIXES:
+    if suffix not in accepted_suffixes:
+        format_hint = " or ".join(
+            sorted(suffix.removeprefix(".").upper() for suffix in accepted_suffixes)
+        )
         raise HTTPException(
             status_code=400,
-            detail=f"{tool} reads {DOCUMENT_FORMAT_HINT} files. Received: "
+            detail=f"{tool} reads {format_hint} files. Received: "
             f"{filename or 'a file with no name'}",
         )
     return Path(filename or "").stem, suffix

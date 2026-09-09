@@ -1,9 +1,8 @@
 """Screener — stage-gate question triage across a set of product-development documents.
 
 A gate review asks a fixed bank of SME questions. Screener does not answer them: it
-sorts them into what the documents already answer with a citation, what they should
-answer and do not, and what no document could ever answer — those routed to the
-discipline that owns them.
+reports what the documents answer, partly answer, or leave unanswered, alongside the
+discipline that owns each question.
 
 Its authority is the gate's question bank, which is what separates it from
 Inspector. Inspector asks whether one document is complete against its own
@@ -11,22 +10,10 @@ template; Screener asks whether the evidence exists anywhere in the set for a
 reviewer to close a question. Neither substitutes for the other.
 """
 
-from .context import (
-    CONTEXT_FORMAT_HINT,
-    CONTEXT_SUFFIXES,
-    MAX_CONTEXT_CHARACTERS,
-    MAX_TOTAL_CONTEXT_CHARACTERS,
-    ContextReadError,
-    read_context_text,
-    total_context_length,
-)
 from .contract import validate_result_contract
 from .models import (
-    ANSWER_SOURCES,
     MODEL_STATES,
     QUESTION_STATES,
-    AnswerSource,
-    ContextItem,
     DisciplineReview,
     DisciplineSpec,
     DocumentInput,
@@ -39,24 +26,18 @@ from .models import (
     QuestionSpec,
     QuestionState,
     ReviewDocument,
+    available_configs,
     available_gates,
     find_config,
     has_config,
     load_config,
     resolve_questions,
 )
-from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, run_pipeline
+from .pipeline import DEFAULT_MAX_OUTPUT_TOKENS, SUPPORTED_DOCUMENT_SUFFIXES, run_pipeline
 
 __all__ = [
-    "ANSWER_SOURCES",
-    "CONTEXT_FORMAT_HINT",
-    "CONTEXT_SUFFIXES",
-    "ContextReadError",
-    "MAX_CONTEXT_CHARACTERS",
-    "MAX_TOTAL_CONTEXT_CHARACTERS",
-    "AnswerSource",
-    "ContextItem",
     "DEFAULT_MAX_OUTPUT_TOKENS",
+    "SUPPORTED_DOCUMENT_SUFFIXES",
     "DisciplineReview",
     "DisciplineSpec",
     "DocumentInput",
@@ -71,11 +52,10 @@ __all__ = [
     "QuestionSpec",
     "QuestionState",
     "ReviewDocument",
+    "available_configs",
     "available_gates",
     "find_config",
     "has_config",
-    "read_context_text",
-    "total_context_length",
     "load_config",
     "resolve_questions",
     "run_pipeline",

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from shared.document_metadata import extraction_context
 
 MAX_FIND_HITS = 40
 MAX_BLOCK_CHARS = 60_000
@@ -39,6 +40,13 @@ def overview(blocks: list[dict[str, Any]]) -> str:
         lines.append(
             f"- {doc_id}: {len(document_blocks)} blocks{visual_suffix} ({block_range})"
         )
+        limitations = dict.fromkeys(
+            extraction_context(block.get("structural_meta") or {}, include_page=False)
+            for block in document_blocks
+        )
+        for limitation in limitations:
+            if limitation:
+                lines.append(f"  extraction: {limitation}")
         if headings:
             shown = headings[:20]
             suffix = f" … +{len(headings) - len(shown)} more" if len(headings) > len(shown) else ""
@@ -68,6 +76,7 @@ def find(blocks: list[dict[str, Any]], keyword: str) -> str:
                 "id": str(block.get("id") or ""),
                 "heading": heading,
                 "snippet": " ".join(original[start:end].split()),
+                "source_metadata": extraction_context(block.get("structural_meta") or {}),
             }
         )
         if len(hits) >= MAX_FIND_HITS:
@@ -99,6 +108,9 @@ def get(
         next_start = start_char + len(chunk)
         heading = " > ".join(block.get("heading_stack") or [])
         header = f"[{block_id}]" + (f" heading={heading}" if heading else "")
+        extraction = extraction_context(block.get("structural_meta") or {})
+        if extraction:
+            header += f" | {extraction}"
         rendered = f"{header}\n{chunk}"
         if next_start < len(content):
             rendered += f"\n...[block continues; call again with start_char={next_start}]"

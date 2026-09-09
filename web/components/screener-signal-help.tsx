@@ -12,7 +12,7 @@ import {
  *
  * Four topics, and each exists because a reader can otherwise draw the wrong conclusion
  * from something on the page: that a question the documents do not answer is a fault,
- * that every answer can be checked, that every open question weighs the same, or that a
+ * how each answer can be checked, that every open question weighs the same, or that a
  * count can be blended into a score.
  */
 
@@ -34,9 +34,9 @@ const TOPICS: Record<ScreenerSignalTopic, SignalTopic> = {
   source: {
     promptRef: { tool: "screener", stage: "triage" },
     title: "Source",
-    summary: "Whether an answer can be checked, or only attributed.",
+    summary: "The retained passages supporting an answer.",
     detail:
-      "An answer read from an uploaded document cites the exact passage, so you can open it and confirm it. An answer read from attached context cannot, because context is never chunked or cited. Both are the model's reading; only one is checkable.",
+      "Every answered or partly answered question cites passages in the uploaded documents. Open a citation to read the retained passage and check the model’s reading.",
   },
   requirement: {
     // No promptRef: the bank states it for every question and no model reads it.

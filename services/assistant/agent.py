@@ -12,10 +12,10 @@ tool over the result -> append the output -> repeat until the LLM answers.
 from __future__ import annotations
 
 import json
-import logging
-from types import SimpleNamespace
 from dataclasses import dataclass
 from typing import Any, Iterator, Literal, Protocol
+
+from shared.chat import ChatDelta, ChatTurn, ToolCall
 
 from . import document as document_reader
 from . import knowledge
@@ -23,8 +23,6 @@ from . import navigator
 from . import skills
 from . import resources
 from .legends import legend_for
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 4000
 MAX_STEPS = 6
@@ -39,7 +37,7 @@ class ChatLLMProtocol(Protocol):
         *,
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = 4000,
-    ) -> Any:
+    ) -> ChatTurn:
         ...
 
 
@@ -52,7 +50,7 @@ class StreamingChatLLMProtocol(ChatLLMProtocol, Protocol):
         *,
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = 4000,
-    ) -> Iterator[Any]:
+    ) -> Iterator[ChatDelta]:
         ...
 
 @dataclass(frozen=True)
@@ -89,9 +87,8 @@ def answer_stream(
 ) -> Iterator[Chunk]:
     """Stream the final grounded answer while keeping tool turns server-side.
 
-    OpenAI emits function-call deltas before their arguments. Those turns are
-    accumulated, executed, and appended to the private working conversation.
-    Text-only turns are forwarded immediately to the caller.
+    The provider adapter emits text and completed tool calls. Only completed
+    calls execute; their results join the private working conversation.
     """
     allowed_urls = navigator.collect_urls(result)
     context = ToolContext(
@@ -103,126 +100,56 @@ def answer_stream(
     work = _initial_messages(result, result_type, messages, document)
 
     for _ in range(MAX_STEPS):
-        content_parts: list[str] = []
-        tool_parts: dict[int, dict[str, str]] = {}
-        emitted_text = False
+        turn = None
+        for delta in client.chat_stream(work, tools=TOOLS, max_tokens=max_tokens):
+            if delta.text:
+                yield Chunk("text", delta.text)
+            if delta.turn is not None:
+                turn = delta.turn
 
-        for chunk in client.chat_stream(work, tools=TOOLS, max_tokens=max_tokens):
-            choices = getattr(chunk, "choices", [])
-            if not choices:
-                continue
-            delta = getattr(choices[0], "delta", None)
-            if delta is None:
-                continue
-
-            for fragment in getattr(delta, "tool_calls", None) or []:
-                index = getattr(fragment, "index", 0) or 0
-                part = tool_parts.setdefault(
-                    index,
-                    {"id": "", "name": "", "arguments": ""},
-                )
-                call_id = getattr(fragment, "id", None)
-                if call_id:
-                    part["id"] = call_id
-                function = getattr(fragment, "function", None)
-                name = getattr(function, "name", None) if function else None
-                arguments = getattr(function, "arguments", None) if function else None
-                if name:
-                    part["name"] += name
-                if arguments:
-                    part["arguments"] += arguments
-
-            content = getattr(delta, "content", None)
-            if content:
-                content_parts.append(content)
-                # Function-call turns normally contain no visible text. If a
-                # model emits a short preamble first, forwarding it is still
-                # preferable to delaying every normal answer until completion.
-                if not tool_parts:
-                    emitted_text = True
-                    yield Chunk('text', content)
-
-        tool_calls = _assembled_tool_calls(tool_parts)
-        if not tool_calls:
-            if not emitted_text:
-                yield Chunk("text", "Sorry - I couldn't generate a response.")
+        if turn is None:
+            raise RuntimeError("Assistant provider stream ended before completing a turn")
+        if not turn.tool_calls:
             return
 
-        if emitted_text:
-            logger.warning("Assistant emitted text before a tool call; continuing the grounded turn.")
-        work.append(
-            _assistant_msg(
-                SimpleNamespace(content="".join(content_parts)),
-                tool_calls,
-            )
-        )
-        for call in tool_calls:
-            yield Chunk('activity', resources.activity_for(REGISTRY, call.function.name))
-            work.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "content": _run_tool(call, context),
-                }
-            )
+        # The provider owns continuation syntax. Carry it back unchanged, within
+        # this request only, so reasoning and tool-call lineage survive each step.
+        work.append({
+            "role": "assistant",
+            "content": turn.text,
+            "continuation": turn.continuation,
+        })
+        for call in turn.tool_calls:
+            yield Chunk("activity", resources.activity_for(REGISTRY, call.name))
+            work.append({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": _run_tool(call, context),
+            })
 
     work.append({"role": "user", "content": "Answer now using what you've gathered."})
-    emitted_text = False
-    for chunk in client.chat_stream(work, max_tokens=max_tokens):
-        choices = getattr(chunk, "choices", [])
-        if not choices:
-            continue
-        delta = getattr(choices[0], "delta", None)
-        content = getattr(delta, "content", None) if delta else None
-        if content:
-            emitted_text = True
-            yield Chunk('text', content)
-    if not emitted_text:
-        yield Chunk("text", "Sorry - I couldn't generate a response.")
+    turn = None
+    for delta in client.chat_stream(work, max_tokens=max_tokens):
+        if delta.text:
+            yield Chunk("text", delta.text)
+        if delta.turn is not None:
+            turn = delta.turn
+    if turn is None or turn.tool_calls:
+        raise RuntimeError("Assistant did not complete its final answer")
 
 
-def _assembled_tool_calls(parts: dict[int, dict[str, str]]) -> list[Any]:
-    """Turn streamed tool-call fragments into the shape used by _run_tool."""
-    return [
-        SimpleNamespace(
-            id=part["id"] or f"tool-{index}",
-            function=SimpleNamespace(
-                name=part["name"],
-                arguments=part["arguments"],
-            ),
-        )
-        for index, part in sorted(parts.items())
-        if part["name"]
-    ]
-
-
-def _run_tool(call: Any, context: ToolContext) -> str:
+def _run_tool(call: ToolCall, context: ToolContext) -> str:
     """Route one model tool call to the verb that declared it."""
-    verb = _VERBS.get(call.function.name)
+    verb = _VERBS.get(call.name)
     if verb is None:
-        return f"Unknown tool: {call.function.name}"
+        return f"Unknown tool: {call.name}"
     try:
-        args = json.loads(call.function.arguments or "{}")
+        args = json.loads(call.arguments or "{}")
     except json.JSONDecodeError:
         return "Invalid tool arguments."
     if not isinstance(args, dict):
         return "Invalid tool arguments."
     return verb.handler(context, args)
-
-
-def _assistant_msg(message: Any, tool_calls: Any) -> dict[str, Any]:
-    return {
-        "role": "assistant",
-        "content": getattr(message, "content", "") or "",
-        "tool_calls": [
-            {
-                "id": c.id,
-                "type": "function",
-                "function": {"name": c.function.name, "arguments": c.function.arguments},
-            }
-            for c in tool_calls
-        ],
-    }
 
 
 def _initial_messages(

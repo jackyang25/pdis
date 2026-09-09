@@ -30,6 +30,7 @@ export class AssistantSseTransport<
     const decoder = new TextDecoder();
     let buffer = "";
     let started = false;
+    let completed = false;
 
     return new ReadableStream<UIMessageChunk>({
       async start(controller) {
@@ -55,7 +56,11 @@ export class AssistantSseTransport<
               buffer = buffer.slice(split + 2);
               const parsed = readEvent(event);
               if (parsed !== null) {
-                if (parsed.kind === "activity") {
+                if (parsed.kind === "error") {
+                  throw new Error(parsed.text);
+                } else if (parsed.kind === "done") {
+                  completed = true;
+                } else if (parsed.kind === "activity") {
                   // Its own part, not text: what the agent is doing is not part
                   // of the answer, and the format already separates them.
                   controller.enqueue({
@@ -73,6 +78,9 @@ export class AssistantSseTransport<
               split = buffer.indexOf("\n\n");
             }
           }
+          if (!completed) {
+            throw new Error("The assistant response was interrupted. Please try again.");
+          }
           if (started) controller.enqueue({ type: "text-end", id });
           controller.enqueue({ type: "finish-step" });
           controller.enqueue({ type: "finish" });
@@ -80,6 +88,7 @@ export class AssistantSseTransport<
         } catch (error) {
           controller.error(error);
         } finally {
+          await reader.cancel().catch(() => {});
           reader.releaseLock();
         }
       },
@@ -87,7 +96,7 @@ export class AssistantSseTransport<
   }
 }
 
-export type StreamEvent = { kind: "text" | "activity"; text: string };
+export type StreamEvent = { kind: "text" | "activity" | "done" | "error"; text: string; code?: string };
 
 /**
  * What one event carries, or null if it carries nothing.
@@ -100,18 +109,23 @@ export type StreamEvent = { kind: "text" | "activity"; text: string };
  * should cost its own text, not the rest of the answer.
  */
 export function readEvent(event: string): StreamEvent | null {
-  let kind: StreamEvent["kind"] = "text";
+  const eventKind = event.split("\n").find((line) => line.startsWith("event:"))?.slice(6).trim();
+  const kind: StreamEvent["kind"] = eventKind === "activity" || eventKind === "error" || eventKind === "done" ? eventKind : "text";
   const parts: string[] = [];
   for (const line of event.split("\n")) {
-    if (line.startsWith("event:")) {
-      kind = line.slice(6).trim() === "activity" ? "activity" : "text";
-      continue;
-    }
     if (!line.startsWith("data:")) continue;
     const raw = line.slice(5).trim();
     if (!raw) continue;
     try {
       const value = JSON.parse(raw);
+      if (kind === "done") return { kind, text: "" };
+      if (kind === "error") {
+        return {
+          kind,
+          code: typeof value?.code === "string" ? value.code : "assistant_stream_failed",
+          text: typeof value?.message === "string" ? value.message : "The assistant could not finish its response. Please try again.",
+        };
+      }
       if (typeof value === "string") parts.push(value);
     } catch {
       // Not valid JSON; skip this line rather than failing the stream.

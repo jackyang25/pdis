@@ -39,7 +39,7 @@ from services.searcher.models import Finding, SearchOutcome, SearchRequest
 
 from api.routes import chunker as chunker_route
 from api.routes import searcher as searcher_route
-from api.uploads import DOCUMENT_FORMAT_HINT, document_upload_parts
+from api.uploads import document_upload_parts
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -55,6 +55,7 @@ OPERATIONAL = {
     "max_uses": "tool-call budget, a deployment concern",
     "raise_source_errors": "the standalone tool always prefers partial results",
     "progress_callback": "streaming plumbing",
+    "accepted_suffixes": "server-owned document input capability, never a browser override",
 }
 
 #: Pipeline parameters the route supplies from something the reader did give, and from
@@ -243,7 +244,7 @@ class UploadParityTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as caught:
             document_upload_parts("report.pdf", tool="Chunker")
         self.assertEqual(caught.exception.status_code, 400)
-        self.assertIn(DOCUMENT_FORMAT_HINT, caught.exception.detail)
+        self.assertIn("DOCX or PPTX", caught.exception.detail)
 
     def test_a_file_with_no_extension_is_refused_not_assumed(self) -> None:
         """The regression this replaced: `suffix or ".docx"` guessed a format.

@@ -172,8 +172,9 @@ function WorkspaceToolCard({ tool }: { tool: WorkspaceToolDefinition }) {
         icon={tool.icon}
         title={tool.title}
         description={tool.description}
+        comingSoon={comingSoon}
         trailing={comingSoon
-          ? <AvailabilityBadge />
+          ? undefined
           : (
             /*
               The arrow is what says the card opens something, so it is what moves. Along
@@ -219,7 +220,7 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
         icon={tool.icon}
         title={tool.title}
         description={tool.description}
-        trailing={comingSoon ? <AvailabilityBadge /> : undefined}
+        comingSoon={comingSoon}
       />
       <div className="mt-auto pt-5">
         <div className="flex min-h-8 gap-2">
@@ -241,12 +242,21 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
   );
 }
 
-function AvailabilityBadge() {
-  return (
-    <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
-      Coming soon
-    </span>
-  );
+/**
+ * That a card is not ready yet, for a reader who cannot see that it is dimmed.
+ *
+ * This was a visible chip beside the title. `CARD_UNAVAILABLE` already says the
+ * same thing to anyone looking at the card, and saying it twice put a second
+ * label in the one slot the arrow uses on every other card - so the chip went
+ * and the sentence stayed.
+ *
+ * It has to stay in some form. Opacity carries nothing to assistive technology,
+ * and `aria-disabled` is not supported on `article`, so removing this outright
+ * would leave the state visual-only. Inside the heading, so it is announced with
+ * the name it belongs to rather than as a loose phrase before it.
+ */
+function ComingSoonNote() {
+  return <span className="sr-only">, coming soon</span>;
 }
 
 /**
@@ -265,11 +275,13 @@ function CardHeading({
   title,
   description,
   trailing,
+  comingSoon,
 }: {
   icon: ToolDefinition["icon"];
   title: string;
   description: string;
   trailing?: React.ReactNode;
+  comingSoon?: boolean;
 }) {
   return (
     <div>
@@ -283,6 +295,7 @@ function CardHeading({
           <PdisIcon name={icon} className="h-5 w-5 shrink-0 text-foreground" />
           <h3 className={cn(DISPLAY_HEADING, "min-w-0 text-[17px] font-semibold text-foreground")}>
             {title}
+            {comingSoon ? <ComingSoonNote /> : null}
           </h3>
         </span>
         {trailing ? (

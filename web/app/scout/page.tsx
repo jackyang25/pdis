@@ -5,7 +5,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -29,7 +28,8 @@ import {
 import {
   ConfigDateInput,
   ConfigField,
-  ConfigFieldGrid,
+  ConfigHelp,
+  ConfigSectionHeading,
   ConfigurationShell,
 } from "@/components/ui/config-field";
 import { useHeaderStore } from "@/lib/store";
@@ -490,7 +490,6 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     reset: resetReview,
   } = useScoutReviewSession();
 
-  const importInputRef = useRef<HTMLInputElement>(null);
   const [showRunPanel, setShowRunPanel] = useState(!result);
   // Scout-only: the retrieval window, declared before the run and carried
   // on the draft so the continuation searches the same cohort.
@@ -724,30 +723,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
           progress={progress}
           runDisabled={!ready}
           hint={ready ? undefined : "Complete the configuration to run."}
-          extraControls={
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>Or view a previously downloaded result:</span>
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                disabled={busy}
-                className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
-              >
-                Import JSON
-              </button>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept=".json,application/json"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleImport(f);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-          }
+          onImport={handleImport}
         />
       )}
       {error && <ErrorMessage>{error}</ErrorMessage>}
@@ -4010,26 +3986,27 @@ function ScoutConfiguration({
   return (
     <ConfigurationShell>
       <ContextFields />
-      <ConfigFieldGrid className="mt-4">
-        <SourceTypeField
-          value={sourceType}
-          onChange={(value) => setHeader({ source_type: value })}
+      <ConfigSectionHeading>Document selection</ConfigSectionHeading>
+      <SourceTypeField
+        value={sourceType}
+        onChange={(value) => setHeader({ source_type: value })}
+      />
+      <ConfigSectionHeading>Run options</ConfigSectionHeading>
+      <ConfigField
+        label="Published since (optional)"
+        help="Sources that support date filtering receive this bound directly, changing what they retrieve and rank. Older dated evidence is excluded from the run's counts and benchmarks."
+        note={
+          <ConfigHelp>
+            Undated sources are still included.
+          </ConfigHelp>
+        }
+      >
+        <ConfigDateInput
+          value={publishedSince}
+          onChange={onPublishedSinceChange}
+          max={new Date().toISOString().slice(0, 10)}
         />
-        <ConfigField label="Published since (optional)">
-          <ConfigDateInput
-            value={publishedSince}
-            onChange={onPublishedSinceChange}
-            max={new Date().toISOString().slice(0, 10)}
-          />
-          <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-            Only evidence published on or after this date enters the run, so no
-            count or benchmark includes anything older. Sources that can filter
-            by date ask for the window directly, which changes what they rank
-            rather than only what survives. Sources that publish no date, such
-            as web pages, are still included.
-          </p>
-        </ConfigField>
-      </ConfigFieldGrid>
+      </ConfigField>
     </ConfigurationShell>
   );
 }

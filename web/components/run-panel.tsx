@@ -1,19 +1,20 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Check, Loader2, Upload } from "lucide-react";
+import { Check, Loader2, Plus, Upload, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 import { ErrorMessage } from "./ui/error-message";
+import { EmptyState } from "./empty-state";
 import { ProgressSteps, type Step } from "./progress-steps";
 import {
-  DOCUMENT_ACCEPT,
-  DOCUMENT_FORMAT_HINT,
+  STRUCTURED_DOCUMENT_FORMATS,
+  type DocumentFormats,
   isSupportedDocument,
 } from "@/lib/document-formats";
 import { cn } from "@/lib/utils";
 
-/** One upload slot. Tools that read more than one document name each role. */
+/** One upload slot, identified by a role or by its place in a document collection. */
 export type DocumentSlot = {
   /** Keys the chosen file back to the caller in `onRun`. */
   id: string;
@@ -31,18 +32,26 @@ type Props = {
   configuration?: React.ReactNode;
   /** Upload slots in display order. Defaults to one unlabeled document. */
   documents?: readonly DocumentSlot[];
+  /** One capability governs the picker, drag/drop validation, and format hint. */
+  documentFormats?: DocumentFormats;
+  /** Explain an empty slot list before the caller has chosen document roles. */
+  emptyDocumentsHint?: string;
+  /** Optional collection controls; the caller owns document identity and order. */
+  onAddDocument?: () => void;
+  onRemoveDocument?: (id: string) => void;
   disabled?: boolean;
   busy?: boolean;
   /** Called once every slot holds a supported file, keyed by slot id. */
   onRun: (files: Record<string, File>) => void;
-  extraControls?: React.ReactNode;
+  /** The page owns parsing and saved-result compatibility; this owns the picker. */
+  onImport?: (file: File) => void;
   steps?: Step[];
   /** Backend stage key currently active. Drives ProgressSteps. */
   currentStage?: string | null;
   /** Optional live item count for the active stage. */
   progress?: { completed: number; total: number } | null;
   /** Gate only the Run action (e.g. header not selected) while keeping the
-   * file picker and any extraControls (Import) usable. */
+   * file picker and saved-result import usable. */
   runDisabled?: boolean;
   /** Muted hint shown near the Run button (e.g. why Run is gated). */
   hint?: string;
@@ -56,10 +65,14 @@ export function RunPanel({
   className,
   configuration,
   documents = SINGLE_DOCUMENT,
+  documentFormats = STRUCTURED_DOCUMENT_FORMATS,
+  emptyDocumentsHint = "Complete the configuration to add documents.",
+  onAddDocument,
+  onRemoveDocument,
   disabled,
   busy,
   onRun,
-  extraControls,
+  onImport,
   steps,
   currentStage,
   progress,
@@ -70,11 +83,12 @@ export function RunPanel({
 }: Props) {
   const [files, setFiles] = useState<Record<string, File>>({});
   const [typeError, setTypeError] = useState<string | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
 
   function chooseFile(slotId: string, picked: File | null) {
-    const rejected = picked !== null && !isSupportedDocument(picked.name);
+    const rejected = picked !== null && !isSupportedDocument(picked.name, documentFormats.suffixes);
     setTypeError(
-      rejected ? `Unsupported file type. Supports ${DOCUMENT_FORMAT_HINT}.` : null,
+      rejected ? `Unsupported file type. Supports ${documentFormats.hint}.` : null,
     );
     setFiles((current) => {
       const next = { ...current };
@@ -99,16 +113,41 @@ export function RunPanel({
     >
       <div
         className={cn(
-          "h-full",
-          configuration && "grid gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]",
+          configuration && "grid items-start gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]",
         )}
       >
         {configuration && (
-          <div className="border-b border-border/80 pb-6 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-6">
+          <div>
             {configuration}
           </div>
         )}
-        <div className="flex h-full flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex min-h-6 flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">Documents</h2>
+            {onImport && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => importRef.current?.click()}
+                  disabled={disabled || busy}
+                  className="min-h-6 rounded-sm px-2 text-xs font-medium text-muted-foreground underline decoration-border underline-offset-4 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
+                >
+                  Import result
+                </button>
+                <input
+                  ref={importRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) onImport(file);
+                  }}
+                />
+              </>
+            )}
+          </div>
           <div
             className={cn(
               // Two columns at most, whatever the slot count. Three across put each
@@ -119,21 +158,47 @@ export function RunPanel({
               documents.length > 1 && "grid gap-4 sm:grid-cols-2",
             )}
           >
+            {documents.length === 0 && (
+              <EmptyState message="Add documents" detail={emptyDocumentsHint} />
+            )}
             {documents.map((slot) => (
               <DocumentField
                 key={slot.id}
                 slot={slot}
+                formats={documentFormats}
                 file={files[slot.id] ?? null}
-                disabled={disabled}
+                disabled={disabled || busy}
+                onRemove={
+                  onRemoveDocument && documents.length > 1
+                    ? () => {
+                        chooseFile(slot.id, null);
+                        onRemoveDocument(slot.id);
+                      }
+                    : undefined
+                }
                 onChange={(picked) => chooseFile(slot.id, picked)}
               />
             ))}
           </div>
+          {onAddDocument && (
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={onAddDocument}
+              disabled={disabled || busy}
+              className="self-start justify-self-start gap-1.5 text-muted-foreground"
+            >
+              <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+              Add document
+            </Button>
+          )}
           {typeError && <ErrorMessage size="xs">{typeError}</ErrorMessage>}
+          {documentFormats.note && (
+            <p className="text-xs leading-relaxed text-muted-foreground">{documentFormats.note}</p>
+          )}
 
-          {extraControls}
-
-          <div className="mt-auto flex flex-col-reverse items-stretch justify-between gap-3 sm:flex-row sm:items-center">
+          <div className="mt-2 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
             <div className="flex min-h-9 min-w-0 items-center">
               {steps && busy ? (
                 <ProgressSteps
@@ -171,14 +236,18 @@ export function RunPanel({
 /** One labeled drop zone. Every tool's upload affordance is this component. */
 function DocumentField({
   slot,
+  formats,
   file,
   disabled,
   onChange,
+  onRemove,
 }: {
   slot: DocumentSlot;
+  formats: DocumentFormats;
   file: File | null;
   disabled?: boolean;
   onChange: (file: File | null) => void;
+  onRemove?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -187,8 +256,21 @@ function DocumentField({
       <div className="flex items-baseline justify-between gap-4">
         <Label>{slot.label}</Label>
         <span className="text-[10px] text-muted-foreground">
-          {DOCUMENT_FORMAT_HINT}
+          {formats.hint}
         </span>
+        {onRemove && (
+          <Button
+            variant="ghost"
+            size="icon"
+            type="button"
+            onClick={onRemove}
+            disabled={disabled}
+            aria-label={`Remove ${slot.label.toLowerCase()}`}
+            className="shrink-0 text-muted-foreground"
+          >
+            <X aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
       {slot.helper && (
         <p className="text-[11px] leading-4 text-muted-foreground">{slot.helper}</p>
@@ -239,7 +321,7 @@ function DocumentField({
       <input
         ref={inputRef}
         type="file"
-        accept={DOCUMENT_ACCEPT}
+        accept={formats.accept}
         className="hidden"
         onChange={(event) => onChange(event.target.files?.[0] ?? null)}
       />

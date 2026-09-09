@@ -1,105 +1,29 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
 import { ErrorMessage } from "@/components/ui/error-message";
 import {
   ConfigField,
-  ConfigFieldGrid,
+  ConfigHelp,
   ConfigSelect,
+  ConfigSectionHeading,
   ConfigurationShell,
 } from "./ui/config-field";
 import {
-  fetchDocumentTypes,
   fetchIndications,
-  type DocumentType,
-  type ToolName,
 } from "@/lib/api";
+import { useSupportedContexts, useSupportedDocumentTypes } from "@/lib/use-configuration-catalog";
 import { useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
 
 /**
- * The shared parts of a tool's configuration rail.
- *
- * Three buckets sit side by side in every tool's panel, and which bucket a field
- * belongs to is decided by one question: does the value leave the tool?
- *
- *   1. Context      org, intervention, indication - always one each, every tool
- *   2. Document type  source type - one per document, so one or several
- *   3. Run knobs    a tool's own parameters, e.g. a date bound
- *
- * Buckets 1 and 2 are contract data: they select the configuration, are stamped
- * on every parsed block, travel in saved result files, and are read across tools
- * by Ask. They must mean the same thing everywhere, which is why this module owns
- * them and exposes no way to rename, reorder, or omit a field.
- *
- * Bucket 3 never leaves its tool, so no shared component owns it. A tool composes
- * the primitives in `ui/config-field.tsx` directly and puts its own fields in the
- * same rail.
- *
- * Context and document type are split because their cardinality differs, not
- * their status: Aligner needs a source type per document while everything else
- * needs one. They used to be one fixed block of four fields, which is why Aligner
- * could not use it and rebuilt the other three by hand.
+ * Shared domain selectors. These own field meaning, available values and dependent
+ * selection resets. They do not own grouping: ConfigurationShell lays out all
+ * fields together, including the tool's own controls.
  */
 
-const PATH_TO_TOOL: Record<string, ToolName> = {
-  "/chunker": "chunker",
-  "/inspector": "inspector",
-  "/scout": "scout",
-  "/aligner": "aligner",
-  "/screener": "screener",
-};
-
 /**
- * Document types this tool supports, fetched once per session.
- *
- * The promise is cached at module scope because two fields on one page both need
- * the list, and the catalogue cannot change while the page is open. Without it,
- * a rail with a context picker and three source-type selects would issue four
- * identical requests.
- */
-let documentTypesRequest: Promise<DocumentType[]> | null = null;
-
-function loadDocumentTypes(): Promise<DocumentType[]> {
-  documentTypesRequest ??= fetchDocumentTypes().catch((error: Error) => {
-    // Clear the cache so a transient failure can be retried by a later mount
-    // rather than being remembered for the rest of the session.
-    documentTypesRequest = null;
-    throw error;
-  });
-  return documentTypesRequest;
-}
-
-export function useSupportedDocumentTypes(): {
-  types: DocumentType[] | null;
-  error: string | null;
-} {
-  const pathname = usePathname() ?? "";
-  const tool = PATH_TO_TOOL[pathname] ?? null;
-  const [types, setTypes] = useState<DocumentType[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    loadDocumentTypes()
-      .then((loaded) => live && setTypes(loaded))
-      .catch((err: Error) => live && setError(err.message));
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  const supported = useMemo(() => {
-    if (!types) return null;
-    return tool ? types.filter((item) => item.supports[tool]) : types;
-  }, [types, tool]);
-
-  return { types: supported, error };
-}
-
-/**
- * Bucket 1: the context every tool needs exactly one of.
+ * The context a document workflow needs exactly one of.
  *
  * Bound to the shared store rather than to props, which is what makes a choice
  * follow the user between tools. Deliberately takes no configuration - a caller
@@ -108,7 +32,7 @@ export function useSupportedDocumentTypes(): {
  */
 export function ContextFields() {
   const { header, setHeader } = useHeaderStore();
-  const { types, error } = useSupportedDocumentTypes();
+  const { contexts, error } = useSupportedContexts();
   const [indications, setIndications] = useState<string[]>([]);
 
   useEffect(() => {
@@ -126,31 +50,35 @@ export function ContextFields() {
   }, [header.intervention_class]);
 
   const orgs = useMemo(
-    () => unique((types ?? []).map((item) => item.org)),
-    [types],
+    () => unique((contexts ?? []).map((item) => item.org)),
+    [contexts],
   );
   const interventions = useMemo(
     () =>
       unique(
-        (types ?? [])
+        (contexts ?? [])
           .filter((item) => item.org === header.org)
           .map((item) => item.intervention_class),
       ),
-    [types, header.org],
+    [contexts, header.org],
   );
 
   if (error) {
     return (
-      <div className="flex min-h-[264px] items-center sm:min-h-[124px] lg:min-h-[264px]">
+      <div className="sm:col-span-2">
         <ErrorMessage size="xs">Could not load configuration: {error}</ErrorMessage>
       </div>
     );
   }
-  if (!types) return <FieldPlaceholder labels={CONTEXT_LABELS} />;
+  if (!contexts) return <><ConfigSectionHeading>Context</ConfigSectionHeading><FieldPlaceholder labels={CONTEXT_LABELS} /></>;
 
   return (
-    <ConfigFieldGrid>
-      <ConfigField label="Organization">
+    <>
+      <ConfigSectionHeading>Context</ConfigSectionHeading>
+      <ConfigField
+        label="Organization"
+        help="Organization and intervention class determine which configurations are available."
+      >
         <ConfigSelect
           value={header.org}
           options={toOptions(orgs)}
@@ -172,7 +100,10 @@ export function ContextFields() {
         carries the same concept under the same name beside a separate Product field, and
         one concept labelled two ways is how a reader learns to distrust both.
       */}
-      <ConfigField label="Intervention class" disabled={!header.org}>
+      <ConfigField
+        label="Intervention class"
+        disabled={!header.org}
+      >
         <ConfigSelect
           value={header.intervention_class}
           options={toOptions(interventions)}
@@ -187,20 +118,25 @@ export function ContextFields() {
         />
       </ConfigField>
 
-      <ConfigField label="Indication" disabled={!header.intervention_class}>
+      <ConfigField
+        label="Indication"
+        disabled={!header.intervention_class}
+        help="The disease or condition. It travels with documents and results but does not select a rubric or question bank. Scout also checks it against the document and uses it in evidence searches."
+      >
         <ConfigSelect
           value={header.indication}
+          searchLabel="Search indications"
           options={toOptions(indications)}
           disabled={!header.intervention_class}
           onChange={(value) => setHeader({ indication: value })}
         />
       </ConfigField>
-    </ConfigFieldGrid>
+    </>
   );
 }
 
 /**
- * Bucket 2: one document's type.
+ * One document's type.
  *
  * Props-driven rather than store-bound, because how many of these a tool needs is
  * the tool's own business: one for a single-document tool, one per row for
@@ -233,7 +169,7 @@ export function SourceTypeField({
   action?: React.ReactNode;
 }) {
   const header = useHeaderStore((state) => state.header);
-  const { types } = useSupportedDocumentTypes();
+  const { types, error } = useSupportedDocumentTypes();
 
   const options = useMemo(
     () =>
@@ -255,7 +191,8 @@ export function SourceTypeField({
       label={label}
       disabled={!ready}
       action={action}
-      note={hint ? <SourceTypeHint /> : undefined}
+      help={hint ? "Sets how the document is parsed and what it is read against. Choosing the wrong type can produce a misleading result." : undefined}
+      note={error ? <ErrorMessage size="xs">{error}</ErrorMessage> : hint ? <SourceTypeHint /> : undefined}
     >
       <ConfigSelect
         value={value}
@@ -272,8 +209,8 @@ export function SourceTypeField({
  *
  * Deliberately says "what it is read against" rather than "which rubric": the type
  * selects Inspector's rubric and Scout's attribute configuration, but Aligner holds
- * one source-type-neutral configuration and Screener's bank is keyed by gate. Naming
- * the rubric would be precise for two tools and false for two.
+ * one source-type-neutral configuration. Naming the rubric would be precise for
+ * two tools and false for Aligner. Screener does not request a source type.
  *
  * It lives here rather than in each tool's copy because the sentence is about the
  * field, and four tools writing their own version of it is the drift this module
@@ -283,11 +220,9 @@ export function SourceTypeField({
  */
 function SourceTypeHint() {
   return (
-    <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-      Sets how the document is parsed and what it is read against. Nothing checks
-      that the file matches, so the wrong type gives a confident result about the
-      wrong thing.
-    </p>
+    <ConfigHelp>
+      Match the uploaded document. Its type is not checked automatically.
+    </ConfigHelp>
   );
 }
 
@@ -303,12 +238,11 @@ export function ConfigurationFields() {
   return (
     <ConfigurationShell>
       <ContextFields />
-      <div className="mt-4">
-        <SourceTypeField
-          value={sourceType}
-          onChange={(value) => setHeader({ source_type: value })}
-        />
-      </div>
+      <ConfigSectionHeading>Document selection</ConfigSectionHeading>
+      <SourceTypeField
+        value={sourceType}
+        onChange={(value) => setHeader({ source_type: value })}
+      />
     </ConfigurationShell>
   );
 }
@@ -317,13 +251,13 @@ const CONTEXT_LABELS = ["Organization", "Intervention class", "Indication"] as c
 
 function FieldPlaceholder({ labels }: { labels: readonly string[] }) {
   return (
-    <ConfigFieldGrid aria-busy="true" aria-label="Loading configuration">
+    <>
       {labels.map((label) => (
         <ConfigField key={label} label={label} disabled>
-          <div className="h-9 rounded-md border border-input bg-muted" aria-hidden="true" />
+          <div className="h-9 rounded-md border border-input bg-muted" role="status" aria-label={`Loading ${label.toLowerCase()}`} />
         </ConfigField>
       ))}
-    </ConfigFieldGrid>
+    </>
   );
 }
 

@@ -34,10 +34,6 @@ export const SCREENER_EMPTY_MESSAGE =
 export type StateCounts = {
   answered: number;
   partlyAnswered: number;
-  /** Of the answered and partial, how many cite a passage — the checkable ones. */
-  cited: number;
-  /** Of the answered and partial, how many name a pasted context item instead. */
-  fromContext: number;
   notFound: number;
   notApplicable: number;
   total: number;
@@ -47,8 +43,6 @@ export function countStates(review: GateReview): StateCounts {
   const counts: StateCounts = {
     answered: 0,
     partlyAnswered: 0,
-    cited: 0,
-    fromContext: 0,
     notFound: 0,
     notApplicable: 0,
     total: 0,
@@ -58,15 +52,9 @@ export function countStates(review: GateReview): StateCounts {
     switch (question.state) {
       case "answered":
         counts.answered += 1;
-        if (question.source === "context") counts.fromContext += 1;
-        else counts.cited += 1;
         break;
       case "partly_answered":
         counts.partlyAnswered += 1;
-        // Provenance is the same question for a partial: an answer read from a
-        // document can be checked, one from pasted context cannot.
-        if (question.source === "context") counts.fromContext += 1;
-        else counts.cited += 1;
         break;
       case "not_found":
         counts.notFound += 1;

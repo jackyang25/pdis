@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 import yaml
 
@@ -191,9 +192,69 @@ def intervention_classes() -> frozenset[str]:
 
 
 def indications_for(intervention_class: str) -> list[str]:
-    """The indications declared for one intervention class, in file order."""
-    values = _indications_document().get(intervention_class) or []
-    return [str(value) for value in values] if isinstance(values, list) else []
+    """Canonical choices only, in authored order; never legacy artifact values."""
+    return [entry.key for entry in indication_definitions(intervention_class)]
+
+
+@dataclass(frozen=True)
+class IndicationDefinition:
+    """A context key and its reviewed terminology citation, not a query expansion."""
+
+    key: str
+    mesh_descriptor: str
+    mesh_concept: str
+    mesh_term: str
+    match: str
+    legacy_keys: tuple[str, ...] = ()
+    note: str = ""
+
+
+def indication_definitions(intervention_class: str) -> tuple[IndicationDefinition, ...]:
+    """Read the shared catalog; malformed citations are configuration errors."""
+    values = _indications_document().get(intervention_class, [])
+    if not isinstance(values, list):
+        raise ValueError(f"Invalid indication list for {intervention_class}")
+    entries = []
+    seen: set[str] = set()
+    for item in values:
+        if not isinstance(item, dict) or not isinstance(item.get("mesh"), dict):
+            raise ValueError("An indication needs a key and a MeSH citation")
+        mesh = item["mesh"]
+        key = item.get("key")
+        match = item.get("match")
+        legacy = item.get("legacy_keys", [])
+        note = item.get("note", "")
+        if (
+            not isinstance(key, str) or not re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)*", key)
+            or not isinstance(mesh.get("descriptor"), str)
+            or not re.fullmatch(r"D\d{6,9}", mesh["descriptor"])
+            or not isinstance(mesh.get("concept"), str)
+            or not re.fullmatch(r"M\d{7,9}", mesh["concept"])
+            or not isinstance(mesh.get("term"), str) or not mesh["term"].strip()
+            or not isinstance(match, str) or match not in {"exact", "narrower"}
+            or not isinstance(note, str)
+            or (match == "narrower" and not note.strip())
+            or not isinstance(legacy, list)
+            or any(not isinstance(alias, str) or not re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)*", alias) for alias in legacy)
+        ):
+            raise ValueError(f"Invalid indication definition: {key!r}")
+        for value in [key, *legacy]:
+            if value in seen:
+                raise ValueError(f"Duplicate indication key: {value}")
+            seen.add(value)
+        entries.append(IndicationDefinition(
+            key, mesh["descriptor"], mesh["concept"], mesh["term"], match,
+            tuple(legacy), note,
+        ))
+    return tuple(entries)
+
+
+def is_known_indication(intervention_class: str, indication: str) -> bool:
+    """Artifact-boundary membership check. Retain the original spelling, never rewrite it."""
+    return any(
+        indication == entry.key or indication in entry.legacy_keys
+        for entry in indication_definitions(intervention_class)
+    )
 
 
 @dataclass(frozen=True)

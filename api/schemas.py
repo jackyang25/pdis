@@ -25,6 +25,16 @@ class DocumentTypesResponse(BaseModel):
     document_types: list[DocumentType]
 
 
+class ContextOption(BaseModel):
+    org: str
+    intervention_class: str
+    supports: dict[str, bool]
+
+
+class ContextsResponse(BaseModel):
+    contexts: list[ContextOption]
+
+
 class IndicationsResponse(BaseModel):
     indications: list[str]
 
@@ -758,12 +768,18 @@ class AlignmentEdgeSpecOut(BaseModel):
     service does, before a run exists to ask. Without it the preview would offer the
     iTPP-to-IPDP comparison on a three-document run, which the service then would not
     make.
+
+    Declared without a default, which is the point. It carried `= None`, the route did
+    not pass it, and the field the docstring above exists to explain was published as
+    null on every edge - so the picker offered exactly the comparison this was written to
+    prevent. A nullable value still has to be supplied: `None` is a fact about an edge,
+    not a fallback for having forgotten it.
     """
 
     reference: str
     comparison: str
     question: str
-    when_absent: str | None = None
+    when_absent: str | None
 
 
 class AlignerEdgesResponse(BaseModel):
@@ -838,10 +854,7 @@ class QuestionAssessmentOut(BaseModel):
     thorough plan and a blank page produce the same count, and `missing` is the sentence
     that says what a partial still leaves open.
 
-    `source` separates an answer that can be checked from one that cannot.
-    `document` carries `cited_block_ids`; `context` carries the label of a
-    transient item the user supplied for that run, whose text is deliberately not
-    retained anywhere.
+    Answers cite retained document blocks; every evidence source is traceable.
     """
 
     id: str
@@ -850,14 +863,10 @@ class QuestionAssessmentOut(BaseModel):
     #: Whether the gate requires this answered now or expects it to be forming. From the
     #: bank, on every question.
     requirement: str = "required"
-    # Where the answer would usually live: a hint for a reader, carried from the bank.
-    # It decided nothing about this question's state.
     statement: str = ""
     # What a partial answer still leaves open, and empty on every other state.
     missing: str = ""
-    source: Literal["document", "context"] | None = None
     cited_block_ids: list[str] = Field(default_factory=list)
-    context_label: str = ""
 
 
 class DisciplineReviewOut(BaseModel):
@@ -868,7 +877,6 @@ class DisciplineReviewOut(BaseModel):
 
 class ReviewDocumentOut(BaseModel):
     doc_id: str
-    source_type: str
 
 
 class GateReviewOut(BaseModel):
@@ -888,8 +896,6 @@ class GateReviewOut(BaseModel):
     bank_source: str = ""
     documents: list[ReviewDocumentOut]
     disciplines: list[DisciplineReviewOut]
-    # Labels of the transient context items supplied, never their text.
-    context_labels: list[str] = Field(default_factory=list)
     org: str
     intervention_class: str
     indication: str

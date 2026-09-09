@@ -1,5 +1,11 @@
+"use client";
+
+import { createContext, useContext, useId } from "react";
 import { cn } from "@/lib/utils";
 import { Label } from "./label";
+import { SearchableSelect } from "./searchable-select";
+import { Check, Info } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 import {
   Select,
   SelectContent,
@@ -9,24 +15,64 @@ import {
 } from "./select";
 
 /**
- * The vocabulary of a tool's configuration rail.
- *
- * Generic on purpose: these are the primitives everything above them is built
- * from. The shared, non-negotiable fields live in `configuration-fields.tsx`
- * — `ContextFields` and `SourceTypeField` — and a tool composes these directly
- * only for parameters of its own, so the rail looks the same either way.
- *
- * A tool needing an input shape that is not here adds it here rather than styling
- * one inline: the box is the shared thing, whatever the field means.
+ * Field presentation, independent of a tool's data or configuration authority.
+ * Domain selectors compose these primitives; pages own their field order.
  */
 export function ConfigurationShell({ children }: { children: React.ReactNode }) {
+  const titleId = useId();
   return (
-    <div aria-labelledby="configuration-title">
-      <Label id="configuration-title" asChild>
-        <h2 className="mb-5">Configuration</h2>
-      </Label>
-      {children}
+    <div aria-labelledby={titleId}>
+      <h2 id={titleId} className="sr-only">Configuration</h2>
+      <ConfigFieldGrid>{children}</ConfigFieldGrid>
     </div>
+  );
+}
+
+/** Reader-facing sections share the field grid, never introduce a nested layout. */
+export function ConfigSectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="col-span-full mt-4 flex min-h-6 items-center text-sm font-semibold text-foreground first:mt-0">
+      {children}
+    </h3>
+  );
+}
+
+/** Selection appearance only; the caller owns single/multiple selection rules. */
+export function ConfigChip({ selected, children, className, ...props }: React.ComponentPropsWithoutRef<"button"> & { selected: boolean }) {
+  return (
+    <button
+      {...props}
+      type="button"
+      aria-pressed={selected}
+      className={cn(
+        "inline-flex min-h-8 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
+        selected ? "border-foreground/25 bg-secondary text-secondary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground",
+        className,
+      )}
+    >
+      {selected && <Check aria-hidden="true" className="h-3 w-3 shrink-0" />}
+      {children}
+    </button>
+  );
+}
+
+/** Supplementary guidance uses the existing keyboard/touch-accessible popover. */
+export function ConfigFieldHelp({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`About ${label}`}
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          <Info aria-hidden="true" className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent aria-label={`About ${label}`} className="max-w-[calc(100vw-1.5rem)] text-xs leading-relaxed">
+        {children}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -43,13 +89,18 @@ export function ConfigurationShell({ children }: { children: React.ReactNode }) 
 export function ConfigFieldGrid({
   children,
   className,
+  layout = "rail",
   ...props
-}: React.ComponentPropsWithoutRef<"div">) {
+}: React.ComponentPropsWithoutRef<"div"> & { layout?: "rail" | "wide" }) {
   return (
     <div
       // Merged, not replaced: a caller passing spacing would otherwise drop the
       // layout this component exists to impose.
-      className={cn("flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex", className)}
+      className={cn(
+        "grid gap-4 sm:grid-cols-2",
+        layout === "rail" ? "lg:flex lg:flex-col" : "lg:grid-cols-3",
+        className,
+      )}
       {...props}
     >
       {children}
@@ -57,12 +108,28 @@ export function ConfigFieldGrid({
   );
 }
 
+const FieldContext = createContext<{
+  controlId: string;
+  labelId: string;
+  noteId?: string;
+} | null>(null);
+
+/** Essential instructions and limitations stay visible below their control. */
+export function ConfigHelp({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{children}</p>
+  );
+}
+
+/** One control per field. Compound controls name each input explicitly. */
 export function ConfigField({
   label,
   disabled,
   action,
   note,
+  help,
   children,
+  id,
 }: {
   label: string;
   /** Dims the field while an earlier choice it depends on is unmade. */
@@ -83,23 +150,57 @@ export function ConfigField({
    * line without the note lengthening the row it aligns to.
    */
   note?: React.ReactNode;
+  /** Supplementary explanation, kept out of the main reading flow. */
+  help?: React.ReactNode;
   children: React.ReactNode;
+  id?: string;
 }) {
+  const generatedId = useId();
+  const controlId = id ?? generatedId;
+  const labelId = `${controlId}-label`;
+  const noteId = note ? `${controlId}-note` : undefined;
   return (
-    <div className={disabled ? "min-w-0 opacity-50" : "min-w-0"}>
-      <div className="mb-1.5">
-        <Label>{label}</Label>
-      </div>
-      {action ? (
-        <div className="flex items-center gap-1.5">
-          <div className="min-w-0 flex-1">{children}</div>
-          <div className="shrink-0">{action}</div>
+    <FieldContext.Provider value={{ controlId, labelId, noteId }}>
+      <div className={disabled ? "min-w-0 opacity-50" : "min-w-0"}>
+        <div className="mb-1.5 flex min-h-6 items-center gap-1">
+          <Label id={labelId} htmlFor={controlId}>{label}</Label>
+          {help && <ConfigFieldHelp label={label}>{help}</ConfigFieldHelp>}
         </div>
-      ) : (
-        children
-      )}
-      {note}
-    </div>
+        {action ? (
+          <div className="flex items-center gap-1.5">
+            <div className="min-w-0 flex-1">{children}</div>
+            <div className="shrink-0">{action}</div>
+          </div>
+        ) : (
+          children
+        )}
+        {note && <div id={noteId}>{note}</div>}
+      </div>
+    </FieldContext.Provider>
+  );
+}
+
+const INPUT_CLASS = "flex h-9 w-full min-w-0 items-center rounded-md border border-input bg-card px-3 py-2 text-xs font-medium text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50";
+
+/** Shared text/date input styling; value interpretation belongs to the caller. */
+export function ConfigTextInput({
+  className,
+  type = "text",
+  id,
+  "aria-labelledby": labelledBy,
+  "aria-describedby": describedBy,
+  ...props
+}: React.ComponentPropsWithoutRef<"input">) {
+  const field = useContext(FieldContext);
+  return (
+    <input
+      {...props}
+      type={type}
+      id={id ?? field?.controlId}
+      aria-labelledby={labelledBy ?? (props["aria-label"] ? undefined : field?.labelId)}
+      aria-describedby={[field?.noteId, describedBy].filter(Boolean).join(" ") || undefined}
+      className={cn(INPUT_CLASS, className)}
+    />
   );
 }
 
@@ -116,21 +217,22 @@ export function ConfigDateInput({
   onChange,
   max,
   disabled,
+  ...props
 }: {
   value: string;
   onChange: (value: string) => void;
   /** ISO bound, e.g. today, so a window cannot be set into the future. */
   max?: string;
   disabled?: boolean;
-}) {
+} & Omit<React.ComponentPropsWithoutRef<"input">, "value" | "onChange" | "type">) {
   return (
-    <input
+    <ConfigTextInput
+      {...props}
       type="date"
       value={value}
       max={max}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className="flex h-9 w-full items-center rounded-md border border-input bg-card px-3 py-2 text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
     />
   );
 }
@@ -140,19 +242,48 @@ export function ConfigSelect({
   options,
   disabled,
   onChange,
+  searchLabel,
+  id,
+  "aria-label": ariaLabel,
+  "aria-labelledby": labelledBy,
+  "aria-describedby": describedBy,
 }: {
   value: string | undefined;
   options: { value: string; label: string }[];
   disabled?: boolean;
   onChange: (value: string) => void;
+  /** Opt long lists into local search; short selectors retain the standard menu. */
+  searchLabel?: string;
+  id?: string;
+  "aria-label"?: string;
+  "aria-labelledby"?: string;
+  "aria-describedby"?: string;
 }) {
+  const field = useContext(FieldContext);
+  if (searchLabel) {
+    return (
+      <SearchableSelect
+        value={value} options={options} onChange={onChange} searchLabel={searchLabel}
+        disabled={disabled || options.length === 0}
+        id={id ?? field?.controlId}
+        aria-label={ariaLabel}
+        aria-labelledby={labelledBy ?? (ariaLabel ? undefined : field?.labelId)}
+        aria-describedby={[field?.noteId, describedBy].filter(Boolean).join(" ") || undefined}
+      />
+    );
+  }
   return (
     <Select
       value={value}
       onValueChange={onChange}
       disabled={disabled || options.length === 0}
     >
-      <SelectTrigger>
+      <SelectTrigger
+        id={id ?? field?.controlId}
+        aria-label={ariaLabel}
+        aria-labelledby={labelledBy ?? (ariaLabel ? undefined : field?.labelId)}
+        aria-describedby={[field?.noteId, describedBy].filter(Boolean).join(" ") || undefined}
+      >
         <SelectValue placeholder="Select" />
       </SelectTrigger>
       <SelectContent>

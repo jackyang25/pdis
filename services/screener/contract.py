@@ -12,7 +12,6 @@ asks and still present a count.
 from __future__ import annotations
 
 from .models import (
-    ANSWER_SOURCES,
     QUESTION_STATES,
     GateConfig,
     GateReview,
@@ -51,8 +50,8 @@ def _documents(result: GateReview) -> None:
     doc_ids = [document.doc_id for document in result.documents]
     if len(set(doc_ids)) != len(doc_ids):
         raise ValueError("two documents share a doc_id")
-    if any(not document.source_type.strip() for document in result.documents):
-        raise ValueError("every document must carry its source type")
+    if any(not doc_id.strip() for doc_id in doc_ids):
+        raise ValueError("every document must carry a non-empty doc_id")
 
     block_ids = [block.id for block in result.blocks]
     if len(set(block_ids)) != len(block_ids):
@@ -65,11 +64,9 @@ def _documents(result: GateReview) -> None:
                 "document this review carries"
             )
 
-    labels = result.context_labels
-    if len(set(labels)) != len(labels):
-        raise ValueError("two context items share a label")
-    if any(not label.strip() for label in labels):
-        raise ValueError("every context item must carry a label")
+    missing_docs = known_docs - {block.doc_id for block in result.blocks}
+    if missing_docs:
+        raise ValueError(f"documents carry no readable blocks: {sorted(missing_docs)}")
 
 
 def _questions_are_complete(result: GateReview, config: GateConfig) -> None:
@@ -102,7 +99,6 @@ def _questions_are_complete(result: GateReview, config: GateConfig) -> None:
 
 def _evidence_agrees_with_state(result: GateReview) -> None:
     known_blocks = {block.id for block in result.blocks}
-    known_labels = set(result.context_labels)
 
     for item in result.assessments():
         if item.state not in QUESTION_STATES:
@@ -123,11 +119,7 @@ def _evidence_agrees_with_state(result: GateReview) -> None:
             )
 
         if item.state not in ("answered", "partly_answered"):
-            if item.source is not None:
-                raise ValueError(
-                    f"{item.id}: state {item.state} cannot carry an answer source"
-                )
-            if item.cited_block_ids or item.context_label:
+            if item.cited_block_ids:
                 raise ValueError(
                     f"{item.id}: state {item.state} cannot cite evidence"
                 )
@@ -138,38 +130,12 @@ def _evidence_agrees_with_state(result: GateReview) -> None:
                 )
             continue
 
-        if item.source not in ANSWER_SOURCES:
-            raise ValueError(f"{item.id}: an answered question must name its source")
         if not item.statement.strip():
             raise ValueError(f"{item.id}: an answered question must say what it found")
-
-        if item.source == "document":
-            if not item.cited_block_ids:
-                raise ValueError(
-                    f"{item.id}: answered from a document but cites no block"
-                )
-            unknown = [b for b in item.cited_block_ids if b not in known_blocks]
-            if unknown:
-                raise ValueError(f"{item.id}: cites unknown block(s) {unknown}")
-            if len(set(item.cited_block_ids)) != len(item.cited_block_ids):
-                raise ValueError(f"{item.id}: cites the same block twice")
-            if item.context_label:
-                raise ValueError(
-                    f"{item.id}: answered from a document but also names a context "
-                    "item; an answer has one source"
-                )
-            continue
-
-        # source == "context": attribution without lineage, and it must be a label
-        # the user actually supplied — the same membership guarantee a block ID
-        # gives, since neither can be proven to have been read.
-        if item.context_label not in known_labels:
-            raise ValueError(
-                f"{item.id}: names context item {item.context_label!r}, which was "
-                "not supplied"
-            )
-        if item.cited_block_ids:
-            raise ValueError(
-                f"{item.id}: answered from supplied context cannot cite a block, "
-                "because transient input is never chunked"
-            )
+        if not item.cited_block_ids:
+            raise ValueError(f"{item.id}: answered but cites no block")
+        unknown = [b for b in item.cited_block_ids if b not in known_blocks]
+        if unknown:
+            raise ValueError(f"{item.id}: cites unknown block(s) {unknown}")
+        if len(set(item.cited_block_ids)) != len(item.cited_block_ids):
+            raise ValueError(f"{item.id}: cites the same block twice")

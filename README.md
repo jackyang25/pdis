@@ -8,6 +8,8 @@ PDIS turns DOCX and PPTX product-development documents into citable
 analysis. It supports target product profiles and development plans for
 vaccines, drugs, diagnostics, and devices while preserving the source blocks
 behind every result.
+Screener also accepts text-based PDFs, with the extraction limits described in its
+[document contract](services/screener/README.md#one-document-collection).
 
 ## Table of Contents
 
@@ -63,6 +65,8 @@ OpenAPI reference are available at [http://localhost:8000/api/health](http://loc
 Every backend route lives under `/api`, including the OpenAPI documents. That is
 what lets one hostname serve both the client and the gateway in a deployment,
 and it makes browser calls same-origin.
+An optional employee-authenticated [MCP interface](api/mcp/README.md) exposes
+Searcher to compatible clients. It is disabled until explicitly configured.
 
 ### Dependencies
 
@@ -133,9 +137,10 @@ they are not executed by this repository.
 
 ## Configuration
 
-Document workflows use four inputs: `org`, `source_type`,
-`intervention_class`, and `indication`. The first three select YAML
-configuration; `indication` scopes provenance and Scout retrieval.
+Document workflows share `org`, `intervention_class`, and `indication`.
+Document types select configuration where required; Screener selects its question
+bank by organization and stage gate. Configuration details live in each service's
+README.
 
 Server credentials belong in `.env`; the browser environment contains only the
 API origin. See [.env.example](.env.example) and

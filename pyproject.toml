@@ -26,6 +26,9 @@ dependencies = [
     "python-multipart>=0.0.9,<1.0",
     "python-dotenv>=1.0,<2.0",
     "pydantic>=2.6,<3.0",
+    "mcp>=2.2,<3.0",
+    "anyio>=4.9,<5.0",
+    "pyjwt[crypto]>=2.10.1,<3.0",
 
     # LLM + config/vocab
     "openai>=1.0.0,<3.0",
@@ -35,6 +38,7 @@ dependencies = [
     # Document parsing (chunker)
     "python-docx>=0.8.11,<2.0",
     "python-pptx>=1.0.0,<2.0",
+    "pypdf>=6.0,<7.0",
     # Renders PPTX slides after LibreOffice converts them; not a PDF input parser.
     "pypdfium2>=4.30.0,<6.0",
     "pillow>=10.0.0,<13.0",

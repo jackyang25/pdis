@@ -4,9 +4,8 @@
  *
  * Which indications to offer is an editorial judgment and stays documented in
  * `shared/indications.yaml`. What is mechanically checkable is the shape of a
- * key, and that shape is load-bearing: the picker submits the raw key, and
- * `services/scout/stages/query_extractor.py` joins it verbatim into query text
- * without de-underscoring it. A compound key would search for itself.
+ * key, and that shape is load-bearing: the picker submits the raw key while
+ * shared.vocabulary.search_term derives its space-separated downstream text.
  */
 
 import assert from "node:assert/strict";
@@ -21,7 +20,7 @@ const VOCAB = path.join(REPO, "shared", "indications.yaml");
 
 /** Every declared tag, read as text so the web package needs no YAML parser. */
 function indicationTags(source: string): string[] {
-  return [...source.matchAll(/^\s+-\s+(\S+)\s*$/gm)].map((match) => match[1]);
+  return [...source.matchAll(/^\s+- key: (\S+)\s*$/gm)].map((match) => match[1]);
 }
 
 test("single-token keys keep the labels they already had", () => {
@@ -53,8 +52,8 @@ test("no shipped indication renders as an abbreviation of itself", () => {
 });
 
 test("acronyms resolve per word, not only for a whole key", () => {
-  // No shipped key is compound today; `scout-labels.ts` reads the same set per
-  // word, and the two disagreeing about one word is what sharing it prevents.
+  // `scout-labels.ts` reads the same set per word, and the two disagreeing about
+  // one word is what sharing it prevents.
   assert.equal(displayLabel("who_tpp"), "WHO TPP");
   assert.equal(displayLabel("example_org"), "Example Org");
 });
@@ -75,8 +74,7 @@ test("every shared indication is lowercase words joined by underscores", () => {
     assert.match(
       tag,
       /^[a-z0-9]+(_[a-z0-9]+)*$/,
-      `${tag} is not lowercase words joined by underscores; a syndrome or population `
-        + `belongs in the document, not in the tag`,
+      `${tag} is not lowercase words joined by underscores`,
     );
     assert.ok(displayLabel(tag).trim().length > 0, `${tag} renders no label`);
   }

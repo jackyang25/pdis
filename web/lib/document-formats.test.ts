@@ -19,27 +19,40 @@ import {
   DOCUMENT_ACCEPT,
   DOCUMENT_FORMAT_HINT,
   DOCUMENT_SUFFIXES,
+  TEXT_EXTRACTION_SUFFIXES,
   isSupportedDocument,
 } from "./document-formats.ts";
 
 const WEB = path.resolve(import.meta.dirname, "..");
 const REPO = path.resolve(WEB, "..");
 const CHUNKER_PIPELINE = path.join(REPO, "services", "chunker", "pipeline.py");
+const CHUNKER_FORMATS = path.join(REPO, "services", "chunker", "formats.py");
 /** This module is the mirror, so it is the one file allowed to name extensions. */
 const AUTHORITY = path.join("lib", "document-formats.ts");
 
 test("the mirrored set matches services/chunker", () => {
-  const source = readFileSync(CHUNKER_PIPELINE, "utf8");
-  const declaration = /^DOCUMENT_SUFFIXES\s*=\s*\{([^}]*)\}/m.exec(source);
-  assert.ok(declaration, "DOCUMENT_SUFFIXES is no longer declared as a set literal");
+  const source = readFileSync(CHUNKER_FORMATS, "utf8");
+  const declaration = /^DOCUMENT_SUFFIXES\s*=\s*frozenset\(\{([^}]*)\}\)/m.exec(source);
+  assert.ok(declaration, "DOCUMENT_SUFFIXES is no longer declared as a frozen set literal");
   const owned = [...declaration[1].matchAll(/"([^"]+)"|'([^']+)'/g)]
     .map((match) => match[1] ?? match[2])
     .sort();
   assert.deepEqual(
     [...DOCUMENT_SUFFIXES].sort(),
     owned,
-    "web/lib/document-formats.ts drifted from services/chunker/pipeline.py",
+    "web/lib/document-formats.ts drifted from services/chunker/formats.py",
   );
+});
+
+test("text-extraction capability matches Chunker while default validation stays narrow", () => {
+  const source = readFileSync(CHUNKER_FORMATS, "utf8");
+  const declaration = /^TEXT_EXTRACTION_SUFFIXES\s*=\s*DOCUMENT_SUFFIXES\s*\|\s*\{([^}]*)\}/m.exec(source);
+  assert.ok(declaration);
+  const extra = [...declaration[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual([...TEXT_EXTRACTION_SUFFIXES], [...DOCUMENT_SUFFIXES, ...extra]);
+  assert.equal(isSupportedDocument("REPORT.PDF", TEXT_EXTRACTION_SUFFIXES), true);
+  assert.equal(isSupportedDocument("REPORT.PDF"), false);
+  assert.equal(isSupportedDocument("report.pdf.doc", TEXT_EXTRACTION_SUFFIXES), false);
 });
 
 test("derived values stay consistent with the set", () => {

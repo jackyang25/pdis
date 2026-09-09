@@ -1,6 +1,6 @@
 # Chunker
 
-Convert DOCX and PPTX files into ordered, citable content blocks.
+Convert supported documents into ordered, citable content blocks.
 
 ## Background
 
@@ -25,11 +25,31 @@ never enter citations. DOCX preserves body order and embedded images; PPTX
 retains slide text, tables, notes, positions, and rendered slide images when
 available.
 
-Supported formats declare their own structure, so tables, rows, headings, and
-reading order are read from the file rather than inferred from glyph positions.
-Rendering formats such as PDF are refused at the parser boundary: a table
-reconstructed from geometry can merge unrelated columns into one block whose
-text still satisfies exact-quote validation, which no downstream check detects.
+Input capabilities live in `formats.py`. `DOCUMENT_SUFFIXES` is the default:
+DOCX/PPTX declare tables, rows, headings and order. A caller may explicitly pass
+`accepted_suffixes=TEXT_EXTRACTION_SUFFIXES` to `run_pipeline` to also accept
+text-based PDF. Only Screener enables that capability; standalone Chunker,
+Inspector, Aligner, Scout, Archivist builds and Ask attachments keep the default.
+
+PDF uses pypdf to produce one text block per page, with stable IDs, a one-based
+`structural_meta.page`, and `extraction_warnings: ["pdf_text_only"]`. It does not
+infer headings or table cells, extract images, or run OCR. The same block shape
+does not imply the same extraction quality: columns can be misordered and images
+or scanned portions of otherwise readable pages can be omitted. A citation
+identifies extracted text, not a verified reconstruction of the page.
+
+PDF parsing refuses encrypted files (including empty-password encryption), strict
+parse failures, logged pypdf extraction warnings, zero-page files, files over
+20 MiB or 200 pages, and direct content streams over 5 MiB decoded. This cap does
+not include nested Form XObject streams. Any page with no non-whitespace text fails the whole
+document, including blank pages: it cannot reliably distinguish an intentional
+blank from an unreadable scan. These are input/extraction guards, not an accuracy
+certificate or a hard memory sandbox; stream decompression occurs before the
+decoded-size check. No partial document is returned on failure.
+The API's logging composition keeps pypdf warnings enabled even at quieter
+`LOG_LEVEL` settings because some library errors are only logged. Other hosts
+using the PDF capability must also leave pypdf warning diagnostics enabled;
+Chunker observes each parsing thread separately and removes its handler on exit.
 
 Multi-column table rows retain both their canonical searchable `content` and
 ordered `table_cells` with exact content offsets. Consumers render columns from

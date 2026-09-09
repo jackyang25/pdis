@@ -28,13 +28,5 @@ test("the queued stage name matches api/streaming.py", () => {
   );
 });
 
-test("the gateway announces a queue only when a run actually waits", () => {
-  const source = readFileSync(STREAMING, "utf8");
-  // A blocking acquire without the non-blocking probe would emit the queued
-  // stage on every run, changing the event stream of an uncontended one.
-  assert.match(
-    source,
-    /if not _run_slots\.acquire\(blocking=False\)/,
-    "the queued stage must be conditional on the cap being spent",
-  );
-});
+// Queue admission behavior is exercised by tests/test_streaming.py against real
+// workers and the shared api.execution capacity, not inferred from Python text.

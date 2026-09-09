@@ -112,6 +112,11 @@ def configure_logging() -> None:
     root.addHandler(handler)
     root.setLevel(level)
 
+    # pypdf reports some extraction failures as warnings instead of exceptions.
+    # Chunker observes them per parsing thread to refuse incomplete documents;
+    # a quieter deployment must not suppress that validation signal.
+    logging.getLogger("pypdf").setLevel(logging.WARNING)
+
     # uvicorn installs its own handlers and does not propagate. Clearing them
     # lets its access and error lines reach the same formatter as everything
     # else; otherwise half the output is JSON and half is not.

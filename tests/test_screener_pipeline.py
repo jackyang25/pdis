@@ -11,13 +11,14 @@ The model client is a fake. What is being tested is the pipeline, not the provid
 from __future__ import annotations
 
 import unittest
+import io
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from docx import Document
+from PIL import Image
 
 from services.screener import (
-    ContextItem,
     DocumentInput,
     GateConfig,
     QuestionSpec,
@@ -27,8 +28,7 @@ from services.screener import (
 from services.screener.models import DisciplineSpec
 from services.screener.stages.assessor import (
     DECISION_NOT_FOUND,
-    DECISION_FROM_CONTEXT,
-    DECISION_FROM_DOCUMENT,
+    DECISION_ANSWERED,
 )
 
 
@@ -60,23 +60,8 @@ class ScriptedClient:
                 "statement": "Nothing supplied answers this.",
                 "missing": "",
                 "block_ids": [],
-                "context_label": "",
             }
-        if schema_name == "chunker_section_labels":
-            # Chunker requires exactly one label per supplied block, drawn from its
-            # taxonomy. Read both out of the schema it built, so this fake stays
-            # correct if the parse contract changes.
-            ids = schema["properties"]["labels"]["items"]["properties"]["id"]["enum"]
-            taxonomy = schema["properties"]["labels"]["items"]["properties"][
-                "section_label"
-            ]["enum"]
-            return {
-                "labels": [
-                    {"id": block_id, "section_label": taxonomy[0], "confidence": "high"}
-                    for block_id in ids
-                ]
-            }
-        return {}
+        raise AssertionError(f"Unexpected model stage: {schema_name}")
 
 
 def bank(*questions: QuestionSpec) -> GateConfig:
@@ -94,6 +79,94 @@ def bank(*questions: QuestionSpec) -> GateConfig:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_all_documents_and_embedded_images_share_one_citation_collection(self) -> None:
+        report = self.root / "report.docx"
+        document = Document()
+        document.add_paragraph("Independent laboratory findings.")
+        image = io.BytesIO()
+        Image.new("RGB", (12, 12), "red").save(image, format="PNG")
+        image.seek(0)
+        document.add_picture(image)
+        document.save(report)
+
+        class CiteAllClient:
+            calls = []
+
+            def call_structured(self, system_prompt, user_message, max_tokens,
+                                *, schema_name, schema, images=None, **kwargs):
+                if schema_name != "screener_question_triage":
+                    raise AssertionError("Parsing must not call a model")
+                self.calls.append((user_message, images))
+                return {
+                    "decision": "answered", "statement": "The findings are documented.",
+                    "missing": "", "block_ids": schema["properties"]["block_ids"]["items"]["enum"],
+                }
+
+        client = CiteAllClient()
+        review = run_pipeline(
+            [DocumentInput(str(self.itpp), "profile"), DocumentInput(str(report), "report")],
+            org="bmgf", intervention_class="drug", indication="malaria",
+            config=bank(QuestionSpec("Q1", "What was found?"), QuestionSpec("Q2", "What is planned?")),
+            llm_client=client,
+        )
+        self.assertEqual([d.doc_id for d in review.documents], ["profile", "report"])
+        self.assertEqual({b.doc_id for b in review.blocks}, {"profile", "report"})
+        for assessment in review.assessments():
+            self.assertEqual(assessment.cited_block_ids, [b.id for b in review.blocks])
+        retained_images = [b for b in review.blocks if b.image]
+        self.assertEqual(len(retained_images), 1)
+        for message, images in client.calls:
+            self.assertIn("Dosing regimen", message)
+            self.assertIn("Independent laboratory findings", message)
+            self.assertEqual(images, [{"block_id": retained_images[0].id,
+                                       "data_url": retained_images[0].image.data_url()}])
+        for block in review.blocks:
+            self.assertEqual((block.org, block.intervention_class, block.indication),
+                             ("bmgf", "drug", "malaria"))
+            self.assertIsNone(block.source_type)
+
+    def test_duplicate_document_ids_fail_before_parsing(self) -> None:
+        with self.assertRaisesRegex(ValueError, "share a doc_id"):
+            run_pipeline(
+                [DocumentInput("missing.docx", "same"), DocumentInput("also-missing.docx", "same")],
+                org="bmgf", intervention_class="drug", indication="malaria",
+                config=bank(QuestionSpec("Q1", "What was found?")), llm_client=ScriptedClient([]),
+            )
+
+    def test_unsupported_formats_fail_before_parsing(self) -> None:
+        for suffix in ("txt", "md", "png", "jpg"):
+            with self.subTest(suffix=suffix), self.assertRaisesRegex(ValueError, "Unsupported"):
+                run_pipeline(
+                    [DocumentInput("missing." + suffix, "report")],
+                    org="bmgf", intervention_class="drug", indication="malaria",
+                    config=bank(QuestionSpec("Q1", "What was found?")), llm_client=ScriptedClient([]),
+                )
+
+    def test_an_empty_document_is_not_silently_lost_beside_a_readable_document(self) -> None:
+        empty = self.root / "empty.docx"
+        write_docx(empty, [])
+        with self.assertRaisesRegex(ValueError, "empty.*no readable content"):
+            run_pipeline(
+                [DocumentInput(str(self.itpp), "profile"), DocumentInput(str(empty), "empty")],
+                org="bmgf", intervention_class="drug", indication="malaria",
+                config=bank(QuestionSpec("Q1", "What was found?")), llm_client=ScriptedClient([]),
+            )
+
+    def test_arbitrary_documents_need_no_type_configuration(self) -> None:
+        report = self.root / "study-report.docx"
+        write_docx(report, ["Clinical study findings."])
+        client = ScriptedClient([])
+        review = run_pipeline(
+            [DocumentInput(file_path=str(report), doc_id="study-report")],
+            org="bmgf", intervention_class="drug", indication="malaria",
+            config=bank(QuestionSpec(id="Q1", text="What was found?")),
+            llm_client=client,
+        )
+        self.assertEqual([d.doc_id for d in review.documents], ["study-report"])
+        self.assertTrue(review.blocks)
+        self.assertTrue(all(b.source_type is None for b in review.blocks))
+        self.assertIn("Clinical study findings", client.triage_calls[0])
+
     def setUp(self) -> None:
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -112,14 +185,12 @@ class PipelineTests(unittest.TestCase):
         self,
         config: GateConfig,
         decisions: list[dict],
-        *,
-        context_items: list[ContextItem] | None = None,
     ):
         client = ScriptedClient(decisions)
         review = run_pipeline(
             [
                 DocumentInput(
-                    file_path=str(self.itpp), source_type="itpp", doc_id="profile"
+                    file_path=str(self.itpp), doc_id="profile"
                 )
             ],
             org="bmgf",
@@ -127,7 +198,6 @@ class PipelineTests(unittest.TestCase):
             indication="malaria",
             config=config,
             llm_client=client,
-            context_items=context_items or [],
         )
         return review, client
 
@@ -208,54 +278,16 @@ class PipelineTests(unittest.TestCase):
             config,
             [
                 {
-                    "decision": DECISION_FROM_DOCUMENT,
+                    "decision": DECISION_ANSWERED,
                     "statement": "The profile states one dose annually.",
                     "missing": "",
                     "block_ids": [block_id],
-                    "context_label": "",
                 }
             ],
         )
         answered = review.assessments()[0]
         self.assertEqual(answered.state, "answered")
-        self.assertEqual(answered.source, "document")
         self.assertEqual(answered.cited_block_ids, [block_id])
-
-    def test_context_answers_carry_a_label_and_no_lineage(self) -> None:
-        config = bank(
-            QuestionSpec(id="Q1", text="What is the COGS?")
-        )
-        review, _ = self.run_screener(
-            config,
-            [
-                {
-                    "decision": DECISION_FROM_CONTEXT,
-                    "statement": "The report gives USD 1.20 per dose.",
-                    "missing": "",
-                    "block_ids": [],
-                    "context_label": "CMC Report",
-                }
-            ],
-            context_items=[ContextItem(label="CMC Report", text="COGS is USD 1.20")],
-        )
-        answered = review.assessments()[0]
-        self.assertEqual(answered.source, "context")
-        self.assertEqual(answered.context_label, "CMC Report")
-        self.assertEqual(answered.cited_block_ids, [])
-        # The label travels; the text does not.
-        self.assertEqual(review.context_labels, ["CMC Report"])
-
-    def test_the_context_text_is_never_carried_on_the_result(self) -> None:
-        config = bank(
-            QuestionSpec(id="Q1", text="What is the COGS?")
-        )
-        secret = "COGS is USD 1.20 and this string must not survive"
-        review, _ = self.run_screener(
-            config,
-            [],
-            context_items=[ContextItem(label="CMC Report", text=secret)],
-        )
-        self.assertNotIn(secret, repr(review))
 
     def test_operational_questions_are_assessed_rather_than_withheld(self) -> None:
         """No document holds these, but deciding that was a guess. Ask, and report."""
@@ -289,17 +321,6 @@ class PipelineTests(unittest.TestCase):
                 indication="malaria",
                 config=bank(QuestionSpec(id="Q1", text="t")),
                 llm_client=ScriptedClient([]),
-            )
-
-    def test_two_context_items_sharing_a_label_are_refused(self) -> None:
-        with self.assertRaises(ValueError):
-            self.run_screener(
-                bank(QuestionSpec(id="Q1", text="t")),
-                [],
-                context_items=[
-                    ContextItem(label="Report", text="one"),
-                    ContextItem(label="Report", text="two"),
-                ],
             )
 
     def test_the_shipped_bank_runs_end_to_end(self) -> None:

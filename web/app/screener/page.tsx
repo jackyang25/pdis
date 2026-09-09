@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/result-toolbar";
 import { useTraceFocus } from "@/lib/trace-focus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, Paperclip, Plus, X } from "lucide-react";
 import { RunHistory } from "@/components/run-history";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import {
@@ -24,18 +23,17 @@ import { ScreenerSignalHelp } from "@/components/screener-signal-help";
 import { FinalResultActions } from "@/components/final-result-actions";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel, type DocumentSlot } from "@/components/run-panel";
-import {
-  ContextFields,
-  SourceTypeField,
-  useSupportedDocumentTypes,
-} from "@/components/configuration-fields";
+import { TEXT_EXTRACTION_FORMATS } from "@/lib/document-formats";
+import { DocumentExtractionNotice } from "@/components/document-extraction-notice";
+import { ContextFields } from "@/components/configuration-fields";
 import {
   ConfigField,
+  ConfigHelp,
+  ConfigSectionHeading,
   ConfigSelect,
   ConfigurationShell,
 } from "@/components/ui/config-field";
-import { SectionHeading } from "@/components/ui/section-heading";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent, TabsTrigger } from "@/components/ui/tabs";
 import { ScreenerCoverageStrip } from "@/components/screener-coverage-strip";
 import { ScreenerDocumentTrace } from "@/components/screener-document-trace";
 import {
@@ -66,7 +64,6 @@ import {
 import { useScreenerSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
-import { CONTEXT_ACCEPT, CONTEXT_FORMAT_HINT } from "@/lib/document-formats";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { Reading } from "@/components/ui/evidence-text";
@@ -77,27 +74,14 @@ const STEPS = [
   { key: "assess", label: "Triaging questions" },
 ];
 
-type DocumentChoice = { key: string; sourceType: string };
-/**
- * One transient context item: a file, and the name an answer is attributed to.
- *
- * The label is the reader's, not the filename. It is what appears beside an answer read
- * from this source, and `AIV_CMC_final_v3` is not an attribution — so the filename is
- * only a starting point, editable before the run.
- */
-type ContextRow = { key: string; label: string; file: File | null };
-
-const INITIAL_CHOICES: DocumentChoice[] = [{ key: "d1", sourceType: "" }];
-
 export default function ScreenerPage() {
   const session = useScreenerSession();
   const header = useHeaderStore((state) => state.header);
   const [gates, setGates] = useState<GateSpec[]>([]);
   const [gate, setGate] = useState("");
-  const [choices, setChoices] = useState<DocumentChoice[]>(INITIAL_CHOICES);
-  const [contextRows, setContextRows] = useState<ContextRow[]>([]);
+  const [documentIds, setDocumentIds] = useState(["document-1"]);
+  const nextDocumentId = useRef(2);
   const [showSetup, setShowSetup] = useState(!session.result);
-  const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (session.result) setShowSetup(false);
@@ -125,26 +109,12 @@ export default function ScreenerPage() {
     };
   }, [header.intervention_class, header.org, session.setError]);
 
-  // A type chosen under one context does not exist under another, so changing
-  // either clears the rows rather than leaving a stale selection.
-  useEffect(() => {
-    setChoices(INITIAL_CHOICES);
-  }, [header.org, header.intervention_class]);
-
-  const chosen = choices.map((choice) => choice.sourceType).filter(Boolean);
-  const slots: readonly DocumentSlot[] = chosen.map((sourceType) => ({
-    id: sourceType,
-    label: displayLabel(sourceType),
+  const slots: readonly DocumentSlot[] = documentIds.map((id, index) => ({
+    id,
+    label: `Document ${index + 1}`,
   }));
   const contextReady = isContextComplete(header);
-  const configured = contextReady && Boolean(gate) && chosen.length > 0;
-  // A row with a file but no name is dropped rather than sent: the label is what an
-  // answer is attributed to, so an unnamed source could be attributed to nothing.
-  const contextItems = contextRows.flatMap((row) =>
-    row.file && row.label.trim()
-      ? [{ label: row.label.trim(), file: row.file }]
-      : [],
-  );
+  const configured = contextReady && gates.some((item) => item.id === gate);
 
   async function handleRun(files: Record<string, File>) {
     if (!configured || !contextReady) return;
@@ -154,16 +124,13 @@ export default function ScreenerPage() {
     session.setProgress(null);
     try {
       const result = await runScreener(
-        // Read from the slots this page declared, never from every file the panel is
-        // holding: a type the user switched away from may still have one.
-        chosen.map((sourceType) => ({ file: files[sourceType], sourceType })),
+        documentIds.map((id) => files[id]),
         {
           gate,
           org: header.org,
           intervention_class: header.intervention_class,
           indication: header.indication,
         },
-        contextItems,
         (stage, progress) => {
           session.setStage(stage);
           session.setProgress(progress ?? null);
@@ -191,94 +158,72 @@ export default function ScreenerPage() {
     <>
       <PageHeader
         title="Screener"
-        description="The iTPP, cTPP, and IPDP against a stage gate’s question bank: what is still unanswered, and which discipline it goes to. Stage gate readiness, not judgement — it reports what the material does not answer, and decides nothing."
+        description="Your documents against a stage gate’s question bank: what is answered, what remains open, and which discipline owns each question. Stage gate readiness, not judgement — it reports what the material does not answer, and decides nothing."
       />
       <div className="flex flex-col gap-6">
         {(!session.result || showSetup) && (
           <RunPanel
             busy={session.busy}
             documents={slots}
+            documentFormats={TEXT_EXTRACTION_FORMATS}
+            onAddDocument={() => {
+              const id = `document-${nextDocumentId.current++}`;
+              setDocumentIds((ids) => [...ids, id]);
+            }}
+            onRemoveDocument={(id) => setDocumentIds((ids) => ids.filter((held) => held !== id))}
             onRun={(files) => void handleRun(files)}
             steps={STEPS}
             currentStage={session.stage}
             progress={session.progress}
             runDisabled={!configured}
-            hint={runHint(contextReady, gate, chosen.length)}
+            hint={runHint(contextReady, configured ? gate : "")}
             runLabel="Run triage"
             busyLabel="Triaging"
             configuration={
               <ConfigurationShell>
                 <ContextFields />
-                <div className="mt-4">
-                  <ConfigField
-                    label="Stage gate"
-                    disabled={!header.org}
-                    note={
-                      /*
-                        An empty list is explained rather than left empty. It happened
-                        once for a different reason — a renamed field emptied this picker
-                        with no error anywhere — and a reader cannot tell "no bank for
-                        this modality" from "something is broken" without being told.
-                      */
-                      header.org &&
-                      header.intervention_class &&
-                      gates.length === 0 ? (
-                        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                          No stage-gate bank covers{" "}
-                          {displayLabel(header.intervention_class)}. The banks
-                          are written for small-molecule drug programs — they
-                          ask about synthetic routes, salt forms and BCS class —
-                          so a review here would ask questions this modality has
-                          no answer to.
-                        </p>
-                      ) : undefined
-                    }
-                  >
-                    <ConfigSelect
-                      value={gate || undefined}
-                      // Already in development order from the service, which owns
-                      // the ordinal. Nothing sorts them here.
-                      options={gates.map((item) => ({
-                        value: item.id,
-                        label: item.label,
-                      }))}
-                      disabled={!header.org || gates.length === 0}
-                      onChange={setGate}
-                    />
-                  </ConfigField>
-                </div>
-                <DocumentChooser
-                  choices={choices}
-                  disabled={!contextReady}
-                  onChange={setChoices}
-                />
-                <ContextChooser rows={contextRows} onChange={setContextRows} />
+                <ConfigSectionHeading>Run options</ConfigSectionHeading>
+                <ConfigField
+                  label="Stage gate"
+                  help="Organization and stage gate select the question bank; intervention class determines applicability. Indication labels the review but does not change the assessment."
+                  disabled={!header.org}
+                  note={
+                    /*
+                      An empty list is explained rather than left empty. It happened
+                      once for a different reason — a renamed field emptied this picker
+                      with no error anywhere — and a reader cannot tell "no bank for
+                      this modality" from "something is broken" without being told.
+                    */
+                    header.org &&
+                    header.intervention_class &&
+                    gates.length === 0 ? (
+                      <ConfigHelp>
+                        No stage-gate bank covers{" "}
+                        {displayLabel(header.intervention_class)}. Available banks
+                        cover small-molecule drug programs only.
+                      </ConfigHelp>
+                    ) : (
+                      <ConfigHelp>
+                        Selects the questions checked against all supplied documents.
+                      </ConfigHelp>
+                    )
+                  }
+                >
+                  <ConfigSelect
+                    value={gate || undefined}
+                    // Already in development order from the service, which owns
+                    // the ordinal. Nothing sorts them here.
+                    options={gates.map((item) => ({
+                      value: item.id,
+                      label: item.label,
+                    }))}
+                    disabled={!header.org || gates.length === 0}
+                    onChange={setGate}
+                  />
+                </ConfigField>
               </ConfigurationShell>
             }
-            extraControls={
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>Or view a previously downloaded result:</span>
-                <button
-                  type="button"
-                  onClick={() => importRef.current?.click()}
-                  disabled={session.busy}
-                  className="font-medium text-primary hover:text-primary/80 disabled:opacity-50"
-                >
-                  Import JSON
-                </button>
-                <input
-                  ref={importRef}
-                  type="file"
-                  accept=".json,application/json"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void handleImport(file);
-                    event.target.value = "";
-                  }}
-                />
-              </div>
-            }
+            onImport={handleImport}
           />
         )}
 
@@ -298,188 +243,10 @@ export default function ScreenerPage() {
 function runHint(
   contextReady: boolean,
   gate: string,
-  documentCount: number,
 ): string | undefined {
   if (!contextReady) return "Complete the configuration to run.";
   if (!gate) return "Choose the stage gate this review is preparing for.";
-  if (documentCount === 0) return "Add at least one document to read.";
   return undefined;
-}
-
-/**
- * Which documents this run reads.
- *
- * Each row offers only the types no other row has taken, so two documents of one
- * type — which the service refuses — cannot be selected in the first place. One
- * document is a valid run: Screener checks coverage rather than comparing, so it has
- * no minimum pair. Fewer documents move questions to "needs a document"; they never
- * change the denominator.
- */
-function DocumentChooser({
-  choices,
-  disabled,
-  onChange,
-}: {
-  choices: DocumentChoice[];
-  disabled?: boolean;
-  onChange: (next: DocumentChoice[]) => void;
-}) {
-  const { types } = useSupportedDocumentTypes();
-  const available = new Set((types ?? []).map((item) => item.source_type)).size;
-  const taken = choices.map((choice) => choice.sourceType).filter(Boolean);
-  const canAdd = !disabled && choices.length < available;
-
-  return (
-    <div className="mt-4">
-      <div className="flex flex-col gap-3">
-        {choices.map((choice, index) => (
-          <div key={choice.key} className="flex items-end gap-1.5">
-            <div className="min-w-0 flex-1">
-              <SourceTypeField
-                label={`Document ${index + 1}`}
-                value={choice.sourceType || undefined}
-                exclude={taken}
-                // Once, under the first row: the note is about what the field does,
-                // not about one document, so repeating it per row is noise.
-                hint={index === 0}
-                onChange={(value) =>
-                  onChange(
-                    choices.map((item, position) =>
-                      position === index
-                        ? { ...item, sourceType: value }
-                        : item,
-                    ),
-                  )
-                }
-              />
-            </div>
-            <button
-              type="button"
-              aria-label={`Remove document ${index + 1}`}
-              disabled={disabled || choices.length <= 1}
-              onClick={() =>
-                onChange(choices.filter((_, position) => position !== index))
-              }
-              className="mb-0.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ))}
-      </div>
-      <button
-        type="button"
-        disabled={!canAdd}
-        onClick={() =>
-          onChange([...choices, { key: `d${Date.now()}`, sourceType: "" }])
-        }
-        className="mt-2.5 inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors hover:text-primary/80 disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Add document
-      </button>
-    </div>
-  );
-}
-
-/**
- * Material the gate asks about that no TPP or plan carries.
- *
- * Attached rather than pasted: nobody has the text of a CMC report to hand, and everybody
- * has the file. The service reads it into prose and discards it, so this path stays
- * separate from the canonical one in every way that matters — the text is never chunked,
- * never cited, and never stored, so an answer from it names this label and carries no
- * passage. Which is why the label is required and why it is the reader's own words rather
- * than the filename: it is the whole of the attribution.
- *
- * Its accepted formats are wider than an upload's for that same reason. An upload becomes
- * citable blocks and needs declared structure; this becomes a paragraph in a prompt.
- */
-function ContextChooser({
-  rows,
-  onChange,
-}: {
-  rows: ContextRow[];
-  onChange: (next: ContextRow[]) => void;
-}) {
-  function update(index: number, patch: Partial<ContextRow>) {
-    onChange(
-      rows.map((item, position) =>
-        position === index ? { ...item, ...patch } : item,
-      ),
-    );
-  }
-
-  return (
-    <div className="mt-5 border-t border-border pt-4">
-      <p className="text-xs font-medium text-foreground">Additional context</p>
-      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-        Attach material the documents do not contain: a CMC summary, meeting
-        minutes. Its text is read for this run only and never saved, so an
-        answer from it names the source and cites no passage.{" "}
-        {CONTEXT_FORMAT_HINT}.
-      </p>
-      <div className="mt-3 flex flex-col gap-3">
-        {rows.map((row, index) => (
-          <div key={row.key} className="rounded-md border border-border p-2.5">
-            <div className="flex items-center gap-1.5">
-              <input
-                value={row.label}
-                placeholder="Name this source, e.g. CMC Development Report"
-                onChange={(event) =>
-                  update(index, { label: event.target.value })
-                }
-                className="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring/20"
-              />
-              <button
-                type="button"
-                aria-label={`Remove context item ${index + 1}`}
-                onClick={() =>
-                  onChange(rows.filter((_, position) => position !== index))
-                }
-                className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground motion-reduce:transition-none"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <label className="mt-2 flex min-h-9 cursor-pointer items-center gap-2 rounded-md border border-dashed border-input px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/25 hover:text-foreground motion-reduce:transition-none">
-              <Paperclip aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">
-                {row.file ? row.file.name : "Choose a file"}
-              </span>
-              <input
-                type="file"
-                accept={CONTEXT_ACCEPT}
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (!file) return;
-                  // The filename starts the label off, because most of the time it is
-                  // close enough to edit; an empty field is one more thing to type.
-                  update(index, {
-                    file,
-                    label:
-                      row.label.trim() || file.name.replace(/\.[^.]+$/, ""),
-                  });
-                  event.target.value = "";
-                }}
-              />
-            </label>
-          </div>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={() =>
-          onChange([...rows, { key: `c${Date.now()}`, label: "", file: null }])
-        }
-        className="mt-2.5 inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors hover:text-primary/80 motion-reduce:transition-none"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Add context
-      </button>
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -583,6 +350,7 @@ function ReviewView({
         </>
       }
     >
+      <DocumentExtractionNotice blocks={review.blocks} />
       <DocumentSourceProvider
         blocks={review.blocks}
         onOpenInTrace={openBlockInTrace}
@@ -659,22 +427,12 @@ function ReviewView({
               state="answered"
               review={review}
               query={normalizedQuery}
-              trailing={`${counts.cited} cited to a passage · ${counts.fromContext} from supplied context`}
             />
 
             <BankSource source={review.bank_source} />
           </div>
         </TabsContent>
 
-        {/*
-          The component alone, as in Inspector, Aligner and Scout. A band above it
-          restated two things the page already shows: the split between answers cited to
-          a passage and answers from attached context, which the Answered row states
-          beside its own count, and a per-document tally, which the trace viewer prints
-          live beside the document it is showing. The tally also printed both documents
-          at once, so it had to end by asking the reader not to add them - a caution that
-          only existed because the numbers were there.
-        */}
         <TabsContent value="trace" className="m-0">
           <ScreenerDocumentTrace
             review={review}
@@ -810,11 +568,6 @@ function CountRow({
 }
 
 /**
- * Which upload would make the unassessable questions assessable.
- *
- * Absent entirely when nothing is missing, so a complete run gains no chrome.
- */
-/**
  * One state's questions, grouped by the discipline that owns them.
  *
  * Grouped rather than a flat list: the discipline was printed on every row, so ten
@@ -831,7 +584,6 @@ function StatePanel({
   description,
   state,
   review,
-  trailing,
   defaultOpen = false,
   emptyMessage,
   orderNote,
@@ -841,7 +593,6 @@ function StatePanel({
   description: string;
   state: QuestionAssessment["state"];
   review: GateReview;
-  trailing?: string;
   defaultOpen?: boolean;
   /** Shown in place of the list when nothing is in this state. */
   emptyMessage?: string;
@@ -855,7 +606,6 @@ function StatePanel({
    */
   query?: string;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
   const groups = useMemo(
     () => groupedByDiscipline(review, state, query),
     [review, state, query],
@@ -877,16 +627,8 @@ function StatePanel({
     // cards inside it looked like a fresh decision rather than a repeat.
     <CollapsibleCard
       title={title}
+      count={total}
       subtitle={description}
-      // The count in the trailing slot, where every other card in the suite puts it,
-      // rather than trailing the title inside the heading. It was inside because this
-      // card drew its own header and could put anything anywhere.
-      trailing={
-        <span className="flex shrink-0 items-center gap-3 text-[11px] text-muted-foreground">
-          {trailing && <span>{trailing}</span>}
-          <span className="tabular-nums">{total}</span>
-        </span>
-      }
       defaultOpen={defaultOpen}
     >
       {total === 0 ? (
@@ -948,12 +690,12 @@ function StatePanel({
 function QuestionRow({ question }: { question: QuestionAssessment }) {
   const [open, setOpen] = useState(false);
   return (
-    <li className="px-4 py-3">
+    <li className="min-w-0 py-3 first:pt-0 last:pb-0">
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className="w-full text-left"
+        className="w-full rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
       >
         {/*
           The question and what identifies it on one line, not two. The badge and the ID
@@ -970,7 +712,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
           badge for an icon to sit on. "How to read" is on the toolbar and lists every
           topic beside the ones it contrasts with.
         */}
-        <span className="flex items-baseline gap-3">
+        <span className="flex flex-col gap-1.5 sm:flex-row sm:items-baseline sm:gap-3">
           <span
             className={`min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground ${open ? "" : "line-clamp-2"}`}
           >
@@ -1005,11 +747,6 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
       )}
       {/*
         The ask, given its own line rather than left inside the statement. On a partial
-        this is the sentence that goes back to the grantee, and burying it in prose is
-        why it was required as a field in the first place.
-      */}
-      {/*
-        The ask, given its own line rather than left inside the statement. On a partial
         this is the sentence that goes back to the grantee, and burying it in prose is why
         it was required as a field in the first place.
 
@@ -1024,33 +761,19 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
           {question.missing}
         </Attributed>
       )}
-      {open && <Provenance question={question} />}
+      <Provenance question={question} />
     </li>
   );
 }
 
-/**
- * Where an answer came from.
- *
- * The same field in the same place for both sources, so a context answer reads as a
- * property rather than a warning: it was addressed, it just cannot be checked from
- * the file. The text behind it was never stored, so this label is the whole record.
- */
+/** Retained passages supporting an answer. */
 function Provenance({ question }: { question: QuestionAssessment }) {
   // Nothing to show for a question no answer was found for. There used to be a line
   // here naming the document such an answer usually lives in, which no source states.
-  if (question.state !== "answered") return null;
-  if (question.source === "context") {
-    return (
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        Source: {question.context_label} · no passage reference
-      </p>
-    );
-  }
+  if (question.state !== "answered" && question.state !== "partly_answered") return null;
   return (
-    <div className="mt-2">
-      <p className="text-[11px] text-muted-foreground">Source</p>
-      <DocumentSourceTrace blockIds={question.cited_block_ids} />
+    <div className="mt-1.5">
+      <DocumentSourceTrace blockIds={question.cited_block_ids} annotationId={question.id} />
     </div>
   );
 }

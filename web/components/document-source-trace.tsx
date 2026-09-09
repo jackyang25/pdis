@@ -13,6 +13,7 @@ import { BlockReferenceId } from "@/components/block-reference";
 import { TracePanelHeader } from "@/components/document-trace-panel";
 import type { ContentBlock, DocumentSpan } from "@/lib/api";
 import { sourcePassageAriaLabel } from "@/lib/block-reference";
+import { documentBlockLocationLabel } from "@/lib/document-extraction";
 import { CitedMark, Quoted } from "@/components/ui/evidence-text";
 import { markCitedText } from "@/lib/cited-text";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -93,9 +94,7 @@ export function DocumentSourceTrace({
   // their block only in spacing - a table row the parse renders with its own line breaks.
   const citedPassage = markCitedText(selectedBlock?.content ?? "", selectedQuotes);
   const selectedHeading = selectedBlock
-    ? selectedBlock.section_label ||
-      selectedBlock.heading_stack[selectedBlock.heading_stack.length - 1] ||
-      "Source passage"
+    ? documentBlockLocationLabel(selectedBlock) || "Source passage"
     : "Source passage unavailable";
 
   async function copyBlockId(blockId: string) {
@@ -139,9 +138,7 @@ export function DocumentSourceTrace({
             >
               {uniqueBlockIds.map((blockId, index) => {
                 const block = blocksById.get(blockId);
-                const label = block?.section_label ||
-                  block?.heading_stack[block.heading_stack.length - 1] ||
-                  `Passage ${index + 1}`;
+                const label = (block && documentBlockLocationLabel(block)) || `Passage ${index + 1}`;
                 return (
                   <button
                     key={blockId}

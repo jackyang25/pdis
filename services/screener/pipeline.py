@@ -21,13 +21,12 @@ from shared.batching import map_ordered
 
 from services.chunker import (
     ContentBlock,
-    find_config as find_chunker_config,
+    TEXT_EXTRACTION_SUFFIXES,
     run_pipeline as chunker_run_pipeline,
 )
 
 from .contract import validate_result_contract
 from .models import (
-    ContextItem,
     DisciplineReview,
     DocumentInput,
     GateConfig,
@@ -41,6 +40,7 @@ from .models import (
 from .stages.assessor import assess_question
 
 DEFAULT_MAX_OUTPUT_TOKENS = 16000
+SUPPORTED_DOCUMENT_SUFFIXES = TEXT_EXTRACTION_SUFFIXES
 
 # Documents are parsed concurrently but bounded: each parse is itself parallel
 # inside chunker, and an unbounded fan-out here would multiply that.
@@ -59,7 +59,6 @@ def run_pipeline(
     indication: str,
     config: GateConfig,
     llm_client: LLMClientProtocol,
-    context_items: Sequence[ContextItem] = (),
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     progress_callback=None,
 ) -> GateReview:
@@ -67,8 +66,14 @@ def run_pipeline(
     if not documents:
         raise ValueError("Screener needs at least one document to read.")
 
-    items = list(context_items)
-    _reject_duplicate_labels(items)
+    doc_ids = [document.doc_id for document in documents]
+    if any(not doc_id.strip() for doc_id in doc_ids):
+        raise ValueError("Every document needs a non-empty doc_id.")
+    if len(set(doc_ids)) != len(doc_ids):
+        raise ValueError("Two documents share a doc_id; filenames must be distinct.")
+    for document in documents:
+        if Path(document.file_path).suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES:
+            raise ValueError(f"Unsupported document format: {document.file_path}")
 
     # Resolve first: the one state config owns is decided here, with no I/O, and a
     # bank that has nothing to say about this product fails now rather than after
@@ -77,47 +82,32 @@ def run_pipeline(
         progress_callback("resolve")
     resolutions = resolve_questions(config, intervention_class=intervention_class)
 
-    # Resolve chunker configs before parsing, so a missing document configuration
-    # fails at once rather than partway through a parallel parse.
-    chunker_configs = [
-        find_chunker_config(org, document.source_type, intervention_class)
-        for document in documents
-    ]
-
     if progress_callback:
         progress_callback("parse")
 
-    def parse(pair: tuple[DocumentInput, object]) -> list[ContentBlock]:
-        document, chunker_config = pair
-        return chunker_run_pipeline(
+    def parse(document: DocumentInput) -> list[ContentBlock]:
+        blocks = chunker_run_pipeline(
             str(Path(document.file_path)),
             doc_id=document.doc_id,
-            config=chunker_config,
-            llm_client=llm_client,
-            max_tokens=max_tokens,
+            org=org,
+            intervention_class=intervention_class,
             indication=indication,
+            accepted_suffixes=SUPPORTED_DOCUMENT_SUFFIXES,
         )
+        if not blocks:
+            raise ValueError(f"Document {document.doc_id!r} produced no readable content.")
+        return blocks
 
-    parsed = map_ordered(
-        list(zip(documents, chunker_configs)),
-        parse,
-        workers=MAX_PARALLEL_DOCUMENTS,
-    )
+    parsed = map_ordered(list(documents), parse, workers=MAX_PARALLEL_DOCUMENTS)
     # Ordered by the order documents were supplied, so a rerun with the same inputs
     # produces a byte-identical result.
     blocks = [block for document_blocks in parsed for block in document_blocks]
-    if not blocks and not items:
-        raise ValueError(
-            "Nothing readable was supplied: the documents produced no content and no "
-            "context was pasted, so no question could be assessed."
-        )
 
     if progress_callback:
         progress_callback("assess")
     assessments = _assess(
         resolutions,
         blocks=blocks,
-        context_items=items,
         llm_client=llm_client,
         max_tokens=max_tokens,
     )
@@ -127,11 +117,10 @@ def run_pipeline(
         gate_label=config.gate_label,
         bank_source=config.mirrors,
         documents=[
-            ReviewDocument(doc_id=document.doc_id, source_type=document.source_type)
+            ReviewDocument(doc_id=document.doc_id)
             for document in documents
         ],
         disciplines=_group(config, assessments),
-        context_labels=[item.label for item in items],
         org=org,
         intervention_class=intervention_class,
         indication=indication,
@@ -144,7 +133,6 @@ def _assess(
     resolutions: list[QuestionResolution],
     *,
     blocks: list[ContentBlock],
-    context_items: list[ContextItem],
     llm_client: LLMClientProtocol,
     max_tokens: int,
 ) -> dict[str, QuestionAssessment]:
@@ -169,7 +157,6 @@ def _assess(
         return assess_question(
             resolution.question,
             blocks=blocks,
-            context_items=context_items,
             llm_client=llm_client,
             max_tokens=max_tokens,
         )
@@ -196,14 +183,3 @@ def _group(
         )
         for discipline in config.disciplines
     ]
-
-
-def _reject_duplicate_labels(items: list[ContextItem]) -> None:
-    labels = [item.label.strip() for item in items]
-    if any(not label for label in labels):
-        raise ValueError("Every context item needs a label.")
-    if len(set(labels)) != len(labels):
-        raise ValueError(
-            "Two context items share a label. Labels are how an answer names its "
-            "source, so they must be distinct."
-        )

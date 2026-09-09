@@ -8,13 +8,19 @@ export type Header = {
 
 export type ToolName = "chunker" | "aligner" | "screener" | "inspector" | "scout";
 
+export type ContextOption = {
+  org: string;
+  intervention_class: string;
+  supports: Partial<Record<ToolName, boolean>>;
+};
+
 export type DocumentType = {
   key: string;
   org: string;
   source_type: string;
   intervention_class: string;
   display_name: string;
-  supports: Record<ToolName, boolean>;
+  supports: Partial<Record<ToolName, boolean>>;
 };
 
 export type ContentBlock = {
@@ -1063,8 +1069,6 @@ export const QUESTION_STATE_TONE: Record<QuestionState, Tone> = {
   not_applicable: "neutral",
 };
 
-export type AnswerSource = "document" | "context";
-
 export type QuestionAssessment = {
   id: string;
   text: string;
@@ -1086,9 +1090,7 @@ export type QuestionAssessment = {
    * it was usually there and never guaranteed.
    */
   missing: string;
-  source: AnswerSource | null;
   cited_block_ids: string[];
-  context_label: string;
 };
 
 export type DisciplineReview = {
@@ -1099,7 +1101,6 @@ export type DisciplineReview = {
 
 export type ReviewDocument = {
   doc_id: string;
-  source_type: string;
 };
 
 /**
@@ -1122,8 +1123,6 @@ export type GateReview = {
   bank_source: string;
   documents: ReviewDocument[];
   disciplines: DisciplineReview[];
-  /** Labels of the transient context items supplied, never their text. */
-  context_labels: string[];
   org: string;
   intervention_class: string;
   indication: string;
@@ -1258,6 +1257,13 @@ export async function fetchDocumentTypes(): Promise<DocumentType[]> {
     "/api/configs/document-types",
   );
   return res.document_types;
+}
+
+export async function fetchContexts(): Promise<ContextOption[]> {
+  const res = await jsonRequest<{ contexts: ContextOption[] }>(
+    "/api/configs/contexts",
+  );
+  return res.contexts;
 }
 
 export async function fetchIndications(intervention: string): Promise<string[]> {
@@ -1446,37 +1452,20 @@ export async function fetchScreenerGates(
   return data.gates;
 }
 
-/**
- * `contextItems` are transient: their text is sent with this one request and never
- * stored. Only the labels come back on the result, which is what lets an answer
- * name its source without the tool taking the content into its contract.
- */
+/** Read the complete document collection against one gate question bank. */
 export async function runScreener(
-  documents: { file: File; sourceType: string }[],
+  documents: File[],
   configuration: {
     gate: string;
     org: string;
     intervention_class: string;
     indication: string;
   },
-  /**
-   * Transient context: one attachment per item, with the name an answer is attributed
-   * to. The service reads each file into text; nothing here parses one, so a format it
-   * accepts is added in one place rather than two.
-   */
-  contextItems: { label: string; file: File }[],
   onStage?: (stage: string, progress?: StageProgress) => void,
 ): Promise<ScreenerResponse> {
   const form = new FormData();
-  documents.forEach(({ file, sourceType }) => {
-    form.append("files", file);
-    form.append("source_types", sourceType);
-  });
+  documents.forEach((file) => form.append("files", file));
   Object.entries(configuration).forEach(([key, value]) => form.append(key, value));
-  contextItems.forEach(({ label, file }) => {
-    form.append("context_labels", label);
-    form.append("context_files", file);
-  });
   return streamRequest("/api/screener/run", form, onStage);
 }
 

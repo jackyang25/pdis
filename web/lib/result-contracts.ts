@@ -136,9 +136,7 @@ function assertAlignerReadable(result: unknown): void {
  * The completeness check the service enforces cannot be repeated here, because a
  * file carries no bank to compare against — which is exactly why every question
  * carries its own `text`. So this checks the two things a reader depends on: that
- * each question can be displayed, and that an answer's evidence matches the source
- * it claims. A `context` answer with a block ID would render as checkable when it
- * is not, and that is the one way this result can mislead.
+ * each question can be displayed, and every answer cites retained evidence.
  */
 function assertScreenerReadable(result: unknown): void {
   const review = (result as ScreenerResponse | null)?.review;
@@ -148,8 +146,24 @@ function assertScreenerReadable(result: unknown): void {
   if (requireArray("screener", review.documents, "documents").length === 0) {
     fail("screener", "it names no document");
   }
-  const labels = new Set(review.context_labels ?? []);
-  const blocks = new Set((review.blocks ?? []).map((block) => block.id));
+  const documentIds = new Set<string>();
+  for (const document of review.documents) {
+    requireText("screener", document.doc_id, "a document id");
+    if (documentIds.has(document.doc_id)) fail("screener", "it repeats a document id");
+    documentIds.add(document.doc_id);
+  }
+  const blocks = new Set<string>();
+  const representedDocuments = new Set<string>();
+  for (const block of requireArray("screener", review.blocks, "blocks") as ScreenerResponse["review"]["blocks"]) {
+    requireText("screener", block.id, "a passage id");
+    if (blocks.has(block.id)) fail("screener", "it repeats a passage id");
+    if (!documentIds.has(block.doc_id)) fail("screener", "a passage names a document the file does not list");
+    blocks.add(block.id);
+    representedDocuments.add(block.doc_id);
+  }
+  if (representedDocuments.size !== documentIds.size) {
+    fail("screener", "a document has no retained passages");
+  }
 
   const disciplines = requireArray("screener", review.disciplines, "disciplines");
   if (disciplines.length === 0) fail("screener", "it carries no discipline");
@@ -172,24 +186,16 @@ function assertScreenerReadable(result: unknown): void {
         if (!["not_applicable", "not_found"].includes(held.state)) {
           fail("screener", `it uses a question state this version cannot read: ${held.state}`);
         }
+        if ((held.cited_block_ids ?? []).length > 0) {
+          fail("screener", "an unanswered question cites a passage");
+        }
         continue;
       }
-      if (held.source === "document") {
-        if ((held.cited_block_ids ?? []).length === 0) {
-          fail("screener", "an answer from a document cites no passage");
-        }
-        if (held.cited_block_ids.some((id) => !blocks.has(id))) {
-          fail("screener", "an answer cites a passage the file does not carry");
-        }
-      } else if (held.source === "context") {
-        if ((held.cited_block_ids ?? []).length > 0) {
-          fail("screener", "an answer from supplied context cites a passage");
-        }
-        if (!labels.has(held.context_label)) {
-          fail("screener", "an answer names a context item the file does not list");
-        }
-      } else {
-        fail("screener", "an answered question does not say where the answer came from");
+      if ((held.cited_block_ids ?? []).length === 0) {
+        fail("screener", "an answer cites no passage");
+      }
+      if (held.cited_block_ids.some((id) => !blocks.has(id))) {
+        fail("screener", "an answer cites a passage the file does not carry");
       }
     }
   }

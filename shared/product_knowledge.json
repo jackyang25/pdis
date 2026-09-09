@@ -357,11 +357,11 @@
             },
             {
               "question": "What happens if I choose the wrong document type?",
-              "answer": "You get a confident result about the wrong thing. The type decides how the file is parsed and which rubric or configuration it is read against, and nothing checks that the file matches the type you chose."
+              "answer": "In tools that ask for a document type, it selects the rubric or configuration the document is read against; a wrong selection can produce a result against the wrong authority. Screener does not ask for a document type: its stage gate selects the question bank, and every uploaded document is read against that bank."
             },
             {
-              "question": "Why can I attach a PDF as context but not upload one for review?",
-              "answer": "Because the two are read differently. An uploaded document becomes citable blocks, and every citation depends on structure being read from the file, which a PDF does not declare, so a table rebuilt from where glyphs landed can merge unrelated columns and still look correct. Context is read once into a prompt: never chunked, never cited, never checked against a quote. So a format that declares no structure loses nothing there, and an answer from it says so by naming its source instead of a passage."
+              "question": "Which files can I supply for a document review?",
+              "answer": "DOCX and PPTX across document tools. Screener also accepts text-based PDFs through the same retained-block pipeline, with page-level citations and a visible extraction warning. PDF images are not read, and table or column order may be inaccurate. Encrypted or malformed PDFs, files over 20 MiB or 200 pages, overly complex page streams, and pages without extractable text are refused. Other tools and Ask attachments do not accept PDFs. TXT, Markdown and standalone images are not document-review inputs; Screener has no separate context upload."
             },
             {
               "question": "What does “not found” actually mean?",
@@ -886,14 +886,13 @@
                 {
                   "id": "inputs",
                   "title": "Documents and gate",
-                  "summary": "A gate selects the question bank; the uploaded document types decide which of its questions can be assessed at all.",
+                  "summary": "A gate selects the question bank. Every supported document is supplied as evidence, without a document-type requirement, and every applicable question reads all of them.",
                   "kind": "input",
                   "layer": "Input",
                   "inputs": [
-                    "One or more product-development documents",
+                    "One or more evidence documents in DOCX, PPTX or text-based PDF format",
                     "The stage gate under preparation",
-                    "Organization, intervention, and indication",
-                    "Optional attached context (PDF, DOCX, TXT, MD), used for this run only"
+                    "Organization, intervention, and indication"
                   ],
                   "outputs": [
                     "The gate's question bank",
@@ -919,11 +918,11 @@
                 {
                   "id": "parse",
                   "title": "Document parsing",
-                  "summary": "Canonical documents become ordered, citable blocks. Attached context is read into text once, never chunked, and never stored.",
+                  "summary": "Every document passes through Chunker's shared parser without document-type section mapping. Ordered blocks and embedded images are retained together in the review.",
                   "kind": "integration",
                   "layer": "Source",
                   "inputs": [
-                    "DOCX and PPTX uploads"
+                    "DOCX, PPTX and text-based PDF uploads"
                   ],
                   "outputs": [
                     "Ordered ContentBlocks with stable IDs"
@@ -937,13 +936,11 @@
                   "layer": "Assessment",
                   "inputs": [
                     "One question",
-                    "Every document supplied",
-                    "Any attached context, as text, labelled"
+                    "The combined retained blocks and images from every document supplied"
                   ],
                   "outputs": [
                     "Answered, with its passages",
                     "Partly answered, with what it still leaves open",
-                    "Answered from a named context item",
                     "Not found"
                   ],
                   "guarantee": "Identical material on every call, so a citation is membership-checked and the expensive half of the prompt is a cacheable prefix rather than paid for once per question."
@@ -991,7 +988,7 @@
             {
               "id": "chunker",
               "title": "Chunker",
-              "summary": "Normalizes DOCX and PPTX into one ordered block contract with stable citations and retained visuals.",
+              "summary": "Normalizes documents into one ordered block contract: DOCX/PPTX with retained visuals, and opt-in PDF text extraction for Screener.",
               "nodes": [
                 {
                   "id": "file",
@@ -1000,7 +997,7 @@
                   "kind": "input",
                   "layer": "Input",
                   "inputs": [
-                    "DOCX or PPTX",
+                    "DOCX or PPTX; text-based PDF when explicitly enabled",
                     "Stable doc_id and provenance"
                   ],
                   "guarantee": "Temporary upload names never enter citations."
@@ -1008,7 +1005,7 @@
                 {
                   "id": "parse",
                   "title": "Format-native parsing",
-                  "summary": "Each format preserves its native order, tables, metadata, and visuals.",
+                  "summary": "DOCX/PPTX preserve native structure and visuals; PDF extraction preserves page text and declares its limitations.",
                   "kind": "deterministic",
                   "layer": "Parsing",
                   "outputs": [
@@ -1027,6 +1024,13 @@
                       "id": "pptx",
                       "title": "PPTX parser",
                       "summary": "Retains slide text, tables, notes, positions, and rendered slide images.",
+                      "kind": "deterministic",
+                      "layer": "Format adapter"
+                    },
+                    {
+                      "id": "pdf",
+                      "title": "PDF text extractor",
+                      "summary": "Opt-in page-level text blocks with page numbers and extraction warnings; no OCR, images, inferred headings or tables.",
                       "kind": "deterministic",
                       "layer": "Format adapter"
                     }

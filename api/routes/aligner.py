@@ -53,6 +53,7 @@ def list_edges() -> AlignerEdgesResponse:
                 reference=spec.reference,
                 comparison=spec.comparison,
                 question=spec.question,
+                when_absent=spec.when_absent,
             )
             for spec in load_config().edges
         ]

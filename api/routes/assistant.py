@@ -1,8 +1,8 @@
 """Ask route - read-only, grounded Q&A over context the client already has.
 
 Stateless: the client sends a result or workspace bundle + conversation history each turn
-(consistent with the one-shot tools). The agent loop runs server-side. The
-original JSON endpoint remains available; the UI uses the plain-text stream.
+(consistent with the one-shot tools). The agent loop runs server-side. The UI
+receives text, activity, completion, and failure as separate SSE events.
 """
 
 from __future__ import annotations
@@ -94,9 +94,21 @@ def sse(chunks: Iterator[Chunk]) -> Iterator[str]:
     Each payload is JSON-encoded so a newline inside it cannot end the event.
     SSE is line-delimited and model prose contains newlines constantly.
     """
-    for chunk in chunks:
-        prefix = "" if chunk.kind == "text" else f"event: {chunk.kind}\n"
-        yield f"{prefix}data: {json.dumps(chunk.text)}\n\n"
+    try:
+        for chunk in chunks:
+            prefix = "" if chunk.kind == "text" else f"event: {chunk.kind}\n"
+            yield f"{prefix}data: {json.dumps(chunk.text)}\n\n"
+    except Exception:
+        # HTTP headers have already gone out. Send a failure event, not answer
+        # text, and keep provider diagnostics (which may contain input) in logs.
+        logger.exception("Assistant stream failed")
+        error = {
+            "code": "assistant_stream_failed",
+            "message": "The assistant could not finish its response. Please try again.",
+        }
+        yield f"event: error\ndata: {json.dumps(error)}\n\n"
+        return
+    yield "event: done\ndata: {}\n\n"
 
 
 @router.post("/priority-digest", response_model=PriorityDigestResponse)
@@ -162,7 +174,7 @@ async def priority_digest(request: PriorityDigestRequest) -> PriorityDigestRespo
 
 @router.post("/ask/stream")
 def ask_stream(request: AskRequest) -> StreamingResponse:
-    """Stream a grounded answer as plain text for AI SDK UI consumers.
+    """Stream a grounded answer and explicit success/failure as SSE events.
 
     The request contract intentionally matches /ask so saved results, source
     documents, and stateless conversation history keep the same semantics.

@@ -13,10 +13,8 @@ from tempfile import TemporaryDirectory
 
 from services.chunker import ContentBlock
 from services.screener import (
-    ANSWER_SOURCES,
     MODEL_STATES,
     QUESTION_STATES,
-    ContextItem,
     DisciplineReview,
     DisciplineSpec,
     GateConfig,
@@ -34,8 +32,7 @@ from services.screener import (
 from services.screener.prompt_catalog import PROMPT_CATALOG
 from services.screener.stages.assessor import (
     DECISION_NOT_FOUND,
-    DECISION_FROM_CONTEXT,
-    DECISION_FROM_DOCUMENT,
+    DECISION_ANSWERED,
     assess_question,
     assessment_schema,
     build_assessment_prompt,
@@ -413,23 +410,19 @@ class VocabularyTests(unittest.TestCase):
         )
         self.assertNotIn("not_applicable", MODEL_STATES)
 
-    def test_there_are_exactly_two_answer_sources(self) -> None:
-        """A third would let something look cited without being checkable."""
-        self.assertEqual(set(ANSWER_SOURCES), {"document", "context"})
 
 
-def review(*questions: QuestionAssessment, blocks=None, labels=None) -> GateReview:
+def review(*questions: QuestionAssessment, blocks=None) -> GateReview:
     return GateReview(
         gate_id="lcs",
         gate_label="Lead Chemical Series Selection",
         bank_source=BANK_SOURCE,
-        documents=[ReviewDocument(doc_id="d", source_type="itpp")],
+        documents=[ReviewDocument(doc_id="d")],
         disciplines=[
             DisciplineReview(
                 id="cp", label="Clinical Pharmacology", questions=list(questions)
             )
         ],
-        context_labels=list(labels or []),
         org="bmgf",
         intervention_class="drug",
         indication="malaria",
@@ -446,7 +439,6 @@ class ContractTests(unittest.TestCase):
             text="Question Q1?",
             state="answered",
             statement="The plan states it.",
-            source="document",
             cited_block_ids=["d:1"],
         )
         defaults.update(overrides)
@@ -495,40 +487,10 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_result_contract(result, self.CONFIG)
 
-    def test_a_context_answer_must_name_a_supplied_item(self) -> None:
-        result = review(
-            self.answered(source="context", cited_block_ids=[], context_label="Ghost"),
-            self.excluded(),
-            labels=["CMC Report"],
-        )
-        with self.assertRaises(ValueError):
-            validate_result_contract(result, self.CONFIG)
-
-    def test_a_context_answer_cannot_cite_a_block(self) -> None:
-        """Transient input is never chunked, so a block ID here is impossible."""
-        result = review(
-            self.answered(
-                source="context", cited_block_ids=["d:1"], context_label="CMC Report"
-            ),
-            self.excluded(),
-            blocks=[block("d:1", "d", "itpp")],
-            labels=["CMC Report"],
-        )
-        with self.assertRaises(ValueError):
-            validate_result_contract(result, self.CONFIG)
-
-    def test_a_context_answer_is_accepted_without_lineage(self) -> None:
-        result = review(
-            self.answered(source="context", cited_block_ids=[], context_label="CMC Report"),
-            self.excluded(),
-            labels=["CMC Report"],
-        )
-        self.assertIs(validate_result_contract(result, self.CONFIG), result)
-
     def test_a_non_answered_question_cannot_carry_evidence(self) -> None:
         result = review(
             QuestionAssessment(
-                id="Q1", text="t", state="absent", statement="x", source="document"
+                id="Q1", text="t", state="not_found", statement="x", cited_block_ids=["d:1"]
             ),
             self.excluded(),
         )
@@ -593,88 +555,58 @@ class AssessorTests(unittest.TestCase):
     def test_a_document_answer_carries_its_lineage(self) -> None:
         client = FakeClient(
             {
-                "decision": DECISION_FROM_DOCUMENT,
+                "decision": DECISION_ANSWERED,
                 "statement": "The plan states it.",
                 "missing": "",
                 "block_ids": ["d:1"],
-                "context_label": "",
             }
         )
         result = assess_question(
             spec("Q1"),
             blocks=self.BLOCKS,
-            context_items=[],
             llm_client=client,
             max_tokens=100,
         )
         self.assertEqual(result.state, "answered")
-        self.assertEqual(result.source, "document")
         self.assertEqual(result.cited_block_ids, ["d:1"])
-        self.assertEqual(result.context_label, "")
-
-    def test_a_context_answer_carries_a_label_and_no_lineage(self) -> None:
-        client = FakeClient(
-            {
-                "decision": DECISION_FROM_CONTEXT,
-                "statement": "The report states it.",
-                "missing": "",
-                "block_ids": [],
-                "context_label": "CMC Report",
-            }
-        )
-        result = assess_question(
-            spec("Q1"),
-            blocks=self.BLOCKS,
-            context_items=[ContextItem(label="CMC Report", text="COGS is $1.20")],
-            llm_client=client,
-            max_tokens=100,
-        )
-        self.assertEqual(result.source, "context")
-        self.assertEqual(result.context_label, "CMC Report")
-        self.assertEqual(result.cited_block_ids, [])
 
     def test_a_partial_answer_names_what_is_still_missing(self) -> None:
-        from services.screener.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
+        from services.screener.stages.assessor import DECISION_PARTLY_ANSWERED
 
         client = FakeClient(
             {
-                "decision": DECISION_PARTLY_FROM_DOCUMENT,
+                "decision": DECISION_PARTLY_ANSWERED,
                 "statement": "The plan states annual dosing.",
                 "missing": "Zone IVb stability data and the VVM category.",
                 "block_ids": ["d:1"],
-                "context_label": "",
             }
         )
         result = assess_question(
             spec("Q1"),
             blocks=self.BLOCKS,
-            context_items=[],
             llm_client=client,
             max_tokens=100,
         )
         self.assertEqual(result.state, "partly_answered")
-        self.assertEqual(result.source, "document")
         self.assertEqual(result.cited_block_ids, ["d:1"])
         self.assertIn("Zone IVb", result.missing)
 
     def test_a_partial_answer_with_no_account_is_refused(self) -> None:
         """That sentence is the only record of what the question leaves open."""
-        from services.screener.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
+        from services.screener.stages.assessor import DECISION_PARTLY_ANSWERED
 
         client = FakeClient(
             {
-                "decision": DECISION_PARTLY_FROM_DOCUMENT,
+                "decision": DECISION_PARTLY_ANSWERED,
                 "statement": "The plan states annual dosing.",
                 "missing": "",
                 "block_ids": ["d:1"],
-                "context_label": "",
             }
         )
         with self.assertRaises(ValueError):
             assess_question(
                 spec("Q1"),
                 blocks=self.BLOCKS,
-                context_items=[],
                 llm_client=client,
                 max_tokens=100,
             )
@@ -685,29 +617,27 @@ class AssessorTests(unittest.TestCase):
         the two disagree about."""
         client = FakeClient(
             {
-                "decision": DECISION_FROM_DOCUMENT,
+                "decision": DECISION_ANSWERED,
                 "statement": "The plan states it.",
                 "missing": "something",
                 "block_ids": ["d:1"],
-                "context_label": "",
             }
         )
         with self.assertRaises(ValueError):
             assess_question(
                 spec("Q1"),
                 blocks=self.BLOCKS,
-                context_items=[],
                 llm_client=client,
                 max_tokens=100,
             )
 
     def test_a_partial_is_offered_even_without_context(self) -> None:
         """Completeness is independent of source, so it is never gated on context."""
-        from services.screener.stages.assessor import DECISION_PARTLY_FROM_DOCUMENT
+        from services.screener.stages.assessor import DECISION_PARTLY_ANSWERED
 
-        schema = assessment_schema(self.BLOCKS, [])
+        schema = assessment_schema(self.BLOCKS)
         self.assertIn(
-            DECISION_PARTLY_FROM_DOCUMENT, schema["properties"]["decision"]["enum"]
+            DECISION_PARTLY_ANSWERED, schema["properties"]["decision"]["enum"]
         )
 
     def test_a_not_found_answer_carries_nothing(self) -> None:
@@ -717,59 +647,46 @@ class AssessorTests(unittest.TestCase):
                 "statement": "No document states a dosing target.",
                 "missing": "",
                 "block_ids": [],
-                "context_label": "",
             }
         )
         result = assess_question(
             spec("Q1"),
             blocks=self.BLOCKS,
-            context_items=[],
             llm_client=client,
             max_tokens=100,
         )
         self.assertEqual(result.state, "not_found")
-        self.assertIsNone(result.source)
 
     def test_a_fabricated_block_is_retried_then_refused(self) -> None:
         client = FakeClient(
             {
-                "decision": DECISION_FROM_DOCUMENT,
+                "decision": DECISION_ANSWERED,
                 "statement": "The plan states it.",
                 "missing": "",
                 "block_ids": ["d:99"],
-                "context_label": "",
             }
         )
         with self.assertRaises(ValueError):
             assess_question(
                 spec("Q1"),
                 blocks=self.BLOCKS,
-                context_items=[],
                 llm_client=client,
                 max_tokens=100,
             )
         self.assertEqual(len(client.calls), 2, "the contract failure was not retried")
 
-    def test_context_is_not_offered_when_none_was_supplied(self) -> None:
-        """A model cannot attribute an answer to a source that does not exist."""
-        schema = assessment_schema(self.BLOCKS, [])
-        self.assertNotIn(
-            DECISION_FROM_CONTEXT, schema["properties"]["decision"]["enum"]
-        )
-        self.assertEqual(schema["properties"]["context_label"]["enum"], [""])
-
     def test_block_ids_can_only_name_supplied_blocks(self) -> None:
-        schema = assessment_schema(self.BLOCKS, [])
+        schema = assessment_schema(self.BLOCKS)
         self.assertEqual(schema["properties"]["block_ids"]["items"]["enum"], ["d:1"])
 
     def test_the_prompt_refuses_the_other_tools_jobs(self) -> None:
-        prompt = build_assessment_prompt(True)
+        prompt = build_assessment_prompt()
         self.assertIn("template", prompt)
         self.assertIn("realistic", prompt)
 
     def test_the_prompt_asks_for_a_clause_by_clause_judgment(self) -> None:
         """The bank's questions are compound, so rounding one either way loses it."""
-        prompt = build_assessment_prompt(False)
+        prompt = build_assessment_prompt()
         self.assertIn("clause by clause", prompt)
         self.assertIn("Do not round a partial", prompt)
 
@@ -784,27 +701,18 @@ class AssessorTests(unittest.TestCase):
         message = build_user_message(
             spec("Q1"),
             self.BLOCKS,
-            [ContextItem(label="CMC Report", text="COGS is $1.20")],
         )
         self.assertLess(message.index("Supplied document blocks"), message.index("Question ("))
-        self.assertLess(message.index("Supplied context"), message.index("Question ("))
 
-    def test_the_hint_is_never_sent_to_the_model(self) -> None:
-        """Telling it where the answer supposedly lives would let a guess steer it.
-
-        The hint names a type no supplied block carries, so finding it in the prompt
-        can only mean the hint leaked — a block header legitimately names its own
-        document type, which is a fact about the material rather than a judgment.
-        """
+    def test_document_identity_labels_the_prompt(self) -> None:
+        """Evidence is identified by its document, without a document-type taxonomy."""
         from services.screener.stages.assessor import build_user_message
 
         message = build_user_message(
             spec("Q1"),
             [block("d:1", "d", "ipdp", "The plan states annual dosing.")],
-            [],
         )
-        self.assertIn("ipdp", message, "the block should name its own document")
-        self.assertNotIn("ctpp", message, "the hint leaked into the prompt")
+        self.assertIn("[d:1 | d | paragraph", message)
 
 
 class PromptCatalogTests(unittest.TestCase):
@@ -814,9 +722,6 @@ class PromptCatalogTests(unittest.TestCase):
         self.assertEqual(entry.tool, "screener")
         self.assertTrue(entry.render().strip())
 
-    def test_the_published_prompt_is_the_variant_with_context(self) -> None:
-        """The larger variant, so publication does not understate what is sent."""
-        self.assertIn(DECISION_FROM_CONTEXT, PROMPT_CATALOG[0].render())
 
 
 if __name__ == "__main__":
@@ -840,7 +745,7 @@ class ReadingRuleTests(unittest.TestCase):
         are about what it says rather than where it breaks."""
         from services.screener.stages.assessor import build_assessment_prompt
 
-        return " ".join(build_assessment_prompt(True).lower().split())
+        return " ".join(build_assessment_prompt().lower().split())
 
     def test_a_parenthetical_is_scope_rather_than_a_checklist(self) -> None:
         prompt = self.prompt()

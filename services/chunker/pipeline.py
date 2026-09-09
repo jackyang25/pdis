@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
+from collections.abc import Set
 
 from shared.batching import map_ordered
+from .formats import DOCUMENT_SUFFIXES
 
 from .models import (
     ContentBlock,
@@ -24,13 +26,8 @@ from .stages.mapper import label_blocks
 from .stages.parser import parse_document
 
 DEFAULT_MAX_OUTPUT_TOKENS = 16000
-# Formats that declare their own structure. See stages/parser.py for why a
-# rendering format is not accepted as a document source.
-DOCUMENT_SUFFIXES = {".docx", ".pptx"}
-# What a conversation attachment may add on top of those documents. An
-# attachment is read once and discarded, so it never reaches the analysis path
-# that requires declared structure — but it must never accept less than that
-# path does.
+# Conversation attachments add images to the default structured-document set.
+# They do not inherit a tool's explicit text-extraction capability.
 ATTACHMENT_MEDIA_PREFIXES = ("image/",)
 ATTACHMENT_FORMAT_HINT = (
     ", ".join(sorted(suffix.removeprefix(".").upper() for suffix in DOCUMENT_SUFFIXES))
@@ -50,19 +47,24 @@ def run_pipeline(
     intervention_class: str | None = None,
     indication: str | None = None,
     progress_callback=None,
+    accepted_suffixes: Set[str] = DOCUMENT_SUFFIXES,
 ) -> list[ContentBlock]:
     """Parse a document, then optionally run the mapper to assign section labels.
 
     Header fields (org / source_type / intervention_class / indication)
     are stamped onto every returned block. If not provided, the pipeline reads
     them from `config` (chunker configs declare the full header internally).
+    `accepted_suffixes` is a server-selected input capability, not a user option;
+    the default remains declared-structure documents even when mapping is skipped.
 
     Raises on parse or mapping failure. For batch use with per-document
     error capture, call `run_pipeline_batch`.
     """
     if progress_callback:
         progress_callback("parse")
-    blocks = attach_image_assets(parse_document(file_path, doc_id), file_path)
+    blocks = attach_image_assets(
+        parse_document(file_path, doc_id, accepted_suffixes=accepted_suffixes), file_path
+    )
     if config is not None and llm_client is not None:
         if progress_callback:
             progress_callback("label")

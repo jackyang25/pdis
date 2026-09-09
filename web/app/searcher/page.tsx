@@ -7,7 +7,7 @@ import { ErrorMessage } from "@/components/ui/error-message";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { ConfigDateInput, ConfigSelect } from "@/components/ui/config-field";
+import { ConfigChip, ConfigDateInput, ConfigField, ConfigFieldGrid, ConfigHelp, ConfigSectionHeading, ConfigSelect, ConfigTextInput } from "@/components/ui/config-field";
 import { cn } from "@/lib/utils";
 import {
   fetchSearchSources,
@@ -175,17 +175,21 @@ export default function SearcherPage() {
       <div className="flex flex-col gap-6">
         <form
           onSubmit={onSubmit}
-          className="rounded-lg border border-border bg-card p-5"
+          className="rounded-lg border border-border bg-card p-5 sm:p-6"
         >
+          <h2 className="sr-only">Search configuration</h2>
+          <Label htmlFor="search-query" className="mb-1.5 block">Search query</Label>
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
+              <ConfigTextInput
                 type="text"
+                id="search-query"
+                aria-label="Search query"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="e.g. recent FDA guidance on RSV vaccines"
-                className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="pl-9"
                 disabled={busy}
               />
             </div>
@@ -200,140 +204,119 @@ export default function SearcherPage() {
               )}
             </Button>
           </div>
-          {/*
-            The two facets the field-addressed sources anchor on. Styled like the query
-            input above rather than through the rail primitives, because this card is not
-            a configuration rail and `ConfigFieldGrid` exists to solve the rail's 17rem
-            problem, which does not apply here. The notes are not decoration: left blank,
-            an adapter anchors on the query text itself, and a reader who does not know
-            that reads six empty lanes as an absence of evidence.
-          */}
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div className="min-w-0">
-              <div className="mb-1.5">
-                <Label>Condition</Label>
-              </div>
-              <input
+          {/* Source-specific facets share field presentation with the other tools. */}
+          <ConfigFieldGrid layout="wide" className="mt-4">
+            <ConfigSectionHeading>Search scope</ConfigSectionHeading>
+            <ConfigField
+              label="Condition"
+              help="Used for registry and database requests. If left blank, these requests use the query text, which may not match their condition fields."
+            >
+              <ConfigTextInput
                 type="text"
                 value={condition}
                 onChange={(e) => setCondition(e.target.value)}
                 placeholder="e.g. resected melanoma"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={busy}
               />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                Anchors every registry and database request. Left blank, they
-                anchor on the query text instead, which rarely matches a
-                condition field.
-              </p>
-            </div>
-            <div className="min-w-0">
-              <div className="mb-1.5">
-                <Label>Intervention class</Label>
-              </div>
-              <input
+            </ConfigField>
+            <ConfigField
+              label="Intervention class"
+              help="The intervention category. Used by sources with an intervention field."
+            >
+              <ConfigTextInput
                 type="text"
                 value={intervention}
                 onChange={(e) => setIntervention(e.target.value)}
                 placeholder="e.g. vaccine"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={busy}
               />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                The kind of intervention, which is what Scout carries here.
-                Scopes the request. Ignored by sources with no intervention
-                field.
-              </p>
-            </div>
-            <div className="min-w-0">
-              <div className="mb-1.5">
-                <Label>Product</Label>
-              </div>
-              <input
+            </ConfigField>
+            <ConfigField
+              label="Product"
+              help="One named product. Adds a narrower request alongside the intervention class, preserving broader results when a source records the product under a different name."
+            >
+              <ConfigTextInput
                 type="text"
                 value={product}
                 onChange={(e) => setProduct(e.target.value)}
                 placeholder="e.g. intismeran autogene"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={busy}
               />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                One named product. Added as a second, narrower request beside
-                the class rather than replacing it, so a name a registry files
-                differently still returns the broader result.
-              </p>
-            </div>
-            <div className="min-w-0">
-              <div className="mb-1.5">
-                <Label>Population</Label>
-              </div>
-              <input
+            </ConfigField>
+            <ConfigField
+              label="Population"
+              help="Who the question is about. PubMed and Semantic Scholar search this phrase instead of the whole query, unless Outcome is supplied."
+              note={
+                <ConfigHelp>
+                  Replaces the query for PubMed and Semantic Scholar.
+                </ConfigHelp>
+              }
+            >
+              <ConfigTextInput
                 type="text"
                 value={population}
                 onChange={(e) => setPopulation(e.target.value)}
                 placeholder="e.g. resected stage III"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={busy}
               />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                Who the question is about. Becomes the phrase PubMed and
-                Semantic Scholar search for, in place of the whole query.
-              </p>
-            </div>
-            <div className="min-w-0">
-              <div className="mb-1.5">
-                <Label>Outcome</Label>
-              </div>
-              <input
+            </ConfigField>
+            <ConfigField
+              label="Outcome"
+              help="What is measured. PubMed and Semantic Scholar use this phrase ahead of Population or the whole query."
+              note={
+                <ConfigHelp>
+                  Overrides Population for PubMed and Semantic Scholar.
+                </ConfigHelp>
+              }
+            >
+              <ConfigTextInput
                 type="text"
                 value={outcome}
                 onChange={(e) => setOutcome(e.target.value)}
                 placeholder="e.g. overall survival"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={busy}
               />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                What is measured. Takes precedence over Population as that
-                phrase, since it names the question more precisely.
-              </p>
-            </div>
-            <div className="min-w-0">
-              <div className="mb-1.5">
-                <Label>Region</Label>
-              </div>
-              <input
+            </ConfigField>
+            <ConfigSectionHeading>Search limits</ConfigSectionHeading>
+            <ConfigField
+              label="Region"
+              note={
+                <ConfigHelp>
+                  {regionLabels.length > 0
+                    ? `Restricts ${regionLabels.join(", ")} to trials running there. Other sources ignore it.`
+                    : "No selected source can filter by location, so this changes nothing."}
+                </ConfigHelp>
+              }
+            >
+              <ConfigTextInput
                 type="text"
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
                 placeholder="e.g. Kenya"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={busy}
               />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                {regionLabels.length > 0
-                  ? `Restricts ${regionLabels.join(", ")} to trials running there. Other sources ignore it.`
-                  : "No selected source can filter by location, so this changes nothing."}
-              </p>
-            </div>
-            <div className="min-w-0">
-              <div className="mb-1.5">
-                <Label>Published since</Label>
-              </div>
+            </ConfigField>
+            <ConfigField
+              label="Published since (optional)"
+              note={
+                <ConfigHelp>
+                  {dateBoundLabels.length > 0
+                    ? `Asked of ${dateBoundLabels.join(", ")} directly, so the window changes what they rank. Other sources ignore it.`
+                    : "No selected source can filter by date, so this changes nothing."}
+                </ConfigHelp>
+              }
+            >
               <ConfigDateInput
                 value={publishedSince}
                 onChange={setPublishedSince}
                 max={new Date().toISOString().slice(0, 10)}
                 disabled={busy}
               />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                {dateBoundLabels.length > 0
-                  ? `Asked of ${dateBoundLabels.join(", ")} directly, so the window changes what they rank. Other sources ignore it.`
-                  : "No selected source can filter by date, so this changes nothing."}
-              </p>
-            </div>
-          </div>
-          <div className="mt-4 flex min-h-8 flex-wrap items-center gap-2">
-            <span className="mr-1 text-xs text-muted-foreground">Sources</span>
+            </ConfigField>
+          </ConfigFieldGrid>
+          <fieldset className="mt-6 min-w-0">
+            <Label asChild><legend>Sources</legend></Label>
+            <div className="mt-2 flex min-h-8 flex-wrap items-center gap-2">
             {!sourcesLoaded && (
               <>
                 <span className="h-8 w-20 rounded-md border border-border bg-muted" />
@@ -345,9 +328,8 @@ export default function SearcherPage() {
               const on = selected.has(source.key);
               const unreachable = !reachable(source, entities);
               return (
-                <button
+                <ConfigChip
                   key={source.key}
-                  type="button"
                   onClick={() => toggle(source.key)}
                   disabled={busy || !source.configured || unreachable}
                   title={
@@ -357,16 +339,10 @@ export default function SearcherPage() {
                         ? `Name a ${source.required_entity_types.join(" or ")} below to reach this source.`
                         : undefined
                   }
-                  aria-pressed={on}
-                  className={cn(
-                    "h-8 rounded-md border px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50 motion-reduce:transition-none",
-                    on
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border bg-background text-muted-foreground hover:text-foreground",
-                  )}
+                  selected={on}
                 >
                   {source.label}
-                </button>
+                </ConfigChip>
               );
             })}
             {sourcesLoaded && selected.size === 0 && (
@@ -375,18 +351,20 @@ export default function SearcherPage() {
               </span>
             )}
           </div>
+          </fieldset>
           {/*
             The fourth slot of the request. Here rather than beside Condition because it
             reads as a consequence of the source row above it: these are the sources that
             were dim a moment ago, and this is what un-dims them.
           */}
-          <div className="mt-4">
-            <div className="mb-1.5">
-              <Label>Named subject</Label>
-            </div>
+          <fieldset className="mt-4 min-w-0" aria-describedby="named-subject-help">
+            <Label asChild>
+              <legend className="mb-1.5">Named subject</legend>
+            </Label>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <input
+              <ConfigTextInput
                 type="text"
+                aria-label="Named subject name"
                 value={entityName}
                 onChange={(e) => setEntityName(e.target.value)}
                 onKeyDown={(e) => {
@@ -397,11 +375,12 @@ export default function SearcherPage() {
                   addEntity();
                 }}
                 placeholder="e.g. BRAF"
-                className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-w-0 flex-1"
                 disabled={busy}
               />
               <div className="sm:w-44">
                 <ConfigSelect
+                  aria-label="Named subject type"
                   value={entityType || undefined}
                   options={addressableTypes.map((type) => ({
                     value: type,
@@ -450,12 +429,12 @@ export default function SearcherPage() {
                 ))}
               </div>
             )}
-            <p className="mt-1.5 text-xs text-muted-foreground">
+            <p id="named-subject-help" className="mt-1.5 text-xs text-muted-foreground">
               {unreachableLabels.length > 0
                 ? `${unreachableLabels.join(", ")} address their API by a named subject rather than a phrase. Name one to reach them.`
                 : "Every source can now build a request from what you have stated."}
             </p>
-          </div>
+          </fieldset>
         </form>
 
         {error && <ErrorMessage>{error}</ErrorMessage>}

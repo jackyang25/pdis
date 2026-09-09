@@ -1,4 +1,5 @@
 import type { GateReview, QuestionAssessment } from "./api.ts";
+import { QUESTION_REQUIREMENT_LABEL } from "./api.ts";
 import type { DocumentAnnotation } from "./document-trace.ts";
 
 /**
@@ -62,7 +63,7 @@ export function buildScreenerDocumentAnnotations(
         summary: question.statement,
         // Only the required ones are badged. Badging both would put a label on every
         // row, which marks nothing.
-        statusLabel: question.requirement === "required" ? "Required at this gate" : undefined,
+        statusLabel: question.requirement === "required" ? QUESTION_REQUIREMENT_LABEL.required : undefined,
         blockIds: question.cited_block_ids,
         // Screener carries no quotes, only block ids, so annotations claim whole
         // blocks. Searching block text for a phrase to underline would invent a

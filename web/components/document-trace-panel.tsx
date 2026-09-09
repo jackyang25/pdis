@@ -67,6 +67,24 @@ export function TracePanelSection({
   );
 }
 
+/** Shared inset and rhythm for document inspectors; the header already draws the first boundary. */
+export function TracePanelBody({ children }: { children: ReactNode }) {
+  return (
+    <div className="space-y-4 px-4 py-4 [&>section:first-child]:border-t-0 [&>section:first-child]:pt-0">
+      {children}
+    </div>
+  );
+}
+
+/** Block citations identify whole passages, not exact quoted spans. */
+export function TraceBlockCitationNote() {
+  return (
+    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+      Cited passages are marked in full, not as exact quotations.
+    </p>
+  );
+}
+
 /**
  * Every passage a result was read from, each one openable.
  *

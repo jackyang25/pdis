@@ -123,6 +123,7 @@ import {
 } from "@/lib/scout-labels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScoutDocumentTrace } from "@/components/scout-document-trace";
+import { ScoutFieldSummary } from "@/components/scout-field-summary";
 import { ScoutSignalHelp } from "@/components/scout-signal-help";
 import {
   Computed,
@@ -3127,51 +3128,14 @@ function FieldRow({
               Not stated in document · no evidence analysis was run
             </p>
           ) : (
-            /* One line of verdicts instead of a four-column grid of label/value/detail.
-               A field is read beside 27 others, so what matters is the shape of the row:
-               conflicts first because 4 of 911 insights contradict anything, then the two
-               standing judgments, then how many numeric targets there are to open. */
-            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-              {counts.contradicts > 0 && (
-                <SignalChip tone={RELATIONSHIP_TONE.contradicts}>
-                  {`${RELATIONSHIP_LABEL.contradicts} ${counts.contradicts}`}
-                </SignalChip>
-              )}
-              {counts.confirms > 0 && (
-                <SignalChip tone={RELATIONSHIP_TONE.confirms}>
-                  {`${RELATIONSHIP_LABEL.confirms} ${counts.confirms}`}
-                </SignalChip>
-              )}
-              {assessment && evidenceTone && (
-                <SignalChip tone={evidenceTone}>
-                  {GROUNDING_LABEL[assessment.strength]}
-                </SignalChip>
-              )}
-              {precedent && precedentMeta && (
-                <SignalChip tone={precedentMeta.tone}>
-                  {`${precedentMeta.coverage} · ${precedentMeta.outcome}`}
-                </SignalChip>
-              )}
-              {/* Counts are their own spans, spaced like the chips beside them, rather
-                  than one span joined by a middot. The row already spends that glyph on
-                  joining the two halves of one signal - `Direct · Mixed` is a single
-                  precedent verdict - so using it again between two independent counts
-                  made one separator mean two things in one line. Spacing is what
-                  separates peers here; the dot is what marks a signal. */}
-              {conformities.length > 0 && (
-                <span className="text-[11px] tabular-nums text-muted-foreground">
-                  {countLabel(conformities.length, "numeric target")}
-                </span>
-              )}
-              {conformities.length > 0 && comparatorCount > 0 && (
-                <span className="text-[11px] tabular-nums text-muted-foreground">
-                  {countLabel(comparatorCount, "comparator")}
-                </span>
-              )}
-              <span className="text-[11px] tabular-nums text-muted-foreground">
-                {countLabel(matches.length, "insight")}
-              </span>
-            </div>
+            <ScoutFieldSummary
+              relations={counts}
+              strength={assessment?.strength ?? null}
+              precedent={precedent ?? null}
+              targetCount={conformities.length}
+              comparatorCount={comparatorCount}
+              insightCount={matches.length}
+            />
           )}
         </div>
         <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />

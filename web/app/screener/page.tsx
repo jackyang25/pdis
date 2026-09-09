@@ -43,6 +43,7 @@ import {
   type GateSpec,
   type QuestionAssessment,
   QUESTION_STATE_LABEL,
+  QUESTION_REQUIREMENT_LABEL,
   QUESTION_STATE_TONE,
   type QuestionState,
 } from "@/lib/api";
@@ -679,24 +680,11 @@ function StatePanel({
   );
 }
 
-/**
- * One question.
- *
- * Clamped to two lines, expanding to the whole question. Deliberately not a short
- * form stored beside the text: hand-written summaries would drift from the question
- * they summarise, and truncating in code would be a transformation of authored
- * content. Clamping is rendering, so the text stays the text.
- */
+/** Full authored question text; only the source and group controls are interactive. */
 function QuestionRow({ question }: { question: QuestionAssessment }) {
-  const [open, setOpen] = useState(false);
   return (
     <li className="min-w-0 py-3 first:pt-0 last:pb-0">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-        className="w-full rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
-      >
+      <div>
         {/*
           The question and what identifies it on one line, not two. The badge and the ID
           were a right-aligned row of their own above the text, so the two floated apart:
@@ -714,7 +702,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
         */}
         <span className="flex flex-col gap-1.5 sm:flex-row sm:items-baseline sm:gap-3">
           <span
-            className={`min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground ${open ? "" : "line-clamp-2"}`}
+            className="min-w-0 flex-1 break-words text-xs leading-relaxed text-muted-foreground"
           >
             {question.text}
           </span>
@@ -726,7 +714,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
                   EYEBROW,
                 )}
               >
-                Required
+                {QUESTION_REQUIREMENT_LABEL[question.requirement]}
               </span>
             )}
             <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
@@ -734,7 +722,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
             </span>
           </span>
         </span>
-      </button>
+      </div>
       {/* The model's answer, so muted and marked - it was at full contrast, which is the
           treatment for the tool's own words and the document's values.
 

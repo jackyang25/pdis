@@ -10,6 +10,8 @@ import {
 } from "@/components/document-trace-viewer";
 import {
   TracePanelHeader,
+  TracePanelBody,
+  TraceBlockCitationNote,
   TracePanelSection,
   TracePassageList,
 } from "@/components/document-trace-panel";
@@ -61,19 +63,19 @@ function AlignerTraceInspector({
         description={ref.requirementId}
       />
 
-      <div className="px-5 py-5">
+      <TracePanelBody>
         <TracePanelSection label="The comparison asks" icon={HelpCircle}>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">{ref.question}</p>
         </TracePanelSection>
 
-        <TracePanelSection label="The requirement" icon={Target} className="mt-5">
+        <TracePanelSection label="The requirement" icon={Target}>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
             {ref.requirement}
           </p>
         </TracePanelSection>
 
         {!isRequirement && ref.statement && (
-          <Reading size="body" className="mt-5 whitespace-pre-wrap">
+          <Reading size="body" className="whitespace-pre-wrap">
             {ref.statement}
           </Reading>
         )}
@@ -81,20 +83,19 @@ function AlignerTraceInspector({
         <TracePanelSection
           label={isRequirement ? "Where the bar is stated" : "Source passages"}
           icon={connection.type === "exact" ? FileText : Link2}
-          className="mt-5"
         >
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            {isRequirement
-              ? "The requirement was read from every passage listed below, in the document that sets it. The verdict against it is marked in the other document."
-              : "This verdict was read from every passage listed below. Aligner records block lineage rather than exact quotations, so the whole passage is marked rather than a span within it."}
-          </p>
+          {isRequirement ? (
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              These passages state the requirement. Its assessment is marked in the comparison document.
+            </p>
+          ) : <TraceBlockCitationNote />}
           <TracePassageList
             passages={passages.passages}
             openedBlockId={connection.blockId}
             onReveal={passages.reveal}
           />
         </TracePanelSection>
-      </div>
+      </TracePanelBody>
     </div>
   );
 }

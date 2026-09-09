@@ -171,6 +171,6 @@ test("a question the gate requires is labelled as one", () => {
   const [annotation] = buildScreenerDocumentAnnotations(
     review([cited("A", ["profile:1"])]),
   );
-  assert.equal(annotation.statusLabel, "Required at this gate");
+  assert.equal(annotation.statusLabel, "Required");
   assert.equal(annotation.sourceRef.requirement, "required");
 });

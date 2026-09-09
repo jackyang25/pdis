@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { FileText, Link2 } from "lucide-react";
 import {
   TracePanelHeader,
+  TracePanelBody,
   TracePanelSection,
   TracePassageList,
 } from "@/components/document-trace-panel";
@@ -21,7 +22,6 @@ import {
 import type { DocumentTraceConnection } from "@/lib/document-trace";
 import { Quoted, Reading } from "@/components/ui/evidence-text";
 import { VerdictPill } from "@/components/ui/verdict-pill";
-import { cn } from "@/lib/utils";
 
 const TRACE_LAYERS: Array<{
   value: ScoutDocumentTraceKind;
@@ -62,7 +62,7 @@ function ScoutTraceInspector({
         description="Saved result connected to the selected source passage."
       />
 
-      <div className="px-5 py-5">
+      <TracePanelBody>
         {/* Tinted by the annotation's own tone, which was already on it and thrown
             away: the pill was a fixed neutral grey, so the same verdict read as tinted
             in a list and as unremarkable in the panel that explains it. */}
@@ -78,16 +78,13 @@ function ScoutTraceInspector({
             Rendered as a model's they carried the authorship mark, which is the tool
             claiming it wrote the reader's document. */}
         {annotation.summaryMode === "quoted" ? (
-          <Quoted size="prominent" className={cn(annotation.statusLabel && "mt-4")}>
+          <Quoted size="prominent" className="mt-0">
             {annotation.summary}
           </Quoted>
         ) : (
           <Reading
             size="body"
-            className={cn(
-              "whitespace-pre-wrap",
-              annotation.statusLabel && "mt-4",
-            )}
+            className="whitespace-pre-wrap"
           >
             {annotation.summary}
           </Reading>
@@ -96,7 +93,6 @@ function ScoutTraceInspector({
         <TracePanelSection
           label={connectionLabel}
           icon={connection.type === "exact" ? FileText : Link2}
-          className="mt-5"
         >
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
             {connection.type === "exact"
@@ -118,7 +114,7 @@ function ScoutTraceInspector({
             onReveal={passages.reveal}
           />
         </TracePanelSection>
-      </div>
+      </TracePanelBody>
     </div>
   );
 }

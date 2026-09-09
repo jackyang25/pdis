@@ -2,7 +2,7 @@
 
 import type { TraceFocus } from "@/lib/trace-focus";
 import { useMemo } from "react";
-import { CircleDashed, FileText, HelpCircle, Link2 } from "lucide-react";
+import { CircleDashed, HelpCircle, Link2 } from "lucide-react";
 
 import {
   DocumentTraceViewer,
@@ -10,6 +10,8 @@ import {
 } from "@/components/document-trace-viewer";
 import {
   TracePanelHeader,
+  TracePanelBody,
+  TraceBlockCitationNote,
   TracePanelSection,
   TracePassageList,
 } from "@/components/document-trace-panel";
@@ -53,46 +55,40 @@ function ScreenerTraceInspector({
       <TracePanelHeader
         eyebrow={
           ref.requirement === "required"
-            ? `${annotation.layerLabel} · required at this gate`
+            ? `${annotation.layerLabel} · ${annotation.statusLabel}`
             : annotation.layerLabel
         }
         title={ref.discipline}
         description={ref.questionId}
       />
 
-      <div className="px-5 py-5">
+      <TracePanelBody>
         <TracePanelSection label="The question" icon={HelpCircle}>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">{ref.question}</p>
         </TracePanelSection>
 
-        <Reading size="body" className="mt-5 whitespace-pre-wrap">
+        <Reading size="body" className="whitespace-pre-wrap">
           {annotation.summary}
         </Reading>
 
         {ref.missing && (
-          <TracePanelSection label="Still not stated" icon={CircleDashed} className="mt-5">
-            <Reading className="mt-2">{ref.missing}</Reading>
+          <TracePanelSection label="Still not stated" icon={CircleDashed}>
+            <Reading size="body" className="mt-2">{ref.missing}</Reading>
           </TracePanelSection>
         )}
 
         <TracePanelSection
           label="Source passages"
-          icon={connection.type === "exact" ? FileText : Link2}
-          className="mt-5"
+          icon={Link2}
         >
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            This answer was read from every passage listed below. Screener records block
-            lineage rather than exact quotations, so the whole passage is marked rather
-            than a span within it. A compound question is often answered across several,
-            which is also where a partial answer shows how far the document got.
-          </p>
+          <TraceBlockCitationNote />
           <TracePassageList
             passages={passages.passages}
             openedBlockId={connection.blockId}
             onReveal={passages.reveal}
           />
         </TracePanelSection>
-      </div>
+      </TracePanelBody>
     </div>
   );
 }

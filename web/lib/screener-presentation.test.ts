@@ -42,6 +42,14 @@ for (const state of ["not_found", "not_applicable"] as const) {
   });
 }
 
+test("question text is readable content rather than a no-op disclosure", () => {
+  const html = render("partly_answered");
+  const buttons = html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g) ?? [];
+  assert.ok(!buttons.some(button => button.includes("Does the candidate meet the target?")));
+  assert.doesNotMatch(html, /line-clamp-2/);
+  assert.match(html, /Does the candidate meet the target\?/);
+});
+
 test("state counts accompany their heading rather than floating beside the disclosure action", () => {
   assert.match(render("partly_answered"), /<h2[^>]*>Partly answered\s*<span[^>]*> 1<\/span><\/h2>/);
 });

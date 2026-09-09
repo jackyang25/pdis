@@ -1062,6 +1062,11 @@ export const QUESTION_STATE_LABEL: Record<QuestionState, string> = {
   not_applicable: "N/A",
 };
 
+export const QUESTION_REQUIREMENT_LABEL: Record<QuestionAssessment["requirement"], string> = {
+  required: "Required",
+  anticipatory: "Anticipatory",
+};
+
 export const QUESTION_STATE_TONE: Record<QuestionState, Tone> = {
   answered: "success",
   partly_answered: "warning",

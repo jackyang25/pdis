@@ -1,5 +1,7 @@
 "use client";
 
+import { QUESTION_REQUIREMENT_LABEL } from "@/lib/api";
+
 import {
   SignalHelp,
   SignalLabel,
@@ -40,7 +42,7 @@ const TOPICS: Record<ScreenerSignalTopic, SignalTopic> = {
   },
   requirement: {
     // No promptRef: the bank states it for every question and no model reads it.
-    title: "Required at this gate",
+    title: QUESTION_REQUIREMENT_LABEL.required,
     summary:
       "Whether this gate expects the question answered now, or expects it to be forming.",
     detail:

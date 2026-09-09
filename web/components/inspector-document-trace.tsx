@@ -10,6 +10,8 @@ import {
 } from "@/components/document-trace-viewer";
 import {
   TracePanelHeader,
+  TracePanelBody,
+  TraceBlockCitationNote,
   TracePanelSection,
   TracePassageList,
 } from "@/components/document-trace-panel";
@@ -62,7 +64,7 @@ function InspectorTraceInspector({
         description={where}
       />
 
-      <div className="px-5 py-5">
+      <TracePanelBody>
         {/* One pill, because there is one axis. It used to show a unit status here
             beside a reason in the eyebrow above - two words for one judgement, and a
             reader had no way to know they were the same field. */}
@@ -75,20 +77,19 @@ function InspectorTraceInspector({
           description={VERDICT_DESCRIPTION[ref.verdict]}
         />
 
-        <Reading size="body" className="mt-4 whitespace-pre-wrap">
+        <Reading size="body" className="whitespace-pre-wrap">
           {annotation.summary}
         </Reading>
 
         <TracePanelSection
           label={absent ? "Not present in the document" : "Source passages"}
           icon={absent ? CircleDashed : connection.type === "exact" ? FileText : Link2}
-          className="mt-5"
         >
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            {absent
-              ? "This finding describes content that is absent, so it cites no source passage. It is shown beside the section it belongs to rather than attached to unrelated text."
-              : "This finding was read from every passage listed below. Inspector records block lineage rather than exact quotations, so the whole passage is marked rather than a span within it."}
-          </p>
+          {absent ? (
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              This finding describes content that is absent, so it cites no source passage. It is shown beside the section it belongs to rather than attached to unrelated text.
+            </p>
+          ) : <TraceBlockCitationNote />}
           {!absent && (
             <TracePassageList
               passages={passages.passages}
@@ -97,7 +98,7 @@ function InspectorTraceInspector({
             />
           )}
         </TracePanelSection>
-      </div>
+      </TracePanelBody>
     </div>
   );
 }

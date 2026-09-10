@@ -153,6 +153,11 @@ documentation page and Assistant read that same versioned source.
 
 Run the contract and build checks before merging cross-layer changes.
 
+The web dev server and production build explicitly use webpack. This preserves
+the shared JSON imports outside `web/` when upgrading Next.js; adopting Turbopack
+is a separate build-layout change. Web checks are tests, TypeScript and the
+production build, not the removed `next lint` command.
+
 ```sh
 make check
 git diff --check

@@ -44,15 +44,17 @@ class MissingCredentialError(RuntimeError):
 
 def get_openai_client() -> OpenAIClient:
     """Construct the shared client and its server-owned two-tier model policy."""
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise MissingCredentialError("Missing OPENAI_API_KEY in server environment.")
+    if not (os.environ.get("KONG_KEY") or os.environ.get("OPENAI_API_KEY")):
+        raise MissingCredentialError("Missing KONG_KEY or OPENAI_API_KEY in server environment.")
     return OpenAIClient()
 
 
 def get_quantitative_anthropic_client() -> AnthropicQuantitativeClient:
     """Build Scout's server-owned Opus quantitative mapping client."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise MissingCredentialError("Missing ANTHROPIC_API_KEY in server environment.")
+    if not (os.environ.get("KONG_KEY") or os.environ.get("ANTHROPIC_API_KEY")):
+        raise MissingCredentialError(
+            "Missing KONG_KEY or ANTHROPIC_API_KEY in server environment."
+        )
     return AnthropicQuantitativeClient()
 
 

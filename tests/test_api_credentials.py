@@ -27,13 +27,13 @@ def _without(*names: str) -> dict[str, str]:
 
 class CredentialContractTests(unittest.TestCase):
     def test_a_missing_key_raises_a_domain_error_not_a_transport_error(self) -> None:
-        with patch.dict(os.environ, _without("OPENAI_API_KEY"), clear=True):
+        with patch.dict(os.environ, _without("KONG_KEY", "OPENAI_API_KEY"), clear=True):
             with self.assertRaises(MissingCredentialError):
                 get_openai_client()
 
     def test_a_missing_key_fails_the_request_rather_than_the_stream(self) -> None:
         client = TestClient(app, raise_server_exceptions=False)
-        with patch.dict(os.environ, _without("OPENAI_API_KEY"), clear=True):
+        with patch.dict(os.environ, _without("KONG_KEY", "OPENAI_API_KEY"), clear=True):
             response = client.post(
                 "/api/chunker/run",
                 files={"file": ("doc.docx", b"not a real document", "application/octet-stream")},
@@ -46,7 +46,7 @@ class CredentialContractTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 500)
-        self.assertIn("OPENAI_API_KEY", response.json()["detail"])
+        self.assertIn("KONG_KEY", response.json()["detail"])
 
 
 

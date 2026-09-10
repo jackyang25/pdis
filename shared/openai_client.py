@@ -24,6 +24,10 @@ ModelTask = Literal["fast", "reasoning"]
 DEFAULT_FAST_MODEL = "gpt-5.4-mini"
 DEFAULT_REASONING_MODEL = "gpt-6-astra"
 
+#: Kong's OpenAI-compatible unified endpoint. Overridable for local/dev use
+#: against OpenAI directly, validated like any other base URL.
+DEFAULT_BASE_URL = "https://ai-kong-gateway.bmgf.io/ai/v2"
+
 
 class OpenAIClient:
     """Thin OpenAI wrapper exposing text generation and web search."""
@@ -32,15 +36,25 @@ class OpenAIClient:
         self,
         api_key: str | None = None,
         *,
+        base_url: str | None = None,
         fast_model: str | None = None,
         reasoning_model: str | None = None,
     ):
         from openai import OpenAI  # type: ignore[reportMissingImports]
 
-        api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        # KONG_KEY, when present, routes through Kong's unified endpoint with
+        # Kong's own credential. Otherwise fall back to calling OpenAI directly
+        # with OPENAI_API_KEY, as before Kong existed.
+        kong_key = os.environ.get("KONG_KEY", "").strip()
+        if api_key is None and kong_key:
+            api_key = kong_key
+            base_url = base_url or os.environ.get("OPENAI_BASE_URL", "").strip() or DEFAULT_BASE_URL
+        else:
+            api_key = api_key or os.environ.get("OPENAI_API_KEY")
+            base_url = base_url or os.environ.get("OPENAI_BASE_URL", "").strip() or None
         if not api_key:
-            raise ValueError("OPENAI_API_KEY is required")
-        self.client = OpenAI(api_key=api_key)
+            raise ValueError("KONG_KEY or OPENAI_API_KEY is required")
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.models: dict[ModelTask, str] = {
             "fast": fast_model
             or os.environ.get("OPENAI_MODEL_FAST")

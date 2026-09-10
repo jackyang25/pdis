@@ -84,7 +84,8 @@ test("Screener coverage retains full discipline labels and every question", () =
   }));
   assert.match(html, new RegExp(label));
   assert.doesNotMatch(html, /truncate/);
-  assert.match(html, /<ul class="grid auto-rows-fr gap-y-1"/);
+  assert.doesNotMatch(html, /auto-rows-fr/);
+  assert.match(html, /sm:grid-cols-subgrid/);
   assert.match(html, /q-1/);
   assert.match(html, /q-2/);
   assert.equal((html.match(/<button/g) ?? []).length, 1);

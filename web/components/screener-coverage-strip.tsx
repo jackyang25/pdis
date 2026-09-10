@@ -75,12 +75,12 @@ export function ScreenerCoverageStrip({
 
   return (
     <section aria-label="Coverage by discipline">
-      {/* Equal tracks grow with the longest label, keeping cell rows evenly spaced. */}
-      <ul className="grid auto-rows-fr gap-y-1">
+      {/* Share a content-sized label column without stretching every row vertically. */}
+      <ul className="grid gap-x-3 gap-y-1 sm:grid-cols-[fit-content(24rem)_minmax(0,1fr)]">
         {review.disciplines.map((discipline) => (
-          <li key={discipline.id} className="flex flex-col justify-center gap-2 sm:flex-row sm:items-center sm:justify-start sm:gap-3">
+          <li key={discipline.id} className="flex flex-col gap-2 sm:col-span-2 sm:grid sm:grid-cols-subgrid sm:items-center sm:gap-3">
             <span
-              className="min-w-0 break-words text-[11px] leading-relaxed text-muted-foreground sm:w-56 sm:shrink-0"
+              className="min-w-0 break-words text-[11px] leading-relaxed text-muted-foreground"
               title={discipline.label}
             >
               {discipline.label}

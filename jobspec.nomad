@@ -160,6 +160,7 @@ job "__REPO__NAME__" {
         # shows them. Namespace access is what protects them.
         OPENAI_API_KEY         = "__OPENAI_API_KEY__"
         ANTHROPIC_API_KEY      = "__ANTHROPIC_API_KEY__"
+        KONG_KEY               = "__KONG_KEY__"
         NCBI_API_KEY           = "__NCBI_API_KEY__"
         TAVILY_API_KEY         = "__TAVILY_API_KEY__"
         TOOLUNIVERSE_API_TOKEN = "__TOOLUNIVERSE_API_TOKEN__"

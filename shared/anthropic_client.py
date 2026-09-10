@@ -15,6 +15,10 @@ from typing import Any
 
 DEFAULT_QUANTITATIVE_MODEL = "claude-opus-5"
 
+#: Kong's native-Anthropic endpoint. Overridable for local/dev use against
+#: Anthropic directly, validated like any other base URL.
+DEFAULT_BASE_URL = "https://ai-kong-gateway.bmgf.io/v2/anthropic"
+
 
 class AnthropicQuantitativeClient:
     """Minimal Claude Messages wrapper for schema-bound quantitative mapping."""
@@ -23,14 +27,26 @@ class AnthropicQuantitativeClient:
         self,
         api_key: str | None = None,
         *,
+        base_url: str | None = None,
         model: str | None = None,
     ) -> None:
         from anthropic import Anthropic  # type: ignore[reportMissingImports]
 
-        api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        # KONG_KEY, when present, routes through Kong's native-Anthropic
+        # endpoint with Kong's own credential. Otherwise fall back to calling
+        # Anthropic directly with ANTHROPIC_API_KEY, as before Kong existed.
+        kong_key = os.environ.get("KONG_KEY", "").strip()
+        if api_key is None and kong_key:
+            api_key = kong_key
+            base_url = (
+                base_url or os.environ.get("ANTHROPIC_BASE_URL", "").strip() or DEFAULT_BASE_URL
+            )
+        else:
+            api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+            base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL", "").strip() or None
         if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY is required")
-        self.client = Anthropic(api_key=api_key)
+            raise ValueError("KONG_KEY or ANTHROPIC_API_KEY is required")
+        self.client = Anthropic(api_key=api_key, base_url=base_url)
         self.model = (
             model
             or os.environ.get("ANTHROPIC_QUANTITATIVE_MODEL")

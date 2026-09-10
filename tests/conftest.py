@@ -29,6 +29,7 @@ import os
 # Emptied before any test module imports `api.main`, which is where the
 # `load_dotenv()` call lives. pytest imports conftest before collecting tests.
 ISOLATED_CREDENTIALS = (
+    "KONG_KEY",
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
     "NCBI_API_KEY",

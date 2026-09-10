@@ -193,6 +193,8 @@ steps:
         from_secret: OPENAI_API_KEY
       ANTHROPIC_API_KEY:
         from_secret: ANTHROPIC_API_KEY
+      KONG_KEY:
+        from_secret: KONG_KEY
       NCBI_API_KEY:
         from_secret: NCBI_API_KEY
       TAVILY_API_KEY:
@@ -207,6 +209,7 @@ steps:
       - sed -i "s/__NAMESPACE__/$NAMESPACE/g" ./jobspec_acc.nomad
       - sed -i "s|__OPENAI_API_KEY__|$OPENAI_API_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__ANTHROPIC_API_KEY__|$ANTHROPIC_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__KONG_KEY__|$KONG_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec_acc.nomad
@@ -251,6 +254,8 @@ steps:
         from_secret: OPENAI_API_KEY
       ANTHROPIC_API_KEY:
         from_secret: ANTHROPIC_API_KEY
+      KONG_KEY:
+        from_secret: KONG_KEY
       NCBI_API_KEY:
         from_secret: NCBI_API_KEY
       TAVILY_API_KEY:
@@ -265,6 +270,7 @@ steps:
       - sed -i "s/__NAMESPACE__/$NAMESPACE/g" ./jobspec_acc.nomad
       - sed -i "s|__OPENAI_API_KEY__|$OPENAI_API_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__ANTHROPIC_API_KEY__|$ANTHROPIC_API_KEY|g" ./jobspec_acc.nomad
+      - sed -i "s|__KONG_KEY__|$KONG_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec_acc.nomad
       - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec_acc.nomad
@@ -303,6 +309,8 @@ steps:
         from_secret: OPENAI_API_KEY
       ANTHROPIC_API_KEY:
         from_secret: ANTHROPIC_API_KEY
+      KONG_KEY:
+        from_secret: KONG_KEY
       NCBI_API_KEY:
         from_secret: NCBI_API_KEY
       TAVILY_API_KEY:
@@ -317,6 +325,7 @@ steps:
       - sed -i "s/__NAMESPACE__/$NAMESPACE/g" ./jobspec.nomad
       - sed -i "s|__OPENAI_API_KEY__|$OPENAI_API_KEY|g" ./jobspec.nomad
       - sed -i "s|__ANTHROPIC_API_KEY__|$ANTHROPIC_API_KEY|g" ./jobspec.nomad
+      - sed -i "s|__KONG_KEY__|$KONG_KEY|g" ./jobspec.nomad
       - sed -i "s|__NCBI_API_KEY__|$NCBI_API_KEY|g" ./jobspec.nomad
       - sed -i "s|__TAVILY_API_KEY__|$TAVILY_API_KEY|g" ./jobspec.nomad
       - sed -i "s|__TOOLUNIVERSE_API_TOKEN__|$TOOLUNIVERSE_API_TOKEN|g" ./jobspec.nomad

@@ -5,6 +5,9 @@ import { usePathname } from "next/navigation";
 import {
   fetchContexts,
   fetchDocumentTypes,
+  fetchInspectorConfiguration,
+  type Header,
+  type InspectorFactField,
   type ContextOption,
   type DocumentType,
   type ToolName,
@@ -72,4 +75,20 @@ export function useSupportedContexts() {
 export function useSupportedDocumentTypes() {
   const { entries: types, error } = useSupportedCatalog(loadDocumentTypes);
   return { types, error };
+}
+
+/** The selected profile declares its extra facts; the browser owns no guideline rules. */
+export function useInspectorConfiguration(header: Header) {
+  const { org, source_type, intervention_class } = header;
+  const key = JSON.stringify([org, source_type, intervention_class]);
+  const [loaded, setLoaded] = useState<{ key: string; fields: InspectorFactField[]; error: string | null } | null>(null);
+  useEffect(() => {
+    if (!org || !source_type || !intervention_class) return;
+    let live = true;
+    fetchInspectorConfiguration({ org, source_type, intervention_class })
+      .then(catalog => live && setLoaded({ key, fields: catalog.applicability_facts, error: null }))
+      .catch((error: Error) => live && setLoaded({ key, fields: [], error: error.message }));
+    return () => { live = false; };
+  }, [org, source_type, intervention_class, key]);
+  return loaded?.key === key ? { ...loaded, ready: !loaded.error } : { fields: [], error: null, ready: false };
 }

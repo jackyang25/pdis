@@ -1,6 +1,6 @@
 # Inspector
 
-One product-development document against its configured quality rubric.
+One product-development document against every rubric resolved by its configured profile.
 
 ## Background
 
@@ -8,7 +8,7 @@ Inspector measures document quality, not investment merit. It does not assign
 program risk, validate real-world feasibility, recommend funding, or search
 external evidence.
 
-Inspector judges one document against an authored rubric. Comparing two documents
+Inspector judges one document independently against authored rubrics. Comparing two documents
 against each other is Aligner's responsibility; the two tools have different
 comparison targets and neither substitutes for the other.
 
@@ -21,8 +21,8 @@ serializers from `services.inspector`.
 
 | Direction | Value |
 |---|---|
-| Input | One document or `ContentBlock` list, `InspectionConfig`, indication, and an injected model client |
-| Output | Every rubric section, every unit beneath it with its verdict, and the conflicts no unit owns |
+| Input | One document, a profile, explicit applicability facts, indication, and an injected model client |
+| Output | Shared blocks and consistency findings, rubric resolutions, and one peer review per included rubric |
 
 There is one published atom. An **`Assessment`** is one rubric unit and how it
 stands: one `verdict`, one `statement` saying what is wrong, and the exact blocks it
@@ -94,6 +94,16 @@ could each report the same defect under its own axis. Merging them also removed 
 naming split that came with it, where one axis was `adherence` in the data and
 "Template adherence" in two interfaces.
 
+All included rubrics share one bounded unit-work queue per document run (24
+concurrent unit calls maximum), using `shared.batching.map_ordered`. Work is
+interleaved across rubrics so a large template does not hold up every guideline.
+There are no nested rubric or section worker pools. Single-rubric entry points
+use the same queue. Progress counts completed units once across the whole run;
+result order remains the authored rubric/section/unit order. Retries stay inside
+their unit's worker slot. Parsing happens once before assessment and consistency
+once afterward. A failed unit aborts publication rather than returning partial
+reviews; already-started independent work may finish before the error returns.
+
 The reply is one object, not a list of them. A list let a unit come back with several
 answers to one question, so every layer above had to reconcile them into the one
 thing a row can show.
@@ -125,12 +135,94 @@ its own failure instead.
 | Module | Owns |
 |---|---|
 | `models.py` | shapes and the published vocabulary |
+| `configuration.py` | input profiles, rubric references and configuration lookup |
 | `assembly.py` | the join of rubric and verdicts, and the ranking |
 | `stages/assessor.py` | what the model is asked, and what is accepted back |
 | `contract.py` | the deterministic checks, on a fresh or imported result |
 | `pipeline.py` | the order those run in |
 
-## Where a rubric comes from
+## Profiles, rubrics and sources
+
+`configs/profiles/catalog.yaml` maps an `(org, source_type,
+intervention_class)` input to an ordered set of pinned rubric definitions. It also
+declares applicability as allowed values for explicit product facts. Missing or
+`unknown` facts produce `needs_context`; confirmed non-matches produce
+`outside_review_scope`. Neither indication nor document prose supplies these facts.
+
+`configs/rubrics/` owns rubric identity, PDIS revision, authority, selected scope,
+evidence mode, sources and source-referenced requirements. ICH-derived definitions
+are PDIS-authored document-review adaptations, not official templates,
+certification, trial-conduct audits, or exhaustive guideline coverage. Source
+revision and PDIS rubric revision remain separate in every saved snapshot.
+
+### Selected ICH coverage
+
+The catalog adds planning adaptations, not ICH-authored iTPP/cTPP/IPDP templates.
+Each requirement links to the source sections used to author it. Source guideline
+copyright belongs to ICH; these adaptations are not endorsed by ICH. Revisions are
+pinned rather than following a changing web page automatically.
+
+| Guideline family | Document profiles | Selected subject matter |
+| --- | --- | --- |
+| E4 | Drug/mAb iTPP and cTPP; drug IPDP | Dose-response intent and planning |
+| E6(R3) | Drug/vaccine IPDP | Clinical planning and critical-to-quality risks |
+| E14 | Drug cTPP/IPDP, explicit product facts | QT/QTc planning |
+| E8(R1) | Drug/vaccine IPDP | Development sequence, intended populations, patient input |
+| E9/E9(R1) | Drug/mAb/vaccine cTPP; drug/vaccine IPDP | Treatment-effect targets; statistical and estimand planning |
+| E10 | Drug/mAb/vaccine cTPP; drug/vaccine IPDP | Comparison basis and control-strategy rationale |
+| Q8(R2) | Drug iTPP/cTPP/IPDP | Quality target intent through pharmaceutical-development planning |
+| Q9(R1) | Drug/vaccine IPDP | Pharmaceutical-quality risk assessment, controls and review |
+| M3(R2) | Drug IPDP, confirmed small molecule | Nonclinical support for clinical progression |
+
+E14 requires confirmed small-molecule status, systemic exposure, and a non-antiarrhythmic
+purpose. The M3 adaptation requires only confirmed small-molecule status; unknown
+facts leave the review visibly unassessed. This is narrower than M3's complete scope,
+which also discusses timing for biotechnology-derived products while referring their
+study selection to S6. No indication-name or document-text inference supplies facts.
+
+Q8 starts conservatively with drug profiles; its principles may be useful elsewhere,
+but this catalog does not claim a reviewed biologic/vaccine adaptation yet. Q9 explicitly
+covers biological products and is about pharmaceutical quality, not investment risk.
+Devices and diagnostics receive no pharmaceutical ICH reviews. There is currently no
+mAb IPDP profile to extend. Clinical-protocol detail is not required of a cTPP; an iTPP
+does not owe a finished formulation or quality dossier. Q8's quality target product
+profile is only a pharmaceutical-quality subset, not another name for an iTPP/cTPP.
+
+Additional independent rubric units add model calls, using the same bounded queue.
+They do not trigger extra parsing or document-consistency passes. Reviews remain
+separate even where source principles overlap; no combined compliance score is produced.
+S6, E11/E11A, E17/E5 and M12 are not included in this expansion: they need their own
+reviewed adaptations and, where necessary, explicit applicability facts.
+
+```text
+configs/
+  profiles/catalog.yaml
+  rubrics/
+    pdid/pdid.yaml                # shared template-rubric metadata
+    pdid/pdid-ctpp-drug.yaml       # template requirements by document and class
+    ich/ich-e4-ctpp.yaml           # guideline-derived requirements
+```
+
+`org: bmgf` identifies the input organization; PDID and ICH identify assessment
+authorities. Profiles reference both explicitly. Filenames use hyphens, while
+input keys retain underscores (for example `monoclonal_antibody`). Lookups follow
+profile references, never infer rubric filenames from organization keys.
+
+PDID requirement files retain their assessment content. `pdid/pdid.yaml` supplies
+shared metadata and references the profile's template file. Existing `type_key`
+values and the published rubric ID `bmgf` remain stable for result provenance;
+they are identifiers, not filename rules. The optional `reference_url` points to
+the employee reference-library landing page, not a direct template or a verified
+requirement-level citation. Template basis (`mirrors`) and specific guideline
+citations remain distinct and travel with the saved rubric snapshot.
+
+The result's **Rubric** selector uses authority-first labels. Its shared label help control
+holds scope, revision, sources and a link to the current assessment documentation; **How to read**
+explains result vocabulary. Requirement disclosures reuse the same source presentation
+in the section view and document sidebar. Historical results retain their saved labels
+and source metadata; opening them does not attach newer provenance.
+
+## Where a PDID template rubric comes from
 
 A rubric mirrors an authored source template for its **structure**: the section
 list, the unit names, and the column conventions. Each config records which source
@@ -149,13 +241,19 @@ it names what to go and check.
 
 ## Development
 
-Rubrics live in `configs/{org}_{source_type}_{intervention}.yaml`. A section and a
+PDID rubrics live in `configs/rubrics/pdid/pdid-<document>-<intervention>.yaml`. A section and a
 variable declare the same four things — `name`, `description`, `optional`,
 `expectations` — so there is one schema to learn; a section adds only `variables`.
 Set `optional: true` where the rubric genuinely does not require a unit.
-`expectations` is read into the prompt verbatim and is where an external standard
-belongs when one applies, as the expectation a unit is held to rather than as a
-second rubric.
+`expectations` is read into the prompt verbatim. Independent authorities belong in
+separate rubric definitions and reviews; expectations remain the assessment bar for
+one requirement.
+
+`mapped_section` evidence preserves BMGF's physical section mapping.
+`whole_document` evidence lets guideline requirements read every retained block,
+including Other and Metadata, without claiming the document physically contains a
+guideline-named section. Whole-document section presence is therefore `null` and
+its citations are checked against the shared block collection.
 
 `VERDICTS` is declared once in `models.py` and mirrored in `web/lib/api.ts`, bound by
 `inspector-vocabulary.test.ts` — which also fails if a second axis grows back.

@@ -1,0 +1,12 @@
+id: bmgf
+revision: "1.0"
+display_name: PDID template rubric
+display_name_from_config: true
+authority: The authored PDID template rubric selected by the document profile
+scope: Document completeness against the authored PDID template requirements.
+reference_url: https://bmgf.sharepoint.com/sites/ghspmcollab/PDtoolsandresources/SitePages/Home.aspx
+evidence_scope: mapped_section
+config_from_profile: true
+# The source templates are outside this repository. The preserved config's mirrors
+# text identifies them without inventing a fetchable or verified source revision.
+sources: []

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import os
 import tempfile
+import json
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from services.inspector import find_config, inspection_result_to_dict, run_pipeline
+from api.operations.inspector import execute_inspection, prepare_inspection
 
 from api.deps import MissingCredentialError, get_openai_client
-from api.schemas import InspectionResultOut, InspectorRunResponse
 from api.streaming import run_with_progress
 from api.uploads import document_upload_parts
 
@@ -28,11 +28,21 @@ async def run_inspector(
     source_type: str = Form(...),
     intervention_class: str = Form(...),
     indication: str = Form(...),
+    applicability_facts: str = Form("{}"),
 ) -> StreamingResponse:
     try:
-        config = find_config(org, source_type, intervention_class)
+        parsed_facts = json.loads(applicability_facts)
+        if not isinstance(parsed_facts, dict):
+            raise ValueError("applicability_facts must be a JSON object")
+        prepared = prepare_inspection(
+            org=org, source_type=source_type,
+            intervention_class=intervention_class,
+            applicability_facts=parsed_facts,
+        )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     doc_id, suffix = document_upload_parts(file.filename, tool="Inspector")
     contents = await file.read()
@@ -51,19 +61,15 @@ async def run_inspector(
                 temp_file.write(contents)
                 temp_path = temp_file.name
 
-            result = run_pipeline(
+            return execute_inspection(
                 temp_path,
-                config=config,
+                prepared=prepared,
                 llm_client=llm_client,
                 indication=indication,
                 max_tokens=DEFAULT_MAX_TOKENS,
                 progress_callback=progress,
                 doc_id=doc_id,
             )
-
-            return InspectorRunResponse(
-                inspection=InspectionResultOut(**inspection_result_to_dict(result)),
-            ).model_dump()
         finally:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)

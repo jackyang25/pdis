@@ -66,7 +66,7 @@ export function CollapsibleCard({
           aria-expanded={open}
           aria-controls={contentId}
           onClick={() => setOpen((current) => !current)}
-          className="min-w-0 flex-1 rounded-md py-1 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+          className="min-w-0 flex-1 basis-48 rounded-md py-1 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
         >
           <h2 className={cn(DISPLAY_HEADING, "text-[15px] font-semibold")}>
             {title}

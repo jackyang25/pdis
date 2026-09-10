@@ -19,7 +19,7 @@ class AssistantKnowledgeTests(unittest.TestCase):
         self.assertIn("Services", knowledge.read(["architecture"]))
         architecture_docs = knowledge.read(["workflows"])
         self.assertIn(
-            "Inspector: Turns one parsed development document", architecture_docs
+            "Inspector: Assesses one development document against every applicable authored rubric", architecture_docs
         )
         self.assertIn("Source-neutral intents", architecture_docs)
         self.assertIn("Bounded navigation loop", architecture_docs)

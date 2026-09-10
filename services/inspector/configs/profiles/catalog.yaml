@@ -1,0 +1,96 @@
+fact_definitions:
+  - key: small_molecule
+    label: Small-molecule product
+    description: Is the candidate a small-molecule product?
+  - key: systemic_exposure
+    label: Systemic exposure
+    description: Is systemic exposure expected at the proposed clinical use?
+  - key: antiarrhythmic
+    label: Antiarrhythmic purpose
+    description: Is the product intended as an antiarrhythmic?
+
+profiles:
+  - &itpp_drug
+    org: bmgf
+    source_type: itpp
+    intervention_class: drug
+    document_config: rubrics/pdid/pdid-itpp-drug.yaml
+    rubrics:
+      - {id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}
+      - {id: ich-e4-itpp, revision: "1.0", definition: ich/ich-e4-itpp.yaml}
+      - {id: ich-q8-itpp, revision: "1.0", definition: ich/ich-q8-itpp.yaml}
+  - <<: *itpp_drug
+    source_type: ctpp
+    document_config: rubrics/pdid/pdid-ctpp-drug.yaml
+    rubrics:
+      - {id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}
+      - {id: ich-e4-ctpp, revision: "1.0", definition: ich/ich-e4-ctpp.yaml}
+      - id: ich-e14-ctpp
+        revision: "1.0"
+        definition: ich/ich-e14-ctpp.yaml
+        applicability: {small_molecule: ["yes"], systemic_exposure: ["yes"], antiarrhythmic: ["no"]}
+      - {id: ich-e9-ctpp, revision: "1.0", definition: ich/ich-e9-ctpp.yaml}
+      - {id: ich-e10-ctpp, revision: "1.0", definition: ich/ich-e10-ctpp.yaml}
+      - {id: ich-q8-ctpp, revision: "1.0", definition: ich/ich-q8-ctpp.yaml}
+  - <<: *itpp_drug
+    source_type: ipdp
+    document_config: rubrics/pdid/pdid-ipdp-drug.yaml
+    rubrics:
+      - {id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}
+      - {id: ich-e4-ipdp, revision: "1.0", definition: ich/ich-e4-ipdp.yaml}
+      - {id: ich-e6-ipdp, revision: "1.0", definition: ich/ich-e6-ipdp.yaml}
+      - id: ich-e14-ipdp
+        revision: "1.0"
+        definition: ich/ich-e14-ipdp.yaml
+        applicability: {small_molecule: ["yes"], systemic_exposure: ["yes"], antiarrhythmic: ["no"]}
+      - {id: ich-e8-ipdp, revision: "1.0", definition: ich/ich-e8-ipdp.yaml}
+      - {id: ich-e9-ipdp, revision: "1.0", definition: ich/ich-e9-ipdp.yaml}
+      - {id: ich-e10-ipdp, revision: "1.0", definition: ich/ich-e10-ipdp.yaml}
+      - {id: ich-q8-ipdp, revision: "1.0", definition: ich/ich-q8-ipdp.yaml}
+      - {id: ich-q9-ipdp, revision: "1.0", definition: ich/ich-q9-ipdp.yaml}
+      - id: ich-m3-ipdp
+        revision: "1.0"
+        definition: ich/ich-m3-ipdp.yaml
+        applicability: {small_molecule: ["yes"]}
+  - &itpp_mab
+    org: bmgf
+    source_type: itpp
+    intervention_class: monoclonal_antibody
+    document_config: rubrics/pdid/pdid-itpp-monoclonal-antibody.yaml
+    rubrics:
+      - {id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}
+      - {id: ich-e4-itpp, revision: "1.0", definition: ich/ich-e4-itpp.yaml}
+  - <<: *itpp_mab
+    source_type: ctpp
+    document_config: rubrics/pdid/pdid-ctpp-monoclonal-antibody.yaml
+    rubrics:
+      - {id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}
+      - {id: ich-e4-ctpp, revision: "1.0", definition: ich/ich-e4-ctpp.yaml}
+      - {id: ich-e9-ctpp, revision: "1.0", definition: ich/ich-e9-ctpp.yaml}
+      - {id: ich-e10-ctpp, revision: "1.0", definition: ich/ich-e10-ctpp.yaml}
+  - &ipdp_vaccine
+    org: bmgf
+    source_type: ipdp
+    intervention_class: vaccine
+    document_config: rubrics/pdid/pdid-ipdp-vaccine.yaml
+    rubrics:
+      - {id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}
+      - {id: ich-e6-ipdp, revision: "1.0", definition: ich/ich-e6-ipdp.yaml}
+      - {id: ich-e8-ipdp, revision: "1.0", definition: ich/ich-e8-ipdp.yaml}
+      - {id: ich-e9-ipdp, revision: "1.0", definition: ich/ich-e9-ipdp.yaml}
+      - {id: ich-e10-ipdp, revision: "1.0", definition: ich/ich-e10-ipdp.yaml}
+      - {id: ich-q9-ipdp, revision: "1.0", definition: ich/ich-q9-ipdp.yaml}
+  - {org: bmgf, source_type: itpp, intervention_class: vaccine, document_config: rubrics/pdid/pdid-itpp-vaccine.yaml, rubrics: [{id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}]}
+  - org: bmgf
+    source_type: ctpp
+    intervention_class: vaccine
+    document_config: rubrics/pdid/pdid-ctpp-vaccine.yaml
+    rubrics:
+      - {id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}
+      - {id: ich-e9-ctpp, revision: "1.0", definition: ich/ich-e9-ctpp.yaml}
+      - {id: ich-e10-ctpp, revision: "1.0", definition: ich/ich-e10-ctpp.yaml}
+  - {org: bmgf, source_type: itpp, intervention_class: diagnostic, document_config: rubrics/pdid/pdid-itpp-diagnostic.yaml, rubrics: [{id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}]}
+  - {org: bmgf, source_type: ctpp, intervention_class: diagnostic, document_config: rubrics/pdid/pdid-ctpp-diagnostic.yaml, rubrics: [{id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}]}
+  - {org: bmgf, source_type: ipdp, intervention_class: diagnostic, document_config: rubrics/pdid/pdid-ipdp-diagnostic.yaml, rubrics: [{id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}]}
+  - {org: bmgf, source_type: itpp, intervention_class: device, document_config: rubrics/pdid/pdid-itpp-device.yaml, rubrics: [{id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}]}
+  - {org: bmgf, source_type: ctpp, intervention_class: device, document_config: rubrics/pdid/pdid-ctpp-device.yaml, rubrics: [{id: bmgf, revision: "1.0", definition: pdid/pdid.yaml}]}

@@ -1,0 +1,23 @@
+id: ich-q8-ctpp
+revision: "1.0"
+org: bmgf
+source_type: ctpp
+intervention_class: drug
+display_name: "ICH Q8(R2): candidate pharmaceutical quality"
+authority: "PDIS-authored adaptation informed by ICH Q8(R2); source copyright ICH, no ICH endorsement"
+scope: "Selected candidate pharmaceutical-quality expectations; not a CTD quality dossier or the full clinical target profile."
+evidence_scope: whole_document
+sources:
+  - {id: "ich-q8-part-ii-2-1", title: "ICH Q8(R2) — Section Part II, 2.1: Quality target product profile", revision: "Revision August 2009", url: "https://database.ich.org/sites/default/files/Q8_R2_Guideline.pdf"}
+  - {id: "ich-q8-part-ii-2-2", title: "ICH Q8(R2) — Section Part II, 2.2: Critical quality attributes", revision: "Revision August 2009", url: "https://database.ich.org/sites/default/files/Q8_R2_Guideline.pdf"}
+  - {id: "ich-q8-part-i-2-2-1", title: "ICH Q8(R2) — Section Part I, 2.2.1: Formulation development", revision: "Revision August 2009", url: "https://database.ich.org/sites/default/files/Q8_R2_Guideline.pdf"}
+stage_guidance: "Assess a candidate profile. Distinguish proposed quality characteristics from demonstrated specifications; accept identified development decisions. Do not require a design space, validated process, or full submission package."
+sections:
+  - name: "Candidate quality targets"
+    description: "The candidate profile connects intended use to its pharmaceutical quality targets."
+    source_refs: ["ich-q8-part-ii-2-1", "ich-q8-part-ii-2-2"]
+    expectations: "Accept provisional quality characteristics with evidence limits identified; do not equate the full cTPP with the Q8 quality target product profile."
+  - name: "Formulation rationale"
+    description: "The profile explains the proposed formulation's relationship to intended product performance."
+    source_refs: ["ich-q8-part-i-2-2-1"]
+    expectations: "Accept a rationale and identified development needs rather than completed comparative formulation studies."

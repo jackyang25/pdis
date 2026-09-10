@@ -234,59 +234,62 @@ axis belongs. `web/lib/tool-sections.test.ts` enforces this.
 
 ### Inspector
 
-Inspector publishes one atom under one vocabulary. `sections[]` holds every rubric
-section, each with `units[]`, each unit owning the `Finding` objects raised against
-it. `document_findings[]` holds the conflicts no unit owns.
+Inspector publishes peer `reviews[]`, each with a saved rubric identity, revision,
+authority, scope, sources, stage guidance, requirements and `sections[].units[]`.
+The run owns source `blocks[]` once, applicability resolutions and one
+`document_findings[]` consistency check.
 
-- A `Finding` is one statement, one recommendation, one `reason`, and the blocks it
-  was read from. It replaced three shapes for the same concept - a dimension
-  assessment holding an issue list against a single recommendation, a ranked copy of
-  the worst of them, and a cross-section conflict with different field names.
-- `FINDING_REASONS` is the whole vocabulary: `missing | placeholder | unmet |
-  off_template | unclear | conflicting`. `conflicting` is the only one no unit can
-  raise. Adding a reason means one entry there and one label in `web/lib/api.ts`;
-  nothing between the two branches on a reason's value.
-- `level` derives from `reason` and a unit's `status` derives from its findings'
-  levels, so `met` means exactly zero findings and no consumer can differ. Nothing
-  stores a severity beside a reason.
-- Conformance language, never severity language. Inspector knows what the rubric
-  asked and what the document supplies, not what a shortfall costs a programme.
-  There is no letter grade, no score, and no averaging.
+- `Assessment` is one unit, one `verdict`, one short `statement` and its cited
+  blocks. `VERDICTS` in `models.py` is the vocabulary:
+  `specified | not_present | placeholder | insufficient | vague |
+  section_conflict | not_applicable`. There is no reason/level hierarchy,
+  recommendation, grade, score or average.
+- Coverage precedes usability: missing required substance is `insufficient`;
+  wholly covered but unusable content is `vague`. A sound unit's statement is empty.
 - `not_applicable` comes only from the rubric's `optional` flag. Whether absence is
   acceptable is the author's decision, never the model's.
-- **One model call per rubric unit.** Not one per axis: three calls cost three times
-  the requests and each could report the same defect under its own name. A unit
-  raises each reason at most once and `missing` silences the rest, enforced at parse
-  time so a bad reply gets the retry, and again in `contract.py` for an imported
-  result.
-- `missing` is the only reason that cites nothing and the only one exempt from
-  citing. Every other finding names the block it was read from.
-- Ordering is `level`, then the sequence the rubric author wrote. That is the only
-  authored priority signal; there is no section `weight`, which had one consumer and
-  sat in eleven configs.
-- A section and a variable declare the same four config keys - `name`,
-  `description`, `optional`, `expectations` - so a section adds only `variables`.
-  `expectations` is where an external standard belongs when one applies, as the
-  expectation a unit is held to rather than as a second rubric.
-- `assessment_status` and `consistency_status` are process facts outside the
-  assessment: "not checked" must never read as "nothing found". A failed unit stops
-  the run; the additive cross-section pass reports its own failure instead.
-- Module responsibilities do not overlap: `models.py` declares shapes, `assembly.py`
-  joins and ranks, `stages/assessor.py` owns the prompt and what is accepted back,
-  `contract.py` owns the deterministic checks, `pipeline.py` owns the order.
-- A derived value is computed, never defaulted. A default on one can only mask a
-  missing derivation, so the published models declare derived fields required and
-  `test_inspector_contract` reads the derived set from the serializer rather than
-  keeping a list. And a fact has one representation: `is_present` is a property over
-  `mapped_block_ids` because storing it made one fact carried three ways, which a
-  contract check then had to police.
-- A rubric mirrors an authored source template for its structure and records which
-  one in `mirrors:`. Everything that makes it assessable - unit `description`,
-  `stage_guidance`, `optional`, `expectations` - is authored here and is not in the
-  source. `mirrors:` is a pointer for re-syncing, never a drift check: the source
-  lives outside the repository and nothing here can verify it.
-- Inspector evaluates document quality. It does not assign program risk,
-  feasibility, funding decisions, or investment recommendations.
+- One schema-bound call per rubric unit. `not_present` and `not_applicable` cite
+  nothing; every other verdict cites retained blocks. Failed units stop the run.
+- Independent units across all included rubrics share one bounded run-wide queue,
+  never nested rubric/section worker pools. Submission interleaves rubrics while
+  results retain authored order. Progress counts all units without restarting per
+  rubric; parsing and document consistency each run once.
+- Rank orders work within one rubric by verdict and then authored sequence. Never
+  compare ranks or combine verdict totals across independent rubrics.
+- `configs/profiles/` selects pinned rubric definitions from the input triple.
+  `configs/rubrics/pdid/` and `configs/rubrics/ich/` own their respective assessment
+  authorities; profiles reference them explicitly. Filenames use hyphens, input
+  keys retain underscores, and saved IDs remain stable. No lookup reconstructs
+  an Inspector filename from organization keys. Adding guideline domain content is a YAML
+  change, not a named-guideline branch in the assessor or viewer.
+- Applicability uses explicit product facts and configuration predicates. Unknown
+  facts leave a dependent review at `needs_context`; confirmed non-matches are
+  `outside_review_scope`. Neither means regulatory exemption, and neither is a
+  model verdict or an assessed unit's `not_applicable`.
+- `mapped_section` reads the template's mapped section; `whole_document` reads
+  all retained blocks, including Other. Guideline section names are requirement
+  groupings, not physical headings: `is_present` is null and mapped IDs are empty.
+  Do not infer document absence from that empty mapping.
+- Snapshots preserve the authored descriptions, expectations, stage guidance and
+  source references used by the run. Source revisions and PDIS rubric revisions
+  are separate. ICH-derived requirements are adaptations, never ICH certification.
+- The shared result viewer selects a review without changing the run. Export and
+  Ask retain all reviews and one source collection. Priority digests are scoped to
+  their rubric. Document consistency concerns contradictions within the document,
+  never differences between authorities.
+- `assessment_status` and `consistency_status` are process facts outside verdicts.
+  The additive consistency pass reports its own failure rather than implying no
+  conflict. Its citations receive the same deterministic validation as before.
+- `models.py` declares shapes, `configuration.py` resolves profiles and rubrics,
+  `assembly.py` joins and ranks, `stages/assessor.py` owns the prompt and reply,
+  `contract.py` owns checks, and `pipeline.py` orchestrates.
+- Compatible v2 single-review imports are wrapped once at the import boundary with
+  an unknown historical revision and no fabricated requirements. Pre-v2 verdict
+  semantics remain refused; runtime code has no legacy fallback.
+- BMGF `mirrors:` points to external source templates for re-syncing, not a drift
+  check. The original files are unavailable to the repository.
+- Inspector evaluates document quality, not program risk, feasibility, funding
+  decisions or investment recommendations.
 
 ### Aligner
 

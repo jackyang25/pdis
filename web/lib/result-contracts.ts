@@ -1,4 +1,4 @@
-import { ALIGNMENT_VERDICTS } from "./api.ts";
+import { ALIGNMENT_VERDICTS, VERDICTS } from "./api.ts";
 import type {
   AlignerResponse,
   DisciplineReview,
@@ -70,16 +70,74 @@ function assertInspectorReadable(result: unknown): void {
   const inspection = (result as InspectorResponse | null)?.inspection;
   if (!inspection) fail("inspector", "it carries no assessment");
 
-  for (const section of requireArray("inspector", inspection.sections, "sections")) {
-    const entry = section as Record<string, unknown>;
-    requireText("inspector", entry.section_name, "a section name");
-    if (typeof entry.verdict_counts !== "object" || entry.verdict_counts === null) {
-      fail("inspector", `section ${String(entry.section_name)} has no verdict counts`);
+  const reviews = requireArray("inspector", inspection.reviews, "reviews") as InspectorResponse["inspection"]["reviews"];
+  if (!reviews.length) fail("inspector", "it carries no review");
+  const rubricIds = new Set<string>();
+  const blocks = requireArray("inspector", inspection.blocks, "blocks") as InspectorResponse["inspection"]["blocks"];
+  const blockIds = new Set(blocks.map(block => block.id));
+  for (const review of reviews) {
+    if (!review?.rubric) fail("inspector", "a review has no rubric identity");
+    const rubric = review.rubric;
+    for (const key of ["id", "display_name", "authority", "scope"] as const) requireText("inspector", rubric[key], `rubric ${key}`);
+    if (rubricIds.has(rubric.id)) fail("inspector", "it repeats a rubric identity");
+    rubricIds.add(rubric.id);
+    if (review.assessment_status !== "complete") fail("inspector", "a review did not complete");
+    if (rubric.revision !== null) requireText("inspector", rubric.revision, "rubric revision");
+    if (typeof rubric.stage_guidance !== "string") fail("inspector", "the rubric assessment bar is missing");
+    if (rubric.mirrors !== null && typeof rubric.mirrors !== "string") fail("inspector", "invalid template reference");
+    if (rubric.reference_url != null && (typeof rubric.reference_url !== "string" || !/^https?:\/\//i.test(rubric.reference_url))) fail("inspector", "invalid template reference URL");
+    if (!["mapped_section", "whole_document"].includes(rubric.evidence_scope)) fail("inspector", "unknown evidence scope");
+    const sources = requireArray("inspector", rubric.sources, "rubric sources") as typeof rubric.sources;
+    for (const source of sources) {
+      for (const key of ["id", "title", "revision", "url"] as const) requireText("inspector", source[key], `source ${key}`);
+      if (!/^https?:\/\//i.test(source.url)) fail("inspector", "a source URL is not HTTP(S)");
     }
-    for (const unit of requireArray("inspector", entry.units, "a section's units")) {
-      requireText("inspector", (unit as Record<string, unknown>).verdict, "a unit verdict");
+    const requirements = requireArray("inspector", rubric.requirements, "rubric requirements") as typeof rubric.requirements;
+    const sourceIds = new Set(sources.map(source => source.id));
+    for (const requirement of requirements) {
+      requireText("inspector", requirement.id, "requirement id");
+      requireText("inspector", requirement.description, "requirement description");
+      for (const ref of requireArray("inspector", requirement.source_refs, "requirement sources")) {
+        if (typeof ref !== "string" || !sourceIds.has(ref)) fail("inspector", "a requirement cites an unknown rubric source");
+      }
+    }
+    const unitIds = new Set<string>();
+    for (const section of requireArray("inspector", review.sections, "sections")) {
+      const entry = section as Record<string, unknown>;
+      requireText("inspector", entry.section_name, "a section name");
+      if (typeof entry.verdict_counts !== "object" || entry.verdict_counts === null) {
+        fail("inspector", `section ${String(entry.section_name)} has no verdict counts`);
+      }
+      for (const unit of requireArray("inspector", entry.units, "a section's units")) {
+        const held = unit as InspectorResponse["inspection"]["document_findings"][number];
+        requireText("inspector", held.id, "a unit id");
+        if (unitIds.has(held.id)) fail("inspector", "a review repeats a unit id");
+        unitIds.add(held.id);
+        if (!VERDICTS.includes(held.verdict)) fail("inspector", "an unknown unit verdict");
+        for (const id of requireArray("inspector", held.cited_block_ids, "unit citations")) {
+          if (!blockIds.has(String(id))) fail("inspector", "a unit cites an unretained passage");
+        }
+      }
+    }
+    const orderedUnitIds = [...unitIds];
+    if (rubric.revision !== null && (requirements.length !== unitIds.size || requirements.some((item, index) => item.id !== orderedUnitIds[index]))) {
+      fail("inspector", "requirements do not match assessed units");
     }
   }
+  const resolutions = requireArray("inspector", inspection.rubric_resolutions, "rubric resolutions") as InspectorResponse["inspection"]["rubric_resolutions"];
+  const included = new Set<string>();
+  const resolutionIds = new Set<string>();
+  for (const resolution of resolutions) {
+    for (const key of ["rubric_id", "display_name", "reason_code", "reason"] as const) requireText("inspector", resolution[key], `rubric resolution ${key}`);
+    if (resolutionIds.has(resolution.rubric_id)) fail("inspector", "it repeats a rubric resolution");
+    resolutionIds.add(resolution.rubric_id);
+    if (!["included", "outside_review_scope", "needs_context"].includes(resolution.status)) fail("inspector", "unknown rubric resolution");
+    if (resolution.status === "included") included.add(resolution.rubric_id);
+  }
+  if (included.size !== rubricIds.size || [...included].some(id => !rubricIds.has(id))) fail("inspector", "included rubrics do not match reviews");
+  if (!inspection.applicability_facts || typeof inspection.applicability_facts !== "object"
+    || Array.isArray(inspection.applicability_facts)
+    || Object.values(inspection.applicability_facts).some(value => !["yes", "no", "unknown"].includes(value))) fail("inspector", "invalid product facts");
   requireArray("inspector", inspection.document_findings, "document_findings");
 }
 

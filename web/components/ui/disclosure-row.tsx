@@ -36,7 +36,7 @@ export function DisclosureRow({
   label: string;
   /** The verdict this row groups, when it groups one. */
   tone?: Tone;
-  count: number;
+  count?: number;
   /** Shown only when something is off, e.g. a citation naming an insight not retained. */
   note?: string;
   /**
@@ -59,7 +59,7 @@ export function DisclosureRow({
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/row:rotate-180 motion-reduce:transition-none" />
         {tone && <ToneDot tone={tone} />}
         <span className="text-xs font-medium text-foreground">{label}</span>
-        <span className="text-[11px] tabular-nums text-muted-foreground">{count}</span>
+        {count !== undefined && <span className="text-[11px] tabular-nums text-muted-foreground">{count}</span>}
         {note && <span className="text-[11px] text-muted-foreground">{note}</span>}
       </summary>
       <div className={cn("pb-2 pl-5", DISCLOSURE_MOTION)}>{children}</div>

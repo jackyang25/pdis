@@ -232,7 +232,7 @@ function SourceTypeHint() {
  * Aligner composes `ContextFields` and `SourceTypeField` itself because it needs
  * several of the latter.
  */
-export function ConfigurationFields() {
+export function ConfigurationFields({ children }: { children?: React.ReactNode }) {
   const setHeader = useHeaderStore((state) => state.setHeader);
   const sourceType = useHeaderStore((state) => state.header.source_type);
   return (
@@ -243,6 +243,7 @@ export function ConfigurationFields() {
         value={sourceType}
         onChange={(value) => setHeader({ source_type: value })}
       />
+      {children}
     </ConfigurationShell>
   );
 }

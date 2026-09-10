@@ -1,6 +1,6 @@
 import type {
   Assessment,
-  InspectionResult,
+  InspectionReviewView,
   SectionAssessment,
   Verdict,
 } from "./api.ts";
@@ -117,7 +117,7 @@ export function inspectorAnnotationId(assessmentId: string): string {
 }
 
 export function buildInspectorDocumentAnnotations(
-  result: InspectionResult,
+  result: InspectionReviewView,
 ): InspectorDocumentAnnotation[] {
   const ordinalById = new Map(
     (result.blocks ?? []).map((block) => [block.id, block.ordinal]),

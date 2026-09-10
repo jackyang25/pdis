@@ -127,6 +127,11 @@ API_OWNED: dict[frozenset[str], str] = {
         "Inspector's cross-section consistency status"
     ),
     frozenset({"complete", "unknown"}): "Inspector's assessment status",
+    frozenset({"complete"}): "a completed Inspector review or aggregate run",
+    frozenset({"mapped_section", "whole_document"}): "Inspector's evidence-scope modes",
+    frozenset({"included", "outside_review_scope", "needs_context"}): (
+        "Inspector's deterministic rubric-resolution states"
+    ),
     frozenset({"answered", "not_applicable", "not_found", "partly_answered"}): (
         "Screener's answer states, declared in its own service"
     ),

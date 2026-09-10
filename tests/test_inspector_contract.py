@@ -300,7 +300,7 @@ class DerivedValueTests(unittest.TestCase):
         self.assertGreaterEqual(checked, 2, "the derived set was not discovered")
 
     def test_serialization_publishes_every_derived_field(self) -> None:
-        from api.schemas import InspectionResultOut
+        from api.schemas import LegacyInspectionResultOut
         from services.inspector.models import inspection_result_to_dict
 
         config = _config()
@@ -309,7 +309,7 @@ class DerivedValueTests(unittest.TestCase):
 
         # Constructing the API model is the check: a missing derived value now has no
         # default to fall back on.
-        out = InspectionResultOut(**payload)
+        out = LegacyInspectionResultOut(**payload)
         self.assertEqual(out.sections[0].units[0].verdict, "vague")
         self.assertTrue(out.sections[0].is_present)
         self.assertEqual(out.sections[0].verdict_counts["vague"], 1)

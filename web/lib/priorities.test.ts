@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { InspectionResult, ScoutResponse } from "./api.ts";
+import type { InspectionReviewView as InspectionResult, ScoutResponse } from "./api.ts";
 import {
   INSPECTOR_EMPTY_MESSAGE,
   INSPECTOR_ORDER_NOTE,
@@ -26,6 +26,8 @@ import {
 function inspection(overrides: Partial<InspectionResult> = {}): InspectionResult {
   return {
     doc_id: "plan",
+    applicability_facts: {},
+    rubric: { id: "test", revision: null, display_name: "Test", authority: "Test", scope: "Test", stage_guidance: "", mirrors: null, evidence_scope: "mapped_section", sources: [], requirements: [] },
     sections: [],
     document_findings: [],
     consistency_status: "complete",

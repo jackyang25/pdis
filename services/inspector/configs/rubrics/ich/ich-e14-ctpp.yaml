@@ -1,0 +1,18 @@
+id: ich-e14-ctpp
+revision: "1.0"
+org: bmgf
+source_type: ctpp
+intervention_class: drug
+display_name: "ICH E14: candidate QT evidence"
+authority: PDIS-authored adaptation informed by ICH E14 and the 2022 E14/S7B Q&As
+scope: Selected QT-evaluation expectations for explicitly confirmed small-molecule, systemically exposed, non-antiarrhythmic candidates; not a regulatory conclusion.
+evidence_scope: whole_document
+sources: &e14_sources
+  - {id: ich-e14-sections-1-2-1-3, title: "ICH E14 — Sections 1.2–1.3", revision: "Adopted 12 May 2005", url: "https://database.ich.org/sites/default/files/E14_Guideline.pdf"}
+  - {id: ich-e14-s7b-qa-6-1, title: "E14/S7B Q&A 6.1", revision: "Adopted 21 February 2022", url: "https://database.ich.org/sites/default/files/E14-S7B_QAs_Step4_2022_0221.pdf"}
+stage_guidance: Do not require a dedicated thorough-QT study; integrated and concentration-response approaches may be suitable.
+sections:
+  - name: Candidate QT evidence summary
+    description: Available nonclinical and clinical QT-related evidence and its limitations are summarized.
+    source_refs: [ich-e14-sections-1-2-1-3, ich-e14-s7b-qa-6-1]
+    expectations: The summary should distinguish evidence from assumptions and identify unresolved evaluation needs.

@@ -21,7 +21,8 @@ export default function Home() {
   const [audience, setAudience] = useState<AudienceFilter>("all");
   const visibleSections = TOOL_SECTIONS.map((section) => ({
     ...section,
-    tools: sectionTools(section, (tool) => isVisibleToAudience(tool, audience)),
+    tools: sectionTools(section, (tool) =>
+      tool.availability === "available" && isVisibleToAudience(tool, audience)),
   })).filter((section) => section.tools.length > 0);
 
   return (

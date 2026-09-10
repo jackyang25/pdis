@@ -20,7 +20,10 @@ from services.chunker import available_configs as chunker_configs
 from services.chunker.prompt_catalog import PROMPT_CATALOG as CHUNKER_CATALOG
 from services.screener.prompt_catalog import PROMPT_CATALOG as SCREENER_CATALOG
 from services.inspector.prompt_catalog import PROMPT_CATALOG as INSPECTOR_CATALOG
-from services.inspector import available_configs as inspector_configs
+from services.inspector import (
+    available_configs as inspector_document_configs,
+    available_rubric_configs as inspector_additional_configs,
+)
 from services.scout import available_configs as scout_configs
 from services.scout.prompt_catalog import PROMPT_CATALOG as SCOUT_CATALOG
 
@@ -53,7 +56,7 @@ CATALOGS = (
 # `test_every_declared_framing_slot_publishes_its_text` is what notices if it does not.
 CONFIG_SOURCES = {
     "chunker": chunker_configs,
-    "inspector": inspector_configs,
+    "inspector": lambda: inspector_document_configs() + inspector_additional_configs(),
     "scout": scout_configs,
 }
 

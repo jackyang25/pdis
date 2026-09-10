@@ -45,7 +45,7 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
     // against; none of them repeats this. Keep the clauses in the same order as
     // `toolIds` above - the sentence is what the cards read as.
     description:
-      "Look up what past profiles required, hold each document to its rubric, its targets to the evidence, and the documents to each other, then bundle for the gate.",
+      "Hold each document to its rubric, its targets to the evidence, and the documents to each other, then bundle for the gate.",
   },
   {
     id: "ghide-workflows",

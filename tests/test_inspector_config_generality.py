@@ -25,10 +25,10 @@ from services.inspector.assembly import (
     unit_id,
 )
 from services.inspector.contract import validate_result_contract
+from services.inspector import available_configs
 from services.inspector.models import (
     Assessment,
     InspectionResult,
-    available_configs,
     inspection_result_to_dict,
 )
 

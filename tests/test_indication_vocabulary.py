@@ -33,18 +33,14 @@ CONTEXT_EXAMPLES = {
 
 
 def _configured_intervention_classes() -> set[str]:
-    """Classes a tool can actually be run for, read from the config filenames.
+    """Classes declared by each service's public configuration catalog."""
+    from services.inspector import available_configs as inspector_configs
+    from services.scout import available_configs as scout_configs
 
-    `bmgf_<source_type>_<intervention_class>.yaml`, and the class may itself contain an
-    underscore, so it is everything after the second one.
-    """
-    classes: set[str] = set()
-    for service in ("inspector", "scout"):
-        for config in (SERVICES / service / "configs").glob("bmgf_*.yaml"):
-            parts = config.stem.split("_", 2)
-            if len(parts) == 3:
-                classes.add(parts[2])
-    return classes
+    return {
+        config.intervention_class
+        for config in [*inspector_configs(), *scout_configs()]
+    }
 
 
 class CoverageTests(unittest.TestCase):
@@ -151,7 +147,7 @@ class InterventionClassTests(unittest.TestCase):
 
     def test_the_text_form_is_derived_from_the_tag_not_stored(self) -> None:
         """A stored second spelling could disagree with the key it was selected by."""
-        from services.inspector.models import find_config as inspector_config
+        from services.inspector import find_config as inspector_config
         from services.scout.models import ScoutTypeConfig
 
         config = inspector_config("bmgf", "itpp", "monoclonal_antibody")

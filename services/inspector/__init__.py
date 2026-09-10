@@ -6,13 +6,11 @@ per document. Public contract below; internals
 """
 
 from .models import (
-    available_configs,
     LLMClientProtocol,
     BatchInspectionResult,
     InspectionConfig,
     InspectionResult,
-    find_config,
-    has_config,
+    AggregateInspectionResult,
     inspection_result_to_dict,
 )
 from .pipeline import (
@@ -30,6 +28,7 @@ __all__ = [
     "DEFAULT_MAX_OUTPUT_TOKENS",
     "InspectionConfig",
     "InspectionResult",
+    "AggregateInspectionResult",
     "find_config",
     "has_config",
     "inspect_blocks",
@@ -37,4 +36,25 @@ __all__ = [
     "inspection_result_to_dict",
     "run_pipeline",
     "run_pipeline_batch",
+]
+
+from .configuration import (
+    available_configs,
+    find_config,
+    has_config,
+    InspectionProfile,
+    available_rubric_configs,
+    find_profile,
+    profile_catalog,
+    resolve_profile,
+    validate_product_facts,
+)
+from .pipeline import inspect_blocks_with_profile, run_profile_pipeline
+
+__all__ += [
+    "available_rubric_configs",
+    "InspectionProfile",
+    "find_profile", "profile_catalog", "resolve_profile",
+    "validate_product_facts",
+    "inspect_blocks_with_profile", "run_profile_pipeline",
 ]

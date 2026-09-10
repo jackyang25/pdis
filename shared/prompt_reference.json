@@ -144,7 +144,7 @@
       "tool": "chunker"
     },
     {
-      "display_name": "Medical Device Candidate TPP",
+      "display_name": "PDID template: cTPP",
       "intervention_class": "device",
       "mirrors": "PDID Reference Library \u2014 device Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
       "org": "bmgf",
@@ -155,7 +155,7 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Diagnostic Candidate TPP",
+      "display_name": "PDID template: cTPP",
       "intervention_class": "diagnostic",
       "mirrors": "PDID Reference Library \u2014 diagnostic Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
       "org": "bmgf",
@@ -166,7 +166,7 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Drug Candidate TPP",
+      "display_name": "PDID template: cTPP",
       "intervention_class": "drug",
       "mirrors": "PDID Reference Library \u2014 drug Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
       "org": "bmgf",
@@ -177,7 +177,62 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Monoclonal Antibody Candidate TPP",
+      "display_name": "ICH E4: candidate dose rationale",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "A candidate profile should distinguish a proposed regimen from completed evidence and make unresolved evidence needs visible."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E14: candidate QT evidence",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Do not require a dedicated thorough-QT study; integrated and concentration-response approaches may be suitable."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E9: treatment-effect targets",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Assess a candidate profile. Accept provisional choices and explicitly identified decisions to resolve; do not demand a complete estimand, protocol, sample-size calculation, or statistical analysis plan."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E10: comparison rationale",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Assess a candidate profile, not a trial protocol. A provisional comparison or an explicit plan to determine it is acceptable. Do not impose placebo, superiority, non-inferiority, or an active comparator universally."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH Q8(R2): candidate pharmaceutical quality",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Assess a candidate profile. Distinguish proposed quality characteristics from demonstrated specifications; accept identified development decisions. Do not require a design space, validated process, or full submission package."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "PDID template: cTPP",
       "intervention_class": "monoclonal_antibody",
       "mirrors": "PDID Reference Library \u2014 drug candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention. The library publishes no monoclonal antibody template, so a monoclonal is assessed against the drug profile with its units unchanged; only the stage guidance names the modality.",
       "org": "bmgf",
@@ -188,7 +243,40 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Vaccine Candidate TPP",
+      "display_name": "ICH E4: candidate dose rationale",
+      "intervention_class": "monoclonal_antibody",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "A candidate profile should distinguish a proposed regimen from completed evidence and make unresolved evidence needs visible."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E9: treatment-effect targets",
+      "intervention_class": "monoclonal_antibody",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Assess a candidate profile. Accept provisional choices and explicitly identified decisions to resolve; do not demand a complete estimand, protocol, sample-size calculation, or statistical analysis plan."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E10: comparison rationale",
+      "intervention_class": "monoclonal_antibody",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Assess a candidate profile, not a trial protocol. A provisional comparison or an explicit plan to determine it is acceptable. Do not impose placebo, superiority, non-inferiority, or an active comparator universally."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "PDID template: cTPP",
       "intervention_class": "vaccine",
       "mirrors": "PDID Reference Library \u2014 vaccine Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
       "org": "bmgf",
@@ -199,7 +287,29 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Diagnostic Integrated Product Development Plan",
+      "display_name": "ICH E9: treatment-effect targets",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Assess a candidate profile. Accept provisional choices and explicitly identified decisions to resolve; do not demand a complete estimand, protocol, sample-size calculation, or statistical analysis plan."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E10: comparison rationale",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Assess a candidate profile, not a trial protocol. A provisional comparison or an explicit plan to determine it is acceptable. Do not impose placebo, superiority, non-inferiority, or an active comparator universally."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "PDID template: IPDP",
       "intervention_class": "diagnostic",
       "mirrors": "PDID Reference Library \u2014 diagnostic Integrated Product Development Plan template: functional-domain sections and the activities each expects.",
       "org": "bmgf",
@@ -210,7 +320,7 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Drug Integrated Product Development Plan",
+      "display_name": "PDID template: IPDP",
       "intervention_class": "drug",
       "mirrors": "PDID Reference Library \u2014 drug Integrated Product Development Plan template: functional-domain sections and the activities each expects.",
       "org": "bmgf",
@@ -221,7 +331,106 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Vaccine Integrated Product Development Plan",
+      "display_name": "ICH E4: dose-response development plan",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess planned work as plans; do not require studies to have started or completed."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E6(R3): clinical planning",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic development plan. Accept future actions and do not demand site records, executed consent forms, or a complete protocol."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E14: QT evaluation plan",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess the proposed strategy, not completed trial conduct. Do not require a dedicated thorough-QT study in every program."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E8(R1): development evidence strategy",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic IPDP, not a protocol. Future work with a stated purpose counts; do not require a fixed sequence of numbered phases or completed studies. Clinical trial conduct is outside this review."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E9: statistical planning",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic IPDP. A plan to resolve specified statistical choices is acceptable at this maturity; do not demand a finished protocol or statistical analysis plan. Judge what is documented, not whether a target is achievable."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E10: control strategy",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic IPDP. Accept planned decisions, and do not require a full protocol or mandate a particular control. If no controlled efficacy study is proposed, accept an explicit alternative evidence strategy and its rationale."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH Q8(R2): pharmaceutical development",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess an IPDP's future programme, not a completed CTD. Accept planned work; design space and real-time release are not mandatory. Quality risk governance is reviewed separately from the development activities here."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH Q9(R1): pharmaceutical quality risks",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess documented quality-risk planning at strategic depth. Accept qualitative and proportionate methods; do not demand FMEA, numerical risk scores, or a completed manufacturing risk register. Do not assign programme risk or funding advice."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH M3(R2): nonclinical development planning",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic IPDP. This authored adaptation is deliberately limited to confirmed small molecules. Accept future studies and justified tailored approaches; do not require every toxicity study, fixed species, study durations, or completed reports. Assess the rationale stated, not biological safety."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "PDID template: IPDP",
       "intervention_class": "vaccine",
       "mirrors": "PDID Reference Library \u2014 vaccine Integrated Product Development Plan template: functional-domain sections and the activities each expects.",
       "org": "bmgf",
@@ -232,7 +441,62 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Medical Device Intervention TPP",
+      "display_name": "ICH E6(R3): clinical planning",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic development plan. Accept future actions and do not demand site records, executed consent forms, or a complete protocol."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E8(R1): development evidence strategy",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic IPDP, not a protocol. Future work with a stated purpose counts; do not require a fixed sequence of numbered phases or completed studies. Clinical trial conduct is outside this review."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E9: statistical planning",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic IPDP. A plan to resolve specified statistical choices is acceptable at this maturity; do not demand a finished protocol or statistical analysis plan. Judge what is documented, not whether a target is achievable."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH E10: control strategy",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic IPDP. Accept planned decisions, and do not require a full protocol or mandate a particular control. If no controlled efficacy study is proposed, accept an explicit alternative evidence strategy and its rationale."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH Q9(R1): pharmaceutical quality risks",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess documented quality-risk planning at strategic depth. Accept qualitative and proportionate methods; do not demand FMEA, numerical risk scores, or a completed manufacturing risk register. Do not assign programme risk or funding advice."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "PDID template: iTPP",
       "intervention_class": "device",
       "mirrors": "PDID Reference Library \u2014 device Intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
       "org": "bmgf",
@@ -243,7 +507,7 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Diagnostic Intervention TPP",
+      "display_name": "PDID template: iTPP",
       "intervention_class": "diagnostic",
       "mirrors": "PDID Reference Library \u2014 diagnostic Intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
       "org": "bmgf",
@@ -254,7 +518,7 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Drug Intervention TPP",
+      "display_name": "PDID template: iTPP",
       "intervention_class": "drug",
       "mirrors": "PDID Reference Library \u2014 drug Intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
       "org": "bmgf",
@@ -265,7 +529,29 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Monoclonal Antibody Intervention TPP",
+      "display_name": "ICH E4: dose-response intent",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "stage_guidance": "A target profile may state qualitative regimen goals. Do not demand a selected dose or completed study."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "ICH Q8(R2): quality target intent",
+      "intervention_class": "drug",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "stage_guidance": "Assess aspirational product intent. Q8 addresses pharmaceutical development for submissions; this is a PDIS-authored early-planning adaptation, not a requirement for submission data, a finished formulation, or numerical quality specifications."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "PDID template: iTPP",
       "intervention_class": "monoclonal_antibody",
       "mirrors": "PDID Reference Library \u2014 drug intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention. The library publishes no monoclonal antibody template, so a monoclonal is assessed against the drug profile with its units unchanged; only the stage guidance names the modality.",
       "org": "bmgf",
@@ -276,7 +562,18 @@
       "tool": "inspector"
     },
     {
-      "display_name": "Vaccine Intervention TPP",
+      "display_name": "ICH E4: dose-response intent",
+      "intervention_class": "monoclonal_antibody",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "stage_guidance": "A target profile may state qualitative regimen goals. Do not demand a selected dose or completed study."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "PDID template: iTPP",
       "intervention_class": "vaccine",
       "mirrors": "PDID Reference Library \u2014 vaccine Intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
       "org": "bmgf",
@@ -474,8 +771,8 @@
       "id": "assessor.unit",
       "produces": {
         "result_fields": [
-          "sections[].units[].verdict",
-          "sections[].units[].statement"
+          "reviews[].sections[].units[].verdict",
+          "reviews[].sections[].units[].statement"
         ],
         "ui_labels": [
           "verdict"

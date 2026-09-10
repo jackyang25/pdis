@@ -16,7 +16,8 @@ import {
   TracePassageList,
 } from "@/components/document-trace-panel";
 import { ASSESSED_VERDICTS, VERDICT_DESCRIPTION, VERDICT_LABEL } from "@/lib/api";
-import type { InspectionResult } from "@/lib/api";
+import type { InspectionReviewView } from "@/lib/api";
+import { InspectorRequirement } from "@/components/inspector-rubric-details";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
 import { Reading } from "@/components/ui/evidence-text";
 import { VerdictPill } from "@/components/ui/verdict-pill";
@@ -43,13 +44,16 @@ function InspectorTraceInspector({
   annotation,
   connection,
   passages,
+  result,
 }: {
   annotation: InspectorDocumentAnnotation;
   connection: DocumentTraceConnection;
   passages: DocumentTracePassageAccess;
+  result: InspectionReviewView;
 }) {
   const ref = annotation.sourceRef;
   const absent = annotation.blockIds.length === 0;
+  const requirement = result.rubric.requirements.find(item => item.id === ref.assessmentId);
   const where = ref.variableName
     ? `${ref.variableName} · ${ref.sectionName}`
     : ref.sectionName
@@ -61,7 +65,7 @@ function InspectorTraceInspector({
       <TracePanelHeader
         eyebrow={annotation.layerLabel}
         title={annotation.title}
-        description={where}
+        description={`${ref.verdict === "section_conflict" ? "Document consistency" : result.rubric.display_name} · ${where}`}
       />
 
       <TracePanelBody>
@@ -80,6 +84,7 @@ function InspectorTraceInspector({
         <Reading size="body" className="whitespace-pre-wrap">
           {annotation.summary}
         </Reading>
+        {requirement && <InspectorRequirement requirement={requirement} rubric={result.rubric} />}
 
         <TracePanelSection
           label={absent ? "Not present in the document" : "Source passages"}
@@ -108,7 +113,7 @@ export function InspectorDocumentTrace({
   focus,
   onFocusConsumed,
 }: {
-  result: InspectionResult;
+  result: InspectionReviewView;
   focus?: TraceFocus | null;
   onFocusConsumed?: (focus: TraceFocus) => void;
 }) {
@@ -132,6 +137,7 @@ export function InspectorDocumentTrace({
           annotation={annotation}
           connection={connection}
           passages={passages}
+          result={result}
         />
       )}
     />

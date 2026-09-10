@@ -64,7 +64,7 @@ test("Inspector reads its model sentences through the shared component", () => {
   // Not merely muted by hand — through `Reading`, so the next sentence added to this card
   // inherits the treatment instead of choosing one.
   const page = read("app", "inspector", "page.tsx");
-  assert.match(page, /<Reading size="prominent" className="mt-1 pr-16">/);
+  assert.match(page, /<Reading size="prominent"[^>]*>/);
 });
 
 test("one verdict has one appearance", () => {

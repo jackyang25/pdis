@@ -12,6 +12,7 @@ answers to one question and every layer above had to reconcile them.
 from __future__ import annotations
 
 import unittest
+import threading
 
 from services.chunker import ContentBlock
 from services.inspector.models import (
@@ -21,7 +22,6 @@ from services.inspector.models import (
     VariableSpec,
 )
 from services.inspector.stages.assessor import (
-    _assess_section,
     _parse_cross_section_payload,
     _parse_unit_payload,
     assess_document,
@@ -79,6 +79,13 @@ def _answer(verdict: str, block_ids: list[str]) -> dict:
         "statement": "" if sound else f"A {verdict} problem.",
         "block_ids": block_ids,
     }
+
+
+def _assess_single_section(*, section_spec, section_blocks, llm_client, max_tokens):
+    findings, _ = assess_document(
+        section_blocks, _config([section_spec]), llm_client, max_tokens=max_tokens,
+    )
+    return findings
 
 
 class _UnitClient:
@@ -184,11 +191,32 @@ class PromptAndSchemaTests(unittest.TestCase):
 
 
 class OneCallPerUnitTests(unittest.TestCase):
+    def test_reversed_completion_keeps_authored_unit_order(self) -> None:
+        second_completed = threading.Event()
+
+        class ReverseClient(_UnitClient):
+            def call_structured(self, system, message, *args, **kwargs):
+                if message.startswith("Assess: Efficacy\n"):
+                    if not second_completed.wait(timeout=3):
+                        raise AssertionError("Second unit never completed concurrently")
+                return super().call_structured(system, message, *args, **kwargs)
+
+        def progress(_stage, *, completed, total):
+            if completed == 1:
+                second_completed.set()
+
+        findings, _ = assess_document(
+            [_block("document:b1", "Profile")], _config([_section()]),
+            ReverseClient({}), max_tokens=4000, progress=progress,
+        )
+        self.assertEqual([finding.id for finding in findings],
+                         ["Profile|Efficacy", "Profile|Safety"])
+
     def test_each_unit_costs_exactly_one_request(self) -> None:
         """Three questions per unit meant three requests for one answer."""
         client = _UnitClient({})
 
-        _assess_section(
+        _assess_single_section(
             section_spec=_section(),
             section_blocks=[_block("document:b1", "Profile")],
             llm_client=client,
@@ -200,7 +228,7 @@ class OneCallPerUnitTests(unittest.TestCase):
     def test_a_sound_unit_still_reports_a_verdict(self) -> None:
         """Silence used to mean "nothing wrong", which is the same shape as "not
         assessed". Every unit answers, and `specified` is the answer."""
-        assessed = _assess_section(
+        assessed = _assess_single_section(
             section_spec=_section(),
             section_blocks=[_block("document:b1", "Profile")],
             llm_client=_UnitClient({}),
@@ -217,7 +245,7 @@ class OneCallPerUnitTests(unittest.TestCase):
             }
         )
 
-        assessed = _assess_section(
+        assessed = _assess_single_section(
             section_spec=_section(),
             section_blocks=[_block("document:b1", "Profile")],
             llm_client=client,
@@ -234,7 +262,7 @@ class OneCallPerUnitTests(unittest.TestCase):
 
     def test_a_failed_unit_stops_the_run_rather_than_publishing_a_hole(self) -> None:
         with self.assertRaisesRegex(ValueError, "could not assess Efficacy in Profile"):
-            _assess_section(
+            _assess_single_section(
                 section_spec=_section(),
                 section_blocks=[_block("document:b1", "Profile")],
                 llm_client=_EmptyClient(),

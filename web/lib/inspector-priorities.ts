@@ -1,4 +1,4 @@
-import type { InspectionResult } from "./api.ts";
+import type { InspectionReviewView } from "./api.ts";
 import { VERDICT_LABEL, worklist } from "./api.ts";
 import type { PriorityItem } from "./priorities.ts";
 
@@ -22,12 +22,12 @@ export const INSPECTOR_ORDER_NOTE =
   + "own section below.";
 
 export const INSPECTOR_EMPTY_MESSAGE =
-  "Every unit the rubric requires is specified, and no section conflicts with another.";
+  "Every unit this rubric requires is specified.";
 
 export function selectInspectorPriorities(
-  inspection: InspectionResult,
+  inspection: InspectionReviewView,
 ): PriorityItem[] {
-  return worklist(inspection).map((item) => ({
+  return worklist({ ...inspection, document_findings: [] }).map((item) => ({
     id: item.id,
     label: item.variable_name ?? item.section_name ?? "Across sections",
     // The verdict is the qualifier rather than part of the sentence, so a reader can

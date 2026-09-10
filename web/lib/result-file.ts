@@ -55,7 +55,7 @@ const ANALYSIS_VERSIONS = {
   // 5: every answer cites retained document blocks. Older context answers carry only
   // labels, so their missing evidence cannot be reconstructed during import.
   screener: 5,
-  inspector: 2,
+  inspector: 3,
   scout: 1,
 } as const satisfies Record<ResultType, number>;
 
@@ -422,7 +422,7 @@ export function unpackScoutResult(value: unknown): ScoutResponse {
 }
 
 export function unpackInspectorResult(value: unknown): InspectorResponse {
-  const file = requireResultFile(value, "inspector");
+  const file = requireResultFile(upgradeInspectorV2(value), "inspector");
   const analysis = file.analysis as InspectorAnalysis;
   const result = {
     inspection: {
@@ -435,6 +435,28 @@ export function unpackInspectorResult(value: unknown): InspectorResponse {
     throw new Error("this inspector result cannot be read: the run did not complete");
   }
   return result;
+}
+
+/** v2 already has today's verdict semantics; older verdict vocabularies stay refused. */
+function upgradeInspectorV2(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const file = value as Record<string, unknown>;
+  if (file.schema !== RESULT_SCHEMA || file.result_type !== "inspector"
+    || file.envelope_version !== ENVELOPE_VERSION || file.analysis_version !== 2) return value;
+  const analysis = file.analysis as { inspection?: Record<string, unknown> } | undefined;
+  if (!analysis?.inspection || !Array.isArray(analysis.inspection.sections)) return value;
+  const { sections, ...document } = analysis.inspection;
+  const id = "legacy_template";
+  return { ...file, analysis_version: ANALYSIS_VERSIONS.inspector, analysis: { inspection: {
+    ...document,
+    applicability_facts: {},
+    rubric_resolutions: [{ rubric_id: id, display_name: "Historical template review", status: "included",
+      reason_code: "legacy_import", reason: "Imported single-rubric review; the original file did not record its rubric revision." }],
+    reviews: [{ rubric: { id, revision: null, display_name: "Historical template review",
+      authority: "Template rubric (historical)", scope: "Original requirements and source revision were not saved. Re-run to assess current rubrics.",
+      evidence_scope: "mapped_section", stage_guidance: "", mirrors: null, sources: [], requirements: [] },
+      sections, assessment_status: document.assessment_status }],
+  } } };
 }
 
 export function unpackAlignerResult(value: unknown): AlignerResponse {

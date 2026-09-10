@@ -74,10 +74,8 @@ test("a section renders the tools it declares, in that order", () => {
 test("a section drops the tools a filter excludes without resorting", () => {
   const pst = TOOL_SECTIONS.find((section) => section.id === "pst-workflows");
   assert.ok(pst);
-  // A synthetic predicate rather than `availability`, because availability is not a
-  // filter: a coming-soon tool still gets a card, dimmed and unclickable, so asserting
-  // over it would prove nothing about dropping. The audience filter is the only thing
-  // that removes a card, and it can remove any of them.
+  // A synthetic predicate exercises exclusion independently of the page's
+  // availability and audience filters.
   // The guarantee under test is that the survivors keep the section's declared order
   // rather than closing the gap - which is what breaks if `sectionTools` ever
   // filters the catalog instead of walking `toolIds`.

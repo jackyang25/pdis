@@ -128,11 +128,8 @@ export type ToolDefinition = WorkspaceToolDefinition | ExternalToolDefinition;
 export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
   {
     id: "archivist",
-    // No `href` while this is coming soon. The card would not link either way - the card
-    // checks `comingSoon || !href` - but this is the only link to `/archivist` anywhere in
-    // the app, so leaving it would be a route offered by nothing and reachable by one
-    // stale value. The page under `app/archivist` is untouched and still answers if the
-    // URL is typed; what is being withdrawn is the way in.
+    // Hidden from the Tools page while coming soon, with no navigation href.
+    // The page under `app/archivist` remains accessible by its URL.
     title: "Archivist",
     // Imperative, like Chunker and Searcher, and for the reason the family rule gives:
     // this performs a lookup rather than judging a document. It names no authority
@@ -157,7 +154,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/inspector",
     title: "Inspector",
     description:
-      "One document against its rubric: whether it states what the template asks for, usably.",
+      "An iTPP, cTPP, or IPDP against its authored rubrics: what the document specifies and what each requirement leaves unresolved.",
     activity: "approx. 1 min",
     icon: "inspector",
     audience: "pst",

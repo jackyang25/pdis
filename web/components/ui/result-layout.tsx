@@ -55,6 +55,7 @@ export function ResultLayout({
   priorities,
   children,
   footer,
+  scopeControl,
 }: {
   /** The run's own identity. `runLabel` answers this for every tool. */
   title: string;
@@ -107,6 +108,8 @@ export function ResultLayout({
    * inside a tab it would credit one view for sources the others also used.
    */
   footer?: ReactNode;
+  /** Optional choice of peer review within this run, above its view tabs. */
+  scopeControl?: ReactNode;
 }) {
   return (
     <CollapsibleCard
@@ -129,6 +132,7 @@ export function ResultLayout({
       contentClassName="p-0"
     >
       <Tabs value={tabValue} onValueChange={onTabChange}>
+        {scopeControl && <div className="px-5 pb-4 sm:px-6">{scopeControl}</div>}
         <div className="overflow-x-auto border-b border-border/60 px-5 pt-1.5 sm:px-6">
           <TabsList className="min-w-max border-b-0">{tabs}</TabsList>
         </div>

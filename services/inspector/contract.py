@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from .assembly import rubric_units
 from .models import (
+    AggregateInspectionResult,
     VERDICTS,
     Assessment,
     InspectionConfig,
@@ -75,7 +76,7 @@ def validate_result_contract(
             raise ValueError("Inspector section block mapping must be unique")
         if any(block_id not in block_by_id for block_id in mapped):
             raise ValueError("Inspector section mapped an unknown block")
-        if any(
+        if config.evidence_scope == "mapped_section" and any(
             block_by_id[block_id].section_label != section.section_name
             for block_id in mapped
         ):
@@ -84,15 +85,16 @@ def validate_result_contract(
         # and "present yet mapping none" are no longer expressible and need no check.
         # What still needs one is the other half: a section the document never wrote
         # must say so on every unit beneath it, or the rest look assessed.
-        if not section.is_present and any(
-            unit.verdict != "not_present" for unit in section.units
+        if config.evidence_scope == "mapped_section" and not section.is_present and any(
+            unit.verdict != ("not_applicable" if unit.optional else "not_present")
+            for unit in section.units
         ):
             raise ValueError(
                 f"Inspector section {section.section_name} is absent, so every unit "
                 "beneath it must report it missing"
             )
 
-        allowed = set(mapped)
+        allowed = set(block_by_id) if config.evidence_scope == "whole_document" else set(mapped)
         for unit in section.units:
             if unit.section_name != section.section_name:
                 raise ValueError("Inspector unit is filed under the wrong section")
@@ -113,6 +115,60 @@ def validate_result_contract(
             raise ValueError(
                 "Inspector cross-section finding must cite at least two sections"
             )
+    return result
+
+
+def validate_aggregate_result_contract(
+    result: AggregateInspectionResult,
+    configs: dict[str, InspectionConfig],
+) -> AggregateInspectionResult:
+    if result.assessment_status != "complete" or not result.reviews:
+        raise ValueError("Inspector aggregate assessment must contain completed reviews")
+    if len({block.id for block in result.blocks}) != len(result.blocks):
+        raise ValueError("Inspector source block IDs must be unique")
+    if any(block.doc_id != result.doc_id for block in result.blocks):
+        raise ValueError("Inspector result contains blocks from another document")
+    if result.consistency_status not in {"complete", "partial", "failed", "not_applicable", "unknown"}:
+        raise ValueError("Inspector consistency status is invalid")
+    if result.consistency_status not in {"complete", "partial"} and result.document_findings:
+        raise ValueError("Inspector consistency findings require a completed check")
+    included = [item["rubric_id"] for item in result.rubric_resolutions if item["status"] == "included"]
+    if [review.rubric.id for review in result.reviews] != included:
+        raise ValueError("Inspector reviews must match included rubric resolutions in order")
+    all_ids: set[str] = set()
+    for review in result.reviews:
+        if review.assessment_status != "complete":
+            raise ValueError("Inspector review assessment must be complete")
+        if review.rubric.id not in configs:
+            raise ValueError("Inspector review has no resolved rubric configuration")
+        validate_result_contract(
+            InspectionResult(
+                doc_id=result.doc_id,
+                sections=review.sections,
+                document_findings=[],
+                consistency_status="not_applicable",
+                assessment_status="complete",
+                blocks=result.blocks,
+            ),
+            configs[review.rubric.id],
+        )
+        requirement_ids = [item.id for item in review.rubric.requirements]
+        unit_ids = [unit.id for section in review.sections for unit in section.units]
+        if unit_ids != requirement_ids:
+            raise ValueError("Inspector requirement snapshot IDs must match assessment IDs")
+        if any(not unit_id.startswith(review.rubric.id + "::") for unit_id in unit_ids):
+            raise ValueError("Inspector assessment IDs must be review-qualified")
+        if all_ids.intersection(unit_ids):
+            raise ValueError("Inspector assessment IDs must be globally unique")
+        all_ids.update(unit_ids)
+    block_by_id = {block.id: block for block in result.blocks}
+    for item in result.document_findings:
+        if item.section_name or item.variable_name or item.verdict != "section_conflict":
+            raise ValueError("Inspector document finding must be a section_conflict")
+        _validate_assessment(item, set(block_by_id), all_ids)
+        sections = {block_by_id[block_id].section_label for block_id in item.cited_block_ids}
+        if len(sections) < 2:
+            raise ValueError("Inspector cross-section finding must cite at least two sections")
     return result
 
 

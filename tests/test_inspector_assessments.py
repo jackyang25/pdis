@@ -400,7 +400,7 @@ class ProvenanceTests(unittest.TestCase):
     """Where a rubric's structure came from is answerable from the file."""
 
     def test_every_shipped_rubric_records_what_it_mirrors(self) -> None:
-        from services.inspector.models import available_configs
+        from services.inspector import available_configs
 
         for config in available_configs():
             self.assertTrue(

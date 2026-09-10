@@ -15,6 +15,13 @@ import { RESULT_CONTRACTS, type ResultType } from "./result-contracts.ts";
 
 const TOOLS: ResultType[] = ["aligner", "screener", "inspector", "scout"];
 
+function inspectorSections(sections: unknown[]) {
+  return { inspection: { blocks: [], document_findings: [], applicability_facts: {},
+    rubric_resolutions: [{ rubric_id: "test", display_name: "Test", status: "included", reason_code: "test", reason: "Test" }],
+    reviews: [{ rubric: { id: "test", revision: null, display_name: "Test", authority: "Test", scope: "Test",
+      evidence_scope: "mapped_section", stage_guidance: "", mirrors: null, sources: [], requirements: [] }, assessment_status: "complete", sections }] } };
+}
+
 test("every tool has exactly one contract, and no tool is missing one", () => {
   assert.deepEqual(Object.keys(RESULT_CONTRACTS).sort(), [...TOOLS].sort());
 });
@@ -34,20 +41,15 @@ test("Inspector refuses an assessment missing a derived value", () => {
   // `verdict_counts` is computed during serialization, so a file written before it has
   // the right field names and not this one. Without the check every section header
   // would render blank rather than the file being refused.
-  const withUnits = (unit: Record<string, unknown>) => ({
-    inspection: {
-      sections: [
+  const withUnits = (unit: Record<string, unknown>) => inspectorSections([
         {
           section_name: "Profile",
           verdict_counts: { specified: 0, not_present: 1 },
           units: [unit],
         },
-      ],
-      document_findings: [],
-    },
-  });
+      ]);
 
-  const complete = { variable_name: "Efficacy", verdict: "not_present", statement: "Not stated." };
+  const complete = { id: "unit", cited_block_ids: [], variable_name: "Efficacy", verdict: "not_present", statement: "Not stated." };
   RESULT_CONTRACTS.inspector(withUnits(complete));
 
   const { verdict, ...noVerdict } = complete;
@@ -55,12 +57,7 @@ test("Inspector refuses an assessment missing a derived value", () => {
 
   assert.throws(
     () =>
-      RESULT_CONTRACTS.inspector({
-        inspection: {
-          sections: [{ section_name: "Profile", units: [complete] }],
-          document_findings: [],
-        },
-      }),
+      RESULT_CONTRACTS.inspector(inspectorSections([{ section_name: "Profile", units: [complete] }])),
     /verdict counts/,
   );
 });
@@ -73,18 +70,13 @@ test("Inspector accepts a sound unit, which states nothing", () => {
   //
   // A `specified` unit carries an empty statement, which is the common case, so the
   // contract must not require text there either.
-  RESULT_CONTRACTS.inspector({
-    inspection: {
-      sections: [
+  RESULT_CONTRACTS.inspector(inspectorSections([
         {
           section_name: "Profile",
           verdict_counts: { specified: 1 },
-          units: [{ variable_name: "Efficacy", verdict: "specified", statement: "" }],
+          units: [{ id: "unit", cited_block_ids: [], variable_name: "Efficacy", verdict: "specified", statement: "" }],
         },
-      ],
-      document_findings: [],
-    },
-  });
+      ]));
 });
 
 test("Aligner refuses a result that cannot form a comparison", () => {

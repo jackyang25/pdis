@@ -68,7 +68,7 @@ class RouteArgumentTests(RouteArgumentTestCase):
         """The regression. A stub that raises proves the arguments evaluated: an unbound
         name fails while building the call, before the stub can run at all.
         """
-        with patch("api.routes.inspector.run_pipeline", side_effect=SENTINEL("reached")):
+        with patch("api.routes.inspector.execute_inspection", side_effect=SENTINEL("reached")):
             body = _run().text
         self.assertNotIn("NameError", body, "an argument to run_pipeline is unbound")
         self.assertIn("reached", body, "the pipeline call was never made")
@@ -84,7 +84,7 @@ class RouteArgumentTests(RouteArgumentTestCase):
             captured.update(kwargs)
             raise SENTINEL("reached")
 
-        with patch("api.routes.inspector.run_pipeline", side_effect=capture):
+        with patch("api.routes.inspector.execute_inspection", side_effect=capture):
             _run()
         self.assertEqual(captured.get("doc_id"), "profile")
 

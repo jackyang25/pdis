@@ -16,6 +16,10 @@ import { VerdictCounts } from "@/components/ui/verdict-counts";
 import { VerdictPill } from "@/components/ui/verdict-pill";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { ConfigurationFields } from "@/components/configuration-fields";
+import { ConfigField, ConfigHelp, ConfigSelect, ConfigSectionHeading } from "@/components/ui/config-field";
+import { useInspectorConfiguration } from "@/lib/use-configuration-catalog";
+import { projectInspectionReview } from "@/lib/inspector-reviews";
+import { InspectorRubricDetails, InspectorRubricOmissions, InspectorRequirement } from "@/components/inspector-rubric-details";
 import {
   DocumentSourceProvider,
   DocumentSourceTrace,
@@ -43,6 +47,9 @@ import {
   type Assessment,
   type Header,
   type InspectionResult,
+  type RubricSnapshot,
+  type RequirementSnapshot,
+  type ProductFact,
   type InspectorResponse,
   type SectionAssessment,
   type Verdict,
@@ -85,7 +92,7 @@ export default function InspectorPage() {
     <>
       <PageHeader
         title="Inspector"
-        description="One document against its rubric: whether it states what the template asks for, usably. Completeness, not correctness — what a shortfall costs a programme is not something Inspector can see."
+        description="An iTPP, cTPP, or IPDP against its authored rubrics: what the document specifies and what each requirement leaves unresolved."
       />
       <HeaderGuard>
         {(header, ready) => (
@@ -115,6 +122,10 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
     setError,
   } = useInspectorSession();
   const [showRunPanel, setShowRunPanel] = useState(!result);
+  const catalog = useInspectorConfiguration(header);
+  const profileKey = JSON.stringify([header.org, header.source_type, header.intervention_class]);
+  const [factState, setFactState] = useState<{ key: string; values: Record<string, ProductFact> }>({ key: profileKey, values: {} });
+  const facts = factState.key === profileKey ? factState.values : {};
 
   useEffect(() => {
     if (result) setShowRunPanel(false);
@@ -133,6 +144,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
           setStage(nextStage);
           setProgress(nextProgress ?? null);
         },
+        Object.fromEntries(catalog.fields.map(field => [field.key, facts[field.key] ?? "unknown"])),
       );
       addResult(response);
     } catch (runError) {
@@ -151,7 +163,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
     try {
       const raw = JSON.parse(await file.text());
       const parsed = unpackInspectorResult(raw);
-      if (!parsed?.inspection || !Array.isArray(parsed.inspection.sections)) {
+      if (!parsed?.inspection || !Array.isArray(parsed.inspection.reviews)) {
         throw new Error("not an Inspector result file");
       }
       setStage(null);
@@ -166,13 +178,24 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
     <div className="flex flex-col gap-6">
       {(!result || showRunPanel) && (
         <RunPanel
-          configuration={<ConfigurationFields />}
+          configuration={<ConfigurationFields>
+            {catalog.fields.length > 0 && <>
+              <ConfigSectionHeading>Product context</ConfigSectionHeading>
+              {catalog.fields.map(field => <ConfigField key={field.key} label={field.label} help={field.description}>
+                <ConfigSelect value={facts[field.key] ?? "unknown"} disabled={busy}
+                  options={field.options.map(value => ({ value, label: value === "unknown" ? "Not known" : value === "yes" ? "Yes" : "No" }))}
+                  onChange={value => setFactState({ key: profileKey, values: { ...facts, [field.key]: value as ProductFact } })} />
+              </ConfigField>)}
+              <ConfigHelp>Unknown facts leave dependent reviews unassessed. Other applicable reviews still run.</ConfigHelp>
+            </>}
+            {catalog.error && <ErrorMessage>{catalog.error}</ErrorMessage>}
+          </ConfigurationFields>}
           busy={busy}
           onRun={(files) => handleRun(files.document)}
           steps={INSPECTOR_STEPS}
           currentStage={stage}
           progress={progress}
-          runDisabled={!ready}
+          runDisabled={!ready || !catalog.ready}
           hint={ready ? undefined : "Complete the configuration to run."}
           onImport={handleImport}
         />
@@ -180,6 +203,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
       {error && <ErrorMessage>{error}</ErrorMessage>}
       {result && (
         <InspectionResultView
+          key={selectedId}
           result={result}
           onNewAnalysis={() => setShowRunPanel(true)}
         />
@@ -197,7 +221,9 @@ function InspectionResultView({
 }) {
   const { results, selectedId, selectResult, removeResult } =
     useInspectorSession();
-  const inspection = result.inspection;
+  const run = result.inspection;
+  const [rubricId, setRubricId] = useState(run.reviews[0].rubric.id);
+  const inspection = useMemo(() => projectInspectionReview(run, rubricId), [run, rubricId]);
   const final = isInspectorResultFinal(result);
   const [resultTab, setResultTab] = useState("trace");
   const revealTrace = useCallback(() => setResultTab("trace"), []);
@@ -218,12 +244,12 @@ function InspectionResultView({
   const digest = usePriorityDigest(
     selectedId
       ? {
-          resultId: selectedId,
+          resultId: `${selectedId}:${rubricId}`,
           // The tool's own catalog sentence, so nothing here restates its authority.
-          authority: toolAuthority("inspector"),
+          authority: `${toolAuthority("inspector")} Selected rubric: ${inspection.rubric.display_name}. ${inspection.rubric.scope}`,
           orderNote: INSPECTOR_ORDER_NOTE,
           items: priorityItems,
-          analysis: splitResultContext(inspection).analysis,
+          analysis: splitResultContext({ ...inspection, document_findings: [] }).analysis,
           blockIds: (inspection.blocks ?? []).map((block) => block.id),
           org: inspection.org ?? "",
           interventionClass: inspection.intervention_class ?? "",
@@ -232,7 +258,6 @@ function InspectionResultView({
       : null,
   );
 
-  const findings = worklist(inspection);
   const sections = inspection.sections ?? [];
   const conflicts = inspection.document_findings?.length ?? 0;
   // Scope, and only scope: what was examined, and what kind of run it was. The two
@@ -247,12 +272,21 @@ function InspectionResultView({
       // called one thing in all three places.
       title={runLabel(result, "inspector")}
       subtitle={runScope(result, "inspector")}
+      scopeControl={<div className="space-y-3">
+        <div className="w-full max-w-md">
+          <ConfigField label="Rubric" help={<InspectorRubricDetails rubric={inspection.rubric} />}>
+            <ConfigSelect value={rubricId} options={run.reviews.map(review => ({ value: review.rubric.id, label: review.rubric.display_name }))}
+              onChange={value => { if (traceFocus) consumeTraceFocus(traceFocus); setRubricId(value); }} />
+          </ConfigField>
+        </div>
+        <InspectorRubricOmissions resolutions={run.rubric_resolutions} />
+      </div>}
       metrics={
         <RunCoverage sections={sections} conflicts={conflicts} />
       }
       // The row sums to the unit count, because a unit carries exactly one verdict.
       // Conflicts stand apart from it: one belongs to no unit at all.
-      metricsNote="Every rubric unit by verdict, so the row sums to the number of units the rubric asks about. Cross-section conflicts are counted separately, because a conflict belongs to no single unit."
+      metricsNote={`Units from ${inspection.rubric.display_name}, counted by verdict. Document consistency is checked once for the run, independently of the selected rubric.`}
 
       tabValue={resultTab}
       onTabChange={setResultTab}
@@ -325,13 +359,14 @@ function InspectionResultView({
       >
         <TabsContent value="trace" className="m-0">
           <InspectorDocumentTrace
+            key={rubricId}
             result={inspection}
             focus={traceFocus}
             onFocusConsumed={consumeTraceFocus}
           />
         </TabsContent>
         <TabsContent value="sections" className="m-0">
-          <SectionsList sections={sections} inspection={inspection} />
+          <SectionsList key={rubricId} sections={sections} rubric={inspection.rubric} />
         </TabsContent>
         <TabsContent value="consistency" className="m-0">
           {/* The view's name on the left, because there is nothing here to filter: three
@@ -362,10 +397,10 @@ function InspectionResultView({
 
 function SectionsList({
   sections,
-  inspection,
+  rubric,
 }: {
   sections: SectionAssessment[];
-  inspection: InspectionResult;
+  rubric: RubricSnapshot;
 }) {
   const [query, setQuery] = useState("");
   const normalizedQuery = normalizeQuery(query);
@@ -421,7 +456,7 @@ function SectionsList({
             findings, and the passages behind them.
           </p>
           {visible.map((section) => (
-            <SectionCard key={section.section_name} section={section} />
+            <SectionCard key={section.section_name} section={section} rubric={rubric} />
           ))}
           {visible.length === 0 && (
             <EmptyState message="No section or unit matches that search" />
@@ -453,15 +488,19 @@ function SectionsList({
 function AssessmentRow({
   item,
   title,
+  requirement,
+  rubric,
 }: {
   item: Assessment;
   /** What this is about. The section's name where a unit declares no variable. */
-  title: string;
+  title: string | null;
+  requirement?: RequirementSnapshot;
+  rubric?: RubricSnapshot;
 }) {
   return (
     <div className="px-5 py-3.5 sm:px-6">
-      <div className="flex items-baseline gap-4">
-        <p className="min-w-0 flex-1 truncate text-sm font-medium">{title}</p>
+      {title !== null && <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+        <p className="min-w-0 flex-1 basis-48 text-sm font-medium">{title}</p>
         <div className="flex shrink-0 items-center gap-2">
           {/* Muted text, not a second pill. `Optional` is the rubric author's decision
               about this unit, not a verdict about the document, and two pills on one row
@@ -471,15 +510,16 @@ function AssessmentRow({
           )}
           <StatusPill status={item.verdict} />
         </div>
-      </div>
+      </div>}
       {/* The verdict is on the pill and nowhere else. It used to be repeated here as
           well, which made sense when a unit held several findings and each carried its
           own reason; with one verdict per unit the second copy says nothing. */}
       {item.statement && (
-        <Reading size="prominent" className="mt-1 pr-16">
+        <Reading size="prominent" className="mt-1">
           {item.statement}
         </Reading>
       )}
+      {requirement && rubric && <InspectorRequirement requirement={requirement} rubric={rubric} />}
       {item.cited_block_ids.length > 0 && (
         <div className="mt-1.5">
           {/* Named, so the trace opens on this unit's own layer rather than on every
@@ -494,13 +534,19 @@ function AssessmentRow({
   );
 }
 
-function SectionCard({ section }: { section: SectionAssessment }) {
+function SectionCard({ section, rubric }: { section: SectionAssessment; rubric: RubricSnapshot }) {
   return (
     <CollapsibleCard
       title={section.section_name}
-      subtitle={section.is_present ? undefined : "Required section not found"}
-      trailing={<ShortfallCounts section={section} />}
+      subtitle={section.is_present === false ? "Section not found in the document" : undefined}
+      trailing={section.units.length === 1 && section.units[0].variable_name === null
+        ? <div className="flex items-center gap-2">
+            {section.units[0].optional && <span className="text-xs text-muted-foreground">Optional</span>}
+            <StatusPill status={section.units[0].verdict} />
+          </div>
+        : <ShortfallCounts section={section} />}
       defaultOpen={false}
+      contentClassName="p-0 sm:px-0"
     >
       {/* Dividers, not a second bordered box. The card already draws the boundary; a
           rounded border inside a rounded border was the third nesting level on a page
@@ -510,7 +556,9 @@ function SectionCard({ section }: { section: SectionAssessment }) {
           <AssessmentRow
             key={unit.variable_name ?? section.section_name}
             item={unit}
-            title={unit.variable_name ?? section.section_name}
+            title={section.units.length === 1 && unit.variable_name === null ? null : unit.variable_name ?? section.section_name}
+            requirement={rubric.requirements.find(requirement => requirement.id === unit.id)}
+            rubric={rubric}
           />
         ))}
       </div>

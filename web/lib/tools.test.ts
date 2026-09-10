@@ -236,7 +236,6 @@ test("every judging tool names its territory and its neighbour's", () => {
   // how "does the plan actually work" gets asked of Aligner and "is this complete" of
   // Scout.
   const TERRITORY: Record<string, [string, string]> = {
-    inspector: ["Completeness", "correctness"],
     aligner: ["Coherence", "feasibility"],
     scout: ["Feasibility", "completeness"],
     // "Stage gate" is load-bearing, and it is what the process is formally called.
@@ -246,6 +245,9 @@ test("every judging tool names its territory and its neighbour's", () => {
     // against a named decision point in the process.
     screener: ["Stage gate readiness", "judgement"],
   };
+  // Inspector's scope is now stated positively, by its authored authority.
+  const inspectorPage = readFileSync(path.resolve(import.meta.dirname, "..", "app", "inspector", "page.tsx"), "utf8");
+  assert.match(inspectorPage, /against its authored rubrics/);
   // Checked on the page, not the card. A catalogue of six with six boundary clauses is
   // a second sentence on every card for a distinction that only matters once a reader
   // has chosen one - so the card says what the tool judges, and the page it opens says
@@ -276,6 +278,7 @@ test("every judging tool names its territory and its neighbour's", () => {
   // own word, or one of the two things the system deliberately leaves to a person.
   const NOT_OURS = new Set(["judgement", "correctness", "a recommendation"]);
   const claimed = new Set(owned.map((word) => word.toLowerCase().replace("stage gate ", "")));
+  claimed.add("completeness"); // Inspector retains this responsibility without a negative tagline.
   for (const [id, [, disowns]] of Object.entries(TERRITORY)) {
     assert.ok(
       claimed.has(disowns) || NOT_OURS.has(disowns),

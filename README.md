@@ -122,7 +122,7 @@ export/import is the durable boundary.
 
 | Tool                                      | Responsibility                                                      |
 | ----------------------------------------- | ------------------------------------------------------------------- |
-| [Inspector](services/inspector/README.md) | Grade document completeness, adherence, rigor, and consistency.     |
+| [Inspector](services/inspector/README.md) | Review document content against authored template and applicable ICH-derived rubrics, with separate results and one consistency check. |
 | [Aligner](services/aligner/README.md)     | Check one document against another's requirements, one requirement at a time. |
 | [Scout](services/scout/README.md)         | Test document targets against evidence, comparators, and precedent. |
 | [Screener](services/screener/README.md)       | Decide which stage-gate questions the supplied documents answer.    |

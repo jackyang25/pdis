@@ -39,7 +39,8 @@ sections:
       - name: "Variable Name"
         description: "What this unit should contain."
         # What good looks like, read into the prompt verbatim. This is where an
-        # external standard belongs when one applies (ICH, WHO PQ, a house style):
+        # a requirement-specific assessment bar belongs here. An independent
+        # authority (for example an ICH-derived review) is a separate rubric:
         # as the expectation a unit is held to, never as a second rubric.
         expectations: "A point estimate or range with units, and the source behind it."
 

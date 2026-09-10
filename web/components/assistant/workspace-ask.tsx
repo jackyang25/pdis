@@ -117,7 +117,19 @@ export function WorkspaceAsk() {
         entry.id,
         "inspector",
         runLabel(entry.result.inspection.doc_id || "Inspector result", entry.created_at),
-        entry.result.inspection,
+        {
+          ...entry.result.inspection,
+          // All reviews travel together. Derived panel context belongs to its own
+          // rubric; a digest from the selected review must never speak for the run.
+          reviews: entry.result.inspection.reviews.map(review => {
+            const key = `${entry.id}:${review.rubric.id}`;
+            const digest = digests[key];
+            return { ...review,
+              priority_digest: digest?.state === "ready" ? digest.digest : undefined,
+              priority_item_ids: selected[key],
+            };
+          }),
+        },
       );
     }
 

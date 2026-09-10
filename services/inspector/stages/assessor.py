@@ -10,15 +10,16 @@ Merging them also removed the naming problem that split created: the same axis w
 `adherence` in the data and "Template adherence" in two interfaces, while
 completeness escaped it only because its key happened to read well.
 
-Sections run in parallel, and the unit calls within a section also run in parallel,
-so wall-clock stays close to the slowest single call.
+All rubric units share one bounded worker pool per document run. Rubrics remain
+independent requests; scheduling never changes their evidence or authored order.
 """
 
 from __future__ import annotations
 
 import threading
 from collections import defaultdict
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from itertools import zip_longest
 from typing import Any
 
 from shared.ai import request_structured
@@ -39,11 +40,12 @@ from ..models import (
     VariableSpec,
 )
 
-MAX_PARALLEL_SECTIONS = 4
 # One assessment per rubric unit, so an unrelated unit can never sit in this
 # decision's prompt. Throughput comes from fan-out, never from packing units.
 UNITS_PER_REQUEST = 1
-MAX_PARALLEL_UNIT_CALLS = 6
+# Preserve the former upper bound (4 section pools × 6 unit calls), now across
+# ALL included rubrics rather than multiplying pools as rubrics are added.
+MAX_PARALLEL_UNIT_CALLS = 24
 
 # What each verdict is for, stated once and rendered into the prompt. Adding one
 # means adding it here and to `VERDICTS`; nothing between this module and the
@@ -89,6 +91,17 @@ _BOUNDARY_NOTE = (
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _UnitWork:
+    rubric_index: int
+    section: SectionSpec
+    unit: VariableSpec | None
+    blocks: list[ContentBlock]
+    blocks_text: str
+    stage_guidance: str
+    absent: Assessment | None = None
+
+
 def assess_document(
     labeled_blocks: list[ContentBlock],
     config: InspectionConfig,
@@ -96,86 +109,92 @@ def assess_document(
     *,
     max_tokens: int,
     progress=None,
+    evidence_scope: str | None = None,
 ) -> tuple[list[Assessment], dict[str, list[str]]]:
-    """Assess every rubric unit.
+    """Single-rubric entry point using the same queue as multi-rubric runs."""
+    effective_config = (
+        replace(config, evidence_scope=evidence_scope)
+        if evidence_scope is not None else config
+    )
+    return assess_rubrics(
+        labeled_blocks, [effective_config], llm_client,
+        max_tokens=max_tokens, progress=progress,
+    )[0]
 
-    Returns the findings and the blocks mapped to each section. Presence is not
-    returned separately: a section is present exactly when the mapper gave it
-    blocks, so the mapping already says so. Parse lineage travels beside the
-    findings rather than inside them, because it is an assignment the mapper made
-    rather than something any judgment cited.
+
+def assess_rubrics(
+    labeled_blocks: list[ContentBlock],
+    configs: list[InspectionConfig],
+    llm_client: LLMClientProtocol,
+    *,
+    max_tokens: int,
+    progress=None,
+) -> list[tuple[list[Assessment], dict[str, list[str]]]]:
+    """Assess independent units with one run-wide limit and progress counter.
+
+    Results retain rubric/section/unit order regardless of completion order.
+    Each rubric retains its own evidence mapping; whole-document topics never
+    become physical section mappings. A failed unit raises instead of returning
+    a partial collection.
     """
-    blocks_by_section = _group_blocks_by_section(labeled_blocks)
-    indexed = [
-        (index, spec, blocks_by_section.get(spec.name) or None)
-        for index, spec in enumerate(config.sections)
-    ]
+    grouped = _group_blocks_by_section(labeled_blocks)
+    section_text = {name: _format_blocks(blocks) for name, blocks in grouped.items()}
+    whole_text = (
+        _format_blocks(labeled_blocks)
+        if any(config.evidence_scope == "whole_document" for config in configs)
+        else ""
+    )
+    plans: list[list[_UnitWork]] = []
+    results: list[tuple[list[Assessment], dict[str, list[str]]]] = []
+    for index, config in enumerate(configs):
+        if config.evidence_scope not in {"mapped_section", "whole_document"}:
+            raise ValueError(f"unknown Inspector evidence scope: {config.evidence_scope}")
+        whole_document = config.evidence_scope == "whole_document"
+        work: list[_UnitWork] = []
+        mapped: dict[str, list[str]] = {}
+        for section in config.sections:
+            blocks = labeled_blocks if whole_document else grouped.get(section.name, [])
+            text = whole_text if whole_document else section_text.get(section.name, "")
+            mapped[section.name] = [] if whole_document else [block.id for block in blocks]
+            units = section.variables or [None]
+            absent = absent_unit_assessments(config, section.name) if not blocks else []
+            for unit_index, unit in enumerate(units):
+                work.append(_UnitWork(
+                    index, section, unit, blocks, text, config.stage_guidance,
+                    absent[unit_index] if absent else None,
+                ))
+        plans.append(work)
+        results.append(([], mapped))
 
-    total = len(indexed)
+    # Interleave rubrics so a large template does not queue every guideline behind
+    # itself. This changes submission order only, never request contents or ranking.
+    tasks = [task for row in zip_longest(*plans) for task in row if task is not None]
+    total = len(tasks)
+    done = 0
+    lock = threading.Lock()
     if progress:
         progress("assess", completed=0, total=total)
-    lock = threading.Lock()
-    done = {"n": 0}
 
-    def assess_one(item):
-        index, section_spec, section_blocks = item
-        if not section_blocks:
-            out = (index, absent_unit_assessments(config, section_spec.name), [])
-        else:
-            out = (
-                index,
-                _assess_section(
-                    section_spec=section_spec,
-                    section_blocks=section_blocks,
-                    llm_client=llm_client,
-                    max_tokens=max_tokens,
-                    stage_guidance=config.stage_guidance,
-                ),
-                [block.id for block in section_blocks],
+    def run(task: _UnitWork) -> Assessment:
+        nonlocal done
+        assessment = task.absent
+        if assessment is None:
+            assessment = _assess_unit(
+                section_spec=task.section, unit=task.unit,
+                blocks_text=task.blocks_text, section_blocks=task.blocks,
+                llm_client=llm_client, max_tokens=max_tokens,
+                stage_guidance=task.stage_guidance,
             )
         if progress:
             with lock:
-                done["n"] += 1
-                progress("assess", completed=done["n"], total=total)
-        return out
+                done += 1
+                progress("assess", completed=done, total=total)
+        return assessment
 
-    assessed = map_ordered(indexed, assess_one, workers=MAX_PARALLEL_SECTIONS)
-
-    findings = [f for _, section_findings, _ in assessed for f in section_findings]
-    mapped = {config.sections[i].name: block_ids for i, _, block_ids in assessed}
-    return findings, mapped
-
-
-# ---------------------------------------------------------------------------
-# Per-section assessment: one parallel call per unit
-# ---------------------------------------------------------------------------
-
-
-def _assess_section(
-    *,
-    section_spec: SectionSpec,
-    section_blocks: list[ContentBlock],
-    llm_client: LLMClientProtocol,
-    max_tokens: int,
-    stage_guidance: str = "",
-) -> list[Assessment]:
-    blocks_text = _format_blocks(section_blocks)
-    units = section_spec.variables or [None]
-
-    def call_one(unit: VariableSpec | None) -> Assessment:
-        return _assess_unit(
-            section_spec=section_spec,
-            unit=unit,
-            blocks_text=blocks_text,
-            section_blocks=section_blocks,
-            llm_client=llm_client,
-            max_tokens=max_tokens,
-            stage_guidance=stage_guidance,
-        )
-
-    # One answer per unit, so this is a list of verdicts rather than a list of lists
-    # to flatten.
-    return list(map_ordered(units, call_one, workers=MAX_PARALLEL_UNIT_CALLS))
+    assessed = map_ordered(tasks, run, workers=MAX_PARALLEL_UNIT_CALLS)
+    for task, assessment in zip(tasks, assessed):
+        results[task.rubric_index][0].append(assessment)
+    return results
 
 
 def _assess_unit(

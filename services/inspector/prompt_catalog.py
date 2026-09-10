@@ -55,8 +55,8 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ),
         framing_slot="stage_guidance",
         result_fields=(
-            "sections[].units[].verdict",
-            "sections[].units[].statement",
+            "reviews[].sections[].units[].verdict",
+            "reviews[].sections[].units[].statement",
         ),
         ui_labels=("verdict",),
     ),

@@ -1,15 +1,15 @@
-type_key: bmgf_ctpp_monoclonal_antibody
+type_key: bmgf_itpp_monoclonal_antibody
 org: bmgf
-source_type: ctpp
+source_type: itpp
 intervention_class: monoclonal_antibody
-display_name: "Monoclonal Antibody Candidate TPP"
+display_name: "PDID template: iTPP"
 # What this rubric's structure comes from. Nothing here can verify it:
 # it names which source to re-check when that source moves. Everything the
 # source does not contain is maintained here — see services/inspector/README.md.
 mirrors: >-
-  PDID Reference Library — drug candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention. The library publishes no monoclonal antibody template, so a monoclonal is assessed against the drug profile with its units unchanged; only the stage guidance names the modality.
+  PDID Reference Library — drug intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention. The library publishes no monoclonal antibody template, so a monoclonal is assessed against the drug profile with its units unchanged; only the stage guidance names the modality.
 stage_guidance: |
-  This is a CANDIDATE TPP (CTPP): a profile of a specific candidate. Calibrate ALL judgments to candidate-stage maturity. Expect concrete, measured values - numeric targets with units, named formulations, and defined schedules. Vague qualitative targets, unspecified ranges, or placeholders fall short at this stage. Hold the document to the standard of a product-specific specification.
+  This is an INTERVENTION TPP (ITPP): an early, candidate-agnostic profile that sets targets for the intervention class before any specific candidate is chosen. Calibrate ALL judgments to intervention-stage maturity. Qualitative targets, clear directions, and ranges are appropriate and expected at this stage; candidate-specific numeric precision (exact values, named formulations, specific schedules) is NOT expected yet, so do not treat its absence as a deficiency on any dimension. Assess whether the strategic intent is clear, sound, and well-formed for an early-stage profile.
 
   This profile describes a MONOCLONAL ANTIBODY. It is assessed against the drug profile because the PDID Reference Library publishes no monoclonal template, and the drug template's units cover a monoclonal's development questions. Read the units accordingly: protection is pharmacokinetic rather than immunological, so duration and dosing are matters of half-life and administration interval rather than immune memory, and a prophylactic monoclonal is given to healthy people. Do not fault the document for omitting anything this rubric does not ask.
 
@@ -45,8 +45,6 @@ sections:
     variables:
       - name: "Indication"
         description: "The disease or condition the drug is intended to treat. Should be specific and aligned with regulatory language."
-      - name: "Product"
-        description: "Drug name and mechanism of action (Candidate TPP only)."
       - name: "Target Population"
         description: "Demographic and clinical characteristics of patients. Specify age range, geography, disease stage, and any risk factors."
       - name: "Target Countries"

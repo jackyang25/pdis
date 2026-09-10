@@ -15,7 +15,7 @@ import test from "node:test";
 import type {
   Assessment,
   ContentBlock,
-  InspectionResult,
+  InspectionReviewView as InspectionResult,
   SectionAssessment,
   Verdict,
 } from "./api.ts";
@@ -89,6 +89,8 @@ function result(overrides: Partial<InspectionResult> = {}): InspectionResult {
   return {
     doc_id: "plan",
     sections: [],
+    applicability_facts: {},
+    rubric: { id: "test", revision: null, display_name: "Test", authority: "Test", scope: "Test", stage_guidance: "", mirrors: null, evidence_scope: "mapped_section", sources: [], requirements: [] },
     document_findings: [],
     consistency_status: "complete",
     assessment_status: "complete",

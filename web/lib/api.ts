@@ -91,7 +91,7 @@ export type Assessment = {
 
 export type SectionAssessment = {
   section_name: string;
-  is_present: boolean;
+  is_present: boolean | null;
   /** A deterministic section assignment in document order, not a citation. */
   mapped_block_ids: string[];
   units: Assessment[];
@@ -101,7 +101,9 @@ export type SectionAssessment = {
 
 export type InspectionResult = {
   doc_id: string;
-  sections: SectionAssessment[];
+  reviews: InspectionReview[];
+  applicability_facts: Record<string, ProductFact>;
+  rubric_resolutions: RubricResolution[];
   /** Conflicts spanning sections, which no single unit can own. */
   document_findings: Assessment[];
   consistency_status: "complete" | "partial" | "failed" | "not_applicable" | "unknown";
@@ -114,6 +116,32 @@ export type InspectionResult = {
   // The parsed source document behind the assessments (for the Ask assistant).
   blocks: ContentBlock[];
 };
+
+export type ProductFact = "yes" | "no" | "unknown";
+export type RubricSource = { id: string; title: string; revision: string; url: string };
+export type RequirementSnapshot = {
+  id: string; section_name: string; variable_name: string | null;
+  description: string; expectations: string; source_refs: string[];
+};
+export type RubricSnapshot = {
+  id: string; revision: string | null; display_name: string; authority: string;
+  scope: string; evidence_scope: "mapped_section" | "whole_document";
+  stage_guidance: string;
+  mirrors: string | null;
+  /** Library landing page, not a direct source or requirement citation. */
+  reference_url?: string | null;
+  sources: RubricSource[]; requirements: RequirementSnapshot[];
+};
+export type InspectionReview = {
+  rubric: RubricSnapshot; sections: SectionAssessment[]; assessment_status: "complete";
+};
+export type RubricResolution = {
+  rubric_id: string; display_name: string;
+  status: "included" | "outside_review_scope" | "needs_context";
+  reason_code: string; reason: string;
+};
+/** View-only projection. Never stored beside the authoritative run. */
+export type InspectionReviewView = Omit<InspectionResult, "reviews" | "rubric_resolutions"> & InspectionReview;
 
 /**
  * What each verdict is called, and separately what it means.
@@ -163,7 +191,7 @@ export function verdictLabel(verdict: string): string {
  * used to be computed server-side and published beside the units it duplicated, so the
  * two could disagree; `rank` travels on the unit instead.
  */
-export function worklist(inspection: InspectionResult): Assessment[] {
+export function worklist(inspection: Pick<InspectionReviewView, "sections" | "document_findings">): Assessment[] {
   const fromUnits = (inspection.sections ?? [])
     .flatMap((section) => section.units)
     .filter((unit) => ASSESSED_VERDICTS.includes(unit.verdict));
@@ -1271,6 +1299,13 @@ export async function fetchContexts(): Promise<ContextOption[]> {
   return res.contexts;
 }
 
+export type InspectorFactField = {
+  key: string; label: string; description: string; options: ProductFact[]; required: boolean;
+};
+export async function fetchInspectorConfiguration(header: Pick<Header, "org" | "source_type" | "intervention_class">): Promise<{ applicability_facts: InspectorFactField[] }> {
+  return jsonRequest(`/api/configs/inspector?${new URLSearchParams(header)}`);
+}
+
 export async function fetchIndications(intervention: string): Promise<string[]> {
   const res = await jsonRequest<{ indications: string[] }>(
     `/api/configs/indications?intervention=${encodeURIComponent(intervention)}`,
@@ -1300,10 +1335,12 @@ export async function runInspector(
   file: File,
   header: Header,
   onStage?: (stage: string, progress?: StageProgress) => void,
+  applicabilityFacts: Record<string, ProductFact> = {},
 ): Promise<InspectorResponse> {
   const form = new FormData();
   form.append("file", file);
   appendHeader(form, header);
+  form.append("applicability_facts", JSON.stringify(applicabilityFacts));
   return streamRequest("/api/inspector/run", form, onStage);
 }
 

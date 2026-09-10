@@ -41,6 +41,7 @@ class LLMClientProtocol(Protocol):
 
 ConsistencyStatus = Literal["complete", "partial", "failed", "not_applicable", "unknown"]
 AssessmentStatus = Literal["complete", "unknown"]
+ProductFact = Literal["yes", "no", "unknown"]
 
 # --- The one published vocabulary --------------------------------------------
 # Declared here, mirrored in `web/lib/api.ts`, and bound by
@@ -231,7 +232,7 @@ class SectionAssessment:
     units: list[Assessment] = field(default_factory=list)
 
     @property
-    def is_present(self) -> bool:
+    def is_present(self) -> bool | None:
         """Whether the document contains this section.
 
         Derived, because it was never anything else: the assessor marked a section
@@ -285,6 +286,62 @@ class InspectionResult:
     blocks: list["ContentBlock"] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class RubricSourceSnapshot:
+    id: str
+    title: str
+    revision: str
+    url: str
+
+
+@dataclass(frozen=True)
+class RequirementSnapshot:
+    id: str
+    section_name: str
+    variable_name: str | None
+    description: str
+    expectations: str
+    source_refs: list[str]
+
+
+@dataclass(frozen=True)
+class RubricSnapshot:
+    id: str
+    revision: str | None
+    display_name: str
+    authority: str
+    scope: str
+    stage_guidance: str
+    mirrors: str | None
+    evidence_scope: Literal["mapped_section", "whole_document"]
+    sources: list[RubricSourceSnapshot]
+    requirements: list[RequirementSnapshot]
+    reference_url: str | None = None
+
+
+@dataclass
+class InspectionReview:
+    rubric: RubricSnapshot
+    sections: list[SectionAssessment]
+    assessment_status: Literal["complete"] = "complete"
+
+
+@dataclass
+class AggregateInspectionResult:
+    doc_id: str
+    reviews: list[InspectionReview]
+    rubric_resolutions: list[dict[str, Any]]
+    applicability_facts: dict[str, ProductFact]
+    document_findings: list[Assessment]
+    consistency_status: ConsistencyStatus
+    assessment_status: Literal["complete"] = "complete"
+    org: str | None = None
+    source_type: str | None = None
+    intervention_class: str | None = None
+    indication: str | None = None
+    blocks: list["ContentBlock"] = field(default_factory=list)
+
+
 @dataclass
 class BatchInspectionResult:
     """Per-document result of inspect_blocks_batch."""
@@ -315,6 +372,7 @@ class VariableSpec:
     the device profiles that section holds 25 of 48 units.
     """
     expectations: str = ""
+    source_refs: list[str] = field(default_factory=list)
     """What good looks like here, read into the prompt verbatim.
 
     One block, not one per question. This is where an external standard belongs
@@ -338,6 +396,7 @@ class SectionSpec:
     repeat the flag on each variable."""
     expectations: str = ""
     variables: list[VariableSpec] = field(default_factory=list)
+    source_refs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -355,6 +414,7 @@ class InspectionConfig:
     # framing.
     stage_guidance: str = ""
     mirrors: str = ""
+    evidence_scope: Literal["mapped_section", "whole_document"] = "mapped_section"
     """The authored source this rubric's structure comes from.
 
     Free text, because the sources do not share a shape: naming a library, a
@@ -382,81 +442,19 @@ class InspectionConfig:
         return search_term(self.intervention_class)
 
 
-CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
-
-
-def available_configs() -> list["InspectionConfig"]:
-    """Every rubric this service can assess against, in stable order.
-
-    Which files are rubrics and which are scaffolds is Inspector's fact, decided by
-    whether a file loads as one rather than by the shape of its name. Mirrors
-    `chunker.available_configs` so a caller can enumerate any service the same way.
-    """
-    configs: list[InspectionConfig] = []
-    for path in sorted(CONFIGS_DIR.glob("*.yaml")):
-        try:
-            config = load_inspection_config(str(path))
-        except (ValueError, KeyError, TypeError):
-            continue
-        # A config is named for its identity; a scaffold is not.
-        if config.type_key != path.stem:
-            continue
-        configs.append(config)
-    return configs
-
-
-def has_config(org: str, source_type: str, intervention_class: str) -> bool:
-    """Report whether this triple has a rubric.
-
-    Inspector rubrics are optional per triple, unlike chunker and scout configs.
-    That optionality is asked about here rather than expressed as a different
-    return contract from :func:`find_config`, so one caller can treat every
-    service's lookup identically.
-    """
-    return _config_path(org, source_type, intervention_class).exists()
-
-
-def _config_path(org: str, source_type: str, intervention_class: str) -> Path:
-    return CONFIGS_DIR / f"{org}_{source_type}_{intervention_class}.yaml"
-
-
-def find_config(org: str, source_type: str, intervention_class: str) -> "InspectionConfig":
-    """Load the Inspector config for the given triple.
-
-    Raises ``LookupError`` when absent, matching chunker and scout. Use
-    :func:`has_config` when absence is an expected, non-exceptional answer.
-    """
-    path = _config_path(org, source_type, intervention_class)
-    if not path.exists():
-        raise LookupError(
-            f"No Inspector config for ({org}, {source_type}, {intervention_class}). "
-            f"Expected: {path}"
-        )
-    config = load_inspection_config(str(path))
-    requested = (org, source_type, intervention_class)
-    configured = (config.org, config.source_type, config.intervention_class)
-    if configured != requested:
-        raise ValueError(
-            "Inspector config identity does not match its filename: "
-            f"requested {requested}, configured {configured}"
-        )
-    expected_type_key = "_".join(requested)
-    if config.type_key != expected_type_key:
-        raise ValueError(
-            "Inspector config type_key does not match its identity: "
-            f"expected {expected_type_key!r}, configured {config.type_key!r}"
-        )
-    return config
-
-
 def load_inspection_config(path: str) -> InspectionConfig:
     """Load an InspectionConfig from YAML. Validates required fields."""
     config_path = Path(path).expanduser().resolve()
     with open(config_path, "r", encoding="utf-8") as config_file:
         data = yaml.safe_load(config_file)
 
+    return parse_inspection_config(data, source=str(config_path))
+
+
+def parse_inspection_config(data: Any, *, source: str = "Inspector config") -> InspectionConfig:
+    """Parse one already-loaded rubric mapping with the same strict schema."""
     if not isinstance(data, dict):
-        raise ValueError("Inspector config file must contain a YAML mapping")
+        raise ValueError(f"{source} must contain a YAML mapping")
 
     required_fields = {
         "type_key",
@@ -490,10 +488,11 @@ def load_inspection_config(path: str) -> InspectionConfig:
         sections=_parse_sections(data["sections"]),
         stage_guidance=stage_guidance.strip(),
         mirrors=mirrors.strip(),
+        evidence_scope=data.get("evidence_scope", "mapped_section"),
     )
 
 
-def inspection_result_to_dict(result: InspectionResult) -> dict[str, Any]:
+def inspection_result_to_dict(result: InspectionResult | AggregateInspectionResult) -> dict[str, Any]:
     """Convert an InspectionResult to JSON-serializable dictionaries.
 
     Two derived values `asdict` cannot see are added: each section's presence and its
@@ -514,6 +513,14 @@ def inspection_result_to_dict(result: InspectionResult) -> dict[str, Any]:
     # `zip` truncates silently, so a shape that stopped lining up would leave later
     # sections without their derived values - and the API refuses that rather than
     # defaulting it, so this raise names the cause instead of the symptom.
+    if isinstance(result, AggregateInspectionResult):
+        for review, review_payload in zip(result.reviews, payload["reviews"]):
+            for section, section_payload in zip(review.sections, review_payload["sections"]):
+                section_payload["is_present"] = (
+                    None if review.rubric.evidence_scope == "whole_document" else section.is_present
+                )
+                section_payload["verdict_counts"] = section.verdict_counts
+        return payload
     if len(result.sections) != len(payload["sections"]):
         raise ValueError("Inspector payload lost sections during serialization")
     for section, section_payload in zip(result.sections, payload["sections"]):
@@ -553,6 +560,9 @@ def _parse_sections(value: Any) -> list[SectionSpec]:
                     section_data.get("expectations"), f"sections[{index}].expectations"
                 ),
                 variables=_parse_variables(section_data.get("variables", []), index),
+                source_refs=_parse_source_refs(
+                    section_data.get("source_refs"), f"sections[{index}].source_refs"
+                ),
             )
         )
 
@@ -591,6 +601,9 @@ def _parse_variables(value: Any, section_index: int) -> list[VariableSpec]:
                 expectations=_parse_expectations(
                     variable_data.get("expectations"), f"{where}.expectations"
                 ),
+                source_refs=_parse_source_refs(
+                    variable_data.get("source_refs"), f"{where}.source_refs"
+                ),
             )
         )
     return variables
@@ -610,3 +623,16 @@ def _parse_expectations(value: Any, field_name: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string")
     return value.strip()
+
+
+def _parse_source_refs(value: Any, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item.strip() for item in value
+    ):
+        raise ValueError(f"{field_name} must be a list of non-empty strings")
+    refs = [item.strip() for item in value]
+    if len(refs) != len(set(refs)):
+        raise ValueError(f"{field_name} must be unique")
+    return refs

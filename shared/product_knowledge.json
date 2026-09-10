@@ -353,7 +353,7 @@
             },
             {
               "question": "Can I compare two runs?",
-              "answer": "Only where the authority is fixed. Inspector and Screener compare line by line, because the same rubric and the same question bank are asked every time. Aligner does not: its requirements are read out of the reference document, so two runs may find a different number of them and neither total is a baseline. Scout compares only within the same published-since window."
+              "answer": "Only where the authority is fixed. Compare Inspector reviews only when their rubric identity, revision and applicability match; each run can contain several separate reviews. Screener runs must use the same question bank. Aligner reads requirements from its reference document, so different totals are not a baseline. Scout comparisons also need the same published-since window."
             },
             {
               "question": "What happens if I choose the wrong document type?",
@@ -389,7 +389,7 @@
             },
             {
               "question": "Can I import an older result?",
-              "answer": "No. Imports accept only final results produced by the current application contract, and the message names which version failed so you know whether to re-run one tool or all of them."
+              "answer": "Imports accept final results with a supported contract. Inspector's previous single-rubric format opens as a historical review, without inventing its original rubric revision or requirements. Other incompatible versions are refused with a message naming the tool to re-run."
             },
             {
               "question": "Can Ask see a review I have not finished?",
@@ -412,12 +412,12 @@
             {
               "id": "inspector",
               "title": "Inspector",
-              "summary": "Turns one parsed development document and its authored rubric into one verdict per rubric unit, each citing the passage it was read from, plus cited cross-section conflicts.",
+              "summary": "Assesses one development document against every applicable authored rubric, retaining separate reviews, saved requirements and citations, plus one document-wide consistency check.",
               "nodes": [
                 {
                   "id": "document",
-                  "title": "Document and rubric",
-                  "summary": "One parsed document enters with its configured rubric.",
+                  "title": "Document and rubrics",
+                  "summary": "The document profile selects pinned template and ICH-derived rubrics. Explicit product facts resolve conditional reviews; unknown facts leave those reviews unassessed.",
                   "kind": "input",
                   "layer": "Input",
                   "inputs": [
@@ -432,7 +432,7 @@
                 {
                   "id": "mapping",
                   "title": "Section mapping",
-                  "summary": "Every source block is assigned once to the configured section taxonomy.",
+                  "summary": "Source blocks are mapped once for the template rubric. Guideline reviews read the entire retained document rather than treating their requirement groups as document sections.",
                   "kind": "model",
                   "layer": "Interpretation",
                   "inputs": [
@@ -450,7 +450,7 @@
                   "kind": "model",
                   "layer": "Analysis",
                   "inputs": [
-                    "Mapped section context",
+                    "Mapped section context or the whole document, as the rubric declares",
                     "The unit's description and expectations"
                   ],
                   "outputs": [
@@ -460,7 +460,7 @@
                 {
                   "id": "assembly",
                   "title": "Assembly and consistency",
-                  "summary": "Code joins the rubric with the verdicts and orders them, while a separate model pass finds cited cross-section conflicts.",
+                  "summary": "Code assembles and orders each rubric's review separately. One model pass checks the document's own cross-section consistency, independent of its rubric reviews.",
                   "kind": "deterministic",
                   "layer": "Assembly",
                   "inputs": [
@@ -469,14 +469,14 @@
                   ],
                   "outputs": [
                     "Section counts, summed from the units",
-                    "One worklist order",
+                    "One worklist order per rubric",
                     "Cross-section conflict trace"
                   ]
                 },
                 {
                   "id": "result",
                   "title": "Portable inspection",
-                  "summary": "The final analysis and parsed source document travel together.",
+                  "summary": "All reviews, applicability decisions and rubric snapshots travel with one retained source document. Selecting a review changes only the view, never the export or Ask context.",
                   "kind": "output",
                   "layer": "Result",
                   "inputs": [

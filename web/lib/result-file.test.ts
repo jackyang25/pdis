@@ -29,7 +29,9 @@ const block: ContentBlock = {
 const inspection: InspectorResponse = {
   inspection: {
     doc_id: "doc",
-    sections: [],
+    reviews: [{ rubric: { id: "test", revision: null, display_name: "Test", authority: "Test", scope: "Test", stage_guidance: "", mirrors: null, evidence_scope: "mapped_section", sources: [], requirements: [] }, sections: [], assessment_status: "complete" }],
+    applicability_facts: {},
+    rubric_resolutions: [{ rubric_id: "test", display_name: "Test", status: "included", reason_code: "test", reason: "Test" }],
     document_findings: [],
     consistency_status: "complete",
     assessment_status: "complete",
@@ -141,7 +143,7 @@ test("current Inspector results round-trip exactly", () => {
   // share, and the analysis version belongs to this tool alone. An Inspector change
   // bumps only its own entry, so a saved Scout result stays readable.
   assert.equal(packed.envelope_version, 1);
-  assert.equal(packed.analysis_version, 2);
+  assert.equal(packed.analysis_version, 3);
   assert.equal(packed.state, "final");
   assert.equal(packed.result_type, "inspector");
   assert.equal("blocks" in packed.analysis.inspection, false);

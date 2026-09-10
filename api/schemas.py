@@ -39,6 +39,21 @@ class IndicationsResponse(BaseModel):
     indications: list[str]
 
 
+class InspectorFactDefinitionOut(BaseModel):
+    key: str
+    label: str
+    description: str
+    options: list[Literal["yes", "no", "unknown"]]
+    required: bool
+
+
+class InspectorProfileOut(BaseModel):
+    org: str
+    source_type: str
+    intervention_class: str
+    applicability_facts: list[InspectorFactDefinitionOut]
+
+
 class DocumentSpanOut(BaseModel):
     """One exact document quotation, and the block it was copied out of.
 
@@ -707,7 +722,7 @@ class SectionAssessmentOut(BaseModel):
     mapped_block_ids: list[str] = []
     # Derived from that mapping: a section is present exactly when the mapper gave it
     # blocks. Required, so a missed derivation cannot pass for a present section.
-    is_present: bool
+    is_present: bool | None
     units: list[AssessmentOut] = []
     # This section's units counted by verdict. A count of the one axis, not a
     # bucketing into a second: required rather than defaulted so an empty count
@@ -715,11 +730,55 @@ class SectionAssessmentOut(BaseModel):
     verdict_counts: dict[str, int]
 
 
-class InspectionResultOut(BaseModel):
+class RubricSourceOut(BaseModel):
+    id: str
+    title: str
+    revision: str
+    url: str
+
+
+class RequirementSnapshotOut(BaseModel):
+    id: str
+    section_name: str
+    variable_name: str | None
+    description: str
+    expectations: str
+    source_refs: list[str]
+
+
+class RubricSnapshotOut(BaseModel):
+    id: str
+    revision: str | None
+    display_name: str
+    authority: str
+    scope: str
+    stage_guidance: str
+    mirrors: str | None
+    evidence_scope: Literal["mapped_section", "whole_document"]
+    sources: list[RubricSourceOut]
+    requirements: list[RequirementSnapshotOut]
+    reference_url: str | None = None
+
+
+class InspectionReviewOut(BaseModel):
+    rubric: RubricSnapshotOut
+    sections: list[SectionAssessmentOut]
+    assessment_status: Literal["complete"]
+
+
+class RubricResolutionOut(BaseModel):
+    rubric_id: str
+    display_name: str
+    status: Literal["included", "outside_review_scope", "needs_context"]
+    reason_code: str
+    reason: str
+
+
+class LegacyInspectionResultOut(BaseModel):
     doc_id: str
     # Every rubric section in rubric order, each holding every unit the rubric
     # asks about, so the denominator is identical for every document.
-    sections: list[SectionAssessmentOut] = []
+    sections: list[SectionAssessmentOut]
     # Conflicts spanning sections, which no single unit can own.
     document_findings: list[AssessmentOut] = []
     consistency_status: Literal[
@@ -735,6 +794,23 @@ class InspectionResultOut(BaseModel):
     # The parsed source document. Read by the Ask assistant and by the Inspector
     # UI's document view, which renders findings against their source blocks.
     blocks: list[ContentBlockOut] = []
+
+
+class InspectionResultOut(BaseModel):
+    doc_id: str
+    reviews: list[InspectionReviewOut]
+    applicability_facts: dict[str, Literal["yes", "no", "unknown"]]
+    rubric_resolutions: list[RubricResolutionOut]
+    document_findings: list[AssessmentOut] = []
+    consistency_status: Literal[
+        "complete", "partial", "failed", "not_applicable", "unknown"
+    ]
+    assessment_status: Literal["complete"]
+    org: str
+    source_type: str
+    intervention_class: str
+    indication: str
+    blocks: list[ContentBlockOut]
 
 
 class InspectorRunResponse(BaseModel):

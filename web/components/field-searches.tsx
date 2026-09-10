@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Telescope } from "lucide-react";
-import { TracePanelHeader } from "@/components/document-trace-panel";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { InterfaceNote, Literal, Reading } from "@/components/ui/evidence-text";
-import { PROVENANCE_PANEL, ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
+import { AlertTriangle, ChevronDown, Telescope } from "lucide-react";
+
+import { ProvenancePanel } from "@/components/ui/provenance-panel";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
+import { InterfaceNote, Literal } from "@/components/ui/evidence-text";
+import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
 import type { ScoutResponse } from "@/lib/api";
 import { DISCLOSURE_MOTION } from "@/lib/motion";
 import { sourceDisplayLabel } from "@/lib/scout-labels";
@@ -55,18 +56,12 @@ export function FieldSearches({
           />
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        collisionPadding={12}
-        className={cn(PROVENANCE_PANEL.width, "overflow-hidden p-0")}
-      >
-        <TracePanelHeader
+      <ProvenancePanel
+          onClose={() => setOpen(false)}
           eyebrow="Searches"
           title="What was looked for, and where"
           description={searchRecordSummary(record)}
-        />
-        <div className={cn(PROVENANCE_PANEL.scroll, "overflow-y-auto px-4 py-4")}>
+      >
           <div>
             {record.groups.map((group) => (
               <LaneGroup key={group.lane} group={group} />
@@ -78,8 +73,7 @@ export function FieldSearches({
             A search that returned nothing still ran. Sources beside an insight shows only the
             searches that found something, which is why they are listed here instead.
           </InterfaceNote>
-        </div>
-      </PopoverContent>
+      </ProvenancePanel>
     </Popover>
   );
 }
@@ -106,7 +100,7 @@ function LaneGroup({ group }: { group: SearchLaneGroup }) {
 
   return (
     <details className="group/row">
-      <summary className="flex cursor-pointer select-none items-center gap-2 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer select-none flex-wrap items-center gap-x-2 gap-y-1 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/row:rotate-180 motion-reduce:transition-none" />
         <span className="text-xs font-medium text-foreground">
           {sourceDisplayLabel(group.lane)}
@@ -125,9 +119,12 @@ function LaneGroup({ group }: { group: SearchLaneGroup }) {
             {/* Only when the search did not simply run and return. A reason on every row
                 would be the same sentence sixty times. */}
             {trace.status === "skipped" && trace.applicability_reason && (
-              <Reading>{trace.applicability_reason}</Reading>
+              <InterfaceNote variant="content" className="mt-1">{trace.applicability_reason}</InterfaceNote>
             )}
-            {trace.status === "failed" && <Reading>{trace.error || "This search failed."}</Reading>}
+            {trace.status === "failed" && <div className="mt-1 flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--tone-warning))]" aria-hidden="true" />
+              <span className="min-w-0 break-words">{trace.error || "This search failed."}</span>
+            </div>}
           </li>
         ))}
       </ul>

@@ -1,4 +1,7 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useId, useState, type ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
 
 import { cn } from "@/lib/utils";
 
@@ -56,6 +59,8 @@ export function Quoted({
   /** `prominent` for a quote that is the subject of its section, `dense` inside a list. */
   size = "dense",
   className,
+  collapsible = false,
+  markdown = false,
 }: {
   children: ReactNode;
   attribution?: ReactNode;
@@ -63,19 +68,50 @@ export function Quoted({
   /** Spacing only. Border, padding, tone and size belong to this component, because those
    *  are the things that drifted when eight call sites wrote them by hand. */
   className?: string;
+  /** Opt-in for long result excerpts, not table cells or document previews. */
+  collapsible?: boolean;
+  /** Retrieved excerpts may carry Markdown; uploaded document words stay literal. */
+  markdown?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const id = useId();
+  const canCollapse = collapsible && typeof children === "string" && children.length > 600;
   return (
     <>
       {attribution}
       <blockquote
+        id={id}
+        onFocusCapture={() => { if (canCollapse) setExpanded(true); }}
         className={cn(
-          "border-l-2 border-border pl-3 leading-relaxed text-foreground",
+          "border-l-2 border-border pl-3 text-foreground",
           size === "prominent" ? "mt-3 text-xs" : "mt-1 text-[11px]",
+          "break-words leading-relaxed",
+          collapsible && "max-w-[85ch]",
           className,
         )}
       >
-        {children}
+        <div className={cn(canCollapse && !expanded && "line-clamp-4")}>
+          {markdown && typeof children === "string" ? (
+            <ReactMarkdown
+              skipHtml
+              allowedElements={["p", "strong", "em", "a", "br", "code", "ul", "ol", "li", "blockquote"]}
+              unwrapDisallowed
+              components={{
+                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                a: ({ href, children }) => href ? <a href={href} target="_blank" rel="noreferrer"
+                  className="underline underline-offset-2 focus-visible:outline-offset-2">{children}</a> : <>{children}</>,
+                ul: ({ children }) => <ul className="list-disc ps-4">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal ps-4">{children}</ol>,
+              }}
+            >{children}</ReactMarkdown>
+          ) : children}
+        </div>
       </blockquote>
+      {canCollapse && <button type="button" aria-expanded={expanded} aria-controls={id}
+        onClick={() => setExpanded(!expanded)}
+        className="mt-1 min-h-6 text-[11px] text-muted-foreground underline underline-offset-2 focus-visible:outline-offset-2">
+        {expanded ? "Show less excerpt" : "Read full excerpt"}
+      </button>}
     </>
   );
 }
@@ -189,12 +225,14 @@ export function Reading({
   return (
     <Tag
       className={cn(
-        "leading-relaxed text-muted-foreground",
+        "text-muted-foreground",
         size === "body" && "text-sm leading-6",
         size === "prominent" && !inline && "mt-1 text-xs",
         size === "prominent" && inline && "text-xs",
         size === "dense" && !inline && "mt-1 text-[11px]",
         size === "dense" && inline && "text-[11px]",
+        "break-words",
+        size === "body" ? "leading-6" : "leading-relaxed",
         // A hanging indent, so every line of a marked sentence starts at the same column
         // and the mark sits alone in the gutter. Without it the first line began after
         // the mark and every wrapped line fell back to the left of it, so a two-line
@@ -316,7 +354,8 @@ export function Literal({
  * different arrangements of the same four parts, which is most of why the page read as
  * undifferentiated text. One shape:
  *
- *     title (linked)                              value or date, computed
+ *     title (linked)
+ *     value or date, computed
  *     | the exact words
  *     what a model made of them
  *
@@ -329,6 +368,7 @@ export function SourceEntry({
   href,
   meta,
   quote,
+  quoteMarkdown = false,
   reading,
   children,
 }: {
@@ -337,31 +377,33 @@ export function SourceEntry({
   /** Computed detail: a value, a unit, a date. */
   meta?: ReactNode;
   quote?: string;
+  /** Only retrieved excerpts, never verbatim quantitative or document quotes. */
+  quoteMarkdown?: boolean;
   /** What a model read or concluded from the quote. */
   reading?: ReactNode;
   /** Anything this list needs that the shape does not cover, e.g. a nested disclosure. */
   children?: ReactNode;
 }) {
   return (
-    <li className="list-none border-t border-border/60 py-2 first:border-t-0 first:pt-0">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+    <li className="min-w-0 list-none border-t border-border/60 py-4 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="space-y-1">
         {href ? (
           <a
             href={href}
             target="_blank"
             rel="noreferrer"
-            className="min-w-0 text-[11px] font-medium text-foreground hover:underline"
+            className="block min-w-0 break-words text-xs font-medium leading-relaxed text-foreground underline decoration-border underline-offset-2 hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
           >
             {title}
           </a>
         ) : (
-          <span className="min-w-0 text-[11px] font-medium text-foreground">{title}</span>
+          <span className="block min-w-0 break-words text-xs font-medium leading-relaxed text-foreground">{title}</span>
         )}
         {meta && (
-          <Computed className="shrink-0 text-[11px] text-muted-foreground">{meta}</Computed>
+          <Computed className="block break-words text-[11px] leading-relaxed text-muted-foreground">{meta}</Computed>
         )}
       </div>
-      {quote && <Quoted>{quote}</Quoted>}
+      {quote && <Quoted collapsible markdown={quoteMarkdown}>{quote}</Quoted>}
       {reading && <Reading>{reading}</Reading>}
       {children}
     </li>

@@ -72,7 +72,7 @@ export function AssistantSkills() {
 
   return (
     <section aria-label="Declared skills" className="mt-6">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+      <h3 className="text-sm font-semibold">
         Declared skills
       </h3>
       {skills === null ? (
@@ -81,19 +81,20 @@ export function AssistantSkills() {
           <Skeleton className="h-12 w-full" />
         </div>
       ) : (
-        <ul className={`mt-3 space-y-2 ${CONTENT_ARRIVAL_MOTION}`}>
+        <ul className={`mt-3 divide-y divide-border ${CONTENT_ARRIVAL_MOTION}`}>
           {skills.map((skill) => (
             <li
               key={skill.name}
-              className="rounded-lg border border-border/70 px-3.5 py-3"
+              className="py-4"
             >
-              <p className="font-mono text-[11px] text-foreground">{skill.name}</p>
-              <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
+              <h4 className="text-sm font-semibold">{skill.name.charAt(0).toUpperCase() + skill.name.slice(1).replaceAll("-", " ")}</h4>
+              <p className="mt-1 max-w-[75ch] text-sm leading-relaxed text-muted-foreground">
                 {skill.description}
               </p>
-              <p className="mt-1.5 text-[11px] text-muted-foreground/80">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {requirementText(skill)}
               </p>
+              <code className="mt-1 block break-all text-xs text-muted-foreground">{skill.name}</code>
             </li>
           ))}
         </ul>

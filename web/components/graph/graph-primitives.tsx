@@ -102,12 +102,12 @@ export function FitGraphToView({
   return null;
 }
 
-export function GraphControls() {
+export function GraphControls({ fitPadding = 0.2 }: { fitPadding?: number }) {
   const { fitView, zoomIn, zoomOut } = useReactFlow();
   const controls = [
     { label: "Zoom in", icon: Plus, action: () => void zoomIn({ duration: 140 }) },
     { label: "Zoom out", icon: Minus, action: () => void zoomOut({ duration: 140 }) },
-    { label: "Fit graph", icon: Maximize2, action: () => void fitView({ padding: 0.2, maxZoom: 1, duration: 180 }) },
+    { label: "Fit graph", icon: Maximize2, action: () => void fitView({ padding: fitPadding, maxZoom: 1, duration: 180 }) },
   ];
   return (
     <Panel position="bottom-left" className="!m-3 overflow-hidden rounded-lg border border-border/90 bg-card/95 shadow-sm backdrop-blur">

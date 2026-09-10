@@ -285,7 +285,7 @@ export function Ask({
           <AssistantMark />
           <div className="min-w-0">
             <span className="block text-sm font-semibold">PDIS Assistant</span>
-            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
               {workspaceStatus(resultCount, attachments.length, hasDocument)}
             </span>
           </div>
@@ -296,6 +296,7 @@ export function Ask({
             variant="ghost"
             size="sm"
             onClick={startNewChat}
+            aria-label="New chat"
             disabled={messages.length === 0 && attachments.length === 0}
             className="h-8 gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground"
           >
@@ -337,8 +338,8 @@ export function Ask({
       <div
         ref={scrollRef}
         className={pageDisplay
-          ? "mx-auto w-full max-w-3xl flex-1 space-y-7 overflow-y-auto px-5 pb-36 pt-8 sm:px-8"
-          : "flex-1 space-y-4 overflow-y-auto px-4 py-5"}
+          ? "mx-auto min-h-0 w-full max-w-3xl flex-1 space-y-7 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8"
+          : "min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-5"}
       >
         {!hasResult && (
           <p className="text-xs leading-relaxed text-muted-foreground">
@@ -406,7 +407,7 @@ export function Ask({
                 <button
                   type="button"
                   onClick={() => copyMessage(message.id, text)}
-                  className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100 motion-reduce:transition-none"
+                  className="mt-2 flex min-h-6 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {copiedId === message.id ? (
                     <Check className="h-3 w-3" />
@@ -436,18 +437,18 @@ export function Ask({
       </DocumentSourceProvider>
 
       <div className={pageDisplay
-        ? "absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background to-transparent px-5 pb-5 pt-10 sm:px-8"
-        : "border-t border-border p-3"}
+        ? "shrink-0 border-t border-border bg-background px-5 py-4 sm:px-8"
+        : "shrink-0 border-t border-border p-3"}
       >
         <div className={pageDisplay ? "mx-auto max-w-3xl" : undefined}>
         {(attachments.length > 0 || attaching) && (
-          <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+          <div className="mb-2 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto px-1">
             {attachments.map((attachment) => {
               const imageOnly = attachment.blocks.length === 1 && !!attachment.blocks[0]?.image;
               return (
                 <span
                   key={attachment.doc_id}
-                  className="inline-flex max-w-[15rem] items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm"
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground"
                 >
                   {imageOnly ? <ImageIcon className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
                   <span className="truncate">{attachment.filename}</span>
@@ -455,7 +456,7 @@ export function Ask({
                     type="button"
                     onClick={() => setAttachments((current) => current.filter((item) => item.doc_id !== attachment.doc_id))}
                     aria-label={`Remove ${attachment.filename}`}
-                    className="rounded-full p-0.5 hover:bg-foreground/[0.045] hover:text-foreground"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
@@ -463,7 +464,7 @@ export function Ask({
               );
             })}
             {attaching && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Reading attachment…
               </span>
@@ -510,8 +511,9 @@ export function Ask({
             type="file"
             multiple
             accept={ATTACHMENT_ACCEPT}
+            aria-label="Attach documents or images"
             onChange={(event) => void attachFiles(event.target.files)}
-            className="sr-only"
+            className="hidden"
           />
           <Button
             type="button"
@@ -520,11 +522,13 @@ export function Ask({
             onClick={() => fileInputRef.current?.click()}
             disabled={attaching || attachments.length >= 5}
             aria-label="Attach document or image"
+            title="Attach a file, or paste or drop one into the message"
             className="h-9 w-9 shrink-0 rounded-xl text-muted-foreground"
           >
             {attaching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
           </Button>
           <textarea
+            aria-label="Message PDIS Assistant"
             ref={textareaRef}
             rows={1}
             value={input}
@@ -537,10 +541,10 @@ export function Ask({
             }}
             placeholder={resultType === "workspace" ? "Ask about tools or results…" : "Ask about this result…"}
             disabled={busy || !hasResult}
-            className="max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:opacity-60"
+            className="max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-base leading-5 outline-none placeholder:text-muted-foreground disabled:opacity-60 sm:text-sm"
           />
           {busy ? (
-            <Button type="button" size="icon" variant="secondary" onClick={stop} aria-label="Stop response">
+            <Button type="button" size="icon" variant="secondary" onClick={stop} aria-label="Stop response" className="h-9 w-9 rounded-xl">
               <Square className="h-3.5 w-3.5 fill-current" />
             </Button>
           ) : (
@@ -550,18 +554,19 @@ export function Ask({
               onClick={() => send()}
               disabled={!input.trim() || !hasResult || attaching}
               aria-label="Send message"
+              title="Send message (Enter). Shift+Enter for a new line."
               className="h-9 w-9 rounded-xl"
             >
               <Send className="h-4 w-4" />
             </Button>
           )}
         </div>
-        {attachmentError && <p className="mt-1.5 px-2 text-[10px] text-destructive">{attachmentError}</p>}
+        {attachmentError && <p role="alert" className="mt-1.5 px-2 text-xs text-destructive">{attachmentError}</p>}
         {pasteNote && !attachmentError && (
-          <p className="mt-1.5 px-2 text-[10px] text-muted-foreground">{pasteNote}</p>
+          <p role="status" className="mt-1.5 px-2 text-xs text-muted-foreground">{pasteNote}</p>
         )}
-        <p className="mt-1.5 text-center text-[9px] text-muted-foreground/70">
-          Attach up to 5 {ATTACHMENT_FORMAT_HINT} · paste or drop one here · Enter to send
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          Up to 5 {ATTACHMENT_FORMAT_HINT}
         </p>
         </div>
       </div>

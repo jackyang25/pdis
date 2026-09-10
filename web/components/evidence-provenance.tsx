@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { Globe, Search } from "lucide-react";
-import { TracePanelHeader, TracePanelSection } from "@/components/document-trace-panel";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ProvenanceTrigger, stopRowToggle , PROVENANCE_PANEL} from "@/components/ui/provenance";
+import { TracePanelSection } from "@/components/document-trace-panel";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
+import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
+import { ProvenancePanel } from "@/components/ui/provenance-panel";
+import { DisclosureRow } from "@/components/ui/disclosure-row";
 import { InterfaceNote, Literal, SourceEntry } from "@/components/ui/evidence-text";
 import type { Finding, Insight } from "@/lib/api";
 import { queryTrackLabel, sourceDisplayLabel } from "@/lib/scout-labels";
-import { cn } from "@/lib/utils";
 
 /**
  * Where one insight came from: its sources, and the searches that returned them.
@@ -43,18 +44,12 @@ export function EvidenceProvenance({ insight }: { insight: Insight }) {
           />
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        collisionPadding={12}
-        className={cn(PROVENANCE_PANEL.width, "overflow-hidden p-0")}
-      >
-        <TracePanelHeader
+      <ProvenancePanel
           eyebrow="Sources"
           title="What this insight rests on"
           description="Every source that carried this statement, and the search that returned each one."
-        />
-        <div className={cn(PROVENANCE_PANEL.scroll, " space-y-4 overflow-y-auto px-4 py-4")}>
+          onClose={() => setOpen(false)}
+      >
           {/* Labelled, because this panel holds two kinds of thing. A panel with one kind
               needs no label; one with two needs both, or the unlabelled group reads as a
               preamble to the labelled one. */}
@@ -77,8 +72,7 @@ export function EvidenceProvenance({ insight }: { insight: Insight }) {
               </InterfaceNote>
             </TracePanelSection>
           )}
-        </div>
-      </PopoverContent>
+      </ProvenancePanel>
     </Popover>
   );
 }
@@ -109,17 +103,11 @@ function FindingProvenance({ finding }: { finding: Finding }) {
       title={finding.title || finding.url}
       href={finding.url}
       meta={[lanes.join(" + "), date].filter(Boolean).join(" · ")}
-      // Verbatim, and trimmed with an ellipsis where long. A truncated quotation is still a
-      // quotation; the ellipsis is what says so.
-      quote={
-        finding.excerpt
-          ? finding.excerpt.length > 400
-            ? `${finding.excerpt.slice(0, 400).trimEnd()}…`
-            : finding.excerpt
-          : undefined
-      }
+      quote={finding.excerpt || undefined}
+      quoteMarkdown
     >
       {searches.length > 0 && (
+        <DisclosureRow label="Search queries" count={searches.length}>
         <ul className="mt-1 space-y-0.5">
           {searches.map((path) => (
             <li
@@ -141,6 +129,7 @@ function FindingProvenance({ finding }: { finding: Finding }) {
             </li>
           ))}
         </ul>
+        </DisclosureRow>
       )}
     </SourceEntry>
   );

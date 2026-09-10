@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import React from "react";
@@ -61,4 +62,30 @@ test("a shared card retains an explicit zero count without adding a count to unc
   const uncounted = renderToStaticMarkup(React.createElement(CollapsibleCard, { title: "Document" }, "Body"));
   assert.match(uncounted, /<h2[^>]*>Document<\/h2>/);
   assert.match(uncounted, /aria-label="Collapse Document"/);
+});
+
+test("Screener shares its introduction and avoids repeated ordering notes", () => {
+  const page = readFileSync(new URL("../app/screener/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /description=\{toolAuthority\("screener"\)\}/);
+  assert.equal(page.match(/orderNote=\{SCREENER_ORDER_NOTE\}/g)?.length, 1);
+  const partial = page.split('title="Partly answered"')[1].split("/>")[0];
+  assert.doesNotMatch(partial, /defaultOpen/);
+  assert.match(page, /defaultOpen=\{defaultOpen \|\| Boolean\(query\)\}/);
+});
+
+test("Screener coverage retains full discipline labels and every question", () => {
+  const { ScreenerCoverageStrip } = loadComponent(fileURLToPath(new URL("../components/screener-coverage-strip.tsx", import.meta.url)));
+  const label = "Chemistry, Manufacturing and Controls";
+  const html = renderToStaticMarkup(React.createElement(ScreenerCoverageStrip, {
+    review: { disciplines: [{ id: "cmc", label, questions: [
+      { id: "q-1", state: "answered", statement: "Evidence found", cited_block_ids: ["b-1"] },
+      { id: "q-2", state: "not_found", statement: "Not supplied", cited_block_ids: [] },
+    ] }] }, onSelect: () => {},
+  }));
+  assert.match(html, new RegExp(label));
+  assert.doesNotMatch(html, /truncate/);
+  assert.match(html, /<ul class="grid auto-rows-fr gap-y-1"/);
+  assert.match(html, /q-1/);
+  assert.match(html, /q-2/);
+  assert.equal((html.match(/<button/g) ?? []).length, 1);
 });

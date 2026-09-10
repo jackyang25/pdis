@@ -3,7 +3,8 @@
 import type { ReactNode } from "react";
 import { ChartNoAxesColumn } from "lucide-react";
 
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
+import { HelpHeading, HelpPopoverContent } from "./help-content";
 
 /**
  * How the run came out, behind one button in the header.
@@ -45,11 +46,11 @@ export function ResultMetrics({
           Metrics
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(400px,calc(100vw-32px))]">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{intro}</p>
+      <HelpPopoverContent align="end" aria-label="Result metrics" className="w-[min(400px,calc(100vw-24px))]">
+        <HelpHeading>{title}</HelpHeading>
+        <p className="mt-2">{intro}</p>
         <div className="mt-3.5">{children}</div>
-      </PopoverContent>
+      </HelpPopoverContent>
     </Popover>
   );
 }

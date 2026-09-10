@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { CircleHelp } from "lucide-react";
 
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
+import { HelpHeading, HelpPopoverContent, HelpSection } from "./help-content";
 import { promptHref, type ToolKey } from "@/lib/prompt-reference";
 import { cn } from "@/lib/utils";
 
@@ -68,14 +69,13 @@ export function SignalLabel({
             <CircleHelp className="h-3 w-3" />
           </button>
         </PopoverTrigger>
-        <PopoverContent
+        <HelpPopoverContent
           align="start"
           sideOffset={6}
-          className="w-[min(320px,calc(100vw-32px))] p-3"
           onClick={(event) => event.stopPropagation()}
         >
           <SignalTopicBody topic={topic} withPromptLink />
-        </PopoverContent>
+        </HelpPopoverContent>
       </Popover>
     </span>
   );
@@ -104,24 +104,17 @@ export function SignalHelp({
           {label}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(360px,calc(100vw-32px))]">
+      <HelpPopoverContent align="end" aria-label={title}>
         <div>
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{intro}</p>
+          <HelpHeading>{title}</HelpHeading>
+          <p className="mt-2">{intro}</p>
         </div>
-        <div className="mt-4 space-y-3.5">
+        <div className="mt-4 space-y-4">
           {topics.map((topic) => (
-            <section
-              key={topic.title}
-              className="border-t border-border/70 pt-3 first:border-t-0 first:pt-0"
-            >
-              {/* With the link: this panel is the one place a tool's vocabulary lives, so
-                  it has to be the place the instructions are reachable from too. */}
-              <SignalTopicBody topic={topic} withPromptLink />
-            </section>
+            <SignalTopicBody topic={topic} withPromptLink key={topic.title} />
           ))}
         </div>
-      </PopoverContent>
+      </HelpPopoverContent>
     </Popover>
   );
 }
@@ -134,18 +127,17 @@ function SignalTopicBody({
   withPromptLink?: boolean;
 }) {
   return (
-    <>
-      <h4 className="text-xs font-semibold text-foreground">{topic.title}</h4>
-      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+    <HelpSection title={topic.title}>
+      <p>
         {topic.summary}
       </p>
-      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+      <p>
         {topic.detail}
       </p>
       {topic.terms && (
-        <dl className="mt-2 space-y-1">
+        <dl className="space-y-2">
           {topic.terms.map(({ term, meaning }) => (
-            <div key={term} className="text-[11px] leading-relaxed">
+            <div key={term}>
               <dt className="inline font-medium text-foreground">{term}</dt>
               <dd className="ml-1 inline text-muted-foreground">{meaning}</dd>
             </div>
@@ -155,11 +147,11 @@ function SignalTopicBody({
       {withPromptLink && topic.promptRef && (
         <a
           href={promptHref(topic.promptRef.tool, topic.promptRef.stage)}
-          className="mt-2 inline-block text-[11px] font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+          className="inline-block underline underline-offset-4 hover:text-foreground"
         >
-          Read the instructions behind this
+          View {topic.title.toLowerCase()} instructions
         </a>
       )}
-    </>
+    </HelpSection>
   );
 }

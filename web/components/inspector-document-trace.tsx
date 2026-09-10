@@ -15,12 +15,11 @@ import {
   TracePanelSection,
   TracePassageList,
 } from "@/components/document-trace-panel";
-import { ASSESSED_VERDICTS, VERDICT_DESCRIPTION, VERDICT_LABEL } from "@/lib/api";
+import { ASSESSED_VERDICTS, VERDICT_LABEL } from "@/lib/api";
 import type { InspectionReviewView } from "@/lib/api";
 import { InspectorRequirement } from "@/components/inspector-rubric-details";
 import type { DocumentTraceConnection } from "@/lib/document-trace";
 import { Reading } from "@/components/ui/evidence-text";
-import { VerdictPill } from "@/components/ui/verdict-pill";
 import {
   buildInspectorDocumentAnnotations,
   type InspectorDocumentAnnotation,
@@ -54,33 +53,20 @@ function InspectorTraceInspector({
   const ref = annotation.sourceRef;
   const absent = annotation.blockIds.length === 0;
   const requirement = result.rubric.requirements.find(item => item.id === ref.assessmentId);
-  const where = ref.variableName
-    ? `${ref.variableName} · ${ref.sectionName}`
-    : ref.sectionName
-      ? `The ${ref.sectionName} section as a whole`
-      : "Spans more than one section";
+  const context = ref.verdict === "section_conflict"
+    ? "Document-wide consistency"
+    : [result.rubric.display_name, ref.variableName ? ref.sectionName : null].filter(Boolean).join(" · ");
 
   return (
     <div>
       <TracePanelHeader
         eyebrow={annotation.layerLabel}
         title={annotation.title}
-        description={`${ref.verdict === "section_conflict" ? "Document consistency" : result.rubric.display_name} · ${where}`}
+        description={context}
       />
 
       <TracePanelBody>
-        {/* One pill, because there is one axis. It used to show a unit status here
-            beside a reason in the eyebrow above - two words for one judgement, and a
-            reader had no way to know they were the same field. */}
-        {/* The short form, tinted by the annotation's own tone. It rendered the
-            description here once - a whole sentence as pill text - and then a fixed
-            neutral grey, which discarded a tone the annotation already carried. */}
-        <VerdictPill
-          label={VERDICT_LABEL[ref.verdict]}
-          tone={annotation.emphasis?.tone ?? "neutral"}
-          description={VERDICT_DESCRIPTION[ref.verdict]}
-        />
-
+        {/* The header already states the verdict; the body adds the finding. */}
         <Reading size="body" className="whitespace-pre-wrap">
           {annotation.summary}
         </Reading>

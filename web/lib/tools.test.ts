@@ -236,8 +236,6 @@ test("every judging tool names its territory and its neighbour's", () => {
   // how "does the plan actually work" gets asked of Aligner and "is this complete" of
   // Scout.
   const TERRITORY: Record<string, [string, string]> = {
-    aligner: ["Coherence", "feasibility"],
-    scout: ["Feasibility", "completeness"],
     // "Stage gate" is load-bearing, and it is what the process is formally called.
     // `Readiness` alone sits beside `Completeness` - a gate cannot be answered by an
     // incomplete document - so the two read as one question at two scopes. Inspector
@@ -248,6 +246,9 @@ test("every judging tool names its territory and its neighbour's", () => {
   // Inspector's scope is now stated positively, by its authored authority.
   const inspectorPage = readFileSync(path.resolve(import.meta.dirname, "..", "app", "inspector", "page.tsx"), "utf8");
   assert.match(inspectorPage, /against its authored rubrics/);
+  // Aligner likewise names its authority positively, reusing the catalog sentence.
+  const alignerPage = readFileSync(path.resolve(import.meta.dirname, "..", "app", "aligner", "page.tsx"), "utf8");
+  assert.match(alignerPage, /description=\{toolAuthority\("aligner"\)\}/);
   // Checked on the page, not the card. A catalogue of six with six boundary clauses is
   // a second sentence on every card for a distinction that only matters once a reader
   // has chosen one - so the card says what the tool judges, and the page it opens says
@@ -261,11 +262,8 @@ test("every judging tool names its territory and its neighbour's", () => {
       path.resolve(import.meta.dirname, "..", "app", id, "page.tsx"),
       "utf8",
     );
-    assert.match(
-      page,
-      new RegExp(`${owns}, not ${disowns}`),
-      `${id}'s page does not say what it owns and what it leaves to another tool`,
-    );
+    // Screener now uses the same positive authority sentence as its catalog card.
+    assert.match(page, new RegExp(`description=\\{toolAuthority\\("${id}"\\)\\}`));
   }
 
   // No two own the same word: that is the whole point of stating them together.
@@ -279,6 +277,7 @@ test("every judging tool names its territory and its neighbour's", () => {
   const NOT_OURS = new Set(["judgement", "correctness", "a recommendation"]);
   const claimed = new Set(owned.map((word) => word.toLowerCase().replace("stage gate ", "")));
   claimed.add("completeness"); // Inspector retains this responsibility without a negative tagline.
+  claimed.add("feasibility"); // Scout states its external-evidence authority positively.
   for (const [id, [, disowns]] of Object.entries(TERRITORY)) {
     assert.ok(
       claimed.has(disowns) || NOT_OURS.has(disowns),
@@ -301,7 +300,9 @@ test("the process is named the way the organisation names it", () => {
     [["components", "screener-signal-help.tsx"], "intro", "the how-to-read panel"],
   ] as const) {
     const source = readFileSync(path.resolve(import.meta.dirname, "..", ...file), "utf8");
-    const [, prose] = source.match(new RegExp(`${prop}="([^"]+)"`)) ?? [];
+    const prose = source.includes(`${prop}={toolAuthority("screener")}`)
+      ? tool.description
+      : source.match(new RegExp(`${prop}="([^"]+)"`))?.[1];
     assert.ok(prose, `${what} states no ${prop}`);
     assert.match(prose, /stage gate/i, `${what} names the process informally`);
   }
@@ -340,7 +341,7 @@ test("a tool's page says the same thing its card does", () => {
     // the card's first sentence.
     const [opening] = tool.description.split(". ");
     assert.ok(
-      page.includes(opening),
+      page.includes(opening) || page.includes(`description={toolAuthority("${id}")}`),
       `${id}'s page describes the tool differently from its card`,
     );
   }

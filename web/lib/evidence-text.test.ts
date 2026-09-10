@@ -13,6 +13,9 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { loadComponent } from "../test-support/load-component.ts";
 
 const WEB = path.resolve(import.meta.dirname, "..");
 
@@ -114,11 +117,10 @@ test("a citation highlight uses the token that means a result cites this", () =>
 test("a quotation is full contrast, because it is not the tool's opinion", () => {
   // The tone axis is the whole authorship distinction: exact words at full contrast, a
   // model's reading muted. A muted quotation reads as a judgment.
-  const primitives = read("components/ui/evidence-text.tsx");
-  const quoted = primitives.slice(
-    primitives.indexOf("export function Quoted"),
-    primitives.indexOf("export function CitedMark"),
-  );
+  const { Quoted } = loadComponent(path.join(WEB, "components/ui/evidence-text.tsx"));
+  const html = renderToStaticMarkup(React.createElement(Quoted, { collapsible: true }, "Exact source words. ".repeat(40)));
+  // The disclosure control may be muted; the quoted words themselves must not be.
+  const quoted = html.match(/<blockquote\b[^>]*>[\s\S]*?<\/blockquote>/)?.[0] ?? "";
   assert.match(quoted, /text-foreground/);
   assert.ok(
     !quoted.includes("text-muted-foreground"),

@@ -78,10 +78,10 @@ test("groups inside a field use one row shape", () => {
     "utf8",
   );
   assert.match(shared, /function DisclosureRow\(/);
-  // Three call sites, not four rows: the relation buckets and the two verdict citations are
-  // each a `.map`, so the row count is data and the call count is what can be asserted.
+  // Four call sites: the field groups plus Landscape's retained field-reference list.
+  // The latter reuses the same disclosure without changing the field groups.
   const uses = PAGE.match(/<DisclosureRow/g) ?? [];
-  assert.equal(uses.length, 3, "an in-field group is drawing its own row again");
+  assert.equal(uses.length, 4, "a disclosure call site changed; check shared row use");
   // `group-open/disp` was the numbers-not-used-as-targets row. `group-open/rel` still exists
   // in the projections tab, which is a page-level row of a different tier, not an in-field
   // group, so it is deliberately not checked here.
@@ -185,11 +185,13 @@ test("every panel behind a provenance trigger opens the same way", () => {
   ];
   for (const file of panels) {
     const text = readFileSync(path.resolve(import.meta.dirname, "..", file), "utf8");
-    assert.match(text, /TracePanelHeader/, `${file} heads its panel by hand`);
-    // The geometry is a constant now. It was four copies of the width and three of the
-    // scroll height, beside near-variants at 58vh and 76vh.
-    assert.match(text, /PROVENANCE_PANEL\.width/, `${file} opens at its own width`);
-    assert.match(text, /PROVENANCE_PANEL\.scroll/, `${file} scrolls at its own height`);
+    const surface = text.includes("<ProvenancePanel")
+      ? readFileSync(path.resolve(import.meta.dirname, "../components/ui/provenance-panel.tsx"), "utf8")
+      : text;
+    assert.match(surface, /TracePanelHeader/, `${file} heads its panel by hand`);
+    assert.match(surface, /PROVENANCE_PANEL\.width/, `${file} opens at its own width`);
+    // The shared popover bounds the whole surface to available viewport height.
+    // A second independently capped list previously clipped the final entries.
     assert.match(text, /<ProvenanceTrigger/, `${file} draws its own trigger`);
   }
 });

@@ -333,7 +333,7 @@ function SignalSummary({
       <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
         <span
-          className="min-w-0 truncate"
+          className="min-w-0 truncate group-open/expand:whitespace-normal group-open/expand:overflow-visible group-open/expand:text-clip group-open/expand:break-words"
           title={detail ? `${value} · ${detail}` : value}
         >
           <span className="font-medium text-foreground">{value}</span>
@@ -395,15 +395,14 @@ function countLabel(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`;
 }
 
-/** Tidy, one-line-per-row source list. Titles truncate (never wrap), metadata
- * is muted and right of the title; long lists collapse. Used everywhere a
+/** Compact source rows with readable titles and trailing metadata; long lists collapse. Used everywhere a
  * finding list appears, so sources look identical across the view. */
 function SourceList({ findings }: { findings: Finding[] }) {
   const [showAll, setShowAll] = useState(false);
   if (findings.length === 0) return null;
   const shown = showAll ? findings : findings.slice(0, SOURCE_LIST_LIMIT);
   return (
-    <ul className="mt-3 space-y-1.5">
+    <ul className="mt-3 divide-y divide-border/60">
       {shown.map((f) => {
         const date = formatDate(f.published_at);
         const sourceLabels = (
@@ -412,28 +411,29 @@ function SourceList({ findings }: { findings: Finding[] }) {
         const sourceLabel = Array.from(new Set(sourceLabels)).join(" + ");
         const meta = [sourceLabel, date].filter(Boolean).join(" · ");
         return (
-          <li key={f.url} className="flex items-baseline gap-3 text-xs">
+          <li key={f.url} className="grid min-w-0 gap-x-4 gap-y-1 py-2.5 text-xs first:pt-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,11rem)]">
             <a
               href={f.url}
               target="_blank"
               rel="noreferrer"
               title={f.title || f.url}
-              className="min-w-0 flex-1 truncate text-muted-foreground transition-colors hover:text-foreground hover:underline motion-reduce:transition-none"
+              className="min-w-0 break-words leading-relaxed text-foreground underline decoration-border underline-offset-2 hover:decoration-current focus-visible:outline-offset-2"
             >
               {f.title || f.url}
             </a>
-            <span className="shrink-0 text-[11px] text-muted-foreground">
+            <Computed className="break-words text-[11px] leading-relaxed text-muted-foreground sm:text-right">
               {meta}
-            </span>
+            </Computed>
           </li>
         );
       })}
       {findings.length > SOURCE_LIST_LIMIT && (
-        <li>
+        <li className="pt-2">
           <button
             type="button"
+            aria-expanded={showAll}
             onClick={() => setShowAll((v) => !v)}
-            className="text-[11px] text-muted-foreground underline hover:text-foreground"
+            className="min-h-6 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-offset-2"
           >
             {showAll ? "Show fewer" : `Show all ${findings.length} sources`}
           </button>
@@ -452,7 +452,7 @@ export default function ScoutPage() {
     <>
       <PageHeader
         title="Scout"
-        description="One document’s targets against external evidence: whether its numbers hold up against comparable measurements and development precedent. Feasibility, not completeness — it never checks a document against a template or against another document."
+        description={toolAuthority("scout")}
       />
       <HeaderGuard>
         {(header, ready) => (
@@ -2324,7 +2324,7 @@ function FieldGrid({
           // The two counts have different scopes, and a reader auditing one against the
           // other comes up short: 156 sources are cited only by development and safety
           // records, which have findings but no insights.
-          metricsNote="Every field by how well evidence supports its target, so the row sums to the number of fields examined. Precedent and calibration are separate axes and are listed below rather than counted here: a field can carry both, neither, or several, so they partition nothing. Insights are counted within fields; the source count is the whole run, including records that carry no insight."
+          metricsNote="Grounding sums to the number of fields examined. Precedent and quantitative comparisons are separate assessments. Insights are counted within fields; sources cover the whole run, including records with no insight."
           tabValue={resultTab}
           onTabChange={setResultTab}
           tabs={
@@ -2390,8 +2390,8 @@ function FieldGrid({
           <TabsContent value="fields" className="m-0">
             {(unresolvedFieldCount > 0 ||
               result.quantitative_ledger.status === "uncertain") && (
-              <div className="flex items-start gap-2 border-b border-border/60 bg-foreground/[0.045] px-5 py-3 text-xs text-muted-foreground sm:px-6">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="flex items-start gap-3 border-b border-[hsl(var(--tone-warning))]/25 bg-[hsl(var(--tone-warning))]/10 px-5 py-4 text-xs leading-relaxed text-foreground sm:px-6">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--tone-warning))]" aria-hidden="true" />
                 <div className="space-y-1">
                   {unresolvedFieldCount > 0 && (
                     <div>
@@ -2609,13 +2609,16 @@ function ProjectionToolbar({
 function ProjectionRoleLabels({
   relationship,
   sourceRole,
+  grouped = false,
 }: {
   relationship: TargetRelationship;
   sourceRole: SourceRole;
+  grouped?: boolean;
 }) {
+  if (grouped && sourceRole === "unknown") return null;
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
-      <Badge variant="outline">{relationshipLabel(relationship)}</Badge>
+      {!grouped && <Badge variant="outline">{relationshipLabel(relationship)}</Badge>}
       {sourceRole !== "unknown" && (
         <span className="text-[11px] text-muted-foreground">
           {sourceRoleLabel(sourceRole)}
@@ -2733,14 +2736,15 @@ function DevelopmentLandscape({
               >
                 <summary className={EXPANDABLE_ROW}>
                   <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-sm font-semibold text-foreground">
+                    <h3 className="break-words text-sm font-semibold leading-relaxed text-foreground">
                       {program.name}
                     </h3>
                     <ProjectionRoleLabels
+                      grouped
                       relationship={program.target_relationship}
                       sourceRole={program.source_role}
                     />
-                    <div className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-4">
+                    <div className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
                       <SignalSummary
                         label="Sponsor"
                         value={program.sponsors.join(" · ") || "—"}
@@ -2770,14 +2774,14 @@ function DevelopmentLandscape({
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
                     <span className="text-[11px] text-muted-foreground">
-                      {countLabel(program.supporting_findings.length, "record")}
+                      Records <span className="text-[11px] tabular-nums">{program.supporting_findings.length}</span>
                     </span>
-                    <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />
+                    <ChevronDown aria-hidden="true" className="h-4 w-4 text-muted-foreground transition-transform group-open/expand:rotate-180 motion-reduce:transition-none" />
                   </div>
                 </summary>
                 <div
                   className={cn(
-                    "border-t border-border/60 px-5 py-4 sm:px-6",
+                    "space-y-4 border-t border-border/60 px-5 py-5 sm:px-6",
                     SURFACE.open.body,
                     DISCLOSURE_MOTION,
                   )}
@@ -2787,17 +2791,16 @@ function DevelopmentLandscape({
                     kind="development record"
                   />
                   {program.target_relationship_reason && (
-                    <Reading className="mb-3 mt-0 max-w-4xl">
+                    <Reading size="prominent" className="mt-0 max-w-[85ch]">
                       {program.target_relationship_reason}
                     </Reading>
                   )}
                   {program.attribute_refs.length > 0 && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Retrieved for{" "}
-                      {program.attribute_refs
-                        .map(displayAttributeLabel)
-                        .join(" · ")}
-                    </p>
+                    <DisclosureRow label="Retrieved for" count={program.attribute_refs.length}>
+                      <ul className="space-y-1 text-xs leading-relaxed text-muted-foreground">
+                        {program.attribute_refs.map((ref, index) => <li key={`${ref}-${index}`}>{displayAttributeLabel(ref)}</li>)}
+                      </ul>
+                    </DisclosureRow>
                   )}
                   <SourceList findings={program.supporting_findings} />
                 </div>
@@ -3119,8 +3122,8 @@ function FieldRow({
           </div>
           {/* The field's own definition, which is project copy rather than anyone's reading
               of this document, so it takes the same shape as the sentence under a section
-              heading. Still clamped to one line: a closed row is an index, not a reference. */}
-          <SectionDescription className="line-clamp-1">
+              heading. Preview two lines in the index; opening the row reveals it all. */}
+          <SectionDescription className="line-clamp-2 max-w-[85ch] group-open/expand:line-clamp-none">
             {description}
           </SectionDescription>
           {targetNotStated ? (
@@ -3146,7 +3149,7 @@ function FieldRow({
           and never where it ended. */}
       <div
         className={cn(
-          "space-y-4 border-t border-border/60 px-5 py-5 sm:px-6",
+          "space-y-6 border-t border-border/60 px-5 py-6 sm:px-6",
           SURFACE.open.body,
           DISCLOSURE_MOTION,
         )}
@@ -3257,7 +3260,7 @@ function FieldRow({
                           <p className="text-[11px] font-medium text-foreground">
                             {DISPOSITION_LABEL[item.disposition]}
                           </p>
-                          <Quoted>{item.quote}</Quoted>
+                          <Quoted collapsible size="prominent">{item.quote}</Quoted>
                           {item.reason && <Reading>{item.reason}</Reading>}
                           <DocumentSourceTrace blockIds={item.block_ids} />
                         </li>
@@ -3411,14 +3414,14 @@ function TargetRows({
           ) : (
             <div
               key={index}
-              className="flex items-start justify-between gap-3 py-2"
+              className="flex flex-col items-start justify-between gap-3 py-2 sm:flex-row"
             >
               {/* The document's own words, so ruled. It rendered as plain prose here and
                   as a quote in the trace panel that opens from it - the same text, two
                   treatments, one of them saying nothing about where it came from. */}
-              <Quoted size="prominent" className="mt-0 min-w-0 flex-1">
-                {row.text}
-              </Quoted>
+              <div className="min-w-0 flex-1">
+                <Quoted collapsible size="prominent" className="mt-0">{row.text}</Quoted>
+              </div>
               <DocumentSourceTrace
                 blockIds={row.blockIds}
                 spans={[{ quote: row.quote, block_ids: row.blockIds }]}
@@ -3467,7 +3470,7 @@ function ConformityBlock({
        cohort - so seven targets on one field ran to roughly seventy lines. The header line
        is what a reader scans; the rest is why. */
     <details className="group/target py-3 first:pt-0 last:pb-0">
-      <summary className="flex cursor-pointer select-none items-baseline gap-x-3 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer select-none flex-wrap items-baseline gap-x-3 gap-y-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-3.5 w-3.5 shrink-0 self-center text-muted-foreground transition-transform group-open/target:rotate-180 motion-reduce:transition-none" />
         {/* The reading, which flexes and wraps inside its own box. Left in the outer row it
             competed with the triggers for width, so a long outcome pushed them off. */}
@@ -3499,7 +3502,7 @@ function ConformityBlock({
 
             `self-start`, not centred: on a row whose text wraps to three lines a centred
             trigger floats in the middle, away from the line it belongs to. */}
-        <span className="flex shrink-0 items-center justify-end gap-1 self-start">
+        <span className="flex w-full flex-wrap items-center justify-end gap-1 self-start lg:w-auto">
           <ComparatorCohort conformity={conformity} matches={matches} />
           <ExcludedMeasurements conformity={conformity} matches={matches} />
           {/* Last, so it holds the right edge. Each of these three renders nothing when it
@@ -3525,7 +3528,7 @@ function ConformityBlock({
 
       <div className={cn(DISCLOSURE_MOTION)}>
         {conformity.target_quote && (
-          <Quoted size="prominent" className="mt-1.5">
+          <Quoted collapsible size="prominent" className="mt-1.5">
             {conformity.target_quote}
           </Quoted>
         )}
@@ -3699,10 +3702,10 @@ function SignalVerdict({
     needsFindingFallback(entry.cited),
   );
   return (
-    <section className="border-t border-border/60 pt-4 first:border-t-0 first:pt-0">
+    <section className="border-t border-border/60 py-5 first:border-t-0 first:pt-0">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <SectionLabel>{label}</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {chips.map((chip) => (
             <SignalChip key={chip.text} tone={chip.tone}>
               {chip.text}

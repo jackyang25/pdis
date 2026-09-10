@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const nativeRequire = createRequire(import.meta.url);
 
 /** Render real TSX with Node's test runner, resolving the app's aliases in memory. */
-export function loadComponent(path: string, overrides: Record<string, unknown> = {}): any {
+export function loadComponent(path: string, overrides: Record<string, unknown> = {}, expose: string[] = []): any {
   const cache = new Map<string, { exports: any }>();
   function load(file: string): any {
     if (cache.has(file)) return cache.get(file)!.exports;
@@ -25,7 +25,12 @@ export function loadComponent(path: string, overrides: Record<string, unknown> =
       if (!resolved) throw new Error(`Cannot resolve ${name}`);
       return load(resolved);
     };
-    new Function("require", "module", "exports", outputText)(localRequire, module, module.exports);
+    // Test private page components without adding unsupported Next.js page exports.
+    const testExports = file === path ? expose.map((name) => {
+      if (!/^[A-Za-z_$][\w$]*$/.test(name)) throw new Error("Invalid test export");
+      return `exports.${name} = ${name};`;
+    }).join("\n") : "";
+    new Function("require", "module", "exports", outputText + "\n" + testExports)(localRequire, module, module.exports);
     return module.exports;
   }
   return load(path);

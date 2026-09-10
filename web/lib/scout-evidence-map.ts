@@ -42,6 +42,8 @@ export type EvidenceMapNode = {
   eyebrow: string;
   title: string;
   summary: string;
+  /** Plain-text card preview only; the inspector always uses the complete summary. */
+  preview?: string;
   /**
    * Who wrote `summary`, stated where the text is chosen rather than guessed at render time.
    *
@@ -210,9 +212,11 @@ function cleanInlineMarkdown(value: string): string {
 function cleanSourceExcerpt(value: string | null): string {
   if (!value) return "";
   const cleaned = cleanInlineMarkdown(value);
+  if (!cleaned) return "";
   const compact = cleaned.replace(/[()[\]\s,;:]+/g, "");
   if (/^(?:www\.)?[\w-]+(?:\.[\w-]+)+\/?$/i.test(compact)) return "";
-  return cleaned.length > 480 ? `${cleaned.slice(0, 477).trimEnd()}…` : cleaned;
+  // Truncation belongs to the card, not the retained detail text.
+  return value;
 }
 
 function cleanSourceTitle(value: string, url: string): string {
@@ -440,6 +444,7 @@ export function buildScoutEvidenceMap(
       eyebrow: "Cited source",
       title: cleanSourceTitle(finding.title || finding.url, finding.url),
       summary: excerpt || "No source excerpt was retained for this record.",
+      preview: excerpt ? cleanInlineMarkdown(excerpt) : undefined,
       summaryMode: excerpt ? "quoted" : "interface",
       meta: laneLabels.join(" + "),
       href: finding.url,

@@ -68,6 +68,7 @@ import { displayLabel } from "@/lib/display-label";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { Reading } from "@/components/ui/evidence-text";
+import { toolAuthority } from "@/lib/tools";
 
 const STEPS = [
   { key: "resolve", label: "Resolving the question bank" },
@@ -159,7 +160,7 @@ export default function ScreenerPage() {
     <>
       <PageHeader
         title="Screener"
-        description="Your documents against a stage gate’s question bank: what is answered, what remains open, and which discipline owns each question. Stage gate readiness, not judgement — it reports what the material does not answer, and decides nothing."
+        description={toolAuthority("screener")}
       />
       <div className="flex flex-col gap-6">
         {(!session.result || showSetup) && (
@@ -408,7 +409,6 @@ function ReviewView({
               state="partly_answered"
               review={review}
               query={normalizedQuery}
-              defaultOpen
               orderNote={SCREENER_ORDER_NOTE}
             />
 
@@ -419,7 +419,6 @@ function ReviewView({
               review={review}
               query={normalizedQuery}
               emptyMessage={SCREENER_EMPTY_MESSAGE}
-              orderNote={SCREENER_ORDER_NOTE}
             />
 
             <StatePanel
@@ -630,7 +629,8 @@ function StatePanel({
       title={title}
       count={total}
       subtitle={description}
-      defaultOpen={defaultOpen}
+      key={Boolean(query) ? "filtered" : "all"}
+      defaultOpen={defaultOpen || Boolean(query)}
     >
       {total === 0 ? (
         <p className="text-xs leading-relaxed text-muted-foreground">
@@ -650,7 +650,7 @@ function StatePanel({
           heading the heading scrolled away immediately and nothing said which discipline
           you were reading until the next one, seventy rows later.
         */
-        <div>
+        <div className="divide-y divide-border/60">
           {groups.map((group) => (
             <DisclosureRow
               key={group.id}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ChevronUp } from "lucide-react";
 
 import { DocumentSourceTrace } from "@/components/document-source-trace";
@@ -164,9 +164,7 @@ export function PriorityPanel({
               a model's - and unmarked, so the one paragraph on the page most obviously
               written by a model was the one that did not say so. */}
           {digest && (
-            <Reading size="body" className="mb-4 whitespace-pre-line">
-              {digest}
-            </Reading>
+            <PriorityDigest key={digest} digest={digest} />
           )}
           {!digest && !digestLoading && digestError && (
             <p className="mb-4 text-xs leading-5 text-muted-foreground">
@@ -273,6 +271,35 @@ export function PriorityPanel({
       )}
     </section>
   );
+}
+
+/** Presentation only: retain the complete authored digest, never generate a shorter one. */
+function PriorityDigest({ digest }: { digest: string }) {
+  const id = useId();
+  const content = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
+  useEffect(() => {
+    const element = content.current;
+    if (!element || expanded) return;
+    const measure = () => setOverflows(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [expanded]);
+
+  return <div className="mb-4 max-w-prose">
+    <div ref={content} id={id} className={expanded ? undefined : "max-h-24 overflow-hidden"}>
+      <Reading size="body" className="whitespace-pre-line">{digest}</Reading>
+    </div>
+    {(overflows || expanded) && <button type="button" aria-expanded={expanded} aria-controls={id}
+      onClick={() => setExpanded(value => !value)}
+      className="mt-2 min-h-6 text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+      {expanded ? "Show less summary" : "Read full summary"}
+    </button>}
+  </div>;
 }
 
 /**

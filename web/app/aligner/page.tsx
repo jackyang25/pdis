@@ -189,7 +189,7 @@ export default function AlignerPage() {
     <>
       <PageHeader
         title="Aligner"
-        description="The iTPP, cTPP, and IPDP against each other: whether each honours the one before it, requirement by requirement. Coherence, not feasibility — whether the documented plan supports the documented objectives, never whether those objectives are achievable."
+        description={toolAuthority("aligner")}
       />
       <div className="flex flex-col gap-6">
         {(!session.result || showSetup) && (
@@ -646,6 +646,7 @@ function ComparisonCard({
   return (
     <CollapsibleCard
       title={comparisonLabel(edge, result)}
+      count={findings.length}
       subtitle={edge.question}
       // Closed, like Inspector's sections and Screener's disciplines. The panel above
       // already carries everything a reader has to act on; this is the full
@@ -653,14 +654,8 @@ function ComparisonCard({
       // comparison. The row still states which comparison it is, what it asks, and how
       // many requirements it holds.
       defaultOpen={filtering}
-      trailing={
-        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-          {findings.length}{" "}
-          {findings.length === 1 ? "requirement" : "requirements"}
-        </span>
-      }
     >
-      <div className="flex flex-col gap-4">
+      <div className="divide-y divide-border/60">
         {VERDICT_ORDER.map((verdict) => {
           const inVerdict = findingsWithVerdict(findings, verdict);
           if (inVerdict.length === 0) return null;
@@ -776,6 +771,7 @@ function FindingRow({
       {finding.statement && (
         <Attributed
           label={comparisonName}
+          className="mt-2"
           trailing={
             finding.comparison_spans.length > 0 ? (
               <DocumentSourceTrace

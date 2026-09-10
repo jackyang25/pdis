@@ -5,7 +5,8 @@ import { cn } from "@/lib/utils";
 import { Label } from "./label";
 import { SearchableSelect } from "./searchable-select";
 import { Check, Info } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "./popover";
+import { Popover, PopoverTrigger } from "./popover";
+import { HelpPopoverContent } from "./help-content";
 import {
   Select,
   SelectContent,
@@ -69,9 +70,9 @@ export function ConfigFieldHelp({ label, children }: { label: string; children: 
           <Info aria-hidden="true" className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
-      <PopoverContent aria-label={`About ${label}`} className="max-w-[calc(100vw-1.5rem)] text-xs leading-relaxed">
+      <HelpPopoverContent aria-label={`About ${label}`}>
         {children}
-      </PopoverContent>
+      </HelpPopoverContent>
     </Popover>
   );
 }

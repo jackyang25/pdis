@@ -44,6 +44,18 @@ test("a source lane prefers its provided label over a derived one", () => {
   assert.equal(sourceDisplayLabel("semantic_scholar"), "Semantic Scholar");
 });
 
+test("source labels preserve registered names when a saved result has no adapter labels", () => {
+  assert.equal(sourceDisplayLabel("pubmed"), "PubMed");
+  assert.equal(sourceDisplayLabel("clinicaltrials"), "ClinicalTrials.gov");
+  assert.equal(sourceDisplayLabel("fda_safety"), "FDA Safety");
+  assert.equal(sourceDisplayLabel("isrctn"), "ISRCTN");
+  assert.equal(sourceDisplayLabel("ctis"), "CTIS");
+  assert.equal(sourceDisplayLabel("europepmc"), "Europe PMC");
+  assert.equal(sourceDisplayLabel("who_guidelines"), "WHO Guidelines");
+  assert.equal(sourceDisplayLabel("pubmed", { pubmed: "Adapter label" }), "Adapter label");
+  assert.equal(sourceDisplayLabel("new_source"), "New Source");
+});
+
 
 /**
  * The vocabulary as a whole, not one label at a time.

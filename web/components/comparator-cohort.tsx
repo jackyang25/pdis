@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { ChevronDown, Scale } from "lucide-react";
-import { TracePanelHeader } from "@/components/document-trace-panel";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ProvenanceTrigger, stopRowToggle , PROVENANCE_PANEL} from "@/components/ui/provenance";
+
+import { ProvenancePanel } from "@/components/ui/provenance-panel";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
+import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
 import { Reading, SourceEntry, InterfaceNote } from "@/components/ui/evidence-text";
 import type { Conformity, Insight, Match, Measurement } from "@/lib/api";
 import { SEMANTIC_STATUS_LABEL, sourceIdentityCaveat } from "@/lib/scout-labels";
 import { calibrationView, formatMeasure } from "@/lib/scout-result-view";
-import { cn } from "@/lib/utils";
 
 /**
  * The measurements a target's statistics were computed from.
@@ -47,21 +47,15 @@ export function ComparatorCohort({
           />
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        collisionPadding={12}
-        className={cn(PROVENANCE_PANEL.width, "overflow-hidden p-0")}
-      >
-        <TracePanelHeader
+      <ProvenancePanel
+          onClose={() => setOpen(false)}
           eyebrow="Comparators"
           title="What the statistics were computed from"
           // The phrase comes from `calibrationView`, which is tested, rather than being
           // built here from the same two fields. Two constructions of one sentence is how
           // "3 of 3" and "3 of 3 meet target" come to disagree about the wording.
           description={`Every measurement admitted for this target. ${calibrationView(conformity).meetingLabel}.`}
-        />
-        <div className={cn(PROVENANCE_PANEL.scroll, " overflow-y-auto px-4 py-4")}>
+      >
           <ul>
             {admitted.map((measurement, index) => (
               <AdmittedMeasurement
@@ -72,8 +66,7 @@ export function ComparatorCohort({
               />
             ))}
           </ul>
-        </div>
-      </PopoverContent>
+      </ProvenancePanel>
     </Popover>
   );
 }

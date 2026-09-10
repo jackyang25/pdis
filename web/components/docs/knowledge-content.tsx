@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, ExternalLink, Info } from "lucide-react";
+import { AlertCircle, ExternalLink } from "lucide-react";
 
 import { ArchitectureGraphs } from "@/components/docs/architecture-graph";
 import type { KnowledgeBlock } from "@/lib/product-knowledge";
@@ -67,7 +67,7 @@ export function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
   if (block.type === "architecture") {
     return (
       <ContentGroup title={block.title}>
-        <p className="mt-2 max-w-3xl text-xs leading-5 text-muted-foreground">
+        <p className="mt-2 max-w-[75ch] text-sm leading-relaxed text-muted-foreground">
           {block.description}
         </p>
         <ArchitectureGraphs graphs={block.graphs} description={block.description} />
@@ -115,8 +115,8 @@ function Step({ number, title, children }: { number: string; title: string; chil
   return (
     <li className="relative">
       <span className="absolute -left-[29px] top-0 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-background font-mono text-[8px] text-muted-foreground">{number}</span>
-      <h3 className="text-xs font-semibold">{title}</h3>
-      <p className="mt-1 max-w-[75ch] text-xs leading-5 text-muted-foreground">{children}</p>
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <p className="mt-1 max-w-[75ch] text-sm leading-relaxed text-muted-foreground">{children}</p>
     </li>
   );
 }
@@ -125,9 +125,9 @@ function DefinitionRows({ rows }: { rows: readonly (readonly [string, string])[]
   return (
     <dl className="mt-4 border-t border-border">
       {rows.map(([term, description]) => (
-        <div key={term} className="grid gap-1 border-b border-border py-3 sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-5">
-          <dt className="text-xs font-medium text-foreground">{term}</dt>
-          <dd className="max-w-[75ch] text-xs leading-5 text-muted-foreground">{description}</dd>
+        <div key={term} className="grid gap-2 border-b border-border py-4 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:gap-6">
+          <dt className="min-w-0 break-words text-sm font-medium text-foreground">{term}</dt>
+          <dd className="min-w-0 max-w-[75ch] break-words text-sm leading-relaxed text-muted-foreground">{description}</dd>
         </div>
       ))}
     </dl>
@@ -135,42 +135,28 @@ function DefinitionRows({ rows }: { rows: readonly (readonly [string, string])[]
 }
 
 function Note({ title = "Why this matters", children }: { title?: string; children: React.ReactNode }) {
-  return <Callout title={title} icon={Info}>{children}</Callout>;
+  // Ordinary explanations stay quiet; only warnings need a boxed surface.
+  return (
+    <aside className="mt-6 border-s-2 border-border ps-4">
+      <p className="text-sm font-semibold">{title}</p>
+      <p className="mt-1.5 max-w-[75ch] text-sm leading-relaxed text-muted-foreground">{children}</p>
+    </aside>
+  );
 }
 
 function Warning({ title, children }: { title: string; children: React.ReactNode }) {
-  return <Callout title={title} icon={AlertCircle} warning>{children}</Callout>;
-}
-
-function Callout({
-  title,
-  children,
-  icon: Icon,
-  warning = false,
-}: {
-  title: string;
-  children: React.ReactNode;
-  icon: typeof Info;
-  warning?: boolean;
-}) {
   return (
     <aside
-      className={`mt-6 rounded-lg border p-4 ${warning
-        ? "border-[hsl(var(--tone-warning))]/30 bg-[hsl(var(--tone-warning))]/[0.05]"
-        : "border-border bg-foreground/[0.045]"
-      }`}
+      className="mt-6 rounded-lg border border-[hsl(var(--tone-warning))]/30 bg-[hsl(var(--tone-warning))]/[0.05] p-4"
     >
       <div className="flex items-start gap-3">
-        <Icon
-          className={`mt-0.5 h-4 w-4 shrink-0 ${warning
-            ? TONE_TEXT.warning
-            : "text-muted-foreground"
-          }`}
+        <AlertCircle
+          className={`mt-0.5 h-4 w-4 shrink-0 ${TONE_TEXT.warning}`}
           aria-hidden="true"
         />
         <div className="min-w-0">
-          <p className="text-xs font-semibold">{title}</p>
-          <p className="mt-1.5 max-w-[75ch] text-xs leading-5 text-muted-foreground">{children}</p>
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="mt-1.5 max-w-[75ch] text-sm leading-relaxed text-muted-foreground">{children}</p>
         </div>
       </div>
     </aside>
@@ -179,10 +165,10 @@ function Callout({
 
 function ReferenceLink({ href, title, description }: { href: string; title: string; description: string }) {
   return (
-    <a href={href} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 py-3.5 text-xs transition-colors hover:text-foreground motion-reduce:transition-none">
-      <span>
+    <a href={href} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 py-4 text-sm transition-colors hover:bg-accent focus-visible:outline-offset-2 motion-reduce:transition-none">
+      <span className="grid min-w-0 gap-1 sm:grid-cols-[13rem_minmax(0,1fr)] sm:gap-6">
         <span className="font-medium text-foreground">{title}</span>
-        <span className="ml-2 text-muted-foreground">{description}</span>
+        <span className="text-muted-foreground">{description}</span>
       </span>
       <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
     </a>
@@ -192,11 +178,11 @@ function ReferenceLink({ href, title, description }: { href: string; title: stri
 function Faq({ question, children }: { question: string; children: React.ReactNode }) {
   return (
     <details className="group/faq border-b border-border py-3.5 last:border-b-0">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-xs font-medium [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-sm text-sm font-medium focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
         {question}
         <span className="font-mono text-sm font-normal text-muted-foreground transition-transform group-open/faq:rotate-45 motion-reduce:transition-none">+</span>
       </summary>
-      <p className="mt-2 max-w-2xl pr-8 text-xs leading-5 text-muted-foreground">{children}</p>
+      <p className="mt-3 max-w-[75ch] pe-8 text-sm leading-relaxed text-muted-foreground">{children}</p>
     </details>
   );
 }

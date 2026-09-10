@@ -260,12 +260,23 @@ export function displayAttributeLabel(ref: string): string {
 }
 
 /** Prefer the lane label a source adapter supplied over a derived one. */
+const SOURCE_LABELS: Record<string, string> = {
+  pubmed: "PubMed",
+  clinicaltrials: "ClinicalTrials.gov",
+  isrctn: "ISRCTN",
+  ctis: "CTIS",
+  fda: "FDA Regulatory",
+  fda_safety: "FDA Safety",
+  europepmc: "Europe PMC",
+  who_guidelines: "WHO Guidelines",
+};
+
 export function sourceDisplayLabel(
   source: string,
   labels?: Record<string, string>,
 ): string {
   return (
-    labels?.[source] ??
+    labels?.[source] ?? SOURCE_LABELS[source] ??
     source
       .replace(/[_-]+/g, " ")
       .replace(/\b\w/g, (character) => character.toUpperCase())

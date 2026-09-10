@@ -29,7 +29,7 @@ const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
     title: "Verdict",
     summary: "How one rubric unit stands, in one word.",
     detail:
-      "One question per unit and one answer, so a count of anything but Specified is a count of things to do. Every verdict except an absence cites the exact passage it was read from. Nothing here says what a shortfall costs your programme, because that is not something this tool can see: there is no letter grade, no severity scale, and no overall score.",
+      "Specified and N/A require no follow-up. Other unit verdicts identify a shortfall. Not present and N/A cite no passage; other verdicts cite whole source passages, not exact quotations. There is no overall score or programme-risk rating.",
     // Read from the label maps, not retyped. The vocabulary was a paragraph here and
     // a set of chips on screen, which is two copies of one list and eleven lines a
     // reader has to parse to find the term in front of them.
@@ -43,7 +43,7 @@ const TOPICS: Record<InspectorSignalTopic, SignalTopic> = {
     title: "Cross-section consistency",
     summary: "Do two different sections state claims that cannot both hold?",
     detail:
-      "Only conflicts spanning more than one section are reported here, and a conflict must cite passages from at least two of them; that span is what makes it cross-section. A problem inside one section belongs to that unit instead. This check compares your document with itself and never consults outside evidence. If it does not complete, that is reported as its own status rather than as a document with nothing wrong.",
+      "Checked once per document, shared across rubrics. Each conflict cites passages from at least two sections. An incomplete check is reported separately from a completed check with no conflicts.",
   },
 };
 
@@ -54,7 +54,7 @@ export function InspectorSignalHelp() {
   return (
     <SignalHelp
       title="How to read this assessment"
-      intro="Inspector checks one document against its authored rubric. Every unit the rubric asks about gets one verdict, and every verdict cites the passage it came from."
+      intro="Each unit receives one verdict against the selected rubric. Document-wide consistency is a separate check."
       topics={INSPECTOR_TOPIC_LIST as SignalTopic[]}
     />
   );

@@ -33,6 +33,7 @@ import { graphIcon } from "@/lib/pdis-icon-paths";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { PdisIcon } from "@/components/ui/pdis-icon";
+import { Button } from "@/components/ui/button";
 import { ToolDetail } from "@/components/docs/tool-detail";
 import {
   FitGraphToView,
@@ -236,7 +237,7 @@ function NodeInspector({
             <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
             Contract boundary
           </div>
-          <p className="mt-2 text-[11px] leading-[1.6] text-muted-foreground">{node.guarantee}</p>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{node.guarantee}</p>
         </div>
       ) : null}
     </GraphInspectorShell>
@@ -250,7 +251,7 @@ function InspectorList({ title, items }: { title: string; items?: string[] }) {
       <p className={EYEBROW}>{title}</p>
       <ul className="mt-2 space-y-1.5">
         {items.map((item) => (
-          <li key={item} className="flex gap-2 text-[11px] leading-[1.45] text-muted-foreground">
+          <li key={item} className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
             <span className="mt-[6px] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" />
             {item}
           </li>
@@ -269,6 +270,7 @@ export function ArchitectureGraphs({
 }) {
   const [graphId, setGraphId] = useState(graphs[0]?.id ?? "inspector");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [readingStages, setReadingStages] = useState(false);
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
   const graph = graphs.find((item) => item.id === graphId) ?? graphs[0];
   const layout = useMemo(
@@ -318,7 +320,7 @@ export function ArchitectureGraphs({
           <PdisIcon name={graphIcon(graph.id)} className="mt-0.5 h-5 w-5 text-foreground" />
           <div className="min-w-0">
             <h4 className="text-sm font-semibold">{graph.title}</h4>
-            <p className="mt-1 max-w-2xl text-[11px] leading-[1.6] text-muted-foreground">
+            <p className="mt-1 max-w-[75ch] text-sm leading-relaxed text-muted-foreground">
               {graph.summary || description}
             </p>
           </div>
@@ -332,24 +334,29 @@ export function ArchitectureGraphs({
           aria-label="Tool architecture"
         >
           {graphs.map((item) => (
-            <button
+            <Button
               key={item.id}
               type="button"
+              size="sm"
+              variant={item.id === graph.id ? "default" : "ghost"}
               aria-pressed={item.id === graph.id}
               onClick={() => chooseGraph(item.id)}
-              className={cn(
-                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none",
-                item.id === graph.id && "bg-foreground text-background hover:bg-foreground hover:text-background",
-              )}
+              className="shrink-0 gap-1.5"
             >
               <PdisIcon name={graphIcon(item.id)} className="h-3.5 w-3.5" />
               {item.title}
-            </button>
+            </Button>
           ))}
+        </div>
+        <div className="mt-4 hidden items-center justify-between gap-4 xl:flex">
+          <p className="text-xs text-muted-foreground">Select a stage for details. Use the diagram for connections or read the stages as a list.</p>
+          <Button type="button" size="sm" variant="outline" onClick={() => setReadingStages(!readingStages)}>
+            {readingStages ? "View diagram" : "Read stages"}
+          </Button>
         </div>
       </div>
 
-      <div className="hidden xl:block">
+      <div className={readingStages ? "hidden" : "hidden xl:block"}>
         {/* React Flow's node keydown reaches its own selection store, which a
             controlled `selected` prop immediately overwrites, so the inspector
             reads the activation key off the focused node instead. */}
@@ -426,7 +433,7 @@ export function ArchitectureGraphs({
         ) : null}
       </div>
 
-      <div className="divide-y divide-border xl:hidden">
+      <div className={cn("divide-y divide-border", !readingStages && "xl:hidden")}>
         {graph.nodes.map((node) => {
           const meta = KIND_META[node.kind];
           const Icon = meta.icon;
@@ -441,12 +448,12 @@ export function ArchitectureGraphs({
                     <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meta.dot)} />
                     <span className="truncate">{node.layer === meta.label ? node.layer : `${node.layer} · ${meta.label}`}</span>
                   </span>
-                  <span className="mt-1 block text-xs font-semibold">{node.title}</span>
-                  <span className="mt-0.5 block text-[10px] text-muted-foreground">{node.summary}</span>
+                  <span className="mt-1 block text-sm font-semibold">{node.title}</span>
+                  <span className="mt-1 block text-sm leading-relaxed text-muted-foreground">{node.summary}</span>
                 </span>
                 <ChevronRight className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
               </summary>
-              <div className="ml-10 mt-3 text-[11px] leading-[1.6] text-muted-foreground">
+              <div className="ms-10 mt-3 max-w-[75ch] text-sm leading-relaxed text-muted-foreground">
                 {/* The summary already shows in the collapsed row above. */}
                 {node.details && node.details !== node.summary ? <p>{node.details}</p> : null}
                 {node.children?.length ? (

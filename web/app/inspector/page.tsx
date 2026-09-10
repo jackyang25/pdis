@@ -384,6 +384,7 @@ function InspectionResultView({
             </ResultToolbarEnd>
           </ResultToolbar>
           <div className="px-5 py-5 sm:px-6 sm:py-6">
+            <p className="mb-3 text-xs text-muted-foreground">Document-wide check · shared across rubrics</p>
             <ConsistencyView
               findings={inspection.document_findings ?? []}
               status={inspection.consistency_status}
@@ -490,18 +491,21 @@ function AssessmentRow({
   title,
   requirement,
   rubric,
+  showVerdict = title !== null,
 }: {
   item: Assessment;
   /** What this is about. The section's name where a unit declares no variable. */
   title: string | null;
   requirement?: RequirementSnapshot;
   rubric?: RubricSnapshot;
+  /** Single-unit cards already show this in their header; standalone findings do not. */
+  showVerdict?: boolean;
 }) {
   return (
     <div className="px-5 py-3.5 sm:px-6">
-      {title !== null && <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
-        <p className="min-w-0 flex-1 basis-48 text-sm font-medium">{title}</p>
-        <div className="flex shrink-0 items-center gap-2">
+      {(title !== null || showVerdict) && <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+        {title !== null && <p className="min-w-0 flex-1 basis-48 text-sm font-medium">{title}</p>}
+        {showVerdict && <div className="ml-auto flex shrink-0 items-center gap-2">
           {/* Muted text, not a second pill. `Optional` is the rubric author's decision
               about this unit, not a verdict about the document, and two pills on one row
               read as two judgements. */}
@@ -509,7 +513,7 @@ function AssessmentRow({
             <span className="text-[11px] text-muted-foreground">Optional</span>
           )}
           <StatusPill status={item.verdict} />
-        </div>
+        </div>}
       </div>}
       {/* The verdict is on the pill and nowhere else. It used to be repeated here as
           well, which made sense when a unit held several findings and each carried its
@@ -707,6 +711,7 @@ function ConsistencyView({
             key={finding.id}
             item={finding}
             title={conflictTitle(finding)}
+            showVerdict
           />
         ))}
       </div>
@@ -714,15 +719,9 @@ function ConsistencyView({
   );
 }
 
-/**
- * What to call a conflict, which belongs to no unit.
- *
- * Titled by the sections its own citations resolve to, the same derivation the document
- * trace uses. Naming them a second way here would be a second answer to "which sections
- * disagree" that could differ from the one in the gutter.
- */
-function conflictTitle(finding: Assessment): string {
-  return finding.variable_name ?? finding.section_name ?? "Across sections";
+/** Do not invent a topic heading when the saved finding supplies none. */
+function conflictTitle(finding: Assessment): string | null {
+  return finding.variable_name ?? finding.section_name ?? null;
 }
 
 function consistencyDescription(

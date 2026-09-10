@@ -1,7 +1,7 @@
 "use client";
 
 import type { RequirementSnapshot, RubricResolution, RubricSnapshot, RubricSource } from "@/lib/api";
-import { ConfigHelp } from "@/components/ui/config-field";
+import { HelpHeading, HelpSection } from "@/components/ui/help-content";
 import { DisclosureRow } from "@/components/ui/disclosure-row";
 import { promptHref } from "@/lib/prompt-reference";
 
@@ -12,18 +12,25 @@ export function InspectorRequirement({ requirement, rubric }: { requirement: Req
       <p>{requirement.description}</p>
       {requirement.expectations && <p>{requirement.expectations}</p>}
       <SourceLinks sources={rubric.sources.filter(source => requirement.source_refs.includes(source.id))} />
-      {requirement.source_refs.length === 0 && <TemplateReference rubric={rubric} />}
+      {requirement.source_refs.length === 0 && <TemplateReference rubric={rubric} compact />}
     </div>
   </DisclosureRow></div>;
 }
 
 /** A template-level basis is not represented as a verified requirement-level citation. */
-function TemplateReference({ rubric }: { rubric: RubricSnapshot }) {
+function TemplateReference({ rubric, compact = false }: { rubric: RubricSnapshot; compact?: boolean }) {
   if (!rubric.mirrors) return null;
+  if (compact) return <p className="text-xs text-muted-foreground">
+    Template basis: {rubric.reference_url
+      ? <a href={rubric.reference_url} target="_blank" rel="noopener noreferrer"
+          className="underline underline-offset-4 hover:text-foreground">Reference library</a>
+      : <>{rubric.display_name}. Source details in rubric information.</>}
+  </p>;
   return <div className="space-y-1 text-xs text-muted-foreground">
     <p><span className="font-medium">Template basis. </span>{rubric.mirrors}</p>
     {rubric.reference_url && <a href={rubric.reference_url} target="_blank" rel="noopener noreferrer"
-      className="inline-block underline underline-offset-4 hover:text-foreground">Open reference library (employee access)</a>}
+      className="inline-block underline underline-offset-4 hover:text-foreground">Open reference library</a>}
+    {rubric.reference_url?.startsWith("https://bmgf.sharepoint.com/") && <p>Foundation sign-in required.</p>}
   </div>;
 }
 
@@ -38,16 +45,22 @@ function SourceLinks({ sources }: { sources: RubricSource[] }) {
 }
 
 export function InspectorRubricDetails({ rubric }: { rubric: RubricSnapshot }) {
-  return <div className="space-y-3 leading-relaxed text-muted-foreground">
-        <h3 className="text-sm font-medium text-foreground">{rubric.display_name}</h3>
+  return <div className="space-y-4 text-xs leading-relaxed text-muted-foreground">
+      <div className="space-y-2">
+        <HelpHeading>{rubric.display_name}</HelpHeading>
         <p>{rubric.scope}</p>
-        <p>{rubric.authority} · Rubric revision {rubric.revision ?? "not recorded"}</p>
+      </div>
+      <HelpSection title="Source and revision">
+        <p>{rubric.authority}</p>
+        <p>Rubric revision {rubric.revision ?? "not recorded"}</p>
         <TemplateReference rubric={rubric} />
         <SourceLinks sources={rubric.sources} />
+      </HelpSection>
+      <div className="space-y-2">
         <a href={promptHref("inspector", "assessment")} target="_blank" rel="noopener noreferrer"
           className="inline-block underline underline-offset-4 hover:text-foreground">View assessment instructions</a>
-        <p>Document consistency is checked once for the run, independently of this rubric.</p>
-        <ConfigHelp>These are authored document-review requirements, not a certification of regulatory compliance.</ConfigHelp>
+        <p>Authored document-review requirements, not certification of regulatory compliance.</p>
+      </div>
   </div>;
 }
 

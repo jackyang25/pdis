@@ -32,6 +32,9 @@ import {
 } from "@/lib/scout-evidence-map";
 import { RELATIONSHIP_TONE } from "@/lib/scout-labels";
 import { ToneDot } from "@/components/ui/tone-dot";
+import { Button } from "@/components/ui/button";
+import { DisclosureRow } from "@/components/ui/disclosure-row";
+import { ResultToolbar } from "@/components/ui/result-toolbar";
 import { TONE_STROKE } from "@/lib/tone";
 import {
   InterfaceNote,
@@ -57,6 +60,9 @@ import {
 } from "@/components/graph/graph-primitives";
 
 type EvidenceFlowNode = Node<EvidenceMapNode, EvidenceMapNodeKind>;
+
+// Fit the whole projection without the large empty margin used by overview diagrams.
+const FIT_PADDING = 0.06;
 
 const NODE_SIZE: Record<EvidenceMapNodeKind, { width: number; height: number }> = {
   document: { width: 220, height: 110 },
@@ -110,7 +116,7 @@ function EvidenceNode({ data, selected }: NodeProps<EvidenceFlowNode>) {
         <Reading className="mt-1 line-clamp-2 leading-[1.45]">{data.summary}</Reading>
       ) : (
         <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
-          {data.summary}
+          {data.preview ?? data.summary}
         </p>
       )}
       {data.meta && (
@@ -146,7 +152,7 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
   const positions = layoutDirectedGraph(
     nodes.map((node) => ({ id: node.id, ...NODE_SIZE[node.kind] })),
     edges,
-    { ranksep: 76, nodesep: 18, edgesep: 10, margin: 24 },
+    { ranksep: 40, nodesep: 18, edgesep: 10, margin: 12 },
   );
 
   const flowNodes: EvidenceFlowNode[] = nodes.map((node) => {
@@ -194,14 +200,16 @@ function layoutGraph(nodes: EvidenceMapNode[], edges: EvidenceMapEdge[]) {
 
 function NodeSummary({
   mode,
+  markdown = false,
   children,
 }: {
   mode: EvidenceMapNode["summaryMode"];
+  markdown?: boolean;
   children: string;
 }) {
   if (mode === "quoted") {
     return (
-      <Quoted size="prominent" className="mt-3">
+      <Quoted size="prominent" collapsible markdown={markdown} className="mt-3">
         {children}
       </Quoted>
     );
@@ -220,12 +228,12 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
   const Icon = KIND_ICON[node.kind];
   const relationTone = node.relation ? RELATIONSHIP_TONE[node.relation] : null;
   return (
-    <GraphInspectorShell className="xl:h-[560px] xl:min-h-0 xl:overflow-y-auto xl:border-l xl:border-t-0">
+    <GraphInspectorShell className="min-w-0 break-words xl:h-[560px] xl:min-h-0 xl:overflow-y-auto xl:border-l xl:border-t-0">
       <div className={cn("flex items-center gap-2", EYEBROW)}>
         <Icon className="h-3.5 w-3.5" />
         {node.eyebrow}
       </div>
-      <h3 className="mt-2 text-sm font-semibold leading-snug text-foreground">
+      <h3 className="mt-2 text-sm font-semibold leading-relaxed text-foreground">
         {node.title}
       </h3>
       {node.meta && (
@@ -242,7 +250,7 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
       {/* The summary carried four authorships in one paint treatment: a field's definition,
           the document's own words, a model's sentence and a paper's excerpt. The node states
           which, so this only has to render it. */}
-      <NodeSummary mode={node.summaryMode}>{node.summary}</NodeSummary>
+      <NodeSummary mode={node.summaryMode} markdown={node.kind === "source"}>{node.summary}</NodeSummary>
       {/* A model's reasoning about the sentence above. It had the left rule, which is the
           quotation shape, so the one thing on this panel that was nobody's exact words was
           the one thing marked as a quotation. */}
@@ -255,14 +263,14 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
       {node.signals && node.signals.length > 0 && (
         <dl className="mt-4 space-y-2.5 border-t border-border/70 pt-4">
           {node.signals.map((signal) => (
-            <div key={signal.label} className="flex items-start justify-between gap-3 text-xs">
+            <div key={signal.label} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] items-start gap-3 text-xs leading-relaxed">
               <dt className="text-muted-foreground">{signal.label}</dt>
               {/* Values wrap rather than truncate: a count the reader cannot
                   infer from a stub is worse than a second line. The dot sits on
                   the first line's optical centre: (16px leading - 6px) / 2. */}
               <dd className="flex min-w-0 items-start gap-1.5 font-medium text-foreground">
                 <ToneDot tone={signal.tone} className="mt-[5px]" />
-                <span className="text-end">{signal.value}</span>
+                <span>{signal.value}</span>
               </dd>
             </div>
           ))}
@@ -277,15 +285,15 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
 
       {node.sources && node.sources.length > 0 && (
         <div className="mt-4 border-t border-border/70 pt-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
             <p className={EYEBROW}>
               All cited sources
             </p>
-            <span className="text-[10px] tabular-nums text-muted-foreground/70">
+            <span className="text-[11px] tabular-nums text-muted-foreground">
               {node.sources.length}
             </span>
           </div>
-          <ul className="mt-2 space-y-2">
+          <ul className="mt-3 space-y-3">
             {node.sources.map((source) => (
               <li key={source.url} className="min-w-0">
                 <a
@@ -293,13 +301,11 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
                   target="_blank"
                   rel="noreferrer"
                   title={source.title}
-                  className="block min-w-0 text-[11px] leading-snug text-muted-foreground transition-colors hover:text-foreground motion-reduce:transition-none"
+                  className="block min-w-0 text-xs leading-relaxed text-foreground underline decoration-border underline-offset-2 hover:decoration-current focus-visible:outline-offset-2"
                 >
-                  <span className="block truncate">{source.title}</span>
-                  <span className="mt-0.5 block text-[10px] text-muted-foreground/60">
-                    {source.meta}
-                  </span>
+                  {source.title}
                 </a>
+                <p className="mt-1 text-[11px] text-muted-foreground">{source.meta}</p>
               </li>
             ))}
           </ul>
@@ -308,31 +314,28 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
 
       {node.queries && node.queries.length > 0 && (
         <div className="mt-4 border-t border-border/70 pt-4">
-          <p className={EYEBROW}>
-            Retrieval query
-          </p>
-          {/* The query verbatim, in the monospace the app already uses for a machine string.
-              It was set as muted prose, which put a string nobody wrote in the same shape as
-              a model's judgment. */}
-          <Literal className="mt-1 block">{node.queries[0]}</Literal>
-          {node.queries.length > 1 && (
-            <InterfaceNote className="mt-2">
-              +{node.queries.length - 1} further retrieval path{node.queries.length === 2 ? "" : "s"} reached this.
-            </InterfaceNote>
-          )}
+          <DisclosureRow label="Retrieval queries" count={node.queries.length}>
+            <ul className="space-y-2">
+              {node.queries.map((query, index) => (
+                <li key={index}><Literal className="block">{query}</Literal></li>
+              ))}
+            </ul>
+          </DisclosureRow>
         </div>
       )}
 
       {node.href && (
+        <Button asChild variant="outline" size="sm" className="mt-4">
         <a
           href={node.href}
           target="_blank"
           rel="noreferrer"
-          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent motion-reduce:transition-none"
+          className="gap-1.5"
         >
           Open source
           <ExternalLink className="h-3 w-3" />
         </a>
+        </Button>
       )}
     </GraphInspectorShell>
   );
@@ -379,8 +382,8 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
 
   return (
     <section aria-label="Evidence map" className="bg-card">
-      <div className="flex flex-col gap-3 border-b border-border/80 bg-foreground/[0.045] px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+      <ResultToolbar className="sm:flex-wrap sm:gap-3">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
           <label htmlFor="evidence-map-field" className="shrink-0 text-xs font-medium text-muted-foreground">
             Field
           </label>
@@ -421,10 +424,10 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
             </SelectContent>
           </Select>
         </div>
-        <p className="text-[11px] tabular-nums text-muted-foreground">
+        <p className="text-[11px] tabular-nums text-muted-foreground sm:ml-auto">
           {projection.shownInsights} of {projection.totalInsights} insights · {projection.shownSources} of {projection.totalSources} cited sources
         </p>
-      </div>
+      </ResultToolbar>
 
       <div className="grid xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="relative h-[560px] min-w-0 bg-background/40">
@@ -440,27 +443,27 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
             edgesFocusable={false}
             elementsSelectable
             fitView
-            fitViewOptions={{ padding: 0.22, maxZoom: 1 }}
-            minZoom={0.28}
+            fitViewOptions={{ padding: FIT_PADDING, maxZoom: 1 }}
+            minZoom={0.05}
             maxZoom={1.4}
             proOptions={{ hideAttribution: true }}
           >
-            <FitGraphToView layoutKey={`${attributeRef}:${viewMode}`} padding={0.22} />
+            <FitGraphToView layoutKey={`${attributeRef}:${viewMode}`} padding={FIT_PADDING} />
             <Background
               variant={BackgroundVariant.Dots}
               gap={20}
               size={1}
               color="hsl(var(--border))"
             />
-            <GraphControls />
+            <GraphControls fitPadding={FIT_PADDING} />
           </ReactFlow>
           {hasHiddenNodes && (
-            <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-card/95 px-2.5 py-1 text-[10px] text-muted-foreground shadow-sm backdrop-blur">
+            <div className="pointer-events-none absolute bottom-3 left-16 right-3 z-10 mx-auto max-w-fit rounded-md border border-border/80 bg-card/95 px-2.5 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
               Focused trace · switch to All evidence for the complete cited graph
             </div>
           )}
         </div>
-        {selectedNode && <Inspector node={selectedNode} />}
+        {selectedNode && <Inspector key={selectedNode.id} node={selectedNode} />}
       </div>
     </section>
   );

@@ -8,7 +8,8 @@ import {
   useMemo,
   useState,
 } from "react";
-import { Check, Copy, FileText, LocateFixed } from "lucide-react";
+import { Check, Copy, FileText, LocateFixed, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { BlockReferenceId } from "@/components/block-reference";
 import { TracePanelHeader } from "@/components/document-trace-panel";
 import type { ContentBlock, DocumentSpan } from "@/lib/api";
@@ -110,7 +111,7 @@ export function DocumentSourceTrace({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" {...stopRowToggle}>
+        <button type="button" aria-label={sourcePassageAriaLabel(uniqueBlockIds.length)} {...stopRowToggle}>
           <ProvenanceTrigger
             icon={FileText}
             label="In document"
@@ -120,21 +121,27 @@ export function DocumentSourceTrace({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        align="end"
+        align="start"
         sideOffset={6}
         collisionPadding={12}
-        className={cn(PROVENANCE_PANEL.width, "overflow-hidden p-0")}
+        className={cn(PROVENANCE_PANEL.width, "overscroll-contain p-0")}
       >
         <TracePanelHeader
           eyebrow="Source passage"
+          className="sticky top-0 z-10 bg-card"
           title="Uploaded document"
-          description="Read the retained passage behind this result, then open its exact location in the document trace."
+          description="Passages cited by this result."
+          action={<Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Close source passages" onClick={() => setOpen(false)}><X className="h-4 w-4" aria-hidden="true" /></Button>}
         />
         <div className={uniqueBlockIds.length > 1 ? "grid min-h-0 sm:grid-cols-[180px_minmax(0,1fr)]" : "min-h-0"}>
           {uniqueBlockIds.length > 1 && (
+            // The surface stretches with the grid row; only the list is height-capped.
+            // Capping the surface itself left the divider and background cut short
+            // whenever the selected passage was taller than the navigation.
+            <div className="min-w-0 border-b border-border/80 bg-foreground/[0.045] sm:border-b-0 sm:border-r">
             <nav
               aria-label="Source passages"
-              className="flex max-h-32 gap-1 overflow-auto border-b border-border/80 bg-foreground/[0.045] p-2 sm:max-h-[min(58vh,520px)] sm:flex-col sm:border-b-0 sm:border-r"
+              className="flex max-h-32 gap-1 overflow-auto overscroll-contain p-2 sm:max-h-72 sm:flex-col"
             >
               {uniqueBlockIds.map((blockId, index) => {
                 const block = blocksById.get(blockId);
@@ -144,6 +151,7 @@ export function DocumentSourceTrace({
                     key={blockId}
                     type="button"
                     onClick={() => setSelectedBlockId(blockId)}
+                    aria-current={selectedBlockId === blockId ? "true" : undefined}
                     className={`min-w-32 rounded-md px-2.5 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/20 sm:min-w-0 ${
                       selectedBlockId === blockId
                         ? "bg-card text-foreground shadow-sm ring-1 ring-border"
@@ -154,10 +162,14 @@ export function DocumentSourceTrace({
                       Passage {index + 1}
                     </span>
                     <span className="mt-0.5 block truncate text-[11px] font-medium">{label}</span>
+                    <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                      {block?.content || (block?.image ? "Image passage" : "Source passage unavailable")}
+                    </span>
                   </button>
                 );
               })}
             </nav>
+            </div>
           )}
           {/* The same scroll box as its three sibling panels. It was 58vh where they were 60,
                 a difference of two viewport percent that marked nothing. */}
@@ -165,7 +177,7 @@ export function DocumentSourceTrace({
             {selectedBlock ? (
               <>
                 <div className="min-w-0">
-                  <p className="truncate text-xs font-semibold text-foreground">{selectedHeading}</p>
+                  <p className="break-words text-xs font-semibold text-foreground">{selectedHeading}</p>
                   <p className="mt-0.5 text-[10px] capitalize text-muted-foreground">
                     {selectedBlock.block_type.replaceAll("_", " ")} · passage {selectedBlock.ordinal + 1}
                   </p>
@@ -248,7 +260,7 @@ export function DocumentSourceTrace({
                   className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2.5 text-[10px] font-medium text-foreground outline-none transition-colors hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
                 >
                   <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
-                  Open in document trace
+                  View in document
                 </button>
               )}
             </footer>

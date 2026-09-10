@@ -69,9 +69,9 @@ function AlignerTraceInspector({
         </TracePanelSection>
 
         <TracePanelSection label="The requirement" icon={Target}>
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+          <Reading size="body" className="mt-2 whitespace-pre-wrap">
             {ref.requirement}
-          </p>
+          </Reading>
         </TracePanelSection>
 
         {!isRequirement && ref.statement && (
@@ -88,7 +88,7 @@ function AlignerTraceInspector({
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
               These passages state the requirement. Its assessment is marked in the comparison document.
             </p>
-          ) : <TraceBlockCitationNote />}
+          ) : connection.type === "block" ? <TraceBlockCitationNote /> : null}
           <TracePassageList
             passages={passages.passages}
             openedBlockId={connection.blockId}

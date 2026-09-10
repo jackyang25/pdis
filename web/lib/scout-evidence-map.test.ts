@@ -102,6 +102,24 @@ const result = {
   blocks: [],
 } satisfies ScoutResponse;
 
+test("source details retain the complete excerpt and its Markdown links", () => {
+  const expanded = structuredClone(result);
+  const excerpt = "A **retained** [citation](https://example.test/paper). " + "Full evidence text. ".repeat(40);
+  expanded.matches[0].insight.supporting_findings[0].excerpt = excerpt;
+  const projection = buildScoutEvidenceMap(expanded, "clinical_efficacy");
+  assert.equal(projection.nodes.find((node) => node.kind === "source")?.summary, excerpt);
+});
+
+test("empty source excerpts keep the interface fallback rather than an empty quotation", () => {
+  for (const excerpt of ["   ", "** **"]) {
+    const expanded = structuredClone(result);
+    expanded.matches[0].insight.supporting_findings[0].excerpt = excerpt;
+    const source = buildScoutEvidenceMap(expanded, "clinical_efficacy").nodes.find((node) => node.kind === "source");
+    assert.equal(source?.summaryMode, "interface");
+    assert.equal(source?.summary, "No source excerpt was retained for this record.");
+  }
+});
+
 test("uses the canonical target and attaches evidence relations to it", () => {
   const projection = buildScoutEvidenceMap(result, "clinical_efficacy");
   const document = projection.nodes.find(

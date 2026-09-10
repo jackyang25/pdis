@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { FilterX } from "lucide-react";
-import { TracePanelHeader, TracePanelSection } from "@/components/document-trace-panel";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ProvenanceTrigger, stopRowToggle , PROVENANCE_PANEL} from "@/components/ui/provenance";
+import { TracePanelSection } from "@/components/document-trace-panel";
+import { ProvenancePanel } from "@/components/ui/provenance-panel";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
+import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
 import { Computed, Reading, SourceEntry } from "@/components/ui/evidence-text";
 import type { Conformity, Match, Measurement } from "@/lib/api";
 import { SEMANTIC_STATUS_LABEL } from "@/lib/scout-labels";
 import { exclusionReasonLines, formatMeasure } from "@/lib/scout-result-view";
-import { cn } from "@/lib/utils";
 
 /**
  * What one numeric target's comparison left out, and why.
@@ -59,18 +59,12 @@ export function ExcludedMeasurements({
           />
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        collisionPadding={12}
-        className={cn(PROVENANCE_PANEL.width, "overflow-hidden p-0")}
-      >
-        <TracePanelHeader
+      <ProvenancePanel
+          onClose={() => setOpen(false)}
           eyebrow="Excluded"
           title="What this comparison left out"
           description={`${reviewed} source passage${reviewed === 1 ? "" : "s"} were reviewed for this target. These are the ones that did not enter the cohort.`}
-        />
-        <div className={cn(PROVENANCE_PANEL.scroll, " space-y-4 overflow-y-auto px-4 py-4")}>
+      >
           {excluded.length > 0 && (
             <TracePanelSection label="Read, then not admitted" className="border-t-0 pt-0">
               <ul className="mt-1.5 space-y-3">
@@ -99,8 +93,7 @@ export function ExcludedMeasurements({
               </ul>
             </TracePanelSection>
           )}
-        </div>
-      </PopoverContent>
+      </ProvenancePanel>
     </Popover>
   );
 }

@@ -55,7 +55,7 @@ export function ToolDetail({ toolId }: { toolId: string }) {
     return (
       <div className="space-y-7">
         <ToolReference blocks={reference} />
-        <p className="text-xs leading-5 text-muted-foreground">
+        <p id="prompts" className="scroll-mt-24 text-sm leading-relaxed text-muted-foreground">
           This stage sends no model instructions of its own. Its behaviour is
           deterministic, or it composes the tools above.
         </p>
@@ -70,8 +70,11 @@ export function ToolDetail({ toolId }: { toolId: string }) {
       <ToolReference blocks={reference} />
 
       {topics.length > 0 && (
-        <section>
-          <h4 className="text-sm font-semibold">What its labels mean</h4>
+        <details className="group/labels">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-sm text-sm font-semibold focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+            What its labels mean
+            <span aria-hidden="true" className="font-normal group-open/labels:rotate-45">+</span>
+          </summary>
           <p className="mt-1 max-w-[75ch] text-xs leading-5 text-muted-foreground">
             The same definitions shown by the question mark beside each label in
             the tool itself.
@@ -91,17 +94,17 @@ export function ToolDetail({ toolId }: { toolId: string }) {
                     topic.title
                   )}
                 </dt>
-                <dd className="mt-1 max-w-[75ch] text-xs leading-5 text-muted-foreground">
+                <dd className="mt-1 max-w-[75ch] text-sm leading-relaxed text-muted-foreground">
                   {topic.summary}{" "}
-                  <span className="text-muted-foreground/80">{topic.detail}</span>
+                  {topic.detail}
                 </dd>
               </div>
             ))}
           </dl>
-        </section>
+        </details>
       )}
 
-      <section>
+      <section id="prompts" className="scroll-mt-24">
         <h4 className="text-sm font-semibold">Instructions given to the model</h4>
         <PromptReference tool={toolId} />
       </section>

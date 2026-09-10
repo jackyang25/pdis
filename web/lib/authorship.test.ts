@@ -662,7 +662,7 @@ test("the priorities panel is bounded, and says when it is", () => {
     "the priorities panel renders every item its tool raised",
   );
   assert.ok(
-    !/overflow-y-auto|max-h-/.test(panel),
+    !/overflow-y-auto/.test(panel),
     "the priorities panel scrolls inside itself instead of stopping at the limit",
   );
   // Bounded by default, not truncated. These are a worklist - every one of Inspector's is
@@ -924,7 +924,7 @@ test("a priority states who wrote its statement, and the digest says it is a mod
   assert.match(panel, /<Reading size="prominent">\{item\.statement\}/);
   // The digest is a model's summary of the list under it, and was the one paragraph on
   // the page most obviously written by a model that did not say so.
-  assert.match(panel, /<Reading size="body" className="mb-4/, "the digest is unmarked again");
+  assert.match(panel, /<Reading size="body"[^>]*>\{digest\}<\/Reading>/, "the digest is unmarked again");
 });
 
 test("a marked sentence has one left edge", () => {

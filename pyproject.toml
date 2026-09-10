@@ -14,14 +14,11 @@ requires-python = ">=3.11,<3.12"
 # ceilings state which major versions the contract tests have actually run
 # against, so a lock refresh cannot silently cross a breaking release.
 #
-# FastAPI is held below 0.129 on purpose. Resolving it freely picks up 0.141 and
-# Starlette 1.6, and Starlette 1.0 stopped flattening included routers into
-# `app.routes`. Nothing observable broke - every endpoint still serves, and the
-# suite still passes - but a Starlette major and a platform migration must not
-# land together: when acceptance goes wrong, you need to know which one did it.
-# Lift this ceiling as its own change once the Nomad deploy is verified.
+# FastAPI and Starlette move together: the latter owns request parsing and
+# security fixes. Keep the tested minor lines bounded; uv.lock pins patches.
 dependencies = [
-    "fastapi>=0.110,<0.129",
+    "fastapi>=0.141.1,<0.142",
+    "starlette>=1.6,<1.7",
     "uvicorn[standard]>=0.27,<1.0",
     "python-multipart>=0.0.9,<1.0",
     "python-dotenv>=1.0,<2.0",
@@ -51,7 +48,7 @@ dependencies = [
 # runtime group, so linting and test tooling never reach a deployed allocation.
 dev = [
     "ruff>=0.16,<0.17",
-    "pytest>=8.0,<9.0",
+    "pytest>=9.0.3,<10.0",
     "httpx>=0.27,<1.0",
 ]
 

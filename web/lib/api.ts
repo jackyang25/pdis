@@ -124,6 +124,7 @@ export type RequirementSnapshot = {
   description: string; expectations: string; source_refs: string[];
 };
 export type RubricSnapshot = {
+  updated_on: string | null;
   id: string; revision: string | null; display_name: string; authority: string;
   scope: string; evidence_scope: "mapped_section" | "whole_document";
   stage_guidance: string;

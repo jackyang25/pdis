@@ -29,7 +29,7 @@ const block: ContentBlock = {
 const inspection: InspectorResponse = {
   inspection: {
     doc_id: "doc",
-    reviews: [{ rubric: { id: "test", revision: null, display_name: "Test", authority: "Test", scope: "Test", stage_guidance: "", mirrors: null, evidence_scope: "mapped_section", sources: [], requirements: [] }, sections: [], assessment_status: "complete" }],
+    reviews: [{ rubric: { id: "test", revision: null, updated_on: null, display_name: "Test", authority: "Test", scope: "Test", stage_guidance: "", mirrors: null, evidence_scope: "mapped_section", sources: [], requirements: [] }, sections: [], assessment_status: "complete" }],
     applicability_facts: {},
     rubric_resolutions: [{ rubric_id: "test", display_name: "Test", status: "included", reason_code: "test", reason: "Test" }],
     document_findings: [],

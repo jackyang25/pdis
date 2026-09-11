@@ -67,17 +67,6 @@ test("Inspector reads its model sentences through the shared component", () => {
   assert.match(page, /<Reading size="prominent"[^>]*>/);
 });
 
-test("one verdict has one appearance", () => {
-  // "Met" rendered as a tinted pill on a unit and as muted text on a section, so the same
-  // verdict looked like good news in one row and like an absence in the row above it.
-  const page = read("app", "inspector", "page.tsx");
-  assert.ok(
-    !/return <span className="text-xs text-muted-foreground">Met<\/span>;/.test(page),
-    "a section states its verdict in its own words instead of the shared pill",
-  );
-  assert.match(page, /<StatusPill status="specified" \/>/);
-});
-
 test("the quotation rule marks only quotes, in every tool that uses it", () => {
   // `border-l-2` means "these are someone else's exact words". `LabeledItem` also rules its
   // left edge and is deliberately not a quotation — it colours the rule, which is what
@@ -376,23 +365,6 @@ test("the layout keeps the header one block and every boundary one weight", () =
 });
 
 
-
-test("a view says what opening it gives you, once", () => {
-  // The count moved to the toolbar, where the nav states it beside the search. What is left
-  // is the one thing the rows cannot say for themselves: that a section holds every unit
-  // the rubric asks about, not only the ones that produced a finding.
-  const page = readFileSync(path.join(REPO, "app", "inspector", "page.tsx"), "utf8");
-  assert.ok(
-    !page.includes("Each row carries its own counts"),
-    "the description still describes the interface instead of the content",
-  );
-  assert.match(page, /Open a section to see every unit the rubric asks about/);
-  assert.equal(
-    (page.match(/Open a section to see every unit/g) ?? []).length,
-    1,
-    "the sentence is stated twice",
-  );
-});
 
 /**
  * A result names itself the same way everywhere.

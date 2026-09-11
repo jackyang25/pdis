@@ -1,5 +1,7 @@
 "use client";
 
+import { ResultCardStack } from "@/components/ui/result-card-stack";
+
 import { ResultLayout } from "@/components/ui/result-layout";
 import { ResultSearch } from "@/components/ui/result-search";
 import { matchesQuery, normalizeQuery } from "@/lib/result-search";
@@ -403,31 +405,31 @@ function ReviewView({
                 is the panel a PPL acts on. Answered needs nothing, and not found is
                 either a reviewer's question or a larger conversation.
               */}
-            <StatePanel
-              title="Partly answered"
-              description="Some of the question is answered and some is not. Each says what is still not stated."
-              state="partly_answered"
-              review={review}
-              query={normalizedQuery}
-              orderNote={SCREENER_ORDER_NOTE}
-            />
-
-            <StatePanel
-              title="Not found in the documents"
-              description="Nothing in the supplied material addresses these. Each shows the discipline that owns it."
-              state="not_found"
-              review={review}
-              query={normalizedQuery}
-              emptyMessage={SCREENER_EMPTY_MESSAGE}
-            />
-
-            <StatePanel
-              title="Answered"
-              description="What the supplied material already answers."
-              state="answered"
-              review={review}
-              query={normalizedQuery}
-            />
+            <ResultCardStack>
+              <StatePanel
+                title="Partly answered"
+                description="Some of the question is answered and some is not. Each says what is still not stated."
+                state="partly_answered"
+                review={review}
+                query={normalizedQuery}
+                orderNote={SCREENER_ORDER_NOTE}
+              />
+              <StatePanel
+                title="Not found in the documents"
+                description="Nothing in the supplied material addresses these. Each shows the discipline that owns it."
+                state="not_found"
+                review={review}
+                query={normalizedQuery}
+                emptyMessage={SCREENER_EMPTY_MESSAGE}
+              />
+              <StatePanel
+                title="Answered"
+                description="What the supplied material already answers."
+                state="answered"
+                review={review}
+                query={normalizedQuery}
+              />
+            </ResultCardStack>
 
             <BankSource source={review.bank_source} />
           </div>

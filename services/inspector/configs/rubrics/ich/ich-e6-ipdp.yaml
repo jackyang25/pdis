@@ -1,8 +1,6 @@
 id: ich-e6-ipdp
 revision: "1.0"
-org: bmgf
-source_type: ipdp
-intervention_class: drug
+updated_on: "2026-09-11"
 display_name: "ICH E6(R3): clinical planning"
 authority: PDIS-authored adaptation informed by ICH E6(R3) Principles and Annex 1
 scope: Selected strategic clinical-planning and critical-to-quality risk expectations; not GCP certification or a trial-conduct audit.

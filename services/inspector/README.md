@@ -155,6 +155,24 @@ are PDIS-authored document-review adaptations, not official templates,
 certification, trial-conduct audits, or exhaustive guideline coverage. Source
 revision and PDIS rubric revision remain separate in every saved snapshot.
 
+Shared rubric definitions declare no `org`, `source_type`, or `intervention_class`.
+`load_rubric` requires a profile and supplies its context before parsing the runtime
+assessment config; context fields in a shared definition are rejected, not overridden.
+Class-specific PDID template files retain their real document identities, which must
+match the referencing profile. The catalog owns applicability; a shared ICH rubric
+does not pretend to be a drug template merely to satisfy the config parser.
+
+Each rubric definition also declares a quoted ISO `updated_on` date (YYYY-MM-DD).
+This dates the PDIS-authored rubric, not publication or review of its external sources.
+The initial baseline is 2026-09-11; earlier update dates were not recorded. When
+assessment rules change, bump `revision`, update `updated_on`, and update the
+profile catalog's revision pins together. Presentation-only changes do not bump
+either. The shared PDID definition versions its profile-specific requirement files
+as one family. Source guideline revisions remain in `sources`.
+
+Results snapshot the rubric revision and date. The selector shows the saved revision
+and the date beneath it; opening an older result never substitutes current metadata.
+
 ### Selected ICH coverage
 
 The catalog adds planning adaptations, not ICH-authored iTPP/cTPP/IPDP templates.

@@ -10,11 +10,11 @@ function block(doc_id: string, meta = {}): ContentBlock {
 
 test("extraction warnings account for each document once, never infer them from filenames", () => {
   assert.deepEqual(documentExtractionWarnings([
-    block("report", { extraction_warnings: ["pdf_text_only"] }),
-    block("report", { extraction_warnings: ["pdf_text_only"] }),
-    block("notes", { extraction_warnings: ["pdf_text_only"] }),
+    block("report", { extraction_warnings: ["pdf_limited_structure"] }),
+    block("report", { extraction_warnings: ["pdf_limited_structure"] }),
+    block("notes", { extraction_warnings: ["pdf_limited_structure"] }),
     block("paper.pdf"),
-  ]), [{ code: "pdf_text_only", documentIds: ["report", "notes"] }]);
+  ]), [{ code: "pdf_limited_structure", documentIds: ["report", "notes"] }]);
   assert.deepEqual(documentExtractionWarnings([block("paper.pdf")]), []);
 });
 

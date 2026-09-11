@@ -6,7 +6,7 @@ import type { InspectionResult, InspectionReview } from "./api.ts";
 
 export function reviewFixture(id = "template"): InspectionReview {
   return {
-    rubric: { id, revision: "1", display_name: id, authority: "Authored rubric",
+    rubric: { id, revision: "1", updated_on: "2026-09-11", display_name: id, authority: "Authored rubric",
       scope: "Document content only", evidence_scope: "whole_document", stage_guidance: "Planning evidence is sufficient.", mirrors: null,
       sources: [{ id: "source", title: "Source guideline", revision: "2025", url: "https://example.org/guideline" }],
       requirements: [{ id: `${id}::unit`, section_name: "Plan", variable_name: null,

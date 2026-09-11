@@ -118,17 +118,18 @@ test("PDF upload capability changes both the picker and its visible hint, not ot
   assert.match(ordinary, /accept="\.docx,\.pptx"/);
   assert.match(screening, /accept="\.docx,\.pptx,\.pdf"/);
   assert.match(screening, /DOCX, PPTX, PDF/);
-  assert.match(screening, /Images are not read/);
-  assert.doesNotMatch(ordinary, /Images are not read/);
+  assert.match(screening, /Prefer DOCX or PPTX when available/);
+  assert.match(screening, /directly placed embedded images are read/);
+  assert.doesNotMatch(ordinary, /Prefer DOCX or PPTX when available/);
 });
 
 test("extraction notice names affected documents and is absent for ordinary sources", () => {
   const { DocumentExtractionNotice } = loadComponent(resolve(root, "components/document-extraction-notice.tsx"));
-  const block = { doc_id: "Trial report", structural_meta: { extraction_warnings: ["pdf_text_only"] } };
+  const block = { doc_id: "Trial report", structural_meta: { extraction_warnings: ["pdf_limited_structure"] } };
   const html = renderToStaticMarkup(React.createElement(DocumentExtractionNotice, { blocks: [block, block] }));
   assert.match(html, /aria-label="Document extraction limitations"/);
   assert.equal(html.match(/Trial report/g)?.length, 1);
-  assert.match(html, /Images and scanned content are not read/);
+  assert.match(html, /Vector drawings are not read/);
   assert.equal(renderToStaticMarkup(React.createElement(DocumentExtractionNotice, {
     blocks: [{ doc_id: "Trial report", structural_meta: {} }],
   })), "");

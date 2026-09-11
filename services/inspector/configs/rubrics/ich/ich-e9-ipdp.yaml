@@ -1,8 +1,6 @@
 id: ich-e9-ipdp
 revision: "1.0"
-org: bmgf
-source_type: ipdp
-intervention_class: drug
+updated_on: "2026-09-11"
 display_name: "ICH E9: statistical planning"
 authority: "PDIS-authored adaptation informed by ICH E9(R1) and ICH E9; source copyright ICH, no ICH endorsement"
 scope: "Selected statistical-design and estimand-planning expectations; not verification of calculations or a complete E9 compliance review."

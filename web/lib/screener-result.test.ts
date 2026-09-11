@@ -46,14 +46,14 @@ test("arbitrary documents and embedded images survive saved-result and trace rou
 
 test("PDF page locations, limitations and citations survive export and trace reconstruction", () => {
   const result = fixture();
-  result.review.blocks[0].structural_meta = { page: 3, extraction_warnings: ["pdf_text_only"] };
+  result.review.blocks[0].structural_meta = { page: 3, extraction_warnings: ["pdf_limited_structure"] };
   const restored = unpackScreenerResult(JSON.parse(JSON.stringify(packScreenerResult(result))));
   const annotations = buildScreenerDocumentAnnotations(restored.review);
   const trace = buildDocumentTrace(restored.review.blocks, annotations);
   assert.equal(documentTracePassages(trace, annotations[0].id)[0].sectionLabel, "Page 3");
   assert.equal(documentBlockLocationLabel(restored.review.blocks[0]), "Page 3");
   assert.deepEqual(documentExtractionWarnings(restored.review.blocks), [{
-    code: "pdf_text_only", documentIds: ["Meeting notes"],
+    code: "pdf_limited_structure", documentIds: ["Meeting notes"],
   }]);
   assert.deepEqual(restored, result);
 });

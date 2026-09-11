@@ -308,6 +308,7 @@ class RequirementSnapshot:
 class RubricSnapshot:
     id: str
     revision: str | None
+    updated_on: str | None
     display_name: str
     authority: str
     scope: str

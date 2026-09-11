@@ -1,8 +1,6 @@
 id: ich-e4-ipdp
 revision: "1.0"
-org: bmgf
-source_type: ipdp
-intervention_class: drug
+updated_on: "2026-09-11"
 display_name: "ICH E4: dose-response development plan"
 authority: PDIS-authored adaptation informed by ICH E4
 scope: Selected planning expectations for generating dose/exposure-response evidence over time; not an exhaustive ICH E4 review.

@@ -32,14 +32,20 @@ text-based PDF. Only Screener enables that capability; standalone Chunker,
 Inspector, Aligner, Scout, Archivist builds and Ask attachments keep the default.
 
 PDF uses pypdf to produce one text block per page, with stable IDs, a one-based
-`structural_meta.page`, and `extraction_warnings: ["pdf_text_only"]`. It does not
-infer headings or table cells, extract images, or run OCR. The same block shape
-does not imply the same extraction quality: columns can be misordered and images
-or scanned portions of otherwise readable pages can be omitted. A citation
-identifies extracted text, not a verified reconstruction of the page.
+`structural_meta.page`, and `extraction_warnings: ["pdf_limited_structure"]`.
+Directly placed embedded rasters (including inline images) use pypdf's image decoding and the
+existing canonical image asset path. Each page's text is followed by its images
+in resource order, not inferred reading order. Text IDs remain unchanged; image
+IDs append `-image-0001`, etc. to the page's text ID. Reused resources are retained
+per page, not per placement. Unused resources are excluded. Nested Form images
+are skipped: pypdf's display flag is page-local, so including them could cite
+unused resources. This limitation is disclosed, not reconstructed with custom
+PDF traversal. Images may be fragments of a larger figure.
+No headings, table cells, vector drawings, OCR, or page rendering are inferred.
+Columns may be misordered; a citation is not a verified page reconstruction.
 
 PDF parsing refuses encrypted files (including empty-password encryption), strict
-parse failures, logged pypdf extraction warnings, zero-page files, files over
+parse failures, image decoding failures, logged pypdf extraction warnings, zero-page files, files over
 20 MiB or 200 pages, and direct content streams over 5 MiB decoded. This cap does
 not include nested Form XObject streams. Any page with no non-whitespace text fails the whole
 document, including blank pages: it cannot reliably distinguish an intentional

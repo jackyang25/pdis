@@ -452,7 +452,7 @@ function upgradeInspectorV2(value: unknown): unknown {
     applicability_facts: {},
     rubric_resolutions: [{ rubric_id: id, display_name: "Historical template review", status: "included",
       reason_code: "legacy_import", reason: "Imported single-rubric review; the original file did not record its rubric revision." }],
-    reviews: [{ rubric: { id, revision: null, display_name: "Historical template review",
+    reviews: [{ rubric: { id, revision: null, updated_on: null, display_name: "Historical template review",
       authority: "Template rubric (historical)", scope: "Original requirements and source revision were not saved. Re-run to assess current rubrics.",
       evidence_scope: "mapped_section", stage_guidance: "", mirrors: null, sources: [], requirements: [] },
       sections, assessment_status: document.assessment_status }],

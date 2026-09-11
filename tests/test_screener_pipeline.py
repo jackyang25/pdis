@@ -80,6 +80,9 @@ def bank(*questions: QuestionSpec) -> GateConfig:
 
 class PipelineTests(unittest.TestCase):
     def test_all_documents_and_embedded_images_share_one_citation_collection(self) -> None:
+        from tests.pdf_fixtures import pdf_bytes
+        pdf = self.root / "figures.pdf"
+        pdf.write_bytes(pdf_bytes("Figure evidence.", image_pages=(1,)))
         report = self.root / "report.docx"
         document = Document()
         document.add_paragraph("Independent laboratory findings.")
@@ -104,22 +107,24 @@ class PipelineTests(unittest.TestCase):
 
         client = CiteAllClient()
         review = run_pipeline(
-            [DocumentInput(str(self.itpp), "profile"), DocumentInput(str(report), "report")],
+            [DocumentInput(str(self.itpp), "profile"), DocumentInput(str(report), "report"),
+             DocumentInput(str(pdf), "figures")],
             org="bmgf", intervention_class="drug", indication="malaria",
             config=bank(QuestionSpec("Q1", "What was found?"), QuestionSpec("Q2", "What is planned?")),
             llm_client=client,
         )
-        self.assertEqual([d.doc_id for d in review.documents], ["profile", "report"])
-        self.assertEqual({b.doc_id for b in review.blocks}, {"profile", "report"})
+        self.assertEqual([d.doc_id for d in review.documents], ["profile", "report", "figures"])
+        self.assertEqual({b.doc_id for b in review.blocks}, {"profile", "report", "figures"})
         for assessment in review.assessments():
             self.assertEqual(assessment.cited_block_ids, [b.id for b in review.blocks])
         retained_images = [b for b in review.blocks if b.image]
-        self.assertEqual(len(retained_images), 1)
+        self.assertEqual(len(retained_images), 2)
         for message, images in client.calls:
             self.assertIn("Dosing regimen", message)
             self.assertIn("Independent laboratory findings", message)
-            self.assertEqual(images, [{"block_id": retained_images[0].id,
-                                       "data_url": retained_images[0].image.data_url()}])
+            self.assertIn("pdf_limited_structure", message)
+            self.assertEqual(images, [{"block_id": block.id,
+                                       "data_url": block.image.data_url()} for block in retained_images])
         for block in review.blocks:
             self.assertEqual((block.org, block.intervention_class, block.indication),
                              ("bmgf", "drug", "malaria"))

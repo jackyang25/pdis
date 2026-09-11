@@ -361,7 +361,7 @@
             },
             {
               "question": "Which files can I supply for a document review?",
-              "answer": "DOCX and PPTX across document tools. Screener also accepts text-based PDFs through the same retained-block pipeline, with page-level citations and a visible extraction warning. PDF images are not read, and table or column order may be inaccurate. Encrypted or malformed PDFs, files over 20 MiB or 200 pages, overly complex page streams, and pages without extractable text are refused. Other tools and Ask attachments do not accept PDFs. TXT, Markdown and standalone images are not document-review inputs; Screener has no separate context upload."
+              "answer": "DOCX and PPTX across document tools. Screener also accepts text-based PDFs through the same retained-block pipeline, with page-level text and directly placed embedded raster image blocks. Vector drawings and images inside grouped PDF objects are not read; images may be fragments and table or column order may be inaccurate. A visible extraction warning accompanies the result. Encrypted or malformed PDFs, unreadable embedded images, files over 20 MiB or 200 pages, overly complex page streams, and pages without extractable text are refused. Other tools and Ask attachments do not accept PDFs. TXT, Markdown and standalone images are not document-review inputs; Screener has no separate context upload."
             },
             {
               "question": "What does “not found” actually mean?",

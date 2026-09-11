@@ -1,8 +1,6 @@
 id: ich-e4-ctpp
 revision: "1.0"
-org: bmgf
-source_type: ctpp
-intervention_class: drug
+updated_on: "2026-09-11"
 display_name: "ICH E4: candidate dose rationale"
 authority: PDIS-authored adaptation informed by ICH E4
 scope: Selected candidate-level dose-response planning expectations; not evidence that ICH studies are complete.

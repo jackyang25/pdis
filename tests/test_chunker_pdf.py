@@ -2,6 +2,8 @@
 
 import unittest
 import io
+import base64
+from PIL import Image
 import logging
 import threading
 import os
@@ -15,7 +17,7 @@ from tempfile import TemporaryDirectory
 from services.chunker import run_pipeline, parse_context_file
 from tests.pdf_fixtures import pdf_bytes
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import NameObject, DecodedStreamObject
+from pypdf.generic import NameObject, DecodedStreamObject, DictionaryObject, NumberObject, ArrayObject
 from pypdf._page import PageObject
 
 
@@ -41,7 +43,7 @@ class PdfTests(unittest.TestCase):
             self.assertEqual(b.block_type, "paragraph")
             self.assertEqual(b.heading_stack, [])
             self.assertIsNone(b.section_label)
-            self.assertEqual(b.structural_meta["extraction_warnings"], ["pdf_text_only"])
+            self.assertEqual(b.structural_meta["extraction_warnings"], ["pdf_limited_structure"])
             self.assertEqual((b.org, b.intervention_class, b.indication), ("bmgf", "drug", "malaria"))
         self.assertEqual(blocks, self.parse(pdf_bytes("The dose is 10 mg.", "The trial is planned.")))
 
@@ -63,15 +65,117 @@ class PdfTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "page 2.*no extractable text"):
             self.parse(pdf_bytes("Readable", None, image_pages=(2,)))
 
-    def test_text_and_image_on_one_page_retains_text_with_limitation(self):
-        blocks = self.parse(pdf_bytes("Readable", image_pages=(1,)))
+    def test_pdf_images_are_portable_citable_blocks_without_changing_text_ids(self):
+        payload = pdf_bytes("Readable", "Next page", image_pages=(1, 2))
+        blocks = self.parse(payload)
+        self.assertEqual([b.id for b in blocks], [
+            "study/b-0001", "study/b-0001-image-0001",
+            "study/b-0002", "study/b-0002-image-0001",
+        ])
+        self.assertEqual([b.ordinal for b in blocks], [1, 2, 3, 4])
         self.assertEqual(blocks[0].content, "Readable")
         self.assertIsNone(blocks[0].image)
-        self.assertEqual(blocks[0].structural_meta["extraction_warnings"], ["pdf_text_only"])
+        for block, page in ((blocks[1], 1), (blocks[3], 2)):
+            self.assertEqual(block.block_type, "image")
+            self.assertEqual(block.structural_meta["page"], page)
+            self.assertEqual(block.structural_meta["extraction_warnings"], ["pdf_limited_structure"])
+            self.assertEqual(block.org, "bmgf")
+            self.assertIsNone(block.source_type)
+            self.assertEqual((block.image.width, block.image.height), (1, 1))
+            with Image.open(io.BytesIO(base64.b64decode(block.image.data_base64))) as image:
+                self.assertEqual(image.convert("RGB").getpixel((0, 0)), (255, 0, 0))
+        self.assertEqual(blocks, self.parse(payload))
 
     def test_overlarge_file_is_refused(self):
         with self.assertRaisesRegex(ValueError, "20 MB"):
             self.parse(pdf_bytes("Text") + b" " * (20 * 1024 * 1024))
+
+    def test_embedded_jpeg_bytes_are_preserved_and_citable(self):
+        jpeg = io.BytesIO()
+        Image.new("RGB", (12, 8), "blue").save(jpeg, format="JPEG")
+        blocks = self.parse(self.jpeg_pdf(jpeg.getvalue()))
+        self.assertEqual(len(blocks), 2)
+        self.assertEqual(blocks[1].image.media_type, "image/jpeg")
+        self.assertEqual(base64.b64decode(blocks[1].image.data_base64), jpeg.getvalue())
+        self.assertEqual((blocks[1].image.width, blocks[1].image.height), (12, 8))
+
+    def test_corrupt_embedded_image_refuses_document_instead_of_losing_evidence(self):
+        with self.assertRaisesRegex(ValueError, "study.*readable PDF"):
+            self.parse(self.jpeg_pdf(b"not a jpeg"))
+
+    def test_unused_image_resources_are_not_citable_page_evidence(self):
+        jpeg = io.BytesIO()
+        Image.new("RGB", (12, 8), "blue").save(jpeg, format="JPEG")
+        writer = PdfWriter()
+        page = writer.add_page(PdfReader(io.BytesIO(self.jpeg_pdf(jpeg.getvalue()))).pages[0])
+        content = DecodedStreamObject()
+        content.set_data(b"BT /F1 12 Tf 50 700 Td (Text only.) Tj ET")
+        page[NameObject("/Contents")] = content
+        payload = io.BytesIO()
+        writer.write(payload)
+        self.assertEqual([b.block_type for b in self.parse(payload.getvalue())], ["paragraph"])
+
+    def test_invalid_image_dimensions_follow_the_input_error_contract(self):
+        writer = PdfWriter()
+        page = writer.add_page(PdfReader(io.BytesIO(self.jpeg_pdf(b"invalid"))).pages[0])
+        page["/Resources"]["/XObject"]["/Photo"][NameObject("/Width")] = NumberObject(0)
+        payload = io.BytesIO()
+        writer.write(payload)
+        with self.assertRaisesRegex(ValueError, "study.*readable PDF"):
+            self.parse(payload.getvalue())
+
+    def test_nested_form_images_are_explicitly_outside_the_extraction_contract(self):
+        jpeg = io.BytesIO()
+        Image.new("RGB", (12, 8), "blue").save(jpeg, format="JPEG")
+        writer = PdfWriter()
+        page = writer.add_page(PdfReader(io.BytesIO(self.jpeg_pdf(jpeg.getvalue()))).pages[0])
+        form = DecodedStreamObject()
+        form.set_data(b"q 12 0 0 8 0 0 cm /Photo Do Q")
+        form.update({
+            NameObject("/Type"): NameObject("/XObject"),
+            NameObject("/Subtype"): NameObject("/Form"),
+            NameObject("/BBox"): ArrayObject([NumberObject(n) for n in (0, 0, 12, 8)]),
+            NameObject("/Resources"): DictionaryObject({
+                NameObject("/XObject"): page["/Resources"]["/XObject"],
+            }),
+        })
+        page["/Resources"][NameObject("/XObject")] = DictionaryObject({
+            NameObject("/Group"): writer._add_object(form),
+        })
+        content = DecodedStreamObject()
+        content.set_data(b"BT /F1 12 Tf 50 700 Td (Grouped figure.) Tj ET /Group Do")
+        page[NameObject("/Contents")] = content
+        payload = io.BytesIO()
+        writer.write(payload)
+        blocks = self.parse(payload.getvalue())
+        self.assertEqual([b.block_type for b in blocks], ["paragraph"])
+        from shared.document_metadata import extraction_context
+        self.assertIn("images nested in Form objects are not read", extraction_context(blocks[0].structural_meta))
+
+    @staticmethod
+    def jpeg_pdf(data):
+        writer = PdfWriter()
+        page = writer.add_page(PdfReader(io.BytesIO(pdf_bytes("Figure follows."))).pages[0])
+        picture = DecodedStreamObject()
+        picture.set_data(data)
+        picture.update({
+            NameObject("/Type"): NameObject("/XObject"),
+            NameObject("/Subtype"): NameObject("/Image"),
+            NameObject("/Width"): NumberObject(12),
+            NameObject("/Height"): NumberObject(8),
+            NameObject("/BitsPerComponent"): NumberObject(8),
+            NameObject("/ColorSpace"): NameObject("/DeviceRGB"),
+            NameObject("/Filter"): NameObject("/DCTDecode"),
+        })
+        page["/Resources"][NameObject("/XObject")] = DictionaryObject({
+            NameObject("/Photo"): writer._add_object(picture),
+        })
+        content = DecodedStreamObject()
+        content.set_data(page.get_contents().get_data() + b"\nq 12 0 0 8 50 50 cm /Photo Do Q")
+        page[NameObject("/Contents")] = content
+        payload = io.BytesIO()
+        writer.write(payload)
+        return payload.getvalue()
 
     def test_overlarge_direct_page_stream_is_refused_before_text_extraction(self):
         with self.assertRaisesRegex(ValueError, "page 1 is too complex"):

@@ -53,6 +53,7 @@ export function InspectorRubricDetails({ rubric }: { rubric: RubricSnapshot }) {
       <HelpSection title="Source and revision">
         <p>{rubric.authority}</p>
         <p>Rubric revision {rubric.revision ?? "not recorded"}</p>
+        <p>Rubric updated: {rubric.updated_on ?? "not recorded"}</p>
         <TemplateReference rubric={rubric} />
         <SourceLinks sources={rubric.sources} />
       </HelpSection>

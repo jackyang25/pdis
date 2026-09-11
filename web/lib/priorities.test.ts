@@ -27,7 +27,7 @@ function inspection(overrides: Partial<InspectionResult> = {}): InspectionResult
   return {
     doc_id: "plan",
     applicability_facts: {},
-    rubric: { id: "test", revision: null, display_name: "Test", authority: "Test", scope: "Test", stage_guidance: "", mirrors: null, evidence_scope: "mapped_section", sources: [], requirements: [] },
+    rubric: { id: "test", revision: null, updated_on: null, display_name: "Test", authority: "Test", scope: "Test", stage_guidance: "", mirrors: null, evidence_scope: "mapped_section", sources: [], requirements: [] },
     sections: [],
     document_findings: [],
     consistency_status: "complete",

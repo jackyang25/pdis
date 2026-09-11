@@ -1,8 +1,6 @@
 id: ich-q8-ctpp
 revision: "1.0"
-org: bmgf
-source_type: ctpp
-intervention_class: drug
+updated_on: "2026-09-11"
 display_name: "ICH Q8(R2): candidate pharmaceutical quality"
 authority: "PDIS-authored adaptation informed by ICH Q8(R2); source copyright ICH, no ICH endorsement"
 scope: "Selected candidate pharmaceutical-quality expectations; not a CTD quality dossier or the full clinical target profile."

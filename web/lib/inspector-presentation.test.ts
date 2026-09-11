@@ -4,13 +4,13 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadComponent } from "../test-support/load-component.ts";
-import type { RequirementSnapshot, RubricSnapshot } from "./api.ts";
+import { VERDICTS, type RequirementSnapshot, type RubricSnapshot, type SectionAssessment } from "./api.ts";
 
 const { InspectorRequirement, InspectorRubricDetails } = loadComponent(
   fileURLToPath(new URL("../components/inspector-rubric-details.tsx", import.meta.url)),
 );
 const rubric: RubricSnapshot = {
-  id: "pdid", display_name: "PDID template: IPDP", revision: "1.0",
+  id: "pdid", display_name: "PDID template: IPDP", revision: "1.0", updated_on: "2025-04-03",
   authority: "PDID", scope: "Document review", mirrors: "The source template's full structural description",
   reference_url: "https://example.org/library", sources: [], requirements: [],
   evidence_scope: "mapped_section", stage_guidance: "Strategic planning depth.",
@@ -20,6 +20,36 @@ const requirement: RequirementSnapshot = {
   expectations: "State the intended outcome.", source_refs: [],
   section_name: "Development plan", variable_name: "Objectives",
 };
+
+test("rubric details distinguish the saved rubric date from the source revision", () => {
+  const html = renderToStaticMarkup(React.createElement(InspectorRubricDetails, {
+    rubric: { ...rubric, sources: [{ id: "source", title: "Guideline", revision: "2021", url: "https://example.org" }] },
+  }));
+  assert.match(html, /Rubric updated/);
+  assert.match(html, /2025-04-03/);
+  assert.match(html, /2021/);
+});
+
+test("section headers use dots for single, multiple and clear verdicts without repeating absence", () => {
+  const { SectionCard } = loadComponent(fileURLToPath(new URL("../app/inspector/page.tsx", import.meta.url)), {}, ["SectionCard"]);
+  for (const verdict of ["not_present", "insufficient", "specified"] as const) {
+    for (const variableNames of [[null], ["Schedule", "Duration"]]) {
+      const section: SectionAssessment = {
+        section_name: "Introduction", is_present: false, mapped_block_ids: [],
+        units: variableNames.map((variable_name, rank) => ({
+          id: `intro-${rank}`, section_name: "Introduction", variable_name,
+          verdict, optional: verdict === "specified", statement: "", cited_block_ids: [], rank,
+        })),
+        verdict_counts: Object.fromEntries(VERDICTS.map(value => [value, value === verdict ? variableNames.length : 0])) as SectionAssessment["verdict_counts"],
+      };
+      const html = renderToStaticMarkup(React.createElement(SectionCard, { rubric, section }));
+      const header = html.match(/<header\b[\s\S]*?<\/header>/)?.[0] ?? "";
+      assert.match(header, /h-1\.5 w-1\.5/);
+      assert.doesNotMatch(header, /Section not found in the document/);
+      assert.match(html, /Section not found in the document/);
+    }
+  }
+});
 
 test("priority summaries retain all model text and do not truncate the worklist silently", () => {
   const { PriorityPanel } = loadComponent(fileURLToPath(new URL("../components/ui/priority-panel.tsx", import.meta.url)));

@@ -14,6 +14,8 @@ import { CollapsibleCard } from "@/components/collapsible-card";
 import { EmptyState } from "@/components/empty-state";
 import { VerdictCounts } from "@/components/ui/verdict-counts";
 import { VerdictPill } from "@/components/ui/verdict-pill";
+import { SignalChip } from "@/components/ui/signal-chip";
+import { ResultCardStack } from "@/components/ui/result-card-stack";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { ConfigurationFields } from "@/components/configuration-fields";
 import { ConfigField, ConfigHelp, ConfigSelect, ConfigSectionHeading } from "@/components/ui/config-field";
@@ -274,8 +276,10 @@ function InspectionResultView({
       subtitle={runScope(result, "inspector")}
       scopeControl={<div className="space-y-3">
         <div className="w-full max-w-md">
-          <ConfigField label="Rubric" help={<InspectorRubricDetails rubric={inspection.rubric} />}>
-            <ConfigSelect value={rubricId} options={run.reviews.map(review => ({ value: review.rubric.id, label: review.rubric.display_name }))}
+          <ConfigField label="Rubric" help={<InspectorRubricDetails rubric={inspection.rubric} />}
+            note={<ConfigHelp>Rubric updated: {inspection.rubric.updated_on ?? "not recorded"}</ConfigHelp>}>
+            <ConfigSelect value={rubricId} options={run.reviews.map(({ rubric }) => ({ value: rubric.id,
+              label: rubric.revision ? `${rubric.display_name} · v${rubric.revision}` : rubric.display_name }))}
               onChange={value => { if (traceFocus) consumeTraceFocus(traceFocus); setRubricId(value); }} />
           </ConfigField>
         </div>
@@ -447,22 +451,15 @@ function SectionsList({
           <InspectorSignalHelp />
         </ResultToolbarEnd>
       </ResultToolbar>
-      <div className="px-5 py-5 sm:px-6 sm:py-6">
-        <div className="space-y-3">
-          {/* Under the nav, like Consistency's. It says the one thing the rows cannot: that
-            opening a section shows *every* unit the rubric asks about, not only the ones
-            that produced a finding. */}
-          <p className="text-xs leading-5 text-muted-foreground">
-            Open a section to see every unit the rubric asks about, its
-            findings, and the passages behind them.
-          </p>
+      <div className="px-5 py-5 sm:px-6">
+        <ResultCardStack>
           {visible.map((section) => (
             <SectionCard key={section.section_name} section={section} rubric={rubric} />
           ))}
           {visible.length === 0 && (
             <EmptyState message="No section or unit matches that search" />
           )}
-        </div>
+        </ResultCardStack>
       </div>
     </>
   );
@@ -542,11 +539,12 @@ function SectionCard({ section, rubric }: { section: SectionAssessment; rubric: 
   return (
     <CollapsibleCard
       title={section.section_name}
-      subtitle={section.is_present === false ? "Section not found in the document" : undefined}
       trailing={section.units.length === 1 && section.units[0].variable_name === null
         ? <div className="flex items-center gap-2">
             {section.units[0].optional && <span className="text-xs text-muted-foreground">Optional</span>}
-            <StatusPill status={section.units[0].verdict} />
+            <SignalChip tone={VERDICT_TONE[section.units[0].verdict]}>
+              {VERDICT_LABEL[section.units[0].verdict]}
+            </SignalChip>
           </div>
         : <ShortfallCounts section={section} />}
       defaultOpen={false}
@@ -556,6 +554,11 @@ function SectionCard({ section, rubric }: { section: SectionAssessment; rubric: 
           rounded border inside a rounded border was the third nesting level on a page
           Scout renders with two. */}
       <div className="divide-y divide-border/60">
+        {section.is_present === false && (
+          <p className="px-5 py-3.5 text-xs text-muted-foreground sm:px-6">
+            Section not found in the document
+          </p>
+        )}
         {section.units.map((unit) => (
           <AssessmentRow
             key={unit.variable_name ?? section.section_name}
@@ -650,10 +653,8 @@ function ShortfallCounts({ section }: { section: SectionAssessment }) {
   const counts = sectionShortfalls(section);
   const shown = ASSESSED_VERDICTS.filter((verdict) => counts[verdict] > 0);
   if (shown.length === 0) {
-    // The same pill a unit shows. One signal, and it is what this row is about, so it is a
-    // tint - the rule in `lib/tone.ts`. It rendered as muted text here and as a pill one
-    // level down, so one verdict had two appearances on one screen.
-    return <StatusPill status="specified" />;
+    // Section summaries use dots, whether they carry one signal or several counts.
+    return <SignalChip tone={VERDICT_TONE.specified}>{VERDICT_LABEL.specified}</SignalChip>;
   }
   // A zero is hidden here on purpose: a shortfall that did not occur is not a fact about
   // the document. Screener shows its zeros for the opposite and equally deliberate reason.

@@ -1,4 +1,4 @@
-"""PDF text layer → page-level passages, without inferred document structure.
+"""PDF text and embedded rasters → canonical blocks, without inferred structure.
 
 Page boundaries are declared by PDF; headings, tables and reading order are not.
 Never turn layout guesses into structural metadata or exact-quote guarantees.
@@ -8,11 +8,12 @@ from pathlib import Path
 from contextlib import contextmanager
 import logging
 import threading
+from PIL import Image
 
 from pypdf import PdfReader
-from pypdf.errors import PyPdfError
 
 from ..models import ContentBlock
+from .image_assets import image_asset_from_bytes
 
 MAX_PDF_BYTES = 20 * 1024 * 1024
 MAX_PDF_PAGES = 200
@@ -85,18 +86,46 @@ def parse_pdf(file_path: str, doc_id: str) -> list[ContentBlock]:
                         "Upload a text-based export or remove blank pages; scanned pages need OCR."
                     )
                 blocks.append(ContentBlock(
-                    id=f"{doc_id}/b-{number:04d}", doc_id=doc_id, ordinal=number,
+                    id=f"{doc_id}/b-{number:04d}", doc_id=doc_id, ordinal=len(blocks) + 1,
                     block_type="paragraph", content=text, heading_stack=[],
                     structural_meta={
                         "page": number,
-                        "extraction_warnings": ["pdf_text_only"],
+                        "extraction_warnings": ["pdf_limited_structure"],
                     },
                     style_hint={"parser": "pdf_text"},
                 ))
+                # pypdf owns inline/XObject decoding and masks. Resource
+                # order is not reading order: keep page text first, then its images.
+                # No placement guesses, chart reconstruction, or page rendering.
+                images = page.images
+                for index, key in enumerate(images.keys(), 1):
+                    # Nested Form placement is outside this narrow extraction
+                    # contract. pypdf's display flag is page-local, not recursive.
+                    if not isinstance(key, str):
+                        continue
+                    extracted = images[key]
+                    if not extracted.is_displayed:
+                        continue
+                    if extracted.image is None:
+                        raise PdfInputError(f"{doc_id}: PDF page {number} has an unreadable image.")
+                    media_type = Image.MIME.get(extracted.image.format, "application/octet-stream")
+                    asset = image_asset_from_bytes(extracted.data, media_type)
+                    if asset is None:
+                        raise PdfInputError(f"{doc_id}: PDF page {number} has an unreadable image.")
+                    blocks.append(ContentBlock(
+                        id=f"{doc_id}/b-{number:04d}-image-{index:04d}",
+                        doc_id=doc_id, ordinal=len(blocks) + 1,
+                        block_type="image", content="[image]", heading_stack=[],
+                        structural_meta={
+                            "page": number,
+                            "extraction_warnings": ["pdf_limited_structure"],
+                        },
+                        style_hint={"parser": "pdf_image"}, image=asset,
+                    ))
             return blocks
     except PdfInputError:
         raise
-    except (PyPdfError, OSError, ValueError, TypeError, KeyError) as exc:
+    except Exception as exc:  # noqa: BLE001 - decoder failures reject the whole input
         raise PdfInputError(
             f"{doc_id}: not a readable PDF. Upload a fresh, unlocked export."
         ) from exc

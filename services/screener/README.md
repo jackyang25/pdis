@@ -113,8 +113,9 @@ Uploads accept DOCX, PPTX, and text-based PDF through Chunker's
 for the API. Documents can contain any evidence relevant to the gate; they need
 no iTPP, cTPP, or IPDP type, section taxonomy, or matching Chunker configuration.
 TXT, Markdown, and standalone image uploads are not supported. Images embedded
-in DOCX/PPTX remain retained, labeled by block ID, and citable. PDF supplies text
-only: one block per page, without OCR, image extraction, or inferred tables.
+in DOCX/PPTX/PDF remain retained, labeled by block ID, and citable. PDF supplies
+one text block per page followed by directly placed embedded raster image blocks, without OCR,
+vector reconstruction, inferred placement, or inferred tables.
 Encrypted, malformed, over-limit PDFs and any page without extractable text fail
 the run before assessment. Limits and extraction policy live in the
 [Chunker contract](../chunker/README.md#contract).
@@ -130,8 +131,8 @@ partly answered questions cite retained block IDs; those citations feed the shar
 Documents viewer, saved results, and Ask. Citation checks establish membership in
 the retained collection, not that a model interpreted a passage correctly.
 PDF page locations and extraction-warning metadata travel in those same blocks.
-The result displays the limitation on both tabs, including after import: images
-are not read and column/table order may be inaccurate. Selectable text alone does
+The result displays the limitation on both tabs, including after import: vector
+drawings and nested Form images are not read, images may be fragments, and column/table order may be inaccurate. Selectable text alone does
 not establish that every part of a page was extracted.
 
 Portable results use Screener analysis version 5. Earlier versions are refused at

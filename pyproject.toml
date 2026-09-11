@@ -35,7 +35,7 @@ dependencies = [
     # Document parsing (chunker)
     "python-docx>=0.8.11,<2.0",
     "python-pptx>=1.0.0,<2.0",
-    "pypdf>=6.0,<7.0",
+    "pypdf>=6.18,<7.0",
     # Renders PPTX slides after LibreOffice converts them; not a PDF input parser.
     "pypdfium2>=4.30.0,<6.0",
     "pillow>=10.0.0,<13.0",

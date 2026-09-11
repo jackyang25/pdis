@@ -169,6 +169,7 @@ def _rubric_snapshot(rubric, sections) -> RubricSnapshot:
             ))
     return RubricSnapshot(
         id=rubric.id, revision=rubric.revision, display_name=rubric.display_name,
+        updated_on=rubric.updated_on,
         authority=rubric.authority, scope=rubric.scope,
         stage_guidance=rubric.config.stage_guidance,
         mirrors=rubric.config.mirrors or None,

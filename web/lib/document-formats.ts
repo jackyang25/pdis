@@ -30,7 +30,7 @@ function documentFormats(suffixes: readonly string[]): DocumentFormats {
 export const STRUCTURED_DOCUMENT_FORMATS = documentFormats(DOCUMENT_SUFFIXES);
 export const TEXT_EXTRACTION_FORMATS: DocumentFormats = {
   ...documentFormats(TEXT_EXTRACTION_SUFFIXES),
-  note: "PDFs: text-based, unlocked files only, up to 20 MB and 200 pages. Every page needs readable text. Images are not read, and table or column order may be inaccurate.",
+  note: "Prefer DOCX or PPTX when available. PDFs may lose visual content or table and column order: directly placed embedded images are read, but vector drawings and images inside grouped PDF objects are not. PDFs must be unlocked, up to 20 MB and 200 pages, with readable text on every page.",
 };
 
 /** Value for an `<input type="file">` accept attribute. */

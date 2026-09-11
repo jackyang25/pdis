@@ -1,8 +1,6 @@
 id: ich-q9-ipdp
 revision: "1.0"
-org: bmgf
-source_type: ipdp
-intervention_class: drug
+updated_on: "2026-09-11"
 display_name: "ICH Q9(R1): pharmaceutical quality risks"
 authority: "PDIS-authored adaptation informed by ICH Q9(R1); source copyright ICH, no ICH endorsement"
 scope: "Selected pharmaceutical-quality risk planning expectations; not programme, investment, or clinical-trial risk scoring."

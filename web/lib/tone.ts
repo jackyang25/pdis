@@ -34,6 +34,8 @@
  *   the verdict is the sentence                        TEXT.
  *
  * A count row is always the second case, which is what `ui/verdict-counts` renders.
+ * Collapsed section summaries also use DOT consistently, even for one verdict;
+ * expanded assessment rows keep TINT for their individual verdicts.
  *
  * `neutral` is the absence of a signal, not a fourth verdict. It is deliberately quieter
  * than the others so "unknown" cannot be mistaken for a reading.

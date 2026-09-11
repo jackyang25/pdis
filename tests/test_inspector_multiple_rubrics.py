@@ -25,6 +25,41 @@ from services.inspector import available_configs, find_config, has_config
 
 
 class ProfileResolutionTests(unittest.TestCase):
+    def test_shared_rubric_context_comes_only_from_profile(self) -> None:
+        from services.inspector.configuration import CONFIGS_DIR
+
+        data = yaml.safe_load((CONFIGS_DIR / "rubrics/ich/ich-e8-ipdp.yaml").read_text())
+        for key in ("org", "source_type", "intervention_class"):
+            data.pop(key, None)
+        profile = find_profile("bmgf", "ipdp", "vaccine")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "shared.yaml"
+            path.write_text(yaml.safe_dump(data))
+            config = load_rubric(path, profile=profile).config
+            self.assertEqual((config.org, config.source_type, config.intervention_class),
+                             ("bmgf", "ipdp", "vaccine"))
+            for key in ("org", "source_type", "intervention_class"):
+                path.write_text(yaml.safe_dump({**data, key: "conflicting-context"}))
+                with self.subTest(key=key), self.assertRaisesRegex(ValueError, "profile"):
+                    load_rubric(path, profile=profile)
+
+    def test_rubric_date_is_authored_validated_and_snapshotted(self) -> None:
+        from services.inspector.configuration import CONFIGS_DIR
+        from services.inspector.pipeline import _rubric_snapshot
+
+        data = yaml.safe_load((CONFIGS_DIR / "rubrics/ich/ich-e8-ipdp.yaml").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rubric.yaml"
+            data["updated_on"] = "2025-04-03"
+            path.write_text(yaml.safe_dump(data))
+            rubric = load_rubric(path, profile=self.profile)
+            self.assertEqual(asdict(_rubric_snapshot(rubric, []))["updated_on"], "2025-04-03")
+            for invalid in [None, "", "2025-02-30", "20250403", "yesterday"]:
+                data["updated_on"] = invalid
+                path.write_text(yaml.safe_dump(data))
+                with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "updated_on"):
+                    load_rubric(path, profile=self.profile)
+
     def setUp(self) -> None:
         self.profile = find_profile("bmgf", "ctpp", "drug")
 
@@ -136,9 +171,7 @@ class ProfileResolutionTests(unittest.TestCase):
             path.write_text(
                 """id: unsourced
 revision: '1'
-org: bmgf
-source_type: ctpp
-intervention_class: drug
+updated_on: '2026-09-11'
 display_name: Unsourced
 authority: Test
 scope: Test scope
@@ -151,7 +184,7 @@ sections:
 """
             )
             with self.assertRaisesRegex(ValueError, "must declare sources"):
-                load_rubric(path)
+                load_rubric(path, profile=self.profile)
 
     def test_empty_source_catalog_does_not_allow_dangling_refs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -159,9 +192,7 @@ sections:
             path.write_text(
                 """id: dangling
 revision: '1'
-org: bmgf
-source_type: ctpp
-intervention_class: drug
+updated_on: '2026-09-11'
 display_name: Dangling
 authority: Test
 scope: Test scope
@@ -174,7 +205,7 @@ sections:
 """
             )
             with self.assertRaisesRegex(ValueError, "invalid source_refs"):
-                load_rubric(path)
+                load_rubric(path, profile=self.profile)
 
 
 class CatalogTests(unittest.TestCase):

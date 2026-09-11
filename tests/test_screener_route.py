@@ -130,7 +130,7 @@ class RunGuardTests(unittest.TestCase):
         }])
         with patch("api.routes.screener.get_openai_client", return_value=client):
             response = self.post([
-                ("files", ("study.PDF", pdf_bytes("The trial is planned."), "application/pdf")),
+                ("files", ("study.PDF", pdf_bytes("The trial is planned.", image_pages=(1,)), "application/pdf")),
                 ("files", ("plan.docx", payload.getvalue(), "application/octet-stream")),
             ])
         self.assertEqual(response.status_code, 200)
@@ -140,6 +140,8 @@ class RunGuardTests(unittest.TestCase):
         self.assertEqual(review["documents"], [{"doc_id": "study"}, {"doc_id": "plan"}])
         self.assertEqual({b["doc_id"] for b in review["blocks"]}, {"study", "plan"})
         self.assertEqual(review["blocks"][0]["structural_meta"]["page"], 1)
+        self.assertEqual(review["blocks"][1]["id"], "study/b-0001-image-0001")
+        self.assertTrue(review["blocks"][1]["image"]["data_base64"])
         self.assertTrue(any(q["cited_block_ids"] == ["study/b-0001"]
                             for d in review["disciplines"] for q in d["questions"]))
         self.assertTrue(all("The trial is planned." in call and "Supporting plan." in call

@@ -1,8 +1,6 @@
 id: ich-e14-ctpp
 revision: "1.0"
-org: bmgf
-source_type: ctpp
-intervention_class: drug
+updated_on: "2026-09-11"
 display_name: "ICH E14: candidate QT evidence"
 authority: PDIS-authored adaptation informed by ICH E14 and the 2022 E14/S7B Q&As
 scope: Selected QT-evaluation expectations for explicitly confirmed small-molecule, systemically exposed, non-antiarrhythmic candidates; not a regulatory conclusion.

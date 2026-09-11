@@ -1,8 +1,6 @@
 id: ich-m3-ipdp
 revision: "1.0"
-org: bmgf
-source_type: ipdp
-intervention_class: drug
+updated_on: "2026-09-11"
 display_name: "ICH M3(R2): nonclinical development planning"
 authority: "PDIS-authored adaptation informed by ICH M3(R2); source copyright ICH, no ICH endorsement"
 scope: "Selected nonclinical planning expectations for confirmed small-molecule products only; not the full M3 scope or a toxicology adequacy verdict."

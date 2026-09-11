@@ -9,6 +9,7 @@ document as evidence.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -47,6 +48,7 @@ class RubricSource:
 class RubricDefinition:
     id: str
     revision: str
+    updated_on: str
     display_name: str
     authority: str
     scope: str
@@ -100,10 +102,19 @@ def _nonempty(data: dict[str, Any], key: str, where: str) -> str:
     return value.strip()
 
 
-def load_rubric(path: str | Path, *, profile: InspectionProfile | None = None) -> RubricDefinition:
+def load_rubric(path: str | Path, *, profile: InspectionProfile) -> RubricDefinition:
     path = Path(path)
     data = _load_yaml(path)
     where = f"rubric {path.name}"
+    context = {key: getattr(profile, key) for key in ("org", "source_type", "intervention_class")}
+    if any(key in data for key in context):
+        raise ValueError(f"{where}: document context belongs in the profile, not the shared rubric")
+    updated_on = _nonempty(data, "updated_on", where)
+    try:
+        if date.fromisoformat(updated_on).isoformat() != updated_on:
+            raise ValueError
+    except ValueError:
+        raise ValueError(f"{where}.updated_on must be a valid YYYY-MM-DD date") from None
     reference_url = data.get("reference_url")
     if reference_url is not None and (
         not isinstance(reference_url, str)
@@ -134,8 +145,6 @@ def load_rubric(path: str | Path, *, profile: InspectionProfile | None = None) -
     source_ids = {source.id for source in sources}
     config_file = data.get("config_file")
     if data.get("config_from_profile") is True:
-        if profile is None:
-            raise ValueError(f"{where} requires a profile document config")
         config = load_inspection_config(str(CONFIGS_DIR / profile.document_config))
     elif config_file is not None:
         if not isinstance(config_file, str) or not config_file.strip():
@@ -144,12 +153,10 @@ def load_rubric(path: str | Path, *, profile: InspectionProfile | None = None) -
     else:
         config_data = dict(data)
         config_data.setdefault("type_key", _nonempty(data, "id", where))
+        config_data.update(context)
         config = _inspection_config_from_data(config_data, path)
-    if profile is not None:
-        config = replace(
-            config, org=profile.org, source_type=profile.source_type,
-            intervention_class=profile.intervention_class,
-        )
+    if any(getattr(config, key) != value for key, value in context.items()):
+        raise ValueError(f"{where}: referenced config identity does not match its profile")
     config = replace(config, evidence_scope=evidence_scope)
     for section in config.sections:
         units = section.variables or [section]
@@ -167,6 +174,7 @@ def load_rubric(path: str | Path, *, profile: InspectionProfile | None = None) -
     return RubricDefinition(
         id=_nonempty(data, "id", where),
         revision=_nonempty(data, "revision", where),
+        updated_on=updated_on,
         display_name=display_name,
         authority=_nonempty(data, "authority", where),
         scope=_nonempty(data, "scope", where),

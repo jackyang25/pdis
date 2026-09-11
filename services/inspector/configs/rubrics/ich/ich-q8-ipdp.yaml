@@ -1,8 +1,6 @@
 id: ich-q8-ipdp
 revision: "1.0"
-org: bmgf
-source_type: ipdp
-intervention_class: drug
+updated_on: "2026-09-11"
 display_name: "ICH Q8(R2): pharmaceutical development"
 authority: "PDIS-authored adaptation informed by ICH Q8(R2); source copyright ICH, no ICH endorsement"
 scope: "Selected pharmaceutical-development planning expectations; not a manufacturing validation or marketing-submission audit."

@@ -1,5 +1,7 @@
 "use client";
 
+import { ResultCardStack } from "@/components/ui/result-card-stack";
+
 import { ResultLayout } from "@/components/ui/result-layout";
 import { Attributed } from "@/components/ui/attributed";
 import { ResultSearch } from "@/components/ui/result-search";
@@ -553,7 +555,7 @@ function AlignmentView({
             </ResultToolbarEnd>
           </ResultToolbar>
           <div className="flex flex-col gap-6 px-5 py-5 sm:px-6">
-            <div className="space-y-3">
+            <ResultCardStack>
               {matching
                 .filter(({ findings }) => findings.length > 0)
                 .map(({ edge, findings }) => (
@@ -571,7 +573,7 @@ function AlignmentView({
                   No requirement matches that search.
                 </p>
               )}
-            </div>
+            </ResultCardStack>
           </div>
         </TabsContent>
 

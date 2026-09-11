@@ -13,8 +13,8 @@ export function DocumentExtractionNotice({ blocks }: { blocks: ContentBlock[] })
           <div key={code}>
             <p className="font-medium">{documentIds.join(", ")}</p>
             <p className="mt-0.5 leading-relaxed text-muted-foreground">
-              {code === "pdf_text_only"
-                ? "PDF text only. Images and scanned content are not read; columns and tables may be misordered. Citations point to extracted page text, not a verified reconstruction. Check the original before relying on the result."
+              {code === "pdf_limited_structure"
+                ? "PDF page text and directly placed embedded images. Vector drawings are not read, nor images inside grouped PDF objects. Columns and tables may be misordered. Images follow page text and may be fragments, not complete figures. Check the original before relying on the result."
                 : "The parser reported an extraction limitation. Check the original before relying on the result."}
             </p>
           </div>

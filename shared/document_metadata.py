@@ -6,10 +6,11 @@ Shared by assessment and Ask. No consumer diagnoses file quality from its text.
 from typing import Any
 
 EXTRACTION_WARNINGS = {
-    "pdf_text_only": (
-        "PDF page text only. Images and scanned content are not read; columns and "
-        "tables may be misordered. Citations identify extracted text, not a verified "
-        "page reconstruction."
+    "pdf_limited_structure": (
+        "PDF page text and directly placed embedded raster images. Vector drawings "
+        "and images nested in Form objects are not read; "
+        "columns and tables may be misordered. Images follow page text, not reading "
+        "order, and may be fragments. Citations do not establish a reconstructed page."
     ),
 }
 

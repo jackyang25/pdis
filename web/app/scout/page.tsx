@@ -43,6 +43,7 @@ import { ResultSearch } from "@/components/ui/result-search";
 import { EXPANDABLE_ROW } from "@/lib/expandable-row";
 import { EmptyState } from "@/components/empty-state";
 import { SignalChip } from "@/components/ui/signal-chip";
+import { VerdictPill } from "@/components/ui/verdict-pill";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { FinalResultActions } from "@/components/final-result-actions";
 import {
@@ -74,9 +75,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Popover,
-  PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { HelpPopoverContent } from "@/components/ui/help-content";
 import {
   Select,
   SelectContent,
@@ -1130,7 +1131,7 @@ function DocumentTargetReviewCheckpoint({
               ? `${stage ? (SCOUT_STEPS.find((item) => item.key === stage)?.label ?? stage) : "Continuing analysis"}${progress ? ` · ${progress.completed}/${progress.total}` : ""}`
               : "Every decision is stored in the portable draft; no hidden server state is used."}
           </p>
-          <div className="flex gap-2">
+          <ReviewActions>
             {target && (
               <>
                 <Button
@@ -1165,7 +1166,7 @@ function DocumentTargetReviewCheckpoint({
                   {busy ? "Continuing…" : "Continue to evidence"}
                 </Button>
               )}
-          </div>
+          </ReviewActions>
         </footer>
       </section>
     </DocumentSourceProvider>
@@ -1179,6 +1180,11 @@ function ReviewCount({ tone, label }: { tone: Tone; label: string }) {
       {label}
     </span>
   );
+}
+
+/** Both checkpoints keep header and footer decisions reachable at narrow widths. */
+function ReviewActions({ children }: { children: ReactNode }) {
+  return <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>;
 }
 
 function ReviewCheckpointHeader({
@@ -1213,7 +1219,7 @@ function ReviewCheckpointHeader({
           </h2>
           <SectionDescription>{description}</SectionDescription>
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {actions && <ReviewActions>{actions}</ReviewActions>}
       </div>
       <div className="mt-4 flex items-center gap-3">
         <div
@@ -1295,13 +1301,6 @@ function ReviewListRow({
   tone: ReviewTone;
   detail: string;
 }) {
-  const statusClass = {
-    positive:
-      "border-[hsl(var(--tone-success))]/25 bg-[hsl(var(--tone-success))]/[0.06] text-[hsl(var(--tone-success))]",
-    neutral: "border-border bg-foreground/[0.045] text-muted-foreground",
-    warning:
-      "border-[hsl(var(--tone-warning))]/25 bg-[hsl(var(--tone-warning))]/[0.06] text-[hsl(var(--tone-warning))]",
-  }[tone];
   return (
     <button
       type="button"
@@ -1317,11 +1316,7 @@ function ReviewListRow({
           {subtitle}
         </span>
       </span>
-      <span
-        className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusClass}`}
-      >
-        {status}
-      </span>
+      <VerdictPill label={status} tone={tone === "positive" ? "success" : tone} className="w-fit" />
       <span className="min-w-0 truncate text-[11px] text-muted-foreground">
         {detail}
       </span>
@@ -2011,7 +2006,7 @@ function QuantitativeReviewCheckpoint({
             One decision resolves this source evidence unit; its provenance
             remains traceable.
           </p>
-          <div className="flex gap-2">
+          <ReviewActions>
             {pendingItems.length > 0 ? (
               <>
                 <Button variant="outline" onClick={() => decideCurrent(null)}>
@@ -2035,7 +2030,7 @@ function QuantitativeReviewCheckpoint({
                 Decision recorded
               </span>
             )}
-          </div>
+          </ReviewActions>
         </footer>
       </section>
     </DocumentSourceProvider>
@@ -2054,9 +2049,9 @@ function ReviewHelp({ children }: { children: ReactNode }) {
           <CircleHelp className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 p-3 text-xs leading-relaxed text-muted-foreground">
+      <HelpPopoverContent>
         {children}
-      </PopoverContent>
+      </HelpPopoverContent>
     </Popover>
   );
 }

@@ -62,5 +62,8 @@ RELATIONSHIP_PRIMITIVE = (
     "candidate, configuration, or factual claim failed. A different comparator value, including a "
     "stricter or looser benchmark, can coexist with the document target and is not by itself a "
     "contradiction. Confirmation requires direct support for the claim; evidence that merely "
-    "explains the need for the target adds context instead."
+    "explains the need for the target adds context instead. Missing confirmation in retrieved "
+    "material is not evidence that the document claim is false. Distinguish search silence "
+    "from an explicit source-owned negative finding, and compare the latter within its stated "
+    "subject, time, and scope."
 )

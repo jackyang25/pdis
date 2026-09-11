@@ -225,6 +225,13 @@ unrelated items into one prompt.
 
 ## Evidence semantics
 
+Insight extraction retains source-owned facts, including explicit negative findings,
+not commentary about what a search batch failed to find. Missing confirmation does
+not contradict a document claim. Relationship classification treats search-only
+commentary as `unrelated`; when substantive evidence is present, it judges that
+evidence within its stated subject, time, and scope. These rules are shared by
+fixed TPP fields and dynamically extracted IPDP claims.
+
 | Axis | Values |
 |---|---|
 | Relationship | `contradicts`, `extends`, `confirms`, `unrelated` |
@@ -271,6 +278,13 @@ names the reason in `failure_code`. A processing gap is never reported as
 evidentiary uncertainty.
 
 ## Development
+
+The opt-in `tests.test_scout_evidence_semantics_live` suite exercises extraction and
+relationship judgments with synthetic sources using the configured model clients.
+Set `RUN_SCOUT_SEMANTIC_EVAL=1` and supply model credentials in the environment to
+run it. It incurs model usage but performs no retrieval. Ordinary offline tests
+skip it; a passing sample is not a guarantee of model accuracy. Existing saved
+results are not rewritten when prompts change.
 
 Product framing, source keys, and query budgets live in `configs/`; fixed TPP
 definitions and evidence domains live in `shared/attributes.yaml`. Scout uses

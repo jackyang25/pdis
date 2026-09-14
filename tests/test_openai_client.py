@@ -34,6 +34,7 @@ class OpenAIClientConfigurationTests(unittest.TestCase):
             default_client = OpenAIClient(api_key="test-key")
 
         self.assertEqual(default_client.model_for("fast"), DEFAULT_FAST_MODEL)
+        self.assertEqual(default_client.model_for("fast"), "gpt-5.6-luna")
         self.assertEqual(default_client.model_for("reasoning"), DEFAULT_REASONING_MODEL)
 
 

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 ModelTask = Literal["fast", "reasoning"]
 
-DEFAULT_FAST_MODEL = "gpt-5.4-mini"
+DEFAULT_FAST_MODEL = "gpt-5.6-luna"
 DEFAULT_REASONING_MODEL = "gpt-6-astra"
 
 #: Kong's OpenAI-compatible unified endpoint. Overridable for local/dev use

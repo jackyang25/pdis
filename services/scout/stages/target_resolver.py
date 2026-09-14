@@ -32,6 +32,8 @@ from ..models import (
 from ..prompt_primitives import CANONICAL_CLAIM_PRIMITIVE
 
 DEFAULT_MAX_TOKENS = 32000
+# Binding selects source lines for existing definitions; use the fast tier.
+# Subsequent quantitative review retains its independent reasoning-tier check.
 # Set scope: one request sees several fields plus the complete field catalog
 # so one document statement cannot acquire competing owners.
 FIELDS_PER_REQUEST = 6
@@ -96,6 +98,7 @@ def resolve_document_targets(
             build_ledger_system_prompt(fixed, requested),
             _ledger_user_message(chunk, requested),
             max_tokens=max_tokens,
+            task="fast",
             images=[
                 image for image in (images or []) if image["block_id"] in chunk_ids
             ]
@@ -118,6 +121,7 @@ def resolve_document_targets(
                 build_ledger_system_prompt(fixed, missing, retry=True),
                 _ledger_user_message(chunk, missing),
                 max_tokens=max_tokens,
+                task="fast",
                 images=[
                     image
                     for image in (images or [])

@@ -37,9 +37,11 @@ class _StructuredSequenceClient:
         self.responses = responses
         self.calls = 0
         self.schemas: list[dict] = []
+        self.tasks: list[str] = []
 
-    def call_structured(self, *_args, schema, **_kwargs):
+    def call_structured(self, *_args, schema, task, **_kwargs):
         self.schemas.append(schema)
+        self.tasks.append(task)
         response = self.responses[min(self.calls, len(self.responses) - 1)]
         self.calls += 1
         return {"bindings": response}
@@ -136,6 +138,7 @@ class DocumentClaimLedgerTests(unittest.TestCase):
         )
 
         self.assertEqual(client.calls, 2)
+        self.assertEqual(client.tasks, ["fast", "fast"])
         self.assertEqual(
             [attribute.document_target for attribute in resolved],
             ["Dose is 50 mg.", "Approval is targeted for 2028."],

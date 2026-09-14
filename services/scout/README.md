@@ -247,6 +247,13 @@ commentary as `unrelated`; when substantive evidence is present, it judges that
 evidence within its stated subject, time, and scope. These rules are shared by
 fixed TPP fields and dynamically extracted IPDP claims.
 
+An alternative product that would not meet a target is not evidence against the
+intended product. A contradiction must establish an incompatible fact about the
+asserted property within the claim's subject, time, conditions, and scope. Do not
+equate different components or mechanisms without evidence. An explicit universal
+claim can be refuted by a counterexample within its scope; a target is not such a
+claim. These distinctions do not change retrieval, citation lineage, or the labels.
+
 | Axis | Values |
 |---|---|
 | Relationship | `contradicts`, `extends`, `confirms`, `unrelated` |

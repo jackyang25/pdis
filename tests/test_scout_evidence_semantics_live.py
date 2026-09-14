@@ -75,7 +75,64 @@ class ScoutEvidenceSemanticsLiveTest(unittest.TestCase):
             ),
         ])
 
-    def _check_relations(self, cases):
+    def test_design_differences_require_a_real_contradiction(self):
+        self._check_relations([
+            (
+                "alternative_design",
+                "The intended RSV vaccine is a non-live pre-F protein or mRNA vaccine without novel adjuvants.",
+                "Candidate B is an RSV mRNA vaccine using a novel engineered antigen and proprietary lipid nanoparticle delivery.",
+                "extends",
+            ),
+            (
+                "same_candidate_property_not_established",
+                "Candidate A contains no novel adjuvant.",
+                "Candidate A uses a novel engineered antigen and proprietary lipid nanoparticle delivery.",
+                "extends",
+            ),
+            (
+                "same_candidate_explicit_violation",
+                "Candidate A contains no novel adjuvant.",
+                "Candidate A contains a novel adjuvant, Adjuvant Z.",
+                "contradicts",
+            ),
+            (
+                "alternative_live_platform",
+                "The intended RSV vaccine must be non-live.",
+                "Candidate B is an intranasal live attenuated RSV vaccine.",
+                "extends",
+            ),
+            (
+                "universal_claim_counterexample",
+                "All RSV vaccines in clinical development are non-live.",
+                "Candidate B is a live attenuated RSV vaccine currently in a clinical trial.",
+                "contradicts",
+            ),
+        ])
+
+    def test_constraint_rules_generalize_beyond_vaccines(self):
+        self._check_relations([
+            (
+                "different_component",
+                "Drug A contains no novel active ingredient.",
+                "Drug A uses a novel tablet coating.",
+                "extends",
+            ),
+            (
+                "explicit_same_property_violation",
+                "Drug A contains no novel active ingredient.",
+                "Drug A contains the novel active ingredient Compound Z.",
+                "contradicts",
+            ),
+            (
+                "failure_on_a_different_endpoint",
+                "Drug A remains stable for 24 months at room temperature.",
+                "Drug A failed to demonstrate efficacy in a hypertension trial.",
+                "unrelated",
+            ),
+        ], intervention_class="drug", indication="hypertension")
+
+    def _check_relations(self, cases, *, intervention_class="vaccine",
+                         indication="respiratory syncytial virus"):
         # Each case still makes its own production request. Fan-out changes
         # latency, never which other cases the model sees.
         tasks = [(doc_type, case) for doc_type in ("itpp", "ctpp", "ipdp") for case in cases]
@@ -84,11 +141,11 @@ class ScoutEvidenceSemanticsLiveTest(unittest.TestCase):
             doc_type, (name, claim, statement, expected) = task
             matches = classify_drift(
                 [f"[block:synthetic/b-0001]\n{claim}"],
-                [Insight(id=name, statement=statement, attribute_ref="regulatory_approval")],
+                [Insight(id=name, statement=statement, attribute_ref=name)],
                 self.client,
-                indication="respiratory syncytial virus",
-                intervention_class="vaccine",
-                framing=find_config("bmgf", doc_type, "vaccine").drift_framing,
+                indication=indication,
+                intervention_class=intervention_class,
+                framing=find_config("bmgf", doc_type, intervention_class).drift_framing,
             )
             return doc_type, name, expected, matches
 

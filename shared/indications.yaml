@@ -212,6 +212,9 @@ vaccine: &indication_contexts
   - key: preterm_birth
     mesh: {descriptor: D047928, concept: M0012118, term: "Preterm Birth"}
     match: exact
+  - key: female_contraception
+    mesh: {descriptor: D003267, concept: M0005088, term: "Female Contraception"}
+    match: exact
   - key: neonatal_respiratory_distress_syndrome
     mesh: {descriptor: D012127, concept: M0018890, term: "Neonatal Respiratory Distress Syndrome"}
     match: exact

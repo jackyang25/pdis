@@ -9,6 +9,20 @@ from shared.vocabulary import indication_definitions, is_known_indication, searc
 
 
 class CatalogTests(unittest.TestCase):
+    def test_female_contraception_uses_its_specific_mesh_concept(self):
+        from shared.vocabulary import intervention_classes
+
+        for intervention_class in intervention_classes():
+            with self.subTest(intervention_class=intervention_class):
+                entries = {entry.key: entry for entry in indication_definitions(intervention_class)}
+                self.assertIn("female_contraception", entries)
+                entry = entries["female_contraception"]
+                self.assertEqual(entry.mesh_descriptor, "D003267")
+                self.assertEqual(entry.mesh_concept, "M0005088")
+                self.assertEqual(entry.mesh_term, "Female Contraception")
+                self.assertEqual(entry.match, "exact")
+                self.assertEqual(search_term(entry.key), "female contraception")
+
     def test_retired_keys_remain_readable_without_becoming_new_choices(self):
         entries = indication_definitions("drug")
         for entry in entries:

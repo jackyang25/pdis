@@ -145,6 +145,15 @@ class OpenAIClient:
             logger.warning("OpenAI structured response had no choices")
             return None
         choice = choices[0]
+        if getattr(choice, "finish_reason", None) == "length":
+            logger.warning(
+                "OpenAI structured response exhausted its token budget. usage=%s",
+                getattr(response, "usage", None),
+            )
+            raise RuntimeError(
+                "The model reached the response limit before completing its answer. "
+                "No complete result was returned."
+            )
         message = getattr(choice, "message", None)
         refusal = getattr(message, "refusal", None) if message is not None else None
         if refusal:

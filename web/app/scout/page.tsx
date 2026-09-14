@@ -220,6 +220,8 @@ const ScoutEvidenceMap = dynamic(
 const SCOUT_STEPS = [
   { key: "parse", label: "Parsing documents" },
   { key: "context", label: "Validating document context" },
+  { key: "units", label: "Extracting document claims" },
+  { key: "unit_reconciliation", label: "Reconciling document claims" },
   { key: "targets", label: "Binding document fields" },
   { key: "quantitative_targets", label: "Structuring measurable targets" },
   { key: "target_review", label: "Prefilling target review" },

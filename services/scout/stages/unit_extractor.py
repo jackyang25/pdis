@@ -5,14 +5,15 @@ the document and emits the same canonical ``Attribute`` shape as the fixed
 provider: a neutral definition plus a separate document target and exact block
 lineage. Only the definition provider differs downstream.
 
-Self-gating / robust: an unreadable doc or unparsable reply yields no units,
-which the pipeline treats like "no attributes" (empty result).
+A valid empty response means no checkable units. Incomplete or invalid replies
+fail the run rather than masquerading as that conclusion.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import replace
 
 from ..ai import request_structured
@@ -38,7 +39,8 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TOKENS = 8000
+# Whole-document extraction needs room for both reasoning and the cited units.
+DEFAULT_MAX_TOKENS = 32000
 UNIT_CONTEXT_CHARS = 350_000
 UNIT_EXTRACTION_WORKERS = 4
 
@@ -52,6 +54,7 @@ def extract_units(
     llm_client: LLMClientProtocol,
     images_by_block_id: dict[str, str] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    progress_callback: Callable[..., None] | None = None,
 ) -> list[Attribute]:
     """Extract the document's checkable units. Returns `Attribute`s (name unique
     within the run, used as the downstream `attribute_ref`)."""
@@ -59,6 +62,8 @@ def extract_units(
         return []
     system_prompt = build_system_prompt(intervention_class, source_type, indication)
     chunks = _document_chunks(doc_text)
+    if progress_callback:
+        progress_callback("units")
 
     def extract_chunk(indexed: tuple[int, str]) -> list[Attribute]:
         chunk_index, chunk = indexed
@@ -79,9 +84,9 @@ def extract_units(
             images=images or None,
         )
         chunk_units = _validated_units(parsed, chunk)
-        if not chunk_units:
+        if not isinstance(parsed, list) or len(chunk_units) != len(parsed):
             logger.warning(
-                "unit_extractor produced no parsable units for chunk %d; retrying once",
+                "unit_extractor produced invalid units for chunk %d; retrying once",
                 chunk_index,
             )
             parsed = request_structured(
@@ -93,12 +98,19 @@ def extract_units(
                 images=images or None,
             )
             chunk_units = _validated_units(parsed, chunk)
+            if not isinstance(parsed, list) or len(chunk_units) != len(parsed):
+                raise ValueError(
+                    "Document claim extraction failed: the model did not return "
+                    "valid cited claims after retry."
+                )
         return chunk_units
 
     results = map_ordered(
         list(enumerate(chunks)), extract_chunk, workers=UNIT_EXTRACTION_WORKERS
     )
     units = [unit for chunk_units in results for unit in chunk_units]
+    if len(units) > 1 and progress_callback:
+        progress_callback("unit_reconciliation")
     return _unique_names(reconcile_units(
         units, llm_client, images_by_block_id=images_by_block_id,
     ))

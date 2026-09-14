@@ -156,7 +156,8 @@ def run_pipeline(
         raise ValueError(mismatch_message(context_validation))
 
     attributes = _resolve_units(
-        config, doc_text, blocks, openai_client, indication=indication
+        config, doc_text, blocks, openai_client, indication=indication,
+        progress_callback=progress_callback,
     )
     if not attributes:
         return validate_result_contract(ScoutResult(
@@ -559,6 +560,7 @@ def _resolve_units(
     openai_client: LLMClientProtocol,
     *,
     indication: str,
+    progress_callback: ProgressFn | None = None,
 ) -> list[Attribute]:
     """Get definitions from the configured provider.
 
@@ -573,6 +575,7 @@ def _resolve_units(
             source_type=config.source_type,
             indication=indication,
             llm_client=openai_client,
+            progress_callback=progress_callback,
             images_by_block_id={
                 block.id: block.image.data_url()
                 for block in blocks

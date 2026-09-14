@@ -44,6 +44,7 @@ class ProfileResolutionTests(unittest.TestCase):
                     load_rubric(path, profile=profile)
 
     def test_rubric_date_is_authored_validated_and_snapshotted(self) -> None:
+        from api.schemas import RubricSnapshotOut
         from services.inspector.configuration import CONFIGS_DIR
         from services.inspector.pipeline import _rubric_snapshot
 
@@ -54,6 +55,8 @@ class ProfileResolutionTests(unittest.TestCase):
             path.write_text(yaml.safe_dump(data))
             rubric = load_rubric(path, profile=self.profile)
             self.assertEqual(asdict(_rubric_snapshot(rubric, []))["updated_on"], "2025-04-03")
+            wire = RubricSnapshotOut(**asdict(_rubric_snapshot(rubric, []))).model_dump()
+            self.assertEqual(wire["updated_on"], "2025-04-03")
             for invalid in [None, "", "2025-02-30", "20250403", "yesterday"]:
                 data["updated_on"] = invalid
                 path.write_text(yaml.safe_dump(data))

@@ -749,6 +749,7 @@ class RequirementSnapshotOut(BaseModel):
 class RubricSnapshotOut(BaseModel):
     id: str
     revision: str | None
+    updated_on: str | None
     display_name: str
     authority: str
     scope: str

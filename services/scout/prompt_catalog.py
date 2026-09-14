@@ -41,6 +41,7 @@ from .stages import (
     target_resolver,
     target_reviewer,
     unit_extractor,
+    unit_reconciler,
 )
 
 INDICATION = "{indication}"
@@ -144,6 +145,17 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         ),
         framing_slot=None,
         result_fields=("variables[].name", "variables[].description"),
+        ui_labels=(),
+    ),
+    CatalogEntry(
+        tool=TOOL,
+        id="unit_reconciler.reconcile",
+        stage="unit_reconciler",
+        title="Document claim identity reconciliation",
+        builder_name="build_system_prompt",
+        render=unit_reconciler.build_system_prompt,
+        framing_slot=None,
+        result_fields=("variables[].name", "variables[].document_spans"),
         ui_labels=(),
     ),
     CatalogEntry(

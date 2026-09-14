@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import replace
 
 from ..ai import request_structured
 from shared.batching import map_ordered
 from ..ai_contracts import unit_batch
+from .unit_reconciler import reconcile_units
 from ..context import (
     LINE_SPAN_JSON_INSTRUCTION,
     chunk_document_context,
@@ -97,7 +99,9 @@ def extract_units(
         list(enumerate(chunks)), extract_chunk, workers=UNIT_EXTRACTION_WORKERS
     )
     units = [unit for chunk_units in results for unit in chunk_units]
-    return _dedupe(units)
+    return _unique_names(reconcile_units(
+        units, llm_client, images_by_block_id=images_by_block_id,
+    ))
 
 
 def build_system_prompt(intervention_class: str, source_type: str, indication: str) -> str:
@@ -198,57 +202,18 @@ def _validated_units(
     return out
 
 
-def _dedupe(units: list[Attribute]) -> list[Attribute]:
-    """Ensure names are unique (they become the downstream attribute_ref)."""
-    exact: dict[tuple[str, str, str], Attribute] = {}
-    collapsed: list[Attribute] = []
-    for unit in units:
-        key = (
-            unit.name,
-            " ".join(unit.document_target.lower().split()),
-            unit.evidence_domain,
-        )
-        existing = exact.get(key)
-        if existing is not None:
-            existing.block_ids = list(
-                dict.fromkeys([*existing.block_ids, *unit.block_ids])
-            )
-            existing.document_spans = list(
-                {
-                    (span.quote, tuple(span.block_ids)): span
-                    for span in [*existing.document_spans, *unit.document_spans]
-                }.values()
-            )
-            existing.entities = list(
-                dict.fromkeys([*existing.entities, *unit.entities])
-            )
-            continue
-        exact[key] = unit
-        collapsed.append(unit)
-
+def _unique_names(units: list[Attribute]) -> list[Attribute]:
+    """Allocate downstream references, never decide semantic identity."""
     seen: set[str] = set()
     out: list[Attribute] = []
-    for unit in collapsed:
+    for unit in units:
         name = unit.name
         i = 2
         while name in seen:
             name = f"{unit.name}_{i}"
             i += 1
         seen.add(name)
-        out.append(
-            Attribute(
-                name=name,
-                description=unit.description,
-                block_ids=unit.block_ids,
-                document_target=unit.document_target,
-                document_spans=unit.document_spans,
-                definition_mode="dynamic",
-                target_resolved=True,
-                target_resolution_reason=unit.target_resolution_reason,
-                evidence_domain=unit.evidence_domain,
-                entities=unit.entities,
-            )
-        )
+        out.append(replace(unit, name=name))
     return out
 
 

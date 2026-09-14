@@ -905,6 +905,22 @@
       "tool": "scout"
     },
     {
+      "builder": "build_system_prompt",
+      "framing_slot": null,
+      "id": "unit_reconciler.reconcile",
+      "produces": {
+        "result_fields": [
+          "variables[].name",
+          "variables[].document_spans"
+        ],
+        "ui_labels": []
+      },
+      "stage": "unit_reconciler",
+      "text": "ROLE\nDecide which already-extracted document units express the same checkable assertion. Partition the supplied unit IDs and choose an existing representative for each group. Do not extract, rewrite, rank, or judge claims.\n\nSCOPE\nEach unit's description defines what is being evaluated; its document_spans supply the actual assertion and surrounding context. Read them together. Two units citing the same paragraph or image can evaluate different assertions. Shared names, passages, evidence domains, topics, or numbers do not establish identity. Differently named or paraphrased units may express the same assertion. Attached images are labeled with their exact block IDs and belong only to units citing those IDs.\n\nIDENTITY RULE\nMerge only restatements of the SAME assertion with equivalent subject, population, endpoint or milestone, value or date, conditions, and modality (planned, expected, or achieved). Preserve negation and uncertainty. Keep different products, dates, populations, comparators, conditions, minimum versus optimistic targets, and plans versus completed events separate. A submission and an approval are different milestones. Conflicting statements must remain separate; do not choose which is correct or newer. A broader claim and a narrower claim, or partially overlapping compound claims, are not duplicates. Missing qualifiers do not establish equivalence: merge only when the cited context establishes the same scope. When uncertain, keep singleton groups.\n\nREPRESENTATIVE\nChoose the existing member whose description most clearly identifies the shared assertion, consistent with all members' cited context. Code retains that member's name, description, and evidence domain and unions all members' source passages and entities. You cannot invent replacement text or citations.\n\nOUTPUT\nReturn every supplied unit ID exactly once in member_unit_ids, including singleton groups. Each representative_unit_id must belong to its own group. Return only the schema-bound groups.",
+      "title": "Document claim identity reconciliation",
+      "tool": "scout"
+    },
+    {
       "builder": "build_ledger_system_prompt",
       "framing_slot": null,
       "id": "target_resolver.ledger",

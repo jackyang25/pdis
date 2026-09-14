@@ -266,6 +266,25 @@ def insight_batch(allowed_urls: list[str]) -> AIContract:
     )
 
 
+def unit_reconciliation(allowed_unit_ids: list[str]) -> AIContract:
+    """Partition extracted document units without authoring new claims or citations."""
+    ids = list(dict.fromkeys(allowed_unit_ids))
+    members = _array(_string(enum=ids))
+    members["minItems"] = 1
+    members["description"] = (
+        "Include the representative. Every supplied unit ID must occur exactly once "
+        "across all groups, including singleton groups."
+    )
+    return _wrapped(
+        "scout_unit_reconciliation",
+        "groups",
+        _object({
+            "representative_unit_id": _string(enum=ids),
+            "member_unit_ids": members,
+        }),
+    )
+
+
 def insight_reconciliation(allowed_insight_ids: list[str]) -> AIContract:
     """Partition duplicate insight IDs without rewriting any statement."""
     insight_ids = list(dict.fromkeys(allowed_insight_ids))

@@ -25,6 +25,21 @@ entities, and an ordered view of applicable quantitative claim IDs. The
 document-level quantitative ledger is the only canonical store for atomic
 targets. Downstream stages cannot rewrite either contract.
 
+Dynamic document units are extracted first, then reconciled once across the full
+extracted set before retrieval or quantitative mapping. `unit_reconciler` decides
+only identity: equivalent assertions may share an existing representative; different
+milestones, dates, populations, conditions, and planned versus achieved events remain
+separate. A shared name or paragraph never establishes identity. The prompt keeps
+uncertain and partially overlapping claims separate rather than forcing a merge.
+Code validates a complete partition of transient unit IDs, retains every member's
+exact passages and entities, and derives the merged target from those passages using
+the existing `Attribute` contract. Unique downstream names are assigned afterward;
+name allocation makes no semantic decisions. Invalid partitions receive one retry,
+then stop the run before retrieval; provider errors propagate. Zero or one unit needs
+no reconciliation call. The step adds one model request normally, with no change to
+fixed TPP fields, saved-result shapes, or the separate quantitative/evidence identity
+layers. No word-level citation selection or string-based duplicate fallback is used.
+
 When one source statement contains several atomic targets, each structurally
 valid target is retained independently. A failed sibling is retried once and,
 if still unresolved, remains a separately acknowledged audit remainder rather
@@ -285,6 +300,11 @@ Set `RUN_SCOUT_SEMANTIC_EVAL=1` and supply model credentials in the environment 
 run it. It incurs model usage but performs no retrieval. Ordinary offline tests
 skip it; a passing sample is not a guarantee of model accuracy. Existing saved
 results are not rewritten when prompts change.
+
+`tests.test_scout_unit_reconciliation_live` uses the same opt-in flag for sampled
+dynamic-claim identity checks: paraphrases, different qualifiers, and distinct claims
+sharing a passage. Offline tests verify complete partitions, lineage retention,
+cross-chunk reconciliation, failure behavior, and unchanged fixed-field routing.
 
 Product framing, source keys, and query budgets live in `configs/`; fixed TPP
 definitions and evidence domains live in `shared/attributes.yaml`. Scout uses

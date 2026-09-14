@@ -21,6 +21,7 @@ from services.scout.ai_contracts import (
     target_binding_batch,
     target_review_batch,
     unit_batch,
+    unit_reconciliation,
 )
 from services.scout.ai_wire import (
     EvidenceUnitPartitionWire,
@@ -251,6 +252,7 @@ class ScoutAIContractTests(unittest.TestCase):
                 ["document/b-0001", "document/b-0002"], ["field.one"]
             ),
             unit_batch(["document/b-0001"]),
+            unit_reconciliation(["unit-0", "unit-1"]),
             source_measurement_batch(
                 {"measure", "endpoint"}, ["source-1"]
             ),

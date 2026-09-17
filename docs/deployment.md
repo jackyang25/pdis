@@ -58,10 +58,12 @@ revisions, and saved-result schema versions. The first three were assigned
 retrospectively to confirmed production promotions.
 
 - Keep pending user-facing changes in `UNRELEASED_CHANGES`.
-- For a new production release, move the changes actually shipping into one new
-  `RELEASES` entry, newest first, with its version, production promotion number,
-  and release timestamp including the UTC offset. Confirm the timestamp as part
-  of the production handoff; never substitute a commit or acceptance-build date.
+- Before building a new production release, move the changes actually shipping
+  into one new `RELEASES` entry, newest first, with the agreed version and release
+  date (`releasedOn`, YYYY-MM-DD). Use the planned release day, not a predicted
+  deployment completion time. If deployment moves to another day, update the date
+  and rebuild before promotion. The production build number is optional tracking
+  metadata; release preparation does not depend on knowing it.
 - Use a patch increment for fixes/polish, a minor increment for new capabilities,
   and a major increment for breaking changes. Redeploying the same release does
   not add an entry or bump its version.

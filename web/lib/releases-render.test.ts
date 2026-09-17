@@ -19,7 +19,7 @@ test("release notes distinguish pending changes from dated published releases", 
   assert.match(html, /Not yet in production/);
   assert.ok(html.indexOf("Unreleased") < html.indexOf(`v${CURRENT_RELEASE.version}`));
   for (const release of RELEASES) {
-    assert.ok(html.includes(`dateTime="${release.releasedAt}"`));
+    assert.ok(html.includes(`dateTime="${release.releasedOn}"`));
     assert.ok(html.includes(`v${release.version}`));
     for (const change of release.changes) assert.ok(html.includes(change));
   }

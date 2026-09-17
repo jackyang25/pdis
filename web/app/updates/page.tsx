@@ -23,7 +23,7 @@ export default function UpdatesPage() {
               <h2 id={`release-${release.version}`} className={cn(DISPLAY_HEADING, "text-lg font-semibold")}>v{release.version} — {release.title}</h2>
               {release === CURRENT_RELEASE && <span className="text-xs text-muted-foreground">Latest release</span>}
             </div>
-            <time dateTime={release.releasedAt} className="mt-1 block text-xs text-muted-foreground">{formatReleaseDate(release.releasedAt)}</time>
+            <time dateTime={release.releasedOn} className="mt-1 block text-xs text-muted-foreground">{formatReleaseDate(release.releasedOn)}</time>
             <ChangeList changes={release.changes} />
           </section>
         ))}

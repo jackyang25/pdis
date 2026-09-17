@@ -68,12 +68,12 @@ REGISTRY: tuple[resources.Resource, ...] = (
     ),
     resources.Resource(
         key="result",
-        summary="The analyses this workspace holds",
+        summary="The workspace catalog, final analyses and any active review draft",
         kind="evidence",
         verbs=(
             resources.Verb(
                 name="find_result",
-                description="Return paths in the analysis whose key or value contains a keyword (case-insensitive). Use to locate where something lives before read_result.",
+                description="Return paths in the submitted workspace whose key or value contains a keyword (case-insensitive), including any active_review. Use to locate where something lives before read_result.",
                 activity="Searching the analysis",
                 parameters={
                     "type": "object",

@@ -136,6 +136,10 @@ class EvidenceReviewerTests(unittest.TestCase):
         )
 
     def test_independent_review_selects_one_existing_candidate_without_admitting_it(self) -> None:
+        self.measurements[0].source_passage = "Participants were adults. Protective efficacy was 70%."
+        from services.scout.stages.evidence_reviewer import _review_groups, _render_group
+        payload = _render_group(_review_groups([self.score], [self.target])[0])
+        self.assertIn(self.measurements[0].source_passage, payload)
         [reviewed] = prefill_evidence_review(
             [self.score], [self.target], _Client(),
         )
@@ -171,14 +175,14 @@ class EvidenceReviewerTests(unittest.TestCase):
             [["candidate-a", "candidate-b"], ["candidate-c"]],
         )
 
-    def test_failed_or_missing_review_degrades_to_flag(self) -> None:
+    def test_failed_or_missing_review_is_not_a_model_flag(self) -> None:
         for client in (None, _Client(fail=True)):
             with self.subTest(client=client):
                 [reviewed] = prefill_evidence_review(
                     [self.score], [self.target], client,
                 )
                 self.assertTrue(all(
-                    item.ai_recommendation == "flag"
+                    item.ai_recommendation == "unavailable" and item.ai_review_failure_code == "independent_review_unavailable"
                     for item in reviewed.excluded_measurements
                 ))
 
@@ -202,7 +206,7 @@ class EvidenceReviewerTests(unittest.TestCase):
         )
 
         self.assertTrue(all(
-            item.ai_recommendation == "flag"
+            item.ai_recommendation == "unavailable" and item.ai_review_failure_code == "independent_review_unavailable"
             for item in reviewed.excluded_measurements
         ))
 

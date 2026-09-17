@@ -7,7 +7,8 @@ import { ProvenancePanel } from "@/components/ui/provenance-panel";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
 import { Computed, Reading, SourceEntry } from "@/components/ui/evidence-text";
-import type { Conformity, Match, Measurement } from "@/lib/api";
+import type { Conformity, Match, Measurement, QuantitativeTarget } from "@/lib/api";
+import { ScoutComparison } from "@/components/scout-comparison";
 import { SEMANTIC_STATUS_LABEL } from "@/lib/scout-labels";
 import { exclusionReasonLines, formatMeasure } from "@/lib/scout-result-view";
 
@@ -30,11 +31,13 @@ import { exclusionReasonLines, formatMeasure } from "@/lib/scout-result-view";
 export function ExcludedMeasurements({
   conformity,
   matches,
+  target,
 }: {
   conformity: Conformity;
   /** Supplies each measurement's paper title. Without it this panel named sources by DOI
    *  while the cohort beside it named the same papers by title. */
   matches: Match[];
+  target?: QuantitativeTarget | null;
 }) {
   const [open, setOpen] = useState(false);
   const excluded = conformity.excluded_measurements ?? [];
@@ -72,6 +75,7 @@ export function ExcludedMeasurements({
                   <ExcludedMeasurement
                     key={`${measurement.url}-${index}`}
                     measurement={measurement}
+                    target={target}
                     unit={conformity.unit}
                     title={titleFor(measurement, matches)}
                   />
@@ -123,10 +127,12 @@ function ExcludedMeasurement({
   measurement,
   unit,
   title,
+  target,
 }: {
   measurement: Measurement;
   unit: string;
   title: string;
+  target?: QuantitativeTarget | null;
 }) {
   const value = measurement.expression?.value;
 
@@ -140,7 +146,7 @@ function ExcludedMeasurement({
       href={measurement.url}
       meta={`${
         value != null
-          ? formatMeasure(value, measurement.expression?.unit || unit)
+          ? formatMeasure(value, measurement.expression?.unit || unit, measurement.expression?.display)
           : "no single value"
       } · ${SEMANTIC_STATUS_LABEL[measurement.semantic_status]}`}
       quote={measurement.source_quote}
@@ -156,6 +162,10 @@ function ExcludedMeasurement({
         </ul>
       )}
       {other.length > 0 && <Reading>{other.join(" · ")}</Reading>}
+      <details className="mt-2">
+        <summary className="cursor-pointer rounded text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">Comparison details</summary>
+        <ScoutComparison measurement={measurement} target={target} compact />
+      </details>
     </SourceEntry>
   );
 }

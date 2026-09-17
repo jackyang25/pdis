@@ -49,7 +49,10 @@ def build_review_system_prompt() -> str:
         "citations, or provenance.\n\n"
         "INPUT AUTHORITY\n"
         "Review only the immutable target contract, mapped source facts, exact quotations, and "
-        "proposed evidence-unit identities supplied for each group.\n\n"
+        "proposed evidence-unit identities supplied for each group. Retained source passages "
+        "provide context for verifying each mapped qualifier and quotation, not permission to "
+        "borrow a different population, endpoint, or result from elsewhere in the record. "
+        "Missing required support remains uncertain; never fill it from background knowledge.\n\n"
         "SHARED PRIMITIVES\n"
         f"{SEMANTIC_DIMENSIONS_PRIMITIVE}\n\n"
         f"{COMPARATOR_POLICY_PRIMITIVE}\n\n"
@@ -72,7 +75,9 @@ def build_review_system_prompt() -> str:
         "inputs, not admission criteria.\n\n"
         "OUTPUT CONTRACT\n"
         "Review every group ID and every candidate ID exactly once. Give each decision one short, "
-        "source-specific reason. Return only the schema-bound response."
+        "source-specific reason naming the decisive match, mismatch, overlap, or missing "
+        "qualifier. For a flag, state exactly what the human needs to verify. "
+        "Return only the schema-bound response."
     )
 
 
@@ -262,6 +267,7 @@ def _render_group(group: _EvidenceReviewGroup) -> str:
                 "reason": measurement.evidence_unit.reason,
             }, ensure_ascii=False, sort_keys=True),
             f"Exact source quote: {measurement.source_quote}",
+            f"Retained source passage: {measurement.source_passage}",
             "Expression: " + json.dumps(
                 {
                     "kind": measurement.expression.kind,
@@ -309,7 +315,7 @@ def _apply_recommendations(
             recommendation, reason = recommendations.get(
                 measurement.candidate_id,
                 (
-                    "flag",
+                    "unavailable",
                     "Independent AI review did not return one complete source-record decision; review manually.",
                 ),
             )
@@ -317,6 +323,7 @@ def _apply_recommendations(
                 measurement,
                 ai_recommendation=recommendation,
                 ai_review_reason=reason,
+                ai_review_failure_code="independent_review_unavailable" if recommendation == "unavailable" else "",
             )
 
     reviewed: list[ConformityScore] = []

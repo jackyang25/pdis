@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
+import json
+from dataclasses import asdict, replace
 
 from services.chunker import ContentBlock
 
@@ -55,9 +56,14 @@ def build_review_system_prompt() -> str:
         "names its candidate; comparator cohorts normally contain different products in a declared "
         "class or use. Use the complete document only to disambiguate "
         "the supplied proposals; do not extract new ones.\n\n"
+        "Verify the numeric expression's value, comparator, unit, and threshold/optimal role "
+        "against the cited text, not just the proposal label. Do not repair an incorrect "
+        "expression in your answer: identify the mismatch for human review.\n\n"
         "OUTPUT CONTRACT\n"
         "Review every supplied target ID exactly once. Give each decision one short, "
-        "document-specific reason. Return only the schema-bound response."
+        "document-specific reason naming the decisive source fact. For a flag, name exactly "
+        "what is ambiguous or what mapping needs checking; do not merely say 'review manually'. "
+        "Return only the schema-bound response."
     )
 
 
@@ -110,6 +116,8 @@ def prefill_target_review(
                     attribute.document_target for attribute in linked_fields
                 ),
                 f"Proposed target: {target.label}",
+                "Numeric expression: " + json.dumps(asdict(target.expression), ensure_ascii=False),
+                f"Target role: {target.role}",
                 "Exact cited passages: " + " | ".join(
                     span.quote for span in target.provenance_spans
                 ),
@@ -156,7 +164,7 @@ def prefill_target_review(
             )
         except Exception as exc:  # Independent triage must degrade to manual review.
             logger.warning(
-                "Document-target AI prefill failed for %d proposal(s); flagging them: %s",
+                "Document-target AI prefill unavailable for %d proposal(s): %s",
                 len(batch_ids),
                 exc,
             )
@@ -195,12 +203,13 @@ def _apply_recommendations(
     for target in ledger.targets:
         decision, reason = by_id.get(
             target.id,
-            ("flag", missing_reason),
+            ("unavailable", missing_reason),
         )
         reviewed_targets.append(replace(
             target,
             ai_recommendation=decision,
             ai_review_reason=reason,
+            ai_review_failure_code="independent_review_unavailable" if decision == "unavailable" else "",
             # AI triage is a recommendation, not the human decision boundary.
             # This matches evidence review: explicit UI acceptance is the only
             # operation that changes a review item to approved or rejected.

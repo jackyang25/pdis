@@ -145,6 +145,7 @@ export const DISPOSITION_LABEL: Record<
   non_scalar: "Not a single number",
   range_or_set: "Range or set",
   uncertain: "Could not be resolved",
+  mapping_failed: "Extraction failed",
 };
 
 /**

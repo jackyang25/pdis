@@ -202,7 +202,7 @@ class SchemaVocabularyTests(unittest.TestCase):
         """It was inline in the model and again in the schema, with no name joining them."""
         self.assertEqual(
             scout_models.QUANTITATIVE_STATEMENT_DISPOSITIONS,
-            frozenset({"context_only", "non_scalar", "range_or_set", "uncertain"}),
+            frozenset({"context_only", "non_scalar", "range_or_set", "uncertain", "mapping_failed"}),
         )
         self.assertLess(
             scout_models.QUANTITATIVE_STATEMENT_DISPOSITIONS,

@@ -19,6 +19,7 @@ import {
 import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
 import type { ContentBlock, PriorityDigest } from "@/lib/api";
 import { usePriorityDigestStore } from "@/lib/priority-digest";
+import { reviewContextForAssistant, useAssistantReviewContext } from "@/lib/assistant-review-context";
 
 type WorkspaceResult = {
   id: string;
@@ -67,6 +68,7 @@ export function WorkspaceAsk() {
   const screener = useScreenerSession((state) => state.results);
   const scout = useScoutSession((state) => state.results);
   const searcher = useSearcherSession((state) => state.results);
+  const activeReview = useAssistantReviewContext(state => state.active);
 
   // Subscribed rather than read once: a digest lands after the result does, and the
   // bundle has to pick it up when it arrives.
@@ -192,6 +194,18 @@ export function WorkspaceAsk() {
       );
     }
 
+    // Review drafts remain outside results: they cannot satisfy final-result skills
+    // or change export. Reuse the same navigable tree and source readers.
+    const reviewContext = activeReview ? reviewContextForAssistant(activeReview) : null;
+    for (const block of reviewContext?.document ?? []) blocks.set(block.id, block);
+    const active_review = activeReview && reviewContext ? {
+      result_type: "scout",
+      phase: activeReview.draft.phase,
+      selected_item: activeReview.selection,
+      analysis: reviewContext.analysis,
+      document_block_ids: (reviewContext.document ?? []).map(block => block.id),
+    } : undefined;
+
     const catalog = [...WORKSPACE_TOOLS, ...EXTERNAL_TOOLS].map((tool) => ({
       id: tool.id,
       title: tool.title,
@@ -209,17 +223,19 @@ export function WorkspaceAsk() {
       result: {
         catalog,
         results,
+        active_review,
         blocks: Array.from(blocks.values()),
       },
       resultCount: results.length,
     };
-  }, [aligner, chunker, digests, screener, inspector, scout, searcher, selected]);
+  }, [aligner, chunker, digests, screener, inspector, scout, searcher, selected, activeReview]);
 
   return (
     <Ask
       resultType="workspace"
       result={bundle.result}
       availableResultCount={bundle.resultCount}
+      reviewPhase={activeReview?.draft.phase}
       display={pathname === "/ask" ? "page" : "floating"}
     />
   );

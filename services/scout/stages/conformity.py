@@ -84,6 +84,7 @@ from ..models import (
     TernaryDecision,
 )
 from ..prompt_primitives import (
+    NUMERIC_DISPLAY_PRIMITIVE,
     ATOMIC_TARGET_PRIMITIVE,
     COMPARATOR_POLICY_PRIMITIVE,
     EVIDENCE_UNIT_PRIMITIVE,
@@ -99,15 +100,11 @@ SOURCE_RECORDS_PER_REQUEST = 1
 SOURCE_MAPPING_MAX_WORKERS = 6
 MAX_SOURCE_PASSAGE_CHARS = 8_000
 MAX_TARGET_QUOTE_CHARS = 800
-# These two carry a dual role that has not been separated yet: they bound how
-# many per-unit decisions come back AND how much document the model can read,
-# because `_document_ledger_user_message` renders only this batch's blocks. A
-# statement whose meaning depends on an uncited neighbouring block therefore
-# resolves only when that block lands in the same batch. Provenance is unaffected
-# — `allowed_target_block_ids` is always the unit's own block — so this is a
-# recall limit, not a correctness hole. Splitting the two roles changes either
-# token cost or the prompt, so it is a deliberate change, not a tuning knob.
-LEDGER_UNITS_PER_REQUEST = 24
+# One block per extraction decision. Canonical bindings in the system prompt
+# provide the same upstream context independently of request grouping; they
+# disambiguate this block but cannot supply new numeric statements to extract.
+# Multiple atomic targets inside this one block are one set-level extraction.
+LEDGER_UNITS_PER_REQUEST = 1
 LEDGER_CHARS_PER_REQUEST = 24_000
 LEDGER_RETRY_MAX_UNITS = 4
 # Keep in lockstep with drift_classifier / evidence_assessor so all three
@@ -1051,6 +1048,7 @@ def _merge_quantitative_retry_review(
         attribute_refs=attribute_refs,
         target_ids=target_ids,
         review_status="needs_review",
+        failure_code=retry.failure_code,
     )
 
 
@@ -1095,7 +1093,7 @@ def _validated_quantitative_ledger_batch(
             retry_unit_ids.add(unit.id)
             response_failure_unit_ids.add(unit.id)
             reviews.append(
-                _uncertain_unit_review(
+                _failed_unit_review(
                     unit,
                     "The model did not return one unique review for this statement.",
                 )
@@ -1121,7 +1119,7 @@ def _validated_quantitative_ledger_batch(
             retry_unit_ids.add(unit.id)
             response_failure_unit_ids.add(unit.id)
             reviews.append(
-                _uncertain_unit_review(
+                _failed_unit_review(
                     unit,
                     "The model returned an invalid statement classification.",
                     attribute_refs=[
@@ -1136,7 +1134,7 @@ def _validated_quantitative_ledger_batch(
                 retry_unit_ids.add(unit.id)
                 response_failure_unit_ids.add(unit.id)
                 reviews.append(
-                    _uncertain_unit_review(
+                    _failed_unit_review(
                         unit,
                         "A non-target statement incorrectly carried target objects.",
                         attribute_refs=attribute_refs,
@@ -1228,6 +1226,7 @@ def _validated_quantitative_ledger_batch(
                         block_id=unit.block_id,
                         quote=unit.quote,
                         classification="partial_target",
+                        failure_code="invalid_target_mapping",
                         reason=(
                             f"Retained {len(validated)} source-verifiable target(s); "
                             f"another proposed mapping was rejected [{issue_text}]."
@@ -1242,7 +1241,7 @@ def _validated_quantitative_ledger_batch(
                 )
             else:
                 reviews.append(
-                    _uncertain_unit_review(
+                    _failed_unit_review(
                         unit,
                         f"Target mapping rejected [{issue_text}].",
                         attribute_refs=[
@@ -1254,7 +1253,7 @@ def _validated_quantitative_ledger_batch(
         if not validated:
             retry_unit_ids.add(unit.id)
             reviews.append(
-                _uncertain_unit_review(
+                _failed_unit_review(
                     unit,
                     "Target mapping rejected [missing_target_mapping].",
                     attribute_refs=[
@@ -1308,7 +1307,7 @@ def assemble_quantitative_document_ledger(
         )
         for review in reviews
     ]
-    unresolved_classifications = {"uncertain", "partial_target"}
+    unresolved_classifications = {"uncertain", "partial_target", "mapping_failed"}
     unresolved_count = sum(
         review.classification in unresolved_classifications for review in reviews
     )
@@ -1534,7 +1533,7 @@ def finalize_quantitative_document_review(
     ), ledger
 
 
-def _uncertain_unit_review(
+def _failed_unit_review(
     unit: QuantitativeStatementUnit,
     reason: str,
     *,
@@ -1544,7 +1543,8 @@ def _uncertain_unit_review(
         unit_id=unit.id,
         block_id=unit.block_id,
         quote=unit.quote,
-        classification="uncertain",
+        classification="mapping_failed",
+        failure_code="invalid_target_mapping",
         reason=reason,
         attribute_refs=attribute_refs or [],
         review_status="needs_review",
@@ -1773,7 +1773,7 @@ def _project_ledger_to_attributes(
         if (
             review.attribute_refs
             and review.classification
-            in {"context_only", "non_scalar", "range_or_set", "uncertain"}
+            in {"context_only", "non_scalar", "range_or_set", "uncertain", "mapping_failed"}
         ):
             for attribute_ref in review.attribute_refs:
                 if attribute_ref not in dispositions_by_attribute:
@@ -1785,11 +1785,12 @@ def _project_ledger_to_attributes(
                         disposition=review.classification,
                         reason=review.reason,
                         attribute_refs=review.attribute_refs,
+                        failure_code=review.failure_code,
                     )
                 )
     uncertain_attribute_refs: set[str] = set()
     for review in ledger.reviews:
-        if review.classification not in {"uncertain", "partial_target"}:
+        if review.classification not in {"uncertain", "partial_target", "mapping_failed"}:
             continue
         if review.attribute_refs:
             uncertain_attribute_refs.update(review.attribute_refs)
@@ -1901,6 +1902,7 @@ def build_document_ledger_system_prompt(
         f"{binding_catalog}\n\n"
         "SHARED PRIMITIVES\n"
         f"{ATOMIC_TARGET_PRIMITIVE}\n\n"
+        f"{NUMERIC_DISPLAY_PRIMITIVE}\n\n"
         f"{SEMANTIC_DIMENSIONS_PRIMITIVE}\n\n"
         f"{COMPARATOR_POLICY_PRIMITIVE}\n\n"
         "DECISION PROCEDURE\n"
@@ -2429,6 +2431,7 @@ def _validated_passage_measurement(
         url=passage.finding.url,
         insight_id=passage.insight.id,
         source_quote=quote,
+        source_passage=passage.text,
         source_record_id=source_record_id,
         source_identity_status=source_identity_status,
         evidence_unit_id=evidence_unit_id,
@@ -2880,6 +2883,7 @@ def build_measurement_system_prompt(
         "not assert group/cohort labels. Group/cohort identity describes who contributed the "
         "observation—not endpoint, timepoint, statistic, or analysis method. Do not invent labels.\n\n"
         "\nStep 3 — normalize numeric expressions.\n"
+        f"{NUMERIC_DISPLAY_PRIMITIVE}\n"
         "expression is your semantic normalization of the exact quote. Convert written quantities "
         "and directional prose without changing magnitude. Use the target unit only for the same "
         "unit meaning; otherwise retain a concise source unit. Kinds are point_estimate, range, "

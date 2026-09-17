@@ -150,7 +150,7 @@ class ScoutAIContractTests(unittest.TestCase):
         source_ref_schema = (
             contract.schema["properties"]["reviews"]["items"]["properties"]
             ["targets"]["items"]["properties"]["semantic_profile"]
-            ["properties"]["population"]["properties"]["source_refs"]["items"]
+            ["properties"]["population"]["anyOf"][0]["properties"]["source_refs"]["items"]
         )
 
         self.assertEqual(
@@ -190,13 +190,11 @@ class ScoutAIContractTests(unittest.TestCase):
         )
         for rule in comparison_contract["properties"].values():
             self.assertEqual(
-                rule["properties"]["mode"]["enum"],
+                [branch["properties"]["mode"]["enum"][0] for branch in rule["anyOf"]],
                 ["compatible", "exact", "unconstrained", "unknown"],
             )
-            self.assertEqual(
-                set(rule["required"]),
-                {"mode", "scope", "reason"},
-            )
+            for branch in rule["anyOf"]:
+                self.assertEqual(set(branch["required"]), {"mode", "scope", "reason"})
         self.assertNotIn("source_syntax", target_properties)
 
         measurement_properties = (

@@ -3,6 +3,8 @@ from __future__ import annotations
 import threading
 import time
 import unittest
+import json
+from dataclasses import asdict
 from dataclasses import replace
 
 from services.chunker import ContentBlock
@@ -146,6 +148,9 @@ class TargetReviewerTests(unittest.TestCase):
         self.assertEqual(reviewed.review_status, "needs_review")
         self.assertEqual(attributes[0].quantitative_target_ids, [reviewed.id])
         self.assertIn("Background incidence was 14%", client.user_message)
+        expression_line = next(line for line in client.user_message.splitlines() if line.startswith("Numeric expression: "))
+        self.assertEqual(json.loads(expression_line.removeprefix("Numeric expression: ")), asdict(self.target.expression))
+        self.assertIn("Target role: threshold", client.user_message)
 
     def test_missing_or_failed_ai_review_degrades_to_manual_review(self) -> None:
         for client in (
@@ -157,7 +162,8 @@ class TargetReviewerTests(unittest.TestCase):
                 _, ledger = prefill_target_review(
                     [self.attribute], self.ledger, [self.block], client,
                 )
-                self.assertEqual(ledger.targets[0].ai_recommendation, "flag")
+                self.assertEqual(ledger.targets[0].ai_recommendation, "unavailable")
+                self.assertEqual(ledger.targets[0].ai_review_failure_code, "independent_review_unavailable")
                 self.assertEqual(ledger.targets[0].review_status, "needs_review")
 
     def test_each_target_is_reviewed_in_its_own_request(self) -> None:

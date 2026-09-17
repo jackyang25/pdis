@@ -1,0 +1,55 @@
+"use client";
+import { useState } from "react";
+import { DocumentTargetReviewCheckpoint, QuantitativeReviewCheckpoint } from "@/app/scout/page";
+import { targetReviewFixture, evidenceReviewFixture, diagnosticTargetReviewFixture, diagnosticEvidenceReviewFixture, type ReviewFixtureState } from "@/test-support/scout-review-fixture";
+import { Button } from "@/components/ui/button";
+import { applyEvidenceReviewRecommendations, reviewQuantitativeCandidateGroup } from "@/lib/quantitative-review";
+import { pendingQuantitativeReviewCount } from "@/lib/result-contracts";
+import type { Conformity } from "@/lib/api";
+type Checkpoint = "target" | "evidence";
+
+export default function ReviewPreview() {
+  const [mode, setMode] = useState<Checkpoint>("target");
+  const [result, setResult] = useState(() => targetReviewFixture());
+  const [notice, setNotice] = useState("");
+  const [generation, setGeneration] = useState(0);
+  const reset = (nextMode: Checkpoint = mode, state: ReviewFixtureState = "pending") => {
+    setResult(nextMode === "target" ? targetReviewFixture(state) : evidenceReviewFixture(state));
+    setMode(nextMode); setNotice(""); setGeneration(value => value + 1);
+  };
+  const record = (scores: Conformity[]) => {
+    setResult(previous => ({ ...previous, conformity: scores }));
+  };
+  return <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-8">
+    <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+      <h1 className="text-lg font-semibold">Temporary Scout review preview</h1>
+      <p className="text-sm text-muted-foreground">Fictional, source-linked data. No AI calls or saved results. These controls load independent snapshots, not extra pipeline stages. Reloading resets your changes.</p>
+      <fieldset className="space-y-2"><legend className="text-sm font-medium">Checkpoint</legend>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" aria-pressed={mode === "target"} onClick={() => reset("target")}>Numeric target review</Button>
+          <Button variant="outline" aria-pressed={mode === "evidence"} onClick={() => reset("evidence")}>Evidence review</Button>
+        </div>
+      </fieldset>
+      <fieldset className="space-y-2"><legend className="text-sm font-medium">Load a review state</legend>
+        <div className="flex flex-wrap gap-2">
+          {([ ["pending", "Awaiting decisions"], ["partial", "Partly reviewed"], ["completed", "All reviewed"] ] as const).map(([state, label]) => <Button key={state} variant="outline" onClick={() => reset(mode, state)}>{label}</Button>)}
+          <Button variant="outline" onClick={() => { setResult(mode === "target" ? diagnosticTargetReviewFixture() : diagnosticEvidenceReviewFixture()); setNotice(""); setGeneration(value => value + 1); }}>Failures and qualifiers</Button>
+        </div>
+      </fieldset>
+      <p className="text-sm text-muted-foreground">{mode === "target" ? "Includes confirm, exclude and manual-review recommendations, plus unmapped and partially mapped statements." : "Includes individual estimates and mutually exclusive alternatives, with admit, reject and manual-review recommendations. Recorded decisions remain inspectable."}</p>
+      {notice && <p role="status" className="text-sm">{notice}</p>}
+    </div>
+    {mode === "target" ? <DocumentTargetReviewCheckpoint key={generation}
+      result={result} busy={false} stage={null} progress={null}
+      onTargetDecision={(id, decision) => setResult(previous => ({ ...previous, quantitative_ledger: { ...previous.quantitative_ledger, targets: previous.quantitative_ledger.targets.map(target => target.id === id ? { ...target, review_status: decision } : target) } }))}
+      onStatementDecision={id => setResult(previous => ({ ...previous, quantitative_ledger: { ...previous.quantitative_ledger, reviews: previous.quantitative_ledger.reviews.map(review => review.unit_id === id ? { ...review, review_status: "accepted_exclusion" } : review) } }))}
+      onAcceptRecommendations={() => setResult(previous => ({ ...previous, quantitative_ledger: { ...previous.quantitative_ledger, targets: previous.quantitative_ledger.targets.map(target => target.review_status !== "needs_review" || !["confirm", "exclude"].includes(target.ai_recommendation) ? target : { ...target, review_status: target.ai_recommendation === "confirm" ? "approved" : "rejected" }) } }))}
+      onContinue={() => setNotice("Retrieval would start here. This preview makes no AI calls; select Evidence review above to inspect its separately seeded checkpoint.")}
+      onNewAnalysis={() => reset("target")} /> :
+      <QuantitativeReviewCheckpoint key={generation} result={result}
+        onNewAnalysis={() => reset("evidence")} onReview={(target, ids, selected) => record(result.conformity.map(score => score.target_id === target ? reviewQuantitativeCandidateGroup(score, ids, selected) : score))}
+        onAcceptRecommendations={() => record(applyEvidenceReviewRecommendations(result.conformity))}
+        readyToFinalize={pendingQuantitativeReviewCount(result) === 0}
+        onFinalize={() => setNotice("The real pipeline would finalize this reviewed result. This preview does not call the API or save a result.")} />}
+  </div>;
+}

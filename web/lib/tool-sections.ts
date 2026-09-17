@@ -40,12 +40,12 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
     // and take them to the gate. Archivist is first because it is what you consult
     // before drafting, not a step in reviewing what you drafted.
     toolIds: ["archivist", "inspector", "scout", "aligner", "screener"],
-    title: "PST team workflows",
+    title: "PST workflows",
     // The only place the cycle is stated. Each card states what its tool is judged
     // against; none of them repeats this. Keep the clauses in the same order as
     // `toolIds` above - the sentence is what the cards read as.
     description:
-      "Hold each document to its rubric, its targets to the evidence, and the documents to each other, then bundle for the gate.",
+      "Check documents against their rubrics, targets against evidence, and commitments across documents before stage-gate review.",
   },
   {
     id: "ghide-workflows",
@@ -55,22 +55,20 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
       "ghide-executive-summary-compiler",
       "ghide-stage-gate-evaluator",
     ],
-    title: "GHIDE team workflows",
+    title: "GHIDE workflows",
     description:
-      "Evaluate investments, prepare stage-gate decisions, and turn findings into leadership-ready outputs.",
+      "Evaluate development plans and turn findings into roadmaps, leadership summaries, and stage-gate decisions.",
   },
   {
     id: "shared-utilities",
     toolIds: ["chunker", "searcher"],
-    // Not a subsection of the tools above, though every one of them parses through
-    // Chunker and Scout searches through Searcher: these sit under those tools
-    // rather than beside them, and nesting would read as a step in the sequence.
+    // Independent entry points, not another stage of the workflows above.
     // Named by audience like the two sections above, because that is the axis this file
     // groups on and both tools carry `audience: "shared"`. The description carries what
     // they are and when to reach for one, which is where a second axis belongs.
     title: "Shared utilities",
     description:
-      "Every tool above parses through Chunker, and Scout searches through Searcher. Run either directly when you want the parsed blocks or the raw findings without an analysis around them.",
+      "Parse documents or search evidence sources directly.",
   },
 ];
 

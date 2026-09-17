@@ -116,7 +116,7 @@ MEASUREMENT_STATUSES = frozenset(
 MEASUREMENT_ADMISSION_STATUSES = frozenset(
     {"needs_review", "approved", "rejected", "not_eligible", "auto_admitted"}
 )
-MEASUREMENT_AI_RECOMMENDATIONS = frozenset({"admit", "reject", "flag"})
+MEASUREMENT_AI_RECOMMENDATIONS = frozenset({"admit", "reject", "flag", "unavailable"})
 MEASUREMENT_EVIDENCE_MODES = frozenset({"prose", "structured_fact"})
 EVIDENCE_UNIT_STATUSES = frozenset({"resolved", "record_level", "uncertain"})
 TERNARY_DECISION_STATES = frozenset({"yes", "no", "unknown"})
@@ -132,13 +132,14 @@ QUANTITATIVE_LEDGER_STATUSES = frozenset(
 #: this model and again as a Literal in the API schema, with no name joining them, which is
 #: the shape every vocabulary drift in this codebase has had.
 QUANTITATIVE_STATEMENT_DISPOSITIONS = frozenset(
-    {"context_only", "non_scalar", "range_or_set", "uncertain"}
+    {"context_only", "non_scalar", "range_or_set", "uncertain", "mapping_failed"}
 )
 
 QUANTITATIVE_REVIEW_CLASSIFICATIONS = frozenset(
     {
         "target",
         "partial_target",
+        "mapping_failed",
         "context_only",
         "non_scalar",
         "range_or_set",
@@ -150,7 +151,7 @@ QUANTITATIVE_TARGET_REVIEW_STATUSES = frozenset(
     {"needs_review", "approved", "rejected"}
 )
 QUANTITATIVE_TARGET_AI_RECOMMENDATIONS = frozenset(
-    {"confirm", "exclude", "flag"}
+    {"confirm", "exclude", "flag", "unavailable"}
 )
 QUANTITATIVE_STATEMENT_REVIEW_STATUSES = frozenset(
     {"resolved", "needs_review", "accepted_exclusion"}
@@ -644,6 +645,22 @@ class EvidenceUnitIdentity:
             raise ValueError("evidence unit requires a reason")
 
 
+NUMERIC_DISPLAY_KINDS = frozenset({"quantity", "calendar_year"})
+
+
+@dataclass
+class NumericDisplay:
+    """Model-authored presentation only; never used by identity or arithmetic."""
+
+    kind: str = "quantity"
+    unit_singular: str = ""
+    unit_plural: str = ""
+
+    def __post_init__(self) -> None:
+        if self.kind not in NUMERIC_DISPLAY_KINDS:
+            raise ValueError("invalid numeric display kind")
+
+
 @dataclass
 class NumericExpression:
     """One numeric statement, without any clinical interpretation.
@@ -659,8 +676,11 @@ class NumericExpression:
     lower: float | None = None
     upper: float | None = None
     comparator: str = ""
+    display: NumericDisplay = field(default_factory=NumericDisplay)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.display, NumericDisplay):
+            self.display = NumericDisplay(**self.display)
         self.kind = self.kind.strip().lower()
         self.unit = self.unit.strip()
         self.comparator = self.comparator.strip()
@@ -734,6 +754,7 @@ class QuantitativeTarget:
     provenance_spans: list[DocumentSpan] = field(default_factory=list)
     ai_recommendation: str = "flag"
     ai_review_reason: str = ""
+    ai_review_failure_code: str = ""
     review_status: str = "approved"
     id: str = ""
 
@@ -749,6 +770,8 @@ class QuantitativeTarget:
         self.ai_recommendation = self.ai_recommendation.strip().lower()
         if self.ai_recommendation not in QUANTITATIVE_TARGET_AI_RECOMMENDATIONS:
             raise ValueError("invalid quantitative target AI recommendation")
+        if (self.ai_recommendation == "unavailable") != bool(self.ai_review_failure_code):
+            raise ValueError("unavailable AI review requires a failure code, not a model verdict")
         self.ai_review_reason = " ".join(self.ai_review_reason.split())
         self.field_links = [
             value if isinstance(value, QuantitativeFieldLink) else QuantitativeFieldLink(**value)
@@ -905,6 +928,7 @@ class QuantitativeStatementDisposition:
     disposition: str
     reason: str
     attribute_refs: list[str] = field(default_factory=list)
+    failure_code: str = ""
 
     def __post_init__(self) -> None:
         self.quote = " ".join(self.quote.split())
@@ -916,6 +940,8 @@ class QuantitativeStatementDisposition:
         )
         if self.disposition not in QUANTITATIVE_STATEMENT_DISPOSITIONS:
             raise ValueError("invalid quantitative statement disposition")
+        if (self.disposition == "mapping_failed") != bool(self.failure_code):
+            raise ValueError("mapping failure requires a failure code")
         if not self.quote or not self.block_ids or not self.reason:
             raise ValueError("quantitative statement disposition requires cited reasoning")
 
@@ -1168,6 +1194,7 @@ class QuantitativeLedgerReview:
     attribute_refs: list[str] = field(default_factory=list)
     target_ids: list[str] = field(default_factory=list)
     review_status: str = "resolved"
+    failure_code: str = ""
 
     def __post_init__(self) -> None:
         self.unit_id = self.unit_id.strip()
@@ -1184,6 +1211,10 @@ class QuantitativeLedgerReview:
             raise ValueError("invalid quantitative statement review status")
         if self.classification not in QUANTITATIVE_REVIEW_CLASSIFICATIONS:
             raise ValueError("invalid quantitative ledger classification")
+        if self.classification == "mapping_failed" and not self.failure_code:
+            raise ValueError("mapping failure requires a failure code")
+        if self.failure_code and self.classification not in {"mapping_failed", "partial_target"}:
+            raise ValueError("model classifications cannot carry processing failures")
         if not self.unit_id or not self.block_id or not self.quote or not self.reason:
             raise ValueError("quantitative ledger review requires traced reasoning")
         if (
@@ -1248,6 +1279,7 @@ class Measurement:
     url: str = ""
     insight_id: str = ""
     source_quote: str = ""
+    source_passage: str = ""
     source_record_id: str = ""
     source_identity_status: str = "url_fallback"
     evidence_unit_id: str = ""
@@ -1257,6 +1289,7 @@ class Measurement:
     evidence_mode: str = "prose"
     ai_recommendation: str = "flag"
     ai_review_reason: str = ""
+    ai_review_failure_code: str = ""
     admission_status: str = "needs_review"
     admission_reason: str = ""
     inclusion_reason: str = ""
@@ -1286,6 +1319,8 @@ class Measurement:
             raise ValueError("invalid measurement evidence mode")
         if self.ai_recommendation not in MEASUREMENT_AI_RECOMMENDATIONS:
             raise ValueError("invalid measurement AI recommendation")
+        if (self.ai_recommendation == "unavailable") != bool(self.ai_review_failure_code):
+            raise ValueError("unavailable AI review requires a failure code, not a model verdict")
         if self.admission_status not in MEASUREMENT_ADMISSION_STATUSES:
             raise ValueError("invalid measurement admission status")
         self.ai_review_reason = " ".join(self.ai_review_reason.split())

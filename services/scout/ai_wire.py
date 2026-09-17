@@ -51,7 +51,7 @@ class EvidenceUnitIdentityWire(_WireModel):
     status: Literal["resolved", "record_level", "uncertain"]
     group: SemanticSlotWire
     cohort: SemanticSlotWire
-    reason: str
+    reason: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_identity(self) -> "EvidenceUnitIdentityWire":
@@ -79,6 +79,12 @@ class EvidenceUnitPartitionWire(_WireModel):
     reason: str = Field(min_length=1)
 
 
+class NumericDisplayWire(_WireModel):
+    kind: Literal["quantity", "calendar_year"] = "quantity"
+    unit_singular: str = ""
+    unit_plural: str = ""
+
+
 class NumericExpressionWire(_WireModel):
     kind: Literal[
         "point_estimate",
@@ -95,6 +101,7 @@ class NumericExpressionWire(_WireModel):
     lower: float | None
     upper: float | None
     comparator: Literal["", "=", ">", ">=", "<", "<="]
+    display: NumericDisplayWire = Field(default_factory=NumericDisplayWire)
 
     @model_validator(mode="after")
     def validate_expression(self) -> "NumericExpressionWire":
@@ -134,11 +141,12 @@ class NumericExpressionWire(_WireModel):
 
 class TargetExpressionWire(_WireModel):
     kind: Literal["bound"]
-    unit: str
+    unit: str = Field(min_length=1)
     value: float
     lower: None
     upper: None
     comparator: Literal["=", ">", ">=", "<", "<="]
+    display: NumericDisplayWire = Field(default_factory=NumericDisplayWire)
 
     @model_validator(mode="after")
     def validate_expression(self) -> "TargetExpressionWire":
@@ -166,11 +174,64 @@ def inline_json_schema(model: type[BaseModel]) -> dict[str, Any]:
         ref = value.get("$ref")
         if isinstance(ref, str) and ref.startswith("#/$defs/"):
             name = ref.rsplit("/", 1)[-1]
+            nested = globals().get(name)
+            if isinstance(nested, type) and issubclass(nested, _WireModel):
+                return inline_json_schema(nested)
             return resolve(deepcopy(definitions[name]))
-        return {
+        resolved = {
             key: resolve(item)
             for key, item in value.items()
             if key not in {"title", "default"}
         }
+        if resolved.get("type") == "object" and "properties" in resolved:
+            # Provider outputs state every field; defaults serve code-created
+            # fixtures, never make the model's response shape optional.
+            resolved["required"] = list(resolved["properties"])
+        return resolved
 
-    return resolve(schema)
+    result = resolve(schema)
+    # Encode conditional field requirements in provider-supported anyOf
+    # branches as well as the runtime validators. Ordered interval endpoints
+    # and finite arithmetic remain deterministic cross-value checks.
+    def variant(base: dict, changes: dict) -> dict:
+        branch = deepcopy(base)
+        branch["properties"].update(changes)
+        return branch
+
+    if model is SemanticSlotWire:
+        return {"anyOf": [
+            variant(result, {"state": {"type": "string", "enum": [state]},
+                "value": {"type": "string", **({"minLength": 1} if state == "specified" else {"enum": [""]})},
+                "other": {"type": "string", **({"minLength": 1} if state == "other" else {"enum": [""]})}})
+            for state in ("specified", "other", "not_specified", "unknown")
+        ]}
+    if model is TernaryDecisionWire:
+        return {"anyOf": [
+            variant(result, {"state": {"type": "string", "enum": [state]},
+                "reason": {"type": "string", **({"minLength": 1} if state != "yes" else {})}})
+            for state in ("yes", "no", "unknown")
+        ]}
+    if model is EvidenceUnitIdentityWire:
+        slots = inline_json_schema(SemanticSlotWire)["anyOf"]
+        asserted = {"anyOf": slots[:2]}
+        absent = {"anyOf": slots[2:]}
+        return {"anyOf": [
+            variant(result, {"status": {"type": "string", "enum": ["resolved"]}, "group": asserted}),
+            variant(result, {"status": {"type": "string", "enum": ["resolved"]}, "group": absent, "cohort": asserted}),
+            variant(result, {"status": {"type": "string", "enum": ["record_level", "uncertain"]}, "group": absent, "cohort": absent}),
+        ]}
+    if model is NumericExpressionWire:
+        branches = []
+        for kinds in (("point_estimate", "count", "rate"), ("bound",), ("range", "confidence_interval"), ("other", "unknown")):
+            changes = {"kind": {"type": "string", "enum": list(kinds)}}
+            if kinds[0] not in {"other", "unknown"}:
+                changes["unit"] = {"type": "string", "minLength": 1}
+                if kinds[0] == "range":
+                    changes.update({"lower": {"type": "number"}, "upper": {"type": "number"}})
+                else:
+                    changes["value"] = {"type": "number"}
+                if kinds[0] == "bound":
+                    changes["comparator"] = {"type": "string", "enum": ["=", ">", ">=", "<", "<="]}
+            branches.append(variant(result, changes))
+        return {"anyOf": branches}
+    return result

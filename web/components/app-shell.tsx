@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { BookOpen, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
   nextHeaderVisibility,
@@ -11,7 +11,7 @@ import {
 import { HEADER_SLIDE_MOTION } from "@/lib/motion";
 import { toolForPath } from "@/lib/tools";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { HeaderUtilities } from "@/components/header-utilities";
 import { WorkspaceAsk } from "@/components/assistant/workspace-ask";
 
 // Docs runs wider than the tool pages: it carries a section nav and a full
@@ -129,14 +129,14 @@ function ProductHeader({ pathname }: { pathname: string }) {
           {/* Their serif, which is where their own token puts the display face, at a size a
               serif reads at. The emoji it replaces was the only pictogram in the interface and
               belonged to no icon set. */}
-          <span className="shrink-0 font-display text-[15px] font-semibold leading-none">
+          <span className="truncate font-display text-[15px] font-semibold leading-none sm:shrink-0">
             Gates Foundation
           </span>
           <span
-            className="h-3.5 w-px shrink-0 bg-border"
+            className="hidden h-3.5 w-px shrink-0 bg-border lg:block"
             aria-hidden="true"
           />
-          <span className="truncate">Product Development Intelligence Suite</span>
+          <span className="hidden truncate lg:inline">Product Development Intelligence Suite</span>
         </Link>
         {/* No Assistant link. `/ask` renders nothing of its own - a screen-reader heading and
             no content - because the page *is* the shell's assistant switched to its full-page
@@ -144,21 +144,7 @@ function ProductHeader({ pathname }: { pathname: string }) {
             already reachable from the one place a reader looks for it: the maximise button
             inside the floating panel, which says what it does. The panel also carries a count
             of the results it can read, which a nav item cannot. */}
-        <div className="flex shrink-0 items-center gap-1">
-          <Link
-            href="/docs"
-            aria-current={pathname === "/docs" ? "page" : undefined}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 aria-[current=page]:bg-foreground/[0.045] aria-[current=page]:text-foreground motion-reduce:transition-none"
-          >
-            <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-            {/* The word the destination uses: the page's own eyebrow reads "Documentation" and
-                its section nav is labelled the same. "Docs" is software shorthand, and this
-                reader is a product lead rather than a developer. Their own nav abbreviates
-                nothing either: About, Our work, Ideas, Media Center, Discovery Center. */}
-            <span className="hidden sm:inline">Documentation</span>
-          </Link>
-          <ThemeToggle />
-        </div>
+        <HeaderUtilities pathname={pathname} />
       </div>
     </header>
   );

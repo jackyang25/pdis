@@ -31,7 +31,15 @@ traverse the submitted catalog and result trees, find and page exact document
 blocks, inspect retained visuals, and fetch only URLs cited by the submitted
 analyses. Product documentation explains PDIS and is never treated as product
 evidence. Semantic legends define compact runtime labels even when no eligible
-final result is present; they do not expose an active review draft. The API
+final result is present. A mounted Scout checkpoint supplies its draft and selected
+item separately as `active_review`, with retained source blocks through the same
+readers. This context is read-only, is not a final result or skill prerequisite,
+and disappears when the checkpoint unmounts. It is not added to exported results;
+the server stores no review session. Draft blocks and their references receive
+chat-only aliases so revised same-name uploads cannot replace final-result sources;
+canonical IDs remain in block metadata and stored results are untouched.
+Context changes use the existing chat reset
+behavior, so an answer about an earlier selection is not retained as current advice. The API
 exposes `POST /api/assistant/ask/stream`. The
 floating panel and `/ask` page are two views of the same client-held workspace
 context and conversation component.

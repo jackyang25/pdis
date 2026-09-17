@@ -45,6 +45,18 @@ function candidate(id: string, value: number): Measurement {
   };
 }
 
+test("a recorded evidence decision can be corrected without admitting two alternatives", () => {
+  const initial = score();
+  initial.excluded_measurements = [candidate("a", 70), candidate("b", 90)].map(item => ({ ...item, evidence_unit_id: "same-unit" }));
+  const first = reviewQuantitativeCandidateGroup(initial, ["a", "b"], "a");
+  const corrected = reviewQuantitativeCandidateGroup(first, ["a", "b"], "b");
+  assert.deepEqual(corrected.measurements.map(item => item.candidate_id), ["b"]);
+  assert.deepEqual(corrected.excluded_measurements.map(item => item.candidate_id), ["a"]);
+  assert.equal(corrected.excluded_measurements[0].admission_status, "rejected");
+  assert.equal(first.measurements[0].candidate_id, "a");
+  assert.equal(reviewQuantitativeCandidateGroup(first, ["b"], "b"), first, "partial groups cannot replace a recorded decision");
+});
+
 function score(): Conformity {
   return {
     attribute_refs: ["efficacy"],

@@ -7,6 +7,8 @@
     "node": ">=22.6"
   },
   "scripts": {
+    "preview:scout": "node scripts/preview-scout-review.mjs",
+    "test:preview": "node --test scripts/preview-scout-review.test.mjs",
     "predev": "node scripts/copy-shared.mjs",
     "dev": "next dev --webpack",
     "prebuild": "node scripts/copy-shared.mjs",

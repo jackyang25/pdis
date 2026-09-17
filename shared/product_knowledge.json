@@ -150,8 +150,8 @@
           "title": "Review terminology",
           "items": [
             {
-              "term": "Target review",
-              "description": "The pre-retrieval checkpoint for deciding whether a document-owned quantitative proposal is a real measurable commitment rather than background, an example, or a rejected alternative."
+              "term": "Numeric target review",
+              "description": "Review extracted numbers and their qualifiers against the cited document passages before evidence retrieval. Confirm intended document requirements, exclude background numbers, examples, and rejected alternatives, and acknowledge unresolved extraction items. These checkpoints review numeric targets and their evidence; nonnumeric claims are assessed separately and do not appear here."
             },
             {
               "term": "Source passage",
@@ -159,11 +159,11 @@
             },
             {
               "term": "Proposed measurable target",
-              "description": "One number pulled out of the document for review, before anyone has accepted it. Accepted ones become the measurable targets on the result."
+              "description": "An extracted numeric requirement: its number, comparison sign, unit, minimum or optimal role, and qualifiers such as population and timing. It is a proposal until a person confirms it. One document claim can contain several numeric targets."
             },
             {
               "term": "Linked product fields",
-              "description": "The fields one document number applies to. Defines means it sets the field, constrains means it limits it, and context for means it stays traceable without driving any search or statistic. These are readings of one number, not records that update together."
+              "description": "The product fields or claims to which this numeric target is linked. Defines means the target specifies the field; constrains means it limits the field; context for means it provides background without driving that field's search or statistics. The numeric target is stored once and linked by ID, even when several fields use it."
             },
             {
               "term": "Semantic dimensions",
@@ -179,19 +179,23 @@
             },
             {
               "term": "Needs review",
-              "description": "The proposal or comparison could not be recommended confidently and remains explicit rather than being silently admitted."
+              "description": "The AI reviewed a usable proposal but could not confidently recommend accepting or excluding it. Inspect the cited material and record your decision. This is different from a review that could not run."
+            },
+            {
+              "term": "Independent AI review unavailable",
+              "description": "The proposal was extracted, but the independent review did not complete. No AI verdict is implied. You can still inspect its source and mapping, then confirm or exclude a target, or admit or reject evidence."
             },
             {
               "term": "Unresolved extraction",
-              "description": "A number Scout kept for audit but could not pin to a single value it could verify, so it stays out of retrieval and statistics."
+              "description": "A cited passage for which Scout could not produce a usable numeric target. The source may leave the value unclear, or extraction or validation may have failed; the item states which. Acknowledge exclusion keeps that unresolved item out of numeric retrieval and statistics. If part of the passage was resolved, its valid targets remain separate review items."
             },
             {
-              "term": "Evidence review",
+              "term": "Quantitative evidence review",
               "description": "The post-retrieval checkpoint for deciding whether a cited numeric result is comparable enough to enter descriptive statistics for one document target."
             },
             {
               "term": "Comparison check",
-              "description": "The target and one measurement shown side by side. Whether they match is the model's reading; admitting the measurement is the reviewer's decision."
+              "description": "The target's required qualifiers and one external measurement shown side by side, with the mapper's explanation for each. Missing required context is unknown, not a match. Target qualifiers link to their cited document passages; evidence qualifiers are checked against the retained passage from that same source, available with the quotation. The independent reviewer recommends a decision; a person decides admission."
             },
             {
               "term": "Choose one estimate",
@@ -199,14 +203,14 @@
             },
             {
               "term": "Included comparator cohort",
-              "description": "The measurements that entered the statistics: each quoted from its source, measuring the same quantity, and counted once per source. A number is only taken from published literature, a trial registry or a regulator."
+              "description": "The admitted measurements used in descriptive statistics. Only one estimate from each independent evidence unit contributes to a target, so overlapping alternatives are not counted twice. Admission means suitable for comparison, not that the measurement meets the target."
             }
           ]
         },
         {
           "type": "note",
           "title": "Quantitative review",
-          "text": "Two model providers do the two steps, so neither checks its own work. Anthropic reads the document's numbers and the retrieved measurements into a comparable shape. OpenAI then recommends, separately, whether each one should be admitted, excluded, or looked at by a person. A person decides admission. Code checks the rest: provenance, units, duplicates, and arithmetic."
+          "text": "Scout first links document claims to cited passages and product fields. It then extracts numeric targets into one linked quantitative ledger. The first checkpoint reviews those numbers and qualifiers against the document. After retrieval, the second checkpoint reviews external measurements against confirmed targets. Anthropic proposes mappings; OpenAI independently reviews them. Code verifies that quotations exist in retained text and checks structural consistency; AI assesses meaning. Neither replaces your review. Nonnumeric claims remain in the product-field records and follow a separate evidence assessment path."
         },
         {
           "type": "warning",
@@ -240,8 +244,12 @@
               "description": "Assistant can navigate eligible current analyses and direct utility outputs submitted by the client."
             },
             {
+              "term": "Active review",
+              "description": "While a Scout checkpoint is open, Assistant can explain its draft, selected item, recommendations, recorded decisions and cited material. This is read-only temporary context, not a final result. It is removed when the checkpoint closes and is not added to final exports."
+            },
+            {
               "term": "Source documents",
-              "description": "Assistant can find and read the exact parsed text and retained image blocks packaged with available results."
+              "description": "Assistant can find and read the exact parsed text and retained image blocks behind available results and the active review."
             },
             {
               "term": "Conversation attachments",
@@ -266,7 +274,7 @@
         {
           "type": "warning",
           "title": "Workspace boundary",
-          "text": "Assistant cannot inspect an active review draft, mutate a result, run a tool workflow, or retrieve uncited evidence. An absent result means that no eligible current final result was submitted."
+          "text": "Assistant cannot record review decisions, mutate a result, run a tool workflow, or retrieve uncited evidence. An active review draft is separate from final results and does not satisfy a skill requiring a final result. An absent final result means none was submitted."
         },
         {
           "type": "note",
@@ -393,7 +401,7 @@
             },
             {
               "question": "Can Ask see a review I have not finished?",
-              "answer": "No. It receives final results, direct utility outputs, their source blocks, and conversation attachments. An active review draft stays in your browser, and an absent result is reported as absent rather than guessed at from other context."
+              "answer": "Yes, while its Scout checkpoint is open. The client sends the current draft, selected item and retained source context with each chat request, separately from final results. Assistant can explain them but cannot change decisions. Closing the checkpoint removes that temporary chat context; it is not added to the final result JSON."
             }
           ]
         }
@@ -694,8 +702,8 @@
                 },
                 {
                   "id": "target-review",
-                  "title": "Target review",
-                  "summary": "AI recommendations and explicit decisions determine which proposals drive retrieval.",
+                  "title": "Numeric target review",
+                  "summary": "AI recommendations and explicit decisions determine which numeric target proposals drive retrieval and comparison.",
                   "kind": "review",
                   "layer": "Checkpoint",
                   "inputs": [
@@ -818,7 +826,7 @@
                 },
                 {
                   "id": "evidence-review",
-                  "title": "Evidence review and calculation",
+                  "title": "Quantitative evidence review and calculation",
                   "summary": "Explicit admission and evidence-unit deduplication precede descriptive statistics.",
                   "kind": "review",
                   "layer": "Checkpoint and calculation",
@@ -1222,12 +1230,12 @@
             {
               "id": "chat",
               "title": "Assistant",
-              "summary": "Answers read-only questions by navigating only the catalog, documentation, final results, source blocks, attachments, and cited URLs submitted in the current workspace.",
+              "summary": "Answers read-only questions by navigating the catalog, documentation, final results, active review, source blocks, attachments, and cited URLs submitted in the current workspace.",
               "nodes": [
                 {
                   "id": "workspace",
                   "title": "Workspace bundle",
-                  "summary": "The client submits current catalog, eligible results, utility outputs, attachments, and conversation history.",
+                  "summary": "The client submits the catalog, eligible results, any active review separately, utility outputs, attachments, and conversation history.",
                   "kind": "input",
                   "layer": "Input",
                   "inputs": [
@@ -1237,7 +1245,7 @@
                   "outputs": [
                     "Request-scoped read-only context"
                   ],
-                  "guarantee": "Active review drafts and provider credentials are never included."
+                  "guarantee": "Active review context is temporary and separate from final results. Provider credentials are never included."
                 },
                 {
                   "id": "maps",
@@ -1296,7 +1304,7 @@
                     {
                       "id": "results",
                       "title": "Result navigation",
-                      "summary": "Traverses eligible final analysis subtrees and direct utility output.",
+                      "summary": "Traverses final analysis subtrees, direct utility output and separately marked active review context.",
                       "kind": "integration",
                       "layer": "Context reader"
                     },

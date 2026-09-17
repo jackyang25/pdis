@@ -220,8 +220,12 @@ def _system_prompt(
     """
     has_doc = bool(document)
     is_workspace = result_type == "workspace"
+    review = result.get("active_review") if is_workspace else None
+    has_review = isinstance(review, dict) and review.get("phase") in {
+        "target_review", "evidence_review",
+    }
     subject = (
-        "the client-held workspace catalog and its available final analysis results"
+        "the client-held workspace catalog, its available final analysis results, and any explicitly supplied active review draft"
         if is_workspace
         else "ONE analysis result the user just produced"
     )
@@ -237,6 +241,7 @@ def _system_prompt(
     )
 
     context_meaning = f"WHAT THIS CONTEXT IS:\n{legend_for(result_type)}"
+    review_meaning = legend_for("scout_review") if has_review else ""
 
     # Generated from the registry: a hand-written list here once named tools that
     # had been renamed, so the agent was told about a world it did not have.
@@ -384,6 +389,7 @@ def _system_prompt(
     sections = [
         role,
         context_meaning,
+        review_meaning,
         reach,
         document_access,
         grounding_rules,

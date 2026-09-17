@@ -24,6 +24,12 @@ import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "./tools.ts";
  */
 const DURATION = /^approx\. \d+ min$/;
 
+test("GHIDE tool titles do not repeat their workflow section's audience", () => {
+  for (const tool of EXTERNAL_TOOLS.filter((tool) => tool.audience === "ghide")) {
+    assert.doesNotMatch(tool.title, /^GHIDE\b/);
+  }
+});
+
 test("every available workspace tool states how long a run takes", () => {
   const available = WORKSPACE_TOOLS.filter((tool) => tool.availability === "available");
   assert.ok(available.length > 0, "no available workspace tools were found");
@@ -196,7 +202,7 @@ test("a nav label is the word its destination uses", () => {
   // who is a product lead rather than a developer. Their own nav abbreviates nothing: About,
   // Our work, Ideas, Media Center, Discovery Center.
   const shell = readFileSync(
-    path.resolve(import.meta.dirname, "..", "components", "app-shell.tsx"),
+    path.resolve(import.meta.dirname, "..", "components", "header-utilities.tsx"),
     "utf8",
   );
   const code = shell.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");

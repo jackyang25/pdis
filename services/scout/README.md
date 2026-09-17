@@ -16,7 +16,52 @@ serializers from `services.scout`. The initial call returns a portable target
 review draft. Retrieval begins only after required decisions are resolved; a
 later evidence review finalizes quantitative admission.
 
+Both review checkpoints separate run-level advancement from item-level decisions.
+Recorded target and evidence decisions remain editable until that checkpoint is
+submitted. An evidence correction replaces the whole source-unit decision, so
+only one alternative can be admitted. The client recalculates the cohort using
+the existing calculation rules; it retains no undo snapshots. The comparison
+table shows the mapper's per-field results and explanations, with non-controlling
+fields available in a disclosure. The independent AI recommendation remains
+separate. The overall mapper summary stays in the artifact, not repeated in the
+review panel.
+
+Review and final comparator details share a read-only comparison component.
+It exposes source-ownership reasoning and each target qualifier's retained
+document citations; fields with no cited spans receive no inferred citation.
+Final admitted and excluded measurements both retain this inspection path.
+
 ## Contract
+
+### Numeric review responsibilities
+
+The first checkpoint reviews numeric targets, not every document claim. Claims
+and their cited passages live on attributes; numeric targets live once in the
+quantitative ledger and link back to those attributes. Nonnumeric claims retain
+their separate evidence assessment path.
+
+Numeric mapping sends one source block per request. Existing canonical field
+bindings supply consistent document context; they are not additional extraction
+subjects. Several numeric requirements within that block may be proposed together.
+The independent target reviewer receives the actual expression, target role,
+qualifiers, cited text, and complete retained document. Evidence review receives
+the selected quotation and the retained passage used by its mapper, from the same
+source. Missing qualifiers cannot be borrowed from unrelated sources.
+
+`flag` means a model could not reach a confident verdict. `unavailable` is a
+code-authored independent-review failure with `ai_review_failure_code`; a usable
+proposal still permits a human decision. `mapping_failed` carries `failure_code`
+and means no usable target was produced for that item. Source ambiguity remains
+`uncertain`. Unresolved items require acknowledgement; valid siblings of a partial
+extraction remain reviewable. None of these failures silently admits a proposal.
+
+`NumericExpression.display` supplies calendar-year presentation or grammatical
+unit forms. Mapping authors this metadata; the shared browser formatter consumes
+it without guessing from the number. It changes neither numeric identity nor
+arithmetic. Scout's artifact version is 2 for the expanded saved contract.
+
+For a disposable preview of both checkpoints and their decision states, see
+[the review preview guide](../../web/test-support/README.md).
 
 TPP fields and dynamically extracted IPDP claims converge to the same
 document-bound `Attribute` before retrieval. Each attribute retains its stable

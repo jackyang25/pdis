@@ -80,12 +80,16 @@ export function reviewQuantitativeCandidateGroup(
   const candidates = all.filter((item) => requested.has(item.candidate_id));
   if (
     candidates.length !== requested.size
-    || candidates.some((item) => item.admission_status !== "needs_review")
+    || candidates.some((item) => item.evidence_mode !== "prose" || !["needs_review", "approved", "rejected"].includes(item.admission_status))
     || (selectedCandidateId != null && !requested.has(selectedCandidateId))
   ) return score;
 
   const unitIds = new Set(candidates.map(evidenceUnitId));
   if (unitIds.size !== 1) return score;
+  // A correction replaces the whole decision, never just the rejected alternative.
+  if (all.some(item => unitIds.has(evidenceUnitId(item))
+    && ["needs_review", "approved", "rejected"].includes(item.admission_status)
+    && !requested.has(item.candidate_id))) return score;
 
   const byId = new Map(all.map((item) => [item.candidate_id, item]));
   for (const candidate of candidates) {

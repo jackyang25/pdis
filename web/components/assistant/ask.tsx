@@ -92,11 +92,13 @@ export function Ask({
   resultType,
   result,
   availableResultCount,
+  reviewPhase,
   display = "floating",
 }: {
   resultType: string;
   result?: unknown;
   availableResultCount?: number;
+  reviewPhase?: string;
   display?: "floating" | "page";
 }) {
   const [open, setOpen] = useState(false);
@@ -258,7 +260,9 @@ export function Ask({
     );
   }
 
-  const suggestions = attachments.length > 0 && resultCount > 0
+  const suggestions = reviewPhase
+    ? ["Explain the selected review item.", "What evidence should I check before deciding?"]
+    : attachments.length > 0 && resultCount > 0
     ? ["Summarize the attached context.", "Compare the attachment with my results."]
     : attachments.length > 0
       ? ["Summarize the attached context.", "What important details does it contain?"]
@@ -286,7 +290,7 @@ export function Ask({
           <div className="min-w-0">
             <span className="block text-sm font-semibold">PDIS Assistant</span>
             <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-              {workspaceStatus(resultCount, attachments.length, hasDocument)}
+              {workspaceStatus(resultCount, attachments.length, hasDocument, reviewPhase)}
             </span>
           </div>
         </div>
@@ -622,15 +626,18 @@ function workspaceStatus(
   resultCount: number,
   attachmentCount: number,
   hasDocument: boolean,
+  reviewPhase?: string,
 ): string {
   const parts: string[] = [];
+  if (reviewPhase === "target_review") parts.push("Numeric target review draft");
+  if (reviewPhase === "evidence_review") parts.push("Quantitative evidence review draft");
   if (resultCount > 0) {
     parts.push(`${resultCount} ${resultCount === 1 ? "result" : "results"}`);
   }
   if (attachmentCount > 0) {
     parts.push(`${attachmentCount} ${attachmentCount === 1 ? "attachment" : "attachments"}`);
   }
-  if (parts.length === 0) return "Tool guide · no results available";
+  if (parts.length === 0) return "No results available";
   if (hasDocument && attachmentCount === 0) parts.push("source context included");
   return parts.join(" · ");
 }

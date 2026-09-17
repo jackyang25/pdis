@@ -1,10 +1,13 @@
 "use client";
+import { usePublishReviewContext, type ReviewSelection } from "@/lib/assistant-review-context";
 
 import { useTraceFocus } from "@/lib/trace-focus";
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -60,9 +63,7 @@ import {
   type QuantitativeStatementDisposition,
   type Variable,
   type NumericExpression,
-  type QuantitativeSemanticProfile,
   type QuantitativeTarget,
-  type SemanticSlot,
   type ScoutResponse,
   type SearchTrace,
   type SafetyObservation,
@@ -138,6 +139,8 @@ import { EvidenceProvenance } from "@/components/evidence-provenance";
 import { FieldSearches } from "@/components/field-searches";
 import { ExcludedMeasurements } from "@/components/excluded-measurements";
 import { ComparatorCohort } from "@/components/comparator-cohort";
+import { ScoutComparison, TargetQualifierSource } from "@/components/scout-comparison";
+import { semanticSlotLabel, dimensionLabel, comparisonDimensions, comparisonRuleLabel } from "@/lib/scout-comparison";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RELATION_ORDER, sortMatchesForReading } from "@/lib/scout-match-order";
 import {
@@ -224,7 +227,7 @@ const SCOUT_STEPS = [
   { key: "unit_reconciliation", label: "Reconciling document claims" },
   { key: "targets", label: "Binding document fields" },
   { key: "quantitative_targets", label: "Structuring measurable targets" },
-  { key: "target_review", label: "Prefilling target review" },
+  { key: "target_review", label: "Prefilling numeric target review" },
   { key: "queries", label: "Extracting queries" },
   { key: "search", label: "Searching evidence sources" },
   { key: "insights", label: "Extracting insights" },
@@ -261,10 +264,10 @@ function formatNumericExpression(expression: NumericExpression): string {
   ) {
     return expression.lower == null || expression.upper == null
       ? "Unresolved numeric expression"
-      : `${expression.lower}–${formatMeasure(expression.upper, unit)}`;
+      : formatMeasurePair(expression.lower, expression.upper, unit, "–", expression.display);
   }
   if (expression.value == null) return "Unresolved numeric expression";
-  return `${expression.comparator} ${formatMeasure(expression.value, unit)}`;
+  return `${expression.comparator} ${formatMeasure(expression.value, unit, expression.display)}`.trim();
 }
 
 function formatAttributeRefs(
@@ -486,10 +489,8 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   } = useScoutSession();
   const {
     status: reviewStatus,
-    history: reviewHistory,
     initialize: initializeReview,
     recordDecision,
-    undoLast,
     finalize: finalizeReview,
     reset: resetReview,
   } = useScoutReviewSession();
@@ -625,7 +626,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
   async function handleContinueAnalysis() {
     if (!result || result.phase !== "target_review") return;
     if (pendingQuantitativeReviewCount(result) > 0) {
-      setError("Resolve every document-target review item before continuing.");
+      setError("Resolve every numeric target review item before continuing.");
       return;
     }
     setBusy(true);
@@ -651,7 +652,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     candidateIds: string[],
     selectedCandidateId: string | null,
   ) {
-    if (!result) return;
+    if (!result || result.phase !== "evidence_review") return;
     const previousScore = result.conformity.find(
       (score) => score.target_id === targetId,
     );
@@ -669,13 +670,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
       ),
     };
     setResult(nextResult);
-    recordDecision(
-      {
-        decision: selectedCandidateId == null ? "reject" : "approve",
-        previousConformity: result.conformity,
-      },
-      pendingQuantitativeReviewCount(nextResult) > 0,
-    );
+    recordDecision(pendingQuantitativeReviewCount(nextResult) > 0);
   }
 
   function handleAcceptEvidenceRecommendations() {
@@ -685,17 +680,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
       return;
     const nextResult = { ...result, conformity };
     setResult(nextResult);
-    recordDecision(
-      { decision: "bulk", previousConformity: result.conformity },
-      pendingQuantitativeReviewCount(nextResult) > 0,
-    );
-  }
-
-  function handleUndoReview() {
-    if (!result) return;
-    const entry = undoLast();
-    if (!entry) return;
-    setResult({ ...result, conformity: entry.previousConformity });
+    recordDecision(pendingQuantitativeReviewCount(nextResult) > 0);
   }
 
   function handleFinalizeReview() {
@@ -754,8 +739,6 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
             onNewAnalysis={() => setShowRunPanel(true)}
             onReview={handleQuantitativeReview}
             onAcceptRecommendations={handleAcceptEvidenceRecommendations}
-            onUndo={handleUndoReview}
-            canUndo={reviewHistory.length > 0}
             readyToFinalize={reviewStatus === "ready"}
             onFinalize={handleFinalizeReview}
           />
@@ -798,6 +781,7 @@ function DocumentTargetReviewCheckpoint({
   const statements = result.quantitative_ledger.reviews.filter(
     (review) =>
       review.classification === "uncertain" ||
+      review.classification === "mapping_failed" ||
       review.classification === "partial_target",
   );
   const pendingTargets = targets.filter(
@@ -824,14 +808,20 @@ function DocumentTargetReviewCheckpoint({
     setSelectedItem(firstPendingKey);
   }, [firstPendingKey, itemKeys, selectedItem]);
 
-  const target = selectedItem?.startsWith("target:")
-    ? targets.find((item) => item.id === selectedItem.slice("target:".length))
+  const activeKey = selectedItem ?? firstPendingKey;
+  const target = activeKey?.startsWith("target:")
+    ? targets.find((item) => item.id === activeKey.slice("target:".length))
     : undefined;
-  const statement = selectedItem?.startsWith("statement:")
+  const statement = activeKey?.startsWith("statement:")
     ? statements.find(
-        (item) => item.unit_id === selectedItem.slice("statement:".length),
+        (item) => item.unit_id === activeKey.slice("statement:".length),
       )
     : undefined;
+  const chatSelection = useMemo<ReviewSelection | null>(() => target
+    ? { kind: "target", target_id: target.id }
+    : statement ? { kind: "statement", unit_id: statement.unit_id } : null,
+  [target?.id, statement?.unit_id]);
+  usePublishReviewContext(result, chatSelection);
   const linkedVariables = target
     ? target.field_links.flatMap((link) => {
         const variable = result.variables.find(
@@ -853,14 +843,6 @@ function DocumentTargetReviewCheckpoint({
       item.ai_recommendation === "confirm" ||
       item.ai_recommendation === "exclude",
   ).length;
-  const confirmRecommendationCount = pendingTargets.filter(
-    (item) => item.ai_recommendation === "confirm",
-  ).length;
-  const excludeRecommendationCount = pendingTargets.filter(
-    (item) => item.ai_recommendation === "exclude",
-  ).length;
-  const manualTargetCount =
-    pendingTargets.length - recommendedTargetCount + pendingStatements.length;
 
   function nextPendingKey(currentKey: string): string | null {
     const remaining = [
@@ -896,27 +878,24 @@ function DocumentTargetReviewCheckpoint({
         )}
       >
         <ReviewCheckpointHeader
-          eyebrow="Target review"
-          title="Review document targets"
-          description="Confirm that each proposed number is a real document commitment, not background context, an example, or a rejected alternative."
+          eyebrow="Numeric target review"
+          title="Review numeric targets"
+          description="Confirm that each extracted number and its qualifiers represent an intended document requirement."
           help={
             <>
-              Scout has tied each item to a canonical document field and exact
-              source passage. Confirm measurable targets before they shape
-              retrieval and statistics. Excluded items remain in the audit
-              ledger.
+              Check each numeric target against its cited document passages.
+              Exclude background numbers, examples, and rejected alternatives;
+              acknowledge any unresolved extraction items. These checkpoints
+              review numeric targets and their evidence. Nonnumeric claims are
+              assessed separately and do not appear here. Excluded items remain
+              traceable.
             </>
           }
           completed={completed}
           total={total}
-          progressLabel="Document target review progress"
+          progressLabel="Numeric target review progress"
           actions={
             <>
-              {pendingTargets.length + pendingStatements.length === 0 && (
-                <Button size="sm" disabled={busy} onClick={onContinue}>
-                  {busy ? "Continuing…" : "Continue to evidence"}
-                </Button>
-              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -930,25 +909,10 @@ function DocumentTargetReviewCheckpoint({
         />
 
         <ReviewOverview
-          description="Every source-verifiable proposal was reviewed against the complete document. Select an item to inspect its source and change the recommendation before retrieval begins."
+          description="Select an item to check its source and record your decision. AI recommendations are suggestions until you accept them."
+          advance={<Button size="sm" disabled={busy || completed !== total} onClick={onContinue}>{busy ? "Continuing…" : "Continue to evidence review"}</Button>}
           counts={
             <>
-              {flaggedCount > 0 ? (
-                <>
-                  <ReviewCount
-                    tone="success"
-                    label={`${confirmRecommendationCount} confirm recommended`}
-                  />
-                  <ReviewCount
-                    tone="neutral"
-                    label={`${excludeRecommendationCount} exclude recommended`}
-                  />
-                  <ReviewCount
-                    tone="warning"
-                    label={`${manualTargetCount} needs review`}
-                  />
-                </>
-              ) : (
                 <>
                   <ReviewCount
                     tone="success"
@@ -958,21 +922,21 @@ function DocumentTargetReviewCheckpoint({
                     tone="neutral"
                     label={`${excludedCount} excluded`}
                   />
+                  <ReviewCount tone="warning" label={`${flaggedCount} remaining`} />
                 </>
-              )}
             </>
           }
           actions={
             recommendedTargetCount > 0 ? (
-              <Button size="sm" onClick={onAcceptRecommendations}>
-                Accept {recommendedTargetCount} AI recommendations
+              <Button variant="outline" size="sm" disabled={busy} onClick={onAcceptRecommendations}>
+                Accept {recommendedTargetCount} AI recommendation{recommendedTargetCount === 1 ? "" : "s"}
               </Button>
             ) : undefined
           }
         >
           {targets.map((item) => {
             const presentation = targetReviewPresentation(item);
-            const selected = selectedItem === `target:${item.id}`;
+            const selected = activeKey === `target:${item.id}`;
             return (
               <ReviewListRow
                 key={item.id}
@@ -991,7 +955,7 @@ function DocumentTargetReviewCheckpoint({
           })}
           {statements.map((item) => {
             const pending = item.review_status === "needs_review";
-            const selected = selectedItem === `statement:${item.unit_id}`;
+            const selected = activeKey === `statement:${item.unit_id}`;
             return (
               <ReviewListRow
                 key={item.unit_id}
@@ -1004,7 +968,7 @@ function DocumentTargetReviewCheckpoint({
                 subtitle={
                   item.classification === "partial_target"
                     ? "Partially resolved extraction"
-                    : "Unresolved extraction"
+                    : item.classification === "mapping_failed" ? "Extraction failed" : "Source unclear"
                 }
                 status={pending ? "Needs review" : "Excluded"}
                 tone={pending ? "warning" : "neutral"}
@@ -1040,7 +1004,10 @@ function DocumentTargetReviewCheckpoint({
                 <dl className="mt-5 grid gap-x-5 gap-y-4 sm:grid-cols-2">
                   {comparisonDimensions(target).map((dimension) => (
                     <div key={dimension} className="min-w-0">
-                      <dt className={EYEBROW}>{dimensionLabel(dimension)}</dt>
+                      <dt className="flex flex-wrap items-center justify-between gap-2">
+                        <span className={EYEBROW}>{dimensionLabel(dimension)}</span>
+                        <TargetQualifierSource target={target} dimension={dimension} />
+                      </dt>
                       <dd className="mt-0.5 text-xs leading-relaxed text-foreground">
                         {semanticSlotLabel(target.semantic_profile[dimension])}
                       </dd>
@@ -1052,7 +1019,7 @@ function DocumentTargetReviewCheckpoint({
                     </div>
                   ))}
                 </dl>
-                <div className="mt-5 border-t border-border/60 pt-4">
+                {linkedVariables.length > 0 && <div className="mt-5 border-t border-border/60 pt-4">
                   <SectionLabel>Linked product fields</SectionLabel>
                   <div className="mt-2 space-y-2">
                     {linkedVariables.map(({ link, variable }) => (
@@ -1063,25 +1030,12 @@ function DocumentTargetReviewCheckpoint({
                         <span className="font-medium text-foreground">
                           {displayAttributeLabel(variable.name)}
                         </span>
-                        <span className="ml-2 capitalize text-muted-foreground">
-                          {link.relation.replace("_", " ")}
-                          {link.reason ? ` · ${link.reason}` : ""}
-                        </span>
+                        <p className="mt-1 text-muted-foreground">Relationship: {link.relation === "context_for" ? "Context for this field" : link.relation === "constrains" ? "Constrains this field" : "Defines this field"}</p>
+                        {link.reason && <p className="mt-1 text-muted-foreground">{link.reason}</p>}
                       </div>
                     ))}
                   </div>
-                </div>
-                <ReviewRecommendation
-                  label={
-                    aiRecommendationPresentation(target.ai_recommendation).label
-                  }
-                  tone={
-                    aiRecommendationPresentation(target.ai_recommendation).tone
-                  }
-                >
-                  {target.ai_review_reason ||
-                    "No explanation was returned; review this proposal manually."}
-                </ReviewRecommendation>
+                </div>}
               </>
             }
           />
@@ -1127,24 +1081,35 @@ function DocumentTargetReviewCheckpoint({
           </div>
         )}
 
-        <footer className="flex flex-col-reverse gap-2 border-t border-border/60 bg-foreground/[0.045] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+        {target && <div className="border-t border-border/60 px-5 pb-5 sm:px-7">
+          <ReviewRecommendation
+            unavailable={target.ai_recommendation === "unavailable"}
+            label={aiRecommendationPresentation(target.ai_recommendation).label}
+            tone={aiRecommendationPresentation(target.ai_recommendation).tone}
+          >{target.ai_review_reason || "No explanation was returned; review this proposal manually."}</ReviewRecommendation>
+        </div>}
+
+        <ReviewDecisionFooter>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             {busy
               ? `${stage ? (SCOUT_STEPS.find((item) => item.key === stage)?.label ?? stage) : "Continuing analysis"}${progress ? ` · ${progress.completed}/${progress.total}` : ""}`
-              : "Every decision is stored in the portable draft; no hidden server state is used."}
+              : target?.review_status === "approved" ? "Your decision: confirmed. You can change it below."
+              : target?.review_status === "rejected" ? "Your decision: excluded. You can change it below."
+              : statement?.review_status === "accepted_exclusion" ? "Exclusion acknowledged."
+              : "Check the source, then record your decision."}
           </p>
           <ReviewActions>
             {target && (
               <>
                 <Button
                   variant="outline"
-                  disabled={busy}
+                  disabled={busy || target.review_status === "rejected"}
                   onClick={() => decideTarget(target.id, "rejected")}
                 >
                   Exclude as context
                 </Button>
                 <Button
-                  disabled={busy}
+                  disabled={busy || target.review_status === "approved"}
                   onClick={() => decideTarget(target.id, "approved")}
                 >
                   Confirm target
@@ -1153,7 +1118,7 @@ function DocumentTargetReviewCheckpoint({
             )}
             {statement && (
               <Button
-                disabled={busy}
+                disabled={busy || statement.review_status === "accepted_exclusion"}
                 onClick={() => decideStatement(statement.unit_id)}
               >
                 {statement.classification === "partial_target"
@@ -1161,15 +1126,8 @@ function DocumentTargetReviewCheckpoint({
                   : "Acknowledge exclusion"}
               </Button>
             )}
-            {!target &&
-              !statement &&
-              pendingTargets.length + pendingStatements.length === 0 && (
-                <Button disabled={busy} onClick={onContinue}>
-                  {busy ? "Continuing…" : "Continue to evidence"}
-                </Button>
-              )}
           </ReviewActions>
-        </footer>
+        </ReviewDecisionFooter>
       </section>
     </DocumentSourceProvider>
   );
@@ -1185,8 +1143,12 @@ function ReviewCount({ tone, label }: { tone: Tone; label: string }) {
 }
 
 /** Both checkpoints keep header and footer decisions reachable at narrow widths. */
-function ReviewActions({ children }: { children: ReactNode }) {
-  return <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>;
+function ReviewActions({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn("flex min-w-0 flex-wrap items-center gap-2", className)}>{children}</div>;
+}
+
+function ReviewDecisionFooter({ children }: { children: ReactNode }) {
+  return <footer className="flex flex-col gap-3 border-t border-border/60 bg-foreground/[0.045] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">{children}</footer>;
 }
 
 function ReviewCheckpointHeader({
@@ -1210,8 +1172,10 @@ function ReviewCheckpointHeader({
 }) {
   return (
     <header className="border-b border-border/60 px-5 py-5 sm:px-7">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+      {/* Reserve the actions' width instead of letting the description squeeze them
+          into partial rows. Below desktop, place the group under the description. */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+        <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <p className={EYEBROW}>{eyebrow}</p>
             <ReviewHelp>{help}</ReviewHelp>
@@ -1221,7 +1185,11 @@ function ReviewCheckpointHeader({
           </h2>
           <SectionDescription>{description}</SectionDescription>
         </div>
-        {actions && <ReviewActions>{actions}</ReviewActions>}
+        {actions && (
+          <ReviewActions className="flex-col items-stretch sm:flex-row sm:flex-nowrap sm:justify-end">
+            {actions}
+          </ReviewActions>
+        )}
       </div>
       <div className="mt-4 flex items-center gap-3">
         <div
@@ -1249,35 +1217,44 @@ function ReviewOverview({
   description,
   counts,
   actions,
+  advance,
   children,
 }: {
   description: string;
   counts: ReactNode;
   actions?: ReactNode;
+  advance?: ReactNode;
   children: ReactNode;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  // Keep auto-advance visible inside the list without moving the whole page.
+  useEffect(() => {
+    const list = listRef.current;
+    const active = list?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!list || !active) return;
+    const bounds = list.getBoundingClientRect();
+    const row = active.getBoundingClientRect();
+    if (row.top < bounds.top) list.scrollTop += row.top - bounds.top;
+    else if (row.bottom > bounds.bottom) list.scrollTop += row.bottom - bounds.bottom;
+  });
   return (
     <div className="border-b border-border/60 bg-foreground/[0.045] px-5 py-5 sm:px-7">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="space-y-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-foreground">
-              Review overview
+              Review items
             </h3>
-            <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              AI prefilled
-            </span>
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] tabular-nums text-muted-foreground" role="status">{counts}</div>
           </div>
           <SectionDescription>{description}</SectionDescription>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex flex-wrap items-center gap-3 text-[11px] font-medium text-muted-foreground">
-            {counts}
-          </div>
-          {actions}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <ReviewActions>{actions}</ReviewActions>
+          <ReviewActions>{advance}</ReviewActions>
         </div>
       </div>
-      <div className="mt-4 max-h-72 overflow-y-auto rounded-lg border border-border/60 bg-card">
+      <div ref={listRef} className="mt-4 max-h-72 overflow-y-auto rounded-lg border border-border/60 bg-card">
         <div className="divide-y divide-border/70">{children}</div>
       </div>
     </div>
@@ -1307,21 +1284,19 @@ function ReviewListRow({
     <button
       type="button"
       onClick={onSelect}
-      className={`grid w-full gap-2 px-3 py-2.5 text-left transition-colors hover:bg-foreground/[0.045] sm:grid-cols-[minmax(0,0.9fr)_minmax(9rem,0.7fr)_minmax(0,1.4fr)] sm:items-center ${selected ? "bg-foreground/[0.07]" : "bg-card"}`}
+      className={`grid w-full gap-2 px-4 py-3 text-left transition-colors hover:bg-foreground/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] sm:items-center ${selected ? "bg-foreground/[0.07]" : "bg-card"}`}
       aria-current={selected ? "true" : undefined}
     >
       <span className="min-w-0">
-        <span className="block truncate text-[11px] font-medium text-foreground">
+        <span className="block break-words text-xs font-medium text-foreground">
           {title}
         </span>
-        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+        <span className="mt-0.5 block break-words text-[11px] text-muted-foreground">
           {subtitle}
         </span>
+        <span className="mt-1 block truncate text-[11px] text-muted-foreground">{detail}</span>
       </span>
       <VerdictPill label={status} tone={tone === "positive" ? "success" : tone} className="w-fit" />
-      <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-        {detail}
-      </span>
     </button>
   );
 }
@@ -1347,23 +1322,24 @@ function ReviewRecommendation({
   label,
   tone,
   children,
+  unavailable = false,
 }: {
   label: string;
   tone: ReviewTone;
   children: ReactNode;
+  unavailable?: boolean;
 }) {
-  const accent = {
-    positive: TONE_TEXT.success,
-    neutral: "text-muted-foreground",
-    warning: TONE_TEXT.warning,
-  }[tone];
   return (
     <div className="mt-4 rounded-lg border border-border/60 bg-foreground/[0.045] p-3">
-      <p className={cn(EYEBROW, accent)}>AI recommendation · {label}</p>
-      <Reading>{children}</Reading>
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-semibold text-foreground">{unavailable ? "Independent AI review unavailable" : "Independent AI recommendation"}</h3>
+        <VerdictPill label={label} tone={tone === "positive" ? "success" : tone} />
+      </div>
+      {unavailable ? <InterfaceNote>{children} You can still review the source and record your own decision.</InterfaceNote> : <Reading>{children}</Reading>}
     </div>
   );
 }
+
 
 /**
  * The sentence under a heading.
@@ -1420,6 +1396,8 @@ function targetReviewPresentation(target: QuantitativeTarget): {
     return { label: "Confirm recommended", tone: "positive" };
   if (target.ai_recommendation === "exclude")
     return { label: "Exclude recommended", tone: "neutral" };
+  if (target.ai_recommendation === "unavailable")
+    return { label: "AI review unavailable", tone: "warning" };
   return { label: "Needs review", tone: "warning" };
 }
 
@@ -1430,6 +1408,8 @@ function aiRecommendationPresentation(
     return { label: "Confirm", tone: "positive" };
   if (recommendation === "exclude")
     return { label: "Exclude", tone: "neutral" };
+  if (recommendation === "unavailable")
+    return { label: "Review unavailable", tone: "warning" };
   return { label: "Review manually", tone: "warning" };
 }
 
@@ -1446,6 +1426,9 @@ function evidenceReviewPresentation(measurements: Measurement[]): {
   const pending = measurements.filter(
     (item) => item.admission_status === "needs_review",
   );
+  if (pending.some((item) => item.ai_recommendation === "unavailable")) {
+    return { label: "AI review unavailable", tone: "warning" };
+  }
   if (pending.some((item) => item.ai_recommendation === "admit")) {
     return { label: "Admit recommended", tone: "positive" };
   }
@@ -1458,44 +1441,6 @@ function evidenceReviewPresentation(measurements: Measurement[]): {
   return { label: "Needs review", tone: "warning" };
 }
 
-function semanticSlotLabel(slot: SemanticSlot | undefined): string {
-  if (!slot) return "Not available";
-  if (slot.state === "specified") return slot.value || "Specified";
-  if (slot.state === "other") return slot.other || "Other";
-  if (slot.state === "unknown") return "Unknown";
-  return "Not specified";
-}
-
-function dimensionLabel(value: string): string {
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function comparisonDimensions(
-  target: QuantitativeTarget,
-): Array<keyof QuantitativeSemanticProfile> {
-  return (
-    Object.keys(target.comparison_contract) as Array<
-      keyof QuantitativeSemanticProfile
-    >
-  ).filter(
-    (dimension) =>
-      target.comparison_contract[dimension].mode !== "unconstrained",
-  );
-}
-
-function comparisonRuleLabel(
-  rule:
-    | QuantitativeTarget["comparison_contract"][keyof QuantitativeSemanticProfile]
-    | undefined,
-): string {
-  if (!rule) return "Comparison scope unavailable";
-  if (rule.mode === "unconstrained") return "Does not control comparison";
-  if (rule.mode === "unknown")
-    return `Scope needs review${rule.reason ? ` · ${rule.reason}` : ""}`;
-  return `${rule.mode === "exact" ? "Exact" : "Compatible"} scope · ${rule.scope}`;
-}
 
 function evidenceUnitLabel(measurement: Measurement): string {
   const labels = [
@@ -1509,13 +1454,62 @@ function evidenceUnitLabel(measurement: Measurement): string {
   return labels.length > 0 ? labels.join(" · ") : "Source-level result";
 }
 
+/** Viewing an estimate is separate from admitting it. Recorded decisions win over AI hints. */
+function defaultReviewEstimateId(measurements: Measurement[]): string | null {
+  return measurements.find(item => item.admission_status === "approved")?.candidate_id
+    ?? measurements.find(item => item.admission_status === "needs_review" && item.ai_recommendation === "admit")?.candidate_id
+    ?? (measurements.every(item => item.admission_status !== "needs_review")
+      ? measurements[0]?.candidate_id ?? null : null);
+}
+
+function ReviewEstimateChoices({ measurements, selectedId, onSelect, pending }: {
+  measurements: Measurement[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  pending: boolean;
+}) {
+  const name = useId();
+  return (
+    <fieldset className="min-w-0">
+      <legend className={EYEBROW}>{pending ? "Choose one estimate" : "Inspect estimates"}</legend>
+      <SectionDescription>
+        {pending
+          ? "These estimates are grouped to avoid counting overlapping evidence twice. Select one to inspect, then admit it or reject all."
+          : "Select an estimate to inspect it. Use the decision buttons below to change which estimate is admitted."}
+      </SectionDescription>
+      <div className="mt-3 space-y-2">
+        {measurements.map(item => {
+          const presentation = evidenceReviewPresentation([item]);
+          return (
+            <label key={item.candidate_id} className={cn(
+              "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors focus-within:ring-2 focus-within:ring-ring motion-reduce:transition-none",
+              selectedId === item.candidate_id ? "border-foreground/45 bg-foreground/[0.07]" : "border-border/60 hover:bg-foreground/[0.045]",
+            )}>
+              <input type="radio" name={name} value={item.candidate_id}
+                checked={selectedId === item.candidate_id}
+                onChange={() => onSelect(item.candidate_id)}
+                className="mt-1 h-4 w-4 shrink-0 accent-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-foreground">{formatNumericExpression(item.expression)}</span>
+                  <VerdictPill label={presentation.label} tone={presentation.tone === "positive" ? "success" : presentation.tone} />
+                </span>
+                <span className="mt-1 block text-[11px] text-muted-foreground">{evidenceUnitLabel(item)}</span>
+                <span className="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-foreground">{item.source_quote}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 function QuantitativeReviewCheckpoint({
   result,
   onNewAnalysis,
   onReview,
   onAcceptRecommendations,
-  onUndo,
-  canUndo,
   readyToFinalize,
   onFinalize,
 }: {
@@ -1527,8 +1521,6 @@ function QuantitativeReviewCheckpoint({
     selectedCandidateId: string | null,
   ) => void;
   onAcceptRecommendations: () => void;
-  onUndo: () => void;
-  canUndo: boolean;
   readyToFinalize: boolean;
   onFinalize: () => void;
 }) {
@@ -1548,6 +1540,11 @@ function QuantitativeReviewCheckpoint({
           measurement.admission_status,
         ),
     );
+  const estimateOrder = useRef<string[]>([]);
+  for (const { measurement } of allCandidates) {
+    if (!estimateOrder.current.includes(measurement.candidate_id)) estimateOrder.current.push(measurement.candidate_id);
+  }
+  allCandidates.sort((a, b) => estimateOrder.current.indexOf(a.measurement.candidate_id) - estimateOrder.current.indexOf(b.measurement.candidate_id));
   const grouped = new Map<string, typeof allCandidates>();
   for (const item of allCandidates) {
     const unitId =
@@ -1555,7 +1552,10 @@ function QuantitativeReviewCheckpoint({
     const key = `${item.score.target_id}::${unitId}`;
     grouped.set(key, [...(grouped.get(key) ?? []), item]);
   }
-  const groups = Array.from(grouped.entries());
+  // Inclusion moves estimates between arrays, but must not move the reader's rows.
+  const order = useRef<string[]>([]);
+  for (const key of grouped.keys()) if (!order.current.includes(key)) order.current.push(key);
+  const groups = Array.from(grouped.entries()).sort(([a], [b]) => order.current.indexOf(a) - order.current.indexOf(b));
   const pendingGroups = groups.filter(([, items]) =>
     items.some(
       ({ measurement }) => measurement.admission_status === "needs_review",
@@ -1572,19 +1572,17 @@ function QuantitativeReviewCheckpoint({
     groups.find(([key]) => key === selectedGroupKey) ??
     pendingGroups[0] ??
     groups[0];
-  const recommendedCandidateId =
-    current?.[1].find(
-      ({ measurement }) =>
-        measurement.admission_status === "needs_review" &&
-        measurement.ai_recommendation === "admit",
-    )?.measurement.candidate_id ?? null;
-  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(
-    null,
-  );
-  useEffect(
-    () => setSelectedCandidateId(recommendedCandidateId),
-    [current?.[0], recommendedCandidateId],
-  );
+  const defaultCandidateId = defaultReviewEstimateId(current?.[1].map(item => item.measurement) ?? []);
+  const [estimateSelection, setEstimateSelection] = useState<{ group: string; candidate: string } | null>(null);
+  const selectedCandidateId = estimateSelection?.group === current?.[0]
+    && current?.[1].some(item => item.measurement.candidate_id === estimateSelection.candidate)
+    ? estimateSelection.candidate : defaultCandidateId;
+  const chatSelection = useMemo<ReviewSelection | null>(() => current ? {
+    kind: "evidence", target_id: current[1][0].score.target_id,
+    candidate_ids: current[1].map(item => item.measurement.candidate_id),
+    selected_candidate_id: selectedCandidateId,
+  } : null, [result, current?.[0], selectedCandidateId]);
+  usePublishReviewContext(result, chatSelection);
   if (!current) return null;
 
   const [currentGroupKey, groupItems] = current;
@@ -1597,20 +1595,13 @@ function QuantitativeReviewCheckpoint({
   const activeItem = multiple
     ? (reviewItems.find(
         ({ measurement }) => measurement.candidate_id === selectedCandidateId,
-      ) ?? reviewItems[0])
+      ))
     : reviewItems[0];
   const measurement = activeItem?.measurement;
   const target: QuantitativeTarget | undefined =
     result.quantitative_ledger.targets.find(
       (item) => item.id === score.target_id,
     );
-  const dimensions = measurement
-    ? ((target
-        ? comparisonDimensions(target)
-        : Object.keys(measurement.semantic_assessment.dimensions)) as Array<
-        keyof typeof measurement.semantic_assessment.dimensions
-      >)
-    : [];
   const total = groups.length;
   const completed = total - pendingGroups.length;
   const admittedGroupCount = groups.filter(([, items]) =>
@@ -1636,14 +1627,14 @@ function QuantitativeReviewCheckpoint({
   }
 
   function decideCurrent(selectedId: string | null) {
-    if (pendingItems.length === 0) return;
     onReview(
       score.target_id,
-      pendingItems.map(({ measurement: item }) => item.candidate_id),
+      groupItems.map(({ measurement: item }) => item.candidate_id),
       selectedId,
     );
     const nextKey = pendingGroups.find(([key]) => key !== currentGroupKey)?.[0];
-    if (nextKey) setSelectedGroupKey(nextKey);
+    setEstimateSelection(null);
+    if (pendingItems.length > 0 && nextKey) setSelectedGroupKey(nextKey);
   }
 
   return (
@@ -1655,15 +1646,16 @@ function QuantitativeReviewCheckpoint({
         )}
       >
         <ReviewCheckpointHeader
-          eyebrow="Evidence review"
+          eyebrow="Quantitative evidence review"
           title="Review quantitative evidence"
-          description="Decide whether each cited result measures the document target closely enough to enter the comparator statistics."
+          description="Decide whether each source measurement is comparable to the document’s numeric target."
           help={
             <>
-              Admit evidence only when it measures the same outcome, product,
-              population, regimen, and time horizon as the document target.
-              Rejected evidence remains in the audit trail but cannot enter
-              statistics.
+              Check the source measurement against the numeric target’s required
+              comparison criteria and qualifiers. Admit comparable measurements
+              whether or not their values meet the target. These decisions control
+              comparator statistics, not the assessment of nonnumeric claims.
+              Rejected evidence remains traceable but cannot enter statistics.
             </>
           }
           completed={completed}
@@ -1671,16 +1663,6 @@ function QuantitativeReviewCheckpoint({
           progressLabel="Quantitative evidence review progress"
           actions={
             <>
-              {canUndo && (
-                <Button variant="ghost" size="sm" onClick={onUndo}>
-                  Undo last decision
-                </Button>
-              )}
-              {readyToFinalize && (
-                <Button size="sm" onClick={onFinalize}>
-                  Finalize result
-                </Button>
-              )}
               <Button variant="ghost" size="sm" onClick={onNewAnalysis}>
                 New analysis
               </Button>
@@ -1689,25 +1671,10 @@ function QuantitativeReviewCheckpoint({
         />
 
         <ReviewOverview
-          description="Every comparator was mapped to its document target. Select an item to inspect the cited result, dimension mapping, and recommendation before finalizing the evidence set."
+          description="Select an item to compare its source with the target and record your decision. AI recommendations are suggestions until you accept them."
+          advance={<Button size="sm" disabled={!readyToFinalize} onClick={onFinalize}>Finalize result</Button>}
           counts={
             <>
-              {pendingGroups.length > 0 ? (
-                <>
-                  <ReviewCount
-                    tone="success"
-                    label={`${recommendationSummary.admit} admit recommended`}
-                  />
-                  <ReviewCount
-                    tone="neutral"
-                    label={`${recommendationSummary.reject} reject recommended`}
-                  />
-                  <ReviewCount
-                    tone="warning"
-                    label={`${recommendationSummary.flag} needs review`}
-                  />
-                </>
-              ) : (
                 <>
                   <ReviewCount
                     tone="success"
@@ -1717,14 +1684,14 @@ function QuantitativeReviewCheckpoint({
                     tone="neutral"
                     label={`${rejectedGroupCount} rejected`}
                   />
+                  <ReviewCount tone="warning" label={`${pendingGroups.length} remaining`} />
                 </>
-              )}
             </>
           }
           actions={
             actionableRecommendations > 0 ? (
-              <Button size="sm" onClick={onAcceptRecommendations}>
-                Accept {actionableRecommendations} AI recommendations
+              <Button variant="outline" size="sm" onClick={onAcceptRecommendations}>
+                Accept {actionableRecommendations} AI recommendation{actionableRecommendations === 1 ? "" : "s"}
               </Button>
             ) : undefined
           }
@@ -1734,7 +1701,7 @@ function QuantitativeReviewCheckpoint({
               items.find(
                 ({ measurement: item }) =>
                   item.admission_status === "needs_review",
-              ) ?? items[0];
+              ) ?? items.find(({ measurement: item }) => item.admission_status === "approved") ?? items[0];
             const presentation = evidenceReviewPresentation(
               items.map((item) => item.measurement),
             );
@@ -1750,12 +1717,12 @@ function QuantitativeReviewCheckpoint({
               <ReviewListRow
                 key={key}
                 selected={selected}
-                onSelect={() => setSelectedGroupKey(key)}
+                onSelect={() => { setSelectedGroupKey(key); setEstimateSelection(null); }}
                 title={formatAttributeRefs(
                   representative.score.attribute_refs,
                   "Document claim",
                 )}
-                subtitle={`${formatNumericExpression(representative.measurement.expression)} → ${rowTarget ? formatNumericExpression(rowTarget.expression) : representative.score.target_label}`}
+                subtitle={`${items.length > 1 ? `${items.length} estimates` : formatNumericExpression(representative.measurement.expression)} compared with a target of ${rowTarget ? formatNumericExpression(rowTarget.expression) : representative.score.target_label}`}
                 status={presentation.label}
                 tone={presentation.tone}
                 detail={sourceTitle}
@@ -1799,92 +1766,33 @@ function QuantitativeReviewCheckpoint({
           }
           right={
             <>
-              {multiple ? (
-                <>
-                  <div className="flex items-center gap-1.5">
-                    <SectionLabel>Choose one estimate</SectionLabel>
-                    <ReviewHelp>
-                      These values belong to the same source arm or cohort for
-                      this target. Select the one that best represents the
-                      target, or choose “None apply.” Distinct non-overlapping
-                      arms or cohorts are reviewed separately.
-                    </ReviewHelp>
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Same evidence unit ·{" "}
-                    {evidenceUnitLabel(reviewItems[0].measurement)}
-                  </p>
-                  <div
-                    className="mt-3 space-y-2"
-                    role="radiogroup"
-                    aria-label="Evidence estimate"
-                  >
-                    {reviewItems.map((item) => {
-                      const option = item.measurement;
-                      const selected =
-                        option.candidate_id === selectedCandidateId;
-                      const sourceFinding = sourceFindingFor(item);
-                      return (
-                        <button
-                          key={option.candidate_id}
-                          type="button"
-                          role="radio"
-                          aria-checked={selected}
-                          onClick={() =>
-                            setSelectedCandidateId(option.candidate_id)
-                          }
-                          className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                            selected
-                              ? "border-foreground/45 bg-foreground/[0.07]"
-                              : "border-border/60 hover:border-foreground/25 hover:bg-foreground/[0.045]"
-                          }`}
-                        >
-                          <span className="flex items-start gap-3">
-                            <span
-                              className={`mt-1 h-3.5 w-3.5 shrink-0 rounded-full border ${
-                                selected
-                                  ? "border-foreground bg-foreground shadow-[inset_0_0_0_3px_hsl(var(--card))]"
-                                  : "border-muted-foreground/60"
-                              }`}
-                            />
-                            <span className="min-w-0">
-                              <span className="block text-sm font-semibold text-foreground">
-                                {formatNumericExpression(option.expression)}
-                              </span>
-                              <span className="mt-1 line-clamp-3 block text-xs leading-relaxed text-foreground">
-                                {option.source_quote}
-                              </span>
-                              <span className="mt-1.5 block truncate text-[11px] text-muted-foreground">
-                                {sourceFinding?.title ||
-                                  option.source_record_id ||
-                                  "Cited source"}
-                              </span>
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : measurement ? (
-                <>
-                  <SectionLabel>Cited evidence</SectionLabel>
+              {multiple && (
+                <ReviewEstimateChoices
+                  measurements={reviewItems.map(item => item.measurement)}
+                  selectedId={selectedCandidateId}
+                  onSelect={candidate => setEstimateSelection({ group: currentGroupKey, candidate })}
+                  pending={pendingItems.length > 0}
+                />
+              )}
+              {measurement && (
+                <div className={multiple ? "mt-5" : undefined}>
+                  <SectionLabel>{multiple ? "Selected estimate" : "Cited evidence"}</SectionLabel>
                   <p className="mt-3 text-base font-semibold text-foreground">
                     {formatNumericExpression(measurement.expression)}
                   </p>
-                  <Quoted size="prominent">{measurement.source_quote}</Quoted>
+                  <Quoted size="prominent" collapsible>{measurement.source_quote}</Quoted>
                   <a
                     href={measurement.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-3 block truncate text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                    className="mt-3 block break-words text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-offset-2"
                   >
-                    {sourceFindingFor(reviewItems[0])?.title ||
+                    {(activeItem && sourceFindingFor(activeItem)?.title) ||
                       measurement.source_record_id ||
                       "Open cited source"}
                   </a>
-                </>
-              ) : null}
+                </div>
+              )}
             </>
           }
         />
@@ -1892,85 +1800,9 @@ function QuantitativeReviewCheckpoint({
         <div className="border-t border-border/60 px-5 py-5 sm:px-7">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <SectionLabel>Comparison check</SectionLabel>
-            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-              <span>Mapped dimensions · your decision controls admission</span>
-              {measurement?.url && (
-                <a
-                  href={measurement.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium hover:text-foreground hover:underline"
-                >
-                  Open source
-                </a>
-              )}
-            </div>
           </div>
           {measurement ? (
-            <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
-              <div
-                className={cn(
-                  EYEBROW,
-                  "hidden grid-cols-[0.8fr_1fr_1fr_0.65fr] gap-4 bg-foreground/[0.045] px-4 py-2 sm:grid",
-                )}
-              >
-                <span>Dimension</span>
-                <span>Target</span>
-                <span>Evidence</span>
-                <span>Mapping</span>
-              </div>
-              {dimensions.map((dimension) => {
-                const targetSlot = target?.semantic_profile[dimension];
-                const comparisonRule = target?.comparison_contract[dimension];
-                const mapped =
-                  measurement.semantic_assessment.dimensions[dimension];
-                const compatibility = mapped?.compatibility.state ?? "unknown";
-                return (
-                  <div
-                    key={dimension}
-                    className="grid gap-1 border-t border-border/60 px-4 py-3 first:border-t-0 sm:grid-cols-[0.8fr_1fr_1fr_0.65fr] sm:gap-4"
-                  >
-                    <span
-                      className={cn(
-                        EYEBROW,
-                        "sm:text-xs sm:normal-case sm:tracking-normal",
-                      )}
-                    >
-                      {dimensionLabel(dimension)}
-                    </span>
-                    <span className="flex gap-2 text-xs text-foreground">
-                      <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>
-                        Target
-                      </span>
-                      <span>
-                        {semanticSlotLabel(targetSlot)}
-                        {comparisonRule && (
-                          <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
-                            {comparisonRuleLabel(comparisonRule)}
-                          </span>
-                        )}
-                      </span>
-                    </span>
-                    <span className="flex gap-2 text-xs text-foreground">
-                      <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>
-                        Evidence
-                      </span>
-                      {semanticSlotLabel(mapped?.source)}
-                    </span>
-                    <span className="flex gap-2 text-xs font-medium text-muted-foreground">
-                      <span className={cn(EYEBROW, "w-16 shrink-0 sm:hidden")}>
-                        Mapping
-                      </span>
-                      {compatibility === "yes"
-                        ? "Aligned"
-                        : compatibility === "no"
-                          ? "Different"
-                          : "Uncertain"}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+            <ScoutComparison target={target} measurement={measurement} />
           ) : (
             <p className="mt-3 rounded-lg border border-dashed border-border px-4 py-5 text-xs text-muted-foreground">
               Select an estimate above to inspect how it maps to the document
@@ -1978,10 +1810,8 @@ function QuantitativeReviewCheckpoint({
             </p>
           )}
           {measurement && (
-            <Reading className="mt-3">{measurement.semantic_reason}</Reading>
-          )}
-          {measurement && (
             <ReviewRecommendation
+              unavailable={measurement.ai_recommendation === "unavailable"}
               label={
                 measurement.ai_recommendation === "admit"
                   ? "Admit"
@@ -2003,37 +1833,30 @@ function QuantitativeReviewCheckpoint({
           )}
         </div>
 
-        <footer className="flex flex-col-reverse gap-2 border-t border-border/60 bg-foreground/[0.045] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+        <ReviewDecisionFooter>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            One decision resolves this source evidence unit; its provenance
-            remains traceable.
+            {pendingItems.length > 0 ? (multiple ? "Choose one estimate to admit, or reject all estimates." : "Judge comparability, not whether the value meets the target.") : "Decision recorded. You can change it below."}
           </p>
           <ReviewActions>
-            {pendingItems.length > 0 ? (
               <>
-                <Button variant="outline" onClick={() => decideCurrent(null)}>
-                  {multiple ? "None apply" : "Reject comparator"}
+                <Button variant="outline" disabled={groupItems.every(item => item.measurement.admission_status === "rejected")} onClick={() => decideCurrent(null)}>
+                  {multiple ? "Reject all estimates" : "Reject comparator"}
                 </Button>
                 <Button
-                  disabled={multiple && selectedCandidateId == null}
+                  disabled={(multiple && selectedCandidateId == null) || measurement?.admission_status === "approved"}
                   onClick={() =>
                     decideCurrent(
                       multiple
                         ? selectedCandidateId
-                        : pendingItems[0].measurement.candidate_id,
+                        : groupItems[0].measurement.candidate_id,
                     )
                   }
                 >
-                  {multiple ? "Use selected estimate" : "Admit comparator"}
+                  {multiple ? "Admit selected estimate" : "Admit comparator"}
                 </Button>
               </>
-            ) : (
-              <span className="self-center text-[11px] font-medium text-muted-foreground">
-                Decision recorded
-              </span>
-            )}
           </ReviewActions>
-        </footer>
+        </ReviewDecisionFooter>
       </section>
     </DocumentSourceProvider>
   );
@@ -3449,10 +3272,10 @@ function ConformityBlock({
     : `${conformity.comparator} ${formatMeasure(conformity.target_value, conformity.unit)}`;
   const dimensions = target ? comparisonDimensions(target) : [];
   const formatBenchmark = (value: number | null) =>
-    formatMeasure(value, conformity.unit);
+    formatMeasure(value, conformity.unit, target?.expression.display);
   const coverageLabel = CALIBRATION_BASIS_LABEL[conformity.calibration_status];
   const targetRoleLabel = TARGET_ROLE_LABEL[conformity.target_role];
-  const view = calibrationView(conformity);
+  const view = calibrationView(conformity, target?.expression.display);
   // Three statistics always, the two quartile cells only when they are presentable, and the
   // basis. Counted here so the grid can shape itself to what it holds.
   const statCellCount =
@@ -3500,8 +3323,8 @@ function ConformityBlock({
             `self-start`, not centred: on a row whose text wraps to three lines a centred
             trigger floats in the middle, away from the line it belongs to. */}
         <span className="flex w-full flex-wrap items-center justify-end gap-1 self-start lg:w-auto">
-          <ComparatorCohort conformity={conformity} matches={matches} />
-          <ExcludedMeasurements conformity={conformity} matches={matches} />
+          <ComparatorCohort conformity={conformity} matches={matches} target={target} />
+          <ExcludedMeasurements conformity={conformity} matches={matches} target={target} />
           {/* Last, so it holds the right edge. Each of these three renders nothing when it
               has nothing, and packing right means only the final position is stable - so it
               belongs to the trigger that is almost always present. It also puts `In
@@ -3542,6 +3365,7 @@ function ConformityBlock({
                 </dt>
                 <dd className="min-w-0 text-[11px] text-foreground">
                   {semanticSlotLabel(target.semantic_profile[dimension])}
+                  <TargetQualifierSource target={target} dimension={dimension} />
                 </dd>
               </div>
             ))}
@@ -3588,6 +3412,7 @@ function ConformityBlock({
                         conformity.benchmark_standard_deviation,
                         conformity.unit,
                         " · ",
+                        target?.expression.display,
                       )
                     : formatBenchmark(conformity.benchmark_mean)
                 }
@@ -3600,6 +3425,7 @@ function ConformityBlock({
                     conformity.benchmark_upper_quartile,
                     conformity.unit,
                     "–",
+                    target?.expression.display,
                   )}
                 />
               )}

@@ -71,7 +71,9 @@ test("both footers start where the rest of the card starts", () => {
 });
 
 test("both cards hold their footer in the same slot", () => {
-  assert.equal([...source.matchAll(/mt-auto pt-5/g)].length, 2);
+  const footers = [...source.matchAll(/mt-auto pt-(\d+)/g)];
+  assert.equal(footers.length, 2);
+  assert.equal(footers[0][1], footers[1][1]);
 });
 
 test("the duration is styled as a count, not as a local size", () => {

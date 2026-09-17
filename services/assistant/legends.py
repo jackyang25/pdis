@@ -85,6 +85,7 @@ There is no coverage score and no weighting. Do not compute one, and do not add 
 
 
 WORKSPACE_LEGEND = """This is a read-only PDIS WORKSPACE bundle. Shape:
+- active_review, when supplied: the currently displayed review draft and selected item, separate from final results. It does not count as a completed analysis. Its phase and recorded decisions remain authoritative; never infer completion from an AI recommendation.
 - catalog[]: every available or planned tool with its audience, workflow, availability, delivery, and provider labels. Catalog entries describe capabilities; they are not analysis findings. Each description names what a tool reads and the authority it is judged against, which is what tells them apart; a tool whose description names no authority renders no verdict and only reports what a source already says.
 - results[]: current client-held final analyses or direct utility outputs. Each entry has a stable id, result_type, human-readable label, analysis tree, and the exact document_block_ids available to it.
 - results[].priority_item_ids: which findings the tool's own selector chose for its priority panel, in the order shown. IDs only - the findings themselves are in the analysis. This is the list the reader is actually looking at, so use it when a question refers to "the priorities" or to a position in them, and never substitute a list of your own.
@@ -93,7 +94,32 @@ WORKSPACE_LEGEND = """This is a read-only PDIS WORKSPACE bundle. Shape:
 - An absent result type means that no eligible current result of that type is available. Say so plainly; never imply that a tool was run.
 Use each entry's result_type to interpret its analysis: Inspector judges one document against a rubric; Aligner judges the iTPP, cTPP, and IPDP against each other; Scout judges one document's targets against external evidence and precedent; Screener triages one stage gate's question bank across a set of documents, reporting only whether the supplied material answers each question; Chunker exposes parsed source blocks; Searcher contains direct normalized retrieval findings. Compare entries only when the question calls for it, and identify which result supports each statement."""
 
+SCOUT_REVIEW_LEGEND = (
+    "ACTIVE REVIEW DRAFT (not a final result):\n"
+    "- active_review is the currently displayed Scout checkpoint, separate from results[]. "
+    "Read selected_item first to identify the target, unmapped statement, or evidence group "
+    "the user is inspecting; IDs point into active_review.analysis. A selected estimate "
+    "is only being inspected, not necessarily admitted. If no item is selected, ask which one.\n"
+    "- In target_review, help distinguish real document commitments from examples, context "
+    "and unresolved statements. Quantitative targets carry AI confirm/exclude/flag advice "
+    "separately from the user's review_status. A statement's accepted_exclusion acknowledges "
+    "unmapped content; it does not confirm a numeric target. No external evidence has been retrieved yet.\n"
+    "- In evidence_review, explain the target's comparison_contract, each candidate's "
+    "semantic_assessment, source quotation, AI advice and recorded admission_status separately. "
+    "Candidates in one evidence unit are alternatives, not independent observations. Inspect "
+    "all alternatives when explaining that group; do not treat an AI recommendation as a human decision.\n"
+    "- Use the existing result and document readers for the draft and its surrounding source "
+    "blocks; fetch only cited URLs. Use the exact context block IDs for citations; "
+    "source_block_id metadata preserves the original ID, not the chat citation address. "
+    "Draft statistics and findings are provisional. Distinguish "
+    "them from any separately loaded final result, including results from the same document.\n"
+    "- Explain evidence and uncertainty to help the user decide, but never claim to approve, "
+    "reject, edit, continue or finalize a review. Only the review panel records decisions. "
+    "Drafts do not satisfy workflows requiring final results."
+)
+
 _LEGENDS: dict[str, str] = {
+    "scout_review": SCOUT_REVIEW_LEGEND,
     "aligner": ALIGNER_LEGEND,
     "screener": SCREENER_LEGEND,
     "scout": SCOUT_LEGEND,

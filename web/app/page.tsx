@@ -27,7 +27,7 @@ export default function Home() {
 
   return (
     <div className="pb-10">
-      <header className="mb-9 max-w-2xl">
+      <header className="mb-6 max-w-2xl">
         <h1 className={cn(DISPLAY_HEADING, "text-[32px] font-semibold leading-[1.12] sm:text-[36px]")}>
           Tools
         </h1>
@@ -38,12 +38,11 @@ export default function Home() {
 
       <AudienceFilter value={audience} onChange={setAudience} />
 
-      <div className="mt-9 space-y-10">
-        {visibleSections.map((section, sectionIndex) => (
+      <div className="mt-8 space-y-10">
+        {visibleSections.map((section) => (
           <section
             key={section.id}
             aria-labelledby={`${section.id}-title`}
-            className={sectionIndex === 0 ? undefined : "border-t border-border pt-8"}
           >
             <SectionHeader
               title={section.title}
@@ -77,8 +76,8 @@ function AudienceFilter({
 }) {
   const options: readonly { value: AudienceFilter; label: string }[] = [
     { value: "all", label: "All" },
-    { value: "pst", label: "PST team" },
-    { value: "ghide", label: "GHIDE team" },
+    { value: "pst", label: "PST" },
+    { value: "ghide", label: "GHIDE" },
   ];
 
   return (
@@ -139,7 +138,7 @@ function ToolCard({ tool }: { tool: ToolDefinition }) {
  *
  * Both are the height of a two-line description at natural spacing, added up: 20px of padding
  * either side, a 25.5px heading line, the 8px above the description, two 20px description
- * lines, the 20px above the footer, and the footer itself. That last term is the only
+ * lines, the 16px above the footer, and the footer itself. That last term is the only
  * difference between them, a 16.5px line of text against a 32px row of chips.
  *
  * A floor rather than a fixed height, because rows are sized independently: without one, a row
@@ -151,8 +150,8 @@ function ToolCard({ tool }: { tool: ToolDefinition }) {
  * second label. Both were removed, these came down but not to the content, and `mt-auto` pools
  * every leftover pixel in one place: the gap above the footer, which read as 45px of nothing.
  */
-const CARD_FLOOR = "min-h-[150px]";
-const SHORTCUT_CARD_FLOOR = "min-h-[166px]";
+const CARD_FLOOR = "min-h-[146px]";
+const SHORTCUT_CARD_FLOOR = "min-h-[162px]";
 
 /**
  * An unavailable card, dimmed as a whole.
@@ -188,7 +187,7 @@ function WorkspaceToolCard({ tool }: { tool: WorkspaceToolDefinition }) {
             />
           )}
       />
-      <div className="mt-auto pt-5">
+      <div className="mt-auto pt-4">
         <CardMeta status={tool.activity} />
       </div>
     </>
@@ -223,8 +222,8 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
         description={tool.description}
         comingSoon={comingSoon}
       />
-      <div className="mt-auto pt-5">
-        <div className="flex min-h-8 gap-2">
+      <div className="mt-auto pt-4">
+        <div className="flex min-h-8 flex-wrap gap-2">
           {tool.shortcuts.map((shortcut) => (
             <a
               key={shortcut.label}
@@ -233,7 +232,7 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
               rel="noreferrer"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
             >
-              {shortcut.label}
+              {`Open in ${shortcut.label}`}
               <ExternalLink className="h-3 w-3" aria-hidden="true" />
             </a>
           ))}

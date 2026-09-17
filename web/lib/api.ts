@@ -515,6 +515,7 @@ export type Measurement = {
   url: string;
   insight_id: string;
   source_quote: string;
+  source_passage?: string;
   source_record_id: string;
   source_identity_status: "canonical" | "title_fallback" | "url_fallback";
   evidence_unit_id: string;
@@ -523,7 +524,8 @@ export type Measurement = {
   semantic_status: "comparable" | "contextual" | "incompatible" | "unknown";
   semantic_reason: string;
   evidence_mode: "prose" | "structured_fact";
-  ai_recommendation: "admit" | "reject" | "flag";
+  ai_recommendation: "admit" | "reject" | "flag" | "unavailable";
+  ai_review_failure_code?: string;
   ai_review_reason: string;
   admission_status: "needs_review" | "approved" | "rejected" | "not_eligible" | "auto_admitted";
   admission_reason: string;
@@ -745,7 +747,8 @@ export type QuantitativeTarget = {
   }>;
   semantic_provenance: Record<keyof QuantitativeSemanticProfile, DocumentSpan[]>;
   provenance_spans: DocumentSpan[];
-  ai_recommendation: "confirm" | "exclude" | "flag";
+  ai_recommendation: "confirm" | "exclude" | "flag" | "unavailable";
+  ai_review_failure_code?: string;
   ai_review_reason: string;
   review_status: "needs_review" | "approved" | "rejected";
 };
@@ -753,7 +756,8 @@ export type QuantitativeTarget = {
 export type QuantitativeStatementDisposition = {
   quote: string;
   block_ids: string[];
-  disposition: "context_only" | "non_scalar" | "range_or_set" | "uncertain";
+  disposition: "context_only" | "non_scalar" | "range_or_set" | "uncertain" | "mapping_failed";
+  failure_code?: string;
   reason: string;
   attribute_refs: string[];
 };
@@ -762,7 +766,8 @@ export type QuantitativeLedgerReview = {
   unit_id: string;
   block_id: string;
   quote: string;
-  classification: "target" | "partial_target" | "context_only" | "non_scalar" | "range_or_set" | "non_numeric" | "uncertain";
+  classification: "target" | "partial_target" | "context_only" | "non_scalar" | "range_or_set" | "non_numeric" | "uncertain" | "mapping_failed";
+  failure_code?: string;
   reason: string;
   attribute_refs: string[];
   target_ids: string[];
@@ -777,6 +782,12 @@ export type QuantitativeLedger = {
   targets: QuantitativeTarget[];
 };
 
+export type NumericDisplay = {
+  kind: "quantity" | "calendar_year";
+  unit_singular: string;
+  unit_plural: string;
+};
+
 export type NumericExpression = {
   kind: "point_estimate" | "range" | "bound" | "confidence_interval" | "count" | "rate" | "other" | "unknown";
   unit: string;
@@ -784,6 +795,7 @@ export type NumericExpression = {
   lower: number | null;
   upper: number | null;
   comparator: "" | "=" | ">" | ">=" | "<" | "<=";
+  display?: NumericDisplay;
 };
 
 export type SemanticSlot = {

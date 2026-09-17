@@ -692,6 +692,10 @@ reproducible, and a summary of them is not.
   cited by an analysis. Transient conversation attachments use the same block
   contract and remain user-supplied context; Ask never runs a new evidence
   search.
+- A mounted Scout review checkpoint may supply `active_review` separately from
+  final `results[]`, with the current selection and retained source blocks. It is
+  read-only context, never a final-result skill prerequisite or export metadata.
+  Unmounting the checkpoint clears it; no server review session is introduced.
 - A cross-tool synthesis lives in a skill, never in a service. Each tool judges
   against one authority and reads no other tool's output, so the only place two results
   may be combined is a reader that issues no verdict of its own: one markdown file in

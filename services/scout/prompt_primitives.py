@@ -14,6 +14,16 @@ CANONICAL_CLAIM_PRIMITIVE = (
     "rewrite a claim."
 )
 
+NUMERIC_DISPLAY_PRIMITIVE = (
+    "Numeric expression display metadata changes presentation only. Set display.kind to "
+    "calendar_year only for an explicitly stated calendar year, never for a duration or "
+    "because a number has four digits; otherwise use quantity. Supply unit_singular and "
+    "unit_plural as grammatical forms of the same expression unit without converting it. "
+    "For invariant symbols such as % or mL, use the same form for both. For a calendar year "
+    "leave both forms empty. Do not change the numeric value, comparator, or calculation unit "
+    "to improve display."
+)
+
 ATOMIC_TARGET_PRIMITIVE = (
     "An atomic target is one independently testable document commitment expressed as one "
     "measure plus one directional or exact scalar and its material qualifiers. Split a source "

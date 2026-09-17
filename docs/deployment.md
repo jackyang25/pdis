@@ -1,0 +1,74 @@
+# Deployment and releases
+
+Local setup and development checks are in the [README](../README.md).
+
+PDIS deploys to the foundation's Nomad cluster. Three files in this repository
+describe it, and a fourth lives in the tenant repository.
+
+| File | Owns |
+| --- | --- |
+| [.drone.yml](../.drone.yml) | Test, build, and push the three images; deploy to acceptance on merge and to production on promote |
+| [jobspec.nomad](../jobspec.nomad) | The production job: three groups, their resources, and the ingress rules |
+| [jobspec_acc.nomad](../jobspec_acc.nomad) | The acceptance job, identical but for its hostname |
+| `tf_nomad_tenant_configuration/prod/main` | The `module "aws-pdis"` block that creates the namespace and the CI secrets |
+
+The client and the gateway share one hostname. Traefik routes `/api/*` to the
+gateway and everything else to the client, which is why the client's bundle
+carries no API hostname and why CORS is unset in production. The ToolUniverse
+connector carries no routing tag at all: that absence is the only thing keeping
+it off the public internet, and `tests/test_jobspec_parity.py` asserts it.
+
+Onboarding is a pull request to `tf_nomad_tenant_configuration/prod/main`:
+
+```hcl
+module "aws-pdis" {
+  source                   = "../_modules/aws_application"
+  namespace                = "pdis"
+  repo                     = "pdis"
+  zone_id                  = var.zone_id
+  cluster_ingress_hostname = var.aws_cluster_ingress_hostname
+  docker_password          = var.docker_password
+  acceptance_domain        = "pdis-acc.bmgf.io"
+  production_domain        = "pdis.bmgf.io"
+}
+```
+
+Merging it creates the Nomad namespace and the Drone secrets the pipeline
+expects: `AWS_NOMAD_TOKEN`, `DOCKER_PASSWORD`, `NAMESPACE`,
+`NOMAD_VAR_domain_acc_aws`, and `NOMAD_VAR_domain_prod_aws`. Activate the
+repository at [cicd.bmgf.io](https://cicd.bmgf.io) first.
+
+Acceptance deploys automatically on merge to `main`. Production is a manual
+promote of a build that already passed acceptance:
+
+```sh
+drone build promote gatesfoundation/pdis <build> production
+```
+
+Both jobspecs and the pipeline are drafts pending reconciliation with
+[nomad-sre-patterns](https://github.com/gatesfoundation/nomad-sre-patterns);
+the entries marked `TODO` are cluster facts this repository cannot know.
+
+## Production release notes
+
+[web/lib/releases.ts](../web/lib/releases.ts) owns the user-facing release history. The header and
+`/updates` page read it; there is no second displayed version.
+These are product release versions, separate from package metadata, rubric
+revisions, and saved-result schema versions. The first three were assigned
+retrospectively to confirmed production promotions.
+
+- Keep pending user-facing changes in `UNRELEASED_CHANGES`.
+- For a new production release, move the changes actually shipping into one new
+  `RELEASES` entry, newest first, with its version, production promotion number,
+  and release timestamp including the UTC offset. Confirm the timestamp as part
+  of the production handoff; never substitute a commit or acceptance-build date.
+- Use a patch increment for fixes/polish, a minor increment for new capabilities,
+  and a major increment for breaking changes. Redeploying the same release does
+  not add an entry or bump its version.
+- Summarize user-visible changes since the previous release, not every commit.
+  Leave unshipped work under Unreleased. No CI or application process invents
+  release notes or automatically marks a failed deployment as released.
+- Run the web tests and type check. Confirm the release label and notes during
+  the deployment smoke check. No provider credentials or feedback are stored by
+  this feature; the feedback popover directs users to Jack Yang or Shyam Bhaskaran
+  on Teams.

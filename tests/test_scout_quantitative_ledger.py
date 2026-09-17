@@ -521,6 +521,9 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
         unit_ids = [unit.id for batch in batches for unit in batch.units]
 
         self.assertEqual(len(batches), 5)
+        single_block_requests = prepare_quantitative_ledger_batches(sources, [attribute])
+        self.assertEqual(len(single_block_requests), 50)
+        self.assertTrue(all(len(batch.units) == 1 for batch in single_block_requests))
         self.assertTrue(all(len(batch.units) <= 10 for batch in batches))
         self.assertEqual(len(unit_ids), len(set(unit_ids)))
         self.assertEqual(sum(len(batch.blocks) for batch in batches), len(sources))
@@ -1008,7 +1011,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             target_resolution_reason="Resolved from exact document spans.",
         )
         batch = prepare_quantitative_ledger_batches(
-            [first_source, second_source], [attribute]
+            [first_source, second_source], [attribute], max_units=2
         )[0]
         first_unit, unit = batch.units
         retained = {
@@ -1079,7 +1082,7 @@ class QuantitativeDocumentLedgerTests(unittest.TestCase):
             )
             for index, block in enumerate(blocks)
         ]
-        batch = prepare_quantitative_ledger_batches(blocks, attributes)[0]
+        batch = prepare_quantitative_ledger_batches(blocks, attributes, max_units=6)[0]
         client = _SequenceLedgerClient([[], [], []])
 
         with self.assertRaisesRegex(

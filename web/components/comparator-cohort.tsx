@@ -6,9 +6,10 @@ import { ChevronDown, Scale } from "lucide-react";
 import { ProvenancePanel } from "@/components/ui/provenance-panel";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { ProvenanceTrigger, stopRowToggle } from "@/components/ui/provenance";
-import { Reading, SourceEntry, InterfaceNote } from "@/components/ui/evidence-text";
-import type { Conformity, Insight, Match, Measurement } from "@/lib/api";
-import { SEMANTIC_STATUS_LABEL, sourceIdentityCaveat } from "@/lib/scout-labels";
+import { SourceEntry, InterfaceNote } from "@/components/ui/evidence-text";
+import type { Conformity, Insight, Match, Measurement, QuantitativeTarget } from "@/lib/api";
+import { sourceIdentityCaveat } from "@/lib/scout-labels";
+import { ScoutComparison } from "@/components/scout-comparison";
 import { calibrationView, formatMeasure } from "@/lib/scout-result-view";
 
 /**
@@ -28,9 +29,11 @@ import { calibrationView, formatMeasure } from "@/lib/scout-result-view";
 export function ComparatorCohort({
   conformity,
   matches,
+  target,
 }: {
   conformity: Conformity;
   matches: Match[];
+  target?: QuantitativeTarget | null;
 }) {
   const [open, setOpen] = useState(false);
   const admitted = conformity.measurements ?? [];
@@ -61,6 +64,7 @@ export function ComparatorCohort({
               <AdmittedMeasurement
                 key={`${measurement.url}-${index}`}
                 measurement={measurement}
+                target={target}
                 unit={conformity.unit}
                 insight={insightFor(measurement, matches)}
               />
@@ -79,10 +83,12 @@ function AdmittedMeasurement({
   measurement,
   unit,
   insight,
+  target,
 }: {
   measurement: Measurement;
   unit: string;
   insight?: Insight;
+  target?: QuantitativeTarget | null;
 }) {
   const [open, setOpen] = useState(false);
   const finding = insight?.supporting_findings.find(
@@ -110,7 +116,7 @@ function AdmittedMeasurement({
     <SourceEntry
       title={finding?.title || measurement.source_record_id || "Cited source"}
       href={measurement.url}
-      meta={`${value != null ? formatMeasure(value, measurement.expression?.unit || unit) : "no single value"} · ${age}`}
+      meta={`${value != null ? formatMeasure(value, measurement.expression?.unit || unit, measurement.expression?.display) : "no single value"} · ${age}`}
       quote={measurement.source_quote}
       reading={insight?.statement}
     >
@@ -125,21 +131,10 @@ function AdmittedMeasurement({
           collapsed rather than being a fourth line on every entry. */}
       <details className="group/semantic mt-1" open={open} onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
         <summary className="inline-flex cursor-pointer select-none items-center gap-1 text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
-          Why it was comparable
+          Comparison details
           <ChevronDown className="h-2.5 w-2.5 transition-transform group-open/semantic:rotate-180 motion-reduce:transition-none" />
         </summary>
-        {/* The status is a label lookup and the reason is the model's sentence about it,
-            so the mark goes on the line only when the model actually contributed one. */}
-        {measurement.semantic_reason ? (
-          <Reading className="pl-3">
-            {SEMANTIC_STATUS_LABEL[measurement.semantic_status]}
-            {`. ${measurement.semantic_reason}`}
-          </Reading>
-        ) : (
-          <InterfaceNote className="mt-1 ml-3">
-            {SEMANTIC_STATUS_LABEL[measurement.semantic_status]}
-          </InterfaceNote>
-        )}
+        <ScoutComparison measurement={measurement} target={target} compact />
       </details>
     </SourceEntry>
   );

@@ -23,6 +23,7 @@ import type {
   PrecedentSignal,
   Variable,
   EvidenceStrength,
+  NumericDisplay,
 } from "./api.ts";
 
 /**
@@ -33,11 +34,24 @@ import type {
  * benchmark formatter did not, which is where `1injections` and `0.6administration
  * occasions` came from.
  */
-export function formatMeasure(value: number | null | undefined, unit: string): string {
+export function formatMeasure(value: number | null | undefined, unit: string, display?: NumericDisplay): string {
   if (value == null || !Number.isFinite(value)) return "—";
-  const formatted = value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const formatted = formatMagnitude(value, display);
+  if (display?.kind === "calendar_year") return formatted;
+  unit = (Math.abs(value) === 1 ? display?.unit_singular : display?.unit_plural) || unit;
   if (!unit) return formatted;
   return /^[%°]/.test(unit) ? `${formatted}${unit}` : `${formatted} ${unit}`;
+}
+
+function formatMagnitude(value: number, display?: NumericDisplay): string {
+  return value.toLocaleString(undefined, {
+    // Keep established two-decimal presentation, without turning a small
+    // nonzero measurement into zero.
+    ...(value !== 0 && Math.abs(value) < 0.01
+      ? { maximumSignificantDigits: 2 }
+      : { maximumFractionDigits: 2 }),
+    useGrouping: display?.kind !== "calendar_year",
+  });
 }
 
 /**
@@ -57,13 +71,14 @@ export function formatMeasurePair(
   second: number | null | undefined,
   unit: string,
   separator: string,
+  display?: NumericDisplay,
 ): string {
   const usable = (value: number | null | undefined) => value != null && Number.isFinite(value);
   if (!usable(first) || !usable(second)) {
-    return `${formatMeasure(first, unit)}${separator}${formatMeasure(second, unit)}`;
+    return `${formatMeasure(first, unit, display)}${separator}${formatMeasure(second, unit, display)}`;
   }
-  const lead = (first as number).toLocaleString(undefined, { maximumFractionDigits: 2 });
-  return `${lead}${separator}${formatMeasure(second, unit)}`;
+  const lead = formatMagnitude(first as number, display);
+  return `${lead}${separator}${formatMeasure(second, unit, display)}`;
 }
 
 /**
@@ -329,7 +344,7 @@ export type CalibrationView = {
   meetingLabel: string;
 };
 
-export function calibrationView(conformity: Conformity): CalibrationView {
+export function calibrationView(conformity: Conformity, display?: NumericDisplay): CalibrationView {
   const count = conformity.benchmark_count;
   const shape: CalibrationShape = count === 0 ? "none" : count < 3 ? "compact" : "full";
   const position = targetPosition(conformity);
@@ -346,8 +361,9 @@ export function calibrationView(conformity: Conformity): CalibrationView {
           conformity.benchmark_maximum,
           conformity.unit,
           "\u2013",
+          display,
         )
-      : formatMeasure(conformity.benchmark_minimum, conformity.unit),
+      : formatMeasure(conformity.benchmark_minimum, conformity.unit, display),
     meetingLabel:
       count > 0
         ? `${conformity.target_meeting_count} of ${count} meet target`

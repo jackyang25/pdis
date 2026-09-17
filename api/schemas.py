@@ -334,6 +334,12 @@ class QuantitativeSemanticProfileOut(BaseModel):
         return self
 
 
+class NumericDisplayOut(BaseModel):
+    kind: Literal["quantity", "calendar_year"] = "quantity"
+    unit_singular: str = ""
+    unit_plural: str = ""
+
+
 class NumericExpressionOut(BaseModel):
     kind: Literal[
         "point_estimate", "range", "bound", "confidence_interval", "count",
@@ -344,6 +350,7 @@ class NumericExpressionOut(BaseModel):
     lower: float | None = None
     upper: float | None = None
     comparator: Literal["", "=", ">", ">=", "<", "<="] = ""
+    display: NumericDisplayOut = Field(default_factory=NumericDisplayOut)
 
     @model_validator(mode="after")
     def validate_expression(self) -> "NumericExpressionOut":
@@ -419,7 +426,8 @@ class QuantitativeTargetOut(BaseModel):
     comparison_contract: QuantitativeComparisonContractOut
     semantic_provenance: dict[str, list[DocumentSpanOut]]
     provenance_spans: list[DocumentSpanOut] = Field(min_length=1)
-    ai_recommendation: Literal["confirm", "exclude", "flag"] = "flag"
+    ai_recommendation: Literal["confirm", "exclude", "flag", "unavailable"] = "flag"
+    ai_review_failure_code: str = ""
     ai_review_reason: str = ""
     review_status: Literal["needs_review", "approved", "rejected"] = "approved"
 
@@ -427,7 +435,8 @@ class QuantitativeTargetOut(BaseModel):
 class QuantitativeStatementDispositionOut(BaseModel):
     quote: str
     block_ids: list[str] = Field(min_length=1)
-    disposition: Literal["context_only", "non_scalar", "range_or_set", "uncertain"]
+    disposition: Literal["context_only", "non_scalar", "range_or_set", "uncertain", "mapping_failed"]
+    failure_code: str = ""
     reason: str
     attribute_refs: list[str] = Field(default_factory=list)
 
@@ -438,12 +447,13 @@ class QuantitativeLedgerReviewOut(BaseModel):
     quote: str
     classification: Literal[
         "target", "partial_target", "context_only", "non_scalar", "range_or_set",
-        "non_numeric", "uncertain"
+        "non_numeric", "uncertain", "mapping_failed"
     ]
     reason: str
     attribute_refs: list[str] = Field(default_factory=list)
     target_ids: list[str] = Field(default_factory=list)
     review_status: Literal["resolved", "needs_review", "accepted_exclusion"] = "resolved"
+    failure_code: str = ""
 
 
 class QuantitativeLedgerOut(BaseModel):
@@ -514,6 +524,7 @@ class MeasurementOut(BaseModel):
     url: str = ""
     insight_id: str = ""
     source_quote: str = ""
+    source_passage: str = ""
     source_record_id: str = ""
     source_identity_status: Literal["canonical", "title_fallback", "url_fallback"] = "url_fallback"
     evidence_unit_id: str = ""
@@ -522,7 +533,8 @@ class MeasurementOut(BaseModel):
     semantic_status: Literal["comparable", "contextual", "incompatible", "unknown"] = "unknown"
     semantic_reason: str = ""
     evidence_mode: Literal["prose", "structured_fact"] = "prose"
-    ai_recommendation: Literal["admit", "reject", "flag"] = "flag"
+    ai_recommendation: Literal["admit", "reject", "flag", "unavailable"] = "flag"
+    ai_review_failure_code: str = ""
     ai_review_reason: str = ""
     admission_status: Literal[
         "needs_review", "approved", "rejected", "not_eligible", "auto_admitted"

@@ -26,9 +26,9 @@ class AssistantKnowledgeTests(unittest.TestCase):
         self.assertIn("architecture", matches)
         scout_docs = knowledge.read(["scout"])
         self.assertIn("Linked product fields", scout_docs)
-        # The claim, not the old wording: a reader must not think one linked field updates
-        # another. "not synchronized database fields" said this in database terms.
-        self.assertIn("not records that update together", scout_docs)
+        # Targets are one canonical record with links, not duplicated per field.
+        self.assertIn("stored once and linked by ID", scout_docs)
+        self.assertIn("One document claim can contain several numeric targets", scout_docs)
         self.assertIn("Included comparator cohort", scout_docs)
 
     def test_assistant_exposes_bounded_product_documentation_tools(self) -> None:

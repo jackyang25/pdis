@@ -56,7 +56,9 @@ const ANALYSIS_VERSIONS = {
   // labels, so their missing evidence cannot be reconstructed during import.
   screener: 5,
   inspector: 3,
-  scout: 1,
+  // 2: explicit review/mapping failures, retained reviewer source context,
+  // and model-authored numeric presentation metadata.
+  scout: 2,
 } as const satisfies Record<ResultType, number>;
 
 type SourceDocument = {

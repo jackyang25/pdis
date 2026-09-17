@@ -115,6 +115,12 @@ export function ResultLayout({
     <CollapsibleCard
       title={title}
       subtitle={subtitle}
+      meta={
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          AI-generated results may contain errors or unsupported claims. Verify findings
+          against the cited sources and original documents before making decisions.
+        </p>
+      }
       trailing={
         <>
           {/* Before the actions. It reports on the run; they change it, and the one that

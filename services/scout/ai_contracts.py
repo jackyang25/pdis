@@ -9,6 +9,7 @@ semantic interpretation and prose-to-normalized-value conversion.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,7 +28,6 @@ from .models import (
     ENTITY_TYPES,
     QUANTITATIVE_SEMANTIC_FIELDS,
     QUANTITATIVE_FIELD_LINK_RELATIONS,
-    SEMANTIC_SLOT_STATES,
     VALID_EVIDENCE_STRENGTHS,
     VALID_PRECEDENT,
     VALID_PRECEDENT_OUTCOMES,
@@ -389,14 +389,14 @@ def document_quantitative_ledger_batch(
     """
     context_refs = list(dict.fromkeys(["statement", *allowed_context_refs]))
     attribute_refs = list(dict.fromkeys(allowed_attribute_refs or []))
-    document_semantic_slot = _object(
-        {
-            "state": _string(enum=sorted(SEMANTIC_SLOT_STATES)),
-            "value": _string(),
-            "other": _string(),
-            "source_refs": _array(_string(enum=context_refs)),
+    document_semantic_slot = deepcopy(_SEMANTIC_SLOT)
+    for branch in document_semantic_slot["anyOf"]:
+        asserted = branch["properties"]["state"]["enum"][0] in {"specified", "other"}
+        branch["properties"]["source_refs"] = {
+            **_array(_string(enum=context_refs)),
+            **({"minItems": 1} if asserted else {"maxItems": 0}),
         }
-    )
+        branch["required"].append("source_refs")
     document_semantic_profile = _object(
         {
             field_name: document_semantic_slot
@@ -405,19 +405,20 @@ def document_quantitative_ledger_batch(
     )
     comparison_contract = _object(
         {
-            field_name: _object(
-                {
-                    "mode": _string(enum=sorted(COMPARISON_MATCH_MODES)),
-                    "scope": _string(),
-                    "reason": _string(),
-                }
-            )
+            field_name: {"anyOf": [
+                _object({
+                    "mode": _string(enum=[mode]),
+                    "scope": _string(required_text=mode in {"exact", "compatible"}, enum=[""] if mode == "unconstrained" else None),
+                    "reason": _string(required_text=mode == "unknown"),
+                })
+                for mode in sorted(COMPARISON_MATCH_MODES)
+            ]}
             for field_name in QUANTITATIVE_SEMANTIC_FIELDS
         }
     )
     document_target = _object(
         {
-            "quote": _string(),
+            "quote": {"type": "string", "minLength": 1, "maxLength": 800},
             "expression": _TARGET_EXPRESSION,
             "role": _string(enum=["threshold", "optimal", "other"]),
             "semantic_profile": document_semantic_profile,
@@ -456,7 +457,7 @@ def document_quantitative_ledger_batch(
                             "attribute_refs": _array(
                                 _string(enum=attribute_refs)
                             ),
-                            "reason": _string(),
+                            "reason": _string(required_text=True),
                             "targets": _array(
                                 _object(
                                     {
@@ -502,7 +503,7 @@ def target_review_batch(allowed_target_ids: list[str]) -> AIContract:
             {
                 "target_id": _string(enum=list(dict.fromkeys(allowed_target_ids))),
                 "decision": _string(enum=["confirm", "exclude", "flag"]),
-                "reason": _string(),
+                "reason": _string(required_text=True),
             }
         ),
     )
@@ -524,7 +525,7 @@ def evidence_review_batch(
                         enum=list(dict.fromkeys(allowed_candidate_ids))
                     ),
                     "decision": _string(enum=["admit", "reject", "flag"]),
-                    "reason": _string(),
+                    "reason": _string(required_text=True),
                 })),
             }
         ),
@@ -554,7 +555,7 @@ def source_measurement_batch(
     )
     measurement = _object(
         {
-            "quote": _string(),
+            "quote": _string(required_text=True),
             "expression": _NUMERIC_EXPRESSION,
             "evidence_unit": _EVIDENCE_UNIT,
             "semantic_assessment": _object(

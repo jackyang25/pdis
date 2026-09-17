@@ -226,7 +226,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     href: "/searcher",
     title: "Searcher",
     description:
-      "Search selected evidence sources directly and review normalized findings in one place.",
+      "Search selected evidence sources directly and review raw findings without an analysis around them.",
     activity: "approx. 5 min",
     icon: "searcher",
     audience: "shared",
@@ -242,7 +242,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
 export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
   {
     id: "ghide-evaluator",
-    title: "GHIDE Evaluator",
+    title: "Evaluator",
     description:
       "Evaluate a development plan for funding readiness and identify program risks, evidence gaps, and next actions.",
     icon: "evaluator",
@@ -263,7 +263,7 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
   },
   {
     id: "ghide-roadmap-body-compiler",
-    title: "GHIDE Roadmap Body Compiler",
+    title: "Roadmap Body Compiler",
     description:
       "Turn evaluation findings and screener feedback into an organized roadmap of recommendations and actions.",
     icon: "roadmap",
@@ -284,7 +284,7 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
   },
   {
     id: "ghide-executive-summary-compiler",
-    title: "GHIDE Executive Summary Compiler",
+    title: "Executive Summary Compiler",
     description:
       "Turn a completed roadmap into a one-page leadership summary of priorities, decisions, and actions.",
     icon: "executive-summary",
@@ -305,7 +305,7 @@ export const EXTERNAL_TOOLS: readonly ExternalToolDefinition[] = [
   },
   {
     id: "ghide-stage-gate-evaluator",
-    title: "GHIDE Stage Gate Evaluator",
+    title: "Stage Gate Evaluator",
     description:
       "Evaluate whether a grantee has met stage-gate criteria and identify what is needed to reach the next gate.",
     icon: "stage-gate",

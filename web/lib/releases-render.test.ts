@@ -15,15 +15,31 @@ test("release notes distinguish pending changes from dated published releases", 
   const html = renderToStaticMarkup(React.createElement(UpdatesPage));
   assert.equal((html.match(/<h1\b/g) ?? []).length, 1);
   assert.equal((html.match(/<time\b/g) ?? []).length, RELEASES.length);
-  assert.match(html, /Unreleased/);
-  assert.match(html, /Not yet in production/);
-  assert.ok(html.indexOf("Unreleased") < html.indexOf(`v${CURRENT_RELEASE.version}`));
+  if (UNRELEASED_CHANGES.length > 0) {
+    assert.match(html, /Unreleased/);
+    assert.match(html, /Not yet in production/);
+    assert.ok(html.indexOf("Unreleased") < html.indexOf(`v${CURRENT_RELEASE.version}`));
+  } else {
+    assert.doesNotMatch(html, /Unreleased|Not yet in production/);
+  }
   for (const release of RELEASES) {
     assert.ok(html.includes(`dateTime="${release.releasedOn}"`));
     assert.ok(html.includes(`v${release.version}`));
     for (const change of release.changes) assert.ok(html.includes(change));
   }
   for (const change of UNRELEASED_CHANGES) assert.ok(html.includes(change));
+});
+
+test("pending notes appear separately above the prepared release", () => {
+  const { default: PageWithPendingNotes } = loadComponent(
+    fileURLToPath(new URL("../app/updates/page.tsx", import.meta.url)),
+    { "@/lib/releases": { CURRENT_RELEASE, RELEASES, UNRELEASED_CHANGES: ["A future update."], formatReleaseDate: () => "Release date" } },
+  );
+  const html = renderToStaticMarkup(React.createElement(PageWithPendingNotes));
+  assert.match(html, /Unreleased/);
+  assert.match(html, /Not yet in production/);
+  assert.match(html, /A future update\./);
+  assert.ok(html.indexOf("Unreleased") < html.indexOf(`v${CURRENT_RELEASE.version}`));
 });
 
 test("header keeps feedback independent and marks the active updates destination", () => {

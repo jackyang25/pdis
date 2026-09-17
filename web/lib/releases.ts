@@ -15,6 +15,19 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: "0.3.0",
+    releasedOn: "2026-09-16",
+    title: "Scout review improvements",
+    changes: [
+      "Scout compatibility: rerun Scout to create a compatible result. Scout files exported before v0.3.0 cannot be imported into this version.",
+      "Improved Scout numeric target extraction and AI review with more source context, clearer recommendation reasons, and distinct notices for uncertainty and processing failures.",
+      "Simplified Scout’s two review checkpoints with editable decisions, clearer help, and inspectable source passages and comparison qualifiers.",
+      "Improved Scout number formatting for calendar years and singular or plural units, such as 2027, 1 dose, and 2 doses.",
+      "Assistant can explain the active Scout review and its sources without changing review decisions.",
+      "Refined the tool catalog and added release notes, Teams feedback contacts, and a shared reminder to verify AI-generated results against their sources.",
+    ],
+  },
+  {
     version: "0.2.1",
     releasedOn: "2026-09-14",
     productionBuild: 33,
@@ -51,14 +64,7 @@ export const RELEASES: readonly Release[] = [
 
 export const CURRENT_RELEASE = RELEASES[0];
 
-export const UNRELEASED_CHANGES: readonly string[] = [
-  "Scout compatibility: after deployment, rerun Scout to create a compatible result. Previously exported Scout files cannot be imported into this version.",
-  "Improved Scout numeric target extraction and AI review with more source context, clearer recommendation reasons, and distinct notices for uncertainty and processing failures.",
-  "Simplified Scout’s two review checkpoints with editable decisions, clearer help, and inspectable source passages and comparison qualifiers.",
-  "Improved Scout number formatting for calendar years and singular or plural units, such as 2027, 1 dose, and 2 doses.",
-  "Assistant can explain the active Scout review and its sources without changing review decisions.",
-  "Refined the tool catalog and added release notes, Teams feedback contacts, and a shared reminder to verify AI-generated results against their sources.",
-];
+export const UNRELEASED_CHANGES: readonly string[] = [];
 
 export function formatReleaseDate(value: string): string {
   return new Intl.DateTimeFormat("en-US", {

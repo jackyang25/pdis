@@ -44,6 +44,7 @@ function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
     addResult,
     setResult,
     setBusy,
+    startedAt,
     setStage,
     setError,
   } = useChunkerSession();
@@ -83,6 +84,7 @@ function ChunkerView({ header, ready }: { header: Header; ready: boolean }) {
       <RunPanel
         configuration={<ConfigurationFields />}
         busy={busy}
+        startedAt={startedAt}
         onRun={(files) => handleRun(files.document)}
         steps={CHUNKER_STEPS}
         currentStage={stage}

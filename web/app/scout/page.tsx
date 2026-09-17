@@ -139,8 +139,8 @@ import { EvidenceProvenance } from "@/components/evidence-provenance";
 import { FieldSearches } from "@/components/field-searches";
 import { ExcludedMeasurements } from "@/components/excluded-measurements";
 import { ComparatorCohort } from "@/components/comparator-cohort";
-import { ScoutComparison, TargetQualifierSource } from "@/components/scout-comparison";
-import { semanticSlotLabel, dimensionLabel, comparisonDimensions, comparisonRuleLabel } from "@/lib/scout-comparison";
+import { ScoutComparison, TargetQualifierSource, TargetQualifierDetails } from "@/components/scout-comparison";
+import { semanticSlotLabel, dimensionLabel, comparisonDimensions } from "@/lib/scout-comparison";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RELATION_ORDER, sortMatchesForReading } from "@/lib/scout-match-order";
 import {
@@ -483,6 +483,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
     addResult,
     setResult,
     setBusy,
+    startedAt,
     setStage,
     setProgress,
     setError,
@@ -706,6 +707,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
             />
           }
           busy={busy}
+          startedAt={startedAt}
           onRun={(files) => handleRun(files.document)}
           steps={SCOUT_STEPS}
           currentStage={stage}
@@ -1008,13 +1010,8 @@ function DocumentTargetReviewCheckpoint({
                         <span className={EYEBROW}>{dimensionLabel(dimension)}</span>
                         <TargetQualifierSource target={target} dimension={dimension} />
                       </dt>
-                      <dd className="mt-0.5 text-xs leading-relaxed text-foreground">
-                        {semanticSlotLabel(target.semantic_profile[dimension])}
-                      </dd>
-                      <dd className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                        {comparisonRuleLabel(
-                          target.comparison_contract[dimension],
-                        )}
+                      <dd className="mt-1">
+                        <TargetQualifierDetails target={target} dimension={dimension} />
                       </dd>
                     </div>
                   ))}

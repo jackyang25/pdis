@@ -197,6 +197,7 @@ export default function AlignerPage() {
         {(!session.result || showSetup) && (
           <RunPanel
             busy={session.busy}
+            startedAt={session.startedAt}
             documents={slots}
             onRun={(files) => void handleRun(files)}
             steps={STEPS}

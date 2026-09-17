@@ -11,6 +11,27 @@ const { ReviewListRow, ReviewActions, ReviewCheckpointHeader, ReviewEstimateChoi
   fileURLToPath(new URL("../app/scout/page.tsx", import.meta.url)), {}, ["ReviewListRow", "ReviewActions", "ReviewCheckpointHeader", "ReviewEstimateChoices", "defaultReviewEstimateId", "QuantitativeReviewCheckpoint", "DocumentTargetReviewCheckpoint"],
 );
 
+test("qualifier details distinguish document content from every matching-rule state", () => {
+  const { TargetQualifierDetails } = loadComponent(fileURLToPath(new URL("../components/scout-comparison.tsx", import.meta.url)));
+  const target = reviewFixture().quantitative_ledger.targets[0];
+  for (const [rule, expected] of [
+    [{ mode: "exact", scope: "Protective efficacy", reason: "" }, "Exact match: Protective efficacy"],
+    [{ mode: "compatible", scope: "Adult cohorts", reason: "Includes adult subgroups." }, "Compatible match: Adult cohorts"],
+    [{ mode: "unknown", scope: "", reason: "Timing is ambiguous." }, "Scope needs review: Timing is ambiguous."],
+    [{ mode: "unconstrained", scope: "", reason: "" }, "Does not control comparison"],
+  ] as const) {
+    target.comparison_contract.measure = rule;
+    const before = JSON.stringify(target);
+    const html = renderToStaticMarkup(React.createElement(TargetQualifierDetails, { target, dimension: "measure" }));
+    assert.match(html, /Document says/);
+    assert.ok(html.includes(expected));
+    if (rule.mode === "exact" || rule.mode === "compatible") assert.match(html, /Evidence must match/);
+    else assert.doesNotMatch(html, /Evidence must match/);
+    if (rule.reason) assert.ok(html.includes(rule.reason));
+    assert.equal(JSON.stringify(target), before);
+  }
+});
+
 test("comparison exposes qualifier reasoning and separates non-controlling fields from matches", () => {
   const result = reviewFixture();
   const target = result.quantitative_ledger.targets[0];

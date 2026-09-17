@@ -15,6 +15,26 @@ export function TargetQualifierSource({ target, dimension }: {
   return <DocumentSourceTrace spans={spans} blockIds={[...new Set(spans.flatMap(span => span.block_ids))]} />;
 }
 
+/** Keep extracted document content separate from the authored matching rule. */
+export function TargetQualifierDetails({ target, dimension }: {
+  target?: QuantitativeTarget | null;
+  dimension: keyof QuantitativeSemanticProfile;
+}) {
+  const rule = target?.comparison_contract[dimension];
+  const requiresMatch = rule?.mode === "exact" || rule?.mode === "compatible";
+  return <div className="space-y-2 text-xs leading-relaxed">
+    <div>
+      <p className="text-[11px] font-medium text-muted-foreground">Document says</p>
+      <p className="text-foreground">{semanticSlotLabel(target?.semantic_profile[dimension])}</p>
+    </div>
+    <div className="text-[11px] text-muted-foreground">
+      <p className="font-medium">{requiresMatch ? "Evidence must match" : "Evidence matching rule"}</p>
+      <p>{comparisonRuleLabel(rule)}</p>
+      {rule?.reason && rule.mode !== "unknown" && <Reading className="mt-1">{rule.reason}</Reading>}
+    </div>
+  </div>;
+}
+
 /** Read-only provenance, shared by review and final measurement details. */
 export function ScoutComparison({ target, measurement, compact = false }: {
   target?: QuantitativeTarget | null;
@@ -74,9 +94,7 @@ function ReviewComparisonTable({ target, measurement, dimensions, compact }: {
         <p className="text-xs font-medium text-foreground">{dimensionLabel(dimension)}</p>
         <div className="min-w-0 break-words text-xs leading-relaxed text-foreground">
           <p className={cn(EYEBROW, "mb-1", !compact && "sm:hidden")}>Target</p>
-          <p>{semanticSlotLabel(target?.semantic_profile[dimension])}</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">{comparisonRuleLabel(rule)}</p>
-          {rule?.reason && rule.mode !== "unknown" && <Reading className="mt-2">{rule.reason}</Reading>}
+          <TargetQualifierDetails target={target} dimension={dimension} />
           {spans.length > 0 && <div className="mt-2"><TargetQualifierSource target={target} dimension={dimension} /></div>}
         </div>
         <div className="min-w-0 break-words text-xs leading-relaxed text-foreground">

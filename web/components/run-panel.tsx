@@ -41,6 +41,7 @@ type Props = {
   onRemoveDocument?: (id: string) => void;
   disabled?: boolean;
   busy?: boolean;
+  startedAt?: number | null;
   /** Called once every slot holds a supported file, keyed by slot id. */
   onRun: (files: Record<string, File>) => void;
   /** The page owns parsing and saved-result compatibility; this owns the picker. */
@@ -71,6 +72,7 @@ export function RunPanel({
   onRemoveDocument,
   disabled,
   busy,
+  startedAt,
   onRun,
   onImport,
   steps,
@@ -204,6 +206,7 @@ export function RunPanel({
                 <ProgressSteps
                   steps={steps}
                   busy={busy}
+                  startedAt={startedAt ?? null}
                   currentStage={currentStage ?? null}
                   progress={progress ?? null}
                 />

@@ -12,14 +12,15 @@ export type Step = { key: string; label: string };
 type Props = {
   steps: Step[];
   busy: boolean;
+  startedAt: number | null;
   /** The key of the currently active step (set from a server-sent stage event). */
   currentStage: string | null;
   /** Optional live item count for the active stage (e.g. searches completed). */
   progress?: { completed: number; total: number } | null;
 };
 
-export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
-  const elapsed = useElapsedWhile(busy);
+export function ProgressSteps({ steps, busy, startedAt, currentStage, progress }: Props) {
+  const elapsed = useElapsedWhile(busy, startedAt);
 
   if (!busy) return null;
 
@@ -91,25 +92,27 @@ export function ProgressSteps({ steps, busy, currentStage, progress }: Props) {
 }
 
 /**
- * Milliseconds since `busy` became true, ticking once a second.
+ * Milliseconds since the session began processing, ticking once a second.
  *
  * Read from the clock rather than counted from ticks: a background tab throttles
  * timers, and a counter would quietly under-report exactly when someone leaves a
  * long analysis running and comes back to check on it.
  */
-function useElapsedWhile(busy: boolean): number {
-  const [elapsed, setElapsed] = useState(0);
+function useElapsedWhile(busy: boolean, startedAt: number | null): number {
+  const [elapsed, setElapsed] = useState(() =>
+    busy && startedAt !== null ? Math.max(0, Date.now() - startedAt) : 0,
+  );
 
   useEffect(() => {
-    if (!busy) {
+    if (!busy || startedAt === null) {
       setElapsed(0);
       return;
     }
-    const startedAt = Date.now();
-    setElapsed(0);
-    const timer = window.setInterval(() => setElapsed(Date.now() - startedAt), 1000);
+    const update = () => setElapsed(Math.max(0, Date.now() - startedAt));
+    update();
+    const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
-  }, [busy]);
+  }, [busy, startedAt]);
 
   return elapsed;
 }

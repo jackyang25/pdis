@@ -63,6 +63,8 @@ type ToolSession<TResult> = {
    */
   result: TResult | null;
   busy: boolean;
+  /** Start of the active processing phase, retained across page navigation. */
+  startedAt: number | null;
   stage: string | null;
   progress: StageProgress | null;
   error: string | null;
@@ -100,6 +102,7 @@ function createToolSession<TResult>() {
     selectedId: null,
     result: null,
     busy: false,
+    startedAt: null,
     stage: null,
     progress: null,
     error: null,
@@ -166,7 +169,10 @@ function createToolSession<TResult>() {
       });
     },
 
-    setBusy: (busy) => set({ busy }),
+    setBusy: (busy) => set((state) => ({
+      busy,
+      startedAt: busy ? (state.startedAt ?? Date.now()) : null,
+    })),
     setStage: (stage) => set({ stage }),
     setProgress: (progress) => set({ progress }),
     setError: (error) => set({ error }),
@@ -176,6 +182,7 @@ function createToolSession<TResult>() {
         selectedId: null,
         result: null,
         busy: false,
+        startedAt: null,
         stage: null,
         progress: null,
         error: null,

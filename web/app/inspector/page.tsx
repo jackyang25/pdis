@@ -119,6 +119,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
     addResult,
     setResult,
     setBusy,
+    startedAt,
     setStage,
     setProgress,
     setError,
@@ -193,6 +194,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
             {catalog.error && <ErrorMessage>{catalog.error}</ErrorMessage>}
           </ConfigurationFields>}
           busy={busy}
+          startedAt={startedAt}
           onRun={(files) => handleRun(files.document)}
           steps={INSPECTOR_STEPS}
           currentStage={stage}

@@ -25,6 +25,24 @@ function store() {
   return useScoutSession.getState;
 }
 
+test("active processing keeps its start time until it finishes or resets", (t) => {
+  const get = store();
+  const clock = t.mock.method(Date, "now", () => 1000);
+  get().setBusy(true);
+  assert.equal(get().startedAt, 1000);
+  clock.mock.mockImplementation(() => 61000);
+  // Navigation subscribes to the same store; stage events do not restart it.
+  get().setStage("mapping");
+  get().setBusy(true);
+  assert.equal(useScoutSession.getState().startedAt, 1000);
+  get().setBusy(false);
+  assert.equal(get().startedAt, null);
+  get().setBusy(true);
+  assert.equal(get().startedAt, 61000);
+  get().reset();
+  assert.equal(get().startedAt, null);
+});
+
 test("a finished run is kept and becomes the one being viewed", () => {
   const get = store();
   const outcome = get().addResult({ doc_id: "polio" } as never);

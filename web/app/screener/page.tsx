@@ -168,6 +168,7 @@ export default function ScreenerPage() {
         {(!session.result || showSetup) && (
           <RunPanel
             busy={session.busy}
+            startedAt={session.startedAt}
             documents={slots}
             documentFormats={TEXT_EXTRACTION_FORMATS}
             onAddDocument={() => {

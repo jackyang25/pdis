@@ -56,6 +56,8 @@ the entries marked `TODO` are cluster facts this repository cannot know.
 These are product release versions, separate from package metadata, rubric
 revisions, and saved-result schema versions. The first three were assigned
 retrospectively to confirmed production promotions.
+The displayed version identifies the running build, not deployment status: local
+and acceptance builds show the prepared version before production is promoted.
 
 - Keep pending user-facing changes in `UNRELEASED_CHANGES`.
 - Before building a new production release, move the changes actually shipping
@@ -64,9 +66,12 @@ retrospectively to confirmed production promotions.
   deployment completion time. If deployment moves to another day, update the date
   and rebuild before promotion. The production build number is optional tracking
   metadata; release preparation does not depend on knowing it.
-- Use a patch increment for fixes/polish, a minor increment for new capabilities,
-  and a major increment for breaking changes. Redeploying the same release does
-  not add an entry or bump its version.
+- While on `0.x`, use a patch increment for compatible fixes/polish and a minor
+  increment for new capabilities or breaking changes. State any required user
+  action, such as rerunning Scout after an artifact-format change. From `1.0.0`
+  onward, breaking changes require a major increment.
+- Build and test the prepared release, then promote that same build to production.
+  Retrying or redeploying the same release does not add an entry or bump its version.
 - Summarize user-visible changes since the previous release, not every commit.
   Leave unshipped work under Unreleased. No CI or application process invents
   release notes or automatically marks a failed deployment as released.

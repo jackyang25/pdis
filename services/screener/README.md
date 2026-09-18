@@ -101,6 +101,24 @@ because of an assumption about where an answer ought to live. The bank's
 required/anticipatory column does not affect which questions are assessed or what
 material they are assessed against.
 
+Every assessment receives the selected indication and intervention class as intended
+review context, not as proof that every upload concerns that context. These are not
+exact-word filters or unique product identifiers. All documents remain available:
+complementary passages can close a question together, and background studies,
+comparators, shared methods, or other indications can be relevant to what it asks.
+The prompt prohibits transferring one product's findings or completed activities to
+another. Genuine attribution ambiguity is described in the existing statement or
+partial-answer gap, without introducing a new state or applicability rule. Unrelated
+material alone is not a reason to downgrade otherwise supported coverage.
+
+Before claiming improved model quality, compare live runs for: complementary documents
+about one product; that same set with an unrelated product added; a question genuinely
+answered by comparator/background evidence; and a mixed set with no clear intended
+product. The first two should retain the supported answer and product-specific
+citations; background evidence should retain its stated role; ambiguity must not become
+an invented combined product. Offline tests verify context delivery and retained
+evidence, not semantic model accuracy.
+
 The denominator never shrinks: every question appears with a state, every run. No count
 is stored, because a carried count is a second authority that can disagree with the
 list it summarizes. A bank with no question applicable to the run's intervention class

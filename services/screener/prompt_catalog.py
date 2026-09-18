@@ -4,7 +4,8 @@ The assessor owns its prompt text. This module owns the list of prompts and what
 each produces.
 
 Screener sends one prompt, once per queued question, so this single pair is the
-complete set. Every question uses the same document-only prompt.
+complete set. Every question uses the same evidence-relevance instructions and
+receives the run's selected context alongside all supplied documents.
 """
 
 from __future__ import annotations

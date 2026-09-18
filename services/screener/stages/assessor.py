@@ -12,6 +12,7 @@ from shared.ai import request_structured
 from shared.references import reference_array
 from shared.errors import ModelResponseError
 from shared.document_metadata import extraction_context
+from shared.vocabulary import search_term
 
 from services.chunker import ContentBlock
 
@@ -41,6 +42,31 @@ _SCOPE_BOUNDARY = """Scope boundary:
 - These questions are compound: many ask two or three things in one sentence. Judge
   them clause by clause. Every clause answered is answered; some answered is partly;
   none is not found. Do not round a partial up or down.
+
+Review context and evidence relevance:
+- The selected disease / condition and intervention class describe the intended
+  review context, not facts established about every uploaded document. They do
+  not identify a unique product and are not an exact-word matching filter.
+- Read all supplied documents. Combine complementary passages about the same
+  reviewed product or program, including plans, studies and different document
+  formats. Do not require each document or passage to repeat the selected context
+  or product name when its relationship is clear from the supplied material.
+- Background research, comparators, shared methods and evidence from other
+  indications may answer a question where that is what the question asks for.
+  Preserve their stated role; do not reject them merely for a different disease
+  or intervention class. Do not add disease-specific requirements to a question
+  about general development work.
+- Do not transfer one product's results, properties or completed activities to
+  another, or combine unrelated products to make a single product appear fully
+  covered. A shared disease or intervention class alone does not establish that
+  evidence concerns the same product. Establish the relationship from the supplied
+  material, not merely similar filenames or terminology.
+- If the intended subject or a passage's relevance is genuinely ambiguous, do
+  not guess a product or treat uncertain attribution as established coverage.
+  Assess the parts supported without that assumption, and state the specific
+  attribution limitation in `statement` or, for a partial, `missing`. Do not
+  downgrade supported coverage merely because unrelated material is also supplied.
+  This is evidence interpretation, not a new applicability rule or a quality grade.
 
 How to read one of these questions:
 - A list in parentheses tells you what counts as addressing the term in front of it. It
@@ -141,6 +167,9 @@ def assessment_schema(
 def build_user_message(
     question: QuestionSpec,
     blocks: list[ContentBlock],
+    *,
+    indication: str,
+    intervention_class: str,
 ) -> str:
     """The supplied material first, the question last.
 
@@ -155,7 +184,12 @@ def build_user_message(
     model told a question is only "anticipatory" would read the material less carefully
     for it. The same triage runs either way; the distinction is for the reader.
     """
-    parts = ["Supplied document blocks:\n" + _format_blocks(blocks)]
+    parts = [
+        "Selected review context (user-supplied, not evidence):\n"
+        f"Disease / condition: {search_term(indication)}\n"
+        f"Intervention class: {search_term(intervention_class)}",
+        "Supplied document blocks:\n" + _format_blocks(blocks),
+    ]
     parts.append(f"Question ({question.id}):\n{question.text}")
     return "\n\n".join(parts)
 
@@ -164,12 +198,16 @@ def assess_question(
     question: QuestionSpec,
     *,
     blocks: list[ContentBlock],
+    indication: str,
+    intervention_class: str,
     llm_client: LLMClientProtocol,
     max_tokens: int,
 ) -> QuestionAssessment:
     """One decision about one question, with its lineage validated."""
     system_prompt = build_assessment_prompt()
-    user_message = build_user_message(question, blocks)
+    user_message = build_user_message(
+        question, blocks, indication=indication, intervention_class=intervention_class,
+    )
     schema = assessment_schema(blocks)
     images = _image_inputs(blocks)
     valid_block_ids = {block.id for block in blocks}

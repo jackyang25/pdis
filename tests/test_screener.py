@@ -552,6 +552,22 @@ class FakeClient:
 class AssessorTests(unittest.TestCase):
     BLOCKS = [block("d:1", "d", "ipdp", "The plan states annual dosing.")]
 
+    def test_selected_context_reaches_the_model_without_filtering_evidence(self) -> None:
+        from services.screener.stages.assessor import build_user_message
+        evidence = [
+            block("a:1", "profile", "ipdp", "Candidate A targets HIV; annual dosing is planned."),
+            block("b:1", "study", "ipdp", "Candidate A's supporting study describes manufacturing."),
+            block("c:1", "comparator", "ipdp", "Candidate B treats tuberculosis and has completed stability tests."),
+        ]
+        message = build_user_message(spec("Q1"), evidence,
+                                     indication="hiv", intervention_class="monoclonal_antibody")
+        self.assertIn("Disease / condition: hiv", message)
+        self.assertIn("Intervention class: monoclonal antibody", message)
+        for item in evidence:
+            self.assertIn(item.content, message)
+            self.assertIn(item.id, message)
+        self.assertLess(message.index("Disease / condition:"), message.index("Question ("))
+
     def test_a_document_answer_carries_its_lineage(self) -> None:
         client = FakeClient(
             {
@@ -564,6 +580,7 @@ class AssessorTests(unittest.TestCase):
         result = assess_question(
             spec("Q1"),
             blocks=self.BLOCKS,
+            indication="malaria", intervention_class="drug",
             llm_client=client,
             max_tokens=100,
         )
@@ -584,6 +601,7 @@ class AssessorTests(unittest.TestCase):
         result = assess_question(
             spec("Q1"),
             blocks=self.BLOCKS,
+            indication="malaria", intervention_class="drug",
             llm_client=client,
             max_tokens=100,
         )
@@ -608,6 +626,7 @@ class AssessorTests(unittest.TestCase):
             assess_question(
                 spec("Q1"),
                 blocks=self.BLOCKS,
+                indication="malaria", intervention_class="drug",
                 llm_client=client,
                 max_tokens=100,
             )
@@ -628,6 +647,7 @@ class AssessorTests(unittest.TestCase):
             assess_question(
                 spec("Q1"),
                 blocks=self.BLOCKS,
+                indication="malaria", intervention_class="drug",
                 llm_client=client,
                 max_tokens=100,
             )
@@ -653,6 +673,7 @@ class AssessorTests(unittest.TestCase):
         result = assess_question(
             spec("Q1"),
             blocks=self.BLOCKS,
+            indication="malaria", intervention_class="drug",
             llm_client=client,
             max_tokens=100,
         )
@@ -671,6 +692,7 @@ class AssessorTests(unittest.TestCase):
             assess_question(
                 spec("Q1"),
                 blocks=self.BLOCKS,
+                indication="malaria", intervention_class="drug",
                 llm_client=client,
                 max_tokens=100,
             )
@@ -702,6 +724,7 @@ class AssessorTests(unittest.TestCase):
         message = build_user_message(
             spec("Q1"),
             self.BLOCKS,
+            indication="malaria", intervention_class="drug",
         )
         self.assertLess(message.index("Supplied document blocks"), message.index("Question ("))
 
@@ -712,6 +735,7 @@ class AssessorTests(unittest.TestCase):
         message = build_user_message(
             spec("Q1"),
             [block("d:1", "d", "ipdp", "The plan states annual dosing.")],
+            indication="malaria", intervention_class="drug",
         )
         self.assertIn("[d:1 | d | paragraph", message)
 

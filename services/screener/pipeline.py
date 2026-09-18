@@ -108,6 +108,8 @@ def run_pipeline(
     assessments = _assess(
         resolutions,
         blocks=blocks,
+        indication=indication,
+        intervention_class=intervention_class,
         llm_client=llm_client,
         max_tokens=max_tokens,
     )
@@ -133,6 +135,8 @@ def _assess(
     resolutions: list[QuestionResolution],
     *,
     blocks: list[ContentBlock],
+    indication: str,
+    intervention_class: str,
     llm_client: LLMClientProtocol,
     max_tokens: int,
 ) -> dict[str, QuestionAssessment]:
@@ -157,6 +161,8 @@ def _assess(
         return assess_question(
             resolution.question,
             blocks=blocks,
+            indication=indication,
+            intervention_class=intervention_class,
             llm_client=llm_client,
             max_tokens=max_tokens,
         )

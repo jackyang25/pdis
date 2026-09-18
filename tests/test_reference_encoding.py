@@ -50,7 +50,8 @@ def test_screener_large_set_retains_every_document_and_resolves_exact_image_cita
 
     client = Client()
     result = assess_question(QuestionSpec(id="Q1", text="Is the target supported?", requirement="required"),
-                             blocks=evidence, llm_client=client, max_tokens=1000)
+                             blocks=evidence, indication="hiv", intervention_class="drug",
+                             llm_client=client, max_tokens=1000)
     assert client.calls == 1
     assert result.state == "partly_answered"
     assert result.statement == "The target is stated."

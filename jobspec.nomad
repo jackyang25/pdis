@@ -129,7 +129,7 @@ job "__REPO__NAME__" {
 
       resources {
         cpu    = 2000
-        memory = 4096
+        memory = 6144
       }
 
       env {

@@ -209,7 +209,7 @@ class JobspecParityTests(unittest.TestCase):
                 api = text.split('task "api" {', 1)[1].split('task "tooluniverse"', 1)[0]
                 self.assertRegex(api, r'\bMAX_CONCURRENT_RUNS\s*=\s*"1"')
                 self.assertRegex(api, r"\bcpu\s*=\s*2000\b")
-                self.assertRegex(api, r"\bmemory\s*=\s*4096\b")
+                self.assertRegex(api, r"\bmemory\s*=\s*6144\b")
                 self.assertNotRegex(api, r"\bmemory_max\s*=")
 
 

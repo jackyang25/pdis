@@ -135,7 +135,7 @@ job "__REPO__NAME__-acc" {
 
       resources {
         cpu    = 2000
-        memory = 4096
+        memory = 6144
       }
 
       env {

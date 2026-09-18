@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.ai import request_structured
+from shared.errors import ModelResponseError
 from shared.document_metadata import extraction_context
 
 from services.chunker import ContentBlock
@@ -203,7 +204,7 @@ def assess_question(
             )
         except ValueError as exc:
             first_error = str(exc)
-    raise ValueError(f"Screener could not triage {question.id}: {first_error}")
+    raise ModelResponseError(f"Screener could not triage {question.id}: {first_error}")
 
 
 # ---------------------------------------------------------------------------

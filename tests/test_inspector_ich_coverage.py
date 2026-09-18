@@ -43,7 +43,8 @@ class ICHCoverageTests(unittest.TestCase):
         for intervention, types in [("device", ("itpp", "ctpp")),
                                      ("diagnostic", ("itpp", "ctpp", "ipdp"))]:
             for source_type in types:
-                self.assertEqual([r.rubric_id for r in self.resolved(source_type, intervention)], ["bmgf"])
+                self.assertFalse(any(r.rubric_id.startswith("ich-")
+                                     for r in self.resolved(source_type, intervention)))
 
     def test_new_units_keep_common_shape_and_citable_source_sections(self):
         seen = set()

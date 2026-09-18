@@ -1,0 +1,26 @@
+# Adaptation licensed under CC BY-NC-SA 3.0 IGO, as is the cited WHO source:
+# https://creativecommons.org/licenses/by-nc-sa/3.0/igo/
+id: who-tgs3-ipdp
+revision: "1.0"
+updated_on: "2026-09-18"
+display_name: "WHO TGS 3: diagnostic performance planning"
+authority: "PDIS-authored adaptation informed by WHO TGS 3; no agency endorsement"
+scope: "Selected analytical and clinical performance-planning expectations for IVDs eligible for and intended to undergo WHO prequalification; not a complete study or dossier review."
+evidence_scope: whole_document
+sources:
+  - {id: "who-tgs3-purpose", title: "TGS 3: Principles of performance studies — Sections 6.1–6.3: intended use, reference standard and study validity", revision: "WHO/EMP/RHT/PQT/TGS3/2017.03, 2017", url: "https://iris.who.int/handle/10665/258985"}
+  - {id: "who-tgs3-bias", title: "TGS 3 — Sections 6.4 and 7: bias and performance study protocol", revision: "WHO/EMP/RHT/PQT/TGS3/2017.03, 2017", url: "https://iris.who.int/handle/10665/258985"}
+stage_guidance: "Assess an IPDP's evidence strategy, not finished study reports or a full protocol. Studies may be future work; their purpose and link to intended claims must be stated."
+sections:
+  - name: "Claims and evidence coverage"
+    description: "The plan links intended IVD claims to analytical and clinical performance studies."
+    source_refs: ["who-tgs3-purpose"]
+    expectations: "Cover relevant specimen types, users and populations; no fixed study list is imposed."
+  - name: "Benchmark and representativeness"
+    description: "The plan identifies the comparison basis and how specimens and study settings represent intended use."
+    source_refs: ["who-tgs3-purpose"]
+    expectations: "Accept justified limitations and a plan to resolve them; do not invent a reference standard."
+  - name: "Study validity and analysis"
+    description: "The plan explains major bias controls and how planned analyses will support performance conclusions."
+    source_refs: ["who-tgs3-bias"]
+    expectations: "A strategic account suffices; do not require detailed protocols, raw data or completed results."

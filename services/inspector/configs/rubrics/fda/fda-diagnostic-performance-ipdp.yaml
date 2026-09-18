@@ -1,0 +1,24 @@
+id: fda-diagnostic-performance-ipdp
+revision: "1.0"
+updated_on: "2026-09-18"
+display_name: "FDA diagnostic performance: analysis planning"
+authority: "PDIS-authored adaptation informed by FDA diagnostic-test statistical guidance; no agency endorsement"
+scope: "Selected benchmark and reporting plans for positive/negative diagnostic outcomes; not a complete clinical-study design review or FDA submission review."
+evidence_scope: whole_document
+sources:
+  - {id: "fda-dx-benchmark", title: "Statistical Guidance on Reporting Results from Studies Evaluating Diagnostic Tests — Sections 3–4: benchmarks and populations", revision: "Final, 13 March 2007", url: "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/statistical-guidance-reporting-results-studies-evaluating-diagnostic-tests-guidance-industry-and-fda"}
+  - {id: "fda-dx-reporting", title: "Statistical Guidance on Reporting Results from Studies Evaluating Diagnostic Tests — Sections 5–6: reporting and inappropriate practices", revision: "Final, 13 March 2007", url: "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/statistical-guidance-reporting-results-studies-evaluating-diagnostic-tests-guidance-industry-and-fda"}
+stage_guidance: "Assess the IPDP's planned interpretation of diagnostic performance, not completed results or a statistical analysis plan. No prescribed study size or numerical success threshold is imposed."
+sections:
+  - name: "Benchmark and analysis population"
+    description: "The plan identifies the comparison method and the intended-use population for performance evaluation."
+    source_refs: ["fda-dx-benchmark"]
+    expectations: "Accept justified benchmark limitations with a plan to address interpretation."
+  - name: "Performance estimates and uncertainty"
+    description: "The plan distinguishes accuracy from agreement and explains how uncertainty in the estimates will be reported."
+    source_refs: ["fda-dx-reporting"]
+    expectations: "Do not demand calculated intervals before studies run."
+  - name: "Incomplete and discrepant results"
+    description: "The plan addresses invalid or missing results and disagreements without selectively reclassifying only discordant outcomes as truth."
+    source_refs: ["fda-dx-reporting"]
+    expectations: "Accept a high-level handling strategy; detailed analysis algorithms are not required."

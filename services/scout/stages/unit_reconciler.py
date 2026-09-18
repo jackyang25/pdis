@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 import json
 
+from shared.errors import ModelResponseError
+
 from ..ai import request_structured
 from ..ai_contracts import unit_reconciliation
 from ..models import Attribute, LLMClientProtocol
@@ -104,7 +106,7 @@ def reconcile_units(
         groups = _validated_groups(parsed, list(by_id))
         if groups is not None:
             return _merge_groups(by_id, groups)
-    raise ValueError("Dynamic unit reconciliation failed: invalid partition after retry")
+    raise ModelResponseError("Dynamic unit reconciliation failed: invalid partition after retry")
 
 
 def _validated_groups(

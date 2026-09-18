@@ -19,7 +19,11 @@ import yaml
 from .models import InspectionConfig, ProductFact, load_inspection_config
 
 ResolutionStatus = Literal["included", "outside_review_scope", "needs_context"]
-PRODUCT_FACT_KEYS = ("small_molecule", "systemic_exposure", "antiarrhythmic")
+PRODUCT_FACT_KEYS = (
+    "small_molecule", "systemic_exposure", "antiarrhythmic",
+    "public_sector_vaccine", "infectious_disease_vaccine",
+    "who_prequalification_ivd", "binary_diagnostic_result",
+)
 PRODUCT_FACT_VALUES = ("yes", "no", "unknown")
 
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
@@ -206,7 +210,7 @@ def load_profiles() -> list[InspectionProfile]:
         for index, item in enumerate(data.get("fact_definitions", []))
     ]
     if tuple(item.key for item in facts) != PRODUCT_FACT_KEYS:
-        raise ValueError("Inspector fact definitions must declare the three product facts in order")
+        raise ValueError("Inspector fact definitions must declare the supported product facts in order")
     profiles: list[InspectionProfile] = []
     identities: set[tuple[str, str, str]] = set()
     for index, item in enumerate(entries):

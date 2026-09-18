@@ -265,8 +265,8 @@ The run owns source `blocks[]` once, applicability resolutions and one
 - Rank orders work within one rubric by verdict and then authored sequence. Never
   compare ranks or combine verdict totals across independent rubrics.
 - `configs/profiles/` selects pinned rubric definitions from the input triple.
-  `configs/rubrics/pdid/` and `configs/rubrics/ich/` own their respective assessment
-  authorities; profiles reference them explicitly. Filenames use hyphens, input
+  `configs/rubrics/` groups definitions by source authority (PDID, ICH, WHO, FDA,
+  EMA); profiles reference them explicitly. Filenames use hyphens, input
   keys retain underscores, and saved IDs remain stable. No lookup reconstructs
   an Inspector filename from organization keys. Adding guideline domain content is a YAML
   change, not a named-guideline branch in the assessor or viewer.
@@ -280,7 +280,8 @@ The run owns source `blocks[]` once, applicability resolutions and one
   Do not infer document absence from that empty mapping.
 - Snapshots preserve the authored descriptions, expectations, stage guidance and
   source references used by the run. Source revisions and PDIS rubric revisions
-  are separate. ICH-derived requirements are adaptations, never ICH certification.
+  are separate. Guideline-derived requirements are adaptations, never regulatory
+  compliance or agency certification.
 - The shared result viewer selects a review without changing the run. Export and
   Ask retain all reviews and one source collection. Priority digests are scoped to
   their rubric. Document consistency concerns contradictions within the document,

@@ -261,7 +261,9 @@ class OneCallPerUnitTests(unittest.TestCase):
         )
 
     def test_a_failed_unit_stops_the_run_rather_than_publishing_a_hole(self) -> None:
-        with self.assertRaisesRegex(ValueError, "could not assess Efficacy in Profile"):
+        from shared.errors import ModelResponseError
+
+        with self.assertRaisesRegex(ModelResponseError, "could not assess Efficacy in Profile"):
             _assess_single_section(
                 section_spec=_section(),
                 section_blocks=[_block("document:b1", "Profile")],

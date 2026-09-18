@@ -16,8 +16,10 @@ import re
 from collections.abc import Callable
 from dataclasses import replace
 
-from ..ai import request_structured
 from shared.batching import map_ordered
+from shared.errors import ModelResponseError
+
+from ..ai import request_structured
 from ..ai_contracts import unit_batch
 from .unit_reconciler import reconcile_units
 from ..context import (
@@ -99,7 +101,7 @@ def extract_units(
             )
             chunk_units = _validated_units(parsed, chunk)
             if not isinstance(parsed, list) or len(chunk_units) != len(parsed):
-                raise ValueError(
+                raise ModelResponseError(
                     "Document claim extraction failed: the model did not return "
                     "valid cited claims after retry."
                 )

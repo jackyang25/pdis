@@ -594,6 +594,7 @@ class AssessorTests(unittest.TestCase):
     def test_a_partial_answer_with_no_account_is_refused(self) -> None:
         """That sentence is the only record of what the question leaves open."""
         from services.screener.stages.assessor import DECISION_PARTLY_ANSWERED
+        from shared.errors import ModelResponseError
 
         client = FakeClient(
             {
@@ -603,7 +604,7 @@ class AssessorTests(unittest.TestCase):
                 "block_ids": ["d:1"],
             }
         )
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ModelResponseError):
             assess_question(
                 spec("Q1"),
                 blocks=self.BLOCKS,

@@ -4,6 +4,11 @@
 to the **NLM MeSH 2026 descriptor release**, not a list of approved indications,
 portfolio commitments, or disease-specific tool capabilities.
 
+The input is labelled **Disease / condition** in the UI; `indication` remains its
+API, configuration and saved-result key. This context is not a full intended-use
+statement or an approved indication. **Health product type** similarly displays
+the existing `intervention_class` field without changing its values or meaning.
+
 ## Naming rule
 
 Use a readable, natural-order MeSH preferred or entry term. Lowercase it and join

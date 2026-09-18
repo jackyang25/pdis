@@ -1,0 +1,24 @@
+id: fda-human-factors-ctpp
+revision: "1.0"
+updated_on: "2026-09-18"
+display_name: "FDA human factors: candidate use characteristics"
+authority: "PDIS-authored adaptation informed by FDA human-factors guidance; no agency endorsement"
+scope: "Selected device user, environment and use-safety considerations; not an FDA submission, human-factors validation or a determination of device safety."
+evidence_scope: whole_document
+sources:
+  - {id: "fda-hf-users", title: "Applying Human Factors and Usability Engineering to Medical Devices — Sections 5.1–5.2", revision: "Final, 3 August 2026", url: "https://www.fda.gov/files/medical%20devices/published/Applying-Human-Factors-and-Usability-Engineering-to-Medical-Devices---Guidance-for-Industry-and-Food-and-Drug-Administration-Staff.pdf"}
+  - {id: "fda-hf-interface", title: "Applying Human Factors and Usability Engineering to Medical Devices — Sections 5.3, 6.1 and 7", revision: "Final, 3 August 2026", url: "https://www.fda.gov/files/medical%20devices/published/Applying-Human-Factors-and-Usability-Engineering-to-Medical-Devices---Guidance-for-Industry-and-Food-and-Drug-Administration-Staff.pdf"}
+stage_guidance: "Assess a cTPP's candidate use characteristics and unresolved use-safety issues. Do not require a validation protocol, completed testing or a full risk-management file."
+sections:
+  - name: "Intended users"
+    description: "The profile identifies candidate users and assumptions about their capabilities and training."
+    source_refs: ["fda-hf-users"]
+    expectations: "Include patient or caregiver operation only where intended."
+  - name: "Use environments"
+    description: "The profile states intended environments and candidate operating limitations."
+    source_refs: ["fda-hf-users"]
+    expectations: "Assess material use conditions, not an exhaustive environmental qualification programme."
+  - name: "Use-related safety"
+    description: "The profile explains safety-critical interactions, proposed safeguards and unresolved use-related concerns."
+    source_refs: ["fda-hf-interface"]
+    expectations: "Accept a high-level account appropriate to the product stage; do not demand completed human-factors validation."

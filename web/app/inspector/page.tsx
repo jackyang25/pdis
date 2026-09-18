@@ -732,7 +732,7 @@ function consistencyDescription(
   if (status === "partial")
     return "The document exceeded the full-pass context bound; findings reflect the retained section-balanced context.";
   if (status === "failed")
-    return "The consistency pass did not complete; every section assessment above is unaffected.";
+    return "The consistency pass did not complete; every section assessment above is unaffected. To retry this check, run the analysis again. If it keeps failing, report it through Feedback with the downloaded JSON.";
   if (status === "not_applicable")
     return "Fewer than two mapped sections were available for a cross-section comparison.";
   return "This saved result does not record consistency-pass completion.";

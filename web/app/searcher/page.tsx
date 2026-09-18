@@ -220,8 +220,8 @@ export default function SearcherPage() {
               />
             </ConfigField>
             <ConfigField
-              label="Intervention class"
-              help="The intervention category. Used by sources with an intervention field."
+              label="Health product type"
+              help="The product category, such as vaccine or drug. Used by sources with an intervention field."
             >
               <ConfigTextInput
                 type="text"
@@ -233,7 +233,7 @@ export default function SearcherPage() {
             </ConfigField>
             <ConfigField
               label="Product"
-              help="One named product. Adds a narrower request alongside the intervention class, preserving broader results when a source records the product under a different name."
+              help="One named product. Adds a narrower request alongside the health product type, preserving broader results when a source records the product under a different name."
             >
               <ConfigTextInput
                 type="text"

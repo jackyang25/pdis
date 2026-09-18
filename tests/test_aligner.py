@@ -527,7 +527,9 @@ class VerdictTests(unittest.TestCase):
             })
 
     def test_a_verdict_must_carry_a_statement(self) -> None:
-        with self.assertRaises(ValueError):
+        from shared.errors import ModelResponseError
+
+        with self.assertRaises(ModelResponseError):
             judge({
                 "verdict": "meets",
                 "statement": "  ",
@@ -787,7 +789,9 @@ class ExactQuotationTests(unittest.TestCase):
         fine and was never selected.
         """
         block = self.multiline()
-        with self.assertRaises(ValueError) as caught:
+        from shared.errors import ModelResponseError
+
+        with self.assertRaises(ModelResponseError) as caught:
             self.extract(
                 {
                     "requirements": [

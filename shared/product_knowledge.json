@@ -425,7 +425,7 @@
                 {
                   "id": "document",
                   "title": "Document and rubrics",
-                  "summary": "The document profile selects pinned template and ICH-derived rubrics. Explicit product facts resolve conditional reviews; unknown facts leave those reviews unassessed.",
+                  "summary": "The document profile selects pinned template and applicable ICH-, WHO-, FDA- and EMA-derived rubrics. Explicit product facts resolve conditional reviews; unknown facts leave those reviews unassessed. These are selected document-review adaptations, not regulatory compliance checks.",
                   "kind": "input",
                   "layer": "Input",
                   "inputs": [
@@ -644,7 +644,7 @@
                   "layer": "Input",
                   "inputs": [
                     "ContentBlocks",
-                    "Organization, document type, intervention, and indication",
+                    "Organization, document type, health product type, and disease / condition",
                     "An optional publication window"
                   ],
                   "outputs": [
@@ -672,7 +672,7 @@
                   "children": [
                     {
                       "id": "indication",
-                      "title": "Indication check",
+                      "title": "Disease / condition check",
                       "summary": "Stops only a clear, block-cited mismatch; ambiguity remains explicit.",
                       "kind": "model",
                       "layer": "Context validation"
@@ -900,7 +900,7 @@
                   "inputs": [
                     "One or more evidence documents in DOCX, PPTX or text-based PDF format",
                     "The stage gate under preparation",
-                    "Organization, intervention, and indication"
+                    "Organization, health product type, and disease / condition"
                   ],
                   "outputs": [
                     "The gate's question bank",
@@ -910,12 +910,12 @@
                 {
                   "id": "resolve",
                   "title": "Applicability",
-                  "summary": "The one state config owns, and the question's own text is what states it. The shipped banks state no per-question restriction; each bank instead names the intervention classes it is written for, and a run for another modality is refused.",
+                  "summary": "The one state config owns, and the question's own text is what states it. The shipped banks state no per-question restriction; each bank instead names the health product types it is written for, and a run for another modality is refused.",
                   "kind": "deterministic",
                   "layer": "Triage",
                   "inputs": [
                     "Every question in the gate",
-                    "The run's intervention class"
+                    "The run's health product type"
                   ],
                   "outputs": [
                     "Questions the question text excludes from this run",
@@ -1382,7 +1382,7 @@
                 {
                   "id": "manifest",
                   "title": "Manifest and documents",
-                  "summary": "A folder of source documents plus a reviewed row per document declaring who wrote it, which document type it is, and which intervention class and indication it covers.",
+                  "summary": "A folder of source documents plus a reviewed row per document declaring who wrote it, which document type it is, and which health product type and disease or condition it covers.",
                   "kind": "input",
                   "layer": "Build input",
                   "inputs": [
@@ -1445,8 +1445,8 @@
                   "kind": "deterministic",
                   "layer": "Read",
                   "inputs": [
-                    "Intervention class",
-                    "Attributes, indications and document types",
+                    "Health product type",
+                    "Attributes, diseases and conditions, and document types",
                     "Closed-vocabulary tags"
                   ],
                   "outputs": [

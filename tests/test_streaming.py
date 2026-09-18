@@ -4,8 +4,13 @@ import threading
 import unittest
 from pathlib import Path
 
+import httpx
+import openai
+import anthropic
+
 import api.execution as execution
 from api.streaming import QUEUED_STAGE, run_with_progress
+from shared.errors import ModelResponseError
 
 
 def drain(work) -> list:
@@ -14,6 +19,55 @@ def drain(work) -> list:
 
 
 class StreamingTests(unittest.TestCase):
+    def test_only_known_failures_offer_retry_not_errors_with_similar_words(self) -> None:
+        request = httpx.Request("POST", "https://example.test")
+        cases = [
+            (ModelResponseError("invalid citation"), True),
+            (openai.APITimeoutError(request), True),
+            (anthropic.APIConnectionError(request=request), True),
+            (ValueError("model failed: invalid input"), False),
+            (RuntimeError("500 timeout"), False),
+        ]
+        for error, retry in cases:
+            with self.subTest(error=type(error).__name__):
+                def work(progress):
+                    raise error
+
+                with self.assertLogs("api.streaming", level="ERROR"):
+                    detail = drain(work)[-1]["detail"]
+                self.assertEqual("Try again" in detail, retry)
+
+    def test_provider_recovery_distinguishes_temporary_from_input_failures(self) -> None:
+        for status, expected in [(500, "Try again"), (429, "Wait"), (413, "too large"), (401, "administrator"), (400, None), (501, None)]:
+            with self.subTest(status=status):
+                response = httpx.Response(status, request=httpx.Request("POST", "https://example.test"))
+                error = openai.APIStatusError("provider detail", response=response, body=None)
+
+                def work(progress):
+                    progress("assess")
+                    raise error
+
+                with self.assertLogs("api.streaming", level="ERROR"):
+                    event = drain(work)[-1]
+                self.assertIn("assess: provider detail", event["detail"])
+                if expected:
+                    self.assertIn(expected, event["detail"])
+                else:
+                    self.assertEqual(event["detail"], "assess: provider detail")
+                if status in (400, 401, 413):
+                    self.assertNotIn("Try again", event["detail"])
+
+    def test_anthropic_service_failure_has_the_same_recovery(self) -> None:
+        response = httpx.Response(529, request=httpx.Request("POST", "https://example.test"))
+
+        def work(progress):
+            raise anthropic.APIStatusError("overloaded", response=response, body=None)
+
+        with self.assertLogs("api.streaming", level="ERROR"):
+            detail = drain(work)[-1]["detail"]
+        self.assertIn("overloaded", detail)
+        self.assertIn("Try again", detail)
+
     def test_error_identifies_the_active_stage_and_logs_traceback(self) -> None:
         def work(progress):
             progress("insights", completed=3, total=8)

@@ -150,7 +150,7 @@ declares applicability as allowed values for explicit product facts. Missing or
 `outside_review_scope`. Neither indication nor document prose supplies these facts.
 
 `configs/rubrics/` owns rubric identity, PDIS revision, authority, selected scope,
-evidence mode, sources and source-referenced requirements. ICH-derived definitions
+evidence mode, sources and source-referenced requirements. Guideline-derived definitions
 are PDIS-authored document-review adaptations, not official templates,
 certification, trial-conduct audits, or exhaustive guideline coverage. Source
 revision and PDIS rubric revision remain separate in every saved snapshot.
@@ -159,7 +159,7 @@ Shared rubric definitions declare no `org`, `source_type`, or `intervention_clas
 `load_rubric` requires a profile and supplies its context before parsing the runtime
 assessment config; context fields in a shared definition are rejected, not overridden.
 Class-specific PDID template files retain their real document identities, which must
-match the referencing profile. The catalog owns applicability; a shared ICH rubric
+match the referencing profile. The catalog owns applicability; a shared guideline rubric
 does not pretend to be a drug template merely to satisfy the config parser.
 
 Each rubric definition also declares a quoted ISO `updated_on` date (YYYY-MM-DD).
@@ -212,6 +212,48 @@ separate even where source principles overlap; no combined compliance score is p
 S6, E11/E11A, E17/E5 and M12 are not included in this expansion: they need their own
 reviewed adaptations and, where necessary, explicit applicability facts.
 
+### Selected WHO, FDA and EMA coverage
+
+These additions use the same profile resolver, schema-bound assessor, saved rubric
+snapshots and review selector as ICH. They add no new document types or model-selected
+applicability. Source publications are pinned; adding a rubric does not imply that
+the agency authored our document template or requires every document to contain it.
+
+| Source | Profiles | Selected scope | Explicit applicability |
+| --- | --- | --- | --- |
+| WHO VPPAG generic vaccine profile, v2.1 (2015) | Vaccine iTPP/cTPP | Presentation, storage, container and packaging attributes | Public-sector immunization in low- or middle-income countries |
+| WHO TGS 2, final Rev. 1 (2018) | Diagnostic IPDP | Stability claims, representative material and evaluation strategy | IVD eligible for and intended to undergo WHO prequalification |
+| WHO TGS 3 (2017) | Diagnostic IPDP | Performance evidence, representativeness and study validity | Same WHO-prequalification fact |
+| FDA diagnostic-test statistics (2007) | Diagnostic cTPP/IPDP | Accuracy versus agreement, benchmark and reporting plans | Positive/negative final diagnostic outcome |
+| FDA human factors (August 2026) | Device iTPP/cTPP | Users, environments and safety-critical interactions | Selected device profile |
+| EMA clinical vaccine evaluation, Rev. 1 (2023) | Vaccine IPDP | Immune response, protection, intended-use coverage and safety planning | Infectious-disease vaccine |
+
+An iTPP is assessed for intended attributes; a cTPP for candidate characteristics
+and defined claims; an IPDP for planned evidence. None requires completed studies,
+a regulatory dossier, or a finished protocol merely because its source discusses
+those artifacts. The WHO presentation adaptation checks that attributes are stated,
+not whether the candidate attains WHO's preferred numerical specifications. The FDA
+diagnostic adaptation does not apply its binary-outcome statistics to quantitative-only
+or ordinal claims. WHO TGS 3 covers general study validity; the FDA IPDP rubric adds
+binary-result interpretation and reporting, not a second full study-design review.
+
+The four new fact keys are `public_sector_vaccine`, `infectious_disease_vaccine`,
+`who_prequalification_ivd` and `binary_diagnostic_result`. Only questions used by
+the selected profile appear, through the existing configuration endpoint and form.
+Missing or unknown answers leave dependent reviews at `needs_context`; a confirmed
+non-match leaves them `outside_review_scope`. The template still runs in either case.
+Choosing an organization or disease never supplies these answers implicitly.
+
+The reviewed drug and antibody candidates remain deferred, as do disease-specific
+guidance, draft sources and broader agency submission requirements. Existing drug
+and antibody pairings are unchanged. There is no device or antibody IPDP profile to
+attach development-plan requirements to. Diagnostic iTPP remains template-only.
+Imported results retain their original rubric snapshots; rerun to use these additions.
+
+Source copyright remains with its owner. WHO TGS 2 and TGS 3 adaptations retain the
+sources' CC BY-NC-SA 3.0 IGO licensing notices in their files. No agency endorsement
+or regulatory certification is claimed.
+
 ```text
 configs/
   profiles/catalog.yaml
@@ -219,10 +261,14 @@ configs/
     pdid/pdid.yaml                # shared template-rubric metadata
     pdid/pdid-ctpp-drug.yaml       # template requirements by document and class
     ich/ich-e4-ctpp.yaml           # guideline-derived requirements
+    who/who-tgs2-ipdp.yaml
+    fda/fda-human-factors-itpp.yaml
+    ema/ema-vaccine-clinical-ipdp.yaml
 ```
 
-`org: bmgf` identifies the input organization; PDID and ICH identify assessment
-authorities. Profiles reference both explicitly. Filenames use hyphens, while
+`org: bmgf` identifies the input organization; PDID, ICH, WHO, FDA and EMA identify
+the template or guideline sources behind assessment authorities. Profiles reference
+their rubrics explicitly. Filenames use hyphens, while
 input keys retain underscores (for example `monoclonal_antibody`). Lookups follow
 profile references, never infer rubric filenames from organization keys.
 

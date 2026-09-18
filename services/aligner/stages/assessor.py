@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.ai import request_structured
+from shared.errors import ModelResponseError
 from shared.spans import LINE_SPAN_JSON_INSTRUCTION
 
 from services.chunker import ContentBlock
@@ -217,7 +218,7 @@ def assess_requirement(
             )
         except ValueError as exc:
             first_error = str(exc)
-    raise ValueError(
+    raise ModelResponseError(
         f"Aligner could not judge {requirement.id}: {first_error}"
     )
 

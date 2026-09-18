@@ -16,6 +16,14 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: "0.4.0",
+    title: "Broader Inspector guideline coverage",
+    sections: [{ changes: [
+      "Added selected WHO, FDA and EMA document-review rubrics for vaccines, diagnostics and devices, tailored to product targets, candidate profiles and development plans.",
+      "Relevant product-context questions determine which conditional reviews run. Each review retains its own scope, source references and results; these are not regulatory compliance checks.",
+    ] }],
+  },
+  {
     version: "0.3.0",
     title: "Clearer evidence review and document coverage",
     sections: [

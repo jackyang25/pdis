@@ -1,0 +1,30 @@
+id: ema-vaccine-clinical-ipdp
+revision: "1.0"
+updated_on: "2026-09-18"
+display_name: "EMA vaccines: clinical evidence planning"
+authority: "PDIS-authored adaptation informed by EMA clinical vaccine guidance; no agency endorsement"
+scope: "Selected vaccine-specific clinical planning for infectious-disease vaccines; not a complete guideline review, protocol assessment or regulatory approval opinion."
+evidence_scope: whole_document
+sources:
+  - {id: "ema-vaccine-immune", title: "Guideline on clinical evaluation of vaccines — Sections 4.1–4.4: immune response, correlates and schedule", revision: "Revision 1, 16 January 2023; effective 1 August 2023", url: "https://www.ema.europa.eu/en/documents/scientific-guideline/guideline-clinical-evaluation-vaccines-revision-1_en.pdf"}
+  - {id: "ema-vaccine-use", title: "Guideline on clinical evaluation of vaccines — Sections 4.5–4.6 and 8: concomitant use, lots and special populations", revision: "Revision 1, 16 January 2023; effective 1 August 2023", url: "https://www.ema.europa.eu/en/documents/scientific-guideline/guideline-clinical-evaluation-vaccines-revision-1_en.pdf"}
+  - {id: "ema-vaccine-protection", title: "Guideline on clinical evaluation of vaccines — Sections 5–6: efficacy and effectiveness", revision: "Revision 1, 16 January 2023; effective 1 August 2023", url: "https://www.ema.europa.eu/en/documents/scientific-guideline/guideline-clinical-evaluation-vaccines-revision-1_en.pdf"}
+  - {id: "ema-vaccine-safety", title: "Guideline on clinical evaluation of vaccines — Section 7: safety", revision: "Revision 1, 16 January 2023; effective 1 August 2023", url: "https://www.ema.europa.eu/en/documents/scientific-guideline/guideline-clinical-evaluation-vaccines-revision-1_en.pdf"}
+stage_guidance: "Assess a strategic IPDP. Accept justified routes to evidence and planned studies without completed results. Restrict special-population and concomitant-use expectations to intended use. Generic trial governance remains with the separate ICH reviews."
+sections:
+  - name: "Immune evidence and regimen"
+    description: "The plan explains immune-response evaluation and the evidence supporting formulation, dose and schedule choices."
+    source_refs: ["ema-vaccine-immune"]
+    expectations: "Distinguish immune measurements from established protection; accept staged assay and regimen development."
+  - name: "Protection evidence"
+    description: "The plan explains the route to protection evidence and relevant outcome definitions and follow-up."
+    source_refs: ["ema-vaccine-protection"]
+    expectations: "Accept justified immunobridging or efficacy studies; do not universally demand both or completed effectiveness studies."
+  - name: "Intended-use coverage"
+    description: "The plan addresses relevant population, concomitant-use and manufacturing-lot evidence needs."
+    source_refs: ["ema-vaccine-use"]
+    expectations: "An explicit rationale for an irrelevant evidence need satisfies that part; do not demand every special-population study."
+  - name: "Vaccine safety evidence"
+    description: "The plan identifies vaccine-specific safety outcomes, observation periods and the rationale for safety exposure."
+    source_refs: ["ema-vaccine-safety"]
+    expectations: "Assess the documented strategy, not the adequacy of an unperformed trial or a fixed sample-size threshold."

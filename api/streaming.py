@@ -18,6 +18,7 @@ import threading
 from typing import Any, Callable, Generator
 
 from api.execution import run_slot
+from api.error_recovery import recovery_guidance
 
 
 END = object()
@@ -81,7 +82,11 @@ def run_with_progress(work: Callable[..., Any]) -> Generator[str, None, None]:
             with stage_lock:
                 failed_stage = current_stage["name"]
             logger.exception("Streaming work failed during stage %s", failed_stage)
-            events.put({"event": "error", "detail": f"{failed_stage}: {exc}"})
+            detail = f"{failed_stage}: {exc}"
+            guidance = recovery_guidance(exc)
+            if guidance:
+                detail = f"{detail} {guidance}"
+            events.put({"event": "error", "detail": detail})
         finally:
             events.put(END)
 

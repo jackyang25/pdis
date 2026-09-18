@@ -23,6 +23,7 @@ from itertools import zip_longest
 from typing import Any
 
 from shared.ai import request_structured
+from shared.errors import ModelResponseError
 from shared.batching import map_ordered
 from shared.document_metadata import extraction_context
 
@@ -257,7 +258,7 @@ def _assess_unit(
             )
         except ValueError as exc:
             first_error = str(exc)
-    raise ValueError(
+    raise ModelResponseError(
         f"Inspector could not assess {unit_name or section_spec.name} "
         f"in {section_spec.name}: {first_error}"
     )

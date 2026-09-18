@@ -155,6 +155,17 @@
       "tool": "inspector"
     },
     {
+      "display_name": "FDA human factors: candidate use characteristics",
+      "intervention_class": "device",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Assess a cTPP's candidate use characteristics and unresolved use-safety issues. Do not require a validation protocol, completed testing or a full risk-management file."
+      },
+      "tool": "inspector"
+    },
+    {
       "display_name": "PDID template: cTPP",
       "intervention_class": "diagnostic",
       "mirrors": "PDID Reference Library \u2014 diagnostic Candidate TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
@@ -162,6 +173,17 @@
       "source_type": "ctpp",
       "texts": {
         "stage_guidance": "This is a CANDIDATE TPP (CTPP): a profile of a specific candidate. Calibrate ALL judgments to candidate-stage maturity. Expect concrete, measured values - numeric targets with units, named formulations, and defined schedules. Vague qualitative targets, unspecified ranges, or placeholders fall short at this stage. Hold the document to the standard of a product-specific specification."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "FDA diagnostic performance: claim definitions",
+      "intervention_class": "diagnostic",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Assess a cTPP's defined claims, not a completed clinical study. Targets need not already be demonstrated. Do not impose numeric performance thresholds from outside the document."
       },
       "tool": "inspector"
     },
@@ -309,6 +331,17 @@
       "tool": "inspector"
     },
     {
+      "display_name": "WHO vaccine presentation: candidate characteristics",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ctpp",
+      "texts": {
+        "stage_guidance": "Assess cTPP candidate characteristics and remaining target gaps, not manufacturing validation. Distinguish intended from demonstrated properties. Do not impose the source's preferred numeric specifications as pass/fail thresholds."
+      },
+      "tool": "inspector"
+    },
+    {
       "display_name": "PDID template: IPDP",
       "intervention_class": "diagnostic",
       "mirrors": "PDID Reference Library \u2014 diagnostic Integrated Product Development Plan template: functional-domain sections and the activities each expects.",
@@ -316,6 +349,39 @@
       "source_type": "ipdp",
       "texts": {
         "stage_guidance": "This is an INTEGRATED PRODUCT DEVELOPMENT PLAN (IPDP): a high-level plan a grantee submits at investment and updates at each stage gate. Calibrate ALL judgments to a strategic development plan - NOT to a candidate specification or a TPP. Each functional domain is intentionally a high-level summary (the template limits most to 1-2 pages), so do not treat appropriate brevity as a deficiency. What matters: the critical path is articulated end to end; key risks are identified per functional area with probability/impact ratings and credible mitigations; Go / No-Go decision criteria are explicit (by functional criterion) and tied to the data the planned activities will produce; and the research, regulatory, clinical, development, manufacturing, quality, access, and delivery strategies are present and mutually consistent (timeline <-> studies <-> risks <-> decision criteria). Diagnostics separate development, manufacturing, and quality management - expect each to be addressed. Numeric specifics ARE expected where the template asks for them (clinical performance, study sizes, costs, delivery metrics); narrative is appropriate for strategy summaries. Reward internal consistency and a coherent, feasible plan over exhaustive detail."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "WHO TGS 2: diagnostic stability planning",
+      "intervention_class": "diagnostic",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic IPDP. Planned work and explicit rationales count; completed stability results and full protocols are not required. Evaluate documentation, not whether WHO would accept the product."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "WHO TGS 3: diagnostic performance planning",
+      "intervention_class": "diagnostic",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess an IPDP's evidence strategy, not finished study reports or a full protocol. Studies may be future work; their purpose and link to intended claims must be stated."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "FDA diagnostic performance: analysis planning",
+      "intervention_class": "diagnostic",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess the IPDP's planned interpretation of diagnostic performance, not completed results or a statistical analysis plan. No prescribed study size or numerical success threshold is imposed."
       },
       "tool": "inspector"
     },
@@ -496,6 +562,17 @@
       "tool": "inspector"
     },
     {
+      "display_name": "EMA vaccines: clinical evidence planning",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "ipdp",
+      "texts": {
+        "stage_guidance": "Assess a strategic IPDP. Accept justified routes to evidence and planned studies without completed results. Restrict special-population and concomitant-use expectations to intended use. Generic trial governance remains with the separate ICH reviews."
+      },
+      "tool": "inspector"
+    },
+    {
       "display_name": "PDID template: iTPP",
       "intervention_class": "device",
       "mirrors": "PDID Reference Library \u2014 device Intervention TPP template: section list, unit names, and the Minimum / Optimistic / Annotations convention.",
@@ -503,6 +580,17 @@
       "source_type": "itpp",
       "texts": {
         "stage_guidance": "This is an INTERVENTION TPP (ITPP): an early, candidate-agnostic profile that sets targets for the intervention class before any specific candidate is chosen. Calibrate ALL judgments to intervention-stage maturity. Qualitative targets, clear directions, and ranges are appropriate and expected at this stage; candidate-specific numeric precision (exact values, named formulations, specific schedules) is NOT expected yet, so do not treat its absence as a deficiency on any dimension. Assess whether the strategic intent is clear, sound, and well-formed for an early-stage profile."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "FDA human factors: use requirements",
+      "intervention_class": "device",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "stage_guidance": "Assess an iTPP's intended use requirements, not a developed interface. Accept desired characteristics and constraints without completed studies."
       },
       "tool": "inspector"
     },
@@ -580,6 +668,17 @@
       "source_type": "itpp",
       "texts": {
         "stage_guidance": "This is an INTERVENTION TPP (ITPP): an early, candidate-agnostic profile that sets targets for the intervention class before any specific candidate is chosen. Calibrate ALL judgments to intervention-stage maturity. Qualitative targets, clear directions, and ranges are appropriate and expected at this stage; candidate-specific numeric precision (exact values, named formulations, specific schedules) is NOT expected yet, so do not treat its absence as a deficiency on any dimension. Assess whether the strategic intent is clear, sound, and well-formed for an early-stage profile."
+      },
+      "tool": "inspector"
+    },
+    {
+      "display_name": "WHO vaccine presentation: product targets",
+      "intervention_class": "vaccine",
+      "mirrors": "",
+      "org": "bmgf",
+      "source_type": "itpp",
+      "texts": {
+        "stage_guidance": "Assess an iTPP's intended attributes, not a finished product or dossier. Alternatives and bounded preferences are acceptable. Do not impose the source's preferred numeric specifications as pass/fail thresholds."
       },
       "tool": "inspector"
     },

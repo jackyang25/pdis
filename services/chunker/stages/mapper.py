@@ -4,6 +4,7 @@ import logging
 import json
 
 from shared.ai import request_structured
+from shared.errors import ModelResponseError
 from shared.batching import fitting_batches, map_ordered
 from shared.document_metadata import extraction_context
 
@@ -25,7 +26,7 @@ MAX_LARGE_ENUM_CHARACTERS = 15_000
 MAX_SCHEMA_STRING_CHARACTERS = 120_000
 
 
-class MapperResponseError(ValueError):
+class MapperResponseError(ModelResponseError):
     """Raised when the mapper cannot produce a usable label response."""
 
 

@@ -99,13 +99,19 @@ npm run dev
 and cited sources without changing decisions or retrieving new evidence.
 Workspace context stays in browser memory; export final results to retain them.
 
+Run errors keep their stage and original detail. Known model-response and temporary
+service failures suggest another attempt; size and access failures give different
+recovery guidance. Input errors and extraction limitations do not acquire blanket
+retry advice. Inspector's optional consistency failure leaves section assessments
+intact. Recovery wording does not change validation or automatic retry counts.
+
 ![PDIS Assistant workspace](./docs/pdis-assistant.png)
 
 ## Tools
 
 | Tool                                      | Responsibility                                                      |
 | ----------------------------------------- | ------------------------------------------------------------------- |
-| [Inspector](services/inspector/README.md) | Review document content against authored template and applicable ICH-derived rubrics, with separate results and one consistency check. |
+| [Inspector](services/inspector/README.md) | Review document content against authored template and applicable guideline-derived rubrics, with separate results and one consistency check. |
 | [Aligner](services/aligner/README.md)     | Check one document against another's requirements, one requirement at a time. |
 | [Scout](services/scout/README.md)         | Test document targets against evidence, comparators, and precedent. |
 | [Screener](services/screener/README.md)       | Decide which stage-gate questions the supplied documents answer.    |

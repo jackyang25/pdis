@@ -1,0 +1,20 @@
+id: fda-diagnostic-performance-ctpp
+revision: "1.0"
+updated_on: "2026-09-18"
+display_name: "FDA diagnostic performance: claim definitions"
+authority: "PDIS-authored adaptation informed by FDA diagnostic-test statistical guidance; no agency endorsement"
+scope: "Selected performance-claim definitions for tests with positive/negative final outcomes; not quantitative-only or ordinal-output claims and not an FDA submission review."
+evidence_scope: whole_document
+sources:
+  - {id: "fda-dx-benchmark", title: "Statistical Guidance on Reporting Results from Studies Evaluating Diagnostic Tests — Sections 3–4: benchmarks and populations", revision: "Final, 13 March 2007", url: "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/statistical-guidance-reporting-results-studies-evaluating-diagnostic-tests-guidance-industry-and-fda"}
+  - {id: "fda-dx-reporting", title: "Statistical Guidance on Reporting Results from Studies Evaluating Diagnostic Tests — Sections 5–6: reporting and inappropriate practices", revision: "Final, 13 March 2007", url: "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/statistical-guidance-reporting-results-studies-evaluating-diagnostic-tests-guidance-industry-and-fda"}
+stage_guidance: "Assess a cTPP's defined claims, not a completed clinical study. Targets need not already be demonstrated. Do not impose numeric performance thresholds from outside the document."
+sections:
+  - name: "Target condition and population"
+    description: "The profile defines the condition and intended population to which performance targets apply."
+    source_refs: ["fda-dx-benchmark"]
+    expectations: "Assess the claim's scope, not a recruitment protocol."
+  - name: "Performance comparison basis"
+    description: "The profile distinguishes accuracy targets against a reference standard from agreement targets against another method."
+    source_refs: ["fda-dx-benchmark"]
+    expectations: "A non-reference comparator does not establish sensitivity or specificity; a justified unresolved benchmark may be stated as a development dependency."

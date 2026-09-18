@@ -7,7 +7,7 @@ export function DocumentExtractionNotice({ blocks }: { blocks: ContentBlock[] })
   const warnings = documentExtractionWarnings(blocks);
   if (!warnings.length) return null;
   return (
-    <WarningNotice label="Document extraction limitations">
+    <WarningNotice label="Document extraction limitations" summary="Document extraction limitations">
         {warnings.map(({ code, documentIds, details }) => (
           <div key={code}>
             <p className="font-medium">{documentIds.join(", ")}</p>

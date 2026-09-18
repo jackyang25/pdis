@@ -8,6 +8,20 @@ import { loadComponent as loadRealComponent } from "../test-support/load-compone
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
+test("context selectors use reader-facing labels in loaded and loading states", () => {
+  for (const contexts of [null, [{ org: "bmgf", intervention_class: "drug" }]]) {
+    const { ContextFields } = loadRealComponent(resolve(root, "components/configuration-fields.tsx"), {
+      "@/lib/use-configuration-catalog": { useSupportedContexts: () => ({ contexts, error: null }) },
+      "@/lib/store": { useHeaderStore: () => ({ header: { org: "bmgf", intervention_class: "drug" }, setHeader: () => {} }) },
+      "@/lib/api": {},
+    });
+    const html = renderToStaticMarkup(React.createElement(ContextFields));
+    assert.match(html, /Health product type/);
+    assert.match(html, /Disease \/ condition/);
+    assert.doesNotMatch(html, /Intervention class|>Indication</);
+  }
+});
+
 // Node's strip-types runner cannot load TSX or Next aliases. Compile local
 // components in memory, retaining real field rendering and replacing only state
 // and network-backed hooks with a controlled catalog failure.
@@ -76,10 +90,10 @@ test("result import stays available before configuration is complete but not dur
 test("searchable fields retain the field label, selected value, help and disabled state", () => {
   const { ConfigField, ConfigSelect } = loadComponent(resolve(root, "components/ui/config-field.tsx"));
   const html = renderToStaticMarkup(React.createElement(ConfigField, {
-    label: "Indication", id: "indication", note: "Context for this run",
+    label: "Disease / condition", id: "indication", note: "Context for this run",
   }, React.createElement(ConfigSelect, {
     value: "type_2_diabetes", options: [{ value: "type_2_diabetes", label: "Type 2 Diabetes" }],
-    onChange: () => {}, searchLabel: "Search indications",
+    onChange: () => {}, searchLabel: "Search diseases and conditions",
   })));
   assert.match(html, /<button[^>]*id="indication"/);
   assert.match(html, /aria-labelledby="indication-label [^"]+-value"/);
@@ -88,7 +102,7 @@ test("searchable fields retain the field label, selected value, help and disable
   assert.match(html, />Type 2 Diabetes<\/span>/);
   assert.doesNotMatch(html, /role="combobox"/); // Search input exists only when opened.
   const empty = renderToStaticMarkup(React.createElement(ConfigSelect, {
-    value: undefined, options: [], onChange: () => {}, searchLabel: "Search indications",
+    value: undefined, options: [], onChange: () => {}, searchLabel: "Search diseases and conditions",
   }));
   assert.match(empty, /disabled=""/);
 });
@@ -131,6 +145,9 @@ test("extraction notice names affected documents and is absent for ordinary sour
   const block = { doc_id: "Trial report", structural_meta: { extraction_warnings: ["pdf_limited_structure"] } };
   const html = renderToStaticMarkup(React.createElement(DocumentExtractionNotice, { blocks: [block, block] }));
   assert.match(html, /aria-label="Document extraction limitations"/);
+  assert.match(html, /<summary[^>]*>Document extraction limitations<\/summary>/);
+  assert.match(html, /focus-visible:ring-2/);
+  assert.doesNotMatch(html.match(/<details[^>]*>/)?.[0] ?? "", /\bopen\b/);
   assert.equal(html.match(/Trial report/g)?.length, 1);
   assert.match(html, /Vector drawings.*not read/);
   assert.equal(renderToStaticMarkup(React.createElement(DocumentExtractionNotice, {

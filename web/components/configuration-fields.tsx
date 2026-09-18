@@ -77,7 +77,7 @@ export function ContextFields() {
       <ConfigSectionHeading>Context</ConfigSectionHeading>
       <ConfigField
         label="Organization"
-        help="Organization and intervention class determine which configurations are available."
+        help="Organization and health product type determine which configurations are available."
       >
         <ConfigSelect
           value={header.org}
@@ -95,13 +95,11 @@ export function ContextFields() {
       </ConfigField>
 
       {/*
-        "Intervention class", not "Intervention": the options are classes - drug, vaccine,
-        monoclonal antibody - and the value travels as `intervention_class`. Searcher
-        carries the same concept under the same name beside a separate Product field, and
-        one concept labelled two ways is how a reader learns to distrust both.
+        Reader-facing product categories retain the `intervention_class` wire key.
+        Label changes never rewrite configuration identities or saved provenance.
       */}
       <ConfigField
-        label="Intervention class"
+        label="Health product type"
         disabled={!header.org}
       >
         <ConfigSelect
@@ -119,13 +117,13 @@ export function ContextFields() {
       </ConfigField>
 
       <ConfigField
-        label="Indication"
+        label="Disease / condition"
         disabled={!header.intervention_class}
         help="The disease or condition. Retained as context for documents, results, and Assistant. It does not select a rubric or question bank. Scout also checks it against the document and uses it in evidence searches."
       >
         <ConfigSelect
           value={header.indication}
-          searchLabel="Search indications"
+          searchLabel="Search diseases and conditions"
           options={toOptions(indications)}
           disabled={!header.intervention_class}
           onChange={(value) => setHeader({ indication: value })}
@@ -248,7 +246,7 @@ export function ConfigurationFields({ children }: { children?: React.ReactNode }
   );
 }
 
-const CONTEXT_LABELS = ["Organization", "Intervention class", "Indication"] as const;
+const CONTEXT_LABELS = ["Organization", "Health product type", "Disease / condition"] as const;
 
 function FieldPlaceholder({ labels }: { labels: readonly string[] }) {
   return (

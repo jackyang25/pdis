@@ -1,0 +1,26 @@
+# Adaptation licensed under CC BY-NC-SA 3.0 IGO, as is the cited WHO source:
+# https://creativecommons.org/licenses/by-nc-sa/3.0/igo/
+id: who-tgs2-ipdp
+revision: "1.0"
+updated_on: "2026-09-18"
+display_name: "WHO TGS 2: diagnostic stability planning"
+authority: "PDIS-authored adaptation informed by WHO TGS 2; no agency endorsement"
+scope: "Selected stability-planning expectations for IVDs eligible for and intended to undergo WHO prequalification; not a dossier or laboratory audit."
+evidence_scope: whole_document
+sources:
+  - {id: "who-tgs2-claims", title: "TGS 2: Establishing stability of in vitro diagnostic medical devices — Sections 6–9", revision: "WHO/BS/2017.2304 Rev. 1; final, TRS 1011 Annex 5, 2018", url: "https://extranet.who.int/prequal/sites/default/files/document_files/WHO-BS-TGS-2_20172304.pdf"}
+  - {id: "who-tgs2-design", title: "TGS 2 — Sections 5, 10 and 11: testing principles, production lots and study plan", revision: "WHO/BS/2017.2304 Rev. 1; final, TRS 1011 Annex 5, 2018", url: "https://extranet.who.int/prequal/sites/default/files/document_files/WHO-BS-TGS-2_20172304.pdf"}
+stage_guidance: "Assess a strategic IPDP. Planned work and explicit rationales count; completed stability results and full protocols are not required. Evaluate documentation, not whether WHO would accept the product."
+sections:
+  - name: "Stability claims and conditions"
+    description: "The plan identifies shelf-life, transport and relevant in-use claims to be supported by stability work."
+    source_refs: ["who-tgs2-claims"]
+    expectations: "Cover the intended configuration; an explained absence of an in-use or component claim is acceptable."
+  - name: "Representative test material"
+    description: "The plan explains how study material represents the final product, lot variability and intended environmental exposures."
+    source_refs: ["who-tgs2-design"]
+    expectations: "A staged plan for final-configuration testing counts; do not demand production lots already exist."
+  - name: "Stability evaluation strategy"
+    description: "The plan identifies performance measures, acceptance criteria and study timing for evaluating stability claims."
+    source_refs: ["who-tgs2-design"]
+    expectations: "Accept strategic methods and decision criteria without a full sampling schedule or laboratory protocol."

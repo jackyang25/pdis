@@ -190,7 +190,7 @@ export default function ScreenerPage() {
                 <ConfigSectionHeading>Run options</ConfigSectionHeading>
                 <ConfigField
                   label="Stage gate"
-                  help="Organization and stage gate select the question bank; intervention class determines applicability. Indication labels the review but does not change the assessment."
+                  help="Organization and stage gate select the question bank; health product type determines applicability. Disease / condition labels the review but does not change the assessment."
                   disabled={!header.org}
                   note={
                     /*
@@ -514,8 +514,8 @@ function screenerMetricsNote(counts: ReturnType<typeof countStates>): string {
     "Every question in the bank by state, so the row sums to the number of questions this gate asks.",
     "Answered, partly answered and not found appear even at zero, because a zero there says the check ran and found nothing.",
     assessed === 0
-      ? "None was read: every question in this bank states that it applies to another intervention class."
-      : `${assessed} of them ${assessed === 1 ? "was" : "were"} read against everything supplied; any remainder is a question whose own text states it applies to another intervention class.`,
+      ? "None was read: every question in this bank states that it applies to another health product type."
+      : `${assessed} of them ${assessed === 1 ? "was" : "were"} read against everything supplied; any remainder is a question whose own text states it applies to another health product type.`,
     "A question is required when the bank states this gate needs it answered now, rather than at a later one.",
   ].join(" ");
 }

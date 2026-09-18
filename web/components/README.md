@@ -19,18 +19,18 @@ visual groups.
 controls must name their individual inputs explicitly.
 
 For long option lists, `ConfigSelect.searchLabel` enables the shared searchable
-picker. Indication opts in; short configuration lists keep the standard selector.
+picker. Disease / condition opts in; short configuration lists keep the standard selector.
 Filtering is local to displayed labels and never changes keys or commits typed
 text. Selection, empty results, keyboard navigation and focus restoration live in
 `ui/searchable-select.tsx`, composed with the existing popover primitive.
 
-Organization, intervention class, document type and stage gate options reflect
-implemented configurations. Indication is different: `shared/indications.yaml`
+Organization, health product type, document type and stage gate options reflect
+implemented configurations. Disease / condition is different: `shared/indications.yaml`
 supplies one curated context list for every supported class, not a disease-specific
 support matrix. Add MeSH-aligned canonical keys and reviewed citations following
 the [naming guide](../../docs/indication-vocabulary.md); the same key is stored with
 results and converted to words for downstream prompts and searches. Archivist
-continues to offer only indications present in its corpus.
+continues to offer only diseases and conditions present in its corpus.
 
 Use `ConfigSectionHeading` for reader-facing sections (Context, Document selection,
 Run options), within the one field grid—not nested layouts or shared/bespoke groups.

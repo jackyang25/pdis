@@ -1893,9 +1893,9 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
 
   const message =
     validation.status === "not_checked"
-      ? "This imported result predates document-context validation. Re-run it before relying on indication-scoped evidence."
+      ? "This imported result predates document-context validation. Re-run it before relying on evidence scoped to the selected disease or condition."
       : validation.status === "mismatch"
-        ? `The document appears to concern ${validation.document_indication || "a different indication"}, not ${validation.configured_indication}.`
+        ? `The document appears to concern ${validation.document_indication || "a different disease or condition"}, not ${validation.configured_indication}.`
         : `Scout could not confidently verify that the document concerns ${validation.configured_indication}.`;
 
   return (

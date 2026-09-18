@@ -107,7 +107,7 @@ class ProfileResolutionTests(unittest.TestCase):
         resolutions = resolve_profile(self.profile, {})
         e14 = next(item for item in resolutions if item.rubric_id.startswith("ich-e14"))
         self.assertEqual(e14.status, "needs_context")
-        self.assertEqual(set(e14.required_facts), set(PRODUCT_FACT_KEYS))
+        self.assertEqual(set(e14.required_facts), {"small_molecule", "systemic_exposure", "antiarrhythmic"})
 
     def test_any_disqualifying_e14_fact_is_outside_scope(self) -> None:
         resolutions = resolve_profile(
@@ -217,7 +217,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_profile_publishes_fact_controls_without_frontend_policy(self) -> None:
         controls = self.profile.fact_definitions
-        self.assertEqual([item.key for item in controls], list(PRODUCT_FACT_KEYS))
+        self.assertEqual([item.key for item in controls], ["small_molecule", "systemic_exposure", "antiarrhythmic"])
         self.assertTrue(all(item.options == ["yes", "no", "unknown"] for item in controls))
         self.assertTrue(all(item.required is False for item in controls))
 
@@ -229,7 +229,7 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             [item["key"] for item in response.json()["applicability_facts"]],
-            list(PRODUCT_FACT_KEYS),
+            ["small_molecule", "systemic_exposure", "antiarrhythmic"],
         )
 
     def test_http_catalog_has_no_e14_controls_for_unrelated_profile(self) -> None:
@@ -237,7 +237,8 @@ class CatalogTests(unittest.TestCase):
             "/api/configs/inspector",
             params={"org": "bmgf", "source_type": "itpp", "intervention_class": "vaccine"},
         )
-        self.assertEqual(response.json()["applicability_facts"], [])
+        self.assertTrue({item["key"] for item in response.json()["applicability_facts"]}.isdisjoint(
+            {"small_molecule", "systemic_exposure", "antiarrhythmic"}))
 
     def test_run_rejects_malformed_facts_before_provider_composition(self) -> None:
         response = TestClient(app).post(

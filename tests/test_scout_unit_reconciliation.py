@@ -120,7 +120,9 @@ class UnitReconciliationTests(unittest.TestCase):
         for partition in invalid:
             with self.subTest(partition=partition):
                 client = FixtureClient([unit("a", "A"), unit("b", "B")], [partition, partition])
-                with self.assertRaisesRegex(ValueError, "unit reconciliation"):
+                from shared.errors import ModelResponseError
+
+                with self.assertRaisesRegex(ModelResponseError, "unit reconciliation"):
                     extract(client)
                 self.assertEqual(len(client.identity_inputs), 2)
 

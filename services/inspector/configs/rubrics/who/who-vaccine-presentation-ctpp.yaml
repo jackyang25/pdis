@@ -1,0 +1,29 @@
+id: who-vaccine-presentation-ctpp
+revision: "1.0"
+updated_on: "2026-09-18"
+display_name: "WHO vaccine presentation: candidate characteristics"
+authority: "PDIS-authored adaptation informed by WHO VPPAG Generic Preferred Product Profile for Vaccines; no agency endorsement"
+scope: "Selected presentation and delivery attributes for public-sector immunization in low- or middle-income countries; not WHO prequalification or conformity assessment."
+evidence_scope: whole_document
+sources:
+  - {id: "who-vppag-formulation", title: "Generic Preferred Product Profile for Vaccines — Formulation, pp. 13–16", revision: "Version 2.1, 31 March 2015", url: "https://cdn.who.int/media/docs/default-source/immunization/product-and-delivery-research/vppag_gppprecs.pdf"}
+  - {id: "who-vppag-container", title: "Generic Preferred Product Profile for Vaccines — Primary container presentation, pp. 16–20", revision: "Version 2.1, 31 March 2015", url: "https://cdn.who.int/media/docs/default-source/immunization/product-and-delivery-research/vppag_gppprecs.pdf"}
+  - {id: "who-vppag-packaging", title: "Generic Preferred Product Profile for Vaccines — Packaging and labelling, pp. 20–26", revision: "Version 2.1, 31 March 2015", url: "https://cdn.who.int/media/docs/default-source/immunization/product-and-delivery-research/vppag_gppprecs.pdf"}
+stage_guidance: "Assess cTPP candidate characteristics and remaining target gaps, not manufacturing validation. Distinguish intended from demonstrated properties. Do not impose the source's preferred numeric specifications as pass/fail thresholds."
+sections:
+  - name: "Preparation and administration"
+    description: "The profile describes candidate presentation and preparation steps relevant to intended delivery."
+    source_refs: ["who-vppag-formulation","who-vppag-container"]
+    expectations: "Accept a stated presentation rationale; do not require injectable formats for non-injectable products."
+  - name: "Storage and handling"
+    description: "The profile distinguishes candidate storage and shelf-life claims from unresolved temperature-handling targets."
+    source_refs: ["who-vppag-formulation"]
+    expectations: "A clearly bounded target is sufficient; stability-study reports are not required."
+  - name: "Container and wastage"
+    description: "The profile states container configuration, doses per container and in-use handling assumptions."
+    source_refs: ["who-vppag-container"]
+    expectations: "Single-dose and multidose designs are both acceptable; explain relevant tradeoffs rather than require one format."
+  - name: "Packaging for delivery"
+    description: "The profile describes candidate packaging and identification characteristics relevant to distribution."
+    source_refs: ["who-vppag-packaging"]
+    expectations: "Assess delivery-relevant characteristics, not finished artwork or exact package drawings."

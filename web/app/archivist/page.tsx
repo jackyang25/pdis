@@ -145,7 +145,7 @@ export default function ArchivistPage() {
             <div className="mt-5 flex flex-col gap-5">
               {corpus.intervention_classes.length > 1 && (
                 <ChipRow
-                  title="Intervention class"
+                  title="Health product type"
                   help="Selects the archived profiles and available attributes for this class."
                   options={corpus.intervention_classes}
                   selected={new Set([interventionClass])}
@@ -164,8 +164,8 @@ export default function ArchivistPage() {
 
               {corpus.indications.length > 1 && (
                 <ChipRow
-                  title="Indication"
-                  help="Filters profiles by indication. Leave empty to include all indications in the archive."
+                  title="Disease / condition"
+                  help="Filters profiles by disease or condition. Leave empty to include all diseases and conditions in the archive."
                   options={corpus.indications}
                   selected={indications}
                   onToggle={(value) =>

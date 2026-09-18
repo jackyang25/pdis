@@ -11,6 +11,27 @@ const { ReviewListRow, ReviewActions, ReviewCheckpointHeader, ReviewEstimateChoi
   fileURLToPath(new URL("../app/scout/page.tsx", import.meta.url)), {}, ["ReviewListRow", "ReviewActions", "ReviewCheckpointHeader", "ReviewEstimateChoices", "defaultReviewEstimateId", "QuantitativeReviewCheckpoint", "DocumentTargetReviewCheckpoint"],
 );
 
+test("both Scout checkpoints keep extraction guidance local to their available source links", () => {
+  const result = reviewFixture("target_review");
+  result.blocks[0].structural_meta.extraction_warnings = ["unsupported_document_visual"];
+  const target = renderToStaticMarkup(React.createElement(DocumentTargetReviewCheckpoint, {
+    result, busy: false, stage: null, progress: null,
+    onNewAnalysis: () => {}, onTargetDecision: () => {}, onStatementDecision: () => {},
+    onAcceptRecommendations: () => {}, onContinue: () => {},
+  }));
+  const evidenceResult = reviewFixture();
+  evidenceResult.blocks[0].structural_meta.extraction_warnings = ["presentation_render_failed"];
+  const evidence = renderToStaticMarkup(React.createElement(QuantitativeReviewCheckpoint, {
+    result: evidenceResult, onNewAnalysis: () => {}, onReview: () => {}, onAcceptRecommendations: () => {},
+    readyToFinalize: false, onFinalize: () => {},
+  }));
+  for (const html of [target, evidence]) {
+    assert.match(html, /source links in this review/);
+    assert.doesNotMatch(html, /Documents tab/);
+    assert.match(html, /original (document|presentation)/);
+  }
+});
+
 test("qualifier details distinguish document content from every matching-rule state", () => {
   const { TargetQualifierDetails } = loadComponent(fileURLToPath(new URL("../components/scout-comparison.tsx", import.meta.url)));
   const target = reviewFixture().quantitative_ledger.targets[0];

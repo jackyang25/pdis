@@ -166,6 +166,18 @@ test("extraction notices distinguish retained page visuals from failed slide ren
   assert.doesNotMatch(html, /Vector drawings.*not read/);
 });
 
+test("every extraction warning gives navigation appropriate to the current view", () => {
+  const { DocumentExtractionNotice } = loadComponent(resolve(root, "components/document-extraction-notice.tsx"));
+  for (const code of ["pdf_limited_structure", "pdf_text_layout", "presentation_renderer_unavailable", "presentation_render_failed", "unsupported_document_visual", "document_image_unavailable", "future_warning"]) {
+    const blocks = [{ id: "Source/b1", doc_id: "Source", ordinal: 0, content: "Text", block_type: "paragraph", heading_stack: [], section_label: null, style_hint: {}, structural_meta: { extraction_warnings: [code] } }];
+    const result = renderToStaticMarkup(React.createElement(DocumentExtractionNotice, { blocks }));
+    assert.match(result, /Documents tab/, code);
+    const checkpoint = renderToStaticMarkup(React.createElement(DocumentExtractionNotice, { blocks, hasDocumentsTab: false }));
+    assert.doesNotMatch(checkpoint, /Documents tab/, code);
+    assert.match(checkpoint, /source links in this review/, code);
+  }
+});
+
 test("unsupported visual notice displays source type and location without hiding header drawings", () => {
   const { DocumentExtractionNotice } = loadComponent(resolve(root, "components/document-extraction-notice.tsx"));
   const html = renderToStaticMarkup(React.createElement(DocumentExtractionNotice, { blocks: [
@@ -177,5 +189,6 @@ test("unsupported visual notice displays source type and location without hiding
   assert.match(html, /Header: Drawing/);
   assert.match(html, /not captured for analysis/);
   assert.match(html, /It may be decorative or contain information/);
-  assert.match(html, /Review captured content in the Documents tab and compare it with the original document to check what is missing/);
+  assert.match(html, /Compare captured content with the original document to check what is missing/);
+  assert.match(html, /Review captured text and visuals in the Documents tab/);
 });

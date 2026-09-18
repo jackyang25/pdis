@@ -1,8 +1,8 @@
 {
   "pdf_limited_structure": "PDF page text and directly placed embedded raster images. Vector drawings and images nested in Form objects are not read; columns and tables may be misordered. Images follow page text, not reading order, and may be fragments. Check the original before relying on the result.",
-  "pdf_text_layout": "Page visuals are retained. Extracted PDF text may have incorrect reading order or table relationships. A matching quotation validates the extracted words, not their visual arrangement. Check the page visual for context.",
+  "pdf_text_layout": "Page visuals are retained. Extracted PDF text may have incorrect reading order or table relationships. A matching quotation validates the extracted words, not their visual arrangement. Check the retained page images for layout and context.",
   "presentation_renderer_unavailable": "Slide rendering was unavailable. Extracted text, tables, notes and supported embedded pictures are retained, but charts, drawn shapes and their relationships may be missing. Check the original presentation.",
   "presentation_render_failed": "Slide rendering did not complete. Extracted text, tables, notes and supported embedded pictures are retained, but charts, drawn shapes and their relationships may be missing. Check the original presentation.",
-  "unsupported_document_visual": "A visual object was detected but not captured for analysis. It may be decorative or contain information. Review captured content in the Documents tab and compare it with the original document to check what is missing.",
+  "unsupported_document_visual": "A visual object was detected but not captured for analysis. It may be decorative or contain information. Compare captured content with the original document to check what is missing.",
   "document_image_unavailable": "An embedded image could not be decoded or converted. Its location is retained, but its visual content was not available for analysis. Check the original document."
 }

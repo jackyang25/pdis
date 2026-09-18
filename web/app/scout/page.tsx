@@ -882,7 +882,7 @@ function DocumentTargetReviewCheckpoint({
       >
         <ReviewCheckpointHeader
           eyebrow="Numeric target review"
-          notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} /></>}
+          notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} hasDocumentsTab={false} /></>}
           title="Review numeric targets"
           description="Confirm that each extracted number and its qualifiers represent an intended document requirement."
           help={
@@ -1652,7 +1652,7 @@ function QuantitativeReviewCheckpoint({
       >
         <ReviewCheckpointHeader
           eyebrow="Quantitative evidence review"
-          notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} /></>}
+          notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} hasDocumentsTab={false} /></>}
           title="Review quantitative evidence"
           description="Decide whether each source measurement is comparable to the document’s numeric target."
           help={
@@ -1911,6 +1911,13 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
         <Reading size="prominent" className="mt-1">
           {validation.reason}
         </Reading>
+        {validation.status !== "not_checked" && (
+          <p className="mt-1.5 leading-relaxed text-muted-foreground">
+            Check the selected disease or condition against the original document
+            before relying on the evidence. If the selection or document is wrong,
+            start a new analysis with the correct inputs.
+          </p>
+        )}
       </div>
     </WarningNotice>
   );

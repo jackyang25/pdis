@@ -49,6 +49,10 @@ for picker acceptance, drag/drop validation, format hints, and limitations.
 The default remains DOCX/PPTX. Screener opts into PDF text extraction; the panel
 does not branch on tool names. Parser-authored result limitations render through
 `DocumentExtractionNotice`, including after saved-result import.
+Warning descriptions remain navigation-neutral in `shared/document-extraction.json`.
+The notice supplies one navigation hint for the current view: Documents in results,
+or available source links in Scout checkpoints (`hasDocumentsTab={false}`). Missing
+visuals still direct readers to the original file, not to an uncaptured image.
 
 ## Tool composition
 

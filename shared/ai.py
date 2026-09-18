@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from shared.openai_client import ModelTask
+from shared.references import ReferenceDecodeError, prepare_references
 
 
 class StructuredLLMClient(Protocol):
@@ -53,13 +54,22 @@ def request_structured(
     Returns ``None`` when the provider returned no usable object, so callers
     handle absence explicitly rather than guarding a shape at every call site.
     """
+    references = prepare_references(schema)
+    system_prompt, user_message = references.prompts(system_prompt, user_message)
     payload = llm_client.call_structured(
         system_prompt,
         user_message,
         max_tokens,
         schema_name=schema_name,
-        schema=schema,
+        schema=references.schema,
         images=images,
         task=task,
     )
-    return payload if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return references.decode(payload)
+    except ReferenceDecodeError:
+        # Preserve each stage's existing retry/failure policy. Never pass along a
+        # partly decoded reply or disguise an invalid citation as no evidence.
+        return None

@@ -7,6 +7,7 @@ from shared.ai import request_structured
 from shared.errors import ModelResponseError
 from shared.batching import fitting_batches, map_ordered
 from shared.document_metadata import extraction_context
+from shared.references import schema_within_reference_limits
 
 from ..models import ContentBlock, DocumentTypeConfig, LLMClientProtocol
 
@@ -19,11 +20,6 @@ VALID_CONFIDENCES = {"high", "medium", "low"}
 # blocks inform that partition. Output shards all read the same complete document.
 DOCUMENTS_PER_REQUEST = 1
 MAPPING_WORKERS = 4
-# https://developers.openai.com/api/docs/guides/structured-outputs#supported-schemas
-MAX_SCHEMA_ENUM_VALUES = 1000
-LARGE_ENUM_THRESHOLD = 250
-MAX_LARGE_ENUM_CHARACTERS = 15_000
-MAX_SCHEMA_STRING_CHARACTERS = 120_000
 
 
 class MapperResponseError(ModelResponseError):
@@ -115,18 +111,7 @@ def _request_labels(
 
 
 def _label_schema_fits(blocks: list[ContentBlock], config: DocumentTypeConfig) -> bool:
-    fields = _label_schema(blocks, config)["properties"]["labels"]["items"]["properties"]
-    enums = [field["enum"] for field in fields.values()]
-    if sum(map(len, enums)) > MAX_SCHEMA_ENUM_VALUES:
-        return False
-    if any(len(values) > LARGE_ENUM_THRESHOLD
-           and sum(map(len, values)) > MAX_LARGE_ENUM_CHARACTERS for values in enums):
-        return False
-    # This schema has no definitions or const values: just these property names
-    # and the three string enums. Count the actual strings, not token estimates.
-    return (len("labels") + sum(map(len, fields))
-            + sum(len(value) for values in enums for value in values)
-            <= MAX_SCHEMA_STRING_CHARACTERS)
+    return schema_within_reference_limits(_label_schema(blocks, config))
 
 
 def _label_schema(

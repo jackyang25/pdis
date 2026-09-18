@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.ai import request_structured
+from shared.references import reference_array
 from shared.errors import ModelResponseError
 from shared.document_metadata import extraction_context
 
@@ -132,10 +133,7 @@ def assessment_schema(
             # requirement is the one thing this schema cannot express, so the decision
             # carries the condition and code checks the pairing.
             "missing": {"type": "string"},
-            "block_ids": {
-                "type": "array",
-                "items": {"type": "string", "enum": [block.id for block in blocks]},
-            },
+            "block_ids": reference_array([block.id for block in blocks]),
         },
     }
 

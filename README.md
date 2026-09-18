@@ -139,6 +139,9 @@ documentation page and Assistant read that same versioned source.
 
 ## Development
 
+Document citations share a [bounded reference transport](docs/structured-references.md)
+that preserves canonical IDs when structured-output schemas exceed enum limits.
+
 Preview Scout's numeric-target and evidence review panels without an AI run:
 `npm --prefix web run preview:scout`. See the
 [preview guide](web/test-support/README.md) for states, containment, and cleanup.

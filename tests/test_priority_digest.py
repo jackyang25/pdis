@@ -165,17 +165,16 @@ class BoundsTests(unittest.TestCase):
     """
 
     def test_a_result_with_many_blocks_still_produces_a_schema(self) -> None:
-        """Structured outputs cap an enum past 250 values at 7,500 characters of total
-        string length. A block ID runs about fifteen characters, so a few hundred blocks
-        made the schema itself invalid and the provider rejected the whole request."""
-        from services.assistant.priorities import MAX_ENUMERATED_BLOCK_IDS
+        """Large results retain closed citations through the shared transport."""
+        from shared.references import prepare_references
 
-        many = [f"doc/b-{index:04d}" for index in range(MAX_ENUMERATED_BLOCK_IDS + 400)]
-        cited = digest_schema(many)["properties"]["nominations"]["items"]["properties"][
+        many = [f"doc/b-{index:04d}" for index in range(1200)]
+        cited = prepare_references(digest_schema(many)).schema["properties"]["nominations"]["items"]["properties"][
             "cited_block_ids"
         ]["items"]
         self.assertNotIn("enum", cited)
-        self.assertEqual(cited["type"], "string")
+        self.assertEqual(cited["type"], "integer")
+        self.assertEqual(cited["maximum"], 1199)
 
     def test_a_small_result_still_gets_the_closed_enum(self) -> None:
         """Where it fits, it stays: the model cannot then name a block that does not

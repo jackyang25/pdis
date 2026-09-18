@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 
+from shared.references import reference_schema
+
 #: What to tell a model that must cite source lines. One wording, because a producer and
 #: its validator disagreeing about the wire shape is the failure this prevents.
 LINE_SPAN_JSON_INSTRUCTION = (
@@ -121,15 +123,15 @@ def resolved_spans(
 def line_span_schema(block_ids: Sequence[str]) -> dict[str, object]:
     """The closed wire shape of one selected range.
 
-    `block_id` is an enum of the blocks actually supplied, so a citation to a document
-    that was never shown is unrepresentable rather than merely invalid.
+    `block_id` selects only blocks actually supplied. The shared request boundary
+    uses bounded integer references when canonical string enums would be too large.
     """
     return {
         "type": "object",
         "additionalProperties": False,
         "required": ["block_id", "start_line", "end_line"],
         "properties": {
-            "block_id": {"type": "string", "enum": list(block_ids)},
+            "block_id": reference_schema(block_ids),
             "start_line": {"type": "integer"},
             "end_line": {"type": "integer"},
         },

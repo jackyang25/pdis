@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, Sequence
 
 from shared.ai import request_structured
+from shared.references import reference_array
 from shared.openai_client import ModelTask
 from shared.vocabulary import search_term
 
@@ -41,19 +42,6 @@ MAX_NOMINATIONS = 3
 
 #: Longest digest, in words. Enough for two short paragraphs.
 MAX_DIGEST_WORDS = 130
-
-#: Most block IDs that may be offered as a closed enum.
-#:
-#: Structured outputs cap an enum past 250 values at 7,500 characters of total string
-#: length, and a block ID runs about fifteen characters, so a result holding more than a
-#: few hundred blocks makes the schema itself invalid and the provider rejects the whole
-#: request. That is not a degraded answer, it is no answer: the panel showed a skeleton
-#: and then nothing, on exactly the results that have the most to say.
-#:
-#: Above the bound the IDs are left unenumerated and `_parse_payload` does the checking it
-#: already did — a citation naming a block the result does not hold is dropped either way,
-#: so the enum was belt to that braces rather than the guarantee itself.
-MAX_ENUMERATED_BLOCK_IDS = 240
 
 
 class LLMClientProtocol(Protocol):
@@ -231,9 +219,6 @@ def build_user_message(request: PriorityRequest) -> str:
 def digest_schema(block_ids: Sequence[str]) -> dict[str, Any]:
     """The closed shape, with citations restricted to blocks that exist."""
     ids = list(dict.fromkeys(block_ids))
-    # Enumerated only while the enum is small enough to be valid. Empty is excluded for
-    # the same reason from the other end: no provider accepts an empty enum.
-    enumerable = 0 < len(ids) <= MAX_ENUMERATED_BLOCK_IDS
     return {
         "type": "object",
         "additionalProperties": False,
@@ -249,14 +234,7 @@ def digest_schema(block_ids: Sequence[str]) -> dict[str, Any]:
                     "properties": {
                         "label": {"type": "string"},
                         "statement": {"type": "string"},
-                        "cited_block_ids": {
-                            "type": "array",
-                            "items": (
-                                {"type": "string", "enum": ids}
-                                if enumerable
-                                else {"type": "string"}
-                            ),
-                        },
+                        "cited_block_ids": reference_array(ids),
                     },
                 },
             },

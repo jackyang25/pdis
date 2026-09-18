@@ -13,6 +13,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from shared.references import reference_array, reference_schema
+
 from .ai_wire import (
     EvidenceUnitIdentityWire,
     EvidenceUnitPartitionWire,
@@ -116,7 +118,7 @@ def context_validation(allowed_block_ids: list[str]) -> AIContract:
                 "status": _string(enum=["match", "mismatch", "uncertain"]),
                 "document_indication": _string(),
                 "reason": _string(),
-                "block_ids": _array(_string(enum=exact_ids)),
+                "block_ids": reference_array(exact_ids),
             }
         ),
     )
@@ -137,7 +139,7 @@ def run_scope_value(allowed_block_ids: list[str]) -> AIContract:
                 "found": _string(enum=["yes", "no"]),
                 "value": _string(),
                 "reason": _string(),
-                "block_ids": _array(_string(enum=exact_ids)),
+                "block_ids": reference_array(exact_ids),
             }
         ),
     )
@@ -178,7 +180,7 @@ def target_binding_batch(
     exact_ids = list(dict.fromkeys(allowed_block_ids))
     span = _object(
         {
-            "block_id": _string(enum=exact_ids),
+            "block_id": reference_schema(exact_ids),
             "start_line": _integer(minimum=1),
             "end_line": _integer(minimum=1),
         }
@@ -202,7 +204,7 @@ def unit_batch(allowed_block_ids: list[str]) -> AIContract:
     exact_ids = list(dict.fromkeys(allowed_block_ids))
     span = _object(
         {
-            "block_id": _string(enum=exact_ids),
+            "block_id": reference_schema(exact_ids),
             "start_line": _integer(minimum=1),
             "end_line": _integer(minimum=1),
         }
@@ -245,7 +247,7 @@ def query_batch(
                         "outcome": _string(),
                     }
                 ),
-                "doc_block_ids": _array(_string(enum=allowed_block_ids)),
+                "doc_block_ids": reference_array(allowed_block_ids),
                 "target_ids": _array(_string(enum=allowed_target_ids or None)),
             }
         ),
@@ -321,7 +323,7 @@ def drift_batch(insight_count: int, allowed_block_ids: list[str]) -> AIContract:
                 ),
                 "relation": _string(enum=sorted(VALID_RELATIONS)),
                 "reason": _string(),
-                "doc_block_ids": _array(_string(enum=allowed_block_ids)),
+                "doc_block_ids": reference_array(allowed_block_ids),
             }
         ),
     )

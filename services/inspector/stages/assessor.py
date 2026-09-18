@@ -23,6 +23,7 @@ from itertools import zip_longest
 from typing import Any
 
 from shared.ai import request_structured
+from shared.references import reference_array
 from shared.errors import ModelResponseError
 from shared.batching import map_ordered
 from shared.document_metadata import extraction_context
@@ -353,13 +354,7 @@ def assessment_schema(section_blocks: list[ContentBlock]) -> dict[str, Any]:
         "properties": {
             "verdict": {"type": "string", "enum": list(UNIT_VERDICTS)},
             "statement": {"type": "string"},
-            "block_ids": {
-                "type": "array",
-                "items": {
-                    "type": "string",
-                    "enum": [block.id for block in section_blocks],
-                },
-            },
+            "block_ids": reference_array([block.id for block in section_blocks]),
         },
     }
 
@@ -620,10 +615,7 @@ def cross_section_schema(
                     "required": ["statement", "block_ids"],
                     "properties": {
                         "statement": {"type": "string"},
-                        "block_ids": {
-                            "type": "array",
-                            "items": {"type": "string", "enum": block_ids},
-                        },
+                        "block_ids": reference_array(block_ids),
                     },
                 },
             }

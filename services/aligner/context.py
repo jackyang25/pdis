@@ -13,6 +13,7 @@ from services.chunker import ContentBlock
 
 from shared.spans import DocumentSpan, line_addressable, line_span_schema, resolved_spans
 from shared.document_metadata import extraction_context
+from shared.references import reference_array
 
 __all__ = ["format_blocks", "image_inputs", "read_spans"]
 
@@ -64,10 +65,7 @@ def citation_properties(blocks: list[ContentBlock]) -> dict:
             },
             **({} if text_ids else {"maxItems": 0}),
         },
-        "visual_block_ids": {
-            "type": "array", "items": {"type": "string", **({"enum": visual_ids} if visual_ids else {})},
-            **({} if visual_ids else {"maxItems": 0}),
-        },
+        "visual_block_ids": reference_array(visual_ids),
     }
 
 

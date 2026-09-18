@@ -8,8 +8,8 @@ describe it, and a fourth lives in the tenant repository.
 | File | Owns |
 | --- | --- |
 | [.drone.yml](../.drone.yml) | Test, build, and push the three images; deploy to acceptance on merge and to production on promote |
-| [jobspec.nomad](../jobspec.nomad) | The production job: three groups, their resources, and the ingress rules |
-| [jobspec_acc.nomad](../jobspec_acc.nomad) | The acceptance job, identical but for its hostname |
+| [jobspec.nomad](../jobspec.nomad) | The production job: two groups (API with its connector, and web), their resources, and the ingress rules |
+| [jobspec_acc.nomad](../jobspec_acc.nomad) | The acceptance job, identical but for environment naming and hostname |
 | `tf_nomad_tenant_configuration/prod/main` | The `module "aws-pdis"` block that creates the namespace and the CI secrets |
 
 The client and the gateway share one hostname. Traefik routes `/api/*` to the
@@ -48,6 +48,25 @@ drone build promote gatesfoundation/pdis <build> production
 Both jobspecs and the pipeline are drafts pending reconciliation with
 [nomad-sre-patterns](https://github.com/gatesfoundation/nomad-sre-patterns);
 the entries marked `TODO` are cluster facts this repository cannot know.
+
+## Analysis capacity
+
+Both environments reserve 8192 MiB of memory and 2000 MHz of CPU for the API
+task, including its LibreOffice subprocesses. There is no separate burst memory
+limit: the full memory budget is reserved. Nomad's CPU allocation is in MHz, not
+a count of cores. See the [Nomad resource specification](https://developer.hashicorp.com/nomad/docs/job-specification/resources).
+
+The shared limit stays at two active analyses; additional runs wait for capacity.
+Review checkpoints do not occupy an active processing slot. This allocation adds
+headroom for slide rendering, retained images and parallel model requests; it is
+a starting budget, not a guarantee for every document combination.
+
+Before deployment, confirm cluster capacity and namespace quotas with the platform
+team. The API and its 2048 MiB connector need 10 GiB together on one node, in
+addition to node overhead; web allocations and rolling deployments need further
+capacity. Measure peak memory during concurrent image-heavy runs before raising
+the run limit. Exit status 137 suggests a killed process, but allocation events
+and OOM logs are needed to confirm memory exhaustion.
 
 ## Product versions and release notes
 

@@ -199,13 +199,18 @@ class JobspecParityTests(unittest.TestCase):
                 )
 
     def test_the_gateway_memory_and_run_cap_are_stated_together(self) -> None:
-        """They are one decision: the cap is what the memory limit was sized for.
-        Finding one without the other means the pair can be changed singly."""
+        """Reserve rendering headroom without increasing simultaneous analyses.
+
+        Scope this check to the API: the connector has a separate memory budget.
+        """
         for path in (PRODUCTION, ACCEPTANCE):
             with self.subTest(jobspec=path.name):
                 text = path.read_text()
-                self.assertIn("MAX_CONCURRENT_RUNS", text)
-                self.assertRegex(text, r"memory\s*=\s*2048")
+                api = text.split('task "api" {', 1)[1].split('task "tooluniverse"', 1)[0]
+                self.assertRegex(api, r'\bMAX_CONCURRENT_RUNS\s*=\s*"2"')
+                self.assertRegex(api, r"\bcpu\s*=\s*2000\b")
+                self.assertRegex(api, r"\bmemory\s*=\s*8192\b")
+                self.assertNotRegex(api, r"\bmemory_max\s*=")
 
 
 if __name__ == "__main__":

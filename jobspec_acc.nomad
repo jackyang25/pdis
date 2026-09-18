@@ -119,17 +119,12 @@ job "__REPO__NAME__-acc" {
       }
     }
 
-    # Sized from a measured run, not from the template's default. One analysis
-    # peaks near 530 MB: a 26-variable rubric issues ~90 model calls with up to
-    # 24 in flight (MAX_PARALLEL_SECTIONS x MAX_PARALLEL_UNIT_CALLS, 4 x 6, both
-    # in services/inspector/stages/assessor.py), each holding a request and a
-    # response alongside the parsed document and a LibreOffice process.
-    # MAX_CONCURRENT_RUNS admits two, so ~1.1 GB over an ~80 MB baseline.
-    #
-    # This limit and MAX_CONCURRENT_RUNS are one decision. Raising the memory
-    # without raising the cap wastes it; raising the cap without the memory gets
-    # the allocation OOM-killed, which is what happened on a 512 MB instance.
-    # Change them together or not at all.
+    # Reserve headroom for two active analyses, including LibreOffice child
+    # processes, retained page images and parallel model request payloads.
+    # This is a starting allocation, not a measured worst-case requirement.
+    # Reserve the full memory budget rather than relying on oversubscription.
+    # Keep MAX_CONCURRENT_RUNS at two; additional runs queue. Measure peak
+    # memory under concurrent image-heavy runs before increasing that cap.
     task "api" {
       driver = "docker"
 
@@ -139,9 +134,8 @@ job "__REPO__NAME__-acc" {
       }
 
       resources {
-        cpu        = 1000
-        memory     = 2048
-        memory_max = 2560
+        cpu    = 2000
+        memory = 8192
       }
 
       env {

@@ -181,8 +181,8 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Aligner",
     description:
       "The iTPP, cTPP, and IPDP against each other: whether each honours the one before it, requirement by requirement.",
-    // Same arithmetic as Screener's, one step longer: each comparison reads its
-    // reference document once, then fans out over the requirements it found. Two
+    // Each comparison reads its reference document once, then fans out over
+    // the requirements it found. Two
     // documents is one comparison; three is two, run in sequence.
     activity: "approx. 1 min",
     icon: "aligner",
@@ -197,11 +197,9 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Screener",
     description:
       "Your documents against a stage gate’s question bank: what is answered, what remains open, and which discipline owns each question.",
-    // Observed, not estimated. 80 questions at six concurrent is ~14 waves, and each
-    // call returns one decision and one sentence — a few hundred bytes — against a
-    // document context the provider caches after the first. The count of calls is not
-    // what costs time here; the size of each answer is, and these are tiny.
-    activity: "approx. 1 min",
+    // Observed end-to-end estimate, including document processing and assessment.
+    // Actual duration varies with document size, rendering and provider latency.
+    activity: "approx. 5 min",
     icon: "screener",
     audience: "pst",
     workflow: "stage_gate",

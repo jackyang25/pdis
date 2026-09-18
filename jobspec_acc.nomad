@@ -119,12 +119,12 @@ job "__REPO__NAME__-acc" {
       }
     }
 
-    # Reserve headroom for two active analyses, including LibreOffice child
+    # Reserve headroom for one active analysis, including LibreOffice child
     # processes, retained page images and parallel model request payloads.
     # This is a starting allocation, not a measured worst-case requirement.
     # Reserve the full memory budget rather than relying on oversubscription.
-    # Keep MAX_CONCURRENT_RUNS at two; additional runs queue. Measure peak
-    # memory under concurrent image-heavy runs before increasing that cap.
+    # Keep MAX_CONCURRENT_RUNS at one; additional runs queue. Measure peak
+    # memory under image-heavy runs before increasing that cap.
     task "api" {
       driver = "docker"
 
@@ -135,12 +135,12 @@ job "__REPO__NAME__-acc" {
 
       resources {
         cpu    = 2000
-        memory = 8192
+        memory = 4096
       }
 
       env {
         PORT                = "${NOMAD_PORT_http}"
-        MAX_CONCURRENT_RUNS = "2"
+        MAX_CONCURRENT_RUNS = "1"
 
         # Allocation stdout is read by an aggregator, not a person.
         LOG_FORMAT = "json"
@@ -177,10 +177,9 @@ job "__REPO__NAME__-acc" {
     # that adds one as a security change.
     #
     # Retrieval fans out to searcher's global_worker_limit (48) concurrent calls
-    # per run, and the gateway admits MAX_CONCURRENT_RUNS at once, so this
-    # single-worker process can hold ~96 requests and their responses. That
-    # exceeded 512 MB and was killed. Raising the gateway's cap raises this
-    # ceiling too.
+    # per run. Keep the connector's 2 GiB budget: the previous 512 MB allocation
+    # was killed under load. Raising MAX_CONCURRENT_RUNS also increases the
+    # number of requests and responses this single-worker process can hold.
     task "tooluniverse" {
       driver = "docker"
 

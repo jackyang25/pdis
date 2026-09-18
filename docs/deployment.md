@@ -51,20 +51,21 @@ the entries marked `TODO` are cluster facts this repository cannot know.
 
 ## Analysis capacity
 
-Both environments reserve 8192 MiB of memory and 2000 MHz of CPU for the API
+Both environments reserve 4096 MiB of memory and 2000 MHz of CPU for the API
 task, including its LibreOffice subprocesses. There is no separate burst memory
 limit: the full memory budget is reserved. Nomad's CPU allocation is in MHz, not
 a count of cores. See the [Nomad resource specification](https://developer.hashicorp.com/nomad/docs/job-specification/resources).
 
-The shared limit stays at two active analyses; additional runs wait for capacity.
+Both environments temporarily limit processing to one active analysis; additional
+runs wait for capacity.
 Review checkpoints do not occupy an active processing slot. This allocation adds
 headroom for slide rendering, retained images and parallel model requests; it is
 a starting budget, not a guarantee for every document combination.
 
 Before deployment, confirm cluster capacity and namespace quotas with the platform
-team. The API and its 2048 MiB connector need 10 GiB together on one node, in
+team. The API and its 2048 MiB connector need 6 GiB together on one node, in
 addition to node overhead; web allocations and rolling deployments need further
-capacity. Measure peak memory during concurrent image-heavy runs before raising
+capacity. Measure peak memory during image-heavy runs before raising
 the run limit. Exit status 137 suggests a killed process, but allocation events
 and OOM logs are needed to confirm memory exhaustion.
 

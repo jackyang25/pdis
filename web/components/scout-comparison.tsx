@@ -20,19 +20,41 @@ export function TargetQualifierDetails({ target, dimension }: {
   target?: QuantitativeTarget | null;
   dimension: keyof QuantitativeSemanticProfile;
 }) {
-  const rule = target?.comparison_contract[dimension];
-  const requiresMatch = rule?.mode === "exact" || rule?.mode === "compatible";
   return <div className="space-y-2 text-xs leading-relaxed">
     <div>
       <p className="text-[11px] font-medium text-muted-foreground">Document says</p>
       <p className="text-foreground">{semanticSlotLabel(target?.semantic_profile[dimension])}</p>
     </div>
-    <div className="text-[11px] text-muted-foreground">
+    <TargetComparisonRule target={target} dimension={dimension} />
+  </div>;
+}
+
+function TargetComparisonRule({ target, dimension }: {
+  target?: QuantitativeTarget | null;
+  dimension: keyof QuantitativeSemanticProfile;
+}) {
+  const rule = target?.comparison_contract[dimension];
+  const requiresMatch = rule?.mode === "exact" || rule?.mode === "compatible";
+  return <div className="text-[11px] leading-relaxed text-muted-foreground">
       <p className="font-medium">{requiresMatch ? "Evidence must match" : "Evidence matching rule"}</p>
       <p>{comparisonRuleLabel(rule)}</p>
       {rule?.reason && rule.mode !== "unknown" && <Reading className="mt-1">{rule.reason}</Reading>}
-    </div>
   </div>;
+}
+
+/** Future evidence rules are secondary to checking the extracted document target. */
+export function TargetComparisonRules({ target }: { target: QuantitativeTarget }) {
+  const dimensions = Object.keys(target.comparison_contract) as Array<keyof QuantitativeSemanticProfile>;
+  return <details key={target.id} className="mt-5 rounded-lg border border-border/60">
+    <summary className="cursor-pointer rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">How evidence will be compared</summary>
+    <div className="space-y-4 px-4 pb-4">
+      <p className="text-xs leading-relaxed text-muted-foreground">Scout will use these rules to decide which external measurements can be compared with this target. Comparable measurements may fall above or below the target value.</p>
+      {dimensions.map(dimension => <div key={dimension} className="space-y-1">
+        <p className={EYEBROW}>{dimensionLabel(dimension)}</p>
+        <TargetComparisonRule target={target} dimension={dimension} />
+      </div>)}
+    </div>
+  </details>;
 }
 
 /** Read-only provenance, shared by review and final measurement details. */

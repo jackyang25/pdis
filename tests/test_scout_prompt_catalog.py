@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 from services.scout.prompt_catalog import PROMPT_CATALOG
+from services.scout.prompt_primitives import COMPARATOR_POLICY_PRIMITIVE
 
 SNAPSHOT = Path(__file__).parent / "data" / "prompt_snapshot.json"
 STAGES = Path(__file__).resolve().parents[1] / "services" / "scout" / "stages"
@@ -24,6 +25,18 @@ def rendered_prompts() -> dict[str, str]:
 
 
 class PromptCatalogTest(unittest.TestCase):
+    def test_comparison_consumers_receive_one_shared_policy(self) -> None:
+        consumers = {
+            "conformity", "target_reviewer", "evidence_reviewer", "query_extractor",
+        }
+        seen = set()
+        for entry in PROMPT_CATALOG:
+            prompt = entry.render()
+            if COMPARATOR_POLICY_PRIMITIVE in prompt:
+                self.assertEqual(prompt.count(COMPARATOR_POLICY_PRIMITIVE), 1)
+                seen.add(entry.stage)
+        self.assertEqual(seen, consumers)
+
     def test_prompt_text_matches_snapshot(self) -> None:
         self.assertTrue(SNAPSHOT.exists(), "prompt snapshot has not been recorded")
         self.assertEqual(rendered_prompts(), json.loads(SNAPSHOT.read_text()))

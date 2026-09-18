@@ -151,7 +151,7 @@
           "items": [
             {
               "term": "Numeric target review",
-              "description": "Review extracted numbers and their qualifiers against the cited document passages before evidence retrieval. Confirm intended document requirements, exclude background numbers, examples, and rejected alternatives, and acknowledge unresolved extraction items. These checkpoints review numeric targets and their evidence; nonnumeric claims are assessed separately and do not appear here."
+              "description": "Check that the extracted number, target role, and details accurately reflect the cited document. Confirm intended requirements, exclude background numbers and rejected alternatives, and acknowledge unresolved extraction items. Open 'How evidence will be compared' to inspect the rules used in the next step. These checkpoints cover numeric targets; nonnumeric claims are assessed separately."
             },
             {
               "term": "Source passage",

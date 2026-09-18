@@ -32,6 +32,28 @@ test("qualifier details distinguish document content from every matching-rule st
   }
 });
 
+test("target review keeps document qualifiers visible and future comparison rules in one disclosure", () => {
+  const result = reviewFixture("target_review");
+  const target = result.quantitative_ledger.targets[0];
+  target.semantic_profile.time_horizon = { state: "specified", value: "By 2026", other: "" };
+  target.comparison_contract.time_horizon = { mode: "unconstrained", scope: "", reason: "The year is the value being compared." };
+  const before = JSON.stringify(result);
+  const html = renderToStaticMarkup(React.createElement(DocumentTargetReviewCheckpoint, {
+    result, busy: false, stage: null, progress: null,
+    onNewAnalysis: () => {}, onTargetDecision: () => {}, onStatementDecision: () => {},
+    onAcceptRecommendations: () => {}, onContinue: () => {},
+  }));
+  const disclosure = html.match(/<details[^>]*>[\s\S]*?How evidence will be compared[\s\S]*?<\/details>/)?.[0] ?? "";
+  assert.ok(disclosure);
+  assert.doesNotMatch(disclosure.match(/^<details[^>]*>/)?.[0] ?? "", /\bopen\b/);
+  assert.match(disclosure, /The year is the value being compared/);
+  assert.match(disclosure, /Does not control comparison/);
+  const visible = html.replace(disclosure, "");
+  assert.match(visible, /By 2026/);
+  assert.doesNotMatch(visible, /Evidence must match|Exact match:/);
+  assert.equal(JSON.stringify(result), before);
+});
+
 test("comparison exposes qualifier reasoning and separates non-controlling fields from matches", () => {
   const result = reviewFixture();
   const target = result.quantitative_ledger.targets[0];

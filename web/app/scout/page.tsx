@@ -139,7 +139,7 @@ import { EvidenceProvenance } from "@/components/evidence-provenance";
 import { FieldSearches } from "@/components/field-searches";
 import { ExcludedMeasurements } from "@/components/excluded-measurements";
 import { ComparatorCohort } from "@/components/comparator-cohort";
-import { ScoutComparison, TargetQualifierSource, TargetQualifierDetails } from "@/components/scout-comparison";
+import { ScoutComparison, TargetQualifierSource, TargetComparisonRules } from "@/components/scout-comparison";
 import { semanticSlotLabel, dimensionLabel, comparisonDimensions } from "@/lib/scout-comparison";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RELATION_ORDER, sortMatchesForReading } from "@/lib/scout-match-order";
@@ -1004,18 +1004,21 @@ function DocumentTargetReviewCheckpoint({
                   <RolePill role={target.role} />
                 </div>
                 <dl className="mt-5 grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                  {comparisonDimensions(target).map((dimension) => (
+                  {(Object.keys(target.semantic_profile) as Array<keyof typeof target.semantic_profile>).filter(dimension =>
+                    target.semantic_profile[dimension].state !== "not_specified" || target.comparison_contract[dimension].mode !== "unconstrained",
+                  ).map((dimension) => (
                     <div key={dimension} className="min-w-0">
                       <dt className="flex flex-wrap items-center justify-between gap-2">
                         <span className={EYEBROW}>{dimensionLabel(dimension)}</span>
                         <TargetQualifierSource target={target} dimension={dimension} />
                       </dt>
-                      <dd className="mt-1">
-                        <TargetQualifierDetails target={target} dimension={dimension} />
+                      <dd className="mt-1 text-xs leading-relaxed text-foreground">
+                        {semanticSlotLabel(target.semantic_profile[dimension])}
                       </dd>
                     </div>
                   ))}
                 </dl>
+                <TargetComparisonRules target={target} />
                 {linkedVariables.length > 0 && <div className="mt-5 border-t border-border/60 pt-4">
                   <SectionLabel>Linked product fields</SectionLabel>
                   <div className="mt-2 space-y-2">

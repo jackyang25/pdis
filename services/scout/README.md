@@ -323,6 +323,19 @@ contract. The latter declares each semantic axis as exact, compatible within an
 explicit scope, unconstrained, or unknown. Retrieval, source mapping, review,
 and admission all consume that same policy, so a named document candidate does
 not silently become an exact-product requirement.
+The shared comparison policy separates the value being tested from independent
+qualifiers: a deadline or duration being measured must not become a requirement
+that evidence repeat that value, while a fixed observation window for another
+measurement still controls comparability. Minimum/optimal roles are not evidence
+requirements. Variation needs a supported scope, not merely a difference between
+document columns. The independent target reviewer flags unsound contracts without
+rewriting them; the evidence reviewer likewise flags policy violations rather
+than silently repairing them. These are model instructions, not deterministic
+proof of semantic correctness.
+Numeric target review keeps extracted details and citations visible; the
+"How evidence will be compared" disclosure retains all matching rules and their
+explanations. Evidence review and final comparator details show the rules beside
+the actual evidence. Presentation never changes the saved contract.
 Before review, a document-wide reconciliation pass may group repeated or
 paraphrased representations of the same atomic claim. It can only partition
 existing, calculation-compatible target IDs; code combines their field links

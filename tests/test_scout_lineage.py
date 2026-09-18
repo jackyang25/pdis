@@ -2664,8 +2664,8 @@ class ReasoningLineageTests(unittest.TestCase):
         self.assertIn("without reinterpreting its numeric meaning", prompt)
         self.assertIn("Conditions includes only settings", prompt)
         self.assertIn("change numeric interpretation", prompt)
-        self.assertIn("mode=unknown preserves genuine ambiguity", prompt)
-        self.assertIn("comparison_contract separately", prompt)
+        self.assertIn("unknown means its required scope cannot be established", prompt)
+        self.assertIn("Separate three things:", prompt)
 
     def test_identical_scalar_under_multiple_roles_preserves_both_roles(self) -> None:
         document = (

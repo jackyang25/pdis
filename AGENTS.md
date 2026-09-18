@@ -179,17 +179,22 @@ web/ → api/ → services/ → shared/
   This is an explicit quality tradeoff, not structural parity: PDF produces
   page-level text blocks, never inferred headings or table cells. A quote match
   cannot establish correct table or column interpretation. Every PDF block
-  carries its page and `pdf_limited_structure` extraction warning through results and
+  carries its page and `pdf_text_layout` extraction warning through results and
   Ask; the UI displays the limitation. Encrypted, malformed, over-limit files
   and any page without extractable text fail the whole document, including blank
-  pages rather than guessing why extraction was empty. Directly placed embedded rasters use pypdf's
-  image decoding and canonical image assets, after each page's text, without inferred
-  placement. Unused resources and nested Form images are excluded; the latter is
-  disclosed as a limitation. No OCR, vector reconstruction, or page rendering.
+  pages rather than guessing why extraction was empty. PDFium retains one rendered
+  page visual alongside each page's extracted text, not separate image fragments.
+  No OCR, vector reconstruction, or inferred table structure. Rendering is bounded
+  by page count, pixels, and retained image bytes. Historical `pdf_limited_structure`
+  warnings keep their original meaning; imports never invent missing visuals.
   Other tools and Ask attachments keep the default input capability.
 - Images are canonical blocks, not generated descriptions. Retain supported
   raster bytes, normalize other rasters with Pillow, and use LibreOffice only
   for vector fallback and PPTX slide rendering.
+- Text quotations and visual references are separate provenance. A visual reference
+  resolves to a retained asset; `[image]` is not a validated quotation. Inspector
+  may include a same-slide overview with mapped section text without remapping
+  unrelated text. Scout's numeric targets still require exact source text.
 - Every multimodal call labels an image with its exact block ID. Preserve that
   association through Inspector, Aligner, Screener, Scout, Ask, and portable JSON.
 - Result JSON embeds parsed blocks and image bytes, not the original uploaded

@@ -15,6 +15,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from services.chunker import run_pipeline, parse_context_file
+from services.chunker.models import ImageAsset
 from tests.pdf_fixtures import pdf_bytes
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, DecodedStreamObject, DictionaryObject, NumberObject, ArrayObject
@@ -34,18 +35,74 @@ class PdfTests(unittest.TestCase):
             org="bmgf", intervention_class="drug", indication="malaria",
         )
 
-    def test_pdf_opt_in_retains_pages_ids_text_and_provenance(self):
+    def test_pdf_opt_in_retains_page_text_and_one_full_page_visual(self):
         blocks = self.parse(pdf_bytes("The dose is 10 mg.", "The trial is planned."))
-        self.assertEqual([b.id for b in blocks], ["study/b-0001", "study/b-0002"])
-        self.assertEqual([b.content for b in blocks], ["The dose is 10 mg.", "The trial is planned."])
-        self.assertEqual([b.structural_meta["page"] for b in blocks], [1, 2])
+        self.assertEqual([b.id for b in blocks], [
+            "study/b-0001", "study/b-0001-image-0001",
+            "study/b-0002", "study/b-0002-image-0001",
+        ])
+        self.assertEqual(
+            [b.content for b in blocks if b.block_type == "paragraph"],
+            ["The dose is 10 mg.", "The trial is planned."],
+        )
+        self.assertEqual([b.structural_meta["page"] for b in blocks], [1, 1, 2, 2])
         for b in blocks:
-            self.assertEqual(b.block_type, "paragraph")
             self.assertEqual(b.heading_stack, [])
             self.assertIsNone(b.section_label)
-            self.assertEqual(b.structural_meta["extraction_warnings"], ["pdf_limited_structure"])
+            self.assertEqual(b.structural_meta["extraction_warnings"], ["pdf_text_layout"])
             self.assertEqual((b.org, b.intervention_class, b.indication), ("bmgf", "drug", "malaria"))
+        visuals = [b for b in blocks if b.block_type == "image"]
+        self.assertEqual([b.structural_meta["visual_scope"] for b in visuals], ["full_page", "full_page"])
+        self.assertTrue(all(b.style_hint == {"parser": "pdf_page_render"} for b in visuals))
+        self.assertTrue(all(b.image and b.image.media_type == "image/png" for b in visuals))
         self.assertEqual(blocks, self.parse(pdf_bytes("The dose is 10 mg.", "The trial is planned.")))
+
+    def test_vector_drawing_is_retained_inside_the_single_page_visual(self):
+        writer = PdfWriter()
+        page = writer.add_page(PdfReader(io.BytesIO(pdf_bytes("Vector timeline."))).pages[0])
+        content = DecodedStreamObject()
+        content.set_data(
+            page.get_contents().get_data()
+            + b"\n0 0 1 rg 50 50 100 100 re f"
+            + b"\nq 100 0 0 100 200 50 cm BI /W 1 /H 1 /CS /RGB /BPC 8 ID \xff\x00\x00 EI Q"
+        )
+        page[NameObject("/Contents")] = writer._add_object(content)
+        payload = io.BytesIO()
+        writer.write(payload)
+
+        blocks = self.parse(payload.getvalue())
+
+        self.assertEqual([block.block_type for block in blocks], ["paragraph", "image"])
+        visual = blocks[1]
+        self.assertEqual(visual.structural_meta["visual_scope"], "full_page")
+        assert visual.image is not None
+        with Image.open(io.BytesIO(base64.b64decode(visual.image.data_base64))) as rendered:
+            self.assertEqual(rendered.size, (918, 1188))
+            pixels = rendered.convert("RGB").get_flattened_data()
+            self.assertTrue(
+                any(blue > 200 and red < 50 and green < 50 for red, green, blue in pixels),
+                "the PDF vector rectangle was absent from the rendered page visual",
+            )
+
+    def test_final_published_assets_cannot_expand_past_the_render_budget(self):
+        expanding_asset = ImageAsset(
+            media_type="image/png",
+            data_base64=base64.b64encode(b"expanded").decode("ascii"),
+            sha256="test",
+            source_media_type="application/pdf",
+            width=1,
+            height=1,
+        )
+        with patch(
+            "services.chunker.stages.parser_pdf.render_pdf_pages",
+            return_value={1: b"x"},
+        ), patch(
+            "services.chunker.stages.parser_pdf.image_asset_from_bytes",
+            return_value=expanding_asset,
+        ), patch(
+            "services.chunker.stages.rasterizer.MAX_RENDERED_BYTES", 1,
+        ), self.assertRaisesRegex(ValueError, "aggregate encoded-image limit"):
+            self.parse(pdf_bytes("Readable"))
 
     def test_default_pipeline_and_ask_still_refuse_pdf(self):
         self.path.write_bytes(pdf_bytes("Readable text."))
@@ -65,45 +122,25 @@ class PdfTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "page 2.*no extractable text"):
             self.parse(pdf_bytes("Readable", None, image_pages=(2,)))
 
-    def test_pdf_images_are_portable_citable_blocks_without_changing_text_ids(self):
-        payload = pdf_bytes("Readable", "Next page", image_pages=(1, 2))
-        blocks = self.parse(payload)
-        self.assertEqual([b.id for b in blocks], [
-            "study/b-0001", "study/b-0001-image-0001",
-            "study/b-0002", "study/b-0002-image-0001",
-        ])
-        self.assertEqual([b.ordinal for b in blocks], [1, 2, 3, 4])
-        self.assertEqual(blocks[0].content, "Readable")
-        self.assertIsNone(blocks[0].image)
-        for block, page in ((blocks[1], 1), (blocks[3], 2)):
-            self.assertEqual(block.block_type, "image")
-            self.assertEqual(block.structural_meta["page"], page)
-            self.assertEqual(block.structural_meta["extraction_warnings"], ["pdf_limited_structure"])
-            self.assertEqual(block.org, "bmgf")
-            self.assertIsNone(block.source_type)
-            self.assertEqual((block.image.width, block.image.height), (1, 1))
-            with Image.open(io.BytesIO(base64.b64decode(block.image.data_base64))) as image:
-                self.assertEqual(image.convert("RGB").getpixel((0, 0)), (255, 0, 0))
-        self.assertEqual(blocks, self.parse(payload))
-
     def test_overlarge_file_is_refused(self):
         with self.assertRaisesRegex(ValueError, "20 MB"):
             self.parse(pdf_bytes("Text") + b" " * (20 * 1024 * 1024))
 
-    def test_embedded_jpeg_bytes_are_preserved_and_citable(self):
+    def test_embedded_jpeg_is_carried_only_inside_the_page_visual(self):
         jpeg = io.BytesIO()
         Image.new("RGB", (12, 8), "blue").save(jpeg, format="JPEG")
         blocks = self.parse(self.jpeg_pdf(jpeg.getvalue()))
         self.assertEqual(len(blocks), 2)
-        self.assertEqual(blocks[1].image.media_type, "image/jpeg")
-        self.assertEqual(base64.b64decode(blocks[1].image.data_base64), jpeg.getvalue())
-        self.assertEqual((blocks[1].image.width, blocks[1].image.height), (12, 8))
+        self.assertEqual([block.block_type for block in blocks], ["paragraph", "image"])
+        self.assertEqual(blocks[1].structural_meta["visual_scope"], "full_page")
+        self.assertEqual(blocks[1].image.media_type, "image/png")
+        self.assertEqual(blocks[1].image.source_media_type, "application/pdf")
 
-    def test_corrupt_embedded_image_refuses_document_instead_of_losing_evidence(self):
+    def test_corrupt_direct_image_still_refuses_the_document(self):
         with self.assertRaisesRegex(ValueError, "study.*readable PDF"):
             self.parse(self.jpeg_pdf(b"not a jpeg"))
 
-    def test_unused_image_resources_are_not_citable_page_evidence(self):
+    def test_unused_image_resources_do_not_create_separate_visual_blocks(self):
         jpeg = io.BytesIO()
         Image.new("RGB", (12, 8), "blue").save(jpeg, format="JPEG")
         writer = PdfWriter()
@@ -113,9 +150,11 @@ class PdfTests(unittest.TestCase):
         page[NameObject("/Contents")] = content
         payload = io.BytesIO()
         writer.write(payload)
-        self.assertEqual([b.block_type for b in self.parse(payload.getvalue())], ["paragraph"])
+        blocks = self.parse(payload.getvalue())
+        self.assertEqual([b.block_type for b in blocks], ["paragraph", "image"])
+        self.assertEqual(blocks[1].structural_meta["visual_scope"], "full_page")
 
-    def test_invalid_image_dimensions_follow_the_input_error_contract(self):
+    def test_invalid_direct_image_dimensions_still_refuse_the_document(self):
         writer = PdfWriter()
         page = writer.add_page(PdfReader(io.BytesIO(self.jpeg_pdf(b"invalid"))).pages[0])
         page["/Resources"]["/XObject"]["/Photo"][NameObject("/Width")] = NumberObject(0)
@@ -124,7 +163,7 @@ class PdfTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "study.*readable PDF"):
             self.parse(payload.getvalue())
 
-    def test_nested_form_images_are_explicitly_outside_the_extraction_contract(self):
+    def test_nested_forms_do_not_create_a_second_visual_lineage_path(self):
         jpeg = io.BytesIO()
         Image.new("RGB", (12, 8), "blue").save(jpeg, format="JPEG")
         writer = PdfWriter()
@@ -148,9 +187,11 @@ class PdfTests(unittest.TestCase):
         payload = io.BytesIO()
         writer.write(payload)
         blocks = self.parse(payload.getvalue())
-        self.assertEqual([b.block_type for b in blocks], ["paragraph"])
-        from shared.document_metadata import extraction_context
-        self.assertIn("images nested in Form objects are not read", extraction_context(blocks[0].structural_meta))
+        self.assertEqual([b.block_type for b in blocks], ["paragraph", "image"])
+        self.assertEqual(blocks[1].structural_meta["visual_scope"], "full_page")
+        self.assertEqual(
+            blocks[1].structural_meta["extraction_warnings"], ["pdf_text_layout"]
+        )
 
     @staticmethod
     def jpeg_pdf(data):

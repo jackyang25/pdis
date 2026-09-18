@@ -122,7 +122,7 @@ class PipelineTests(unittest.TestCase):
         for message, images in client.calls:
             self.assertIn("Dosing regimen", message)
             self.assertIn("Independent laboratory findings", message)
-            self.assertIn("pdf_limited_structure", message)
+            self.assertIn("pdf_text_layout", message)
             self.assertEqual(images, [{"block_id": block.id,
                                        "data_url": block.image.data_url()} for block in retained_images])
         for block in review.blocks:

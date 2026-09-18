@@ -42,10 +42,16 @@ def attach_image_assets(
         return blocks
 
     for block in image_blocks:
+        if "unsupported_document_visual" in block.structural_meta.get(
+            "extraction_warnings", []
+        ):
+            continue
         rel_id = block.structural_meta.pop("image_rel_id", None)
-        part = related.get(rel_id) if rel_id else None
+        owner = block.structural_meta.get("document_part", "/word/document.xml")
+        part = related.get((owner, rel_id)) if rel_id else None
         if part is None:
             block.content = "[image unavailable]"
+            _add_extraction_warning(block, "document_image_unavailable")
             continue
         source_media_type = (getattr(part, "content_type", "") or "").lower()
         try:
@@ -53,26 +59,34 @@ def attach_image_assets(
         except Exception as exc:  # noqa: BLE001 - one corrupt asset is isolated
             logger.warning("Could not read image bytes for %s: %s", block.id, exc)
             block.content = "[image unavailable]"
+            _add_extraction_warning(block, "document_image_unavailable")
             continue
 
         block.image = image_asset_from_bytes(image_bytes, source_media_type)
         if block.image is None:
             block.content = f"[image unavailable: {source_media_type or 'unknown format'}]"
+            _add_extraction_warning(block, "document_image_unavailable")
             continue
         block.content = "[image]"
     return blocks
 
 
-def image_asset_from_bytes(data: bytes, source_media_type: str) -> ImageAsset | None:
-    """Normalize arbitrary visual bytes into the one portable image contract."""
+def image_asset_from_bytes(
+    data: bytes,
+    source_media_type: str,
+    *,
+    data_media_type: str | None = None,
+) -> ImageAsset | None:
+    """Normalize bytes while retaining their original document-media provenance."""
     if not data:
         return None
     source_media_type = (source_media_type or "").lower()
-    media_type = "image/jpeg" if source_media_type == "image/jpg" else source_media_type
+    data_media_type = (data_media_type or source_media_type).lower()
+    media_type = "image/jpeg" if data_media_type == "image/jpg" else data_media_type
     image_bytes = data
-    if source_media_type not in PASSTHROUGH_TYPES:
+    if data_media_type not in PASSTHROUGH_TYPES:
         converted = _convert_raster_to_png(data) or rasterize_to_png(
-            data, source_media_type
+            data, data_media_type
         )
         if converted is None:
             return None
@@ -87,6 +101,13 @@ def image_asset_from_bytes(data: bytes, source_media_type: str) -> ImageAsset | 
         width=width,
         height=height,
     )
+
+
+def image_asset_byte_size(asset: ImageAsset) -> int:
+    """Return the decoded canonical asset size without allocating another copy."""
+    payload = asset.data_base64
+    padding = len(payload) - len(payload.rstrip("="))
+    return len(payload) * 3 // 4 - padding
 
 
 def _pixel_size(data: bytes) -> tuple[int, int]:
@@ -124,7 +145,18 @@ def _load_related_parts(file_path: str):
     try:
         from docx import Document
 
-        return Document(file_path).part.related_parts
+        document = Document(file_path)
+        return {
+            (str(owner.partname), rel_id): target
+            for owner in document.part.package.parts
+            for rel_id, target in owner.related_parts.items()
+        }
     except Exception as exc:  # noqa: BLE001 - parse output remains usable
         logger.warning("Could not reopen %s for image assets: %s", file_path, exc)
         return None
+
+
+def _add_extraction_warning(block: ContentBlock, warning: str) -> None:
+    warnings = block.structural_meta.setdefault("extraction_warnings", [])
+    if warning not in warnings:
+        warnings.append(warning)

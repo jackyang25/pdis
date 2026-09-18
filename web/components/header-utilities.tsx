@@ -16,7 +16,7 @@ export function HeaderUtilities({ pathname }: { pathname: string }) {
         <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
         <span className="hidden sm:inline">Documentation</span>
       </Link>
-      <Link href="/updates" aria-current={pathname === "/updates" ? "page" : undefined} aria-label={`What’s new — latest release v${CURRENT_RELEASE.version}`} className={HEADER_ACTION}>
+      <Link href="/updates" aria-current={pathname === "/updates" ? "page" : undefined} aria-label={`What’s new — this version v${CURRENT_RELEASE.version}`} className={HEADER_ACTION}>
         <History className="h-3.5 w-3.5" aria-hidden="true" />
         <span className="hidden sm:inline">What’s new</span>
         <span className="hidden tabular-nums text-muted-foreground lg:inline">v{CURRENT_RELEASE.version}</span>

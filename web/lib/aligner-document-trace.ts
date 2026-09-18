@@ -3,7 +3,7 @@ import {
   ALIGNMENT_VERDICTS,
   ALIGNMENT_VERDICT_TONE,
   VERDICT_LABELS,
-  spanBlockIds,
+  alignmentBlockIds,
 } from "./api.ts";
 import type {
   DocumentAnnotation,
@@ -106,14 +106,14 @@ export function buildAlignerDocumentAnnotations(
     });
 
     const annotations: AlignerDocumentAnnotation[] = [];
-    if (finding.reference_spans.length > 0) {
+    if (alignmentBlockIds(finding, "reference").length > 0) {
       annotations.push({
         id: `${finding.requirement_id}:requirement`,
         kind: "requirement",
         layerLabel: "Requirement",
         title: `${comparison} · ${finding.requirement_id}`,
         summary: finding.requirement,
-        blockIds: spanBlockIds(finding.reference_spans),
+        blockIds: alignmentBlockIds(finding, "reference"),
         spans: traceSpans(finding.reference_spans),
         // Neutral: the requirement side states what was asked, and claims nothing about
         // whether it was met. The verdict on the other document carries that.
@@ -121,14 +121,14 @@ export function buildAlignerDocumentAnnotations(
         sourceRef: ref("reference"),
       });
     }
-    if (finding.comparison_spans.length > 0) {
+    if (alignmentBlockIds(finding, "comparison").length > 0) {
       annotations.push({
         id: `${finding.requirement_id}:verdict`,
         kind: finding.verdict,
         layerLabel: VERDICT_LABELS[finding.verdict],
         title: `${comparison} · ${finding.requirement_id}`,
         summary: finding.statement,
-        blockIds: spanBlockIds(finding.comparison_spans),
+        blockIds: alignmentBlockIds(finding, "comparison"),
         spans: traceSpans(finding.comparison_spans),
         emphasis: {
           tone: TONE[finding.verdict],
@@ -179,6 +179,6 @@ export function findingsPerDocument(
 /** Findings with no lineage on the measured side, which is every `not_addressed`. */
 export function unplacedFindings(result: AlignmentResult): AlignmentFinding[] {
   return result.findings.filter(
-    (finding) => finding.comparison_spans.length === 0,
+    (finding) => alignmentBlockIds(finding, "comparison").length === 0,
   );
 }

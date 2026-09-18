@@ -27,6 +27,8 @@ function result(): AlignmentResult {
         requirement_id: "itpp-to-ctpp/r-001",
         edge_id: "itpp-to-ctpp",
         requirement: "Shelf life of 36 months.",
+        reference_visual_block_ids: [],
+        comparison_visual_block_ids: [],
         reference_spans: [
           { quote: "Shelf life | 36 months", block_ids: ["itpp/b-0001"] },
         ],
@@ -78,6 +80,17 @@ test("silence is placed nowhere, because it cites nothing", () => {
   };
   const kinds = buildAlignerDocumentAnnotations(silent).map((one) => one.kind);
   assert.deepEqual(kinds, ["requirement"]);
+});
+
+test("visual-only findings anchor retained images without invented quotations", () => {
+  const visual = result();
+  visual.findings[0].reference_spans = [];
+  visual.findings[0].comparison_spans = [];
+  visual.findings[0].reference_visual_block_ids = ["itpp/slide"];
+  visual.findings[0].comparison_visual_block_ids = ["ctpp/slide"];
+  const annotations = buildAlignerDocumentAnnotations(visual);
+  assert.deepEqual(annotations.map(item => item.blockIds), [["itpp/slide"], ["ctpp/slide"]]);
+  assert.deepEqual(annotations.map(item => item.spans), [[], []]);
 });
 
 test("a span with no quote is not carried into the trace", () => {

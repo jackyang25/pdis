@@ -40,7 +40,8 @@ const ANALYSIS_VERSIONS = {
   // 3: findings returned, one per requirement, with a one-way verdict. A v2 file
   // carries no findings at all, so it would render as a run that compared nothing —
   // indistinguishable from a run that found nothing wrong.
-  aligner: 3,
+  // 4: visual references are separate from exact text quotations.
+  aligner: 4,
   // 2: five states became three. `not_answerable` and `not_assessable` were both
   // derived from a judgment about which document could answer a question — a judgment
   // the source question bank does not contain — so a v1 file describes states this
@@ -462,7 +463,7 @@ function upgradeInspectorV2(value: unknown): unknown {
 }
 
 export function unpackAlignerResult(value: unknown): AlignerResponse {
-  const file = requireResultFile(value, "aligner");
+  const file = requireResultFile(upgradeAlignerV3(value), "aligner");
   const analysis = file.analysis as AlignerAnalysis;
   const result = {
     alignment: {
@@ -472,6 +473,21 @@ export function unpackAlignerResult(value: unknown): AlignerResponse {
   } as AlignerResponse;
   RESULT_CONTRACTS.aligner(result);
   return result;
+}
+
+/** Old text citations retain their meaning; no historical visual lineage is invented. */
+function upgradeAlignerV3(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const file = value as Record<string, unknown>;
+  if (file.schema !== RESULT_SCHEMA || file.result_type !== "aligner"
+    || file.envelope_version !== ENVELOPE_VERSION || file.analysis_version !== 3) return value;
+  const analysis = file.analysis as { alignment?: Record<string, unknown> } | undefined;
+  if (!Array.isArray(analysis?.alignment?.findings)) return value;
+  return { ...file, analysis_version: ANALYSIS_VERSIONS.aligner, analysis: {
+    ...analysis, alignment: { ...analysis.alignment, findings: analysis.alignment.findings.map(item => ({
+      ...item, reference_visual_block_ids: [], comparison_visual_block_ids: [],
+    })) },
+  } };
 }
 
 export function unpackScreenerResult(value: unknown): ScreenerResponse {

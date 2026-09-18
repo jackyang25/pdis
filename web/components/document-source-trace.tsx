@@ -21,6 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ProvenanceTrigger, stopRowToggle , PROVENANCE_PANEL} from "@/components/ui/provenance";
 import type { TraceFocus } from "@/lib/trace-focus";
 import { EmptyState } from "@/components/empty-state";
+import { closeDocumentVisualOnEscape, DocumentVisual } from "@/components/document-visual";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
@@ -124,6 +125,7 @@ export function DocumentSourceTrace({
         align="start"
         sideOffset={6}
         collisionPadding={12}
+        onEscapeKeyDown={closeDocumentVisualOnEscape}
         className={cn(PROVENANCE_PANEL.width, "overscroll-contain p-0")}
       >
         <TracePanelHeader
@@ -183,16 +185,9 @@ export function DocumentSourceTrace({
                   </p>
                 </div>
                 {selectedBlock.image && (
-                  <div className="mt-3 overflow-hidden rounded-lg border border-border/80 bg-foreground/[0.045] p-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`data:${selectedBlock.image.media_type};base64,${selectedBlock.image.data_base64}`}
-                      alt={`Visual from ${selectedHeading}`}
-                      className="mx-auto max-h-72 max-w-full object-contain"
-                    />
-                  </div>
+                  <DocumentVisual block={selectedBlock} />
                 )}
-                {selectedBlock.content && (
+                {selectedBlock.content && selectedBlock.block_type !== "image" && (
                   <section className="mt-3">
                     <p className={EYEBROW}>
                       Passage

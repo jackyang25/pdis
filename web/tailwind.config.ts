@@ -70,6 +70,10 @@ const config: Config = {
         exit: "cubic-bezier(0.4, 0, 1, 1)",
       },
       keyframes: {
+        "pixel-wave": {
+          "0%, 100%": { opacity: "0.25" },
+          "35%": { opacity: "1" },
+        },
         "fade-rise": {
           from: { opacity: "0", transform: "translateY(2px)" },
           to: { opacity: "1", transform: "none" },
@@ -79,6 +83,7 @@ const config: Config = {
         },
       },
       animation: {
+        "pixel-wave": "pixel-wave 650ms ease-in-out infinite",
         "fade-rise": "fade-rise 180ms cubic-bezier(0.2, 0, 0, 1)",
         shimmer: "shimmer 1.6s infinite",
       },

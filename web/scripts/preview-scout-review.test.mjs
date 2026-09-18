@@ -7,6 +7,8 @@ test("preview copies real components without credentials or production routes an
   const preview = await createPreviewWorkspace();
   try {
     assert.match(await readFile(`${preview.web}/app/scout/page.tsx`, "utf8"), /export function DocumentTargetReviewCheckpoint/);
+    const warnings = JSON.parse(await readFile(`${preview.root}/shared/document-extraction.json`, "utf8"));
+    assert.match(warnings.pdf_text_layout, /Page visuals are retained/);
     await assert.rejects(access(`${preview.web}/.env.local`));
     await assert.rejects(access(`${preview.web}/app/api`));
     assert.match(await readFile(`${preview.web}/app/layout.tsx`, "utf8"), /connect-src 'self'/);

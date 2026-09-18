@@ -17,7 +17,9 @@ export async function createPreviewWorkspace() {
       await cp(join(source, path), join(web, path), { recursive: true });
     }
     await mkdir(join(root, "shared"));
-    await cp(join(source, "../shared/product_knowledge.json"), join(root, "shared/product_knowledge.json"));
+    for (const artifact of ["product_knowledge.json", "document-extraction.json"]) {
+      await cp(join(source, "../shared", artifact), join(root, "shared", artifact));
+    }
     await symlink(join(source, "node_modules"), join(web, "node_modules"), "dir");
     let page = await readFile(join(source, "app/scout/page.tsx"), "utf8");
     for (const name of ["DocumentTargetReviewCheckpoint", "QuantitativeReviewCheckpoint"]) {

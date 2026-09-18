@@ -43,6 +43,31 @@ def fixed_batches(items: Sequence[_T], size: int) -> list[list[_T]]:
     ]
 
 
+def fitting_batches(
+    items: Sequence[_T], *, fits: Callable[[Sequence[_T]], bool],
+) -> list[list[_T]]:
+    """Keep ordered items together until an exact capacity predicate is exceeded.
+
+    ``fits`` must be monotone: adding an item cannot make an oversized batch fit.
+    An individually oversized item is refused, never dropped or sent over budget.
+    """
+    batches: list[list[_T]] = []
+    current: list[_T] = []
+    for item in items:
+        candidate = [*current, item]
+        if fits(candidate):
+            current = candidate
+            continue
+        if not fits([item]):
+            raise ValueError("An item cannot fit within the request capacity")
+        if current:
+            batches.append(current)
+        current = [item]
+    if current:
+        batches.append(current)
+    return batches
+
+
 def budgeted_batches(
     items: Iterable[_T],
     *,

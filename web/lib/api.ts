@@ -931,6 +931,7 @@ export const VERDICT_LABELS: Record<AlignmentVerdict, string> = {
  * is stated, `comparison_spans` quote what was read to judge it. The service contract
  * checks each against its own document and against its own text, so resolving either one
  * lands a reader in the file that actually says it, on the line that says it.
+ * Per-side visual IDs instead name retained image assets and never claim quoted words.
  */
 export type AlignmentFinding = {
   requirement_id: string;
@@ -939,9 +940,19 @@ export type AlignmentFinding = {
   reference_spans: DocumentSpan[];
   verdict: AlignmentVerdict;
   statement: string;
-  /** Empty exactly on `not_addressed`, which is a claim about the absence of text. */
+  /** Empty for visual-only evidence or `not_addressed`; the latter cites neither kind. */
   comparison_spans: DocumentSpan[];
+  reference_visual_block_ids: string[];
+  comparison_visual_block_ids: string[];
 };
+
+/** Both citation kinds reach blocks; only text spans claim exact quoted words. */
+export function alignmentBlockIds(finding: AlignmentFinding, side: "reference" | "comparison"): string[] {
+  return [...new Set([
+    ...spanBlockIds(finding[`${side}_spans`]),
+    ...finding[`${side}_visual_block_ids`],
+  ])];
+}
 
 /** One comparison Aligner declares, by document type, before any run. */
 export type AlignmentEdgeSpec = {

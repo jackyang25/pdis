@@ -24,10 +24,12 @@ from typing import Any
 
 from shared.ai import request_structured
 from shared.batching import map_ordered
+from shared.document_metadata import extraction_context
 
 from services.chunker import ContentBlock
 
 from ..assembly import absent_unit_assessments, unit_id
+from ..source_context import with_slide_overviews
 from ..models import (
     ASSESSED_VERDICTS,
     UNCITED_VERDICTS,
@@ -138,7 +140,11 @@ def assess_rubrics(
     a partial collection.
     """
     grouped = _group_blocks_by_section(labeled_blocks)
-    section_text = {name: _format_blocks(blocks) for name, blocks in grouped.items()}
+    section_context = {
+        name: with_slide_overviews(blocks, labeled_blocks)
+        for name, blocks in grouped.items()
+    }
+    section_text = {name: _format_blocks(blocks) for name, blocks in section_context.items()}
     whole_text = (
         _format_blocks(labeled_blocks)
         if any(config.evidence_scope == "whole_document" for config in configs)
@@ -153,9 +159,11 @@ def assess_rubrics(
         work: list[_UnitWork] = []
         mapped: dict[str, list[str]] = {}
         for section in config.sections:
-            blocks = labeled_blocks if whole_document else grouped.get(section.name, [])
+            blocks = labeled_blocks if whole_document else section_context.get(section.name, [])
             text = whole_text if whole_document else section_text.get(section.name, "")
-            mapped[section.name] = [] if whole_document else [block.id for block in blocks]
+            mapped[section.name] = [] if whole_document else [
+                block.id for block in grouped.get(section.name, [])
+            ]
             units = section.variables or [None]
             absent = absent_unit_assessments(config, section.name) if not blocks else []
             for unit_index, unit in enumerate(units):
@@ -458,10 +466,13 @@ def _format_blocks(blocks: list[ContentBlock]) -> str:
 
 
 def _format_block(block: ContentBlock) -> str:
+
     heading_stack = " > ".join(block.heading_stack) if block.heading_stack else "none"
+    metadata = extraction_context(block.structural_meta)
     return (
         f"[{block.id} | {block.block_type} | headings: {heading_stack}]\n"
-        f"{block.content}"
+        + (f"Source location: {metadata}\n" if metadata else "")
+        + block.content
     )
 
 

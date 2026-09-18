@@ -267,7 +267,11 @@ Set `optional: true` where the rubric genuinely does not require a unit.
 separate rubric definitions and reviews; expectations remain the assessment bar for
 one requirement.
 
-`mapped_section` evidence preserves BMGF's physical section mapping.
+`mapped_section` evidence preserves BMGF's physical section mapping. A mapped
+PPTX block also receives its retained same-slide overview as visual context,
+keyed by document and slide. This does not remap other text on that slide or
+change the section's saved mapped IDs. The assessment and citation validator
+use the same expanded context collection.
 `whole_document` evidence lets guideline requirements read every retained block,
 including Other and Metadata, without claiming the document physically contains a
 guideline-named section. Whole-document section presence is therefore `null` and

@@ -165,7 +165,7 @@ export default function ScreenerPage() {
         description={toolAuthority("screener")}
       />
       <div className="flex flex-col gap-6">
-        {(!session.result || showSetup) && (
+        {(session.busy || !session.result || showSetup) && (
           <RunPanel
             busy={session.busy}
             startedAt={session.startedAt}
@@ -306,6 +306,7 @@ function ReviewView({
 
   return (
     <ResultLayout
+      notices={<DocumentExtractionNotice blocks={review.blocks} />}
       title={runLabel(result, "screener")}
       subtitle={runScope(result, "screener")}
       // Run-wide, so it holds on the Documents tab too. It was inside the Questions tab.
@@ -355,7 +356,6 @@ function ReviewView({
         </>
       }
     >
-      <DocumentExtractionNotice blocks={review.blocks} />
       <DocumentSourceProvider
         blocks={review.blocks}
         onOpenInTrace={openBlockInTrace}

@@ -121,7 +121,7 @@ export function ContextFields() {
       <ConfigField
         label="Indication"
         disabled={!header.intervention_class}
-        help="The disease or condition. It travels with documents and results but does not select a rubric or question bank. Scout also checks it against the document and uses it in evidence searches."
+        help="The disease or condition. Retained as context for documents, results, and Assistant. It does not select a rubric or question bank. Scout also checks it against the document and uses it in evidence searches."
       >
         <ConfigSelect
           value={header.indication}

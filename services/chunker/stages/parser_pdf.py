@@ -1,4 +1,4 @@
-"""PDF text and embedded rasters → canonical blocks, without inferred structure.
+"""PDF page text and rendered page visuals → canonical blocks.
 
 Page boundaries are declared by PDF; headings, tables and reading order are not.
 Never turn layout guesses into structural metadata or exact-quote guarantees.
@@ -8,12 +8,13 @@ from pathlib import Path
 from contextlib import contextmanager
 import logging
 import threading
-from PIL import Image
 
 from pypdf import PdfReader
 
 from ..models import ContentBlock
-from .image_assets import image_asset_from_bytes
+from . import rasterizer
+from .image_assets import image_asset_byte_size, image_asset_from_bytes
+from .rasterizer import RenderError, render_pdf_pages
 
 MAX_PDF_BYTES = 20 * 1024 * 1024
 MAX_PDF_PAGES = 200
@@ -70,7 +71,7 @@ def parse_pdf(file_path: str, doc_id: str) -> list[ContentBlock]:
                 raise PdfInputError(f"{doc_id}: PDF has no pages.")
             if count > MAX_PDF_PAGES:
                 raise PdfInputError(f"{doc_id}: PDF exceeds 200 pages. Split it into smaller documents.")
-            blocks = []
+            page_texts: list[str] = []
             for number, page in enumerate(reader.pages, 1):
                 content = page.get_contents()
                 if content is not None and len(content.get_data()) > MAX_PAGE_STREAM_BYTES:
@@ -85,44 +86,64 @@ def parse_pdf(file_path: str, doc_id: str) -> list[ContentBlock]:
                         f"{doc_id}: PDF page {number} has no extractable text. "
                         "Upload a text-based export or remove blank pages; scanned pages need OCR."
                     )
-                blocks.append(ContentBlock(
-                    id=f"{doc_id}/b-{number:04d}", doc_id=doc_id, ordinal=len(blocks) + 1,
-                    block_type="paragraph", content=text, heading_stack=[],
-                    structural_meta={
-                        "page": number,
-                        "extraction_warnings": ["pdf_limited_structure"],
-                    },
-                    style_hint={"parser": "pdf_text"},
-                ))
-                # pypdf owns inline/XObject decoding and masks. Resource
-                # order is not reading order: keep page text first, then its images.
-                # No placement guesses, chart reconstruction, or page rendering.
+                # Page rendering replaces separate embedded-image blocks, but keep
+                # the prior strict validation of directly displayed raster resources.
+                # A corrupt resource must not disappear inside an otherwise successful
+                # page render without refusing the document.
                 images = page.images
-                for index, key in enumerate(images.keys(), 1):
-                    # Nested Form placement is outside this narrow extraction
-                    # contract. pypdf's display flag is page-local, not recursive.
+                for key in images.keys():
                     if not isinstance(key, str):
                         continue
                     extracted = images[key]
-                    if not extracted.is_displayed:
-                        continue
-                    if extracted.image is None:
-                        raise PdfInputError(f"{doc_id}: PDF page {number} has an unreadable image.")
-                    media_type = Image.MIME.get(extracted.image.format, "application/octet-stream")
-                    asset = image_asset_from_bytes(extracted.data, media_type)
-                    if asset is None:
-                        raise PdfInputError(f"{doc_id}: PDF page {number} has an unreadable image.")
-                    blocks.append(ContentBlock(
-                        id=f"{doc_id}/b-{number:04d}-image-{index:04d}",
-                        doc_id=doc_id, ordinal=len(blocks) + 1,
-                        block_type="image", content="[image]", heading_stack=[],
-                        structural_meta={
-                            "page": number,
-                            "extraction_warnings": ["pdf_limited_structure"],
-                        },
-                        style_hint={"parser": "pdf_image"}, image=asset,
-                    ))
-            return blocks
+                    if extracted.is_displayed and extracted.image is None:
+                        raise PdfInputError(
+                            f"{doc_id}: PDF page {number} has an unreadable image."
+                        )
+                page_texts.append(text)
+
+        try:
+            page_renders = render_pdf_pages(file_path, expected_pages=len(page_texts))
+        except RenderError as exc:
+            raise PdfInputError(
+                f"{doc_id}: PDF page rendering failed and no complete visual parse can be returned."
+            ) from exc
+
+        blocks: list[ContentBlock] = []
+        published_image_bytes = 0
+        for number, text in enumerate(page_texts, 1):
+            warnings = ["pdf_text_layout"]
+            blocks.append(ContentBlock(
+                id=f"{doc_id}/b-{number:04d}", doc_id=doc_id, ordinal=len(blocks) + 1,
+                block_type="paragraph", content=text, heading_stack=[],
+                structural_meta={"page": number, "extraction_warnings": warnings.copy()},
+                style_hint={"parser": "pdf_text"},
+            ))
+            asset = image_asset_from_bytes(
+                page_renders[number],
+                "application/pdf",
+                data_media_type="image/png",
+            )
+            if asset is None:
+                raise PdfInputError(
+                    f"{doc_id}: PDF page {number} produced an unreadable rendered image."
+                )
+            published_image_bytes += image_asset_byte_size(asset)
+            if published_image_bytes > rasterizer.MAX_RENDERED_BYTES:
+                raise PdfInputError(
+                    f"{doc_id}: PDF rendering exceeds the aggregate encoded-image limit."
+                )
+            blocks.append(ContentBlock(
+                id=f"{doc_id}/b-{number:04d}-image-0001",
+                doc_id=doc_id, ordinal=len(blocks) + 1,
+                block_type="image", content="[image]", heading_stack=[],
+                structural_meta={
+                    "page": number,
+                    "visual_scope": "full_page",
+                    "extraction_warnings": warnings.copy(),
+                },
+                style_hint={"parser": "pdf_page_render"}, image=asset,
+            ))
+        return blocks
     except PdfInputError:
         raise
     except Exception as exc:  # noqa: BLE001 - decoder failures reject the whole input

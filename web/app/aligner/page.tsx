@@ -1,4 +1,5 @@
 "use client";
+import { DocumentExtractionNotice } from "@/components/document-extraction-notice";
 
 import { ResultCardStack } from "@/components/ui/result-card-stack";
 
@@ -53,7 +54,7 @@ import {
   type AlignerResponse,
   type AlignmentResult,
   type AlignmentVerdict,
-  spanBlockIds,
+  alignmentBlockIds,
   edgeApplies,
 } from "@/lib/api";
 import {
@@ -194,7 +195,7 @@ export default function AlignerPage() {
         description={toolAuthority("aligner")}
       />
       <div className="flex flex-col gap-6">
-        {(!session.result || showSetup) && (
+        {(session.busy || !session.result || showSetup) && (
           <RunPanel
             busy={session.busy}
             startedAt={session.startedAt}
@@ -471,6 +472,7 @@ function AlignmentView({
 
   return (
     <ResultLayout
+      notices={<DocumentExtractionNotice blocks={alignment.blocks} />}
       title={runLabel(result, "aligner")}
       subtitle={runScope(result, "aligner")}
       // Run-wide, so it holds on the Documents tab too. It was inside the Comparisons tab.
@@ -760,7 +762,7 @@ function FindingRow({
         label={referenceName}
         trailing={
           <DocumentSourceTrace
-            blockIds={spanBlockIds(finding.reference_spans)}
+            blockIds={alignmentBlockIds(finding, "reference")}
             spans={finding.reference_spans}
           />
         }
@@ -776,9 +778,9 @@ function FindingRow({
           label={comparisonName}
           className="mt-2"
           trailing={
-            finding.comparison_spans.length > 0 ? (
+            alignmentBlockIds(finding, "comparison").length > 0 ? (
               <DocumentSourceTrace
-                blockIds={spanBlockIds(finding.comparison_spans)}
+                blockIds={alignmentBlockIds(finding, "comparison")}
                 spans={finding.comparison_spans}
               />
             ) : undefined

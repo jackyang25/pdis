@@ -26,11 +26,11 @@ from __future__ import annotations
 from typing import Any
 
 from shared.ai import request_structured
-from shared.spans import LINE_SPAN_JSON_INSTRUCTION, line_span_schema
+from shared.spans import LINE_SPAN_JSON_INSTRUCTION
 
 from services.chunker import ContentBlock
 
-from ..context import format_blocks, image_inputs, read_spans
+from ..context import citation_properties, format_blocks, image_inputs, read_spans, read_visual_ids
 
 from ..models import (
     ALIGNMENT_VERDICTS,
@@ -97,8 +97,10 @@ Verdicts:
   and `statement` empty. This is the right answer for a requirement this document was
   never meant to carry as much as for one it should have.
 
-Lineage is required, not optional. Every verdict except `not_addressed` MUST select the
-exact source lines it was read from. A citation you cannot point at is worse than
+Lineage is required, not optional. Every verdict except `not_addressed` MUST select
+source text in `spans`, retained images in `visual_block_ids`, or both. Visual references
+are not verified quotations; never quote an image placeholder. Leave both citation
+lists empty for `not_addressed`. A citation you cannot point at is worse than
 reporting the requirement unaddressed. Select the narrowest range that carries the
 answer: a table row rather than the whole table, one sentence rather than the paragraph
 around it.
@@ -134,14 +136,11 @@ def assessment_schema(blocks: list[ContentBlock]) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["verdict", "statement", "spans"],
+        "required": ["verdict", "statement", "spans", "visual_block_ids"],
         "properties": {
             "verdict": {"type": "string", "enum": list(ALIGNMENT_VERDICTS)},
             "statement": {"type": "string"},
-            "spans": {
-                "type": "array",
-                "items": line_span_schema([block.id for block in blocks]),
-            },
+            **citation_properties(blocks),
         },
     }
 
@@ -193,8 +192,10 @@ def assess_requirement(
         if attempt:
             message += (
                 "\n\nThe prior verdict failed the Aligner contract: "
-                f"{first_error}. Select real [line:N] ranges inside the supplied "
-                "blocks unless the requirement is not addressed at all."
+                f"{first_error}. For every verdict except `not_addressed`, select "
+                "exact [line:N] ranges in `spans`, retained visual IDs in "
+                "`visual_block_ids`, or both. Leave both citation lists empty only "
+                "when the requirement is not addressed at all."
             )
         payload = request_structured(
             llm_client,
@@ -252,15 +253,17 @@ def _parse_payload(
     finding.statement = statement
 
     spans = read_spans(payload.get("spans"), blocks)
+    visual_ids = read_visual_ids(payload.get("visual_block_ids"), blocks)
     if verdict in VERDICTS_REQUIRING_CITATION:
-        if not spans:
+        if not spans and not visual_ids:
             raise ValueError(
-                f"{verdict} must select the source lines it was read from, inside the "
+                f"{verdict} must select source text or retained visuals it was read from, inside the "
                 "document being checked"
             )
-    elif spans:
+    elif spans or visual_ids:
         raise ValueError(
             "not_addressed cannot cite a passage: it is a claim about the absence of one"
         )
     finding.comparison_spans = spans
+    finding.comparison_visual_block_ids = visual_ids
     return finding

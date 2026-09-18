@@ -11,8 +11,13 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from ..models import ContentBlock, ImageAsset
-from .image_assets import image_asset_from_bytes
-from .rasterizer import render_presentation_slides
+from . import rasterizer
+from .image_assets import image_asset_byte_size, image_asset_from_bytes
+from .rasterizer import (
+    RendererUnavailableError,
+    RenderError,
+    render_presentation_slides,
+)
 from .table_structure import serialize_table_row
 
 logger = logging.getLogger(__name__)
@@ -32,7 +37,54 @@ def parse_pptx(file_path: str, doc_id: str) -> list[ContentBlock]:
     """
     _validate_file_path(file_path)
     presentation = Presentation(file_path)
-    slide_renders = render_presentation_slides(file_path)
+    expected_slides = set(range(1, len(presentation.slides) + 1))
+    render_warning: str | None = None
+    try:
+        slide_renders = render_presentation_slides(
+            file_path, expected_pages=len(expected_slides)
+        )
+    except RendererUnavailableError as exc:
+        logger.info("Presentation renderer unavailable for %s: %s", doc_id, exc)
+        slide_renders = {}
+        render_warning = "presentation_renderer_unavailable"
+    except RenderError as exc:
+        logger.warning("Presentation rendering failed for %s: %s", doc_id, exc)
+        slide_renders = {}
+        render_warning = "presentation_render_failed"
+
+    if render_warning is None and set(slide_renders) != expected_slides:
+        logger.warning(
+            "Presentation rendering returned incomplete slide coverage for %s", doc_id
+        )
+        slide_renders = {}
+        render_warning = "presentation_render_failed"
+
+    slide_assets: dict[int, ImageAsset] = {}
+    published_image_bytes = 0
+    if render_warning is None:
+        for slide_number, rendered in slide_renders.items():
+            asset = image_asset_from_bytes(
+                rendered,
+                PPTX_MEDIA_TYPE,
+                data_media_type="image/png",
+            )
+            if asset is None:
+                logger.warning(
+                    "Presentation rendering returned an unreadable slide for %s", doc_id
+                )
+                slide_assets = {}
+                render_warning = "presentation_render_failed"
+                break
+            published_image_bytes += image_asset_byte_size(asset)
+            if published_image_bytes > rasterizer.MAX_RENDERED_BYTES:
+                logger.warning(
+                    "Presentation rendering exceeded the encoded-image limit for %s",
+                    doc_id,
+                )
+                slide_assets = {}
+                render_warning = "presentation_render_failed"
+                break
+            slide_assets[slide_number] = asset
     blocks: list[ContentBlock] = []
 
     for slide_number, slide in enumerate(presentation.slides, start=1):
@@ -108,22 +160,20 @@ def parse_pptx(file_path: str, doc_id: str) -> list[ContentBlock]:
                 )
             )
 
-        rendered = slide_renders.get(slide_number)
-        if rendered:
-            asset = image_asset_from_bytes(rendered, PPTX_MEDIA_TYPE)
-            if asset is not None:
-                blocks.append(
-                    _image_block(
-                        doc_id=doc_id,
-                        image=asset,
-                        heading_stack=heading_stack,
-                        structural_meta={
-                            "slide": slide_number,
-                            "visual_scope": "full_slide",
-                        },
-                        source="pptx_slide_render",
-                    )
+        rendered_asset = slide_assets.get(slide_number)
+        if rendered_asset is not None:
+            blocks.append(
+                _image_block(
+                    doc_id=doc_id,
+                    image=rendered_asset,
+                    heading_stack=heading_stack,
+                    structural_meta={
+                        "slide": slide_number,
+                        "visual_scope": "full_slide",
+                    },
+                    source="pptx_slide_render",
                 )
+            )
         else:
             blocks.extend(
                 _embedded_picture_blocks(
@@ -133,6 +183,17 @@ def parse_pptx(file_path: str, doc_id: str) -> list[ContentBlock]:
                     heading_stack=heading_stack,
                 )
             )
+
+    if render_warning is not None and not blocks:
+        raise ValueError(
+            f"{doc_id}: {render_warning}; degraded presentation parse has no retained content."
+        )
+
+    if render_warning is not None:
+        for block in blocks:
+            warnings = block.structural_meta.setdefault("extraction_warnings", [])
+            if render_warning not in warnings:
+                warnings.append(render_warning)
 
     image_index = 0
     for ordinal, block in enumerate(blocks):

@@ -21,11 +21,11 @@ from __future__ import annotations
 from typing import Any
 
 from shared.ai import request_structured
-from shared.spans import LINE_SPAN_JSON_INSTRUCTION, line_span_schema
+from shared.spans import LINE_SPAN_JSON_INSTRUCTION
 
 from services.chunker import ContentBlock
 
-from ..context import format_blocks, image_inputs, read_spans
+from ..context import citation_properties, format_blocks, image_inputs, read_spans, read_visual_ids
 
 from ..models import (
     LLMClientProtocol,
@@ -62,7 +62,9 @@ For each requirement:
 - `text` is one short sentence (max 30 words) stating the requirement in the document's
   own terms, including any number, unit, population, or timeframe it gives. Write it so
   it stands alone: a reader who cannot see the document must know what is being asked.
-- `spans` MUST select the exact source lines the requirement was read from. A
+- `spans` selects exact source text; `visual_block_ids` selects retained images when
+  the requirement is read visually. Supply at least one kind of citation. A visual
+  citation is not a verified quotation; never quote an image placeholder. A
   requirement with no citation cannot be checked, and an uncheckable bar is worse than
   a missing one. Select the narrowest range that states the requirement: a table row
   rather than the whole table, one sentence rather than the paragraph around it.
@@ -98,13 +100,10 @@ def requirements_schema(blocks: list[ContentBlock]) -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["text", "spans"],
+                    "required": ["text", "spans", "visual_block_ids"],
                     "properties": {
-                        "text": {"type": "string"},
-                        "spans": {
-                            "type": "array",
-                            "items": line_span_schema([block.id for block in blocks]),
-                        },
+                        "text": {"type": "string", "minLength": 1},
+                        **citation_properties(blocks),
                     },
                 },
             }
@@ -153,9 +152,9 @@ def extract_requirements(
         if attempt:
             message += (
                 "\n\nThe prior extraction failed the Aligner contract: "
-                f"{first_error}. Select real [line:N] ranges inside the supplied "
-                "blocks for every requirement, and state each requirement in one "
-                "self-contained sentence."
+                f"{first_error}. For every requirement, select exact [line:N] "
+                "ranges in `spans`, retained visual IDs in `visual_block_ids`, or "
+                "both, and state each requirement in one self-contained sentence."
             )
         payload = request_structured(
             llm_client,
@@ -214,9 +213,10 @@ def _parse_payload(
             continue
         seen.add(key)
         spans = read_spans(item.get("spans"), blocks)
-        if not spans:
+        visual_ids = read_visual_ids(item.get("visual_block_ids"), blocks)
+        if not spans and not visual_ids:
             raise ValueError(
-                f"requirement {index} selected no readable source lines in the "
+                f"requirement {index} selected no source text or retained visual in the "
                 "reference document"
             )
         requirements.append(
@@ -224,6 +224,7 @@ def _parse_payload(
                 id=requirement_id(edge_id, len(requirements) + 1),
                 text=text,
                 cited_spans=tuple(spans),
+                visual_block_ids=tuple(visual_ids),
             )
         )
     return requirements

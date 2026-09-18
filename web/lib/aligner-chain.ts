@@ -1,4 +1,4 @@
-import { spanBlockIds } from "./api.ts";
+import { alignmentBlockIds } from "./api.ts";
 import type { AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.ts";
 
 /**
@@ -109,7 +109,7 @@ export function chainWarnings(
     for (const other of upstream) {
       for (const finding of findingsByEdge.get(other.edge_id) ?? []) {
         if (!UNSETTLED.includes(finding.verdict)) continue;
-        for (const blockId of spanBlockIds(finding.comparison_spans)) {
+        for (const blockId of alignmentBlockIds(finding, "comparison")) {
           const held = unsettledByBlock.get(blockId) ?? [];
           held.push(finding);
           unsettledByBlock.set(blockId, held);
@@ -125,7 +125,7 @@ export function chainWarnings(
       // the sentence names neither the requirement nor anything else that varies, the
       // extra lines were literally the same words repeated.
       const byClaim = new Map<string, ChainWarning>();
-      for (const blockId of spanBlockIds(finding.reference_spans)) {
+      for (const blockId of alignmentBlockIds(finding, "reference")) {
         for (const earlier of unsettledByBlock.get(blockId) ?? []) {
           const upstreamEdge = result.edges.find(
             (item) => item.edge_id === earlier.edge_id,

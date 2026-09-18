@@ -882,7 +882,7 @@ class AlignmentFindingOut(BaseModel):
     the bar is stated, `comparison_spans` quote what was read to judge it. The service
     contract checks each against its own document and against its own text, so a reader
     resolving either one lands in the file that actually says it, on the line that says
-    it.
+    it. Per-side visual IDs name retained image assets, not verified quotations.
 
     `verdict` is asymmetric by design. The vocabulary this replaced described how two
     documents differ, which gave a candidate that beat its target and one that missed it
@@ -896,6 +896,8 @@ class AlignmentFindingOut(BaseModel):
     verdict: str
     statement: str = ""
     comparison_spans: list[DocumentSpanOut] = Field(default_factory=list)
+    reference_visual_block_ids: list[str] = Field(default_factory=list)
+    comparison_visual_block_ids: list[str] = Field(default_factory=list)
 
 
 class AlignmentResultOut(BaseModel):

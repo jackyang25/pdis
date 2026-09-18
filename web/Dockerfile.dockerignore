@@ -6,6 +6,7 @@
 !shared/
 !shared/product_knowledge.json
 !shared/prompt_reference.json
+!shared/document-extraction.json
 
 web/node_modules/
 web/.next/

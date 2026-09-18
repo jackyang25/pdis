@@ -14,11 +14,13 @@ import {
 import { TOOL_SECTIONS, sectionTools } from "@/lib/tool-sections";
 import { COUNT, DISPLAY_HEADING } from "@/lib/typography";
 import { cn } from "@/lib/utils";
+import { useToolStatuses, type ToolStatus } from "@/lib/use-tool-statuses";
 
 type AudienceFilter = "all" | Exclude<ToolAudience, "shared">;
 
 export default function Home() {
   const [audience, setAudience] = useState<AudienceFilter>("all");
+  const statuses = useToolStatuses();
   const visibleSections = TOOL_SECTIONS.map((section) => ({
     ...section,
     tools: sectionTools(section, (tool) =>
@@ -51,7 +53,7 @@ export default function Home() {
             />
             <div className="grid gap-4 sm:grid-cols-2">
               {section.tools.map((tool) => (
-                <ToolCard key={tool.id} tool={tool} />
+                <ToolCard key={tool.id} tool={tool} status={statuses[tool.id]} />
               ))}
             </div>
           </section>
@@ -127,9 +129,9 @@ function SectionHeader({
   );
 }
 
-function ToolCard({ tool }: { tool: ToolDefinition }) {
+function ToolCard({ tool, status }: { tool: ToolDefinition; status?: ToolStatus | null }) {
   return tool.delivery === "workspace"
-    ? <WorkspaceToolCard tool={tool} />
+    ? <WorkspaceToolCard tool={tool} status={status} />
     : <ExternalToolCard tool={tool} />;
 }
 
@@ -163,7 +165,7 @@ const SHORTCUT_CARD_FLOOR = "min-h-[162px]";
  */
 const CARD_UNAVAILABLE = "bg-card/70 opacity-65";
 
-function WorkspaceToolCard({ tool }: { tool: WorkspaceToolDefinition }) {
+function WorkspaceToolCard({ tool, status }: { tool: WorkspaceToolDefinition; status?: ToolStatus | null }) {
   const comingSoon = tool.availability === "coming_soon";
   const className = `group flex flex-col rounded-lg border border-border bg-card p-5 ${CARD_FLOOR}`;
   const content = (
@@ -188,7 +190,7 @@ function WorkspaceToolCard({ tool }: { tool: WorkspaceToolDefinition }) {
           )}
       />
       <div className="mt-auto pt-4">
-        <CardMeta status={tool.activity} />
+        <CardMeta title={tool.title} estimate={tool.activity} status={comingSoon ? null : status} />
       </div>
     </>
   );
@@ -308,21 +310,35 @@ function CardHeading({
 }
 
 /**
- * How long a run takes.
- *
- * It used to sit opposite a `capability`: a two-word label like "Leadership summary" or
- * "Evidence review", which in every case was the description's own words compressed and moved
- * to the bottom of the same card. One card, one fact, twice. For the GHIDE tools it restated
- * the title as well.
- *
- * Left, not right, and no longer a flex row. `justify-end` was there to hold the two apart;
- * with one of them gone it left the surviving line the only right-aligned text on the page, at
- * the far corner from the description it qualifies, and on the opposite edge from the shortcut
- * chips that occupy this same slot on a GHIDE card. `COUNT` rather than a local size: a
- * duration in a caption is the same thing as a count in a column, and it was the last
- * `muted-foreground/80` here.
+ * One footer slot across workspace tools: the estimate when idle, current status otherwise.
+ * Both use COUNT so switching state does not change the type size or line height.
+ * Only Running adds motion; queue and review states do not imply processing.
  */
-function CardMeta({ status }: { status?: string }) {
-  if (!status) return null;
-  return <span className={COUNT}>{status}</span>;
+function CardMeta({ title, estimate, status }: {
+  title: string;
+  estimate?: string;
+  status?: ToolStatus | null;
+}) {
+  return (
+    <span role="status" aria-atomic="true" className="flex items-center gap-2 text-muted-foreground">
+      {status && <span className="sr-only">{title}: </span>}
+      {status === "Running" && <PixelLoader />}
+      <span className={COUNT}>{status ?? estimate}</span>
+    </span>
+  );
+}
+
+/** Small chevron wave; decorative because the adjacent text names the state. */
+function PixelLoader() {
+  return (
+    <span aria-hidden="true" className="grid shrink-0 grid-cols-3 gap-[1.5px]">
+      {Array.from({ length: 9 }, (_, index) => (
+        <span
+          key={index}
+          className="h-1 w-1 rounded-[1px] bg-current opacity-25 motion-safe:animate-pixel-wave motion-reduce:animate-none"
+          style={{ animationDelay: `${(index % 3 + Math.abs(Math.floor(index / 3) - 1)) * 90}ms` }}
+        />
+      ))}
+    </span>
+  );
 }

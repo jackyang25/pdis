@@ -119,7 +119,10 @@ test("PDF upload capability changes both the picker and its visible hint, not ot
   assert.match(screening, /accept="\.docx,\.pptx,\.pdf"/);
   assert.match(screening, /DOCX, PPTX, PDF/);
   assert.match(screening, /Prefer DOCX or PPTX when available/);
-  assert.match(screening, /directly placed embedded images are read/);
+  assert.match(screening, /PDFs retain an image of every page, including visible charts and drawings/);
+  assert.match(screening, /Extracted text may misorder columns or tables/);
+  assert.match(screening, /20 MiB and 200 pages, with selectable text on every page/);
+  assert.doesNotMatch(screening, /directly placed embedded images|vector drawings.*are not/);
   assert.doesNotMatch(ordinary, /Prefer DOCX or PPTX when available/);
 });
 
@@ -129,8 +132,33 @@ test("extraction notice names affected documents and is absent for ordinary sour
   const html = renderToStaticMarkup(React.createElement(DocumentExtractionNotice, { blocks: [block, block] }));
   assert.match(html, /aria-label="Document extraction limitations"/);
   assert.equal(html.match(/Trial report/g)?.length, 1);
-  assert.match(html, /Vector drawings are not read/);
+  assert.match(html, /Vector drawings.*not read/);
   assert.equal(renderToStaticMarkup(React.createElement(DocumentExtractionNotice, {
     blocks: [{ doc_id: "Trial report", structural_meta: {} }],
   })), "");
+});
+
+test("extraction notices distinguish retained page visuals from failed slide rendering", () => {
+  const { DocumentExtractionNotice } = loadComponent(resolve(root, "components/document-extraction-notice.tsx"));
+  const html = renderToStaticMarkup(React.createElement(DocumentExtractionNotice, { blocks: [
+    { doc_id: "PDF", structural_meta: { extraction_warnings: ["pdf_text_layout"] } },
+    { doc_id: "Deck", structural_meta: { extraction_warnings: ["presentation_render_failed"] } },
+  ] }));
+  assert.match(html, /Page visuals are retained/);
+  assert.match(html, /Slide rendering did not complete/);
+  assert.doesNotMatch(html, /Vector drawings.*not read/);
+});
+
+test("unsupported visual notice displays source type and location without hiding header drawings", () => {
+  const { DocumentExtractionNotice } = loadComponent(resolve(root, "components/document-extraction-notice.tsx"));
+  const html = renderToStaticMarkup(React.createElement(DocumentExtractionNotice, { blocks: [
+    { doc_id: "Profile", heading_stack: [], structural_meta: {
+      extraction_warnings: ["unsupported_document_visual"],
+      unsupported_visual_kind: "drawing", document_part_kind: "header",
+    } },
+  ] }));
+  assert.match(html, /Header: Drawing/);
+  assert.match(html, /not captured for analysis/);
+  assert.match(html, /It may be decorative or contain information/);
+  assert.match(html, /Review captured content in the Documents tab and compare it with the original document to check what is missing/);
 });

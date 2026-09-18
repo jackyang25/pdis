@@ -10,6 +10,15 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 from ..models import ContentBlock
+from .docx_parts import (
+    DocxPartReader,
+    PartImage,
+    PartItem,
+    PartParagraph,
+    PartTable,
+    PartWarning,
+    regular_image_rels,
+)
 from .table_structure import serialize_table_row
 
 # Text stages use this stable marker; the visual payload lives in `block.image`.
@@ -29,6 +38,7 @@ def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
     _validate_file_path(file_path)
 
     doc = Document(file_path)
+    part_reader = DocxPartReader(doc)
     blocks: list[ContentBlock] = []
     heading_stack: list[tuple[int, str]] = []
     paragraph_index = 0
@@ -37,9 +47,9 @@ def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
     for child in doc.element.body:
         if child.tag == qn("w:p"):
             paragraph = Paragraph(child, doc)
-            paragraph_text = paragraph.text
             current_paragraph_index = paragraph_index
             paragraph_index += 1
+            paragraph_text = part_reader.body_paragraph_text(current_paragraph_index)
 
             image_rels = _paragraph_image_rels(paragraph)
 
@@ -51,55 +61,75 @@ def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
                             {"paragraph_index": current_paragraph_index},
                         )
                     )
-                continue
-
-            heading_level = _heading_level(paragraph)
-            if heading_level is not None:
-                heading_stack = [
-                    (level, text)
-                    for level, text in heading_stack
-                    if level < heading_level
-                ]
-                heading_stack.append((heading_level, paragraph_text))
-                blocks.append(
-                    _make_block(
-                        doc_id=doc_id,
-                        block_type="heading",
-                        content=paragraph_text,
-                        heading_stack=_stack_text(heading_stack),
-                        structural_meta={
-                            "paragraph_index": current_paragraph_index,
-                            "heading_level": heading_level,
-                        },
-                        style_hint=_paragraph_style_hint(paragraph),
-                    )
-                )
             else:
-                blocks.append(
-                    _make_block(
-                        doc_id=doc_id,
-                        block_type="paragraph",
-                        content=paragraph_text,
-                        heading_stack=_stack_text(heading_stack),
-                        structural_meta={"paragraph_index": current_paragraph_index},
-                        style_hint=_paragraph_style_hint(paragraph),
+                heading_level = _heading_level(paragraph)
+                if heading_level is not None:
+                    heading_stack = [
+                        (level, text)
+                        for level, text in heading_stack
+                        if level < heading_level
+                    ]
+                    heading_stack.append((heading_level, paragraph_text))
+                    blocks.append(
+                        _make_block(
+                            doc_id=doc_id,
+                            block_type="heading",
+                            content=paragraph_text,
+                            heading_stack=_stack_text(heading_stack),
+                            structural_meta={
+                                "paragraph_index": current_paragraph_index,
+                                "heading_level": heading_level,
+                            },
+                            style_hint=_paragraph_style_hint(paragraph),
+                        )
                     )
-                )
+                else:
+                    blocks.append(
+                        _make_block(
+                            doc_id=doc_id,
+                            block_type="paragraph",
+                            content=paragraph_text,
+                            heading_stack=_stack_text(heading_stack),
+                            structural_meta={"paragraph_index": current_paragraph_index},
+                            style_hint=_paragraph_style_hint(paragraph),
+                        )
+                    )
 
-            for rel_id in image_rels:
-                blocks.append(
-                    _make_image_block(
-                        doc_id, rel_id, heading_stack,
-                        {"paragraph_index": current_paragraph_index},
+                for rel_id in image_rels:
+                    blocks.append(
+                        _make_image_block(
+                            doc_id, rel_id, heading_stack,
+                            {"paragraph_index": current_paragraph_index},
+                        )
                     )
-                )
+
+            added, table_index = _emit_part_items(
+                doc,
+                doc_id,
+                part_reader.body_paragraph_supplements(current_paragraph_index),
+                table_index,
+                heading_stack,
+                part_reader,
+            )
+            blocks.extend(added)
 
         elif child.tag == qn("w:tbl"):
             table = Table(child, doc)
             blocks.extend(
-                _parse_table(table, doc_id, table_index, heading_stack)
+                _parse_table(
+                    table,
+                    doc_id,
+                    table_index,
+                    heading_stack,
+                    part_reader=part_reader,
+                )
             )
             table_index += 1
+
+    added, table_index = _emit_part_items(
+        doc, doc_id, part_reader.headers_and_footers(), table_index, [], part_reader
+    )
+    blocks.extend(added)
 
     image_ordinal = 0
     for ordinal, block in enumerate(blocks):
@@ -109,6 +139,110 @@ def parse_docx(file_path: str, doc_id: str) -> list[ContentBlock]:
             block.structural_meta["image_index"] = image_ordinal
             image_ordinal += 1
 
+    return blocks
+
+
+def _emit_part_items(
+    doc: Any,
+    doc_id: str,
+    items: list[PartItem],
+    table_index: int,
+    heading_stack: list[tuple[int, str]],
+    part_reader: DocxPartReader | None = None,
+) -> tuple[list[ContentBlock], int]:
+    blocks: list[ContentBlock] = []
+    for item in items:
+        if isinstance(item, PartImage):
+            meta: dict[str, Any] = {
+                "document_part": item.document_part,
+                "document_part_kind": item.kind,
+            }
+            if item.note_id is not None:
+                meta["note_id"] = item.note_id
+            blocks.append(
+                _make_image_block(doc_id, item.rel_id, heading_stack, meta)
+            )
+        elif isinstance(item, PartTable):
+            blocks.extend(
+                _parse_part_table(
+                    doc,
+                    doc_id,
+                    item,
+                    table_index,
+                    heading_stack,
+                    part_reader=part_reader,
+                )
+            )
+            table_index += 1
+        elif isinstance(item, PartWarning):
+            meta = {
+                "document_part": item.document_part,
+                "document_part_kind": item.kind,
+                "extraction_warnings": ["unsupported_document_visual"],
+                "unsupported_visual_kind": item.visual_kind,
+            }
+            if item.note_id is not None:
+                meta["note_id"] = item.note_id
+            blocks.append(
+                _make_block(
+                    doc_id=doc_id,
+                    block_type="image",
+                    content="[unsupported visual object]",
+                    heading_stack=_stack_text(heading_stack),
+                    structural_meta=meta,
+                    style_hint={"source": "docx_unsupported_visual"},
+                )
+            )
+        else:
+            blocks.append(_make_part_paragraph(doc_id, item, heading_stack))
+    return blocks, table_index
+
+
+def _make_part_paragraph(
+    doc_id: str,
+    paragraph: PartParagraph,
+    heading_stack: list[tuple[int, str]],
+) -> ContentBlock:
+    structural_meta = {
+        "document_part": paragraph.document_part,
+        "document_part_kind": paragraph.kind,
+    }
+    if paragraph.note_id is not None:
+        structural_meta["note_id"] = paragraph.note_id
+    return _make_block(
+        doc_id=doc_id,
+        block_type="paragraph",
+        content=paragraph.text,
+        heading_stack=_stack_text(heading_stack),
+        structural_meta=structural_meta,
+        style_hint={"source": f"docx_{paragraph.kind}"},
+    )
+
+
+def _parse_part_table(
+    doc: Any,
+    doc_id: str,
+    part_table: PartTable,
+    table_index: int,
+    heading_stack: list[tuple[int, str]],
+    *,
+    part_reader: DocxPartReader | None = None,
+) -> list[ContentBlock]:
+    blocks = _parse_table(
+        Table(part_table.element, doc),
+        doc_id,
+        table_index,
+        heading_stack,
+        part_reader=part_reader,
+        document_part=part_table.document_part,
+        document_part_kind=part_table.kind,
+        note_id=part_table.note_id,
+    )
+    for block in blocks:
+        block.structural_meta.setdefault("document_part", part_table.document_part)
+        block.structural_meta.setdefault("document_part_kind", part_table.kind)
+        if part_table.note_id is not None:
+            block.structural_meta.setdefault("note_id", part_table.note_id)
     return blocks
 
 
@@ -137,6 +271,11 @@ def _parse_table(
     doc_id: str,
     table_index: int,
     heading_stack: list[tuple[int, str]],
+    *,
+    part_reader: DocxPartReader | None = None,
+    document_part: str = "/word/document.xml",
+    document_part_kind: str = "body",
+    note_id: str | None = None,
 ) -> list[ContentBlock]:
     rows = [[_cell_text(cell) for cell in row.cells] for row in table.rows]
     column_count = max((len(row) for row in rows), default=0)
@@ -161,6 +300,10 @@ def _parse_table(
                         row_index,
                         heading_stack,
                         source,
+                        part_reader=part_reader,
+                        document_part=document_part,
+                        document_part_kind=document_part_kind,
+                        note_id=note_id,
                     )
                 )
         return blocks
@@ -171,9 +314,32 @@ def _parse_table(
         _make_image_block(doc_id, rel_id, heading_stack, {"table_index": table_index})
         for rel_id in _table_image_rels(table)
     ]
-    return image_blocks + _parse_multi_column_table(
+    row_blocks = _parse_multi_column_table(
         rows, doc_id, table_index, heading_stack, column_count
     )
+    if part_reader is None:
+        return image_blocks + row_blocks
+
+    blocks = image_blocks.copy()
+    rows_by_index = {
+        block.structural_meta["row_index"]: block for block in row_blocks
+    }
+    for row_index, row in enumerate(table.rows):
+        row_block = rows_by_index.get(row_index)
+        if row_block is not None:
+            blocks.append(row_block)
+        added, _ = _emit_part_items(
+            table.part.document,
+            doc_id,
+            part_reader.container_supplements(
+                row._tr, document_part, document_part_kind, note_id
+            ),
+            table_index + 1,
+            heading_stack,
+            part_reader,
+        )
+        blocks.extend(added)
+    return blocks
 
 
 def _parse_cell(
@@ -183,6 +349,11 @@ def _parse_cell(
     row_index: int,
     heading_stack: list[tuple[int, str]],
     source: str,
+    *,
+    part_reader: DocxPartReader | None = None,
+    document_part: str = "/word/document.xml",
+    document_part_kind: str = "body",
+    note_id: str | None = None,
 ) -> list[ContentBlock]:
     """Parse one table cell into blocks, in document order.
 
@@ -219,10 +390,31 @@ def _parse_cell(
                         {"table_index": table_index, "row_index": row_index},
                     )
                 )
+            if part_reader is not None:
+                added, _ = _emit_part_items(
+                    cell.part.document,
+                    doc_id,
+                    part_reader.container_supplements(
+                        child, document_part, document_part_kind, note_id
+                    ),
+                    table_index + 1,
+                    heading_stack,
+                    part_reader,
+                )
+                blocks.extend(added)
         elif child.tag == qn("w:tbl"):
             nested = Table(child, cell)
             blocks.extend(
-                _parse_table(nested, doc_id, table_index, heading_stack)
+                _parse_table(
+                    nested,
+                    doc_id,
+                    table_index,
+                    heading_stack,
+                    part_reader=part_reader,
+                    document_part=document_part,
+                    document_part_kind=document_part_kind,
+                    note_id=note_id,
+                )
             )
     return blocks
 
@@ -323,12 +515,7 @@ def _paragraph_image_rels(paragraph: Paragraph) -> list[str]:
     pictures. The asset stage resolves each id to image bytes via the document
     part's related parts.
     """
-    rels: list[str] = []
-    for blip in paragraph._element.findall(".//" + qn("a:blip")):
-        embed = blip.get(qn("r:embed"))
-        if embed:
-            rels.append(embed)
-    return rels
+    return regular_image_rels(paragraph._element)
 
 
 def _make_image_block(
@@ -349,12 +536,7 @@ def _make_image_block(
 
 def _table_image_rels(table: Table) -> list[str]:
     """Relationship ids of images embedded anywhere in a table, in order."""
-    rels: list[str] = []
-    for blip in table._tbl.findall(".//" + qn("a:blip")):
-        embed = blip.get(qn("r:embed"))
-        if embed:
-            rels.append(embed)
-    return rels
+    return regular_image_rels(table._tbl)
 
 
 def _paragraph_style_hint(paragraph: Paragraph) -> dict[str, str | bool]:

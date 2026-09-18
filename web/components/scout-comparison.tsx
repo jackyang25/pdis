@@ -34,11 +34,9 @@ function TargetComparisonRule({ target, dimension }: {
   dimension: keyof QuantitativeSemanticProfile;
 }) {
   const rule = target?.comparison_contract[dimension];
-  const requiresMatch = rule?.mode === "exact" || rule?.mode === "compatible";
   return <div className="text-[11px] leading-relaxed text-muted-foreground">
-      <p className="font-medium">{requiresMatch ? "Evidence must match" : "Evidence matching rule"}</p>
       <p>{comparisonRuleLabel(rule)}</p>
-      {rule?.reason && rule.mode !== "unknown" && <Reading className="mt-1">{rule.reason}</Reading>}
+      {rule?.reason && <Reading className="mt-1">Why: {rule.reason}</Reading>}
   </div>;
 }
 
@@ -48,7 +46,7 @@ export function TargetComparisonRules({ target }: { target: QuantitativeTarget }
   return <details key={target.id} className="mt-5 rounded-lg border border-border/60">
     <summary className="cursor-pointer rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">How evidence will be compared</summary>
     <div className="space-y-4 px-4 pb-4">
-      <p className="text-xs leading-relaxed text-muted-foreground">Scout will use these rules to decide which external measurements can be compared with this target. Comparable measurements may fall above or below the target value.</p>
+      <p className="text-xs leading-relaxed text-muted-foreground">Scout checks whether evidence measures the same thing under comparable conditions. Its result does not need to meet the target.</p>
       {dimensions.map(dimension => <div key={dimension} className="space-y-1">
         <p className={EYEBROW}>{dimensionLabel(dimension)}</p>
         <TargetComparisonRule target={target} dimension={dimension} />
@@ -81,7 +79,7 @@ export function ScoutComparison({ target, measurement, compact = false }: {
     {dimensions.length > 0 && <ReviewComparisonTable target={target ?? undefined} measurement={measurement} dimensions={dimensions} compact={compact} />}
     {unconstrained.length > 0 && <details key={measurement.candidate_id} className="rounded-lg border border-border/60">
       <summary className="cursor-pointer rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        Fields that do not control comparison
+        Fields with no matching restriction
       </summary>
       <div className="px-4 pb-4">
         <p className="text-xs leading-relaxed text-muted-foreground">These fields are not required to match. Their inclusion here does not establish that they are equivalent.</p>
@@ -125,7 +123,7 @@ function ReviewComparisonTable({ target, measurement, dimensions, compact }: {
         </div>
         <div className="min-w-0 break-words text-xs leading-relaxed text-muted-foreground">
           <p className={cn(EYEBROW, "mb-1", !compact && "sm:hidden")}>Mapping and explanation</p>
-          <p className="font-medium">{unconstrained ? "Does not control comparison" : state === "yes" ? "Aligned" : state === "no" ? "Different" : "Uncertain"}</p>
+          <p className="font-medium">{unconstrained ? comparisonRuleLabel(rule) : state === "yes" ? "Aligned" : state === "no" ? "Different" : "Uncertain"}</p>
           {mapped?.compatibility.reason
             ? <Reading className="mt-2">{mapped.compatibility.reason}</Reading>
             : <p className="mt-2 text-[11px]">No field-level explanation was recorded.</p>}

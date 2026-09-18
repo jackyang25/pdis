@@ -11,6 +11,7 @@ import re
 from typing import Iterable
 
 from services.chunker import ContentBlock
+from shared.document_metadata import extraction_context
 
 # `LINE_SPAN_JSON_INSTRUCTION` and `selected_source_lines` are unused here and
 # re-exported on purpose: the stages that address line spans (`target_resolver`,
@@ -29,7 +30,7 @@ DOCUMENT_CHUNK_CHARS = 350_000
 
 _BLOCK_ID_RE = re.compile(r"\[block:([^\]]+)\]")
 _RENDERED_BLOCK_CONTENT_RE = re.compile(
-    r"(?m)^\[block:([^\]]+)\][^\n]*\n(.*?)(?=\n\n\[block:|\Z)",
+    r"(?m)^\[block:([^\]]+)\]([^\n]*)\n(.*?)(?=\n\n\[block:|\Z)",
     re.DOTALL,
 )
 
@@ -161,10 +162,11 @@ def document_block_ids(text: str) -> set[str]:
 
 
 def rendered_block_texts(document_context: str) -> dict[str, str]:
-    """Return exact block text keyed by its rendered stable ID."""
+    """Return exact text sources, never visual placeholders, keyed by stable ID."""
     return {
         block_id: text
-        for block_id, text in _RENDERED_BLOCK_CONTENT_RE.findall(document_context)
+        for block_id, header, text in _RENDERED_BLOCK_CONTENT_RE.findall(document_context)
+        if not header.startswith(" [visual]")
     }
 
 
@@ -200,7 +202,11 @@ def validated_block_ids(raw: object, allowed: set[str]) -> list[str]:
 
 
 def _render_block(block: ContentBlock) -> str:
+
     metadata: list[str] = []
+    extraction = extraction_context(block.structural_meta)
+    if extraction:
+        metadata.append(extraction)
     headings = " > ".join(getattr(block, "heading_stack", []) or [])
     if headings:
         metadata.append(f"heading={headings}")
@@ -208,4 +214,5 @@ def _render_block(block: ContentBlock) -> str:
     if section:
         metadata.append(f"section={section}")
     suffix = f" ({'; '.join(metadata)})" if metadata else ""
-    return f"[block:{block.id}]{suffix}\n{block.content}"
+    source_kind = " [visual]" if block.block_type == "image" else ""
+    return f"[block:{block.id}]{source_kind}{suffix}\n{block.content}"

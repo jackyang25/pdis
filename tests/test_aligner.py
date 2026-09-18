@@ -796,7 +796,7 @@ class ExactQuotationTests(unittest.TestCase):
                 },
                 [block],
             )
-        self.assertIn("no readable source lines", str(caught.exception))
+        self.assertIn("no source text or retained visual", str(caught.exception))
 
     def test_the_document_is_shown_addressed_by_block_and_by_line(self) -> None:
         """Both addresses, or a range means nothing."""

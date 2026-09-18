@@ -4,55 +4,53 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadComponent } from "../test-support/load-component.ts";
-import { CURRENT_RELEASE, RELEASES, UNRELEASED_CHANGES } from "./releases.ts";
+import { CURRENT_RELEASE, RELEASES } from "./releases.ts";
 
-const { default: UpdatesPage } = loadComponent(fileURLToPath(new URL("../app/updates/page.tsx", import.meta.url)));
+const pagePath = fileURLToPath(new URL("../app/updates/page.tsx", import.meta.url));
+const { default: UpdatesPage } = loadComponent(pagePath);
 const { HeaderUtilities, FeedbackDetails } = loadComponent(
   fileURLToPath(new URL("../components/header-utilities.tsx", import.meta.url)), {}, ["FeedbackDetails"],
 );
 
-test("release notes distinguish pending changes from dated published releases", () => {
+test("notes identify the running version without claiming deployment timing", () => {
   const html = renderToStaticMarkup(React.createElement(UpdatesPage));
   assert.equal((html.match(/<h1\b/g) ?? []).length, 1);
-  assert.equal((html.match(/<time\b/g) ?? []).length, RELEASES.length);
-  if (UNRELEASED_CHANGES.length > 0) {
-    assert.match(html, /Unreleased/);
-    assert.match(html, /Not yet in production/);
-    assert.ok(html.indexOf("Unreleased") < html.indexOf(`v${CURRENT_RELEASE.version}`));
-  } else {
-    assert.doesNotMatch(html, /Unreleased|Not yet in production/);
-  }
+  assert.doesNotMatch(html, /<time\b|Unreleased|Not yet in production|Latest release/);
+  assert.equal((html.match(/>This version</g) ?? []).length, 1);
   for (const release of RELEASES) {
-    assert.ok(html.includes(`dateTime="${release.releasedOn}"`));
     assert.ok(html.includes(`v${release.version}`));
-    for (const change of release.changes) assert.ok(html.includes(change));
+    for (const section of release.sections) {
+      if (section.title) assert.ok(html.includes(section.title));
+      for (const change of section.changes) assert.ok(html.includes(change));
+    }
   }
-  for (const change of UNRELEASED_CHANGES) assert.ok(html.includes(change));
 });
 
-test("pending notes appear separately above the prepared release", () => {
-  const { default: PageWithPendingNotes } = loadComponent(
-    fileURLToPath(new URL("../app/updates/page.tsx", import.meta.url)),
-    { "@/lib/releases": { CURRENT_RELEASE, RELEASES, UNRELEASED_CHANGES: ["A future update."], formatReleaseDate: () => "Release date" } },
-  );
-  const html = renderToStaticMarkup(React.createElement(PageWithPendingNotes));
-  assert.match(html, /Unreleased/);
-  assert.match(html, /Not yet in production/);
-  assert.match(html, /A future update\./);
-  assert.ok(html.indexOf("Unreleased") < html.indexOf(`v${CURRENT_RELEASE.version}`));
+test("one build shows multiple versions with optional topic headings", () => {
+  const releases = [
+    { version: "0.5.0", title: "New capabilities", sections: [{ title: "Documents", changes: ["Improved coverage."] }] },
+    { version: "0.4.1", title: "Corrections", sections: [{ changes: ["Fixed a display issue."] }] },
+  ];
+  const { default: Page } = loadComponent(pagePath,
+    { "@/lib/releases": { CURRENT_RELEASE: releases[0], RELEASES: releases } });
+  const html = renderToStaticMarkup(React.createElement(Page));
+  assert.match(html, /Documents/);
+  assert.match(html, /Improved coverage\./);
+  assert.match(html, /Fixed a display issue\./);
+  assert.ok(html.indexOf("v0.5.0") < html.indexOf("v0.4.1"));
+  assert.equal((html.match(/>This version</g) ?? []).length, 1);
 });
 
-test("header keeps feedback independent and marks the active updates destination", () => {
+test("header identifies the bundled version and keeps feedback independent", () => {
   const html = renderToStaticMarkup(React.createElement(HeaderUtilities, { pathname: "/updates" }));
   const updatesLink = html.match(/<a\b[^>]*href="\/updates"[^>]*>/)?.[0];
   assert.ok(updatesLink);
   assert.match(updatesLink, /aria-current="page"/);
-  assert.match(html, /aria-label="What’s new/);
+  assert.ok(html.includes(`What’s new — this version v${CURRENT_RELEASE.version}`));
   assert.match(html, /aria-label="Documentation"/);
   assert.match(html, /aria-label="Send feedback"/);
-  assert.ok(html.includes(`v${CURRENT_RELEASE.version}`));
-  const otherPage = renderToStaticMarkup(React.createElement(HeaderUtilities, { pathname: "/scout" }));
-  assert.doesNotMatch(otherPage, /aria-current="page"/);
+  const other = renderToStaticMarkup(React.createElement(HeaderUtilities, { pathname: "/scout" }));
+  assert.doesNotMatch(other, /aria-current="page"/);
 });
 
 test("feedback directs readers to Teams without an email action or form", () => {

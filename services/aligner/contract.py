@@ -14,6 +14,7 @@ result that mixed them would read perfectly and be unfalsifiable.
 from __future__ import annotations
 
 from shared.spans import DocumentSpan, span_block_ids
+from .context import read_visual_ids
 
 from .models import (
     ALIGNMENT_VERDICTS,
@@ -77,7 +78,8 @@ def _validate_findings(result: AlignmentResult) -> None:
     edges_by_id = {edge.edge_id: edge for edge in result.edges}
     blocks_by_doc: dict[str, dict[str, str]] = {}
     for block in result.blocks:
-        blocks_by_doc.setdefault(block.doc_id, {})[block.id] = block.content
+        if block.block_type != "image":
+            blocks_by_doc.setdefault(block.doc_id, {})[block.id] = block.content
 
     seen: set[str] = set()
     for finding in result.findings:
@@ -126,19 +128,25 @@ def _validate_findings(result: AlignmentResult) -> None:
             what=f"requirement {finding.requirement_id}",
             side="reference",
         )
-        if not finding.reference_spans:
+        read_visual_ids(finding.reference_visual_block_ids, [
+            block for block in result.blocks if block.doc_id == edge.reference_doc_id
+        ])
+        read_visual_ids(finding.comparison_visual_block_ids, [
+            block for block in result.blocks if block.doc_id == edge.comparison_doc_id
+        ])
+        if not finding.reference_spans and not finding.reference_visual_block_ids:
             raise ValueError(
                 f"Aligner requirement {finding.requirement_id} cites no passage in the "
                 "document that sets the bar, so the bar cannot be checked"
             )
 
         if finding.verdict in VERDICTS_REQUIRING_CITATION:
-            if not finding.comparison_spans:
+            if not finding.comparison_spans and not finding.comparison_visual_block_ids:
                 raise ValueError(
                     f"Aligner finding {finding.requirement_id} is {finding.verdict} "
                     "and must cite the passages it was read from"
                 )
-        elif finding.comparison_spans:
+        elif finding.comparison_spans or finding.comparison_visual_block_ids:
             raise ValueError(
                 f"Aligner finding {finding.requirement_id} is {finding.verdict} and "
                 "cannot cite a passage: it is a claim about the absence of one"

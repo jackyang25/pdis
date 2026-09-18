@@ -15,19 +15,22 @@ test("qualifier details distinguish document content from every matching-rule st
   const { TargetQualifierDetails } = loadComponent(fileURLToPath(new URL("../components/scout-comparison.tsx", import.meta.url)));
   const target = reviewFixture().quantitative_ledger.targets[0];
   for (const [rule, expected] of [
-    [{ mode: "exact", scope: "Protective efficacy", reason: "" }, "Exact match: Protective efficacy"],
-    [{ mode: "compatible", scope: "Adult cohorts", reason: "Includes adult subgroups." }, "Compatible match: Adult cohorts"],
-    [{ mode: "unknown", scope: "", reason: "Timing is ambiguous." }, "Scope needs review: Timing is ambiguous."],
-    [{ mode: "unconstrained", scope: "", reason: "" }, "Does not control comparison"],
+    [{ mode: "exact", scope: "Protective efficacy", reason: "" }, "Exact match required: Protective efficacy"],
+    [{ mode: "compatible", scope: "Adult cohorts", reason: "Includes adult subgroups." }, "Compatible variation allowed: Adult cohorts"],
+    [{ mode: "unknown", scope: "", reason: "Timing is ambiguous." }, "Needs review"],
+    [{ mode: "unconstrained", scope: "", reason: "" }, "No matching restriction"],
   ] as const) {
     target.comparison_contract.measure = rule;
     const before = JSON.stringify(target);
     const html = renderToStaticMarkup(React.createElement(TargetQualifierDetails, { target, dimension: "measure" }));
     assert.match(html, /Document says/);
     assert.ok(html.includes(expected));
-    if (rule.mode === "exact" || rule.mode === "compatible") assert.match(html, /Evidence must match/);
-    else assert.doesNotMatch(html, /Evidence must match/);
-    if (rule.reason) assert.ok(html.includes(rule.reason));
+    assert.doesNotMatch(html, /Evidence must match|Evidence matching rule/);
+    if (rule.reason) {
+      assert.ok(html.includes(rule.reason));
+      assert.match(html, /Why:/);
+      assert.equal(html.split(rule.reason).length - 1, 1);
+    }
     assert.equal(JSON.stringify(target), before);
   }
 });
@@ -47,10 +50,12 @@ test("target review keeps document qualifiers visible and future comparison rule
   assert.ok(disclosure);
   assert.doesNotMatch(disclosure.match(/^<details[^>]*>/)?.[0] ?? "", /\bopen\b/);
   assert.match(disclosure, /The year is the value being compared/);
-  assert.match(disclosure, /Does not control comparison/);
+  assert.match(disclosure, /No matching restriction/);
+  assert.match(disclosure, /Its result does not need to meet the target/);
+  assert.doesNotMatch(disclosure, /Evidence must match|Evidence matching rule/);
   const visible = html.replace(disclosure, "");
   assert.match(visible, /By 2026/);
-  assert.doesNotMatch(visible, /Evidence must match|Exact match:/);
+  assert.doesNotMatch(visible, /Evidence must match|Exact match required:/);
   assert.equal(JSON.stringify(result), before);
 });
 
@@ -72,7 +77,7 @@ test("comparison exposes qualifier reasoning and separates non-controlling field
   assert.match(html, /The reported age range falls within the required adult population/);
   assert.match(html, /The target allows adult cohorts/);
   const disclosure = html.match(/<details[\s\S]*?<\/details>/)?.[0] ?? "";
-  assert.match(disclosure, /Does not control comparison/);
+  assert.match(disclosure, /No matching restriction/);
   assert.match(disclosure, /No regimen restriction was imposed/);
   assert.doesNotMatch(disclosure, />Aligned</);
   assert.equal(JSON.stringify(result), before);

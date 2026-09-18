@@ -33,8 +33,7 @@ export function comparisonRuleLabel(
     | undefined,
 ): string {
   if (!rule) return "Comparison scope unavailable";
-  if (rule.mode === "unconstrained") return "Does not control comparison";
-  if (rule.mode === "unknown")
-    return `Scope needs review${rule.reason ? `: ${rule.reason}` : ""}`;
-  return `${rule.mode === "exact" ? "Exact" : "Compatible"} match: ${rule.scope}`;
+  if (rule.mode === "unconstrained") return "No matching restriction";
+  if (rule.mode === "unknown") return "Needs review";
+  return `${rule.mode === "exact" ? "Exact match required" : "Compatible variation allowed"}: ${rule.scope}`;
 }

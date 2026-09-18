@@ -43,6 +43,31 @@ class ChunkerImageTests(unittest.TestCase):
             image_block.image.data_base64,
         )
 
+    def test_docx_header_image_resolves_through_its_owning_part(self) -> None:
+        document = Document()
+        document.add_paragraph("Body")
+        document.sections[0].header.paragraphs[0].add_run().add_picture(
+            BytesIO(PNG_1X1)
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "header-visual.docx"
+            document.save(path)
+            blocks = run_pipeline(str(path), "header-visual")
+
+        header_images = [
+            block for block in blocks
+            if block.block_type == "image"
+            and block.structural_meta.get("document_part_kind") == "header"
+        ]
+        self.assertEqual(len(header_images), 1)
+        self.assertEqual(header_images[0].content, "[image]")
+        self.assertIsNotNone(header_images[0].image)
+        self.assertRegex(
+            header_images[0].structural_meta["document_part"],
+            r"^/word/header\d+\.xml$",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

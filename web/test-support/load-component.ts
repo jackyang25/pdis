@@ -12,8 +12,9 @@ export function loadComponent(path: string, overrides: Record<string, unknown> =
   const cache = new Map<string, { exports: any }>();
   function load(file: string): any {
     if (cache.has(file)) return cache.get(file)!.exports;
+    if (file.endsWith(".json")) return JSON.parse(readFileSync(file, "utf8"));
     const { outputText } = ts.transpileModule(readFileSync(file, "utf8"), {
-      compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
     });
     const module = { exports: {} };
     cache.set(file, module);

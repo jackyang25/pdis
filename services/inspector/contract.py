@@ -15,6 +15,7 @@ which is why they live here rather than only at parse time.
 from __future__ import annotations
 
 from .assembly import rubric_units
+from .source_context import with_slide_overviews
 from .models import (
     AggregateInspectionResult,
     VERDICTS,
@@ -94,7 +95,11 @@ def validate_result_contract(
                 "beneath it must report it missing"
             )
 
-        allowed = set(block_by_id) if config.evidence_scope == "whole_document" else set(mapped)
+        allowed = set(block_by_id) if config.evidence_scope == "whole_document" else {
+            block.id for block in with_slide_overviews(
+                [block_by_id[block_id] for block_id in mapped], result.blocks,
+            )
+        }
         for unit in section.units:
             if unit.section_name != section.section_name:
                 raise ValueError("Inspector unit is filed under the wrong section")

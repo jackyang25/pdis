@@ -49,32 +49,38 @@ Both jobspecs and the pipeline are drafts pending reconciliation with
 [nomad-sre-patterns](https://github.com/gatesfoundation/nomad-sre-patterns);
 the entries marked `TODO` are cluster facts this repository cannot know.
 
-## Production release notes
+## Product versions and release notes
 
 [web/lib/releases.ts](../web/lib/releases.ts) owns the user-facing release history. The header and
 `/updates` page read it; there is no second displayed version.
-These are product release versions, separate from package metadata, rubric
-revisions, and saved-result schema versions. The first three were assigned
-retrospectively to confirmed production promotions.
-The displayed version identifies the running build, not deployment status: local
-and acceptance builds show the prepared version before production is promoted.
+These are product versions, separate from package metadata, rubric revisions,
+and saved-result schema versions. The displayed version identifies the code in
+the running app, not its deployment status. Local, acceptance, and production
+builds of the same version show the same notes.
 
-- Keep pending user-facing changes in `UNRELEASED_CHANGES`.
-- Before building a new production release, move the changes actually shipping
-  into one new `RELEASES` entry, newest first, with the agreed version and release
-  date (`releasedOn`, YYYY-MM-DD). Use the planned release day, not a predicted
-  deployment completion time. If deployment moves to another day, update the date
-  and rebuild before promotion. The production build number is optional tracking
-  metadata; release preparation does not depend on knowing it.
+- Assign a version when a coherent set of changes is ready. Add one `RELEASES`
+  entry, newest first, and group its notes by tool or capability using `sections`.
+  Short entries can omit section titles. Do not create an entry for every commit.
+- The first entry supplies the header's version and the page's “This version”
+  label. Include only changes implemented in that code. Keep plans and unfinished
+  work in development notes, not the user-facing changelog.
+- Do not add coding dates, planned deployment dates, or build numbers to these
+  entries. Git records implementation history; deployment records track promotion.
+  Historical dates and build numbers from the first three entries remain in Git.
 - While on `0.x`, use a patch increment for compatible fixes/polish and a minor
   increment for new capabilities or breaking changes. State any required user
   action, such as rerunning Scout after an artifact-format change. From `1.0.0`
   onward, breaking changes require a major increment.
 - Build and test the prepared release, then promote that same build to production.
   Retrying or redeploying the same release does not add an entry or bump its version.
-- Summarize user-visible changes since the previous release, not every commit.
-  Leave unshipped work under Unreleased. No CI or application process invents
-  release notes or automatically marks a failed deployment as released.
+- A deployment may include several versions prepared since the previous deployment.
+  No Unreleased-to-release conversion or timestamp update is needed at deployment.
+  Once a version has been distributed, put subsequent changes in a new version;
+  do not reuse its identity for a different set of capabilities.
+- Summarize user-visible changes since the previous version, not every commit.
+  Lead with compatibility requirements and required actions. Describe observable
+  behavior rather than internal refactors, model guarantees, or trivial styling edits.
+  Preserve older entries as history, even when newer versions replace that behavior.
 - Run the web tests and type check. Confirm the release label and notes during
   the deployment smoke check. No provider credentials or feedback are stored by
   this feature; the feedback popover directs users to Jack Yang or Shyam Bhaskaran

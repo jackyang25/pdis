@@ -192,6 +192,7 @@ class Requirement:
     id: str
     text: str
     cited_spans: tuple[DocumentSpan, ...] = ()
+    visual_block_ids: tuple[str, ...] = ()
 
     def finding(self, edge: str, verdict: AlignmentVerdict) -> "AlignmentFinding":
         """The one place a requirement's fields are copied onto its finding.
@@ -205,6 +206,7 @@ class Requirement:
             edge_id=edge,
             requirement=self.text,
             reference_spans=list(self.cited_spans),
+            reference_visual_block_ids=list(self.visual_block_ids),
             verdict=verdict,
         )
 
@@ -221,7 +223,8 @@ class AlignmentFinding:
     Each span carries the exact sentence, copied out of the block by `shared.spans` from
     a line range the model selected. Block IDs are not stored beside them: they are
     `span_block_ids(...)` of the spans, and a finding holding both would have one fact in
-    two fields that can disagree.
+    two fields that can disagree. Visual references have their own per-side ID lists:
+    they name retained image assets, never quoted text or inferred pixel locations.
     """
 
     requirement_id: str
@@ -257,6 +260,8 @@ class AlignmentFinding:
     one of sixty-nine rows.
     """
     comparison_spans: list[DocumentSpan] = field(default_factory=list)
+    reference_visual_block_ids: list[str] = field(default_factory=list)
+    comparison_visual_block_ids: list[str] = field(default_factory=list)
 
 
 @dataclass

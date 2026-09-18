@@ -1,6 +1,6 @@
 import type { AlignmentEdge, AlignmentFinding, AlignmentResult, AlignmentVerdict } from "./api.ts";
 import { displayLabel } from "./display-label.ts";
-import { ALIGNMENT_VERDICTS, VERDICT_LABELS, spanBlockIds } from "./api.ts";
+import { ALIGNMENT_VERDICTS, VERDICT_LABELS, alignmentBlockIds } from "./api.ts";
 import { chainWarningText, chainWarnings } from "./aligner-chain.ts";
 import type { PriorityItem } from "./priorities.ts";
 
@@ -54,12 +54,9 @@ export function selectAlignerPriorities(result: AlignmentResult): PriorityItem[]
         // one against a cTPP is a plan question.
         qualifier: `${VERDICT_LABELS[verdict]} · ${comparisonLabel(edges.get(finding.edge_id), result)}`,
         statement: finding.statement,
-        // The gap, where there is one, is what a reader does next — so it goes in the
-        // slot the panel reserves for that, rather than being appended to the
-        // statement where it would read as more description.
         // The measured document's passages, not the requirement's: the panel is about
         // what this document does, and the bar is checkable from the row below.
-        blockIds: spanBlockIds(finding.comparison_spans),
+        blockIds: alignmentBlockIds(finding, "comparison"),
         spans: finding.comparison_spans,
       })),
   );

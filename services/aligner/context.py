@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from services.chunker import ContentBlock
 
-from shared.spans import DocumentSpan, line_addressable, resolved_spans
+from shared.spans import DocumentSpan, line_addressable, line_span_schema, resolved_spans
+from shared.document_metadata import extraction_context
 
 __all__ = ["format_blocks", "image_inputs", "read_spans"]
 
@@ -23,11 +24,17 @@ def format_blocks(blocks: list[ContentBlock]) -> str:
     inside it to say which part of the passage. The line labels are a wire view only -
     nothing that comes back carries text, so they never reach a result.
     """
-    return "\n\n".join(
-        f"[block:{block.id}] ({block.source_type} · {block.block_type})\n"
-        + line_addressable(block.content)
-        for block in blocks
-    )
+    rendered = []
+    for block in blocks:
+        metadata = extraction_context(block.structural_meta)
+        header = f"[block:{block.id}] ({block.source_type} · {block.block_type})\n"
+        if metadata:
+            header += f"Source location: {metadata}\n"
+        rendered.append(header + (
+            "Retained visual; cite visual_block_ids, not a text span."
+            if block.block_type == "image" else line_addressable(block.content)
+        ))
+    return "\n\n".join(rendered)
 
 
 def image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
@@ -41,4 +48,33 @@ def image_inputs(blocks: list[ContentBlock]) -> list[dict[str, str]]:
 
 def read_spans(raw: object, blocks: list[ContentBlock]) -> list[DocumentSpan]:
     """The exact passages a model selected, copied out of the blocks it was shown."""
-    return resolved_spans(raw, {block.id: block.content for block in blocks})
+    return resolved_spans(raw, {
+        block.id: block.content for block in blocks if block.block_type != "image"
+    })
+
+
+def citation_properties(blocks: list[ContentBlock]) -> dict:
+    """Text ranges and visual identities are separate citation mechanisms."""
+    text_ids = [block.id for block in blocks if block.block_type != "image"]
+    visual_ids = [block.id for block in blocks if block.image is not None]
+    return {
+        "spans": {
+            "type": "array", "items": line_span_schema(text_ids) if text_ids else {
+                "type": "object", "properties": {}, "required": [], "additionalProperties": False,
+            },
+            **({} if text_ids else {"maxItems": 0}),
+        },
+        "visual_block_ids": {
+            "type": "array", "items": {"type": "string", **({"enum": visual_ids} if visual_ids else {})},
+            **({} if visual_ids else {"maxItems": 0}),
+        },
+    }
+
+
+def read_visual_ids(raw: object, blocks: list[ContentBlock]) -> list[str]:
+    if raw is None:
+        return []
+    allowed = {block.id for block in blocks if block.image is not None}
+    if not isinstance(raw, list) or any(not isinstance(item, str) or item not in allowed for item in raw):
+        raise ValueError("visual citation must name a retained image in the supplied document")
+    return list(dict.fromkeys(raw))

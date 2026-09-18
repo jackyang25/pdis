@@ -876,14 +876,6 @@ test("a document image reserves its own box before it decodes", () => {
     path.join(WEB_ROOT, "components", "document-trace-viewer.tsx"),
     "utf8",
   );
-  const tag = viewer.slice(viewer.indexOf("<img"), viewer.indexOf("<img") + 500);
-  assert.match(tag, /width=\{traceBlock\.block\.image\.width \|\| undefined\}/);
-  assert.match(tag, /height=\{traceBlock\.block\.image\.height \|\| undefined\}/);
-  // `|| undefined` rather than the raw value: a result saved before the parser recorded
-  // this carries zero, and `width="0"` would reserve nothing while claiming to have
-  // measured it. Omitted, the browser behaves exactly as it did.
-  assert.ok(
-    !/width=\{traceBlock\.block\.image\.width\}/.test(tag),
-    "a zero size is sent as a measurement rather than omitted",
-  );
+  // The shared visual renderer's DOM checks live in document-visual-render.test.ts.
+  assert.match(viewer, /<DocumentVisual block=\{traceBlock\.block\}/);
 });

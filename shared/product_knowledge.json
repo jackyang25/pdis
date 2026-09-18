@@ -307,8 +307,8 @@
         },
         {
           "type": "note",
-          "title": "Current contract only",
-          "text": "Imports accept only final artifacts produced by the current application version. Source spans, visuals, query lineage, and retrieval provenance must already be complete."
+          "title": "Supported result versions",
+          "text": "Imports accept supported final result versions. Compatible older results retain their original citations and assets; importing never reconstructs missing source content. Unsupported versions must be rerun from the original documents."
         }
       ]
     },
@@ -369,7 +369,7 @@
             },
             {
               "question": "Which files can I supply for a document review?",
-              "answer": "DOCX and PPTX across document tools. Screener also accepts text-based PDFs through the same retained-block pipeline, with page-level text and directly placed embedded raster image blocks. Vector drawings and images inside grouped PDF objects are not read; images may be fragments and table or column order may be inaccurate. A visible extraction warning accompanies the result. Encrypted or malformed PDFs, unreadable embedded images, files over 20 MiB or 200 pages, overly complex page streams, and pages without extractable text are refused. Other tools and Ask attachments do not accept PDFs. TXT, Markdown and standalone images are not document-review inputs; Screener has no separate context upload."
+              "answer": "DOCX and PPTX across document tools. Screener also accepts text-based PDFs, retaining extracted text and one rendered image per page. The image preserves visible charts and timelines; extracted text can still misorder columns and tables, so a quote match does not verify their interpretation. PPTX retains slide text and full-slide visuals; a warning identifies fallback when slide rendering fails or is unavailable. Encrypted, malformed, textless or over-limit PDFs are refused, including files over 20 MiB or 200 pages. Other tools and Ask attachments do not accept PDFs. There is no OCR, TXT, Markdown or standalone-image document upload. Older results retain their original coverage; rerun the original documents to gain improved extraction."
             },
             {
               "question": "What does “not found” actually mean?",
@@ -996,7 +996,7 @@
             {
               "id": "chunker",
               "title": "Chunker",
-              "summary": "Normalizes documents into one ordered block contract: DOCX/PPTX with retained visuals, and opt-in PDF text extraction for Screener.",
+              "summary": "Normalizes documents into one ordered block contract: DOCX/PPTX with retained visuals, and PDF page text and visuals for Screener.",
               "nodes": [
                 {
                   "id": "file",
@@ -1013,7 +1013,7 @@
                 {
                   "id": "parse",
                   "title": "Format-native parsing",
-                  "summary": "DOCX/PPTX preserve native structure and visuals; PDF extraction preserves page text and declares its limitations.",
+                  "summary": "DOCX/PPTX preserve native structure and visuals; PDF retains page text and a rendered page image, with explicit extraction limits.",
                   "kind": "deterministic",
                   "layer": "Parsing",
                   "outputs": [
@@ -1037,8 +1037,8 @@
                     },
                     {
                       "id": "pdf",
-                      "title": "PDF text extractor",
-                      "summary": "Opt-in page-level text blocks with page numbers and extraction warnings; no OCR, images, inferred headings or tables.",
+                      "title": "PDF page reader",
+                      "summary": "Opt-in page text and rendered page images with stable IDs and extraction warnings; no OCR, inferred headings or reconstructed tables.",
                       "kind": "deterministic",
                       "layer": "Format adapter"
                     }

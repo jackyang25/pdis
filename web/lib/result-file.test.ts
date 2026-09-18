@@ -186,6 +186,8 @@ function alignerResult(): AlignerResponse {
           requirement_id: "itpp-to-ctpp/r-001",
           edge_id: "itpp-to-ctpp",
           requirement: "Annual dosing.",
+          reference_visual_block_ids: [],
+          comparison_visual_block_ids: [],
           reference_spans: [{ quote: "cited", block_ids: [block.id] }],
           verdict: "falls_short",
           statement: "The candidate states six-monthly dosing.",
@@ -199,9 +201,8 @@ function alignerResult(): AlignerResponse {
 test("current Aligner results separate every source document", () => {
   const result = alignerResult();
   const packed = packAlignerResult(result);
-  // 3, because findings returned: a v2 file carries none, so it would render as a run
-  // that compared nothing — indistinguishable from one that found nothing wrong.
-  assert.equal(packed.analysis_version, 3);
+  // Visual references are distinct from quotations in version 4.
+  assert.equal(packed.analysis_version, 4);
   // Three, not two: how many documents a run holds is Aligner's configuration to
   // decide, and nothing in the envelope assumes a number.
   assert.equal(packed.source_documents.length, 3);
@@ -212,6 +213,62 @@ test("an Aligner comparison must name documents the file carries", () => {
   const dangling = alignerResult();
   dangling.alignment.edges[0].reference_doc_id = "absent";
   assert.throws(() => packAlignerResult(dangling), /does not carry/);
+});
+
+test("Aligner v3 imports preserve text lineage without inventing visual references", () => {
+  const original = alignerResult();
+  const old = JSON.parse(JSON.stringify(packAlignerResult(original)));
+  old.analysis_version = 3;
+  for (const item of old.analysis.alignment.findings) {
+    delete item.reference_visual_block_ids;
+    delete item.comparison_visual_block_ids;
+  }
+  assert.deepEqual(unpackAlignerResult(old), original);
+  assert.equal(old.analysis.alignment.findings[0].reference_visual_block_ids, undefined);
+  old.analysis_version = 4;
+  assert.throws(() => unpackAlignerResult(old), /visual citations/);
+});
+
+test("Aligner visual references must resolve to assets on the correct document side", () => {
+  const result = alignerResult();
+  const visual = { ...block, id: "doc/image", block_type: "image", image: {
+    media_type: "image/png", source_media_type: "image/png", sha256: "test-image",
+    data_base64: "cG5n", width: 1, height: 1,
+  } };
+  result.alignment.blocks.splice(1, 0, visual);
+  const finding = result.alignment.findings[0];
+  finding.reference_spans = [];
+  finding.reference_visual_block_ids = [visual.id];
+  assert.deepEqual(unpackAlignerResult(packAlignerResult(result)), result);
+  finding.comparison_visual_block_ids = [visual.id];
+  assert.throws(() => packAlignerResult(result), /own side/);
+  finding.comparison_visual_block_ids = [];
+  finding.reference_visual_block_ids = [block.id];
+  assert.throws(() => packAlignerResult(result), /retained image/);
+});
+
+test("Aligner imports refuse visual references without an inspectable retained asset", () => {
+  const result = alignerResult();
+  const visual = { ...block, id: "doc/image", block_type: "image", image: {
+    media_type: "image/png", source_media_type: "image/png", sha256: "test-image",
+    data_base64: "cG5n", width: 1, height: 1,
+  } };
+  result.alignment.blocks.splice(1, 0, visual);
+  result.alignment.findings[0].reference_spans = [];
+  result.alignment.findings[0].reference_visual_block_ids = [visual.id];
+  const packed = packAlignerResult(result);
+
+  for (const image of [
+    {},
+    { media_type: "text/plain", data_base64: "cG5n" },
+    { media_type: "image/png", data_base64: "   " },
+  ]) {
+    const malformed = structuredClone(packed) as any;
+    malformed.source_documents
+      .flatMap((document: any) => document.blocks)
+      .find((source: any) => source.id === visual.id).image = image;
+    assert.throws(() => unpackAlignerResult(malformed), /retained image/);
+  }
 });
 
 test("an Aligner result with no comparison is refused", () => {

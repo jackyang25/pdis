@@ -11,6 +11,7 @@ import {
 import { CircleDashed, FileText, Layers3, Link2, X } from "lucide-react";
 import { BlockReferenceId } from "@/components/block-reference";
 import { TracePanelHeader } from "@/components/document-trace-panel";
+import { DocumentVisual } from "@/components/document-visual";
 import type { ContentBlock } from "@/lib/api";
 import { groupDocumentTraceSurfaces } from "@/lib/document-trace-surfaces";
 import {
@@ -51,6 +52,27 @@ type LayerOption<TKind extends string> = {
   value: TKind;
   label: string;
 };
+
+function SourceSurfaceContent({ blocks, children, externalRail }: {
+  blocks: { block: ContentBlock }[];
+  children: ReactNode[];
+  externalRail: boolean;
+}) {
+  const overview = (index: number) => Boolean(blocks[index].block.image
+    && ["full_slide", "full_page"].includes(String(blocks[index].block.structural_meta.visual_scope)));
+  if (!blocks.some((_, index) => overview(index))) return <>{children}</>;
+  const visuals = children.filter((_, index) => overview(index));
+  const text = children.filter((_, index) => !overview(index));
+  return <>
+    {visuals}
+    {text.length > 0 && <details data-source-text="true" className="relative z-10 mt-5">
+      <summary className={cn("cursor-pointer rounded-md py-2 text-xs font-medium text-muted-foreground", externalRail && "ml-[7.25rem] px-10")}>
+        Extracted text and source blocks
+      </summary>
+      <div className="mt-4">{text}</div>
+    </details>}
+  </>;
+}
 
 /**
  * What an inspector needs to account for its own lineage: the passages the result was
@@ -302,37 +324,7 @@ function BlockText<TKind extends string, TRef>({
   );
 
   if (traceBlock.block.block_type === "image" && traceBlock.block.image) {
-    const source = `data:${traceBlock.block.image.media_type};base64,${traceBlock.block.image.data_base64}`;
-    return (
-      <figure className="my-7">
-        {/* The retained block text is the only available source-authored alternative text. */}
-        {/*
-          `width` and `height` are the image's own pixel size, carried from the parser.
-          Without them the browser reserves no room until the image decodes, so a jump to
-          a passage measured the page with every image above it at zero height and the
-          images then pushed that passage off screen. `scrollIntoView` was landing
-          correctly on a layout that was not yet true.
-
-          With the aspect ratio declared, `max-h`/`max-w` still size it - the attributes
-          only tell the browser the shape to hold before the bytes decode. A result saved
-          before the field carries zero, which is omitted rather than sent as `0`, because
-          `width="0"` would reserve nothing and claim to have measured it.
-        */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={source}
-          alt={traceBlock.block.content.trim() ? "" : "Source document image"}
-          width={traceBlock.block.image.width || undefined}
-          height={traceBlock.block.image.height || undefined}
-          className="mx-auto h-auto max-h-[34rem] max-w-full rounded-md object-contain outline outline-1 outline-black/10 dark:outline-white/10"
-        />
-        {traceBlock.block.content.trim() && (
-          <figcaption className="mx-auto mt-2 max-w-2xl text-center text-xs leading-5 text-muted-foreground">
-            {content}
-          </figcaption>
-        )}
-      </figure>
-    );
+    return <DocumentVisual block={traceBlock.block} />;
   }
 
   const presentation = documentBlockPresentation(traceBlock.block);
@@ -662,6 +654,8 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
     }
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Open supporting text before measuring its position, without selecting a result.
+    target.closest<HTMLDetailsElement>("details[data-source-text]")?.setAttribute("open", "");
     target.scrollIntoView({
       behavior: reduceMotion ? "auto" : "smooth",
       block: "center",
@@ -936,6 +930,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                     {surface.boundary.label}
                   </p>
                 )}
+                <SourceSurfaceContent blocks={surface.blocks} externalRail={railMode === "external"}>
                 {surface.blocks.map((traceBlock, blockIndex) => {
                   const markerGroups = groupDocumentTraceMarkers(traceBlock.markers);
                   // A block becomes its own click target when it carries a visible
@@ -1036,7 +1031,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                           // Selecting text inside a marked block must not open its
                           // detail, or the passage becomes impossible to quote.
                           if (!window.getSelection()?.isCollapsed) return;
-                          const badge = event.currentTarget.querySelector("button");
+                          const badge = event.currentTarget.querySelector("[data-trace-mark-action]");
                           if (badge instanceof HTMLElement) badge.click();
                         } : undefined}
                       >
@@ -1053,6 +1048,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                           // its text unselectable and swallow a wide table's sideways
                           // drag, so the affordance stays out of the content's way.
                           <button
+                            data-trace-mark-action
                             type="button"
                             onClick={(event) => selectAnnotations(
                               markerGroups.flatMap((group) => group.annotationIds),
@@ -1097,6 +1093,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                     </section>
                   );
                 })}
+                </SourceSurfaceContent>
               </section>
             ))}
             {activeDocument && visibleAnnotations.length === 0 && (

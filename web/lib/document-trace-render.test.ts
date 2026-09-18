@@ -49,3 +49,13 @@ test("Word stays on one continuous unlabeled surface", () => {
   assert.match(html, /Source text one/);
   assert.match(html, /Source text two/);
 });
+
+test("a page visual leads its retained text without replacing citation targets", () => {
+  const visual = { ...block("visual", { page: 1, visual_scope: "full_page" }), block_type: "image", content: "[image]",
+    image: { media_type: "image/png", data_base64: "AA==", width: 100, height: 100, sha256: "test", source_media_type: "image/png" } };
+  const html = render([block("text", { page: 1 }), visual]);
+  assert.match(html, /<details data-source-text=/);
+  assert.match(html, /Extracted text and source blocks/);
+  assert.ok(html.indexOf('data-block-id="visual"') < html.indexOf('data-block-id="text"'));
+  assert.equal(html.match(/data-block-id="text"/g)?.length, 1);
+});

@@ -37,6 +37,7 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         result_fields=(
             "findings[].requirement",
             "findings[].reference_spans",
+            "findings[].reference_visual_block_ids",
         ),
         ui_labels=("requirement",),
     ),
@@ -51,8 +52,8 @@ PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
         result_fields=(
             "findings[].verdict",
             "findings[].statement",
-            "findings[].gap",
             "findings[].comparison_spans",
+            "findings[].comparison_visual_block_ids",
         ),
         ui_labels=("meets", "exceeds", "falls short", "not comparable", "not addressed"),
     ),

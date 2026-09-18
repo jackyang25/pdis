@@ -8,10 +8,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pptx import Presentation
+from pptx.chart.data import ChartData
+from pptx.enum.chart import XL_CHART_TYPE
 from pptx.util import Inches
 
-from services.chunker import run_pipeline
-from services.chunker.stages.rasterizer import render_presentation_slides
+from services.chunker import blocks_to_dicts, run_pipeline
+from services.chunker.stages.rasterizer import (
+    RendererUnavailableError,
+    RenderFailedError,
+    render_presentation_slides,
+)
 
 
 PNG_1X1 = base64.b64decode(
@@ -46,12 +52,32 @@ def build_presentation(path: Path) -> None:
     presentation.save(path)
 
 
+def build_chart_only_presentation(path: Path) -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    data = ChartData()
+    data.categories = ["A", "B"]
+    data.add_series("Series", (1, 2))
+    slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED,
+        Inches(1),
+        Inches(1),
+        Inches(6),
+        Inches(4),
+        data,
+    )
+    presentation.save(path)
+
+
 class ChunkerPptxTests(unittest.TestCase):
     def test_slide_renderer_emits_png_when_office_runtime_is_available(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "profile.pptx"
             build_presentation(path)
-            rendered = render_presentation_slides(str(path))
+            try:
+                rendered = render_presentation_slides(str(path))
+            except RendererUnavailableError as exc:
+                self.skipTest(str(exc))
 
         if not rendered:
             self.skipTest("LibreOffice presentation rendering is unavailable")
@@ -111,14 +137,18 @@ class ChunkerPptxTests(unittest.TestCase):
         assert image.image is not None
         self.assertEqual(image.image.media_type, "image/png")
         self.assertIn("presentationml.presentation", image.image.source_media_type)
+        self.assertEqual(base64.b64decode(image.image.data_base64), PNG_1X1)
+        self.assertTrue(
+            all("extraction_warnings" not in block.structural_meta for block in blocks)
+        )
 
-    def test_pptx_retains_embedded_picture_when_slide_rendering_is_unavailable(self) -> None:
+    def test_pptx_unavailable_renderer_fallback_is_portable_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "profile.pptx"
             build_presentation(path)
             with patch(
                 "services.chunker.stages.parser_pptx.render_presentation_slides",
-                return_value={},
+                side_effect=RendererUnavailableError("LibreOffice is unavailable"),
             ):
                 blocks = run_pipeline(str(path), "profile")
 
@@ -129,6 +159,48 @@ class ChunkerPptxTests(unittest.TestCase):
         self.assertIsNotNone(image.image)
         assert image.image is not None
         self.assertEqual(image.image.source_media_type, "image/png")
+        self.assertTrue(all(
+            block.structural_meta["extraction_warnings"]
+            == ["presentation_renderer_unavailable"]
+            for block in blocks
+        ))
+        serialized = blocks_to_dicts(blocks)
+        self.assertEqual(
+            serialized[0]["structural_meta"]["extraction_warnings"],
+            ["presentation_renderer_unavailable"],
+        )
+
+    def test_pptx_failed_renderer_fallback_has_a_distinct_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profile.pptx"
+            build_presentation(path)
+            with patch(
+                "services.chunker.stages.parser_pptx.render_presentation_slides",
+                side_effect=RenderFailedError("conversion timed out"),
+            ):
+                blocks = run_pipeline(str(path), "profile")
+
+        self.assertTrue(all(
+            block.structural_meta["extraction_warnings"]
+            == ["presentation_render_failed"]
+            for block in blocks
+        ))
+        image_blocks = [block for block in blocks if block.block_type == "image"]
+        self.assertEqual(len(image_blocks), 1)
+        self.assertEqual(image_blocks[0].structural_meta["visual_scope"], "embedded_picture")
+
+    def test_chart_only_pptx_refuses_a_blockless_degraded_parse(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "chart-only.pptx"
+            build_chart_only_presentation(path)
+            with patch(
+                "services.chunker.stages.parser_pptx.render_presentation_slides",
+                side_effect=RendererUnavailableError("LibreOffice is unavailable"),
+            ), self.assertRaisesRegex(
+                ValueError,
+                "chart-only.*presentation_renderer_unavailable.*no retained content",
+            ):
+                run_pipeline(str(path), "chart-only")
 
 
 if __name__ == "__main__":

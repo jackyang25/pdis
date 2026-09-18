@@ -47,6 +47,24 @@ function requireText(tool: ResultType, value: unknown, name: string): void {
   if (typeof value !== "string" || !value.trim()) fail(tool, `${name} is missing`);
 }
 
+const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+function hasInspectableImageAsset(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const image = value as { media_type?: unknown; data_base64?: unknown };
+  return (
+    typeof image.media_type === "string"
+    && SUPPORTED_IMAGE_MEDIA_TYPES.has(image.media_type.trim().toLowerCase())
+    && typeof image.data_base64 === "string"
+    && Boolean(image.data_base64.trim())
+  );
+}
+
 // --- Inspector ---------------------------------------------------------------
 
 /**
@@ -183,6 +201,17 @@ function assertAlignerReadable(result: unknown): void {
       fail("aligner", `a finding carries an unknown verdict (${finding.verdict})`);
     }
     requireText("aligner", finding.requirement, "a finding's requirement");
+    const edge = alignment.edges.find(item => item.edge_id === finding.edge_id)!;
+    for (const side of ["reference", "comparison"] as const) {
+      const ids = requireArray("aligner", finding[`${side}_visual_block_ids`], `${side} visual citations`);
+      const sources = ids.length ? requireArray("aligner", alignment.blocks, "source blocks") as AlignerResponse["alignment"]["blocks"] : [];
+      const allowed = new Set(sources.filter(block => (
+        block.doc_id === edge[`${side}_doc_id`]
+        && hasInspectableImageAsset(block.image)
+      )).map(block => block.id));
+      if (ids.some(id => typeof id !== "string" || !allowed.has(id))) fail("aligner", "a visual citation does not name a retained image on its own side");
+      if (side === "comparison" && finding.verdict === "not_addressed" && ids.length) fail("aligner", "an unaddressed requirement cannot cite a visual");
+    }
   }
 }
 

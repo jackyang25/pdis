@@ -8,6 +8,16 @@ function block(doc_id: string, meta = {}): ContentBlock {
     heading_stack: [], section_label: null, structural_meta: meta, style_hint: {} };
 }
 
+test("unsupported visuals keep warnings and identify known type and location without guessing meaning", () => {
+  const warnings = documentExtractionWarnings([
+    block("report", { extraction_warnings: ["unsupported_document_visual"], unsupported_visual_kind: "drawing", document_part_kind: "header" }),
+    block("report", { extraction_warnings: ["unsupported_document_visual"], unsupported_visual_kind: "chart", document_part_kind: "body" }),
+    block("report", { extraction_warnings: ["unsupported_document_visual"] }),
+  ]);
+  assert.deepEqual(warnings, [{ code: "unsupported_document_visual", documentIds: ["report"],
+    details: ["Header: Drawing", "Document body: Chart", "Location not recorded: Visual object"] }]);
+});
+
 test("extraction warnings account for each document once, never infer them from filenames", () => {
   assert.deepEqual(documentExtractionWarnings([
     block("report", { extraction_warnings: ["pdf_limited_structure"] }),
@@ -28,4 +38,13 @@ test("locations use declared page numbers and retain existing section fallback",
   assert.equal(documentBlockLocationLabel(heading), "Objectives");
   heading.section_label = "Clinical";
   assert.equal(documentBlockLocationLabel(heading), "Clinical");
+});
+
+test("DOCX parts identify their authored location without invented page numbers", () => {
+  assert.equal(documentBlockLocationLabel(block("doc", {
+    document_part: "/word/footnotes.xml", document_part_kind: "footnote", note_id: "2",
+  })), "Footnote 2");
+  assert.equal(documentBlockLocationLabel(block("doc", { document_part_kind: "header" })), "Header");
+  assert.equal(documentBlockLocationLabel(block("doc", { document_part_kind: "textbox" })), "Text box");
+  assert.equal(documentBlockLocationLabel(block("doc", { document_part_kind: "body" })), "");
 });

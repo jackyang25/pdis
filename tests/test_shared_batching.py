@@ -8,6 +8,7 @@ import unittest
 from shared.batching import (
     budgeted_batches,
     fixed_batches,
+    fitting_batches,
     grouped_batches,
     map_ordered,
 )
@@ -22,6 +23,19 @@ class FixedBatchTests(unittest.TestCase):
 
     def test_no_items_produces_no_requests(self) -> None:
         self.assertEqual(fixed_batches([], 3), [])
+
+
+class FittingBatchTests(unittest.TestCase):
+    def test_exact_capacity_keeps_every_item_in_order(self):
+        self.assertEqual(
+            fitting_batches([2, 3, 1, 4], fits=lambda batch: sum(batch) <= 5),
+            [[2, 3], [1, 4]],
+        )
+
+    def test_impossible_item_is_refused_instead_of_dropped_or_sent(self):
+        with self.assertRaises(ValueError):
+            fitting_batches([2, 6], fits=lambda batch: sum(batch) <= 5)
+        self.assertEqual(fitting_batches([], fits=lambda batch: False), [])
 
 
 class BudgetedBatchTests(unittest.TestCase):

@@ -1,6 +1,8 @@
 "use client";
 
 import { ResultLayout } from "@/components/ui/result-layout";
+import { DocumentExtractionNotice } from "@/components/document-extraction-notice";
+import { WarningNotice } from "@/components/ui/warning-notice";
 import { matchesQuery, normalizeQuery } from "@/lib/result-search";
 import { MetricsRow } from "@/components/ui/metrics-row";
 import {
@@ -32,7 +34,7 @@ import { InspectorSignalHelp } from "@/components/inspector-signal-help";
 import { InspectorDocumentTrace } from "@/components/inspector-document-trace";
 import { PriorityPanel } from "@/components/ui/priority-panel";
 import { SectionHeading } from "@/components/ui/section-heading";
-import { Reading } from "@/components/ui/evidence-text";
+import { InterfaceNote, Reading } from "@/components/ui/evidence-text";
 import { inspectorAnnotationId } from "@/lib/inspector-document-trace";
 import { PageHeader } from "@/components/page-header";
 import { RunPanel } from "@/components/run-panel";
@@ -179,7 +181,7 @@ function InspectorView({ header, ready }: { header: Header; ready: boolean }) {
 
   return (
     <div className="flex flex-col gap-6">
-      {(!result || showRunPanel) && (
+      {(busy || !result || showRunPanel) && (
         <RunPanel
           configuration={<ConfigurationFields>
             {catalog.fields.length > 0 && <>
@@ -272,6 +274,12 @@ function InspectionResultView({
 
   return (
     <ResultLayout
+      notices={<>
+        {!final && <WarningNotice label="Assessment incomplete">
+          This assessment is incomplete. Complete the analysis before downloading a final result.
+        </WarningNotice>}
+        <DocumentExtractionNotice blocks={inspection.blocks} />
+      </>}
       // The identity the run picker and the download filename already use, so a run is
       // called one thing in all three places.
       title={runLabel(result, "inspector")}
@@ -348,17 +356,6 @@ function InspectionResultView({
         </>
       }
     >
-      {!final && (
-        <div
-          className={cn(
-            "border-b border-border bg-[hsl(var(--tone-warning))]/[0.06] px-5 py-3 text-sm sm:px-6",
-            TONE_TEXT.warning,
-          )}
-        >
-          This assessment is incomplete. Complete the analysis before
-          downloading a final result.
-        </div>
-      )}
       <DocumentSourceProvider
         blocks={inspection.blocks}
         onOpenInTrace={openBlockInTrace}
@@ -701,9 +698,9 @@ function ConsistencyView({
     <div>
       {/* The count and the name are in the toolbar above; what is left is the one thing a
           reader cannot see, which is how much of the document the pass actually covered. */}
-      <p className="border-b border-border/60 px-5 py-3 text-xs leading-5 text-muted-foreground sm:px-6">
+      <InterfaceNote className="mb-3">
         {consistencyDescription(status)}
-      </p>
+      </InterfaceNote>
       {/* The same rows the Sections tab shows, in the same divided list. A conflict is
           the same shape as a unit - one verdict, one sentence, the blocks it was read
           from - and it used to render as a bordered card instead, so the same kind of

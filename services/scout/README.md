@@ -40,6 +40,11 @@ and their cited passages live on attributes; numeric targets live once in the
 quantitative ledger and link back to those attributes. Nonnumeric claims retain
 their separate evidence assessment path.
 
+Retained slide visuals provide context, not replacement text quotations. Numeric
+target provenance resolves only against canonical text blocks; image markers
+cannot satisfy exact-quote validation. Source extraction warnings remain visible
+in review and results and travel with the saved blocks.
+
 Numeric mapping sends one source block per request. Existing canonical field
 bindings supply consistent document context; they are not additional extraction
 subjects. Several numeric requirements within that block may be proposed together.

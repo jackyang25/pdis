@@ -145,7 +145,7 @@ to, since no grantee document was supplied.
 would compare before there is a run, so the rule is applied twice and a second
 copy would let the preview promise a comparison the run then skips.
 
-### Two citation lists, and they are not interchangeable
+### Reference and comparison citations stay separate
 
 `reference_spans` quote the document that sets the bar; `comparison_spans` quote
 the document being measured. The assessor's schema offers only the second, so a
@@ -159,6 +159,17 @@ line-labelled view in `context.py`, and `shared.spans` copies those lines from t
 block. That is why the trace underlines a sentence rather than shading a whole table,
 and why the contract can check a quote against its own block — a quotation appearing
 in no document is not something the pipeline can produce.
+
+Visual evidence uses `reference_visual_block_ids` and
+`comparison_visual_block_ids` instead of text spans. Each ID must resolve to a
+retained image in the appropriate document. A visual-only requirement or finding
+is allowed; an image placeholder is never accepted as a quotation. The viewer
+opens the image without inventing a quoted sentence or pixel highlight.
+`not_addressed` carries neither comparison text spans nor visual references.
+
+Portable Aligner results use analysis version 4. Version 3 text citations import
+unchanged with empty visual-reference lists; no historical visual lineage is
+inferred. Other tools' result versions are unaffected.
 
 ### Where two comparisons meet
 

@@ -1,4 +1,6 @@
 "use client";
+import { DocumentExtractionNotice } from "@/components/document-extraction-notice";
+import { ResultNotices, WarningNotice } from "@/components/ui/warning-notice";
 import { usePublishReviewContext, type ReviewSelection } from "@/lib/assistant-review-context";
 
 import { useTraceFocus } from "@/lib/trace-focus";
@@ -698,7 +700,7 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
 
   return (
     <div className="flex flex-col gap-6">
-      {(!result || showRunPanel) && (
+      {(busy || !result || showRunPanel) && (
         <RunPanel
           configuration={
             <ScoutConfiguration
@@ -718,7 +720,6 @@ function ScoutView({ header, ready }: { header: Header; ready: boolean }) {
         />
       )}
       {error && <ErrorMessage>{error}</ErrorMessage>}
-      {result && <ContextValidationNotice result={result} />}
       {result && <RetrievalWindowNotice result={result} />}
       {result && result.phase === "target_review" && (
         <DocumentTargetReviewCheckpoint
@@ -881,6 +882,7 @@ function DocumentTargetReviewCheckpoint({
       >
         <ReviewCheckpointHeader
           eyebrow="Numeric target review"
+          notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} /></>}
           title="Review numeric targets"
           description="Confirm that each extracted number and its qualifiers represent an intended document requirement."
           help={
@@ -1160,6 +1162,7 @@ function ReviewCheckpointHeader({
   total,
   progressLabel,
   actions,
+  notices,
 }: {
   eyebrow: string;
   title: string;
@@ -1169,6 +1172,7 @@ function ReviewCheckpointHeader({
   total: number;
   progressLabel: string;
   actions?: ReactNode;
+  notices?: ReactNode;
 }) {
   return (
     <header className="border-b border-border/60 px-5 py-5 sm:px-7">
@@ -1209,6 +1213,7 @@ function ReviewCheckpointHeader({
           {completed} of {total} reviewed
         </span>
       </div>
+      {notices && <ResultNotices className="mt-4">{notices}</ResultNotices>}
     </header>
   );
 }
@@ -1647,6 +1652,7 @@ function QuantitativeReviewCheckpoint({
       >
         <ReviewCheckpointHeader
           eyebrow="Quantitative evidence review"
+          notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} /></>}
           title="Review quantitative evidence"
           description="Decide whether each source measurement is comparable to the document’s numeric target."
           help={
@@ -1893,11 +1899,7 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
         : `Scout could not confidently verify that the document concerns ${validation.configured_indication}.`;
 
   return (
-    <div
-      role="status"
-      className="flex items-start gap-2.5 rounded-lg border border-[hsl(var(--tone-warning))]/30 bg-[hsl(var(--tone-warning))]/[0.07] px-3.5 py-3 text-xs text-foreground"
-    >
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+    <WarningNotice label="Review document context">
       <div className="min-w-0">
         <p className="font-medium">Review document context</p>
         {/* The tool's own statement of what it found, then the model's reason for it. They
@@ -1910,7 +1912,7 @@ function ContextValidationNotice({ result }: { result: ScoutResponse }) {
           {validation.reason}
         </Reading>
       </div>
-    </div>
+    </WarningNotice>
   );
 }
 
@@ -2132,6 +2134,55 @@ function FieldGrid({
     >
       <div className="flex flex-col gap-4">
         <ResultLayout
+          notices={<>
+            {(unresolvedFieldCount > 0 ||
+              result.quantitative_ledger.status === "uncertain") && (
+              <WarningNotice label="Document interpretation limitations">
+                <div className="space-y-1">
+                  {unresolvedFieldCount > 0 && (
+                    <div>
+                      <p>
+                        Document interpretation stopped before retrieval because{" "}
+                        {unresolvedFieldCount}{" "}
+                        {unresolvedFieldCount === 1 ? "field" : "fields"} could
+                        not be bound safely.
+                      </p>
+                      <p className="mt-1.5">
+                        Try running the analysis again. If the issue persists,
+                        report it through Feedback with the downloaded JSON.
+                      </p>
+                      <details className="mt-1.5">
+                        <summary className="cursor-pointer font-medium text-foreground">
+                          Review unresolved fields
+                        </summary>
+                        <ul className="mt-1.5 space-y-1 pl-4">
+                          {unresolvedFields.map((variable) => (
+                            <li key={variable.name} className="list-disc">
+                              <span className="font-medium text-foreground">
+                                {displayAttributeLabel(variable.name)}:
+                              </span>{" "}
+                              {variable.target_resolution_reason ||
+                                "No validated decision was returned."}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    </div>
+                  )}
+                  {result.quantitative_ledger.status === "uncertain" && (
+                    <p>
+                      Some numeric statements remained unresolved after one
+                      retry. They were retained for audit and excluded from
+                      quantitative calibration; the verified document claims
+                      still proceeded through evidence retrieval.
+                    </p>
+                  )}
+                </div>
+              </WarningNotice>
+            )}
+            <ContextValidationNotice result={result} />
+            <DocumentExtractionNotice blocks={result.blocks ?? []} />
+          </>}
           title={runLabel(result, "scout")}
           subtitle={runScope(result, "scout")}
           metrics={
@@ -2208,48 +2259,6 @@ function FieldGrid({
           }
         >
           <TabsContent value="fields" className="m-0">
-            {(unresolvedFieldCount > 0 ||
-              result.quantitative_ledger.status === "uncertain") && (
-              <div className="flex items-start gap-3 border-b border-[hsl(var(--tone-warning))]/25 bg-[hsl(var(--tone-warning))]/10 px-5 py-4 text-xs leading-relaxed text-foreground sm:px-6">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--tone-warning))]" aria-hidden="true" />
-                <div className="space-y-1">
-                  {unresolvedFieldCount > 0 && (
-                    <div>
-                      <p>
-                        Document interpretation stopped before retrieval because{" "}
-                        {unresolvedFieldCount}{" "}
-                        {unresolvedFieldCount === 1 ? "field" : "fields"} could
-                        not be bound safely.
-                      </p>
-                      <details className="mt-1.5">
-                        <summary className="cursor-pointer font-medium text-foreground">
-                          Review unresolved fields
-                        </summary>
-                        <ul className="mt-1.5 space-y-1 pl-4">
-                          {unresolvedFields.map((variable) => (
-                            <li key={variable.name} className="list-disc">
-                              <span className="font-medium text-foreground">
-                                {displayAttributeLabel(variable.name)}:
-                              </span>{" "}
-                              {variable.target_resolution_reason ||
-                                "No validated decision was returned."}
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    </div>
-                  )}
-                  {result.quantitative_ledger.status === "uncertain" && (
-                    <p>
-                      Some numeric statements remained unresolved after one
-                      retry. They were retained for audit and excluded from
-                      quantitative calibration; the verified document claims
-                      still proceeded through evidence retrieval.
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
             <ResultToolbar>
               <ResultSearch
                 label="Search fields"

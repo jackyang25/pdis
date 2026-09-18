@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import logging
+import json
 
 from shared.ai import request_structured
+from shared.batching import fitting_batches, map_ordered
+from shared.document_metadata import extraction_context
 
 from ..models import ContentBlock, DocumentTypeConfig, LLMClientProtocol
 
@@ -10,6 +13,16 @@ from ..models import ContentBlock, DocumentTypeConfig, LLMClientProtocol
 logger = logging.getLogger(__name__)
 
 VALID_CONFIDENCES = {"high", "medium", "low"}
+
+# Section mapping partitions one ordered document into taxonomy sections; adjacent
+# blocks inform that partition. Output shards all read the same complete document.
+DOCUMENTS_PER_REQUEST = 1
+MAPPING_WORKERS = 4
+# https://developers.openai.com/api/docs/guides/structured-outputs#supported-schemas
+MAX_SCHEMA_ENUM_VALUES = 1000
+LARGE_ENUM_THRESHOLD = 250
+MAX_LARGE_ENUM_CHARACTERS = 15_000
+MAX_SCHEMA_STRING_CHARACTERS = 120_000
 
 
 class MapperResponseError(ValueError):
@@ -36,8 +49,14 @@ def label_blocks(
         Same blocks with section_label filled in
     """
     _clear_labels(blocks)
-    if len(blocks) >= 200:
-        logger.warning("Labeling %s blocks at once may degrade results", len(blocks))
+    if not blocks:
+        return blocks
+    if len({block.id for block in blocks}) != len(blocks):
+        raise MapperResponseError("Input contains duplicate block IDs")
+    try:
+        batches = fitting_batches(blocks, fits=lambda batch: _label_schema_fits(batch, config))
+    except ValueError as exc:
+        raise MapperResponseError("Mapping taxonomy or block ID exceeds strict schema limits") from exc
 
     system_prompt, user_message = build_prompts(blocks, config)
     images = [
@@ -45,6 +64,26 @@ def label_blocks(
         for block in blocks
         if block.image
     ]
+    def run(batch: list[ContentBlock]) -> list[dict[str, str]]:
+        message = user_message
+        if len(batches) > 1:
+            message += (
+                "\n\nRequested output block IDs for this request:\n"
+                + json.dumps([block.id for block in batch], ensure_ascii=False)
+                + "\nUse the complete document above as context. Return labels only for "
+                "these requested IDs, exactly once each; other blocks are context only."
+            )
+        return _request_labels(batch, config, llm_client, system_prompt, message, images, max_tokens)
+
+    logger.info("Mapping %s blocks in %s schema-bounded requests", len(blocks), len(batches))
+    labels = [label for result in map_ordered(batches, run, workers=MAPPING_WORKERS) for label in result]
+    return _merge_labels(blocks, labels, config)
+
+
+def _request_labels(
+    blocks: list[ContentBlock], config: DocumentTypeConfig, llm_client: LLMClientProtocol,
+    system_prompt: str, user_message: str, images: list[dict[str, str]], max_tokens: int,
+) -> list[dict[str, str]]:
     schema = _label_schema(blocks, config)
     last_error = "model returned no structured labels"
     for attempt in range(2):
@@ -52,7 +91,7 @@ def label_blocks(
         if attempt:
             message += (
                 "\n\nThe prior response failed the mapping contract: "
-                f"{last_error}. Return exactly one label for every supplied block ID."
+                f"{last_error}. Return exactly one label for every requested output block ID."
             )
         payload = request_structured(
             llm_client,
@@ -67,10 +106,26 @@ def label_blocks(
             if payload is None:
                 raise ValueError("model returned no structured labels")
             labels = _parse_label_payload(payload)
-            return _merge_labels(blocks, labels, config)
+            _validate_labels(blocks, labels, config)
+            return labels
         except ValueError as exc:
             last_error = str(exc)
     raise MapperResponseError(f"Mapper response was invalid after retry: {last_error}")
+
+
+def _label_schema_fits(blocks: list[ContentBlock], config: DocumentTypeConfig) -> bool:
+    fields = _label_schema(blocks, config)["properties"]["labels"]["items"]["properties"]
+    enums = [field["enum"] for field in fields.values()]
+    if sum(map(len, enums)) > MAX_SCHEMA_ENUM_VALUES:
+        return False
+    if any(len(values) > LARGE_ENUM_THRESHOLD
+           and sum(map(len, values)) > MAX_LARGE_ENUM_CHARACTERS for values in enums):
+        return False
+    # This schema has no definitions or const values: just these property names
+    # and the three string enums. Count the actual strings, not token estimates.
+    return (len("labels") + sum(map(len, fields))
+            + sum(len(value) for values in enums for value in values)
+            <= MAX_SCHEMA_STRING_CHARACTERS)
 
 
 def _label_schema(
@@ -195,10 +250,12 @@ def _base_system_prompt() -> str:
     return """You are labeling document blocks with normalized section names.
 
 You will receive an ordered list of blocks extracted from a document.
-For each block, return its id and the section_label it belongs to.
+For each requested output block, return its id and the section_label it belongs to.
+Unless an output subset is specified, all supplied blocks are requested.
 
 Rules:
-- Every block must receive exactly one section_label.
+- Every requested output block must receive exactly one section_label.
+- Read all supplied blocks as context, including blocks outside an output subset.
 - This is a classification task only. Do not provide medical advice,
   clinical recommendations, safety assessment, or interpretation.
 - Do not evaluate, endorse, transform, or generate medical claims.
@@ -232,13 +289,16 @@ def _format_disambiguation(disambiguation: list[str]) -> str:
 
 def _output_format_prompt() -> str:
     return """Return one structured labels list with id, section_label, and confidence.
-Every block id from the input must appear exactly once.
+Every requested output block id must appear exactly once.
 Every section_label must be an exact label from the taxonomy above.
 Confidence must be one of: "high", "medium", "low"."""
 
 
 def _format_block(block: ContentBlock) -> str:
     header_parts = [block.id, block.block_type]
+    metadata = extraction_context(block.structural_meta)
+    if metadata:
+        header_parts.append(metadata)
 
     if block.block_type == "heading":
         heading_level = block.structural_meta.get("heading_level")
@@ -265,6 +325,15 @@ def _merge_labels(
     labels: list[dict[str, str]],
     config: DocumentTypeConfig,
 ) -> list[ContentBlock]:
+    labels_by_id = _validate_labels(blocks, labels, config)
+    for block in blocks:
+        block.section_label = labels_by_id[block.id]["section_label"]
+    return blocks
+
+
+def _validate_labels(
+    blocks: list[ContentBlock], labels: list[dict[str, str]], config: DocumentTypeConfig,
+) -> dict[str, dict[str, str]]:
     block_ids = {block.id for block in blocks}
     valid_section_labels = {section["name"] for section in _final_taxonomy(config)}
     labels_by_id: dict[str, dict[str, str]] = {}
@@ -298,9 +367,7 @@ def _merge_labels(
         if confidence not in VALID_CONFIDENCES:
             raise ValueError(f"Invalid confidence for {block.id}: {confidence}")
 
-        block.section_label = section_label
-
-    return blocks
+    return labels_by_id
 
 
 def _clear_labels(blocks: list[ContentBlock]) -> None:

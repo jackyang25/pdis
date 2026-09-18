@@ -30,7 +30,7 @@ function documentFormats(suffixes: readonly string[]): DocumentFormats {
 export const STRUCTURED_DOCUMENT_FORMATS = documentFormats(DOCUMENT_SUFFIXES);
 export const TEXT_EXTRACTION_FORMATS: DocumentFormats = {
   ...documentFormats(TEXT_EXTRACTION_SUFFIXES),
-  note: "Prefer DOCX or PPTX when available. PDFs may lose visual content or table and column order: directly placed embedded images are read, but vector drawings and images inside grouped PDF objects are not. PDFs must be unlocked, up to 20 MB and 200 pages, with readable text on every page.",
+  note: "Prefer DOCX or PPTX when available. PDFs retain an image of every page, including visible charts and drawings. Extracted text may misorder columns or tables; check the page images for context. PDFs must be unlocked, up to 20 MiB and 200 pages, with selectable text on every page. Scanned-only or blank pages are not supported.",
 };
 
 /** Value for an `<input type="file">` accept attribute. */

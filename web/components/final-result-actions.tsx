@@ -25,7 +25,7 @@ export function FinalResultActions({ onNewAnalysis, download }: Props) {
           filename={download.filename}
           data={download.data}
           format="json"
-          label="Download final JSON"
+          label="Download JSON"
         />
       )}
     </>

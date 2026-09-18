@@ -5,11 +5,12 @@ import type { ReactNode } from "react";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { ResultMetrics } from "@/components/ui/result-metrics";
 import { Tabs, TabsList } from "@/components/ui/tabs";
+import { ResultNotices } from "@/components/ui/warning-notice";
 
 /**
  * The shape every finished result has, so no tool has to remember it.
  *
- * Three zones, in one order, with one rule between each:
+ * Shared zones, in one order:
  *
  *   header      what the run is, where to go in it, and - behind one button - how it
  *               came out. Identity and the tab row are one block and draw no line
@@ -21,6 +22,8 @@ import { Tabs, TabsList } from "@/components/ui/tabs";
  *               of numbers before a single result, sharing a 36 that a reader had to work
  *               out was the same 36. They moved behind `ResultMetrics`, beside the
  *               actions, so the header is one line in every tool.
+ *   notices     run-wide limitations, below the header and before navigation,
+ *               regardless of the selected tab. Callers order by consequence.
  *   priorities  what to look at first, on the tab where those items live.
  *
  *               Two separate questions, and conflating them was the mistake. *Selected
@@ -56,6 +59,7 @@ export function ResultLayout({
   children,
   footer,
   scopeControl,
+  notices,
 }: {
   /** The run's own identity. `runLabel` answers this for every tool. */
   title: string;
@@ -110,6 +114,8 @@ export function ResultLayout({
   footer?: ReactNode;
   /** Optional choice of peer review within this run, above its view tabs. */
   scopeControl?: ReactNode;
+  /** Run-wide limitations, most consequential first; visible regardless of active tab. */
+  notices?: ReactNode;
 }) {
   return (
     <CollapsibleCard
@@ -138,6 +144,7 @@ export function ResultLayout({
       contentClassName="p-0"
     >
       <Tabs value={tabValue} onValueChange={onTabChange}>
+        {notices && <ResultNotices className="px-5 pb-4 sm:px-6">{notices}</ResultNotices>}
         {scopeControl && <div className="px-5 pb-4 sm:px-6">{scopeControl}</div>}
         <div className="overflow-x-auto border-b border-border/60 px-5 pt-1.5 sm:px-6">
           <TabsList className="min-w-max border-b-0">{tabs}</TabsList>

@@ -15,6 +15,7 @@ COPY web/ ./
 # Publishing a new artifact means adding it here and in copy-shared.mjs.
 COPY shared/product_knowledge.json /app/shared/product_knowledge.json
 COPY shared/prompt_reference.json /app/shared/prompt_reference.json
+COPY shared/document-extraction.json /app/shared/document-extraction.json
 
 ARG NEXT_PUBLIC_PDIS_API_URL
 ARG NEXT_PUBLIC_PDIS_API_HOST

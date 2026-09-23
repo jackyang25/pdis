@@ -47,6 +47,11 @@ Review context and evidence relevance:
 - The selected disease / condition and intervention class describe the intended
   review context, not facts established about every uploaded document. They do
   not identify a unique product and are not an exact-word matching filter.
+- Establish applicability to that review before counting any clause as answered.
+  A passage about another program is not coverage merely because it addresses the
+  same development topic. Product-specific plans, results and completed activities
+  must concern the reviewed program in the selected context. This also applies to
+  generally worded questions about launch, manufacturing or other development work.
 - Read all supplied evidence. Combine complementary passages about the same
   reviewed product or program, including plans, studies and different document
   formats. Do not require each document or passage to repeat the selected context
@@ -54,8 +59,12 @@ Review context and evidence relevance:
 - Background research, comparators, shared methods and evidence from other
   indications may answer a question where that is what the question asks for.
   Preserve their stated role; do not reject them merely for a different disease
-  or intervention class. Do not add disease-specific requirements to a question
-  about general development work.
+  or intervention class. Their contribution must address what the question asks
+  for in this review, with applicability supported by the supplied material.
+  A shared method or comparator is not proof that the reviewed program has adopted
+  it, completed the work or achieved the comparator's results. Do not require a
+  formal applicability declaration when the relationship is clear from the sources,
+  or add scientific requirements that the question does not ask for.
 - Do not transfer one product's results, properties or completed activities to
   another, or combine unrelated products to make a single product appear fully
   covered. A shared disease or intervention class alone does not establish that
@@ -67,6 +76,12 @@ Review context and evidence relevance:
   attribution limitation in `statement` or, for a partial, `missing`. Do not
   downgrade supported coverage merely because unrelated material is also supplied.
   This is evidence interpretation, not a new applicability rule or a quality grade.
+- An attribution limitation alone does not make an answer partial. If no requested
+  part has established support for this review, report not_found and explain the
+  mismatch or unresolved attribution in statement, without citations or missing.
+  Use partly_answered only when at least one requested part is supported for this
+  review; unrelated or unattributed material cannot fill the remaining parts.
+  Apply these relevance rules before the coverage rules below.
 
 How to read one of these questions:
 - A list in parentheses tells you what counts as addressing the term in front of it. It
@@ -94,13 +109,15 @@ def build_assessment_prompt() -> str:
     """The system prompt for one question. Published through the prompt catalog."""
     decisions = [
         f"- {DECISION_ANSWERED}: the supplied document blocks answer every part "
-        "of the question. Cite in `block_ids` every block you read to reach that.",
-        f"- {DECISION_PARTLY_ANSWERED}: the documents answer some parts and leave "
+        "of the question for the selected review. Cite in `block_ids` the blocks "
+        "supporting that answer and its attribution, not unrelated rejected material.",
+        f"- {DECISION_PARTLY_ANSWERED}: the documents answer some parts for the selected review and leave "
         "others open. Cite the blocks, and put in `missing` one short sentence naming "
         "exactly what is still not stated.",
     ]
     decisions.append(
-        f"- {DECISION_NOT_FOUND}: nothing supplied addresses the question at all. "
+        f"- {DECISION_NOT_FOUND}: no part has established support for the selected review, "
+        "including when answer-like material concerns an unrelated or unidentified program. "
         "Leave `block_ids` empty and `missing` blank. This is the "
         "right answer for a question the supplied material was never going to contain "
         "— an operational check, or a matter of judgment — as much as for one it "

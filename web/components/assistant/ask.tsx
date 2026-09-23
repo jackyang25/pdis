@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { type UIMessage } from "ai";
+import { assistantRequest, conversationTurns, messageText, type AskContext, type AskMessage } from "@/lib/assistant-conversation";
 import { AssistantSseTransport } from "@/lib/assistant-transport";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -33,13 +34,6 @@ import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import { PdisIcon } from "../ui/pdis-icon";
 import { DISPLAY_HEADING } from "@/lib/typography";
-
-function messageText(message: UIMessage): string {
-  return message.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("");
-}
 
 /**
  * Two openers per result type: one broad enough to work on any run, one for the
@@ -114,6 +108,10 @@ export function Ask({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Keep large immutable sources outside SDK message metadata: the SDK clones
+  // messages while streaming. Only a small local context ID travels with a question.
+  const contexts = useRef(new Map<string, AskContext>());
+  const attachmentGeneration = useRef(0);
   const hasResult = result != null;
   const payload = useMemo(() => splitResultContext(result), [result]);
   const documentContext = useMemo(
@@ -137,23 +135,19 @@ export function Ask({
   );
   const hasDocument = documentContext.length > 0;
   const resultCount = availableResultCount ?? (hasResult ? 1 : 0);
+  const context = useMemo<AskContext>(() => ({
+    resultType, result: submittedResult, document: documentContext, sources: citableSources,
+  }), [resultType, submittedResult, documentContext, citableSources]);
 
   const transport = useMemo(
     () =>
-      new AssistantSseTransport({
+      new AssistantSseTransport<AskMessage>({
         api: `${API_BASE}/api/assistant/ask/stream`,
         prepareSendMessagesRequest: ({ messages }) => ({
-          body: {
-            result_type: resultType,
-            result: submittedResult,
-            messages: messages
-              .filter((message) => message.role === "user" || message.role === "assistant")
-              .map((message) => ({ role: message.role, content: messageText(message) })),
-            document: documentContext,
-          },
+          body: assistantRequest(messages, context, contexts.current),
         }),
       }),
-    [documentContext, resultType, submittedResult],
+    [context],
   );
 
   const {
@@ -164,17 +158,10 @@ export function Ask({
     error,
     clearError,
     stop,
-  } = useChat({ transport });
+  } = useChat<AskMessage>({ transport });
   const busy = status === "submitted" || status === "streaming";
-
-  useEffect(() => {
-    void stop();
-    setMessages([]);
-    setAttachments([]);
-    setInput("");
-    setCopiedId(null);
-    setAttachmentError(null);
-  }, [result, resultType, setMessages, stop]);
+  const turns = conversationTurns(messages, contexts.current);
+  const contextChanged = turns.length > 0 && turns.at(-1)?.context !== context;
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -191,7 +178,9 @@ export function Ask({
     clearError();
     setPasteNote(null);
     setInput("");
-    await sendMessage({ text });
+    const contextId = crypto.randomUUID();
+    contexts.current.set(contextId, context);
+    await sendMessage({ text, metadata: { contextId } });
   }
 
   async function attachFiles(incoming: FileList | readonly File[] | null) {
@@ -205,7 +194,9 @@ export function Ask({
     setAttaching(true);
     setAttachmentError(null);
     setPasteNote(null);
+    const generation = attachmentGeneration.current;
     const settled = await Promise.allSettled(files.map(uploadAssistantContext));
+    if (generation !== attachmentGeneration.current) return;
     const accepted = settled.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
     const rejected = settled.find((item) => item.status === "rejected");
     setAttachments((current) => {
@@ -231,10 +222,14 @@ export function Ask({
   function startNewChat() {
     void stop();
     setMessages([]);
+    contexts.current.clear();
+    attachmentGeneration.current++;
+    setAttaching(false);
     setAttachments([]);
     setInput("");
     setCopiedId(null);
     setAttachmentError(null);
+    setPasteNote(null);
     clearError();
   }
 
@@ -335,10 +330,6 @@ export function Ask({
         </div>
       </div>
 
-      {/* The same provider the tool pages use, so a block ID cited in an answer
-          resolves to the passage the trace viewer would show. Includes attached
-          files, which are document context too. */}
-      <DocumentSourceProvider blocks={documentContext}>
       <div
         ref={scrollRef}
         className={pageDisplay
@@ -380,7 +371,7 @@ export function Ask({
           </div>
         )}
 
-        {messages.map((message, index) => {
+        {turns.map(({ message, context: turnContext }, index) => {
           const text = messageText(message);
           // Announced on its own channel, so the answer never carries it.
           const activity = latestActivity(message);
@@ -389,6 +380,7 @@ export function Ask({
             message.role === "assistant" &&
             index === messages.length - 1;
           return (
+            <DocumentSourceProvider key={message.id} blocks={turnContext?.document ?? []}>
             <div
               key={message.id}
               className={
@@ -397,7 +389,10 @@ export function Ask({
                   : "group max-w-full text-sm text-foreground"
               }
             >
-              <Markdown text={text} sources={citableSources} />
+              {message.role === "assistant" && turnContext !== context && (
+                <p className="mb-1 text-xs text-muted-foreground">Based on earlier workspace context</p>
+              )}
+              <Markdown text={text} sources={turnContext?.sources ?? { urls: new Set<string>() }} />
               {isStreaming && activity && !text && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -422,6 +417,7 @@ export function Ask({
                 </button>
               )}
             </div>
+            </DocumentSourceProvider>
           );
         })}
 
@@ -438,13 +434,17 @@ export function Ask({
         )}
         {error && <p role="alert" className="text-xs text-destructive">{error.message}</p>}
       </div>
-      </DocumentSourceProvider>
 
       <div className={pageDisplay
         ? "shrink-0 border-t border-border bg-background px-5 py-4 sm:px-8"
         : "shrink-0 border-t border-border p-3"}
       >
         <div className={pageDisplay ? "mx-auto max-w-3xl" : undefined}>
+        {contextChanged && (
+          <p className="mb-2 px-1 text-xs text-muted-foreground" role="status">
+            Workspace context changed. Your next message will use the current results and attachments.
+          </p>
+        )}
         {(attachments.length > 0 || attaching) && (
           <div className="mb-2 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto px-1">
             {attachments.map((attachment) => {

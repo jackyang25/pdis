@@ -158,7 +158,7 @@ test("the routing is by discipline, which the question bank guarantees", () => {
   );
 });
 
-test("groups keep bank order, and so do the questions inside them", () => {
+test("groups and questions with the same requirement keep bank order", () => {
   const groups = groupedByDiscipline(
     review([
       {
@@ -174,6 +174,30 @@ test("groups keep bank order, and so do the questions inside them", () => {
     groups.flatMap((group) => group.questions.map((q) => q.id)),
     ["C1", "C2", "D1"],
   );
+});
+
+test("required questions lead within each discipline without changing saved bank order", () => {
+  for (const state of ["answered", "partly_answered", "not_found", "not_applicable"] as const) {
+    const held = review([
+      { id: "cmc", label: "CMC", questions: [
+        question("A1", state, { requirement: "anticipatory" }),
+        question("R2", state),
+        question("A3", state, { requirement: "anticipatory" }),
+        question("R4", state),
+      ] },
+      { id: "cd", label: "CD", questions: [question("R5", state)] },
+    ]);
+    const original = structuredClone(held);
+    const groups = groupedByDiscipline(held, state);
+    assert.deepEqual(groups.map((group) => group.id), ["cmc", "cd"]);
+    assert.deepEqual(groups[0].questions.map((q) => q.id), ["R2", "R4", "A1", "A3"]);
+    assert.deepEqual(held, original);
+    assert.equal(groups[0].questions[0], held.disciplines[0].questions[1]);
+    assert.deepEqual(
+      groupedByDiscipline(held, state, "A")[0].questions.map((q) => q.id),
+      ["A1", "A3"],
+    );
+  }
 });
 
 test("the required count is the number that can hold a gate", () => {

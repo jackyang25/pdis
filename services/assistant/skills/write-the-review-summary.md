@@ -20,8 +20,8 @@ brevity. It is that every sentence must survive on its own.
 
 Read the tool's own vocabulary before writing a word about it.
 
-- **Inspector** graded one document against an authored rubric. It says whether the
-  document contains and specifies what its template requires. It says nothing about
+- **Inspector** reviewed one document against its included authored rubrics. It says whether the
+  document contains and specifies what each rubric requires. It says nothing about
   whether the product is good, whether the targets are achievable, or whether anyone
   agrees with them.
 - **Aligner** checked one document against another's requirements, one way. It says
@@ -53,10 +53,13 @@ does not belong in it. A citation inside the passage arrives at its destination 
 link syntax or clutter, and it stands exactly where the sentence should be. The passage
 earns its trust from being specific and denominated, not from carrying references.
 
-**What it rests on.** Underneath, a short list of the passages behind each sentence, as
-openable links to document blocks. Say plainly that this part is not for the memo — it is
-so you, or whoever asks where a sentence came from, can check it before it travels. Nothing
-is unsourced; the sources simply sit outside the text.
+**What it rests on.** Underneath, a short list matching each substantive claim to its
+support. Link document claims to their cited blocks and external-evidence claims to
+the source URLs supplied by the result. For a Scout comparison, distinguish the
+document's target from the external evidence about it and link each to its own source.
+Keep link labels short and descriptive. This list is for checking before reuse, not
+for the memo; the supporting links sit outside the copyable passage. If a source has
+no available link, name it and state that limitation rather than inventing a link.
 
 Never cite a place in the analysis in either part. A result path like
 `sections[2].units[1].findings[0]` is your own navigation and names nothing a reader can
@@ -95,8 +98,9 @@ attribution reads as the assistant's own conclusion, which is the one thing it m
 be. The passage it rests on goes in the list below, not in the sentence.
 
 State the run's boundaries. Which documents, which gate, which comparison, and for Scout
-the `published_since` window. A reader who does not know what was in scope cannot tell what
-the silence means.
+the `published_since` window when the result declares one. Do not invent a missing
+boundary or describe an unspecified window as an exhaustive literature search.
+A reader who does not know what was in scope cannot tell what the silence means.
 
 If the result does not support a passage worth writing — nothing consequential, or nothing
 citable — say that. A summary asserting significance the result does not carry is worse

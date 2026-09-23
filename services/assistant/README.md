@@ -38,8 +38,14 @@ and disappears when the checkpoint unmounts. It is not added to exported results
 the server stores no review session. Draft blocks and their references receive
 chat-only aliases so revised same-name uploads cannot replace final-result sources;
 canonical IDs remain in block metadata and stored results are untouched.
-Context changes use the existing chat reset
-behavior, so an answer about an earlier selection is not retained as current advice. The API
+Context changes preserve the conversation, attachments and unsent text. Each question
+captures a client-held snapshot: an in-flight reply finishes against that snapshot,
+and its citations continue to resolve against the same source blocks and URL set.
+The next question captures the latest workspace. Earlier turns are marked as historical
+in the submitted conversation, never supplied as current evidence; old answers are
+also labelled in the UI. Only the current turn's source collection is sent to the API.
+New chat releases the conversation snapshots and attachments. Nothing is stored
+server-side or added to portable result files. The API
 exposes `POST /api/assistant/ask/stream`. The
 floating panel and `/ask` page are two views of the same client-held workspace
 context and conversation component.

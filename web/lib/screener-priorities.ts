@@ -18,8 +18,8 @@ import { matchesQuery, normalizeQuery } from "./result-search.ts";
  * duplicate list it referred to is gone.
  */
 export const SCREENER_ORDER_NOTE =
-  "Wording is Screener's. The order is not: questions appear in the order the "
-  + "question bank asks them, discipline by discipline. Nothing here is ranked.";
+  "Within each discipline, Required questions appear before Anticipatory questions. "
+  + "Each group keeps the question bank's order.";
 
 export const SCREENER_EMPTY_MESSAGE =
   "Every question this gate asks is answered by the material supplied.";
@@ -115,7 +115,7 @@ export function groupedByDiscipline(
         (question) =>
           question.state === state
           && matchesQuery(normalized, question.text, question.statement, question.missing),
-      ),
+      ).sort((a, b) => Number(b.requirement === "required") - Number(a.requirement === "required")),
     }))
     .filter((group) => group.questions.length > 0);
 }

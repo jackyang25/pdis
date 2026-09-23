@@ -477,8 +477,10 @@ supplied material answers and which it does not.
   Translational Medicine and Clinical Pharmacology reach dose selection independently
   and disagree in public at EOP1 and EOP2. Merging their answers would destroy the one
   thing the bank was built to produce.
-- Order is the bank's own: discipline sequence, then question number. Nothing re-ranks,
-  so two runs on one gate compare line by line.
+- Saved results preserve the bank's discipline and question order. Result lists show
+  required questions before anticipatory questions within each discipline and state,
+  preserving bank order within each requirement group. This is presentation only;
+  assessment, exports and the coverage strip retain bank order. Nothing is AI-ranked.
 
 ### Scout
 

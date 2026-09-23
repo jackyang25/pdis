@@ -12,8 +12,8 @@ gate ask about, and which will it not?
 Both results describe shortfalls, and they are not the same shortfall. Aligner says the
 candidate offers less than the profile asked for — a fact about two documents. Screener says
 the gate's reviewers will ask something the documents do not answer — a fact about a
-review. A divergence nobody asks about at this gate can wait. An unanswered question about
-a target the candidate already misses is the one that stops a meeting.
+review. Their overlap identifies matters to discuss at the gate, not a decision that
+the meeting must stop or that an unpaired divergence can safely wait.
 
 ## What each result is, before you pair anything
 
@@ -24,7 +24,9 @@ document that set the bar, `comparison_spans` quoting the document measured.
 Screener's `disciplines[].questions[]` are the whole bank for one gate, each with a `state`
 of `answered`, `partly_answered`, `not_found` or `not_applicable`, a `statement`, a
 `missing` sentence on partials, and `cited_block_ids` where an answer was read from a
-document.
+document. Each question also carries its authored `requirement`: `required` or
+`anticipatory`. Preserve that distinction; an anticipatory question is not a current
+gate blocker merely because it is unanswered.
 
 Neither ranks the other. Screener's order is the bank authors' sequence and Aligner's is
 the order requirements were read; do not reorder either, and do not present one tool's
@@ -33,17 +35,21 @@ finding as evidence for the other's.
 ## Read in this order
 
 1. `find_result` for `findings` in the Aligner result. Keep `falls_short`,
-   `not_comparable` and `not_addressed`.
+   `not_comparable` and `not_addressed`; also inspect `meets` and `exceeds` for
+   commitments an open gate question asks about.
 2. `find_result` for `disciplines` in the Screener result. Keep questions whose state is
    `partly_answered` or `not_found`, and note which discipline each sits in.
 3. `read_result` for the block IDs and sentences on both sides.
-4. Pair only where the block IDs overlap — an Aligner citation and a question's
+4. For passage-backed pairs, require overlapping block IDs — an Aligner citation and a question's
    `cited_block_ids` naming the same passage. Two items about "shelf life" are not
    necessarily about the same commitment, and the shared passage is the only evidence
    they are.
-5. A `not_found` question cites nothing, so it can never pair by passage. Pair it by
-   **discipline and subject** instead, and say explicitly that you did so — that is a
-   judgement about wording, not a lineage, and a reader must be able to discount it.
+5. A `not_found` question cites nothing, so it can never pair by passage. Where its
+   discipline and subject support a connection, report a **subject-based association**
+   instead. Name the question by ID and wording, with its state and requirement;
+   cite the Aligner passages only. Explicitly say there is no shared passage and
+   that the association is an interpretation, not established lineage. If the
+   subject connection is uncertain, leave the items unpaired and say so.
 
 ## The pairs worth reporting
 
@@ -51,21 +57,21 @@ finding as evidence for the other's.
 `partly_answered` question also cites. Report both sentences: the finding's
 `requirement` against its `statement` is what the candidate is short of, and the
 `missing` is what the reviewer will find unanswered. Name the
-discipline, because that is who will ask. This is the pair that decides what gets fixed
-before the meeting.
+discipline, because that is who will ask, and retain the question's required or
+anticipatory label rather than assigning a deadline or urgency.
 
-**A shortfall the gate does not reach.** An Aligner `falls_short` with no question on that
-passage. Still a divergence from the profile and still worth an ask, but it is not a gate
-blocker at this gate — say which gate the Screener result covers, because a later one may
-ask.
+**A shortfall with no established gate connection.** An Aligner `falls_short` with
+neither a passage-backed pair nor a supported subject-based association. Report it
+as unpaired in this review, not as proof the gate does not ask about it or it can wait.
 
 **A question the alignment already explains.** A `partly_answered` or `not_found`
 question about a target Aligner reports as `not_addressed`. The document does not merely
 under-answer the reviewer; it never made the commitment. Report the alignment finding as
 the reason, so the ask is "commit to this" rather than "describe this better".
 
-**Met, and still asked about.** An Aligner `meets` on a passage a `partly_answered`
-question cites. The candidate matches the profile and the gate still wants more detail —
+**Met, and still asked about.** An Aligner `meets` or `exceeds` on a passage a `partly_answered`
+question cites. The candidate meets or exceeds the requirement, as Aligner reports,
+and the gate still wants more detail —
 meeting a bar is not the same as satisfying a reviewer. Do not report this as a
 contradiction between the tools; they are answering different questions.
 
@@ -80,20 +86,21 @@ Order by what a reader would act on differently:
 
 1. Shortfalls the gate will ask about, by discipline.
 2. Questions the alignment explains — where the ask changes shape.
-3. Shortfalls outside this gate.
+3. Shortfalls with no established gate connection.
 4. Everything else.
 
-One short paragraph each: the requirement and its verdict, the question and its state,
-then the passages on both sides. Open with how many pairs you formed out of how many
-findings and how many open questions, so a reader knows whether this is a thorough pairing
-or a coincidence.
+One short paragraph each: the requirement and its verdict, the question and its state
+and requirement label, then the supporting citations. Distinguish passage-backed pairs
+from subject-based associations. Open with the count of each, alongside how many
+findings and open questions you examined, so the reader can see the review's coverage.
 
 ## Rules
 
-Cite both sides as document passages, and name which side each sentence came from: the
-Aligner finding's blocks and the question's `cited_block_ids`. A result path locates a
-finding for you and shows a reader nothing. A claim you cannot cite on both sides is a
-claim this skill cannot make.
+For passage-backed pairs, cite the Aligner finding's blocks and the question's
+`cited_block_ids`, naming which tool reported each claim. For subject-based
+associations, cite the available Aligner passages and identify the uncited gate
+question as described above. Never invent a Screener passage for `not_found` or
+present an Aligner passage as its citation. A result path is navigation, not evidence.
 
 Never overturn either tool, and never merge their vocabularies. A verdict is about two
 documents; a state is about a question. Saying a requirement is `not_found` or a question

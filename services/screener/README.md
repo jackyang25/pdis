@@ -113,6 +113,22 @@ another. Genuine attribution ambiguity is described in the existing statement or
 partial-answer gap, without introducing a new state or applicability rule. Unrelated
 material alone is not a reason to downgrade otherwise supported coverage.
 
+Applicability precedes coverage, including for generally worded development questions.
+Another program's launch plan cannot close the reviewed program's launch question.
+Selectors preserve identity, indication, relationship and mismatch passages alongside
+potential evidence; the assessor decides applicability across the combined selection.
+A comparator or shared method can answer what the question asks about that supporting
+role, but does not establish the reviewed program's own activities or achievements.
+If nothing has established relevance, the answer is `not_found`, with the limitation
+in `statement`; uncertainty alone is not partial coverage. This does not remove a
+question or change its required/anticipatory label.
+
+`python -m scripts.check_screener_relevance` runs opt-in, synthetic live-model checks
+through the configured provider (credentials and model-call costs apply). It exercises
+both stages and checks final states and citations for matched, mismatched, mixed,
+comparator, partial and ambiguous evidence. It sends no uploaded documents. These
+checks complement offline contract tests; neither guarantees all model decisions.
+
 Before claiming improved model quality, compare live runs for: complementary documents
 about one product; that same set with an unrelated product added; a question genuinely
 answered by comparator/background evidence; and a mixed set with no clear intended
@@ -294,3 +310,6 @@ guarantee. No evidence is silently truncated to fit a request.
 
 Discipline grouping follows the bank's authored order. There is no reconciliation
 or deduplication stage: each discipline's question remains independently visible.
+Within each state and discipline, the result list shows Required before Anticipatory,
+preserving bank order within each group. This display ordering does not mutate saved
+results, change assessment order, or reorder the coverage strip.

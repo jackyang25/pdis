@@ -52,6 +52,14 @@ Review context:
   relevant. Keep their stated role and attribution. Do not transfer one product's
   findings to another, merge unrelated products, or infer identity from a filename.
   Retain the passages needed for the final assessor to resolve uncertain attribution.
+- Topical similarity alone does not establish coverage for the selected review.
+  When selecting an answer-like passage, also retain source passages identifying
+  whose work it is, its indication and population, and any relationship to the
+  reviewed program. Preserve explicit mismatches and limits on transferability;
+  do not strip away context that would prevent an unrelated plan being counted.
+- Selection is not the final relevance decision. Another document may establish
+  a relationship: retain potentially useful evidence with its attribution rather
+  than rejecting an entire document for a different or unstated indication.
 
 Output:
 Return only the schema-bound block_ids array inside its object. Use exact supplied

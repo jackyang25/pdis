@@ -128,7 +128,7 @@ export function targetReviewFixture(state: ReviewFixtureState = "pending"): Scou
 export function evidenceReviewFixture(state: ReviewFixtureState = "pending"): ScoutResponse {
   const result = reviewFixture();
   const items = result.conformity[0].excluded_measurements;
-  items[0].ai_recommendation = "admit"; items[0].ai_review_reason = "The independent reviewer recommends admitting this source estimate.";
+  items[0].ai_recommendation = "admit"; items[0].ai_review_reason = "The evidence measurement matches the target’s required measure and can enter the comparison statistics.";
   items.push(candidate("single-reject", 65, "reviewer-disagrees", "reject"), candidate("single-flag", 75, "manual-review"));
   items.push(candidate("recommended-a", 72, "recommended-choice", "reject"), candidate("recommended-b", 82, "recommended-choice", "admit"));
   items.push(candidate("reject-a", 68, "rejected-choice", "reject"), candidate("reject-b", 78, "rejected-choice", "reject"));

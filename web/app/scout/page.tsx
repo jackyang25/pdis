@@ -1657,10 +1657,10 @@ function QuantitativeReviewCheckpoint({
           eyebrow="Review checkpoint · Before final result"
           notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} hasDocumentsTab={false} /></>}
           title="Review quantitative evidence"
-          description="Scout has searched for evidence. Decide which source measurements are comparable to the document’s numeric targets and can enter the statistics, then finalize the result."
+          description="Scout has searched for evidence. Decide which evidence measurements are comparable to the document’s numeric targets and can enter the statistics, then finalize the result."
           help={
             <>
-              Check the source measurement against the numeric target’s required
+              Check each evidence measurement against the numeric target’s required
               comparison criteria and qualifiers. Admit comparable measurements
               whether or not their values meet the target. These decisions control
               comparator statistics, not the assessment of nonnumeric claims.
@@ -1849,7 +1849,7 @@ function QuantitativeReviewCheckpoint({
           <ReviewActions>
               <>
                 <Button variant="outline" disabled={groupItems.every(item => item.measurement.admission_status === "rejected")} onClick={() => decideCurrent(null)}>
-                  {multiple ? "Reject all estimates" : "Reject comparator"}
+                  {multiple ? "Reject all estimates" : "Reject measurement"}
                 </Button>
                 <Button
                   disabled={(multiple && selectedCandidateId == null) || measurement?.admission_status === "approved"}
@@ -1861,7 +1861,7 @@ function QuantitativeReviewCheckpoint({
                     )
                   }
                 >
-                  {multiple ? "Admit selected estimate" : "Admit comparator"}
+                  {multiple ? "Admit selected estimate" : "Admit measurement"}
                 </Button>
               </>
           </ReviewActions>

@@ -157,8 +157,8 @@ test("completed evidence remains correctable and advancement stays outside the p
     onAcceptRecommendations: () => {},
     readyToFinalize: true, onFinalize: () => {},
   }));
-  assert.match(html, /Reject comparator/);
-  assert.match(html, /Admit comparator/);
+  assert.match(html, /Reject measurement/);
+  assert.match(html, /Admit measurement/);
   assert.match(html, /Finalize result/);
   assert.doesNotMatch(html.match(/<header[\s\S]*?<\/header>/)?.[0] ?? "", /Finalize result/);
 });
@@ -189,7 +189,7 @@ test("one overview contains single estimates and grouped alternatives without pr
   assert.match(html, /2 estimates compared with a target of/);
   assert.match(html, /Read full excerpt/);
   assert.match(html, /End of complete quotation/);
-  assert.match(html, /Reject comparator/);
+  assert.match(html, /Reject measurement/);
   assert.doesNotMatch(html, /type="radio"/);
 });
 

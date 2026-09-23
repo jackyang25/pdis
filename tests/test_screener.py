@@ -713,12 +713,8 @@ class AssessorTests(unittest.TestCase):
         self.assertIn("clause by clause", prompt)
         self.assertIn("Do not round a partial", prompt)
 
-    def test_the_material_precedes_the_question_so_it_can_be_cached(self) -> None:
-        """Every question in a run shares the same material; only the question varies.
-
-        Reversed — as this was — each call had a different first line and shared no
-        cacheable prefix, so the documents were paid for once per question.
-        """
+    def test_selected_material_is_identified_before_the_question(self) -> None:
+        """Final assessment must not mistake a selection for complete documents."""
         from services.screener.stages.assessor import build_user_message
 
         message = build_user_message(
@@ -726,7 +722,7 @@ class AssessorTests(unittest.TestCase):
             self.BLOCKS,
             indication="malaria", intervention_class="drug",
         )
-        self.assertLess(message.index("Supplied document blocks"), message.index("Question ("))
+        self.assertLess(message.index("Selected source blocks"), message.index("Question ("))
 
     def test_document_identity_labels_the_prompt(self) -> None:
         """Evidence is identified by its document, without a document-type taxonomy."""
@@ -741,11 +737,12 @@ class AssessorTests(unittest.TestCase):
 
 
 class PromptCatalogTests(unittest.TestCase):
-    def test_screener_publishes_its_single_prompt(self) -> None:
-        self.assertEqual(len(PROMPT_CATALOG), 1)
-        entry = PROMPT_CATALOG[0]
-        self.assertEqual(entry.tool, "screener")
-        self.assertTrue(entry.render().strip())
+    def test_screener_publishes_both_stage_prompts(self) -> None:
+        self.assertEqual({entry.id for entry in PROMPT_CATALOG},
+                         {"selector.evidence", "assessor.question"})
+        for entry in PROMPT_CATALOG:
+            self.assertEqual(entry.tool, "screener")
+            self.assertTrue(entry.render().strip())
 
 
 

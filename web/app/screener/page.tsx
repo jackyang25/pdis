@@ -57,7 +57,7 @@ import {
   countRequiredInState,
 } from "@/lib/screener-priorities";
 import {
-  screenerResultFilename,
+  runFilename,
   packScreenerResult,
   runLabel,
   runScope,
@@ -75,6 +75,7 @@ import { toolAuthority } from "@/lib/tools";
 const STEPS = [
   { key: "resolve", label: "Resolving the question bank" },
   { key: "parse", label: "Parsing documents" },
+  { key: "select", label: "Selecting question evidence" },
   { key: "assess", label: "Triaging questions" },
 ];
 
@@ -349,7 +350,7 @@ function ReviewView({
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
             download={{
-              filename: screenerResultFilename(result),
+              filename: runFilename("screener"),
               data: packScreenerResult(result),
             }}
           />
@@ -695,13 +696,9 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
           under the left margin. Same shape as `Attributed` - the subject takes the line
           and what names it sits at the end of it.
 
-          No explainer on the badge. It carried one, on the reasoning that every other
-          label in this result is explainable and this was the only one a reader could not
-          ask about - true, but the icon was the wrong answer. It repeated identically on
-          every required row, and it could not teach the thing a reader needs: `required`
-          only means something against `anticipatory`, and an anticipatory question has no
-          badge for an icon to sit on. "How to read" is on the toolbar and lists every
-          topic beside the ones it contrasts with.
+          Both source-authored categories are labelled, so an unbadged question cannot
+          be mistaken for missing requirement data. "How to read" explains their
+          distinction once, without repeating a help icon on every row.
         */}
         <span className="flex flex-col gap-1.5 sm:flex-row sm:items-baseline sm:gap-3">
           <span
@@ -710,16 +707,14 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
             {question.text}
           </span>
           <span className="flex shrink-0 items-center gap-2">
-            {question.requirement === "required" && (
-              <span
-                className={cn(
-                  "rounded border border-border px-1.5 py-px",
-                  EYEBROW,
-                )}
-              >
-                {QUESTION_REQUIREMENT_LABEL[question.requirement]}
-              </span>
-            )}
+            <span
+              className={cn(
+                "rounded border border-border px-1.5 py-px",
+                EYEBROW,
+              )}
+            >
+              {QUESTION_REQUIREMENT_LABEL[question.requirement]}
+            </span>
             <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
               {question.id}
             </span>

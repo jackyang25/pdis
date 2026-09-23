@@ -61,9 +61,8 @@ export function buildScreenerDocumentAnnotations(
         // recognises; the id qualifies it for anyone matching against the bank.
         title: `${discipline.label} · ${question.id}`,
         summary: question.statement,
-        // Only the required ones are badged. Badging both would put a label on every
-        // row, which marks nothing.
-        statusLabel: question.requirement === "required" ? QUESTION_REQUIREMENT_LABEL.required : undefined,
+        // Both source-authored categories are explicit; absence is not a category.
+        statusLabel: QUESTION_REQUIREMENT_LABEL[question.requirement],
         blockIds: question.cited_block_ids,
         // Screener carries no quotes, only block ids, so annotations claim whole
         // blocks. Searching block text for a phrase to underline would invent a

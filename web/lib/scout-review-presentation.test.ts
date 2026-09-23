@@ -11,6 +11,25 @@ const { ReviewListRow, ReviewActions, ReviewCheckpointHeader, ReviewEstimateChoi
   fileURLToPath(new URL("../app/scout/page.tsx", import.meta.url)), {}, ["ReviewListRow", "ReviewActions", "ReviewCheckpointHeader", "ReviewEstimateChoices", "defaultReviewEstimateId", "QuantitativeReviewCheckpoint", "DocumentTargetReviewCheckpoint"],
 );
 
+test("target review names the search action and keeps it gated on human decisions", () => {
+  for (const complete of [false, true]) {
+    const result = reviewFixture("target_review");
+    if (complete) {
+      for (const target of result.quantitative_ledger.targets) target.review_status = "approved";
+      for (const statement of result.quantitative_ledger.reviews) statement.review_status = "accepted_exclusion";
+    }
+    const html = renderToStaticMarkup(React.createElement(DocumentTargetReviewCheckpoint, {
+      result, busy: false, stage: null, progress: null,
+      onNewAnalysis: () => {}, onTargetDecision: () => {}, onStatementDecision: () => {},
+      onAcceptRecommendations: () => {}, onContinue: () => {},
+    }));
+    const searchButton = html.match(/<button[^>]*>Search for evidence<\/button>/)?.[0];
+    assert.ok(searchButton, "Target review must identify the action that starts retrieval");
+    assert.equal(/\sdisabled=""/.test(searchButton), !complete);
+    assert.doesNotMatch(html, /Download JSON|>Finalize result<\/button>/);
+  }
+});
+
 test("both Scout checkpoints keep extraction guidance local to their available source links", () => {
   const result = reviewFixture("target_review");
   result.blocks[0].structural_meta.extraction_warnings = ["unsupported_document_visual"];

@@ -277,6 +277,20 @@ def _parse_table(
     document_part_kind: str = "body",
     note_id: str | None = None,
 ) -> list[ContentBlock]:
+    # Numeric indices can be reused by supplementary tables. The owning XML
+    # part and element path identify this actual table without guessing from text.
+    table_group = f"{document_part}#{table._tbl.getroottree().getpath(table._tbl)}"
+
+    def retain_identity(blocks: list[ContentBlock]) -> list[ContentBlock]:
+        for block in blocks:
+            meta = block.structural_meta
+            if (meta.get("table_index") == table_index
+                    and meta.get("document_part", document_part) == document_part):
+                # Nested native tables intentionally share the outer table's
+                # context. Supplementary tables have their own index and group.
+                meta["table_group"] = table_group
+        return blocks
+
     rows = [[_cell_text(cell) for cell in row.cells] for row in table.rows]
     column_count = max((len(row) for row in rows), default=0)
     if column_count == 0:
@@ -306,7 +320,7 @@ def _parse_table(
                         note_id=note_id,
                     )
                 )
-        return blocks
+        return retain_identity(blocks)
 
     # Multi-column data grid: the ROW is the unit, so keep table_row blocks.
     # Images in a data cell (rare) are emitted at the table's position.
@@ -318,7 +332,7 @@ def _parse_table(
         rows, doc_id, table_index, heading_stack, column_count
     )
     if part_reader is None:
-        return image_blocks + row_blocks
+        return retain_identity(image_blocks + row_blocks)
 
     blocks = image_blocks.copy()
     rows_by_index = {
@@ -339,7 +353,7 @@ def _parse_table(
             part_reader,
         )
         blocks.extend(added)
-    return blocks
+    return retain_identity(blocks)
 
 
 def _parse_cell(

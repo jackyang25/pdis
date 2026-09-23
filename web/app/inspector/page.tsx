@@ -59,7 +59,7 @@ import {
   type Verdict,
 } from "@/lib/api";
 import {
-  inspectorResultFilename,
+  runFilename,
   isInspectorResultFinal,
   packInspectorResult,
   runLabel,
@@ -347,7 +347,7 @@ function InspectionResultView({
             download={
               final
                 ? {
-                    filename: inspectorResultFilename(result),
+                    filename: runFilename("inspector"),
                     data: packInspectorResult(result),
                   }
                 : undefined

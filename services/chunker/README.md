@@ -82,6 +82,12 @@ ordered `table_cells` with exact content offsets. Consumers render columns from
 those cells and fall back to canonical text when structured cells are not
 available; they never reconstruct cells by splitting prose.
 
+DOCX table blocks also carry `structural_meta.table_group`, derived from the owning
+XML part and table path. It distinguishes supplementary tables whose numeric
+`table_index` can coincide. Native nested tables retain the outer table's group
+for context; independently anchored supplementary tables keep their own identity.
+This adds structural metadata without changing source text or citation IDs.
+
 Section mapping uses a schema-bound closed taxonomy. Every parsed block must be
 labeled exactly once; unknown, duplicate, or omitted block IDs fail the mapping
 boundary rather than entering downstream tools as partial document context.

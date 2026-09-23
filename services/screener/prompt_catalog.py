@@ -1,11 +1,8 @@
 """One declaration per model prompt Screener sends, for publication and testing.
 
-The assessor owns its prompt text. This module owns the list of prompts and what
-each produces.
-
-Screener sends one prompt, once per queued question, so this single pair is the
-complete set. Every question uses the same evidence-relevance instructions and
-receives the run's selected context alongside all supplied documents.
+Each stage owns its prompt text. Selection reads one question/document pair;
+assessment judges that question against the combined selected source blocks.
+This module publishes both prompts and the public fields assessment produces.
 """
 
 from __future__ import annotations
@@ -13,11 +10,23 @@ from __future__ import annotations
 from shared.prompt_catalog import CatalogEntry
 
 from .stages.assessor import build_assessment_prompt
+from .stages.selector import build_selection_prompt
 
 TOOL = "screener"
 
 
 PROMPT_CATALOG: tuple[CatalogEntry, ...] = (
+    CatalogEntry(
+        tool=TOOL,
+        id="selector.evidence",
+        stage="select",
+        title="Question evidence selection",
+        builder_name="build_selection_prompt",
+        render=build_selection_prompt,
+        framing_slot=None,
+        result_fields=(),
+        ui_labels=(),
+    ),
     CatalogEntry(
         tool=TOOL,
         id="assessor.question",

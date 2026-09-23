@@ -16,6 +16,32 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: "0.4.1",
+    title: "Streamlined screening and clearer review steps",
+    sections: [
+      {
+        title: "Screener",
+        changes: [
+          "Screener now selects relevant passages from each document for each question before assessing the combined evidence, reducing the material sent to the final assessment while retaining original sources and citations.",
+          "Added evidence-selection progress and clarified required versus anticipatory question labels.",
+        ],
+      },
+      {
+        title: "Scout",
+        changes: [
+          "Clarified what to check at each review checkpoint, when evidence search begins, and how review leads to the final result.",
+        ],
+      },
+      {
+        title: "Saved results",
+        changes: [
+          "Screener headings show the stage gate with a separate document count instead of listing every uploaded filename.",
+          "Downloads use short, tool-specific filenames. Renaming a downloaded file does not change its source-document names, citations or import compatibility.",
+        ],
+      },
+    ],
+  },
+  {
     version: "0.4.0",
     title: "Broader Inspector guideline coverage",
     sections: [{ changes: [

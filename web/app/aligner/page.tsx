@@ -73,7 +73,7 @@ import {
   selectAlignerPriorities,
 } from "@/lib/aligner-priorities";
 import {
-  alignerResultFilename,
+  runFilename,
   packAlignerResult,
   runLabel,
   runScope,
@@ -524,7 +524,7 @@ function AlignmentView({
           <FinalResultActions
             onNewAnalysis={onNewAnalysis}
             download={{
-              filename: alignerResultFilename(result),
+              filename: runFilename("aligner"),
               data: packAlignerResult(result),
             }}
           />

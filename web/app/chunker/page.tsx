@@ -148,7 +148,7 @@ function BlocksList({ result }: { result: ChunkerResult }) {
             label={(value) => runLabel(value, "chunker")}
           />
           <DownloadButton
-            filename={runFilename(result, "chunker")}
+            filename={runFilename("chunker")}
             data={result}
             format="json"
             label="Download JSON"

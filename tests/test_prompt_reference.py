@@ -15,6 +15,13 @@ from shared.prompt_catalog import catalog_reference
 
 
 class PromptReferenceTest(unittest.TestCase):
+    def test_screener_publishes_selection_and_final_assessment(self) -> None:
+        prompts = {p["id"]: p for p in build_reference()["prompts"] if p["tool"] == "screener"}
+        self.assertEqual(set(prompts), {"selector.evidence", "assessor.question"})
+        selection = prompts["selector.evidence"]
+        self.assertEqual(selection["stage"], "select")
+        self.assertEqual(selection["produces"], {"result_fields": [], "ui_labels": []})
+
     def test_committed_reference_matches_generator(self) -> None:
         self.assertTrue(REFERENCE.exists(), "prompt reference has not been generated")
         self.assertEqual(

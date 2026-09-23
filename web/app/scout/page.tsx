@@ -104,7 +104,7 @@ import {
   runScope,
   pendingQuantitativeReviewCount,
   splitResultContext,
-  scoutResultFilename,
+  runFilename,
   unpackScoutResult,
   readResultIdentity,
 } from "@/lib/result-file";
@@ -881,10 +881,10 @@ function DocumentTargetReviewCheckpoint({
         )}
       >
         <ReviewCheckpointHeader
-          eyebrow="Numeric target review"
+          eyebrow="Review checkpoint · Before evidence search"
           notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} hasDocumentsTab={false} /></>}
           title="Review numeric targets"
-          description="Confirm that each extracted number and its qualifiers represent an intended document requirement."
+          description="Scout has extracted numeric targets from your document. Confirm that each number and its qualifiers represent an intended requirement before Scout searches for evidence."
           help={
             <>
               Check each numeric target against its cited document passages.
@@ -914,7 +914,7 @@ function DocumentTargetReviewCheckpoint({
 
         <ReviewOverview
           description="Select an item to check its source and record your decision. AI recommendations are suggestions until you accept them."
-          advance={<Button size="sm" disabled={busy || completed !== total} onClick={onContinue}>{busy ? "Continuing…" : "Continue to evidence review"}</Button>}
+          advance={<Button size="sm" disabled={busy || completed !== total} onClick={onContinue}>{busy ? "Searching and assessing evidence…" : "Search for evidence"}</Button>}
           counts={
             <>
                 <>
@@ -1188,6 +1188,9 @@ function ReviewCheckpointHeader({
             {title}
           </h2>
           <SectionDescription>{description}</SectionDescription>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            Review targets → Search evidence → Review evidence if needed → Final result
+          </p>
         </div>
         {actions && (
           <ReviewActions className="flex-col items-stretch sm:flex-row sm:flex-nowrap sm:justify-end">
@@ -1651,10 +1654,10 @@ function QuantitativeReviewCheckpoint({
         )}
       >
         <ReviewCheckpointHeader
-          eyebrow="Quantitative evidence review"
+          eyebrow="Review checkpoint · Before final result"
           notices={<><ContextValidationNotice result={result} /><DocumentExtractionNotice blocks={result.blocks ?? []} hasDocumentsTab={false} /></>}
           title="Review quantitative evidence"
-          description="Decide whether each source measurement is comparable to the document’s numeric target."
+          description="Scout has searched for evidence. Decide which source measurements are comparable to the document’s numeric targets and can enter the statistics, then finalize the result."
           help={
             <>
               Check the source measurement against the numeric target’s required
@@ -2258,7 +2261,7 @@ function FieldGrid({
               <FinalResultActions
                 onNewAnalysis={onNewAnalysis}
                 download={{
-                  filename: scoutResultFilename(result),
+                  filename: runFilename("scout"),
                   data: packScoutResult(result),
                 }}
               />

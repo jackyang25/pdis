@@ -3,12 +3,11 @@ import test from "node:test";
 
 import type { AlignerResponse, ContentBlock, InspectorResponse, ScoutResponse } from "./api.ts";
 import {
-  alignerResultFilename,
-  inspectorResultFilename,
+  runFilename,
+  runLabel,
   packAlignerResult,
   packInspectorResult,
   packScoutResult,
-  scoutResultFilename,
   unpackAlignerResult,
   unpackInspectorResult,
   unpackScoutResult,
@@ -381,21 +380,25 @@ test("current Scout artifacts require a complete comparison contract", () => {
   );
 });
 
-test("portable result filenames consistently use source IDs and tool names", () => {
+test("download suggestions are bounded tool names, independent of source filenames", () => {
+  for (const tool of ["inspector", "scout", "screener", "aligner", "chunker"] as const) {
+    assert.equal(runFilename(tool), `pdis-${tool}.json`);
+  }
+});
+
+test("single-document run labels retain the source name without using it as a download name", () => {
   const namedScout = {
     ...scout,
     blocks: [{ ...block, doc_id: "DRAFT AIV iTPP v1 13July2016" }],
   };
-  assert.equal(scoutResultFilename(namedScout), "draft-aiv-itpp-v1-13july2016-scout.json");
+  assert.equal(runLabel(namedScout, "scout"), "DRAFT AIV iTPP v1 13July2016");
 
   const namedInspector = structuredClone(inspection);
   namedInspector.inspection.doc_id = "DRAFT AIV iTPP v1 13July2016";
   assert.equal(
-    inspectorResultFilename(namedInspector),
-    "draft-aiv-itpp-v1-13july2016-inspector.json",
+    runLabel(namedInspector, "inspector"),
+    "DRAFT AIV iTPP v1 13July2016",
   );
 
-  // Named by document type, so a three-document run reads as what it compared
-  // rather than as two filenames with a third silently dropped.
-  assert.equal(alignerResultFilename(alignerResult()), "itpp-ctpp-ipdp-aligner.json");
+  assert.equal(runLabel(alignerResult(), "aligner"), "itpp · ctpp · ipdp");
 });

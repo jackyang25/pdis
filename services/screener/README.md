@@ -29,7 +29,7 @@ Judging one document against its own template is Inspector's responsibility, and
 judging a document's targets against external evidence is Scout's; the tools have
 different authorities and none substitutes for another. Screener shares no code or
 configuration with Inspector. The resemblance — a list of sections holding units,
-one model call per unit — is structural only.
+one final assessment per unit — is structural only.
 
 ## Usage
 
@@ -96,14 +96,16 @@ reader to hear a fault, and this tool cannot tell an omission from a question no
 profile or plan was ever going to carry. What it can say is which discipline owns it,
 and that is the routing.
 
-Every applicable question is read against **everything supplied**. Nothing is withheld
-because of an assumption about where an answer ought to live. The bank's
+Every applicable question examines **every supplied document** through evidence
+selection, then receives the combined selected source blocks for final assessment.
+Nothing is withheld because of an assumption about which document type should hold
+an answer. The bank's
 required/anticipatory column does not affect which questions are assessed or what
 material they are assessed against.
 
 Every assessment receives the selected indication and intervention class as intended
 review context, not as proof that every upload concerns that context. These are not
-exact-word filters or unique product identifiers. All documents remain available:
+exact-word filters or unique product identifiers. Selection reads every document:
 complementary passages can close a question together, and background studies,
 comparators, shared methods, or other indications can be relevant to what it asks.
 The prompt prohibits transferring one product's findings or completed activities to
@@ -145,10 +147,11 @@ preserves the original filename stem as `doc_id`. Duplicate document IDs and
 unsupported formats fail before parsing. A document that yields no readable blocks
 fails the run instead of silently disappearing beside the other documents.
 
-All blocks travel together through assessment and into the result. Answered and
+All blocks remain in the result; final assessment receives only the selected
+original blocks and their explicit page, slide or table groups. Answered and
 partly answered questions cite retained block IDs; those citations feed the shared
 Documents viewer, saved results, and Ask. Citation checks establish membership in
-the retained collection, not that a model interpreted a passage correctly.
+the selected input and retained collection, not that a model interpreted a passage correctly.
 PDF page locations and extraction-warning metadata travel in those same blocks.
 The result displays the limitation on both tabs, including after import: extracted
 text can misorder columns and tables, and text matching does not verify their
@@ -229,9 +232,27 @@ independently and disagree.
 
 ## Request scope
 
-`QUESTIONS_PER_REQUEST = 1`. An unrelated question in the prompt would influence the
-decision, and batch composition would shift between runs. Throughput comes from
-fan-out, bounded by `MAX_PARALLEL_QUESTIONS`.
+Both stages use `QUESTIONS_PER_REQUEST = 1`. Selection also uses
+`DOCUMENTS_PER_REQUEST = 1`: one complete parsed document and one exact question.
+It returns source IDs only, not summaries or provisional answers. Code retains
+the original blocks, expanding explicit page, slide and table groups within that
+document, then combines selections in source order for one final assessment.
+DOCX grouping uses the parser's explicit `table_group` identity, not a numeric
+table index that can be reused by footnotes or text boxes.
+There are no lexical filters, top-k limits or arbitrary truncation. Selection
+retains potentially relevant, partial, conflicting and contextual evidence.
+
+Throughput comes from flat fan-out, bounded by `MAX_PARALLEL_QUESTIONS = 6`.
+All selections complete before assessment starts; the two phases never multiply
+their worker pools. Selection reports completed question/document pairs through
+the existing progress stream. Parsing remains bounded at three documents. For 15 documents,
+each applicable question requires 15 selection calls and one assessment, before
+bounded retries. A single document uses the same path.
+
+Empty selection is valid; an unreadable document or failed selection is not.
+Selection errors abort the run rather than masquerading as absence. If every
+selection is empty, assessment receives an explicit no-selected-evidence message
+and cannot cite blocks or claim an answered state.
 
 The model receives three decisions: `answered`, `partly_answered`, and `not_found`.
 They map directly to result states. The fourth result state, `not_applicable`, is
@@ -248,14 +269,28 @@ document/block identities, citation membership, and the state/evidence pairing.
 ```text
 resolve   deterministic, no I/O; the state the question text owns, fail before parsing
 parse     chunker parse-only, every supplied document; preserve input order
-assess    one call per applicable question, each reading everything supplied
+select    one call per question/document pair, reading that complete document
+assess    one call per applicable question, reading its combined source selections
 result    every question, each in one state, with all documents and retained blocks
 ```
 
-The supplied material precedes the question in every prompt. Order is for cost, not
-reading: identical material on every call makes it a prefix a provider can cache, so
-the expensive half is paid for once rather than once per question. With the question
-first it shared nothing.
+Selection sends document material before the question, allowing shared prefixes
+where supported. Final assessment material varies by question; no cache saving is
+guaranteed.
+
+### Capacity and quality limits
+
+Selection reduces final request size when material is irrelevant, but adds model
+calls and evidence-recall risk: a relevant block missed by selection cannot inform
+the final answer. Offline tests establish source preservation and request wiring,
+not equivalent answer quality. Compare representative live runs against the full-set
+baseline before claiming improved quality or support for 15–20 documents. Include
+complementary, partial, conflicting, comparator and image-only evidence; measure
+selected-source recall, final citations/states, largest payload, latency and tokens.
+
+A single document or the combined selected evidence can still exceed gateway/model
+limits. All parsed sources and images are retained, so this is not a hard memory
+guarantee. No evidence is silently truncated to fit a request.
 
 Discipline grouping follows the bank's authored order. There is no reconciliation
 or deduplication stage: each discipline's question remains independently visible.

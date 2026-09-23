@@ -369,8 +369,8 @@ supplied material answers and which it does not.
 - The boundary against Inspector, which shares no code or config with it: Inspector
   asks whether *one* document is complete against its own template; Screener asks
   whether the evidence exists *anywhere in the set* for a reviewer to close a
-  question. The resemblance is structural — a list of sections holding units, one call
-  per unit — and structural only.
+  question. The resemblance is structural — a list of sections holding units, one final
+  assessment per unit — and structural only.
 - The bank is **transcribed** into `services/screener/configs/*.yaml`, never parsed from
   the authored document. A reader for someone else's prose format is a normalization
   layer that breaks whenever that document is edited.
@@ -441,10 +441,16 @@ supplied material answers and which it does not.
 - **The routing is the discipline**, which the source document guarantees. Grouping
   unanswered questions by discipline is the tool's main output; a claim that no
   document could ever answer one is not.
-- Every applicable question is read against **everything supplied**. That is what
-  makes the run honest, and it is also what makes it affordable: identical material on
-  every call is a cacheable prompt prefix, so the supplied documents precede the
-  question in the user message and the expensive half is paid for once.
+- Every applicable question examines **every supplied document** through one
+  schema-bound selection call per question/document pair. Selection returns only
+  canonical block IDs, never summaries or verdicts. Preserve partial, conflicting,
+  visual and contextual evidence; expand explicit page/slide/table groups within
+  their document. DOCX uses parser-authored `table_group` identities, because
+  supplementary tables can reuse numeric indices. One final assessment reads the
+  union of selected original blocks
+  in source order and may cite only that selection. Selection failure aborts the
+  run; it never becomes an empty selection or an absence finding. Both phases use
+  sequential, flat queues capped at six model calls, never nested worker pools.
 - Banks are keyed `(org, gate)`; the intervention class filters questions inside a
   bank rather than selecting which to read, so `find_config` takes two keys.
 - `load_config` raises on a bank naming an unknown intervention class or document
@@ -458,7 +464,8 @@ supplied material answers and which it does not.
   and passes through its parse-only pipeline. There is no separate context reader,
   TXT/Markdown/standalone-image upload, document-type configuration lookup, or
   section-mapping call. Supported images embedded in DOCX/PPTX remain canonical blocks.
-  All parsed blocks reach every applicable question and are retained in the result.
+  All parsed blocks reach each question's document selectors and remain in the
+  result, even when no final assessment selected them.
   The shared trace, portable result envelope and Ask consume those same block IDs.
 - Documents are identified by `doc_id`, never their business type or upload slot.
   Multiple reports of the same kind are valid; duplicate identities fail before

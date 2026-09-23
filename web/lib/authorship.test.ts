@@ -374,8 +374,8 @@ test("the layout keeps the header one block and every boundary one weight", () =
  * repeated. Scout never named the document it analysed at all, which is the one fact that
  * tells a reader which run they are looking at.
  *
- * `runLabel` already answered this for the run picker and the download filename, so a run
- * had one name in two places and something else in the third.
+ * `runLabel` keeps the card and history consistent. Download names are deliberately
+ * independent of source filenames and never define the saved result's identity.
  */
 
 test("every result card is titled by the run's own identity", () => {
@@ -1472,7 +1472,7 @@ test("an explainer sits on a control row, never on a repeating result row", () =
   // problems. It repeats: Aligner's was the same tooltip on five verdict groups, and
   // Screener's was on every required question. And it can only explain the value it sits
   // on, which is half a vocabulary - `required` means something against `anticipatory`,
-  // and an anticipatory question carries no badge for an icon to attach to.
+  // and anticipatory questions originally carried no badge for an icon to attach to.
   //
   // "How to read" is on the toolbar, once per tab, and lists every topic beside the ones
   // it contrasts with. That is where a vocabulary can actually be taught.

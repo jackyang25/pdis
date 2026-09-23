@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { runScreener, type ContentBlock, type ScreenerResponse } from "./api.ts";
 import { buildScreenerDocumentAnnotations } from "./screener-document-trace.ts";
-import { packScreenerResult, unpackScreenerResult, runScope } from "./result-file.ts";
+import { packScreenerResult, unpackScreenerResult, runLabel, runScope } from "./result-file.ts";
 import { documentExtractionWarnings, documentBlockLocationLabel } from "./document-extraction.ts";
 import { buildDocumentTrace, documentTracePassages } from "./document-trace.ts";
 
@@ -30,6 +30,28 @@ function fixture(): ScreenerResponse {
     }] }],
   } };
 }
+
+test("Screener names the gate, not a concatenation of uploaded filenames", () => {
+  const result = fixture();
+  for (const count of [1, 2, 20]) {
+    result.review.blocks = Array.from({ length: count }, (_, index) => ({
+      ...fixture().review.blocks[0], id: `source-${index}:1`, doc_id: `source-${index}`,
+    }));
+    result.review.documents = result.review.blocks.map(({ doc_id }) => ({ doc_id }));
+    result.review.disciplines[0].questions[0].cited_block_ids = ["source-0:1"];
+    const restored = unpackScreenerResult(JSON.parse(JSON.stringify(packScreenerResult(result))));
+    assert.equal(runLabel(restored, "screener"), "End of Phase 1");
+    assert.equal(runScope(restored, "screener"),
+      `Tuberculosis · Small Molecule · ${count} ${count === 1 ? "document" : "documents"}`);
+    assert.deepEqual(restored, result);
+  }
+});
+
+test("Screener falls back to the saved gate ID when no gate label is present", () => {
+  const result = fixture();
+  result.review.gate_label = "";
+  assert.equal(runLabel(result, "screener"), "eop1");
+});
 
 test("arbitrary documents and embedded images survive saved-result and trace round trips together", () => {
   const result = fixture();

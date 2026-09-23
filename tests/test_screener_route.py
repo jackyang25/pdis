@@ -118,6 +118,27 @@ class RunGuardTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("DOCX", response.json()["detail"])
 
+    def test_selection_failure_is_reported_at_selection_without_result(self):
+        from tests.test_screener_pipeline import ScriptedClient
+        class FailingSelector(ScriptedClient):
+            def call_structured(self, *args, schema_name, **kwargs):
+                if schema_name == "screener_question_evidence":
+                    raise RuntimeError("selector unavailable")
+                return super().call_structured(*args, schema_name=schema_name, **kwargs)
+        document = Document()
+        document.add_paragraph("Study plan.")
+        payload = io.BytesIO()
+        document.save(payload)
+        client = FailingSelector([])
+        with patch("api.routes.screener.get_openai_client", return_value=client):
+            response = self.post([("files", ("plan.docx", payload.getvalue(), "application/octet-stream"))])
+        events = [json.loads(line) for line in response.text.splitlines() if line]
+        errors = [e for e in events if e["event"] == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("select: selector unavailable", errors[0]["detail"])
+        self.assertFalse(any(e["event"] == "complete" for e in events))
+        self.assertEqual(client.triage_calls, [])
+
     def test_pdf_and_docx_share_the_retained_citation_collection(self):
         from tests.test_screener_pipeline import ScriptedClient
         document = Document()

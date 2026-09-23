@@ -42,11 +42,11 @@ const TOPICS: Record<ScreenerSignalTopic, SignalTopic> = {
   },
   requirement: {
     // No promptRef: the bank states it for every question and no model reads it.
-    title: QUESTION_REQUIREMENT_LABEL.required,
+    title: `${QUESTION_REQUIREMENT_LABEL.required} and ${QUESTION_REQUIREMENT_LABEL.anticipatory}`,
     summary:
       "Whether this gate expects the question answered now, or expects it to be forming.",
     detail:
-      "The bank states this for every question, and it is what makes an open question actionable: a required one the documents do not answer is what holds a gate up. An anticipatory one is early warning, so leaving it open is a prompt for the next conversation rather than a shortfall. Only required questions carry the badge.",
+      "The bank states this for every question, and it is what makes an open question actionable: a required one the documents do not answer is what holds a gate up. An anticipatory one is early warning, so leaving it open is a prompt for the next conversation rather than a shortfall. Each question is labelled Required or Anticipatory.",
   },
   denominator: {
     title: "The count",

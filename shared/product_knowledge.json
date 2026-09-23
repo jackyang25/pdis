@@ -937,21 +937,36 @@
                   ]
                 },
                 {
+                  "id": "select",
+                  "title": "Question evidence selection",
+                  "summary": "For each question, one call reads each complete document and selects original evidence and necessary context. Partial, conflicting and visual evidence remain eligible; no answer is decided here.",
+                  "kind": "model",
+                  "layer": "Selection",
+                  "inputs": [
+                    "One question and one complete parsed document with retained images",
+                    "The selected disease / condition and health product type as review context"
+                  ],
+                  "outputs": [
+                    "Selected source IDs, expanded to retain explicit page, slide and table groups"
+                  ],
+                  "guarantee": "Selection returns source IDs, not summaries. A failed selection stops the run. Selection can miss relevant evidence and does not guarantee that a document or final request fits gateway limits."
+                },
+                {
                   "id": "assess",
                   "title": "Per-question decision",
-                  "summary": "One bounded call per question, each reading the same material. The questions are compound, so each is judged clause by clause: every part answered, some parts, or none.",
+                  "summary": "One final call per question reads its combined selected source blocks. Compound questions are judged clause by clause: every part answered, some parts, or none.",
                   "kind": "model",
                   "layer": "Assessment",
                   "inputs": [
                     "One question",
-                    "The combined retained blocks and images from every document supplied"
+                    "Selected original blocks and images, combined across documents in source order"
                   ],
                   "outputs": [
                     "Answered, with its passages",
                     "Partly answered, with what it still leaves open",
                     "Not found"
                   ],
-                  "guarantee": "Identical material on every call, so a citation is membership-checked and the expensive half of the prompt is a cacheable prefix rather than paid for once per question."
+                  "guarantee": "Citations must belong to the selected input. All parsed sources remain in the saved review; selection changes model input, not the source record."
                 },
                 {
                   "id": "result",
@@ -981,6 +996,10 @@
                 },
                 {
                   "source": "parse",
+                  "target": "select"
+                },
+                {
+                  "source": "select",
                   "target": "assess"
                 },
                 {

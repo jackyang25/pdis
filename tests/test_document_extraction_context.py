@@ -5,7 +5,7 @@ from dataclasses import asdict
 
 from services.assistant import document
 from services.chunker import ContentBlock
-from services.screener.stages.assessor import _format_blocks
+from services.screener.evidence import format_blocks
 
 
 class ExtractionContextTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class ExtractionContextTests(unittest.TestCase):
                 self.assertIn("page", text.lower())
 
     def test_screener_assessment_sees_limitations_beside_source_text(self):
-        message = _format_blocks([self.block])
+        message = format_blocks([self.block])
         self.assertIn("The trial is planned.", message)
         self.assertIn("pdf_limited_structure", message)
         self.assertIn("Images", message)

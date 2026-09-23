@@ -1,6 +1,6 @@
-"""Screener's run: resolve, parse, assess, assemble.
+"""Screener's run: resolve, parse, select evidence, assess, assemble.
 
-Two code stages and one model stage. Resolution happens before parsing for the
+Resolution happens before parsing for the
 same reason Aligner resolves its comparisons first — fail before the expensive
 part, and never let a run that assessed nothing look like a run that found nothing
 wrong.
@@ -15,6 +15,7 @@ of that step is a design decision rather than an omission.
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Lock
 from typing import Sequence
 
 from shared.batching import map_ordered
@@ -38,6 +39,7 @@ from .models import (
     resolve_questions,
 )
 from .stages.assessor import assess_question
+from .stages.selector import select_evidence
 
 DEFAULT_MAX_OUTPUT_TOKENS = 16000
 SUPPORTED_DOCUMENT_SUFFIXES = TEXT_EXTRACTION_SUFFIXES
@@ -46,8 +48,8 @@ SUPPORTED_DOCUMENT_SUFFIXES = TEXT_EXTRACTION_SUFFIXES
 # inside chunker, and an unbounded fan-out here would multiply that.
 MAX_PARALLEL_DOCUMENTS = 3
 
-# One call per question, so throughput is fan-out. Matches Inspector's per-unit
-# bound, since the calls are the same size and hit the same provider limits.
+# Both model phases use this ceiling, sequentially. Pair selection has one flat
+# queue, never a document pool nested inside a question pool.
 MAX_PARALLEL_QUESTIONS = 6
 
 
@@ -99,19 +101,18 @@ def run_pipeline(
         return blocks
 
     parsed = map_ordered(list(documents), parse, workers=MAX_PARALLEL_DOCUMENTS)
-    # Ordered by the order documents were supplied, so a rerun with the same inputs
-    # produces a byte-identical result.
+    # Source order is independent of worker completion order.
     blocks = [block for document_blocks in parsed for block in document_blocks]
 
-    if progress_callback:
-        progress_callback("assess")
     assessments = _assess(
         resolutions,
+        parsed=parsed,
         blocks=blocks,
         indication=indication,
         intervention_class=intervention_class,
         llm_client=llm_client,
         max_tokens=max_tokens,
+        progress_callback=progress_callback,
     )
 
     review = GateReview(
@@ -134,19 +135,15 @@ def run_pipeline(
 def _assess(
     resolutions: list[QuestionResolution],
     *,
+    parsed: list[list[ContentBlock]],
     blocks: list[ContentBlock],
     indication: str,
     intervention_class: str,
     llm_client: LLMClientProtocol,
     max_tokens: int,
+    progress_callback=None,
 ) -> dict[str, QuestionAssessment]:
-    """One assessment per applicable question, each against everything supplied.
-
-    Every queued question sees the same material. That is what makes the run honest —
-    nothing is withheld because of a guess about where its answer lives — and it is
-    also what makes it affordable: an identical document context across every call is
-    a cacheable prompt prefix, which a per-question subset could never be.
-    """
+    """Read every question/document pair, then assess combined source selections."""
     settled: dict[str, QuestionAssessment] = {}
     queued: list[QuestionResolution] = []
 
@@ -157,10 +154,38 @@ def _assess(
         assert item.state is not None
         settled[item.question.id] = item.question.assessment(item.state)
 
+    pairs = [(item, document_blocks) for item in queued for document_blocks in parsed]
+    completed = 0
+    progress_lock = Lock()
+    if progress_callback:
+        progress_callback("select", completed=0, total=len(pairs))
+
+    def select_pair(pair: tuple[QuestionResolution, list[ContentBlock]]) -> list[ContentBlock]:
+        nonlocal completed
+        item, document_blocks = pair
+        selected = select_evidence(
+            item.question, document_blocks,
+            indication=indication, intervention_class=intervention_class,
+            llm_client=llm_client, max_tokens=max_tokens,
+        )
+        if progress_callback:
+            with progress_lock:
+                completed += 1
+                progress_callback("select", completed=completed, total=len(pairs))
+        return selected
+
+    selections = map_ordered(pairs, select_pair, workers=MAX_PARALLEL_QUESTIONS)
+    selected_ids = {item.question.id: set() for item in queued}
+    for (item, _), selected in zip(pairs, selections, strict=True):
+        selected_ids[item.question.id].update(block.id for block in selected)
+
+    if progress_callback:
+        progress_callback("assess")
+
     def ask(resolution: QuestionResolution) -> QuestionAssessment:
         return assess_question(
             resolution.question,
-            blocks=blocks,
+            blocks=[block for block in blocks if block.id in selected_ids[resolution.question.id]],
             indication=indication,
             intervention_class=intervention_class,
             llm_client=llm_client,

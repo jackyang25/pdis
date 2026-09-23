@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import unittest
 import io
+import threading
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -49,10 +51,14 @@ class ScriptedClient:
     def __init__(self, decisions: list[dict]) -> None:
         self.decisions = list(decisions)
         self.triage_calls: list[str] = []
+        self.selection_calls: list[str] = []
 
     def call_structured(
         self, system_prompt, user_message, max_tokens, *, schema_name, schema, **_
     ):
+        if schema_name == "screener_question_evidence":
+            self.selection_calls.append(user_message)
+            return {"block_ids": schema["properties"]["block_ids"]["items"]["enum"]}
         if schema_name == "screener_question_triage":
             self.triage_calls.append(user_message)
             return self.decisions.pop(0) if self.decisions else {
@@ -97,6 +103,8 @@ class PipelineTests(unittest.TestCase):
 
             def call_structured(self, system_prompt, user_message, max_tokens,
                                 *, schema_name, schema, images=None, **kwargs):
+                if schema_name == "screener_question_evidence":
+                    return {"block_ids": schema["properties"]["block_ids"]["items"]["enum"]}
                 if schema_name != "screener_question_triage":
                     raise AssertionError("Parsing must not call a model")
                 self.calls.append((user_message, images))
@@ -233,6 +241,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(states["Q4"], "not_applicable")
         self.assertEqual(len(review.assessments()), 4)
         self.assertEqual(len(client.triage_calls), 3)
+        self.assertEqual(len(client.selection_calls), 3)
 
     def test_the_requirement_survives_onto_the_result(self) -> None:
         """Carried for the same reason as the text: a saved file has no bank to look it
@@ -253,16 +262,18 @@ class PipelineTests(unittest.TestCase):
         )
         _, client = self.run_screener(config, [])
         self.assertNotIn("anticipatory", client.triage_calls[0].lower())
+        self.assertNotIn("anticipatory", client.selection_calls[0].lower())
 
-    def test_every_question_sees_the_same_material(self) -> None:
-        """Identical context per call is what makes the prompt prefix cacheable."""
+    def test_every_question_selects_from_the_complete_document(self) -> None:
+        """No relevance guess withholds source blocks from selection."""
         config = bank(
             QuestionSpec(id="Q1", text="Is dosing stated?"),
             QuestionSpec(id="Q2", text="Is the plan costed?"),
         )
         _, client = self.run_screener(config, [])
         self.assertEqual(len(client.triage_calls), 2)
-        prefixes = {call.split("Question (")[0] for call in client.triage_calls}
+        self.assertEqual(len(client.selection_calls), 2)
+        prefixes = {call.split("Question (")[0] for call in client.selection_calls}
         self.assertEqual(len(prefixes), 1, "the material differed between questions")
 
     def test_the_uploaded_document_reaches_the_prompt(self) -> None:
@@ -270,6 +281,119 @@ class PipelineTests(unittest.TestCase):
         _, client = self.run_screener(config, [])
         self.assertEqual(len(client.triage_calls), 1)
         self.assertIn("Dosing regimen", client.triage_calls[0])
+
+    def test_each_question_combines_its_own_selections_and_retains_all_source(self):
+        report = self.root / "report.docx"
+        write_docx(report, ["Study starts in June.", "Study postponed until July.", "Unrelated budget."])
+        client = PairClient({
+            ("Q1", "profile"): ["profile/b-0001"],
+            ("Q1", "report"): ["report/b-0000", "report/b-0001"],
+            ("Q2", "profile"): ["profile/b-0002"],
+            ("Q2", "report"): [],
+        })
+        stages = []
+        review = run_pipeline(
+            [DocumentInput(str(self.itpp), "profile"), DocumentInput(str(report), "report")],
+            org="bmgf", indication="malaria", intervention_class="drug",
+            config=bank(QuestionSpec("Q1", "What is the plan and timeline?"),
+                        QuestionSpec("Q2", "What does procurement cost?")),
+            llm_client=client, progress_callback=lambda stage, **counts: stages.append((stage, counts)),
+        )
+        self.assertEqual(set(client.selections), {("Q1", "profile"), ("Q1", "report"),
+                                                 ("Q2", "profile"), ("Q2", "report")})
+        self.assertIn("Unrelated budget.", client.selections[("Q1", "report")])
+        message = client.triage["Q1"]
+        self.assertIn("Dosing regimen", message)
+        self.assertIn("Study starts in June.", message)
+        self.assertIn("Study postponed until July.", message)
+        self.assertNotIn("Unrelated budget.", message)
+        self.assertNotIn("Procurement price", message)
+        self.assertNotIn("Study starts", client.triage["Q2"])
+        self.assertIn("Procurement price", client.triage["Q2"])
+        self.assertLess(message.index("profile/b-0001"), message.index("report/b-0000"))
+        self.assertEqual(review.assessments()[0].cited_block_ids,
+                         ["profile/b-0001", "report/b-0000", "report/b-0001"])
+        self.assertEqual(len(review.blocks), 6)
+        self.assertEqual(stages[:2], [("resolve", {}), ("parse", {})])
+        self.assertEqual([counts for stage, counts in stages if stage == "select"],
+                         [{"completed": n, "total": 4} for n in range(5)])
+        self.assertEqual(stages[-1], ("assess", {}))
+
+    def test_no_selected_evidence_still_reaches_final_assessor(self):
+        client = PairClient({("Q1", "profile"): []})
+        review = run_pipeline([DocumentInput(str(self.itpp), "profile")],
+            org="bmgf", indication="malaria", intervention_class="drug",
+            config=bank(QuestionSpec("Q1", "Is dosing stated?")), llm_client=client)
+        self.assertIn("No relevant source blocks were selected", client.triage["Q1"])
+        self.assertNotIn("Dosing regimen", client.triage["Q1"])
+        self.assertEqual(review.assessments()[0].state, "not_found")
+        self.assertEqual(len(review.blocks), 3)
+
+    def test_selection_failure_cannot_become_an_unanswered_question(self):
+        class FailingClient(PairClient):
+            def call_structured(self, *args, schema_name, **kwargs):
+                if schema_name == "screener_question_evidence":
+                    raise RuntimeError("selection unavailable")
+                return super().call_structured(*args, schema_name=schema_name, **kwargs)
+        client = FailingClient({})
+        with self.assertRaisesRegex(RuntimeError, "selection unavailable"):
+            run_pipeline([DocumentInput(str(self.itpp), "profile")],
+                org="bmgf", indication="malaria", intervention_class="drug",
+                config=bank(QuestionSpec("Q1", "Is dosing stated?")), llm_client=client)
+        self.assertEqual(client.triage, {})
+
+    def test_citing_a_retained_but_unselected_block_fails_assessment(self):
+        from shared.errors import ModelResponseError
+        class WrongCitationClient(PairClient):
+            def call_structured(self, *args, schema_name, **kwargs):
+                reply = super().call_structured(*args, schema_name=schema_name, **kwargs)
+                if schema_name == "screener_question_triage":
+                    reply["block_ids"] = ["profile/b-0002"]
+                return reply
+        client = WrongCitationClient({("Q1", "profile"): ["profile/b-0001"]})
+        with self.assertRaises(ModelResponseError):
+            run_pipeline([DocumentInput(str(self.itpp), "profile")],
+                org="bmgf", indication="malaria", intervention_class="drug",
+                config=bank(QuestionSpec("Q1", "Is dosing stated?")), llm_client=client)
+
+    def test_pair_fanout_is_bounded_and_completion_order_does_not_reorder_results(self):
+        report = self.root / "report.docx"
+        write_docx(report, ["Study starts in June."])
+        class ConcurrentClient(PairClient):
+            def __init__(self):
+                super().__init__({})
+                self.lock = threading.Lock()
+                self.active = self.peak = self.finished = 0
+                self.wave = threading.Event()
+
+            def call_structured(self, *args, schema_name, **kwargs):
+                with self.lock:
+                    if schema_name == "screener_question_triage":
+                        assert self.finished == 16
+                    self.active += 1
+                    self.peak = max(self.peak, self.active)
+                    if self.active >= 6:
+                        self.wave.set()
+                assert self.wave.wait(timeout=5), "model calls were not parallelized"
+                time.sleep(0.003 if "Q1)" in args[1] else 0.001)
+                try:
+                    return super().call_structured(*args, schema_name=schema_name, **kwargs)
+                finally:
+                    with self.lock:
+                        self.active -= 1
+                        if schema_name == "screener_question_evidence":
+                            self.finished += 1
+        client = ConcurrentClient()
+        review = run_pipeline(
+            [DocumentInput(str(self.itpp), "profile"), DocumentInput(str(report), "report")],
+            org="bmgf", indication="malaria", intervention_class="drug",
+            config=bank(*(QuestionSpec(f"Q{i}", f"Question {i}?") for i in range(8))),
+            llm_client=client,
+        )
+        self.assertEqual(client.finished, 16)
+        self.assertGreater(client.peak, 1)
+        self.assertLessEqual(client.peak, 6)
+        self.assertEqual([q.id for q in review.assessments()], [f"Q{i}" for i in range(8)])
 
     def test_an_answer_carries_the_blocks_the_document_produced(self) -> None:
         config = bank(
@@ -345,6 +469,29 @@ class PipelineTests(unittest.TestCase):
         )
         applicable = [q for _, q in config.questions() if q.applies("vaccine")]
         self.assertEqual(len(client.triage_calls), len(applicable))
+
+
+class PairClient:
+    """Record the actual request boundary; responses are keyed, never order-sensitive."""
+    def __init__(self, selected):
+        self.selected = selected
+        self.selections = {}
+        self.triage = {}
+
+    def call_structured(self, system_prompt, user_message, max_tokens, *, schema_name, schema, **kwargs):
+        question = user_message.split("Question (")[1].split("):")[0]
+        domain = schema["properties"]["block_ids"]["items"].get("enum", [])
+        if schema_name == "screener_question_evidence":
+            documents = {identifier.split("/b-")[0] for identifier in domain}
+            assert len(documents) == 1, "selection must read exactly one document"
+            document = next(iter(documents))
+            self.selections[(question, document)] = user_message
+            return {"block_ids": self.selected.get((question, document), domain)}
+        assert schema_name == "screener_question_triage"
+        self.triage[question] = user_message
+        return {"decision": "answered" if domain else "not_found",
+                "statement": "The evidence is documented." if domain else "No evidence selected.",
+                "missing": "", "block_ids": domain}
 
 
 if __name__ == "__main__":

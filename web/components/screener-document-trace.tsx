@@ -53,11 +53,7 @@ function ScreenerTraceInspector({
   return (
     <div>
       <TracePanelHeader
-        eyebrow={
-          ref.requirement === "required"
-            ? `${annotation.layerLabel} · ${annotation.statusLabel}`
-            : annotation.layerLabel
-        }
+        eyebrow={`${annotation.layerLabel} · ${annotation.statusLabel}`}
         title={ref.discipline}
         description={ref.questionId}
       />

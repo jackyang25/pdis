@@ -174,3 +174,12 @@ test("a question the gate requires is labelled as one", () => {
   assert.equal(annotation.statusLabel, "Required");
   assert.equal(annotation.sourceRef.requirement, "required");
 });
+
+test("an anticipatory question is explicitly labelled without changing its assessment", () => {
+  const question = { ...cited("A", ["profile:1"]), requirement: "anticipatory" as const };
+  const [annotation] = buildScreenerDocumentAnnotations(review([question]));
+  assert.equal(annotation.statusLabel, "Anticipatory");
+  assert.equal(annotation.sourceRef.requirement, "anticipatory");
+  assert.equal(annotation.kind, question.state);
+  assert.deepEqual(annotation.blockIds, ["profile:1"]);
+});

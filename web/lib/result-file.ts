@@ -155,11 +155,6 @@ export function packScoutResult(result: ScoutResponse): ResultFile<"scout", Scou
   };
 }
 
-/** Stable, filesystem-safe name derived from the analyzed source document. */
-export function scoutResultFilename(result: ScoutResponse): string {
-  return runFilename(result, "scout");
-}
-
 /**
  * Every tool that keeps finished runs.
  *
@@ -169,20 +164,11 @@ export function scoutResultFilename(result: ScoutResponse): string {
 export type RunKeepingTool = ResultType | "chunker" | "searcher";
 
 /**
- * What identifies one run, in the order a reader recognises it.
- *
- * One list per tool, feeding two things that must agree: the row in the run picker and
- * the name of the exported file. They were written separately — a lambda in the page and
- * a function here — so they drifted, and the drift was invisible from either side.
- * Screener's picker showed only the gate, so two runs of one gate on different documents
- * were two identical rows while their files differed; Aligner's picker named documents
- * and its file named types.
- *
- * The parts are readable text. `runLabel` joins them for the eye and `runFilename`
- * slugs them for a filesystem, so the two can differ in punctuation and never in
- * substance.
+ * The subject of a run, shared by its heading and history label.
+ * Source filenames belong in Documents, not concatenated into a multi-document title.
+ * Labels are presentation only: saved IDs distinguish runs, and history shows the time.
  */
-export function runIdentity(result: unknown, type: RunKeepingTool): string[] {
+function runLabelParts(result: unknown, type: RunKeepingTool): string[] {
   switch (type) {
     case "inspector": {
       const inspection = (result as InspectorResponse).inspection;
@@ -202,18 +188,12 @@ export function runIdentity(result: unknown, type: RunKeepingTool): string[] {
     }
     case "screener": {
       const review = (result as ScreenerResponse).review;
-      // The gate first, then the documents: the same set is triaged again at every gate,
-      // and the same gate is run against different sets. Either alone collides.
-      return [
-        review.gate_label || review.gate_id,
-        ...review.documents.map((document) => document.doc_id),
-      ].filter(Boolean);
+      return [review.gate_label || review.gate_id].filter(Boolean);
     }
     case "aligner": {
       const alignment = (result as AlignerResponse).alignment;
       // The document types, not their names: a three-document run reads as what it
-      // compared rather than as two filenames with a third silently dropped, and this
-      // same string is the download's filename.
+      // compared rather than as two filenames with a third silently dropped.
       return alignment.documents
         .map((document) => document.source_type || document.doc_id)
         .filter(Boolean);
@@ -223,54 +203,34 @@ export function runIdentity(result: unknown, type: RunKeepingTool): string[] {
       return [parsed.doc_id].filter(Boolean) as string[];
     }
     case "searcher": {
-      // The query is the run. Searcher exports no file, so nothing here has a filename
-      // to agree with — it is on this path because a picker row is a picker row, and one
-      // page naming its runs its own way is how the last inconsistency started.
+      // The query is what distinguishes searches in the history picker.
       return [(result as { query?: string }).query].filter(Boolean) as string[];
     }
   }
 }
 
-/** One run named for the eye: the picker row, and nothing else. */
+/** One presentation label for the result heading and history picker. */
 export function runLabel(result: unknown, type: RunKeepingTool): string {
-  const parts = runIdentity(result, type);
+  const parts = runLabelParts(result, type);
   return parts.length > 0 ? parts.join(" · ") : FALLBACK_LABEL[type];
 }
 
 /**
- * What the run was configured to be about, in the words the reader typed.
- *
- * Indication, then intervention class, then document type - `HIV · Vaccine · iTPP`. The
- * same three fields the header form asks for, so the line under a run's name is one a
- * reader can predict before the run finishes, and it reads the same in all four tools.
- *
- * It replaced four different sentences, each derived from that tool's own output: Scout
- * counted fields, Inspector counted sections and units, Aligner counted comparisons. Three
- * problems with that. The counts were a second statement of figures the metrics panel
- * already holds. They were phrased in whichever unit that tool happens to use, so the line
- * changed meaning between tools. And "36 fields" describes the Fields tab, not the run -
- * on the Documents view it named something not on screen.
- *
- * Configuration rather than results, because the question this line answers is "which run
- * is this", and a reader recognises their own inputs faster than a derived number.
- *
- * Not `org`: it is the same for every run a reader makes, so it separates nothing. It is
- * configuration all the same, and it belongs in the run's identity rather than here.
+ * Saved input context, not analysis outcomes: indication, intervention class and type.
+ * Screener adds the supplied document count instead of naming every file in its title.
+ * Full source names remain in Documents; neither label nor scope changes saved identity.
  */
 export function runScope(result: unknown, type: RunKeepingTool): string {
-  // Whatever the run's name already says is dropped here. Aligner names a run by its
-  // document types, and its configuration is those same types plus the indication and
-  // the class - so the card read `itpp · ctpp · ipdp` over `RSV · Vaccine · iTPP ·
-  // cTPP · IPDP`, the second line repeating the first.
-  //
-  // One rule rather than a per-tool exception: the scope line says what the name does
-  // not. For the other three the name is a document or a gate, so nothing is dropped
-  // and the line is unchanged.
-  const named = new Set(runIdentity(result, type).map((part) => part.toLowerCase()));
-  return runConfiguration(result, type)
+  // Avoid repeating document types already named in Aligner's heading.
+  const named = new Set(runLabelParts(result, type).map((part) => part.toLowerCase()));
+  const parts = runConfiguration(result, type)
     .filter((part) => part && !named.has(part.toLowerCase()))
-    .map(displayLabel)
-    .join(" · ");
+    .map(displayLabel);
+  if (type === "screener") {
+    const count = (result as ScreenerResponse).review.documents.length;
+    if (count > 0) parts.push(`${count} ${count === 1 ? "document" : "documents"}`);
+  }
+  return parts.join(" · ");
 }
 
 function runConfiguration(result: unknown, type: RunKeepingTool): string[] {
@@ -312,10 +272,9 @@ function documentTypes(documents: readonly { source_type?: string }[]): string[]
   );
 }
 
-/** The same run named for a filesystem, with the tool that produced it. */
-export function runFilename(result: unknown, type: RunKeepingTool): string {
-  const parts = runIdentity(result, type).map(safeFilenamePart).filter(Boolean);
-  return `${parts.join("-") || type}-${type}.json`;
+/** A download suggestion only. The browser owns saving; file contents own identity. */
+export function runFilename(type: Exclude<RunKeepingTool, "searcher">): string {
+  return `pdis-${type}.json`;
 }
 
 /**
@@ -332,16 +291,6 @@ const FALLBACK_LABEL: Record<RunKeepingTool, string> = {
   chunker: "Parsed document",
   searcher: "Search",
 };
-
-function safeFilenamePart(value: string): string {
-  const normalized = value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .toLowerCase();
-  return (normalized || "analysis").slice(0, 96).replace(/-+$/g, "");
-}
 
 export function packInspectorResult(
   result: InspectorResponse,
@@ -365,10 +314,6 @@ export function packInspectorResult(
 
 export function isInspectorResultFinal(result: InspectorResponse): boolean {
   return result.inspection.assessment_status === "complete";
-}
-
-export function inspectorResultFilename(result: InspectorResponse): string {
-  return runFilename(result, "inspector");
 }
 
 export function packAlignerResult(
@@ -403,14 +348,6 @@ export function packScreenerResult(
     analysis: { review },
     source_documents: groupDocuments(blocks),
   };
-}
-
-export function screenerResultFilename(result: ScreenerResponse): string {
-  return runFilename(result, "screener");
-}
-
-export function alignerResultFilename(result: AlignerResponse): string {
-  return runFilename(result, "aligner");
 }
 
 /** Read a final result produced by the current application contract. */

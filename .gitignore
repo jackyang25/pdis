@@ -39,6 +39,10 @@ web/tsconfig.tsbuildinfo
 .vscode/
 .idea/
 
+# local agent settings and scratch work
+/.claude/settings.local.json
+/.superpowers/
+
 # Generated from shared/prompt_reference.json by web/scripts/copy-shared.mjs
 web/public/prompt-reference.json
 

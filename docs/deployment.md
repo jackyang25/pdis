@@ -51,7 +51,7 @@ the entries marked `TODO` are cluster facts this repository cannot know.
 
 ## Analysis capacity
 
-Both environments reserve 5120 MiB of memory and 2000 MHz of CPU for the API
+Both environments reserve 6144 MiB of memory and 2000 MHz of CPU for the API
 task, including its LibreOffice subprocesses. There is no separate burst memory
 limit: the full memory budget is reserved. Nomad's CPU allocation is in MHz, not
 a count of cores. See the [Nomad resource specification](https://developer.hashicorp.com/nomad/docs/job-specification/resources).

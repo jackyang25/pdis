@@ -31,8 +31,8 @@ export const RELEASES: readonly Release[] = [
     sections: [{ changes: [
       "Screener picks the relevant passages from each document before assessing a question, keeping every original citation.",
       "Screener shows its progress while selecting evidence and labels required and anticipatory questions more clearly.",
-      "Scout explains what to check at each review checkpoint and when the evidence search begins.",
       "Screener results are titled by stage gate, and downloads use short, tool-specific filenames.",
+      "Scout explains what to check at each review checkpoint and when the evidence search begins.",
     ] }],
   },
   {

@@ -1,12 +1,11 @@
-"""Generic, result-agnostic navigation over a JSON result tree.
+"""The results source: a compact map of every held result, then exact paths on demand.
 
-The Ask assistant treats ANY result object (Scout, Inspector, future doc types)
-as a plain JSON tree and reads it ONLY through these helpers:
+Ask treats ANY result object (Scout, Inspector, future doc types) as a plain JSON
+tree and reads it ONLY through these helpers:
 
-  - overview(result)        -> a compact map so the agent knows what paths exist
-  - get(result, path)       -> the subtree at a dotted/indexed path
-  - find(result, keyword)   -> paths whose key or value contains the keyword
-  - fetch_source(url, ...)  -> full text behind an ALREADY-CITED url (no new search)
+  - overview(index)        -> a compact map so the agent knows what paths exist
+  - get(index, path)       -> the subtree at a dotted/indexed path
+  - find(index, query)     -> paths whose key or value contains the query
 
 Nothing here knows about Scout/Inspector specifics - that semantic meaning is
 supplied separately by a per-result-type legend. This keeps the assistant
@@ -16,141 +15,97 @@ decoupled: a new result type needs only a legend, no changes here.
 from __future__ import annotations
 
 import json
-import ipaddress
 import re
-import socket
-import urllib.error
-import urllib.request
-from urllib.parse import urlparse
 from typing import Any
 
-MAX_GET_CHARS = 12000
-MAX_FIND_HITS = 40
-MAX_FETCH_CHARS = 20000
-FETCH_TIMEOUT_SECONDS = 20
+from . import limits, sources
+from .workspace import WorkspaceIndex
 
-# Identifying fields used to label list items in the overview.
-_LABEL_KEYS = (
-    "name",
-    "attribute_ref",
-    "section_name",
-    "variable_name",
-    "statement",
-    "doc_id",
-    "title",
-    "url",
-)
 _PATH_TOKEN = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
 
 
-def overview(result: Any, max_labels: int = 8) -> str:
-    """A compact structural map: scalar fields, list sizes, and sample labels."""
-    lines: list[str] = []
-
-    def label(item: Any) -> str | None:
-        if isinstance(item, dict):
-            for key in _LABEL_KEYS:
-                if item.get(key):
-                    return str(item[key])
-        return None
-
-    def walk(node: Any, path: str) -> None:
-        if isinstance(node, dict):
-            for key, value in node.items():
-                walk(value, f"{path}.{key}" if path else key)
-        elif isinstance(node, list):
-            lines.append(f"{path}: list ({len(node)} items)")
-            labels = [label(x) for x in node[:max_labels]]
-            labels = [x for x in labels if x]
-            if labels:
-                more = " ..." if len(node) > max_labels else ""
-                lines.append(f"  e.g. {', '.join(labels)}{more}")
-        else:
-            value = str(node)
-            if len(value) > 80:
-                value = value[:80] + "..."
-            lines.append(f"{path}: {value}")
-
-    walk(result, "")
+def overview(index: WorkspaceIndex) -> str:
+    """Each held result and the draft: what it is, what it read, and its top two levels."""
+    if not index.results:
+        return "No results are held."
+    # Walk the bundle's own list so each path is the entry's real position there; the
+    # index's results are the same entries, in the same order, minus any without a type.
+    raw = [
+        (position, entry)
+        for position, entry in enumerate(index.bundle.get("results") or [])
+        if isinstance(entry, dict) and entry.get("result_type")
+    ]
+    finals = [entry for entry in index.results if not entry.draft]
+    rows = [(f"results[{position}]", entry, raw_entry.get("analysis"))
+            for (position, raw_entry), entry in zip(raw, finals)]
+    if index.has_review:
+        draft = next(entry for entry in index.results if entry.draft)
+        rows.append(("active_review", draft, index.bundle["active_review"].get("analysis")))
+    lines = []
+    for path, entry, analysis in rows:
+        state = "draft" if entry.draft else "final"
+        reads = ", ".join(entry.doc_ids) or "no documents"
+        lines.append(f"- [{entry.id}] {entry.result_type} · {entry.label} · {state} · reads: {reads} · path: {path}")
+        lines.extend(f"  {line}" for line in _structure(analysis, limits.MAP_LINES_PER_RESULT))
     return "\n".join(lines)
 
 
-def get(result: Any, path: str) -> str:
-    """Return the JSON subtree at `path` (e.g. 'matches[3].insight.statement')."""
-    node = _traverse(result, path.strip())
-    text = json.dumps(node, indent=2, default=str, ensure_ascii=False)
-    if len(text) > MAX_GET_CHARS:
-        text = text[:MAX_GET_CHARS] + "\n...[truncated - narrow the path]"
-    return text
+def _structure(node: Any, cap: int) -> list[str]:
+    """Field names and list sizes two levels deep, capped."""
+    lines: list[str] = []
+
+    def describe(value: Any) -> str:
+        if isinstance(value, list):
+            return f"list ({len(value)} items)"
+        if isinstance(value, dict):
+            return f"object ({len(value)} fields)"
+        text = " ".join(str(value).split())
+        return text if len(text) <= limits.MAP_FIELD_VALUE_CHARS else text[: limits.MAP_FIELD_VALUE_CHARS] + "…"
+
+    if isinstance(node, dict):
+        for key, value in node.items():
+            lines.append(f"{key}: {describe(value)}")
+            if isinstance(value, dict):
+                lines.extend(f"  {child}: {describe(grand)}" for child, grand in value.items())
+    total = len(lines)
+    if total > cap:
+        lines = lines[:cap] + [f"…[{total - cap} more fields; use find_result]"]
+    return lines
 
 
-def find(result: Any, keyword: str) -> str:
-    """Return paths whose key or scalar value contains `keyword` (case-insensitive)."""
-    needle = keyword.strip().lower()
-    if not needle:
-        return "(empty keyword)"
-    hits: list[str] = []
+def get(index: WorkspaceIndex, path: str) -> str:
+    node = _traverse(index.bundle, path.strip())
+    return sources.truncate(json.dumps(node, indent=2, default=str, ensure_ascii=False),
+                            limits.MAX_RESULT_CHARS, "narrow the path")
 
+
+def find(index: WorkspaceIndex, query: Any) -> str:
+    term = sources.search_term(query)
+    if term is None:
+        return sources.EMPTY_QUERY
+    needle, hits = term.lower(), []
+
+    # The walk visits every node, so the overflow line counts every match rather than
+    # the one that tripped the cap. Hits past the cap are only counted, never worded.
     def walk(node: Any, path: str) -> None:
-        if len(hits) >= MAX_FIND_HITS:
-            return
         if isinstance(node, dict):
             for key, value in node.items():
                 child = f"{path}.{key}" if path else key
-                if needle in key.lower():
-                    hits.append(child)
+                if needle in str(key).lower():
+                    hits.append(sources.Hit(id=child, snippet=""))
                 walk(value, child)
         elif isinstance(node, list):
-            for i, value in enumerate(node):
-                walk(value, f"{path}[{i}]")
+            for position, value in enumerate(node):
+                walk(value, f"{path}[{position}]")
         elif isinstance(node, str) and needle in node.lower():
-            hits.append(path)
+            shown = len(hits) < limits.MAX_FIND_HITS
+            hits.append(sources.Hit(
+                id=path,
+                snippet=sources.snippet(node, node.lower().find(needle), len(needle)) if shown else "",
+            ))
 
-    walk(result, "")
-    return "\n".join(hits[:MAX_FIND_HITS]) if hits else "(no matches)"
-
-
-def collect_urls(result: Any) -> set[str]:
-    """Every http(s) URL anywhere in the result - the allowlist for fetch_source."""
-    urls: set[str] = set()
-
-    def walk(node: Any) -> None:
-        if isinstance(node, dict):
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value)
-        elif isinstance(node, str) and node.startswith(("http://", "https://")):
-            urls.add(node)
-
-    walk(result)
-    return urls
-
-
-def fetch_source(url: str, allowed_urls: set[str]) -> str:
-    """Fetch the full text behind an ALREADY-CITED url. Grounding + safety: only
-    URLs present in the result may be fetched (no fresh/arbitrary browsing)."""
-    url = url.strip()
-    if url not in allowed_urls:
-        return (
-            "Refused: that URL is not one of the sources cited in this result. "
-            "I can only open links that already appear in the results."
-        )
-    if not _is_public_http_url(url):
-        return "Refused: cited source URL does not resolve to a public HTTP endpoint."
-    try:
-        request = urllib.request.Request(url, headers={"User-Agent": "pdis-ask/0.1"})
-        opener = urllib.request.build_opener(_PublicRedirectHandler())
-        with opener.open(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
-            raw = response.read(2_000_000).decode("utf-8", "replace")
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as exc:
-        return f"Could not open this source ({exc}). Fall back to the excerpt in the result."
-
-    text = _strip_html(raw)
-    if len(text) > MAX_FETCH_CHARS:
-        text = text[:MAX_FETCH_CHARS] + "\n...[truncated]"
-    return text or "(the source returned no readable text)"
+    walk(index.bundle, "")
+    return sources.render_hits(hits, limits.MAX_FIND_HITS)
 
 
 def _traverse(node: Any, path: str) -> Any:
@@ -165,36 +120,3 @@ def _traverse(node: Any, path: str) -> Any:
         if node is None:
             return None
     return node
-
-
-def _strip_html(html: str) -> str:
-    html = re.sub(r"(?is)<(script|style)\b.*?>.*?</\1>", " ", html)
-    text = re.sub(r"(?s)<[^>]+>", " ", html)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _is_public_http_url(url: str) -> bool:
-    """Prevent imported result JSON from turning fetch_source into an SSRF hop."""
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            return False
-        default_port = 443 if parsed.scheme == "https" else 80
-        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or default_port)
-        return bool(addresses) and all(
-            ipaddress.ip_address(sockaddr[0]).is_global
-            for *_, sockaddr in addresses
-        )
-    except (OSError, ValueError):
-        return False
-
-
-class _PublicRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Apply the same public-endpoint check to every redirect target."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        if not _is_public_http_url(newurl):
-            raise urllib.error.HTTPError(
-                newurl, code, "redirect to non-public endpoint refused", headers, fp
-            )
-        return super().redirect_request(req, fp, code, msg, headers, newurl)

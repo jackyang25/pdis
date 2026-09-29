@@ -26,10 +26,12 @@ from services.assistant import (
     PriorityItemInput,
     PriorityRequest,
     answer_stream as assistant_answer_stream,
+    limits,
     read_priorities,
 )
 from services.chunker import parse_context_file
 
+from api import streaming
 from api.deps import MissingCredentialError, get_openai_client
 from api.schemas import (
     AskRequest,
@@ -95,7 +97,10 @@ def sse(chunks: Iterator[Chunk]) -> Iterator[str]:
     SSE is line-delimited and model prose contains newlines constantly.
     """
     try:
-        for chunk in chunks:
+        for chunk in streaming.with_heartbeat(chunks):
+            if chunk is streaming.PING:
+                yield ": ping\n\n"
+                continue
             prefix = "" if chunk.kind == "text" else f"event: {chunk.kind}\n"
             yield f"{prefix}data: {json.dumps(chunk.text)}\n\n"
     except Exception:
@@ -148,8 +153,6 @@ async def priority_digest(request: PriorityDigestRequest) -> PriorityDigestRespo
     )
     try:
         result = await run_in_threadpool(read_priorities, read, llm_client=llm_client)
-    except HTTPException:
-        raise
     except Exception as exc:  # noqa: BLE001
         # Everything, not just ValueError. A provider rejecting the request raises its own
         # SDK error, which slipped past a ValueError handler and became a 500 with the
@@ -172,17 +175,36 @@ async def priority_digest(request: PriorityDigestRequest) -> PriorityDigestRespo
     )
 
 
+def _request_size_problem(request: AskRequest) -> str | None:
+    """Why a request is too large to answer, or None. Checked before the stream opens."""
+    blocks = request.document or []
+    images = [block.image for block in blocks if block.image is not None]
+    checks = (
+        (len(request.messages), limits.MAX_REQUEST_MESSAGES, "too many messages"),
+        (len(blocks), limits.MAX_REQUEST_BLOCKS, "too many document blocks"),
+        (len(images), limits.MAX_REQUEST_IMAGES, "too many images"),
+        (sum(len(image.data_base64) for image in images), limits.MAX_REQUEST_IMAGE_CHARS, "too much image data"),
+    )
+    for size, cap, what in checks:
+        if size > cap:
+            return f"This conversation carries {what} ({size} > {cap}). Start a new chat or remove results."
+    return None
+
+
 @router.post("/ask/stream")
 def ask_stream(request: AskRequest) -> StreamingResponse:
     """Stream a grounded answer and explicit success/failure as SSE events.
 
-    The request contract intentionally matches /ask so saved results, source
-    documents, and stateless conversation history keep the same semantics.
+    Each request carries the current workspace and the conversation; nothing is kept
+    between requests.
     """
     try:
         client = get_openai_client()
     except MissingCredentialError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    problem = _request_size_problem(request)
+    if problem:
+        raise HTTPException(status_code=413, detail=problem)
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
     document = (
         [block.model_dump() for block in request.document] if request.document else None
@@ -190,7 +212,6 @@ def ask_stream(request: AskRequest) -> StreamingResponse:
     stream = assistant_answer_stream(
         client,
         request.result,
-        request.result_type,
         messages,
         document=document,
     )

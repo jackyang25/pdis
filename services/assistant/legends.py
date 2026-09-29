@@ -4,7 +4,7 @@ The navigator is fully generic (JSON tree in, slices out); this registry is the
 ONE place that carries each result type's meaning. The agent's system prompt
 includes the legend so it can interpret the otherwise-opaque tree.
 
-Adding a new doc type = add one entry here. No navigator/agent changes.
+Adding a result type with its own vocabulary = add one legend and one `_BY_TYPE` entry.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ Note: Match relations and Precedent answer DIFFERENT questions and can differ wi
 INSPECTOR_LEGEND = """This is an INSPECTOR result: a document assessed against separately authored rubrics. Shape:
 - reviews[]: peer reviews, each with rubric identity, revision, authority, scope, sources, saved requirements, sections[] and assessment_status. Attribute each conclusion to its rubric; never blend reviews into an overall grade or imply regulatory compliance or agency certification. A null revision means an imported historical review whose original rubric text was not saved.
 - rubric_resolutions[] explains included, outside_review_scope and needs_context reviews. An omitted review was NOT assessed and says nothing about regulatory exemption. applicability_facts records explicit product context, not model inference.
-- The section and unit descriptions below apply within EACH review. Rank is local to a review, never a priority across authorities. For a selected-review priority projection, rubric and sections are at the root instead.
+- The section and unit descriptions below apply within EACH review. Rank is local to a review, never a priority across authorities.
 - Whole-document rubric sections are requirement groupings, not physical sections: is_present is null and mapped_block_ids is empty. Their citations can point anywhere in the retained document. Never call such a section missing merely because it has no physical mapping.
 - sections[]: every rubric section, in the order the rubric author wrote them. Each has is_present, mapped_block_ids[] (the blocks assigned to it - a deterministic parse assignment, NOT a citation, so never present it as evidence), units[], and verdict_counts.
 - sections[].units[]: one unit per thing the rubric asks about, and one verdict per unit. A section with no variables contributes exactly one unit whose variable_name is null; a section with variables contributes one unit per variable. The rubric owns how many units exist, so a unit the model said nothing about still appears - the denominator is identical for every document on this rubric and cannot shrink.
@@ -60,15 +60,15 @@ ALIGNER_LEGEND = """This is an ALIGNER result: one or more ONE-WAY comparisons b
         not_comparable = it addresses the subject but not in terms that can be measured against the requirement - a qualitative claim against a numeric bar, a different population, a different endpoint. This is NOT a claim that the document is worse, and NOT silence. Do not restate it as either;
         not_addressed = the document says nothing on the subject. Say exactly that. It is often a question about which document should carry the requirement rather than a deficiency in this one.
     statement: the model's sentence about what the measured document states, with comparison_spans quoting the exact lines it was read from. not_addressed cites nothing, because it is a claim about the absence of text.
-- blocks[]: every parsed block from every document, readable through the same document tools as any other result. A finding's two citation lists point into different documents: reference_spans into the one that sets the bar, comparison_spans into the one being measured. Never present one as the other. Each span carries the quoted line and the block it came from; the quote was copied from the block by code, not typed by a model, so it is safe to reproduce verbatim.
+- The parsed blocks of every document are in the workspace's document collection, not in this tree, and are read with the document tools. A finding's two citation lists point into different documents: reference_spans into the one that sets the bar, comparison_spans into the one being measured. Never present one as the other. Each span carries the quoted line and the block it came from; the quote was copied from the block by code, not typed by a model, so it is safe to reproduce verbatim.
 Visual citations use reference_visual_block_ids and comparison_visual_block_ids on their respective sides. They resolve to retained images, not validated quotations. A requirement or finding may cite text, visuals, or both; never turn a visual reference or image placeholder into an exact quote. not_addressed carries neither comparison citation kind.
 There is no compliance score and no percentage. Do not compute one: a single figure blending "the candidate meets this", "it beats this", "it says something that cannot be compared" and "this document does not cover it" would misrepresent the review. Report the verdicts separately, note that they sum to the total, and do not compare totals across two different comparisons - the total is however many requirements that reference document happens to state.
 Aligner never judges document quality (Inspector does that against a rubric) and never retrieves external evidence (Scout does that). If the user asks whether a target is achievable, say that is Scout's question, run separately per document."""
 
-SCREENER_LEGEND = """This is an SCREENER result: one stage gate's question bank triaged against a set of product-development documents. Screener does not answer the questions and renders no verdict on the documents - it reports which of them the supplied material answers and which it does not. Shape:
+SCREENER_LEGEND = """This is a SCREENER result: one stage gate's question bank triaged against a set of product-development documents. Screener does not answer the questions and renders no verdict on the documents - it reports which of them the supplied material answers and which it does not. Shape:
 - gate_id / gate_label: the gate this bank belongs to. A different gate asks different questions of the same documents.
 - bank_source: the authored document these questions were transcribed from, and the guidance that document was built on. Cite it when a reader asks where a question comes from or whether it is current, and never present a question as PDIS's own wording. The banks are written for small-molecule drug programs; a run for another modality is refused rather than answered with questions that modality has no answer to.
-- documents[]: every document read, identified by doc_id. Screener accepts any supported DOCX/PPTX document without assigning it a document type. Every applicable question was read against all of them; nothing was withheld because of an assumption about which document ought to hold an answer.
+- documents[]: every document read, identified by doc_id. Screener accepts any supported DOCX, PPTX or text-based PDF document without assigning it a document type. Every applicable question was read against all of them; nothing was withheld because of an assumption about which document ought to hold an answer.
 - disciplines[]: the eight owning disciplines, in the order the bank's authors wrote them, each with questions[]. The discipline IS the routing, and it is the only grouping the source document guarantees. Nothing is ranked - the order is the authors' sequence, so two runs on one gate compare line by line. Never re-order or re-rank it.
 - disciplines[].questions[]: every question the gate asks, each carrying its full text and exactly one state. The denominator cannot shrink, which is what makes a count safe to quote.
 - state is answered | partly_answered | not_found | not_applicable, and only the first three come from a model. They are ordered by how much of the question is closed, because these questions are compound - most ask three to five things in one sentence and are judged clause by clause:
@@ -79,7 +79,7 @@ SCREENER_LEGEND = """This is an SCREENER result: one stage gate's question bank 
 - missing: on a partly_answered question only, one sentence naming what the question still leaves open. Never present it as the whole question being unanswered, and never invent one for a state that has none.
 - cited_block_ids: every answered or partly_answered question names the retained passages it was read from. Citations may span several documents. Open those blocks through the shared document tools. Screener records whole-block lineage, not exact sentence quotations; do not invent a narrower citation.
 - requirement: `required` or `anticipatory`, stated by the source for every question. This is the axis that makes an open question actionable: a `required` question the documents do not answer is what holds a gate up, and an unanswered `anticipatory` one is early warning that the gate expects thinking to be under way rather than a finished answer. Report it whenever you report an unanswered question, and never present an unanswered anticipatory question as a shortfall. It played no part in any state and the model was never told which kind a question is.
-- blocks[]: the parsed content and retained images from all supplied documents. There is no separate transient evidence source; every supplied document travels with the review.
+- The parsed content and retained images of all supplied documents are in the workspace's document collection, not in this tree; reach them with the document tools by the cited block IDs.
 - statement is the model's own sentence about what the material states or what was not found. Questions that are not_applicable carry none, because nothing read them.
 There is no coverage score and no weighting. Do not compute one, and do not add partly_answered to answered to imply progress: a single figure blending "the document says it", "it says half of it", and "nobody has asked yet" would misrepresent the review. Report the states separately, and note that they sum to the total. Where one number is asked for, the defensible one is how many questions this gate REQUIRES that are still unanswered - state it as that, never as a percentage."""
 
@@ -92,7 +92,7 @@ WORKSPACE_LEGEND = """This is a read-only PDIS WORKSPACE bundle. Shape:
 - results[].priority_digest: present only when the reader has the priority panel open for that run. It is NOT part of the result and was not produced by the tool's pipeline: `digest` is a passage about the panel's list, and `nominations[]` are items the tool's own selector excluded, each citing document blocks. Treat nominations as things a reader can see on screen that the analysis does not contain - never as findings the tool made, never as evidence, and never as a reason to restate a verdict. When one is relevant, say it was raised alongside the panel rather than by the tool.
 - conversation_attachments[]: transient files the user added to this conversation. They are user-supplied context, not PDIS findings or independently verified evidence; their block_ids link to the same exact document-reading tools.
 - An absent result type means that no eligible current result of that type is available. Say so plainly; never imply that a tool was run.
-Use each entry's result_type to interpret its analysis: Inspector judges one document against a rubric; Aligner judges the iTPP, cTPP, and IPDP against each other; Scout judges one document's targets against external evidence and precedent; Screener triages one stage gate's question bank across a set of documents, reporting only whether the supplied material answers each question; Chunker exposes parsed source blocks; Searcher contains direct normalized retrieval findings. Compare entries only when the question calls for it, and identify which result supports each statement."""
+Use each entry's result_type to interpret its analysis with that type's legend below, where one is given. Chunker results expose parsed source blocks; Searcher results contain direct normalized retrieval findings. Compare entries only when the question calls for it, and identify which result supports each statement."""
 
 SCOUT_REVIEW_LEGEND = (
     "ACTIVE REVIEW DRAFT (not a final result):\n"
@@ -118,19 +118,23 @@ SCOUT_REVIEW_LEGEND = (
     "Drafts do not satisfy workflows requiring final results."
 )
 
-_LEGENDS: dict[str, str] = {
-    "scout_review": SCOUT_REVIEW_LEGEND,
-    "aligner": ALIGNER_LEGEND,
-    "screener": SCREENER_LEGEND,
-    "scout": SCOUT_LEGEND,
-    "inspector": INSPECTOR_LEGEND,
-    "workspace": WORKSPACE_LEGEND,
-}
+_BY_TYPE = (
+    ("inspector", INSPECTOR_LEGEND),
+    ("aligner", ALIGNER_LEGEND),
+    ("scout", SCOUT_LEGEND),
+    ("screener", SCREENER_LEGEND),
+)
 
 
-def legend_for(result_type: str) -> str:
-    """Return the semantic legend for a result type, or a neutral fallback."""
-    return _LEGENDS.get(
-        result_type,
-        "This is a structured analysis result. Navigate it as a JSON tree.",
-    )
+def legends_for(held: frozenset[str], has_review: bool) -> str:
+    """The workspace legend, then one legend per held result type, then the draft's.
+
+    A review draft is a Scout tree, so its fields are explained by the Scout legend
+    whether or not a final Scout result is also held.
+    """
+    explained = held | {"scout"} if has_review else held
+    parts = [WORKSPACE_LEGEND]
+    parts += [legend for result_type, legend in _BY_TYPE if result_type in explained]
+    if has_review:
+        parts.append(SCOUT_REVIEW_LEGEND)
+    return "\n\n".join(parts)

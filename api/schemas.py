@@ -998,16 +998,16 @@ class ScreenerRunResponse(BaseModel):
 
 
 class AskMessage(BaseModel):
-    role: str  # "user" | "assistant"
+    role: Literal["user", "assistant"]
     content: str
 
 
 class AskRequest(BaseModel):
-    result_type: str  # "scout" | "inspector" | ...
+    """The client's current workspace bundle and the conversation so far."""
+
     result: dict[str, Any]
     messages: list[AskMessage]
-    # The source document behind the result (parsed blocks), if available. Lets
-    # the assistant cross-compare the distilled result against the full document.
+    # The parsed blocks behind the workspace's results and attachments.
     document: list[ContentBlockOut] | None = None
 
 

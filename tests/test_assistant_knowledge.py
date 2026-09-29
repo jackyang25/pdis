@@ -5,7 +5,9 @@ from __future__ import annotations
 import unittest
 
 from services.assistant import knowledge
-from services.assistant.agent import TOOLS, _system_prompt
+from services.assistant.prompt import system_prompt
+from services.assistant.registry import TOOLS
+from services.assistant.workspace import build_index
 
 
 class AssistantKnowledgeTests(unittest.TestCase):
@@ -33,7 +35,7 @@ class AssistantKnowledgeTests(unittest.TestCase):
 
     def test_assistant_exposes_bounded_product_documentation_tools(self) -> None:
         tool_names = {tool["function"]["name"] for tool in TOOLS}
-        prompt = _system_prompt({}, "workspace")
+        prompt = system_prompt(build_index({}, None))
 
         self.assertIn("find_product_docs", tool_names)
         self.assertIn("read_product_docs", tool_names)

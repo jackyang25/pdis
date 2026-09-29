@@ -1,57 +1,27 @@
-"""Ask assistant: a read-only, grounded, hand-rolled agent loop (no framework).
+"""Ask: a read-only, grounded agent loop over one request's workspace.
 
-Given a result object + its type + the conversation so far, it answers the
-user's latest question using ONLY the result and the full text behind sources
-already cited in it. It navigates the result with the generic tools in
-`navigator` and never runs a fresh web search or mutates anything.
-
-The loop is deliberately tiny: call the LLM with tools -> run any requested
-tool over the result -> append the output -> repeat until the LLM answers.
+Build the index, send the bounded prompt, run any tools the model calls, repeat until it
+answers. The loop knows nothing about what the tools do; the registry does.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from typing import Any, Iterator, Literal, Protocol
+import logging
+from dataclasses import asdict, dataclass, field
+from typing import Any, Generator, Iterator, Literal
 
-from shared.chat import ChatDelta, ChatTurn, ToolCall
+from shared.chat import ChatTurn
 
-from . import document as document_reader
-from . import knowledge
-from . import navigator
-from . import skills
-from . import resources
-from .legends import legend_for
+from . import limits, resources
+from .document import VisualBudget
+from .prompt import system_prompt
+from .protocols import StreamingChatLLMProtocol
+from .registry import TOOLS, VERBS, ToolContext, run_tool
+from .workspace import build_index
 
-DEFAULT_MAX_TOKENS = 4000
-MAX_STEPS = 6
+logger = logging.getLogger(__name__)
 
-
-class ChatLLMProtocol(Protocol):
-    """Tool-calling chat contract (satisfied by the shared OpenAIClient.chat)."""
-
-    def chat(
-        self,
-        messages: list[dict[str, Any]],
-        *,
-        tools: list[dict[str, Any]] | None = None,
-        max_tokens: int = 4000,
-    ) -> ChatTurn:
-        ...
-
-
-class StreamingChatLLMProtocol(ChatLLMProtocol, Protocol):
-    """Ask streaming contract (satisfied by OpenAIClient.chat_stream)."""
-
-    def chat_stream(
-        self,
-        messages: list[dict[str, Any]],
-        *,
-        tools: list[dict[str, Any]] | None = None,
-        max_tokens: int = 4000,
-    ) -> Iterator[ChatDelta]:
-        ...
 
 @dataclass(frozen=True)
 class Chunk:
@@ -70,333 +40,76 @@ class Chunk:
     text: str
 
 
-from .registry import REGISTRY, TOOLS, ToolContext, _VERBS, held_result_types
+@dataclass
+class QuestionStats:
+    """What one question cost, logged as one line when it ends."""
 
+    model_calls: int = 0
+    input_tokens: int = 0
+    cached_input_tokens: int = 0
+    output_tokens: int = 0
+    tools_called: list[str] = field(default_factory=list)
+    visuals_viewed: int = 0
+    visuals_withheld: int = 0
 
-
+    def add(self, turn: ChatTurn) -> None:
+        self.model_calls += 1
+        self.input_tokens += turn.usage.input_tokens
+        self.cached_input_tokens += turn.usage.cached_input_tokens
+        self.output_tokens += turn.usage.output_tokens
 
 
 def answer_stream(
     client: StreamingChatLLMProtocol,
     result: dict[str, Any],
-    result_type: str,
     messages: list[dict[str, Any]],
     *,
     document: list[dict[str, Any]] | None = None,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tokens: int = limits.MAX_OUTPUT_TOKENS,
 ) -> Iterator[Chunk]:
-    """Stream the final grounded answer while keeping tool turns server-side.
+    """Stream the final grounded answer while keeping tool turns server-side."""
+    index = build_index(result, document)
+    context = ToolContext(index=index, budget=VisualBudget())
+    work: list[dict[str, Any]] = [{"role": "system", "content": system_prompt(index)}, *messages]
+    stats = QuestionStats()
+    try:
+        for _ in range(limits.MAX_STEPS):
+            turn = yield from _stream_turn(client, work, TOOLS, max_tokens, stats)
+            if not turn.tool_calls:
+                return
+            # The provider owns continuation syntax. Carry it back unchanged, within
+            # this request only, so reasoning and tool-call lineage survive each step.
+            work.append({"role": "assistant", "content": turn.text, "continuation": turn.continuation})
+            for call in turn.tool_calls:
+                yield Chunk("activity", resources.activity_for(VERBS, call.name))
+                output = run_tool(call, context)
+                stats.tools_called.append(call.name)
+                work.append({"role": "tool", "tool_call_id": call.id,
+                             "content": output.text, "images": output.images})
+        work.append({"role": "user", "content": "Answer now using what you've gathered."})
+        turn = yield from _stream_turn(client, work, None, max_tokens, stats)
+        if turn.tool_calls:
+            raise RuntimeError("Assistant did not complete its final answer")
+    finally:
+        stats.visuals_viewed = context.budget.viewed
+        stats.visuals_withheld = context.budget.withheld
+        logger.info("assistant_question %s", json.dumps(asdict(stats)))
 
-    The provider adapter emits text and completed tool calls. Only completed
-    calls execute; their results join the private working conversation.
-    """
-    allowed_urls = navigator.collect_urls(result)
-    context = ToolContext(
-        result=result,
-        allowed_urls=allowed_urls,
-        document=document,
-        held_result_types=held_result_types(result),
-    )
-    work = _initial_messages(result, result_type, messages, document)
 
-    for _ in range(MAX_STEPS):
-        turn = None
-        for delta in client.chat_stream(work, tools=TOOLS, max_tokens=max_tokens):
-            if delta.text:
-                yield Chunk("text", delta.text)
-            if delta.turn is not None:
-                turn = delta.turn
-
-        if turn is None:
-            raise RuntimeError("Assistant provider stream ended before completing a turn")
-        if not turn.tool_calls:
-            return
-
-        # The provider owns continuation syntax. Carry it back unchanged, within
-        # this request only, so reasoning and tool-call lineage survive each step.
-        work.append({
-            "role": "assistant",
-            "content": turn.text,
-            "continuation": turn.continuation,
-        })
-        for call in turn.tool_calls:
-            yield Chunk("activity", resources.activity_for(REGISTRY, call.name))
-            work.append({
-                "role": "tool",
-                "tool_call_id": call.id,
-                "content": _run_tool(call, context),
-            })
-
-    work.append({"role": "user", "content": "Answer now using what you've gathered."})
+def _stream_turn(
+    client: StreamingChatLLMProtocol,
+    work: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    max_tokens: int,
+    stats: QuestionStats,
+) -> Generator[Chunk, None, ChatTurn]:
     turn = None
-    for delta in client.chat_stream(work, max_tokens=max_tokens):
+    for delta in client.chat_stream(work, tools=tools, max_tokens=max_tokens):
         if delta.text:
             yield Chunk("text", delta.text)
         if delta.turn is not None:
             turn = delta.turn
-    if turn is None or turn.tool_calls:
-        raise RuntimeError("Assistant did not complete its final answer")
-
-
-def _run_tool(call: ToolCall, context: ToolContext) -> str:
-    """Route one model tool call to the verb that declared it."""
-    verb = _VERBS.get(call.name)
-    if verb is None:
-        return f"Unknown tool: {call.name}"
-    try:
-        args = json.loads(call.arguments or "{}")
-    except json.JSONDecodeError:
-        return "Invalid tool arguments."
-    if not isinstance(args, dict):
-        return "Invalid tool arguments."
-    return verb.handler(context, args)
-
-
-def _initial_messages(
-    result: dict[str, Any],
-    result_type: str,
-    messages: list[dict[str, Any]],
-    document: list[dict[str, Any]] | None,
-) -> list[dict[str, Any]]:
-    work: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt(result, result_type, document)}
-    ]
-    visuals: list[dict[str, Any]] = []
-    for block in document or []:
-        image = block.get("image")
-        if not isinstance(image, dict):
-            continue
-        media_type = str(image.get("media_type") or "")
-        data = str(image.get("data_base64") or "")
-        if not media_type or not data:
-            continue
-        visuals.extend(
-            [
-                {
-                    "type": "text",
-                    "text": f"Source-document visual for block [{block.get('id', '')}]:",
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{media_type};base64,{data}",
-                        "detail": "high",
-                    },
-                },
-            ]
-        )
-    if visuals:
-        work.append(
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            "Reference material only: these are source-document visuals "
-                            "labeled by their exact block IDs. Use them with the parsed "
-                            "text when answering the user's final question."
-                        ),
-                    },
-                    *visuals,
-                ],
-            }
-        )
-    work.extend(messages)
-    return work
-
-
-def _system_prompt(
-    result: dict[str, Any],
-    result_type: str,
-    document: list[dict[str, Any]] | None = None,
-) -> str:
-    """Assemble the agent's instructions as named sections.
-
-    Built as a list rather than one concatenation with inline conditionals: a
-    reader can see what the agent is told and in what order, and a section can be
-    changed without editing the middle of an expression. Empty sections drop out,
-    so an absent document leaves no blank heading behind.
-    """
-    has_doc = bool(document)
-    is_workspace = result_type == "workspace"
-    review = result.get("active_review") if is_workspace else None
-    has_review = isinstance(review, dict) and review.get("phase") in {
-        "target_review", "evidence_review",
-    }
-    subject = (
-        "the client-held workspace catalog, its available final analysis results, and any explicitly supplied active review draft"
-        if is_workspace
-        else "ONE analysis result the user just produced"
-    )
-    grounding = (
-        "the canonical public PDIS product documentation, the full text behind sources it already cites"
-        + (", and every parsed text or visual block in the SOURCE DOCUMENT" if has_doc else "")
-    )
-
-    role = (
-        "You are Ask: a read-only assistant that answers questions about "
-        f"{subject}. You are grounded: answer ONLY from this submitted context and "
-        f"{grounding}. You never run new web searches and never change anything."
-    )
-
-    context_meaning = f"WHAT THIS CONTEXT IS:\n{legend_for(result_type)}"
-    review_meaning = legend_for("scout_review") if has_review else ""
-
-    # Generated from the registry: a hand-written list here once named tools that
-    # had been renamed, so the agent was told about a world it did not have.
-    reach = (
-        "WHAT YOU CAN REACH:\n"
-        f"{resources.inventory(REGISTRY)}\n"
-        "- Don't guess paths; use the OVERVIEW below and find_result to locate things.\n"
-        "- A skill is a procedure you follow, never a finding you report. Read one "
-        "when a question needs more than one analysis. If it needs a result this "
-        "workspace does not hold, say which run is missing and ask the user to run it; "
-        "you cannot run anything yourself.\n"
-        # Skills carry constraints that contradict the general shape rules on
-        # purpose: a passage written to be pasted into a committee document cannot
-        # carry inline citations. Both instructions are right, so precedence has to
-        # be stated rather than left to whichever the model happens to weigh more.
-        "- Where a skill's instructions differ from the ANSWERING rules below, the "
-        "skill wins for the answer it governs; it is the more specific instruction. "
-        "It never overrides GROUNDING: nothing licenses stating what the context "
-        "does not support."
-        + (
-            " Use the document map and document tools whenever the answer depends on the upload."
-            if has_doc
-            else ""
-        )
-    )
-
-    document_access = (
-        "DOCUMENT ACCESS - IMPORTANT:\n"
-        "- You DO have direct access to every parsed source-document block through "
-        "find_document and read_document.\n"
-        "- You may inspect, quote, compare, and cite parsed text and retained visuals using their block IDs.\n"
-        "- Never claim that you can only see the analysis result or cannot inspect arbitrary "
-        "document passages. You can inspect all parsed text through those tools.\n"
-        "- Be precise about the boundary: you have the parsed document content, not the original "
-        "binary file; parsed text and extracted visuals are preserved, while other formatting may not be.\n\n"
-        "TWO SOURCES, TWO ROLES - keep them distinct:\n"
-        "- ANALYSIS RESULTS (and the web sources they cite) contain derived judgments and evidence.\n"
-        "- The SOURCE DOCUMENT is the author's CLAIMS: what the document asserts, NOT verified. "
-        "Never treat a document claim as established fact - attribute it ('the document states...').\n"
-        "- Cross-comparison is the point: line the document's claims up against the result's "
-        "evidence and say where they agree, differ, or go unaddressed."
-        if has_doc
-        else ""
-    )
-
-    grounding_rules = (
-        "GROUNDING:\n"
-        "- Use product documentation for questions about PDIS tools, process, architecture, results, and terminology. "
-        "Never present product documentation as evidence about an analyzed health product.\n"
-        "- Ground every claim in product documentation, the result, or a fetched cited source"
-        + (", or the source document" if has_doc else "")
-        + ". If something isn't there, say so plainly - do not invent it.\n"
-        # Every citation is a markdown link, so the renderer never has to recognise
-        # one in prose. The scheme decides what it becomes: an external link, an
-        # openable passage, or - for anything it does not know - plain text.
-        "- Cite what a reader can check, always as a markdown link:\n"
-        "    evidence: [what it shows](https://the-source-url)\n"
-        # Angle brackets are required, not stylistic: a block ID carries the
-        # document name, and a name with spaces is not a valid link destination
-        # without them - markdown renders the raw syntax instead of a link.
-        "    a document passage: [what it says](<block:EXACT-BLOCK-ID>)\n"
-        # No third kind. A result path is an internal address: it locates a finding
-        # for whoever is reading the JSON, and the reader is not. Printing one put
-        # `results[0].analysis.sections[4].units[4].findings[0]` in front of a
-        # programme lead, and set the tone for an answer that then listed bare
-        # block IDs as data too. A finding is named by what it is; the thing a
-        # reader can actually check is the passage it was read from.
-        "    a finding in an analysis: name it - \"Executive Summary -> Efficacy\" - "
-        "and link the document block it cites. Never print a result path.\n"
-        # The label and the destination do different jobs, and saying so works with
-        # the model rather than against it: repeating a full block ID through a
-        # table is unreadable, so it shortened both and the destination stopped
-        # resolving. Naming a section is the readable choice and always was.
-        "  The visible text is for the reader, so keep it short - a section or "
-        "variable name. The destination is what opens, so it must be the exact ID "
-        "as it appears in the context, in angle brackets, never shortened.\n"
-        # Everything above tells the model to cite; nothing told it when not to,
-        # and it obliged - citations landed on sentences they did not support and
-        # on the assistant's own explanations of how a tool works. A citation on
-        # every clause reads as noise and costs the reader the signal of which
-        # claims actually rest on the document.
-        "- Cite only where a reader would otherwise have to take you on trust: a "
-        "number, a quoted phrase, a verdict, a specific claim about this product. "
-        "Do not cite your own explanation of how a tool works, a general "
-        "statement, a restatement of the question, or the same passage twice in "
-        "one answer. If a sentence would read the same without the link, leave it "
-        "out.\n"
-        # The link must support the sentence it is attached to. A nearby passage
-        # is not a citation for a different claim, and one that does not support
-        # the sentence is worse than none: it tells the reader the claim was
-        # checked when it was not.
-        "- A citation must support the exact sentence it sits in. If no passage "
-        "or source says it, say it without a link, or say the result does not "
-        "cover it.\n"
-        # A composed URL is indistinguishable from a retrieved one by inspection,
-        # so the renderer now drops any URL the material does not contain. Said
-        # here too, because a link silently demoted to text is a wasted sentence.
-        "- Never write a URL you did not read in the context. Reconstructing a "
-        "plausible address is fabrication even when the page exists; name the "
-        "source without a link instead."
-    )
-
-    answering = (
-        "ANSWERING:\n"
-        # "Be concise" is unfalsifiable; leading with the answer is not.
-        "- Lead with the answer, then its support. Never open by restating the question "
-        "or explaining what a tool is.\n"
-        # Only worth saying now that the assistant renders GitHub-flavoured markdown;
-        # before that a table arrived as raw pipes.
-        "- Use a table when comparing the same fields across several items (variables, "
-        "sections, runs, documents). Use prose for a single finding or an explanation.\n"
-        "- Be specific: quote the actual values rather than describing them.\n"
-        # A block ID is an internal identifier. Reciting one answers nothing, and
-        # "link every block you name" produced rows of thirty-four IDs to link -
-        # an instruction the model was right to disregard, because obeying it made
-        # the answer worse. What a reader wants is the passage, named and openable.
-        "- Point at a passage, never at an identifier. When a passage matters, link "
-        "it and give it a readable name - [Target User Group](<block:EXACT-ID>) - so "
-        "the reader can open it where they are reading.\n"
-        "- When several passages back one finding, say how many and link the first "
-        "rather than listing IDs. A row of bare block IDs is not an answer: it "
-        "names places the reader then has to go find."
-    )
-
-    available_skills = (
-        "SKILLS AVAILABLE:\n"
-        f"{skills.catalog(held_result_types(result))}\n"
-        "Read one with read_skill before answering a question it covers."
-    )
-
-    overview = f"OVERVIEW OF THIS CONTEXT:\n{navigator.overview(result)}"
-
-    product_docs = (
-        "PRODUCT DOCUMENTATION MAP (public PDIS behavior and architecture; not analysis evidence):\n"
-        f"{knowledge.overview()}"
-    )
-
-    document_map = (
-        "SOURCE DOCUMENT MAP (the author's claims; cite exact block IDs):\n"
-        f"{document_reader.overview(document or [])}"
-        if has_doc
-        else ""
-    )
-
-    sections = [
-        role,
-        context_meaning,
-        review_meaning,
-        reach,
-        document_access,
-        grounding_rules,
-        answering,
-        available_skills,
-        overview,
-        product_docs,
-        document_map,
-    ]
-    return "\n\n".join(section for section in sections if section)
+    if turn is None:
+        raise RuntimeError("Assistant provider stream ended before completing a turn")
+    stats.add(turn)
+    return turn

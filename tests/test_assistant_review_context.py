@@ -4,8 +4,9 @@ import copy
 import json
 import unittest
 
-from services.assistant.agent import _system_prompt, answer_stream
-from services.assistant.registry import held_result_types
+from services.assistant import answer_stream
+from services.assistant.prompt import system_prompt
+from services.assistant.workspace import build_index
 from shared.chat import ChatDelta, ChatTurn, ToolCall
 
 
@@ -17,12 +18,12 @@ class AssistantReviewContextTests(unittest.TestCase):
                 "selected_item": {"kind": "target", "target_id": "t1"},
                 "analysis": {"phase": phase},
             }}
-            prompt = _system_prompt(bundle, "workspace")
+            prompt = system_prompt(build_index(bundle, None))
             self.assertIn("ACTIVE REVIEW DRAFT", prompt)
             self.assertIn("not a final result", prompt)
             self.assertIn("selected_item", prompt)
-            self.assertEqual(held_result_types(bundle), frozenset())
-        self.assertNotIn("ACTIVE REVIEW DRAFT", _system_prompt({"results": []}, "workspace"))
+            self.assertEqual(build_index(bundle, None).held_result_types, frozenset())
+        self.assertNotIn("ACTIVE REVIEW DRAFT", system_prompt(build_index({"results": []}, None)))
 
     def test_registered_readers_return_review_and_document_context_without_mutating_it(self):
         bundle = {"results": [], "active_review": {
@@ -45,7 +46,7 @@ class AssistantReviewContextTests(unittest.TestCase):
                     yield ChatDelta(text="This is a proposed target awaiting your decision.")
                     yield ChatDelta(turn=ChatTurn("", (), None))
 
-        list(answer_stream(Client(), bundle, "workspace", [{"role": "user", "content": "Explain this target"}],
+        list(answer_stream(Client(), bundle, [{"role": "user", "content": "Explain this target"}],
                            document=[{"id": "doc/b1", "doc_id": "doc", "content": "Target efficacy is 80%."}]))
         responses = [message for message in requests[1] if message["role"] == "tool"]
         self.assertEqual(json.loads(responses[0]["content"])["review_status"], "needs_review")

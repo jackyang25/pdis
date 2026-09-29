@@ -10,11 +10,16 @@ These pin that the derivation holds, so a capability cannot be half-added.
 
 from __future__ import annotations
 
+import json
 import unittest
 
-from services.assistant import resources, skills
-from services.assistant.agent import _system_prompt
-from services.assistant.registry import REGISTRY, TOOLS, ToolContext, held_result_types
+from services.assistant import limits, resources, skills
+from services.assistant.document import VisualBudget
+from services.assistant.prompt import system_prompt
+from services.assistant.registry import REGISTRY, TOOLS, VERBS, ToolContext, run_tool
+from services.assistant.workspace import build_index
+from shared.chat import ToolCall, ToolOutput
+from tests.test_assistant_workspace import mixed_workspace
 
 
 class RegistryDerivationTests(unittest.TestCase):
@@ -33,7 +38,7 @@ class RegistryDerivationTests(unittest.TestCase):
                     self.assertTrue(verb.description.strip())
 
     def test_the_system_prompt_names_exactly_the_verbs_that_exist(self) -> None:
-        prompt = _system_prompt({}, "workspace")
+        prompt = system_prompt(build_index({}, None))
         for tool in TOOLS:
             self.assertIn(tool["function"]["name"], prompt)
         # The names the prompt used to hand-list, which no longer exist.
@@ -62,10 +67,10 @@ class RegistryDerivationTests(unittest.TestCase):
 class HeldResultTests(unittest.TestCase):
     def test_what_the_workspace_holds_is_read_from_the_bundle(self) -> None:
         bundle = {"results": [{"result_type": "aligner"}, {"result_type": "scout"}]}
-        self.assertEqual(held_result_types(bundle), frozenset({"aligner", "scout"}))
+        self.assertEqual(build_index(bundle, None).held_result_types, frozenset({"aligner", "scout"}))
 
     def test_a_single_result_context_holds_nothing_to_combine(self) -> None:
-        self.assertEqual(held_result_types({"matches": []}), frozenset())
+        self.assertEqual(build_index({"matches": []}, None).held_result_types, frozenset())
 
 
 class SkillContractTests(unittest.TestCase):
@@ -168,16 +173,20 @@ class SkillContractTests(unittest.TestCase):
 
     def test_reading_an_unknown_workflow_names_the_real_ones(self) -> None:
         message = skills.read_skill("no-such-workflow")
+        self.assertTrue(message.startswith("No skill named 'no-such-workflow'."))
+        self.assertNotIn("not available in this workspace", message)
         self.assertIn("compare-drift-against-evidence", message)
 
 
 
 class SystemPromptTests(unittest.TestCase):
-    """The prompt is assembled from sections, and two of them are conditional.
+    """The prompt is assembled from sections, and none of them is conditional.
 
     Both import bugs found while splitting this module were in the branch that
-    only runs when a document is present, and no test passed one — so the prompt
-    built fine in every test and would have raised in front of a user.
+    only ran when a document was present, and no test passed one — so the prompt
+    built fine in every test and would have raised in front of a user. The
+    document sections are now always present, so both paths are still exercised:
+    one with a document, one without.
     """
 
     DOCUMENT = [
@@ -195,19 +204,21 @@ class SystemPromptTests(unittest.TestCase):
     ]
 
     def test_the_prompt_builds_with_a_document(self) -> None:
-        prompt = _system_prompt({"matches": []}, "scout", self.DOCUMENT)
-        self.assertIn("SOURCE DOCUMENT MAP", prompt)
+        prompt = system_prompt(build_index({"matches": []}, self.DOCUMENT))
+        self.assertIn("WORKSPACE MAP - documents", prompt)
         self.assertIn("DOCUMENT ACCESS", prompt)
+        self.assertIn("- d: 1 blocks", prompt)
 
     def test_the_prompt_builds_without_one(self) -> None:
-        prompt = _system_prompt({"results": []}, "workspace")
-        # An absent section drops out rather than leaving an empty heading.
-        self.assertNotIn("SOURCE DOCUMENT MAP", prompt)
-        self.assertNotIn("DOCUMENT ACCESS", prompt)
+        prompt = system_prompt(build_index({"results": []}, None))
+        # The document sections stay, so the prefix is the same for every
+        # workspace; the map says plainly that nothing is held.
+        self.assertIn("WORKSPACE MAP - documents", prompt)
+        self.assertIn("No source documents are held.", prompt)
         self.assertNotIn("\n\n\n", prompt)
 
     def test_answering_rules_are_checkable_rather_than_vague(self) -> None:
-        prompt = _system_prompt({"results": []}, "workspace")
+        prompt = system_prompt(build_index({"results": []}, None))
         self.assertIn("Lead with the answer", prompt)
         # Only safe to ask for a table since the assistant renders GFM; before
         # that it arrived as raw pipes.
@@ -224,7 +235,7 @@ class SystemPromptTests(unittest.TestCase):
         # A markdown link for anything openable, so the renderer parses a link
         # rather than hunting for identifiers in prose. web/lib/citation.ts is
         # the other half of this contract.
-        prompt = _system_prompt({"results": []}, "workspace")
+        prompt = system_prompt(build_index({"results": []}, None))
         self.assertIn("always as a markdown link", prompt)
         self.assertIn("(https://the-source-url)", prompt)
         # Bracketed: a block ID carries the document name, and a name with
@@ -248,10 +259,8 @@ class EveryVerbRunsTests(unittest.TestCase):
 
     def context(self) -> ToolContext:
         return ToolContext(
-            result={"results": [], "matches": []},
-            allowed_urls=set(),
-            document=None,
-            held_result_types=frozenset(),
+            index=build_index({"results": [], "matches": []}, None),
+            budget=VisualBudget(),
         )
 
     MINIMAL_ARGS = {
@@ -274,16 +283,15 @@ class EveryVerbRunsTests(unittest.TestCase):
                         for key, value in self.MINIMAL_ARGS.items()
                         if key in verb.parameters.get("properties", {})
                     }
-                    outcome = verb.handler(context, args)
-                    self.assertIsInstance(
-                        outcome, str, f"{verb.name} did not return text"
-                    )
+                    output = run_tool(ToolCall("c", verb.name, json.dumps(args)), context)
+                    self.assertIsInstance(output, ToolOutput, verb.name)
+                    self.assertIsInstance(output.text, str)
 
     def test_a_verb_handles_arguments_the_model_got_wrong(self) -> None:
         # Arguments are model output, so a list field can arrive as a string.
         context = self.context()
-        read_docs = {v.name: v for i in REGISTRY for v in i.verbs}["read_product_docs"]
-        self.assertIsInstance(read_docs.handler(context, {"section_ids": "oops"}), str)
+        output = run_tool(ToolCall("c", "read_product_docs", json.dumps({"section_ids": "oops"})), context)
+        self.assertIsInstance(output.text, str)
 
 
 class WorkflowVisibilityTests(unittest.TestCase):
@@ -296,29 +304,28 @@ class WorkflowVisibilityTests(unittest.TestCase):
     """
 
     def test_the_prompt_names_every_available_workflow(self) -> None:
-        prompt = _system_prompt({"results": []}, "workspace")
+        prompt = system_prompt(build_index({"results": []}, None))
         for skill in skills.available_skills():
             with self.subTest(skill=skill.name):
                 self.assertIn(skill.name, prompt)
                 self.assertIn(skill.description, prompt)
 
     def test_the_prompt_says_which_run_a_workflow_still_needs(self) -> None:
-        prompt = _system_prompt(
-            {"results": [{"result_type": "aligner"}]}, "workspace"
-        )
+        prompt = system_prompt(build_index(
+            {"results": [{"result_type": "aligner"}]}, None
+        ))
         self.assertIn("needs a scout result", prompt)
 
     def test_a_workflow_the_workspace_can_run_is_marked_ready(self) -> None:
-        prompt = _system_prompt(
-            {"results": [{"result_type": "aligner"}, {"result_type": "scout"}]},
-            "workspace",
-        )
+        prompt = system_prompt(build_index(
+            {"results": [{"result_type": "aligner"}, {"result_type": "scout"}]}, None
+        ))
         self.assertIn("ready", prompt)
 
     def test_the_procedure_itself_stays_out_of_the_prompt(self) -> None:
         # The body is bespoke and long; paying for it on every message is what
         # reading it on demand avoids.
-        prompt = _system_prompt({"results": []}, "workspace")
+        prompt = system_prompt(build_index({"results": []}, None))
         for skill in skills.available_skills():
             with self.subTest(skill=skill.name):
                 self.assertNotIn(skill.body, prompt)
@@ -334,14 +341,14 @@ class SkillPrecedenceTests(unittest.TestCase):
     """
 
     def test_a_skill_governs_the_answer_it_produces(self) -> None:
-        prompt = _system_prompt({"results": []}, "workspace")
+        prompt = system_prompt(build_index({"results": []}, None))
         self.assertIn("the skill wins for the answer it governs", prompt)
 
     def test_grounding_is_never_overridable(self) -> None:
         # The one rule a workflow must not be able to relax: a skill that
         # licensed stating what the context does not support would be a way to
         # write invention into a file and have it obeyed.
-        prompt = _system_prompt({"results": []}, "workspace")
+        prompt = system_prompt(build_index({"results": []}, None))
         self.assertIn("never overrides GROUNDING", prompt)
 
     def test_the_conflict_this_exists_for_is_real(self) -> None:
@@ -354,7 +361,46 @@ class SkillPrecedenceTests(unittest.TestCase):
         if summary is None:
             self.skipTest("the summary workflow is no longer shipped")
         self.assertIn("no citations", summary.body.casefold())
-        self.assertIn("link it and give it a readable name", _system_prompt({"results": []}, "workspace"))
+        self.assertIn("link it and give it a readable name", system_prompt(build_index({"results": []}, None)))
+
+
+class VisualToolTests(unittest.TestCase):
+    def call(self, name, **args):
+        import json
+        return ToolCall(id="c1", name=name, arguments=json.dumps(args))
+
+    def test_view_document_visuals_is_offered_with_its_cap(self):
+        schema = next(t for t in TOOLS if t["function"]["name"] == "view_document_visuals")
+        self.assertEqual(schema["function"]["parameters"]["properties"]["block_ids"]["maxItems"], limits.MAX_VISUALS_PER_CALL)
+
+    def test_every_tool_returns_a_tool_output(self):
+        context = ToolContext(index=mixed_workspace(), budget=VisualBudget())
+        for name in VERBS:
+            output = run_tool(self.call(name), context)
+            self.assertIsInstance(output, ToolOutput, name)
+
+    def test_visuals_come_back_labelled(self):
+        context = ToolContext(index=mixed_workspace(), budget=VisualBudget())
+        output = run_tool(self.call("view_document_visuals", block_ids=["deckB/b-0002"]), context)
+        self.assertEqual([image.block_id for image in output.images], ["deckB/b-0002"])
+
+    def test_bad_arguments_are_reported_not_raised(self):
+        context = ToolContext(index=build_index(None, None), budget=VisualBudget())
+        self.assertEqual(run_tool(ToolCall("c", "read_result", "{bad"), context).text, "Invalid tool arguments.")
+        self.assertEqual(run_tool(ToolCall("c", "nope", "{}"), context).text, "Unknown tool: nope")
+
+    def test_range_schema_reads_the_shared_limit(self):
+        schema = next(t for t in TOOLS if t["function"]["name"] == "read_document_range")
+        self.assertEqual(schema["function"]["parameters"]["properties"]["count"]["maximum"], limits.MAX_RANGE_BLOCKS)
+
+    def test_document_search_can_be_narrowed_to_one_document(self):
+        schema = next(t for t in TOOLS if t["function"]["name"] == "find_document")
+        self.assertIn("doc_id", schema["function"]["parameters"]["properties"])
+        self.assertEqual(schema["function"]["parameters"]["required"], ["keyword"])
+        context = ToolContext(index=mixed_workspace(), budget=VisualBudget())
+        output = run_tool(self.call("find_document", keyword="text", doc_id="nope"), context)
+        self.assertEqual(output.text, "(document not found: nope)")
+
 
 if __name__ == "__main__":
     unittest.main()

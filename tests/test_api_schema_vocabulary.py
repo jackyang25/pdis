@@ -139,6 +139,9 @@ API_OWNED: dict[frozenset[str], str] = {
     frozenset({"meets", "exceeds", "falls_short", "not_comparable", "not_addressed"}): (
         "Aligner's verdicts, declared in its own service"
     ),
+    frozenset({"assistant", "user"}): (
+        "Ask's request-message roles, an API request shape with no domain vocabulary"
+    ),
 }
 
 

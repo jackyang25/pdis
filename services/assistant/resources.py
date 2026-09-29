@@ -1,13 +1,15 @@
-"""The one registry of everything the Ask agent can reach.
+"""The types a capability is declared with, and what is derived from them.
 
 A capability used to be spread across three places that did not know about each
 other: a hand-written tool schema, whatever the system prompt claimed existed,
 and the label a reader sees while it runs. Nothing connected them, so they drifted
 independently and only a person noticing could catch it.
 
-Here each capability is declared once. The tool schemas the model is offered, the
-activity a reader sees, and the inventory the system prompt states are all derived
-from these entries, so they cannot disagree. Adding a capability is one entry.
+Each capability is now declared once, as a `Resource` of `Verb`s in `registry.py`,
+which holds the catalog. The tool schemas the model is offered, the activity a
+reader sees, and the inventory the system prompt states are all derived from those
+entries by the functions here, so they cannot disagree. Adding a capability is one
+entry in the registry.
 
 `kind` is the distinction the shape alone would lose: a document and a workflow are
 both fetched the same way, but one is evidence to cite and the other is procedure to
@@ -18,13 +20,18 @@ repeating it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
+
+if TYPE_CHECKING:
+    from shared.chat import ToolOutput
 
 ResourceKind = Literal["evidence", "procedure"]
 
 # What the agent is doing, in the reader's words. Held beside the schema so a new
-# capability cannot ship with a tool and no label.
-Handler = Callable[..., str]
+# capability cannot ship with a tool and no label. A handler may return the plain
+# text every source once returned, or a ToolOutput carrying images alongside it;
+# run_tool normalizes either into a ToolOutput.
+Handler = Callable[..., "str | ToolOutput"]
 
 
 @dataclass(frozen=True)
@@ -78,9 +85,9 @@ def verbs_by_name(resources: tuple[Resource, ...]) -> dict[str, Verb]:
     return table
 
 
-def activity_for(resources: tuple[Resource, ...], verb_name: str) -> str:
+def activity_for(table: dict[str, "Verb"], verb_name: str) -> str:
     """What a reader is told while `verb_name` runs."""
-    verb = verbs_by_name(resources).get(verb_name)
+    verb = table.get(verb_name)
     return verb.activity if verb else "Working"
 
 

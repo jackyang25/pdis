@@ -56,6 +56,9 @@ export const ATTACHMENT_ACCEPT = [
 /** Reader-facing attachment list, e.g. `DOCX, PPTX, or image files`. */
 export const ATTACHMENT_FORMAT_HINT = `${DOCUMENT_FORMAT_HINT}, or image files`;
 
+/** How many files one conversation may attach. */
+export const MAX_ATTACHMENTS = 5;
+
 /**
  * What a clipboard or a drag holds that could be attached, and what won.
  *

@@ -36,12 +36,12 @@ export function HeaderUtilities({ pathname }: { pathname: string }) {
       </Link>
       <Popover>
         <PopoverTrigger asChild>
-          <button type="button" aria-label="Send feedback" className={HEADER_ACTION}>
+          <button type="button" aria-label="Share feedback" className={HEADER_ACTION}>
             <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">Feedback</span>
           </button>
         </PopoverTrigger>
-        <HelpPopoverContent align="end" aria-label="Send feedback">
+        <HelpPopoverContent align="end" aria-label="Share feedback">
           <FeedbackDetails />
         </HelpPopoverContent>
       </Popover>
@@ -56,8 +56,9 @@ export function HeaderUtilities({ pathname }: { pathname: string }) {
 function FeedbackDetails() {
   return (
     <div className="space-y-3">
-      <HelpHeading>Send feedback</HelpHeading>
-      <p>For feedback or requests, message Jack Yang or Shyam Bhaskaran on Teams.</p>
+      <HelpHeading>Share your feedback</HelpHeading>
+      <p>We’d love to hear how you’re using PDIS and what you’d like it to do next.</p>
+      <p>Message Jack Yang or Shyam Bhaskaran on Teams to request a feature, send feedback, or set up a user session.</p>
     </div>
   );
 }

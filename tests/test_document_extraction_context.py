@@ -4,6 +4,7 @@ import unittest
 from dataclasses import asdict
 
 from services.assistant import document
+from services.assistant.workspace import build_index
 from services.chunker import ContentBlock
 from services.screener.evidence import format_blocks
 
@@ -18,8 +19,9 @@ class ExtractionContextTests(unittest.TestCase):
 
     def test_ask_exposes_page_and_limitations_in_overview_and_reads(self):
         blocks = [asdict(self.block)]
-        for text in (document.overview(blocks), document.get(blocks, [self.block.id]),
-                     document.get_range(blocks, "study"), document.find(blocks, "trial")):
+        index = build_index({"results": []}, blocks)
+        for text in (document.overview(index), document.get(index, [self.block.id]),
+                     document.get_range(index, "study"), document.find(index, "trial")):
             with self.subTest(text=text):
                 self.assertIn("pdf_limited_structure", text)
                 self.assertIn("Images", text)

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { type UIMessage } from "ai";
-import { assistantRequest, conversationTurns, messageText, type AskContext, type AskMessage } from "@/lib/assistant-conversation";
+import { assistantRequest, conversationTurns, messageText, retainCited, type AskContext, type AskMessage } from "@/lib/assistant-conversation";
 import { AssistantSseTransport } from "@/lib/assistant-transport";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -16,9 +16,11 @@ import {
 } from "@/lib/api";
 import { PRODUCT_KNOWLEDGE } from "@/lib/product-knowledge";
 import { splitResultContext } from "@/lib/result-file";
+import { openers } from "@/lib/assistant-suggestions";
 import {
   ATTACHMENT_ACCEPT,
   ATTACHMENT_FORMAT_HINT,
+  MAX_ATTACHMENTS,
   attachablePaste,
 } from "@/lib/document-formats";
 import { STREAM_CARET_MOTION } from "@/lib/motion";
@@ -35,15 +37,6 @@ import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import { DISPLAY_HEADING } from "@/lib/typography";
 
-/**
- * Two openers per result type: one broad enough to work on any run, one for the
- * thing only that tool can answer.
- *
- * The second is where a suggestion earns its place — a reader already knows to
- * ask "summarize this", and would not know Inspector can find a conflict that
- * spans sections, or that Scout separates a weak evidence base from a conflicting
- * one. Anything narrower would go stale as a result shape changes.
- */
 /** The most recent thing the agent said it was doing, if it has said anything. */
 function latestActivity(message: UIMessage): string | null {
   for (let index = message.parts.length - 1; index >= 0; index -= 1) {
@@ -55,41 +48,16 @@ function latestActivity(message: UIMessage): string | null {
   return null;
 }
 
-
-const SUGGESTIONS: Record<string, string[]> = {
-  // Phrased around the bar rather than around "what changed", because a comparison
-  // here runs one way and a symmetric question invites a symmetric answer.
-  aligner: ["Which requirements does the candidate fall short of?", "What is still to close?"],
-  inspector: ["What needs the most attention?", "Summarize the cross-section conflicts."],
-  scout: ["Which targets conflict with current evidence?", "Where is the evidence weakest?"],
-  // Screener reports only whether the supplied material answers each gate question,
-  // so both openers stay on that axis rather than implying a verdict.
-  screener: ["Which gate questions are unanswered?", "What evidence is still needed?"],
-  // Chunker and Searcher produce material rather than judgments; asking either
-  // "what needs attention" would invite an assessment neither made.
-  chunker: ["What is in this document?", "How is it structured?"],
-  searcher: ["What did this search turn up?", "Which sources look most relevant?"],
-  workspace: ["Which tool should I use?", "What skills can you use here?"],
-};
-
-/** For a result type with no openers of its own: neither assumes a verdict. */
-const DEFAULT_SUGGESTIONS = [
-  "What should I look at first?",
-  "What can't I conclude from this?",
-];
-
 /** Read-only, submitted-context-grounded chat. AI SDK owns streaming and request state;
  * the existing FastAPI agent still owns navigation, tools, and grounding. */
 export function Ask({
-  resultType,
   result,
   availableResultCount,
   reviewPhase,
   display = "floating",
 }: {
-  resultType: string;
-  result?: unknown;
-  availableResultCount?: number;
+  result: unknown;
+  availableResultCount: number;
   reviewPhase?: string;
   display?: "floating" | "page";
 }) {
@@ -110,7 +78,6 @@ export function Ask({
   // messages while streaming. Only a small local context ID travels with a question.
   const contexts = useRef(new Map<string, AskContext>());
   const attachmentGeneration = useRef(0);
-  const hasResult = result != null;
   const payload = useMemo(() => splitResultContext(result), [result]);
   const documentContext = useMemo(
     () => [
@@ -132,10 +99,10 @@ export function Ask({
     [submittedResult],
   );
   const hasDocument = documentContext.length > 0;
-  const resultCount = availableResultCount ?? (hasResult ? 1 : 0);
+  const resultCount = availableResultCount;
   const context = useMemo<AskContext>(() => ({
-    resultType, result: submittedResult, document: documentContext, sources: citableSources,
-  }), [resultType, submittedResult, documentContext, citableSources]);
+    result: submittedResult, document: documentContext, sources: citableSources,
+  }), [submittedResult, documentContext, citableSources]);
 
   const transport = useMemo(
     () =>
@@ -172,11 +139,21 @@ export function Ask({
 
   async function send(question = input) {
     const text = question.trim();
-    if (!text || busy || attaching || !hasResult) return;
+    if (!text || busy || attaching) return;
     clearError();
     setPasteNote(null);
     setInput("");
     const contextId = crypto.randomUUID();
+    // Release what earlier questions no longer need: once this question is sent, an
+    // older turn's answer is the only thing left that can still cite its context, so
+    // everything that answer did not cite — including its image bytes — is dropped.
+    for (const [id, previous] of contexts.current) {
+      if (previous === context || previous.result === null) continue;
+      const answers = conversationTurns(messages, contexts.current)
+        .filter((turn) => turn.context === previous && turn.message.role === "assistant")
+        .map((turn) => messageText(turn.message));
+      contexts.current.set(id, retainCited(previous, answers));
+    }
     contexts.current.set(contextId, context);
     await sendMessage({ text, metadata: { contextId } });
   }
@@ -184,7 +161,7 @@ export function Ask({
   async function attachFiles(incoming: FileList | readonly File[] | null) {
     const picked = incoming ? Array.from(incoming) : [];
     if (!picked.length || attaching) return;
-    const files = picked.slice(0, Math.max(0, 5 - attachments.length));
+    const files = picked.slice(0, Math.max(0, MAX_ATTACHMENTS - attachments.length));
     if (!files.length) {
       setAttachmentError("Remove an attachment before adding another.");
       return;
@@ -200,7 +177,7 @@ export function Ask({
     setAttachments((current) => {
       const byId = new Map(current.map((attachment) => [attachment.doc_id, attachment]));
       for (const attachment of accepted) byId.set(attachment.doc_id, attachment);
-      return Array.from(byId.values()).slice(0, 5);
+      return Array.from(byId.values()).slice(0, MAX_ATTACHMENTS);
     });
     if (rejected?.status === "rejected") {
       setAttachmentError(
@@ -253,19 +230,7 @@ export function Ask({
     );
   }
 
-  const suggestions = reviewPhase
-    ? ["Explain the selected review item.", "What evidence should I check before deciding?"]
-    : attachments.length > 0 && resultCount > 0
-    ? ["Summarize the attached context.", "Compare the attachment with my results."]
-    : attachments.length > 0
-      ? ["Summarize the attached context.", "What important details does it contain?"]
-      : resultType === "workspace" && resultCount > 1
-        // Asked as a question, never as a list: the agent answers from the
-        // catalog in its own prompt, so adding a skill changes no UI text.
-        ? ["What skills can you use here?", "Where do the results agree or differ?"]
-        : resultType === "workspace" && resultCount === 1
-          ? ["Summarize the available result.", "What skills can you use here?"]
-      : SUGGESTIONS[resultType] ?? DEFAULT_SUGGESTIONS;
+  const suggestions = openers({ reviewPhase, attachments: attachments.length, results: resultCount });
 
   return (
     <div
@@ -334,14 +299,7 @@ export function Ask({
           ? "mx-auto min-h-0 w-full max-w-3xl flex-1 space-y-7 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8"
           : "min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-5"}
       >
-        {!hasResult && (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Run an analysis or import a result first. The assistant can then answer from that result and
-            its cited sources.
-          </p>
-        )}
-
-        {hasResult && messages.length === 0 && (
+        {messages.length === 0 && (
           <div className="flex min-h-full flex-col items-center justify-center py-8 text-center">
             <AssistantMark large />
             <h2 className={cn(DISPLAY_HEADING, "mt-5 text-lg font-semibold")}>
@@ -525,7 +483,7 @@ export function Ask({
             size="icon"
             variant="ghost"
             onClick={() => fileInputRef.current?.click()}
-            disabled={attaching || attachments.length >= 5}
+            disabled={attaching || attachments.length >= MAX_ATTACHMENTS}
             aria-label="Attach document or image"
             title="Attach a file, or paste or drop one into the message"
             className="h-9 w-9 shrink-0 rounded-sm text-muted-foreground"
@@ -544,8 +502,8 @@ export function Ask({
                 send();
               }
             }}
-            placeholder={resultType === "workspace" ? "Ask about tools or results…" : "Ask about this result…"}
-            disabled={busy || !hasResult}
+            placeholder="Ask about tools or results…"
+            disabled={busy}
             className="max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-base leading-5 outline-none placeholder:text-muted-foreground disabled:opacity-60 sm:text-sm"
           />
           {busy ? (
@@ -557,7 +515,7 @@ export function Ask({
               type="button"
               size="icon"
               onClick={() => send()}
-              disabled={!input.trim() || !hasResult || attaching}
+              disabled={!input.trim() || attaching}
               aria-label="Send message"
               title="Send message (Enter). Shift+Enter for a new line."
               className="h-9 w-9 rounded-sm"
@@ -571,7 +529,7 @@ export function Ask({
           <p role="status" className="mt-1.5 px-2 text-xs text-muted-foreground">{pasteNote}</p>
         )}
         <p className="mt-2 text-center text-xs text-muted-foreground">
-          Up to 5 {ATTACHMENT_FORMAT_HINT}
+          Up to {MAX_ATTACHMENTS} {ATTACHMENT_FORMAT_HINT}
         </p>
         </div>
       </div>

@@ -20,6 +20,7 @@ import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
 import type { ContentBlock, PriorityDigest } from "@/lib/api";
 import { usePriorityDigestStore } from "@/lib/priority-digest";
 import { reviewContextForAssistant, useAssistantReviewContext } from "@/lib/assistant-review-context";
+import { resolveDocumentVersions } from "@/lib/workspace-documents";
 
 type WorkspaceResult = {
   id: string;
@@ -85,31 +86,40 @@ export function WorkspaceAsk() {
         : `${name} · ${day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
     }
 
+    // Collected rather than resolved immediately: a same-named document can arrive from
+    // more than one run, and only once every run's blocks are in hand can
+    // `resolveDocumentVersions` tell whether two runs read the same text or different
+    // versions of it. `panel` records whether this run owns a top-level priority panel —
+    // Inspector's digests live on each review instead, so its run-level fields stay unset.
+    // The digest itself travels in `extras`, alongside `analysis`, because a nomination
+    // cites block IDs the same way the analysis does: attached after resolving, it would
+    // still be citing whichever version's addresses existed when the digest was read.
+    const pending: {
+      id: string;
+      resultType: WorkspaceResult["result_type"];
+      label: string;
+      blocks: ContentBlock[];
+      analysis: unknown;
+      panel: boolean;
+      extras: { priority_digest?: PriorityDigest; priority_item_ids?: string[] };
+    }[] = [];
+
     function addResult(
       id: string,
       resultType: WorkspaceResult["result_type"],
       label: string,
       value: unknown,
+      panel = true,
     ) {
       const context = splitResultContext(value);
-      const documentBlockIds: string[] = [];
-      for (const block of context.document ?? []) {
-        documentBlockIds.push(block.id);
-        if (!blocks.has(block.id)) blocks.set(block.id, block);
-      }
-      results.push({
-        id,
-        result_type: resultType,
-        label,
-        analysis: context.analysis,
-        document_block_ids: documentBlockIds,
-        // What the priority panel is showing for this run, when it has been read. The
-        // nominations especially: they are findings on screen that the result does not
-        // contain, so an assistant without them would answer about this panel while
-        // missing part of what the reader is looking at.
-        priority_digest:
-          digests[id]?.state === "ready" ? digests[id].digest : undefined,
-        priority_item_ids: selected[id],
+      const digest = digests[id];
+      pending.push({
+        id, resultType, label,
+        blocks: context.document ?? [], analysis: context.analysis, panel,
+        extras: {
+          priority_digest: panel && digest?.state === "ready" ? digest.digest : undefined,
+          priority_item_ids: panel ? selected[id] : undefined,
+        },
       });
     }
 
@@ -132,6 +142,7 @@ export function WorkspaceAsk() {
             };
           }),
         },
+        false,
       );
     }
 
@@ -194,6 +205,30 @@ export function WorkspaceAsk() {
       );
     }
 
+    // Decided once every run is collected: two runs holding the same document name are
+    // one document only if their blocks actually agree, and only `resolveDocumentVersions`
+    // can tell — a run added to `results` and `blocks` before this point would have its
+    // citations resolved against whichever version happened to be inserted first.
+    for (const run of resolveDocumentVersions(pending)) {
+      const documentBlockIds = run.blocks.map((block) => block.id);
+      for (const block of run.blocks) {
+        if (!blocks.has(block.id)) blocks.set(block.id, block);
+      }
+      results.push({
+        id: run.id,
+        result_type: run.resultType,
+        label: run.label,
+        analysis: run.analysis,
+        document_block_ids: documentBlockIds,
+        // Read back from the resolved run, not the digest store directly: a nomination
+        // was rewritten alongside `analysis` if this run's document turned out to have
+        // more than one version, so the assistant and the screen agree on which passage
+        // it points at.
+        priority_digest: run.extras.priority_digest,
+        priority_item_ids: run.extras.priority_item_ids,
+      });
+    }
+
     // Review drafts remain outside results: they cannot satisfy final-result skills
     // or change export. Reuse the same navigable tree and source readers.
     const reviewContext = activeReview ? reviewContextForAssistant(activeReview) : null;
@@ -232,7 +267,6 @@ export function WorkspaceAsk() {
 
   return (
     <Ask
-      resultType="workspace"
       result={bundle.result}
       availableResultCount={bundle.resultCount}
       reviewPhase={activeReview?.draft.phase}

@@ -48,13 +48,13 @@ test("header identifies the bundled version and keeps feedback independent", () 
   assert.match(updatesLink, /aria-current="page"/);
   assert.ok(html.includes(`What’s new — this version v${CURRENT_RELEASE.version}`));
   assert.match(html, /aria-label="Documentation"/);
-  assert.match(html, /aria-label="Send feedback"/);
+  assert.match(html, /aria-label="Share feedback"/);
   const other = renderToStaticMarkup(React.createElement(HeaderUtilities, { pathname: "/scout" }));
   assert.doesNotMatch(other, /aria-current="page"/);
 });
 
 test("feedback directs readers to Teams without an email action or form", () => {
   const html = renderToStaticMarkup(React.createElement(FeedbackDetails));
-  assert.match(html, /For feedback or requests, message Jack Yang or Shyam Bhaskaran on Teams\./);
+  assert.match(html, /Message Jack Yang or Shyam Bhaskaran on Teams to request a feature, send feedback, or set up a user session\./);
   assert.doesNotMatch(html, /mailto:|@gatesfoundation\.org|<a\b|<form\b/);
 });

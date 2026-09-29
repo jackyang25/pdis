@@ -249,7 +249,7 @@
             },
             {
               "term": "Source documents",
-              "description": "Assistant can find and read the exact parsed text and retained image blocks behind available results and the active review."
+              "description": "Assistant can find and read the exact parsed text behind available results and the active review, and look at a retained image block when a question depends on what it shows."
             },
             {
               "term": "Conversation attachments",
@@ -264,7 +264,7 @@
         {
           "type": "note",
           "title": "Context is selected on demand",
-          "text": "Assistant starts from compact maps and uses bounded tools to read only the relevant documentation section, result subtree, document blocks, or cited source. It does not place every available artifact into every model prompt."
+          "text": "Assistant starts from a compact map of the workspace and uses bounded tools to read only the relevant documentation section, result subtree, document blocks, retained visuals, or cited source. It does not place every available artifact, or any image, into every model prompt."
         },
         {
           "type": "note",

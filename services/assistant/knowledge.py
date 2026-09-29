@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from . import limits, sources
 
 _KNOWLEDGE_FILE = (
     Path(__file__).resolve().parents[2] / "shared" / "product_knowledge.json"
 )
-MAX_FIND_HITS = 12
-MAX_READ_CHARS = 16000
 
 
+@lru_cache(maxsize=1)
 def load() -> dict[str, Any]:
     """Load and minimally validate the versioned documentation contract."""
     with _KNOWLEDGE_FILE.open(encoding="utf-8") as handle:
@@ -41,29 +43,20 @@ def overview() -> str:
     return "\n".join(lines)
 
 
-def find(keyword: str) -> str:
-    """Locate documentation sections containing a case-insensitive keyword."""
-    needle = keyword.strip().casefold()
-    if not needle:
-        return "(empty keyword)"
-    hits: list[str] = []
+def find(keyword: Any) -> str:
+    """Locate documentation sections containing a case-insensitive search term."""
+    term = sources.search_term(keyword)
+    if term is None:
+        return sources.EMPTY_QUERY
+    hits = []
     for section in load()["sections"]:
         text = _section_text(section)
-        folded = text.casefold()
-        if needle not in folded:
-            continue
-        index = folded.find(needle)
-        start = max(0, index - 90)
-        end = min(len(text), index + len(keyword) + 170)
-        snippet = " ".join(text[start:end].split())
-        if start > 0:
-            snippet = f"…{snippet}"
-        if end < len(text):
-            snippet = f"{snippet}…"
-        hits.append(f"- {section['id']} ({section['title']}): {snippet}")
-        if len(hits) >= MAX_FIND_HITS:
-            break
-    return "\n".join(hits) if hits else "(no documentation matches)"
+        found = text.casefold().find(term.casefold())
+        if found >= 0:
+            hits.append(sources.Hit(
+                id=section["id"], label=section["title"], snippet=sources.snippet(text, found, len(term)),
+            ))
+    return sources.render_hits(hits, limits.MAX_PRODUCT_DOC_HITS)
 
 
 def read(section_ids: list[str]) -> str:
@@ -80,9 +73,7 @@ def read(section_ids: list[str]) -> str:
         else:
             rendered.append(_section_text(section))
     text = "\n\n".join(rendered)
-    if len(text) > MAX_READ_CHARS:
-        text = f"{text[:MAX_READ_CHARS]}\n…[truncated; request fewer sections]"
-    return text
+    return sources.truncate(text, limits.MAX_PRODUCT_DOC_CHARS, "request fewer sections")
 
 
 def _section_text(section: dict[str, Any]) -> str:

@@ -12,10 +12,10 @@ EXTRACTION_WARNINGS: dict[str, str] = json.loads(
 )
 
 
-def extraction_context(metadata: dict[str, Any], *, include_page: bool = True) -> str:
+def extraction_context(metadata: dict[str, Any]) -> str:
     parts = []
     page = metadata.get("page")
-    if include_page and type(page) is int and page > 0:
+    if type(page) is int and page > 0:
         parts.append(f"page={page}")
     slide = metadata.get("slide")
     if type(slide) is int and slide > 0:

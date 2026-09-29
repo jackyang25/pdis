@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assistantRequest, conversationTurns, type AskContext, type AskMessage } from "./assistant-conversation.ts";
+import { assistantRequest, conversationTurns, retainCited, type AskContext, type AskMessage } from "./assistant-conversation.ts";
 import { citationSources, parseCitation } from "./citation.ts";
 import { Chat } from "@ai-sdk/react";
 import { AssistantSseTransport } from "./assistant-transport.ts";
 
 function context(text: string): AskContext {
   return {
-    resultType: "workspace",
     result: { label: text, url: `https://example.org/${text}` },
     document: [{ id: "same-document/block", content: text }] as AskContext["document"],
     sources: citationSources({ url: `https://example.org/${text}` }),
@@ -98,4 +97,42 @@ test("real streaming chat keeps the first request frozen and sends updated conte
   assert.match(requests[1].messages[2].content, /current workspace context/i);
   chat.messages = [];
   assert.deepEqual(conversationTurns(chat.messages, contexts), []);
+});
+
+test("an earlier question keeps only the passages its answer cites", () => {
+  const block = (id: string, image = false) => ({
+    id, doc_id: "d", ordinal: 0, block_type: "p", content: id, heading_stack: [], section_label: null,
+    structural_meta: {}, style_hint: {},
+    image: image ? { media_type: "image/png", data_base64: "QQ", sha256: id, source_media_type: "image/png" } : null,
+  });
+  const context = { result: { big: true }, document: [block("d/b-1", true), block("d/b-2", true)], sources: new Set(["https://x.org"]) };
+  const kept = retainCited(context as never, ["See [slide](<block:d/b-2>)."]);
+  assert.deepEqual(kept.document.map((b) => b.id), ["d/b-2"]);
+  assert.equal(kept.result, null);
+  assert.equal(kept.sources, context.sources);
+});
+
+test("a bare citation is read the same way the renderer's own parser reads it", () => {
+  const block = (id: string) => ({
+    id, doc_id: "d", ordinal: 0, block_type: "p", content: id, heading_stack: [], section_label: null,
+    structural_meta: {}, style_hint: {}, image: null,
+  });
+  const context = { result: {}, document: [block("d/b-0001"), block("d/b-0002")], sources: { urls: new Set<string>() } };
+  const kept = retainCited(context as never, ["Bare form [x](block:d/b-0002)."]);
+  assert.deepEqual(kept.document.map((b) => b.id), ["d/b-0002"]);
+});
+
+test("a percent-encoded block ID is decoded the same way the renderer decodes it", () => {
+  const block = (id: string) => ({
+    id, doc_id: "d", ordinal: 0, block_type: "p", content: id, heading_stack: [], section_label: null,
+    structural_meta: {}, style_hint: {}, image: null,
+  });
+  const context = { result: {}, document: [block("DRAFT AIV/b-0001")], sources: { urls: new Set<string>() } };
+  const kept = retainCited(context as never, ["Encoded [x](block:DRAFT%20AIV/b-0001)."]);
+  assert.deepEqual(kept.document.map((b) => b.id), ["DRAFT AIV/b-0001"]);
+});
+
+test("the request carries no result_type", () => {
+  const body = assistantRequest([], { result: {}, document: [], sources: new Set() } as never, new Map());
+  assert.equal("result_type" in body, false);
 });

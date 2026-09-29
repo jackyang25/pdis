@@ -32,9 +32,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import yaml
+
+from . import sources
 
 SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 
@@ -109,15 +112,16 @@ def _parse(path: Path) -> Skill:
     )
 
 
-def available_skills() -> list[Skill]:
+@lru_cache(maxsize=1)
+def available_skills() -> tuple[Skill, ...]:
     """Every declared skill, in stable order.
 
     Mirrors `available_configs` in the services: what exists is decided by what
     loads, not by a list someone has to remember to update.
     """
     if not SKILLS_DIR.exists():
-        return []
-    return [_parse(path) for path in sorted(SKILLS_DIR.glob("*.md"))]
+        return ()
+    return tuple(_parse(path) for path in sorted(SKILLS_DIR.glob("*.md")))
 
 
 def find_skill(name: str) -> Skill | None:
@@ -137,7 +141,7 @@ def catalog(held_result_types: frozenset[str] | set[str] | None = None) -> str:
     """
     skills = available_skills()
     if not skills:
-        return "No skills are available."
+        return sources.unavailable("The skill library")
     held = frozenset(held_result_types or frozenset())
     lines: list[str] = []
     for skill in skills:

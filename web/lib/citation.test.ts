@@ -27,14 +27,14 @@ import {
 const NO_URLS = citationSources();
 
 const REPO = path.resolve(import.meta.dirname, "..", "..");
-const AGENT = path.join(REPO, "services", "assistant", "agent.py");
+const PROMPT_SOURCE = path.join(REPO, "services", "assistant", "prompt.py");
 
 test("the scheme matches the one the agent is told to write", () => {
-  const prompt = readFileSync(AGENT, "utf8");
+  const prompt = readFileSync(PROMPT_SOURCE, "utf8");
   assert.match(
     prompt,
     /\(<block:EXACT-BLOCK-ID>\)/,
-    "agent.py no longer instructs the block: scheme this file parses",
+    "prompt.py no longer instructs the block: scheme this file parses",
   );
 });
 
@@ -43,14 +43,14 @@ test("the agent is told to bracket the destination", () => {
   // link destination unbracketed: markdown renders the raw syntax as text, which
   // is exactly what a reader saw. Brackets are stripped before the href reaches
   // parseCitation, so nothing downstream changes.
-  const prompt = readFileSync(AGENT, "utf8");
+  const prompt = readFileSync(PROMPT_SOURCE, "utf8");
   assert.match(prompt, /in angle brackets, never shortened/);
 });
 
 test("there are two citation kinds, both openable", () => {
   // A third kind printed a raw JSON path at the reader. Every citation now
   // resolves to something clickable, or it is not a citation.
-  const prompt = readFileSync(AGENT, "utf8");
+  const prompt = readFileSync(PROMPT_SOURCE, "utf8");
   assert.match(prompt, /Never print a result path/);
 });
 
@@ -58,7 +58,7 @@ test("the label and the destination are told apart", () => {
   // Why the destination broke: repeating a full block ID through a table is
   // unreadable, so the model shortened both. A link already separates the two,
   // and saying so lets it keep the answer readable without breaking the target.
-  const prompt = readFileSync(AGENT, "utf8");
+  const prompt = readFileSync(PROMPT_SOURCE, "utf8");
   assert.match(prompt, /visible text is for the reader/);
   assert.match(prompt, /destination is what opens/);
 });
@@ -250,7 +250,7 @@ test("the agent is told not to write a URL it did not read", () => {
   // material is silently demoted to text, an agent that was never told this
   // would keep writing links a reader never sees — a citation that vanishes is
   // no better than one that lies.
-  const prompt = readFileSync(AGENT, "utf8");
+  const prompt = readFileSync(PROMPT_SOURCE, "utf8");
   assert.match(prompt, /Never write a URL you did not read/);
 });
 
@@ -258,7 +258,7 @@ test("the agent is told when not to cite at all", () => {
   // The reported behaviour: citations attached to sentences they did not
   // support, and to the assistant's own explanations. Every other rule in the
   // prompt pushes toward citing, so the restraint has to be stated.
-  const prompt = readFileSync(AGENT, "utf8");
+  const prompt = readFileSync(PROMPT_SOURCE, "utf8");
   assert.match(prompt, /Cite only where a reader would otherwise/);
   assert.match(prompt, /must support the exact sentence/);
 });

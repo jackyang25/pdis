@@ -16,10 +16,41 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
+class Usage:
+    """What one model call cost, as the provider reported it."""
+
+    input_tokens: int = 0
+    cached_input_tokens: int = 0
+    output_tokens: int = 0
+
+
+@dataclass(frozen=True)
+class LabelledImage:
+    """One retained document visual, never separated from the block it belongs to."""
+
+    block_id: str
+    media_type: str
+    data_base64: str
+
+    @property
+    def data_url(self) -> str:
+        return f"data:{self.media_type};base64,{self.data_base64}"
+
+
+@dataclass(frozen=True)
+class ToolOutput:
+    """What a tool returns: text, and any images the model asked to see."""
+
+    text: str
+    images: tuple[LabelledImage, ...] = ()
+
+
+@dataclass(frozen=True)
 class ChatTurn:
     text: str
     tool_calls: tuple[ToolCall, ...]
     continuation: Any
+    usage: Usage = Usage()
 
 
 @dataclass(frozen=True)

@@ -11,11 +11,12 @@ api.execution so other transports share the same process-wide capacity.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import queue
 import threading
-from typing import Any, Callable, Generator
+from typing import Any, Callable, Generator, Iterator
 
 from api.execution import run_slot
 from api.error_recovery import recovery_guidance
@@ -102,3 +103,60 @@ def run_with_progress(work: Callable[..., Any]) -> Generator[str, None, None]:
         if item is END:
             break
         yield json.dumps(item) + "\n"
+
+
+PING = object()
+
+
+def with_heartbeat(items: Iterator[Any]) -> Iterator[Any]:
+    """Yield `items`, and `PING` whenever `HEARTBEAT_SECONDS` pass with nothing to send.
+
+    The source runs in a worker thread so a silent step (model reasoning, a fetch) cannot
+    starve the connection. An exception in the source is re-raised here. When the consumer
+    stops early, the worker stops at the source's next item and closes it, so a provider
+    stream is not left running.
+    """
+    events: "queue.Queue[tuple[str, Any]]" = queue.Queue()
+    stop = threading.Event()
+
+    def pump() -> None:
+        try:
+            for item in items:
+                if stop.is_set():
+                    break
+                events.put(("item", item))
+        except Exception as exc:  # noqa: BLE001
+            events.put(("error", exc))
+        except BaseException as exc:  # noqa: BLE001
+            # Not only Exception: a source ended by anything else is still a truncated
+            # answer, and ending it as "end" would let the caller report completion.
+            failure = RuntimeError(f"stream source stopped: {type(exc).__name__}")
+            failure.__cause__ = exc
+            events.put(("error", failure))
+        finally:
+            try:
+                close = getattr(items, "close", None)
+                if close is not None:
+                    close()
+            finally:
+                # Nested so a raising close() can never leave the consumer on pings.
+                events.put(("end", None))
+
+    # A bare Thread starts with an empty context, so the request ID the logging
+    # filter reads from a ContextVar would vanish from everything the source logs.
+    context = contextvars.copy_context()
+    threading.Thread(target=context.run, args=(pump,), daemon=True).start()
+    try:
+        while True:
+            try:
+                kind, value = events.get(timeout=HEARTBEAT_SECONDS)
+            except queue.Empty:
+                yield PING
+                continue
+            if kind == "end":
+                return
+            if kind == "error":
+                raise value
+            yield value
+    finally:
+        stop.set()

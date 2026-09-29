@@ -1178,6 +1178,104 @@ def _header(block: dict[str, Any]) -> str:
 
 `extraction_context(meta)` already includes the page/slide location when present; `test_view_returns_labelled_images_with_text` depends on that. If it does not render `slide N`, append `location` from the index to `_header` instead (look it up via the visual list).
 
+- [ ] **Step 3b: Versions, readers, and searches no document can crowd out**
+
+The browser tags every version of a same-named document with a fingerprint (`cTPP@3f9a1c`, Task 8). The documents source makes that legible and keeps a multi-document search honest.
+
+In `sources.py`, give `render_hits` an optional overflow line (the default wording is unchanged):
+
+```python
+def render_hits(hits: list[Hit], cap: int, overflow: str | None = None) -> str:
+    ...
+    if len(hits) > cap:
+        lines.append(overflow or f"…[{len(hits) - cap} more matches; search a narrower term]")
+```
+
+In `document.py`, add:
+
+```python
+import re
+from collections import Counter
+
+_VERSION = re.compile(r"^(?P<base>.+)@[0-9a-f]{6}$")
+
+
+def _readers(index: WorkspaceIndex, doc_id: str) -> list[str]:
+    return [f"{entry.result_type} ({entry.label})" for entry in index.results if doc_id in entry.doc_ids]
+
+
+def _version_note(index: WorkspaceIndex, doc_id: str) -> str:
+    match = _VERSION.match(doc_id)
+    if not match:
+        return ""
+    siblings = sum(1 for doc in index.documents if (m := _VERSION.match(doc.doc_id)) and m["base"] == match["base"])
+    return f" (one of {siblings} versions of {match['base']})"
+```
+
+and the per-document line in `overview` becomes:
+
+```python
+        readers = _readers(index, doc.doc_id)
+        line = f"- {doc.doc_id}{_version_note(index, doc.doc_id)}{tag}: {len(members)} blocks{visuals}"
+        lines.append(line + (f"; read by: {', '.join(readers)}" if readers else ""))
+```
+
+`find` takes an optional document and reports what the cap held back, per document:
+
+```python
+def find(index: WorkspaceIndex, query: Any, doc_id: str | None = None) -> str:
+    if not index.blocks:
+        return UNAVAILABLE
+    term = sources.search_term(query)
+    if term is None:
+        return sources.EMPTY_QUERY
+    if doc_id is not None and index.document(doc_id) is None:
+        return f"(document not found: {doc_id})"
+    scope = index.blocks_of(doc_id) if doc_id is not None else list(index.blocks.values())
+    hits, owners = [], []
+    for block in scope:
+        heading = " > ".join(block.get("heading_stack") or [])
+        text = f"{heading}\n{block.get('content') or ''}"
+        found = text.lower().find(term.lower())
+        if found >= 0:
+            hits.append(sources.Hit(
+                id=str(block["id"]), label=heading, snippet=sources.snippet(text, found, len(term)),
+                note=extraction_context(block.get("structural_meta") or {}),
+            ))
+            owners.append(str(block.get("doc_id") or "document"))
+    overflow = None
+    if len(hits) > limits.MAX_FIND_HITS:
+        rest = Counter(owners[limits.MAX_FIND_HITS :])
+        overflow = ("…[" + ", ".join(f"{count} more in {owner}" for owner, count in rest.items())
+                    + "; narrow with doc_id]")
+    return sources.render_hits(hits, limits.MAX_FIND_HITS, overflow=overflow)
+```
+
+Add to `DocumentSourceTests` in `tests/test_assistant_sources.py`:
+
+```python
+    def test_overview_names_versions_and_readers(self):
+        blocks = [block("cTPP@aaaaaa", 1), block("cTPP@bbbbbb", 1)]
+        bundle = {"results": [
+            {"id": "i", "result_type": "inspector", "label": "Inspect", "document_block_ids": ["cTPP@aaaaaa/b-0001"]},
+            {"id": "s", "result_type": "screener", "label": "Gate", "document_block_ids": ["cTPP@bbbbbb/b-0001"]},
+        ]}
+        text = document.overview(build_index(bundle, blocks))
+        self.assertIn("cTPP@aaaaaa (one of 2 versions of cTPP)", text)
+        self.assertIn("read by: inspector (Inspect)", text)
+        self.assertIn("read by: screener (Gate)", text)
+
+    def test_find_narrows_by_document_and_counts_what_the_cap_held_back(self):
+        blocks = [dict(block("deckA", n), content="dose") for n in range(1, 51)]
+        blocks += [dict(block("deckB", n), content="dose") for n in range(1, 11)]
+        index = build_index({"results": []}, blocks)
+        self.assertIn("…[10 more in deckA, 10 more in deckB; narrow with doc_id]", document.find(index, "dose"))
+        narrowed = document.find(index, "dose", doc_id="deckB")
+        self.assertEqual(narrowed.count("- [deckB/"), 10)
+        self.assertNotIn("deckA", narrowed)
+        self.assertEqual(document.find(index, "dose", doc_id="nope"), "(document not found: nope)")
+```
+
 - [ ] **Step 4: Implement `navigator.py` and `web_sources.py`**
 
 Move `fetch_source`, `_strip_html`, `_is_public_http_url` and `_PublicRedirectHandler` verbatim into `services/assistant/web_sources.py`, replacing `MAX_FETCH_CHARS`, `FETCH_TIMEOUT_SECONDS` and the literal `2_000_000` with `limits.MAX_FETCH_CHARS`, `limits.FETCH_TIMEOUT_SECONDS`, `limits.MAX_FETCH_BYTES`. Give it the docstring `"""Opening a source an analysis already cites: allow-list and public-address checks, then text."""`.
@@ -1340,6 +1438,14 @@ class VisualToolTests(unittest.TestCase):
     def test_range_schema_reads_the_shared_limit(self):
         schema = next(t for t in TOOLS if t["function"]["name"] == "read_document_range")
         self.assertEqual(schema["function"]["parameters"]["properties"]["count"]["maximum"], 25)
+
+    def test_document_search_can_be_narrowed_to_one_document(self):
+        schema = next(t for t in TOOLS if t["function"]["name"] == "find_document")
+        self.assertIn("doc_id", schema["function"]["parameters"]["properties"])
+        self.assertEqual(schema["function"]["parameters"]["required"], ["keyword"])
+        context = ToolContext(index=mixed_workspace(), budget=VisualBudget())
+        output = run_tool(self.call("find_document", keyword="text", doc_id="nope"), context)
+        self.assertEqual(output.text, "(document not found: nope)")
 ```
 
 Also update this file's existing tests: replace imports of `_VERBS` with `VERBS`, of `held_result_types` from `registry` with `build_index(bundle, None).held_result_types`, and any `ToolContext(result=…, allowed_urls=…, document=…, held_result_types=…)` with `ToolContext(index=build_index(result, document), budget=VisualBudget())`. Where a test calls `verb.handler(context, args)` and compares a string, compare `run_tool(...).text` instead.
@@ -1379,7 +1485,7 @@ class ToolContext:
   - `find_result`: `navigator.find(ctx.index, args.get("keyword"))`
   - `read_result`: `navigator.get(ctx.index, str(args.get("path", "")))`
   - `fetch_source`: `web_sources.fetch_source(str(args.get("url", "")), set(ctx.index.allowed_urls))`
-  - `find_document`: `document_reader.find(ctx.index, args.get("keyword"))`
+  - `find_document`: `document_reader.find(ctx.index, args.get("keyword"), doc_id=str(args["doc_id"]) if args.get("doc_id") else None)`, and its schema gains an optional `"doc_id": {"type": "string", "description": "Search only this document, by the doc_id the map shows."}`; add to its description: "When matches exceed the cap, the result says how many more each document holds; pass doc_id to search one."
   - `read_document`: `document_reader.get(ctx.index, _string_list(args.get("block_ids")), start_char=_int(args.get("start_char"), 0))`
   - `read_document_range`: `document_reader.get_range(ctx.index, str(args.get("doc_id", "")), start=_int(args.get("start"), 0), count=_int(args.get("count"), limits.MAX_RANGE_BLOCKS))`, with `"maximum": limits.MAX_RANGE_BLOCKS` in its schema
   - `find_skill`: `skills.catalog(ctx.index.held_result_types)`
@@ -1435,6 +1541,10 @@ def run_tool(call: ToolCall, context: ToolContext) -> ToolOutput:
 ```
 
 - Imports: `json`, `from shared.chat import ToolCall, ToolOutput`, `from . import limits, web_sources`, `from .document import VisualBudget`, `from .workspace import WorkspaceIndex`.
+
+- [ ] **Step 3b: Keep `agent.py` importable until Task 6 rewrites it**
+
+`agent.py` imports `_VERBS` and `held_result_types` from the registry and builds the old `ToolContext`. Adapt it minimally, without touching its prompt code: import `TOOLS, VERBS, ToolContext, run_tool` and `from .workspace import build_index`; in `answer_stream` build `index = build_index(result, document)` and `context = ToolContext(index=index, budget=VisualBudget())`; replace its `_run_tool(call, context)` with `run_tool(call, context).text` and delete `_run_tool`; replace `resources.activity_for(REGISTRY, call.name)` with `resources.activity_for(VERBS, call.name)`; replace `held_result_types(result)` with `index.held_result_types` (pass the index into `_system_prompt` if needed, or call `build_index(result, document).held_result_types` there). `_system_prompt` calls `navigator.overview(result)` and `document_reader.overview(document or [])`; change them to `navigator.overview(build_index(result, document))` and `document_reader.overview(build_index(result, document))`. Task 6 replaces all of this.
 
 - [ ] **Step 4: Run tests**
 
@@ -1505,11 +1615,16 @@ class PromptTests(unittest.TestCase):
         self.assertIn("DOCX, PPTX or text-based PDF", text)
         self.assertNotIn("judges the iTPP, cTPP, and IPDP against each other", text)
 
-    def test_map_for_a_200_slide_deck_stays_small(self):
-        deck = [block("deck", n, image=png(sha=f"h{n}"), slide=n) for n in range(1, 201)]
-        text = system_prompt(build_index({"results": []}, deck))
-        self.assertIn("200 visual(s): slides 1–200", text)
-        self.assertLess(len(text) - len(STATIC_PREFIX), 4000)
+    def test_map_does_not_grow_with_document_length(self):
+        def prompt_for(slides):
+            deck = [block("deck", n, image=png(sha=f"h{n}"), slide=n) for n in range(1, slides + 1)]
+            return system_prompt(build_index({"results": []}, deck))
+        long, short = prompt_for(200), prompt_for(2)
+        self.assertIn("200 visual(s): slides 1–200", long)
+        self.assertLess(len(long) - len(short), 200)
+
+    def test_the_prefix_says_what_to_do_with_two_versions(self):
+        self.assertIn("more than one version of a document", STATIC_PREFIX)
 
     def test_no_image_is_sent_up_front(self):
         client = RecordingClient([final()])
@@ -1602,6 +1717,7 @@ Move `_system_prompt`'s section texts from `agent.py` into `prompt.py`, keeping 
 
 - `role`: always the workspace wording: `"You are Ask: a read-only assistant that answers questions about the client-held workspace catalog, its available final analysis results, any explicitly supplied active review draft, and the parsed source documents behind them. You are grounded: answer ONLY from this submitted context, the canonical public PDIS product documentation, and the full text behind sources it already cites. You never run new web searches and never change anything."`
 - `document_access` and `grounding_rules`: unconditional (drop the `if has_doc` branches and the `+ (", or the source document" if has_doc else "")` fragment — always include it). In `document_access`, replace `"- You may inspect, quote, compare, and cite parsed text and retained visuals using their block IDs.\n"` with `"- You may inspect, quote, compare, and cite parsed text using block IDs. Retained visuals are not in this prompt: look at one with view_document_visuals when a question depends on what a slide, page or figure shows.\n"` and prefix the first bullet with "When the workspace holds documents, ".
+- `answering`: append `"- When the map lists more than one version of a document and the question does not say which, ask which one, or answer for each version and name it. A result's own citations already point at the version it read.\n"`.
 - `reach`: unchanged text, minus the `has_doc` suffix; add `"- Visuals cost the most to read. View only the blocks a question needs, and never claim to have seen a visual you did not view.\n"` after the inventory.
 - `context_meaning`/`review_meaning` become one tail section: `f"WHAT THIS CONTEXT IS:\n{legends_for(index.held_result_types, index.has_review)}"`.
 - `overview` becomes `f"WORKSPACE MAP - results:\n{navigator.overview(index)}"` and `document_map` becomes `f"WORKSPACE MAP - documents (the authors' claims; cite exact block IDs):\n{document_reader.overview(index)}"`.
@@ -1764,6 +1880,10 @@ Note the forced final call now passes `tools=None` explicitly, as it did before 
 - [ ] **Step 7: Update `__init__.py`**
 
 Export `Chunk`, `StreamingChatLLMProtocol` (from `.protocols`), `answer_stream`, the digest names as today, and `limits`. Remove `ChatLLMProtocol`. Update the docstring to list `limits` as public.
+
+- [ ] **Step 7b: Keep the route runnable**
+
+In `api/routes/assistant.py`, drop `request.result_type` from the `assistant_answer_stream(...)` call (Task 7 owns the rest of the route). Without this the route passes the result type where the messages belong.
 
 - [ ] **Step 8: Update tests that reached into private names**
 
@@ -1989,8 +2109,8 @@ Expected: all pass.
 
 **Files:**
 - Modify: `web/components/assistant/ask.tsx`, `web/components/assistant/workspace-ask.tsx`, `web/lib/assistant-conversation.ts`, `web/lib/document-formats.ts`
-- Create: `web/lib/assistant-suggestions.ts`
-- Test: `web/lib/assistant-conversation.test.ts`, `web/lib/assistant-transport.test.ts`, `web/lib/assistant-suggestions.test.ts` (rewrite)
+- Create: `web/lib/assistant-suggestions.ts`, `web/lib/workspace-documents.ts`
+- Test: `web/lib/assistant-conversation.test.ts`, `web/lib/assistant-transport.test.ts`, `web/lib/assistant-suggestions.test.ts` (rewrite), `web/lib/workspace-documents.test.ts` (new)
 
 **Interfaces:**
 - Produces: `MAX_ATTACHMENTS` in `document-formats.ts`; `openers(state: { reviewPhase?: string; attachments: number; results: number }): [string, string]` in `assistant-suggestions.ts`; `AskContext = { result: unknown; document: ContentBlock[]; sources: CitationSources }`; `assistantRequest(messages, fallback, contexts)` returns `{ result, document, messages }`; `retainCited(context: AskContext, answers: string[]): AskContext`.
@@ -2127,6 +2247,135 @@ export function retainCited(context: AskContext, answers: string[]): AskContext 
 
 - Stop passing `resultType="workspace"`.
 - `addResult` gains a final parameter `panel = true`; attach `priority_digest`/`priority_item_ids` only when `panel` is true. The Inspector call passes `false` (its digests live on each review).
+
+- [ ] **Step 3b: Document identity by content, decided once**
+
+A passage's address is `<filename stem>/b-<ordinal>`, so two runs over different versions of `cTPP.docx` share addresses, and the bundle kept whichever run arrived first (`workspace-ask.tsx`, `if (!blocks.has(block.id))`). One rule fixes it, here and nowhere else — the browser also renders citations, so the model and the popovers share this one address space. The server trusts it and does not re-check.
+
+Write the failing test first, `web/lib/workspace-documents.test.ts`:
+
+```typescript
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { ContentBlock } from "./api";
+import { resolveDocumentVersions } from "./workspace-documents.ts";
+
+const block = (doc: string, n: number, content: string): ContentBlock => ({
+  id: `${doc}/b-${String(n).padStart(4, "0")}`, doc_id: doc, ordinal: n, block_type: "paragraph", content,
+  heading_stack: [], section_label: null, structural_meta: {}, style_hint: {}, image: null,
+});
+const run = (id: string, text: string) => ({
+  id,
+  blocks: [block("cTPP", 1, text), block("cTPP", 2, "shared")],
+  analysis: { cited_block_ids: ["cTPP/b-0001"], reference_doc_id: "cTPP", note: "cTPP/b-0001 is quoted" },
+});
+
+test("the same document read by two runs stays one document", () => {
+  const [a, b] = resolveDocumentVersions([run("a", "same"), run("b", "same")]);
+  assert.deepEqual(a.blocks.map((x) => x.id), ["cTPP/b-0001", "cTPP/b-0002"]);
+  assert.deepEqual(b.blocks.map((x) => x.id), ["cTPP/b-0001", "cTPP/b-0002"]);
+});
+
+test("two versions under one name are both kept, each run citing its own", () => {
+  const [a, b] = resolveDocumentVersions([run("a", "v1"), run("b", "v2")]);
+  assert.notEqual(a.blocks[0].doc_id, b.blocks[0].doc_id);
+  for (const version of [a, b]) {
+    assert.match(version.blocks[0].doc_id, /^cTPP@[0-9a-f]{6}$/);
+    assert.equal(version.blocks[0].id, `${version.blocks[0].doc_id}/b-0001`);
+    const analysis = version.analysis as { cited_block_ids: string[]; reference_doc_id: string; note: string };
+    assert.deepEqual(analysis.cited_block_ids, [version.blocks[0].id]);
+    assert.equal(analysis.reference_doc_id, version.blocks[0].doc_id);
+    assert.equal(analysis.note, "cTPP/b-0001 is quoted"); // prose is never rewritten
+  }
+});
+
+test("the addresses do not depend on the order runs arrive in", () => {
+  const forward = resolveDocumentVersions([run("a", "v1"), run("b", "v2")]);
+  const backward = resolveDocumentVersions([run("b", "v2"), run("a", "v1")]);
+  assert.deepEqual(forward[0].blocks.map((x) => x.id), backward[1].blocks.map((x) => x.id));
+});
+```
+
+Then `web/lib/workspace-documents.ts`:
+
+```typescript
+import type { ContentBlock } from "./api";
+
+/**
+ * Which document a run read, decided by content rather than by filename.
+ *
+ * A block's address is `<filename stem>/b-<ordinal>`, so two runs over different versions
+ * of `cTPP.docx` produce the same addresses. Each run's document is fingerprinted from its
+ * blocks; one fingerprint per name is one document shared by every run that read it. More
+ * than one fingerprint under a name tags every version - `cTPP@3f9a1c` - so each run's
+ * citations open the text it actually read, whatever order the runs arrive in.
+ *
+ * Only reference fields are rewritten: a string that is exactly a renamed block ID, and a
+ * `doc_id` / `*_doc_id` field that is exactly a renamed document. Prose is never touched.
+ */
+export type WorkspaceRun = { id: string; blocks: ContentBlock[]; analysis: unknown };
+
+export function resolveDocumentVersions<T extends WorkspaceRun>(runs: T[]): T[] {
+  const fingerprints = runs.map((run) => {
+    const byDoc = new Map<string, ContentBlock[]>();
+    for (const block of run.blocks) byDoc.set(block.doc_id, [...(byDoc.get(block.doc_id) ?? []), block]);
+    return new Map([...byDoc].map(([doc, blocks]) => [doc, fingerprint(blocks)]));
+  });
+  const versions = new Map<string, Set<string>>();
+  for (const prints of fingerprints) {
+    for (const [doc, print] of prints) versions.set(doc, (versions.get(doc) ?? new Set()).add(print));
+  }
+  return runs.map((run, index) => {
+    const docRenames = new Map<string, string>();
+    for (const [doc, print] of fingerprints[index]) {
+      if ((versions.get(doc)?.size ?? 0) > 1) docRenames.set(doc, `${doc}@${print.slice(0, 6)}`);
+    }
+    if (docRenames.size === 0) return run;
+    const blockRenames = new Map<string, string>();
+    const blocks = run.blocks.map((block) => {
+      const doc = docRenames.get(block.doc_id);
+      if (!doc) return block;
+      const suffix = block.id.startsWith(`${block.doc_id}/`) ? block.id.slice(block.doc_id.length + 1) : block.id;
+      const id = `${doc}/${suffix}`;
+      blockRenames.set(block.id, id);
+      return { ...block, id, doc_id: doc };
+    });
+    return { ...run, blocks, analysis: rewrite(run.analysis, blockRenames, docRenames, "") };
+  });
+}
+
+function rewrite(value: unknown, blocks: Map<string, string>, docs: Map<string, string>, key: string): unknown {
+  if (typeof value === "string") {
+    if (blocks.has(value)) return blocks.get(value);
+    if ((key === "doc_id" || key.endsWith("_doc_id")) && docs.has(value)) return docs.get(value);
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((item) => rewrite(item, blocks, docs, key));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([child, item]) => [child, rewrite(item, blocks, docs, child)]));
+  }
+  return value;
+}
+
+/** A stable 53-bit hash (cyrb53) of a document's block IDs, text and image hashes. */
+function fingerprint(blocks: ContentBlock[]): string {
+  const text = blocks.map((block) => `${block.id}\u0000${block.content}\u0000${block.image?.sha256 ?? ""}`).join("\u0001");
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
+}
+```
+
+In `web/components/assistant/workspace-ask.tsx`, stop adding results one at a time. Collect every final run first as `{ id, resultType, label, value, panel }`, split each with `splitResultContext(value)` into `{ id, blocks: context.document ?? [], analysis: context.analysis }`, pass the list through `resolveDocumentVersions`, and only then fill `results` and the shared `blocks` map from the resolved runs (`document_block_ids` from each resolved run's block IDs; the existing `if (!blocks.has(block.id))` stays and is now only ever true for identical text). Review drafts and attachments do not go through it: a draft already carries its own `Review draft · …` document names, and attachments carry unique `attachment-…` IDs.
+
+Run: `node --test --experimental-strip-types lib/workspace-documents.test.ts`
+Expected: 3 passed.
 
 - [ ] **Step 4: Run web checks**
 

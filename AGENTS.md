@@ -653,6 +653,14 @@ supplied material answers and which it does not.
   cited by an analysis. Transient conversation attachments use the same block
   contract and remain user-supplied context; Ask never runs a new evidence
   search.
+- Ask's prompt carries a bounded map, never the workspace itself: a fixed prefix, the
+  legends for held result types, and per result and per document a bounded number of
+  lines. Every result subtree, source block and retained image is reached by exact ID
+  through the registry; no image enters a prompt unrequested, and visuals are capped per
+  call and per question in `services/assistant/limits.py`. A new kind of reachable content
+  is a source over the workspace index plus its registry entries, never a new prompt section.
+  Two different documents that share a filename are kept as separate versions, tagged by
+  content, in the browser's workspace builder; the server trusts those addresses.
 - A mounted Scout review checkpoint may supply `active_review` separately from
   final `results[]`, with the current selection and retained source blocks. It is
   read-only context, never a final-result skill prerequisite or export metadata.

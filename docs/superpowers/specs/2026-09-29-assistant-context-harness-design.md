@@ -170,8 +170,9 @@ Tools after the change (names kept where they exist, so skills and tests stay va
 | web sources already cited | `fetch_source` |
 
 `view_document_visuals(block_ids)` returns the images for up to `MAX_VISUALS_PER_CALL`
-blocks, each labelled with its exact block ID, together with the block's text and location so
-the model reads image and text together. A request for a non-visual block returns its text
+blocks, each labelled with its exact block ID and its location, with the IDs of the text
+blocks on the same slide or page so the model reads image and text together (an image
+block's own content is only `[image]`). A request for a non-visual block returns its text
 and says it has no image. A block ID not in the index is reported, never guessed.
 
 ### 4. The loop, tool outputs and images
@@ -193,6 +194,32 @@ and says it has no image. A block ID not in the index is reported, never guessed
   slides it viewed rather than implying it saw them all.
 - `agent.py` splits into `protocols.py` (provider protocols), `prompt.py` (the map), and
   `agent.py` (the loop). No mid-file imports; nothing imports a private name across modules.
+
+### Document identity — decided once, by content
+
+A passage's address is `<filename stem>/b-<ordinal>`, and runs are unique but the documents
+inside them are not: two runs over different versions of `cTPP.docx` produce the same
+addresses. Today the browser's bundle keeps whichever arrived first, so one run's citations
+silently open another version's text.
+
+The rule, applied once in the browser's workspace builder (`web/lib/workspace-documents.ts`),
+which is also what renders citations, so the model and the popovers share one address space:
+
+- Each run's document is fingerprinted from its blocks (IDs, text, image hashes).
+- Same `doc_id`, same fingerprint: one document, shared by every run that read it.
+- Same `doc_id`, different fingerprints: every version is kept, and each version's `doc_id` and
+  block IDs gain a short fingerprint tag (`cTPP@3f9a1c/b-0012`). Each run's own references are
+  rewritten to its version. Tagging applies to every version, so the result does not depend on
+  the order runs arrive in.
+- The server trusts these addresses and does not re-check them.
+
+The map lists, per document, which results read it; a tagged document is shown as one of the
+versions of its base name. The system prompt says: when more than one version of a document is
+held and the question does not say which, ask which one, or answer for each version and name it.
+
+`find_document` takes an optional `doc_id`, and when its hit cap is reached it states how many
+further matches each document holds, so one long document cannot crowd the others out of a
+search.
 
 ### Limits — one module
 
@@ -258,6 +285,8 @@ HTTPException` in the digest route; `resources.activity_for` rebuilding the disp
 | "What does the chart on slide 12 show?" | — | `view_document_visuals` on that block |
 | "Summarise every slide" | — | Text by range; visuals up to the question budget, withheld count stated |
 | Follow-up question | Same map from the current workspace | Looks up again as needed |
+| Inspector on `cTPP.docx`, then Screener on a revised `cTPP.docx` | Two tagged versions of cTPP, each with the run that read it | Each run's citations open its own version; an unqualified question gets asked which |
+| Screener over four decks, query matches mostly in one | — | `find_document` reports remaining matches per document; `doc_id` narrows |
 | Workspace changes mid-chat | New map | Old answers keep their citation lookup only |
 
 ## Testing

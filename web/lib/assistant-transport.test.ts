@@ -66,6 +66,10 @@ test("an event carrying no data yields nothing", () => {
   assert.equal(readEvent(""), null);
 });
 
+test("a heartbeat comment produces nothing", () => {
+  assert.equal(readEvent(": ping"), null);
+});
+
 test("a malformed line costs its own text, not the answer", () => {
   // One bad event should not abort a stream that is otherwise fine.
   assert.equal(readEvent('data: not-json\ndata: "kept"')?.text, "kept");

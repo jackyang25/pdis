@@ -13,9 +13,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Iterator, Literal
+from typing import Any, Iterable, Iterator, Literal
 
-from shared.chat import ChatDelta, ChatTurn, ToolCall
+from shared.chat import ChatDelta, ChatTurn, ToolCall, Usage
+from shared.visuals import labelled_image_parts
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,14 @@ DEFAULT_REASONING_MODEL = "gpt-6-astra"
 #: against OpenAI directly, validated like any other base URL.
 DEFAULT_BASE_URL = "https://ai-kong-gateway.bmgf.io/ai/v2"
 
+#: How images returned by a tool reach the model. "native" puts them inside the
+#: function_call_output; "follow_up" sends the text there and the images in one user
+#: message after the turn's outputs. Set by verification against the live endpoint.
+TOOL_IMAGES: Literal["native", "follow_up"] = "native"
+
 
 class OpenAIClient:
-    """Thin OpenAI wrapper exposing text generation and web search."""
+    """OpenAI wrapper: structured calls, streamed tool chat, and web search."""
 
     def __init__(
         self,
@@ -174,20 +180,6 @@ class OpenAIClient:
             return None
         return parsed if isinstance(parsed, dict) else None
 
-    def chat(
-        self,
-        messages: list[dict[str, Any]],
-        *,
-        tools: list[dict[str, Any]] | None = None,
-        max_tokens: int = 4000,
-        task: ModelTask = "reasoning",
-    ) -> ChatTurn:
-        """One tool-capable turn, independent of the provider's wire format."""
-        response = self.client.responses.create(
-            **self._chat_request(messages, tools, max_tokens, task),
-        )
-        return _chat_turn(response)
-
     def chat_stream(
         self,
         messages: list[dict[str, Any]],
@@ -282,21 +274,42 @@ class OpenAIClient:
 def _chat_input(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Translate application messages once; replay completed provider items intact."""
     items: list[dict[str, Any]] = []
+    pending: list[Any] = []  # follow-up images for the current run of tool outputs
+
+    def flush() -> None:
+        if pending:
+            items.append({"role": "user", "content": [
+                {"type": "input_text", "text": "Visuals returned by the tool calls above:"},
+                *(_chat_content(part) for part in _image_parts(pending)),
+            ]})
+            pending.clear()
+
     for message in messages:
+        if message["role"] == "tool" and message.get("continuation") is None:
+            images = tuple(message.get("images") or ())
+            output: Any = message["content"]
+            if images and TOOL_IMAGES == "native":
+                output = [{"type": "input_text", "text": message["content"]},
+                          *(_chat_content(part) for part in _image_parts(images))]
+            elif images:
+                pending.extend(images)
+            items.append({"type": "function_call_output",
+                          "call_id": message["tool_call_id"], "output": output})
+            continue
+        flush()
         if message.get("continuation") is not None:
             items.extend(message["continuation"])
-        elif message["role"] == "tool":
-            items.append({
-                "type": "function_call_output",
-                "call_id": message["tool_call_id"],
-                "output": message["content"],
-            })
         else:
             content = message["content"]
             if isinstance(content, list):
                 content = [_chat_content(part) for part in content]
             items.append({"role": message["role"], "content": content})
+    flush()
     return items
+
+
+def _image_parts(images: Iterable[Any]) -> list[dict[str, Any]]:
+    return labelled_image_parts((image.block_id, image.data_url) for image in images)
 
 
 def _chat_content(part: dict[str, Any]) -> dict[str, Any]:
@@ -324,7 +337,16 @@ def _chat_turn(response: Any) -> ChatTurn:
     )
     if not text.strip() and not calls:
         raise RuntimeError("OpenAI chat response contained no answer or tool calls")
-    return ChatTurn(text=text, tool_calls=calls, continuation=output)
+    usage = getattr(response, "usage", None)
+    details = getattr(usage, "input_tokens_details", None)
+    return ChatTurn(
+        text=text, tool_calls=calls, continuation=output,
+        usage=Usage(
+            input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+            cached_input_tokens=int(getattr(details, "cached_tokens", 0) or 0),
+            output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+        ),
+    )
 
 
 def _is_content_refusal(exc: Exception) -> bool:
@@ -348,23 +370,7 @@ def _user_content(
         return user_message
     return [
         {"type": "text", "text": user_message},
-        *[
-            item
-            for image in images
-            for item in (
-                {
-                    "type": "text",
-                    "text": f"Visual for document block [{image['block_id']}]:",
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": image["data_url"],
-                        "detail": "high",
-                    },
-                },
-            )
-        ],
+        *labelled_image_parts((image["block_id"], image["data_url"]) for image in images),
     ]
 
 

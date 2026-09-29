@@ -6,32 +6,49 @@ handler that runs, and whether it is evidence to cite or procedure to follow.
 
 Add a capability here and nowhere else. `agent.py` reads this list; it does not
 know what is in it.
+
+Every handler reads one `WorkspaceIndex` — the request's whole reachable world,
+built once by `workspace.build_index` — rather than a scatter of separate
+result/document/allowed-url arguments. `run_tool` is the one dispatcher: it
+parses a model tool call, routes it to the verb that declared it, and always
+hands back a provider-neutral `ToolOutput`, whether the handler itself returned
+plain text or an image-bearing `ToolOutput`.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
+from shared.chat import ToolCall, ToolOutput
+
 from . import document as document_reader
 from . import knowledge
+from . import limits
 from . import navigator
 from . import resources
 from . import skills
+from . import web_sources
+from .document import VisualBudget
+from .workspace import WorkspaceIndex
+
 
 def _string_list(raw: Any) -> list[str]:
     """Model-supplied lists are untrusted; a non-list becomes an empty one."""
     return [str(value) for value in raw] if isinstance(raw, list) else []
 
 
+def _int(raw: Any, default: int) -> int:
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) else default
+
+
 @dataclass(frozen=True)
 class ToolContext:
-    """Everything a verb may read. Passed whole so adding one is not a signature change."""
+    """Everything a verb may read, and the question's visual budget."""
 
-    result: dict[str, Any]
-    allowed_urls: set[str]
-    document: list[dict[str, Any]] | None
-    held_result_types: frozenset[str]
+    index: WorkspaceIndex
+    budget: VisualBudget
 
 
 REGISTRY: tuple[resources.Resource, ...] = (
@@ -49,7 +66,7 @@ REGISTRY: tuple[resources.Resource, ...] = (
                     "properties": {"keyword": {"type": "string"}},
                     "required": ["keyword"],
                 },
-                handler=lambda ctx, args: knowledge.find(str(args.get("keyword", ""))),
+                handler=lambda ctx, args: knowledge.find(args.get("keyword")),
             ),
             resources.Verb(
                 name="read_product_docs",
@@ -80,7 +97,7 @@ REGISTRY: tuple[resources.Resource, ...] = (
                     "properties": {"keyword": {"type": "string"}},
                     "required": ["keyword"],
                 },
-                handler=lambda ctx, args: navigator.find(ctx.result, str(args.get("keyword", ""))),
+                handler=lambda ctx, args: navigator.find(ctx.index, args.get("keyword")),
             ),
             resources.Verb(
                 name="read_result",
@@ -91,7 +108,7 @@ REGISTRY: tuple[resources.Resource, ...] = (
                     "properties": {"path": {"type": "string", "description": "Path into the result, '' for the whole result."}},
                     "required": ["path"],
                 },
-                handler=lambda ctx, args: navigator.get(ctx.result, str(args.get("path", ""))),
+                handler=lambda ctx, args: navigator.get(ctx.index, str(args.get("path", ""))),
             ),
             resources.Verb(
                 name="fetch_source",
@@ -102,7 +119,9 @@ REGISTRY: tuple[resources.Resource, ...] = (
                     "properties": {"url": {"type": "string"}},
                     "required": ["url"],
                 },
-                handler=lambda ctx, args: navigator.fetch_source(str(args.get("url", "")), ctx.allowed_urls),
+                handler=lambda ctx, args: web_sources.fetch_source(
+                    str(args.get("url", "")), set(ctx.index.allowed_urls)
+                ),
             ),
         ),
     ),
@@ -113,16 +132,28 @@ REGISTRY: tuple[resources.Resource, ...] = (
         verbs=(
             resources.Verb(
                 name="find_document",
-                description="Find source-document blocks whose heading or content contains a keyword. Returns exact block IDs and snippets; use before read_document when you do not know the block IDs.",
+                description=(
+                    "Find source-document blocks whose heading or content contains a keyword. "
+                    "Returns exact block IDs and snippets; use before read_document when you do "
+                    "not know the block IDs. When matches exceed the cap, the result says how "
+                    "many more each document holds; pass doc_id to search one."
+                ),
                 activity="Searching the document",
                 parameters={
                     "type": "object",
-                    "properties": {"keyword": {"type": "string"}},
+                    "properties": {
+                        "keyword": {"type": "string"},
+                        "doc_id": {
+                            "type": "string",
+                            "description": "Search only this document, by the doc_id the map shows.",
+                        },
+                    },
                     "required": ["keyword"],
                 },
-                handler=lambda ctx, args: (
-                    document_reader.find(ctx.document, str(args.get("keyword", "")))
-                    if ctx.document else "Source document unavailable."
+                handler=lambda ctx, args: document_reader.find(
+                    ctx.index,
+                    args.get("keyword"),
+                    doc_id=str(args["doc_id"]) if args.get("doc_id") else None,
                 ),
             ),
             resources.Verb(
@@ -137,13 +168,10 @@ REGISTRY: tuple[resources.Resource, ...] = (
                     },
                     "required": ["block_ids"],
                 },
-                handler=lambda ctx, args: (
-                    document_reader.get(
-                        ctx.document,
-                        args.get("block_ids") if isinstance(args.get("block_ids"), list) else [],
-                        start_char=args.get("start_char") if isinstance(args.get("start_char"), int) else 0,
-                    )
-                    if ctx.document else "Source document unavailable."
+                handler=lambda ctx, args: document_reader.get(
+                    ctx.index,
+                    _string_list(args.get("block_ids")),
+                    start_char=_int(args.get("start_char"), 0),
                 ),
             ),
             resources.Verb(
@@ -155,19 +183,36 @@ REGISTRY: tuple[resources.Resource, ...] = (
                     "properties": {
                         "doc_id": {"type": "string"},
                         "start": {"type": "integer", "minimum": 0},
-                        "count": {"type": "integer", "minimum": 1, "maximum": 25},
+                        "count": {"type": "integer", "minimum": 1, "maximum": limits.MAX_RANGE_BLOCKS},
                     },
                     "required": ["doc_id"],
                 },
-                handler=lambda ctx, args: (
-                    document_reader.get_range(
-                        ctx.document,
-                        str(args.get("doc_id", "")),
-                        start=args.get("start") if isinstance(args.get("start"), int) else 0,
-                        count=args.get("count") if isinstance(args.get("count"), int) else 25,
-                    )
-                    if ctx.document else "Source document unavailable."
+                handler=lambda ctx, args: document_reader.get_range(
+                    ctx.index,
+                    str(args.get("doc_id", "")),
+                    start=_int(args.get("start"), 0),
+                    count=_int(args.get("count"), limits.MAX_RANGE_BLOCKS),
                 ),
+            ),
+            resources.Verb(
+                name="view_document_visuals",
+                description=(
+                    "Look at the retained images of document blocks by exact block ID: slides, "
+                    "pages, figures. Returns each image labelled with its exact block ID, its "
+                    "location, and the IDs of the text on the same slide or page to read with "
+                    f"read_document. At most {limits.MAX_VISUALS_PER_CALL} per call and "
+                    f"{limits.MAX_VISUALS_PER_QUESTION} per question: choose blocks from the map's "
+                    "visual locations or find_document, and say which ones you viewed."
+                ),
+                activity="Looking at the document visuals",
+                parameters={
+                    "type": "object",
+                    "properties": {"block_ids": {"type": "array", "items": {"type": "string"},
+                                                 "maxItems": limits.MAX_VISUALS_PER_CALL}},
+                    "required": ["block_ids"],
+                },
+                handler=lambda ctx, args: document_reader.view(
+                    ctx.index, _string_list(args.get("block_ids")), ctx.budget),
             ),
         ),
     ),
@@ -181,7 +226,7 @@ REGISTRY: tuple[resources.Resource, ...] = (
                 description="List the available skills, what each is for, and whether this workspace holds the results it needs.",
                 activity="Listing the skills",
                 parameters={"type": "object", "properties": {}},
-                handler=lambda ctx, args: skills.catalog(ctx.held_result_types),
+                handler=lambda ctx, args: skills.catalog(ctx.index.held_result_types),
             ),
             resources.Verb(
                 name="read_skill",
@@ -199,21 +244,19 @@ REGISTRY: tuple[resources.Resource, ...] = (
 )
 
 TOOLS: list[dict[str, Any]] = resources.tool_schemas(REGISTRY)
-_VERBS = resources.verbs_by_name(REGISTRY)
+VERBS = resources.verbs_by_name(REGISTRY)
 
-def held_result_types(result: dict[str, Any]) -> frozenset[str]:
-    """Which analyses this workspace holds, for deciding what a skill can run on.
 
-    Read from the bundle rather than passed in: the same value already decides
-    what the agent may navigate, so a second source could disagree with it.
-    """
-    if not isinstance(result, dict):
-        return frozenset()
-    entries = result.get("results")
-    if isinstance(entries, list):
-        return frozenset(
-            str(entry.get("result_type"))
-            for entry in entries
-            if isinstance(entry, dict) and entry.get("result_type")
-        )
-    return frozenset()
+def run_tool(call: ToolCall, context: ToolContext) -> ToolOutput:
+    """Route one model tool call to the verb that declared it."""
+    verb = VERBS.get(call.name)
+    if verb is None:
+        return ToolOutput(f"Unknown tool: {call.name}")
+    try:
+        args = json.loads(call.arguments or "{}")
+    except json.JSONDecodeError:
+        return ToolOutput("Invalid tool arguments.")
+    if not isinstance(args, dict):
+        return ToolOutput("Invalid tool arguments.")
+    output = verb.handler(context, args)
+    return output if isinstance(output, ToolOutput) else ToolOutput(str(output))

@@ -10,6 +10,7 @@ from pathlib import Path
 from services.chunker import ContentBlock
 from api.schemas import ConformityOut
 from services.assistant import document as document_reader
+from services.assistant.workspace import build_index
 from services.scout.context import (
     limit_document_context,
     render_canonical_binding,
@@ -1648,9 +1649,10 @@ class DocumentContextTests(unittest.TestCase):
             }
         ]
 
-        hits = document_reader.find(document, "tail-only milestone")
+        index = build_index({"results": []}, document)
+        hits = document_reader.find(index, "tail-only milestone")
         tail = document_reader.get(
-            document,
+            index,
             ["document/b-0001"],
             start_char=120_000,
         )
@@ -1669,7 +1671,8 @@ class DocumentContextTests(unittest.TestCase):
             for i in range(30)
         ]
 
-        page = document_reader.get_range(document, "document", start=25, count=5)
+        index = build_index({"results": []}, document)
+        page = document_reader.get_range(index, "document", start=25, count=5)
 
         self.assertIn("content 25", page)
         self.assertIn("content 29", page)

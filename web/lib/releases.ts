@@ -16,93 +16,62 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: "0.5.0",
+    title: "A more focused Assistant and a refreshed workspace",
+    sections: [{ changes: [
+      "Assistant handles large documents and long conversations more reliably, and looks at slide visuals only when a question needs them.",
+      "Assistant asks which run or document you mean when a question is unclear, and keeps different files that share a name apart.",
+      "Two analyses can now run at the same time.",
+      "Refreshed the look of the workspace and the feedback panel.",
+    ] }],
+  },
+  {
     version: "0.4.1",
     title: "Streamlined screening and clearer review steps",
-    sections: [
-      {
-        title: "Screener",
-        changes: [
-          "Screener now selects relevant passages from each document for each question before assessing the combined evidence, reducing the material sent to the final assessment while retaining original sources and citations.",
-          "Added evidence-selection progress and clarified required versus anticipatory question labels.",
-        ],
-      },
-      {
-        title: "Scout",
-        changes: [
-          "Clarified what to check at each review checkpoint, when evidence search begins, and how review leads to the final result.",
-        ],
-      },
-      {
-        title: "Saved results",
-        changes: [
-          "Screener headings show the stage gate with a separate document count instead of listing every uploaded filename.",
-          "Downloads use short, tool-specific filenames. Renaming a downloaded file does not change its source-document names, citations or import compatibility.",
-        ],
-      },
-    ],
+    sections: [{ changes: [
+      "Screener picks the relevant passages from each document before assessing a question, keeping every original citation.",
+      "Screener shows its progress while selecting evidence and labels required and anticipatory questions more clearly.",
+      "Scout explains what to check at each review checkpoint and when the evidence search begins.",
+      "Screener results are titled by stage gate, and downloads use short, tool-specific filenames.",
+    ] }],
   },
   {
     version: "0.4.0",
     title: "Broader Inspector guideline coverage",
     sections: [{ changes: [
-      "Added selected WHO, FDA and EMA document-review rubrics for vaccines, diagnostics and devices, tailored to product targets, candidate profiles and development plans.",
-      "Relevant product-context questions determine which conditional reviews run. Each review retains its own scope, source references and results; these are not regulatory compliance checks.",
+      "Inspector adds selected WHO, FDA and EMA review rubrics for vaccines, diagnostics and devices.",
+      "A few product questions decide which of these reviews apply. They review the document and are not regulatory compliance checks.",
     ] }],
   },
   {
     version: "0.3.0",
     title: "Clearer evidence review and document coverage",
-    sections: [
-      {
-        title: "Saved results",
-        changes: [
-          "Rerun Scout to create results compatible with this version; Scout exports from earlier versions cannot be imported.",
-          "Rerun original documents to benefit from improved extraction. Imported results retain their original source content; compatible older Aligner results keep their citations.",
-        ],
-      },
-      {
-        title: "Scout",
-        changes: [
-          "Improved numeric target extraction and independent AI review with more source context and clearer reasons for recommendations, uncertainty, and processing failures.",
-          "Clarified comparison rules: evidence must measure the relevant outcome under comparable conditions, but its value need not meet the target to be compared.",
-          "Simplified both review checkpoints, with editable decisions, clearer source links and comparison details, and consistent formatting for years and units.",
-          "Assistant can explain the active review and its sources without changing review decisions.",
-        ],
-      },
-      {
-        title: "Document support",
-        changes: [
-          "Expanded DOCX extraction coverage and retained full-slide visuals for PPTX analysis. Screener now retains rendered PDF pages alongside extracted text.",
-          "Kept visual references distinct from exact text quotations, with larger image views and clearer notices identifying visuals that could not be captured.",
-          "Fixed section mapping for large documents that exceeded structured-output limits while preserving document context.",
-        ],
-      },
-      {
-        title: "Workspace",
-        changes: [
-          "Active analyses and elapsed timers remain visible when returning to a tool, even when an earlier result is selected.",
-          "Tool cards show when an analysis is waiting for capacity, running, ready for review, or has results available.",
-          "Refined the tool catalog, review guidance, and source presentation; added release notes, Teams feedback contacts, and a reminder to verify AI-generated results.",
-        ],
-      },
-    ],
+    sections: [{ changes: [
+      "Rerun Scout to use this version: Scout results saved by earlier versions cannot be imported.",
+      "Scout extracts numeric targets more accurately and explains its recommendations and uncertainty more clearly.",
+      "Scout compares evidence only when it measures the same outcome under comparable conditions, whether or not its value meets the target.",
+      "Scout’s review checkpoints are simpler, with editable decisions and clearer source links, and Assistant can explain an active review without changing it.",
+      "Better DOCX extraction, full-slide visuals for PPTX, rendered PDF pages in Screener, and fixed section mapping for large documents.",
+      "Tool cards show when an analysis is queued, running, ready for review or finished, and a running analysis stays visible when you return to its tool.",
+      "Added release notes, Teams feedback contacts and a reminder to verify AI-generated results.",
+    ] }],
   },
   {
     version: "0.2.1",
     title: "Scout evidence refinements",
     sections: [{ changes: [
-      "Clarified how Scout distinguishes conflicting evidence from differences between products or target specifications.",
-      "Updated the model used to extract Scout’s document targets.",
+      "Scout tells conflicting evidence apart from differences between products or targets more clearly.",
+      "Updated the model Scout uses to extract document targets.",
     ] }],
   },
   {
     version: "0.2.0",
     title: "Broader reviews and document coverage",
     sections: [{ changes: [
-      "Inspector can review one document against multiple applicable rubrics, with separate results and visible rubric revisions.",
-      "Improved Scout’s IPDP claim extraction, duplicate-claim reconciliation, and evidence review panels.",
-      "Screener now reads directly embedded images in text-based PDFs and explains the format’s extraction limitations.",
-      "Made document traces, citations, result layouts, and progress messages more consistent across tools.",
+      "Inspector can review one document against several rubrics, each with its own result and rubric revision.",
+      "Scout extracts IPDP claims and merges duplicates more reliably, with clearer evidence review panels.",
+      "Screener reads images embedded in text-based PDFs and explains that format’s limits.",
+      "Traces, citations, layouts and progress messages are more consistent across tools.",
       "Added Female Contraception to the indication list.",
     ] }],
   },
@@ -110,7 +79,7 @@ export const RELEASES: readonly Release[] = [
     version: "0.1.0",
     title: "Initial production release",
     sections: [{ changes: [
-      "Introduced the PDIS workspace for document review, evidence checks, and stage-gate screening.",
+      "Launched the PDIS workspace for document review, evidence checks and stage-gate screening.",
       "Connected the production evidence-retrieval service.",
     ] }],
   },

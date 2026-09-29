@@ -16,13 +16,14 @@ import test from "node:test";
 import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "./tools.ts";
 
 /**
- * Approximate minutes, rounded to what a reader should budget.
+ * Minutes, rounded up to what a reader should budget, and spelled out.
  *
- * "approx." rather than a tilde. Beside a duration the tilde reads as a maths operator, and
- * these sit in a card next to a capability rather than in an expression. One form for all of
- * them, so the estimates read as one scale.
+ * No "approx.": beside a tool that runs, a number of minutes already reads as how long a run
+ * takes, and the qualifier was the longest word in the line. No "min" either, because an
+ * abbreviation is one more thing to decode. One form for all of them, so the estimates read
+ * as one scale.
  */
-const DURATION = /^approx\. \d+ min$/;
+const DURATION = /^(1 minute|([2-9]|[1-9]\d+) minutes)$/;
 
 test("GHIDE tool titles do not repeat their workflow section's audience", () => {
   for (const tool of EXTERNAL_TOOLS.filter((tool) => tool.audience === "ghide")) {
@@ -38,7 +39,7 @@ test("every available workspace tool states how long a run takes", () => {
       tool.activity ?? "",
       DURATION,
       `${tool.id} publishes "${tool.activity}", which a reader cannot compare with `
-        + `"approx. 5 min". Estimates are approximate minutes, so they read as one scale.`,
+        + `"5 minutes". Estimates are whole minutes, spelled out, so they read as one scale.`,
     );
   }
 });
@@ -61,9 +62,7 @@ test("the estimate is a budget, so it rounds up rather than to the middle", () =
   // is worse served than one who finished early, so these came from observed
   // upper ends rather than averages.
   const scout = WORKSPACE_TOOLS.find((tool) => tool.id === "scout");
-  // "approx." rather than a tilde: beside a duration the tilde reads as a maths operator,
-  // and this sits in a card next to a capability, not in an expression.
-  assert.equal(scout?.activity, "approx. 20 min");
+  assert.equal(scout?.activity, "20 minutes");
 });
 
 test("an available external tool offers somewhere to go", () => {

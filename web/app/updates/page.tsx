@@ -11,7 +11,7 @@ export default function UpdatesPage() {
       <PageHeader title="What’s new" description="Changes included in this version of PDIS and earlier versions." />
       <div className="space-y-6">
         {RELEASES.map((release) => (
-          <section key={release.version} aria-labelledby={`release-${release.version}`} className="rounded-lg border border-border bg-card p-5 sm:p-6">
+          <section key={release.version} aria-labelledby={`release-${release.version}`} className="rounded-lg bg-card p-5 shadow-raised sm:p-6">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <h2 id={`release-${release.version}`} className={cn(DISPLAY_HEADING, "text-lg font-semibold")}>v{release.version} — {release.title}</h2>
               {release === CURRENT_RELEASE && <span className="text-xs text-muted-foreground">This version</span>}

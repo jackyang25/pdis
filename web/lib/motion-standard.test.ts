@@ -356,3 +356,22 @@ test("an open row is tinted for its whole height, not just its summary", () => {
       + "a row is tinting only its summary again",
   );
 });
+
+test("a shadow is one of the four elevation levels", () => {
+  // Seventeen shadows were in use, each written by hand, and most in `rgba(15,23,42)` -
+  // Tailwind's slate-900, which is neither the brand's slate nor anything that changes in the
+  // dark appearance. Cards carried a grey border as well, doing the work of separating white
+  // from parchment on its own. `tailwind.config.ts` replaces the shadow scale with four named
+  // levels declared per theme in globals.css; this catches the arbitrary form, which still
+  // compiles.
+  const offenders = FILES.flatMap(({ relative, text }) =>
+    [...text.matchAll(/(?:^|[\s"'`:])(shadow-\[[^\]]*\])/g)].map(
+      (match) => `${relative}: ${match[1].slice(0, 48)}`,
+    ),
+  );
+  assert.deepEqual(
+    offenders,
+    [],
+    "use shadow-raised, shadow-lifted, shadow-floating or shadow-overlay",
+  );
+});

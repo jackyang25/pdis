@@ -24,8 +24,12 @@ const TabsTrigger = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.Trigger
     ref={ref}
+    // The chosen tab's underline is 2px, the weight of the line that marks the current section
+    // in the Documentation page's contents: one weight for "this is where you are", whichever
+    // way it runs. It overlaps the list's 1px baseline by a pixel, so it reads as the baseline
+    // thickened rather than as a second line beneath it.
     className={cn(
-      "-mb-px inline-flex h-9 items-center border-b border-transparent text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring/20 data-[state=active]:border-foreground data-[state=active]:text-foreground motion-reduce:transition-none",
+      "-mb-px inline-flex h-9 items-center border-b-2 border-transparent text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring/20 data-[state=active]:border-foreground data-[state=active]:text-foreground motion-reduce:transition-none",
       className,
     )}
     {...props}

@@ -37,19 +37,24 @@ export const SURFACE_ENTRY_MOTION =
  * the fashionable version of this — is decoration rather than a state change, so it has no
  * honest reduced-motion companion: half the readers would see the flat card and the other
  * half would see chrome on a tool whose credibility rests on restraint.
+ *
+ * To `shadow-lifted`, from a card that rests at `shadow-raised`: the elevation scale in
+ * globals.css. The card's edge lives in that shadow rather than in a border, so darkening the
+ * edge and deepening the drop are one transition instead of two. The resting level is the
+ * card's own, not this recipe's — a card that cannot be hovered sits at the same height.
  */
 export const CARD_LIFT_MOTION =
-  "transition-[border-color,box-shadow,transform] duration-base ease-enter hover:-translate-y-px hover:border-foreground/25 hover:shadow-[0_2px_4px_hsl(var(--foreground)/0.04),0_12px_28px_hsl(var(--foreground)/0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 motion-reduce:transition-none motion-reduce:hover:translate-y-0";
+  "transition-[box-shadow,transform] duration-base ease-enter hover:-translate-y-px hover:shadow-lifted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 motion-reduce:transition-none motion-reduce:hover:translate-y-0";
 
 /**
  * The affordance inside a lifting card: the arrow that says it opens something.
  *
- * Along its own diagonal, a pixel each way — enough to read as a response, not enough to
+ * Along the direction it points, two pixels — enough to read as a response, not enough to
  * reflow anything around it. Separate from the lift because it is on a child element and
  * keyed off the card's hover group.
  */
 export const CARD_AFFORDANCE_MOTION =
-  "transition-[transform,color] duration-base ease-enter group-hover:-translate-y-px group-hover:translate-x-px group-hover:text-foreground motion-reduce:transition-none motion-reduce:group-hover:translate-x-0 motion-reduce:group-hover:translate-y-0";
+  "transition-[transform,color] duration-base ease-enter group-hover:translate-x-0.5 group-hover:text-foreground motion-reduce:transition-none motion-reduce:group-hover:translate-x-0";
 
 /**
  * Where a jump landed.

@@ -131,7 +131,7 @@ export default function ArchivistPage() {
 
       {corpus && !empty && (
         <div className="flex flex-col gap-6">
-          <section className="rounded-lg border border-border bg-card p-5 sm:p-6">
+          <section className="rounded-lg bg-card p-5 shadow-raised sm:p-6">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="text-sm font-semibold">Read the archive</h2>
               <p className="text-xs text-muted-foreground">
@@ -285,7 +285,7 @@ function Answer({
 }) {
   if (answer.documents.length === 0) {
     return (
-      <section className="rounded-lg border border-border bg-card p-5">
+      <section className="rounded-lg bg-card p-5 shadow-raised">
         <h2 className="text-sm font-semibold">
           No profile matches those filters
         </h2>
@@ -310,7 +310,7 @@ function Answer({
         return (
           <section
             key={group.attribute}
-            className="rounded-lg border border-border bg-card p-5"
+            className="rounded-lg bg-card p-5 shadow-raised"
           >
             <SectionHeading
               title={attributeLabel(group.attribute)}

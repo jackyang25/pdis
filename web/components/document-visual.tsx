@@ -46,7 +46,7 @@ export function DocumentVisual({ block }: { block: ContentBlock }) {
       </figcaption>
       <dialog ref={dialog} data-document-visual aria-labelledby={titleId}
         onClose={() => trigger.current?.focus()}
-        className="m-auto max-h-[92dvh] w-[min(96vw,96rem)] max-w-none overflow-y-auto overscroll-contain rounded-lg border border-border bg-card p-0 text-foreground shadow-xl backdrop:bg-black/50">
+        className="m-auto max-h-[92dvh] w-[min(96vw,96rem)] max-w-none overflow-y-auto overscroll-contain rounded-2xl bg-card p-0 text-foreground shadow-overlay backdrop:bg-black/50">
         <div className="sticky top-0 flex items-center justify-between gap-3 border-b border-border bg-card px-4 py-3">
           <h2 id={titleId} className="text-sm font-semibold">{title}</h2>
           <Button type="button" variant="ghost" size="icon" aria-label="Close larger visual"

@@ -24,7 +24,7 @@ export const PDIS_ICON_PATHS = {
   evaluator: "freehand/business-cash-scale-balance--Streamline-Freehand.svg",
   roadmap: "freehand/business-workflow-project-management--Streamline-Freehand.svg",
   "executive-summary": "freehand/office-file-text--Streamline-Freehand.svg",
-  "stage-gate": "freehand/task-list-clipboard-clock--Streamline-Freehand.svg",
+  "stage-gate": "freehand/strategy-business-success-peak--Streamline-Freehand.svg",
 
   // Named workspace agent
   chat: "freehand/help-headphones-customer-support-human--Streamline-Freehand.svg",

@@ -743,7 +743,10 @@ reproducible, and a summary of them is not.
   stages report `completed`/`total`; single stages use indeterminate progress.
 - Browser multipart uploads go directly to FastAPI. Keep all secrets server-side.
 - Bespoke identity icons live in `web/public/icons/pdis/` and are mapped through
-  `web/components/ui/pdis-icon.tsx`; use Lucide for generic actions.
+  `web/components/ui/pdis-icon.tsx`; use Lucide for generic actions. Marks of products
+  PDIS links out to live unmodified in `web/public/icons/brands/`, mapped through
+  `web/lib/brand-icon-paths.ts` and drawn by `BrandIcon` as each maker presents them: in the
+  file's own colour, or black on light and white on dark where the brand is monochrome.
 - A negative *result* — a critical gap, a contradiction, an unfavorable
   precedent — uses `--tone-danger`. `--destructive` is reserved for a system
   error. They are different claims and must not be interchanged.

@@ -34,6 +34,7 @@ import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { PdisIcon } from "@/components/ui/pdis-icon";
 import { Button } from "@/components/ui/button";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { ToolDetail } from "@/components/docs/tool-detail";
 import {
   FitGraphToView,
@@ -314,7 +315,7 @@ export function ArchitectureGraphs({
   };
 
   return (
-    <div className="mt-5 overflow-hidden rounded-xl border border-border bg-card">
+    <div className="mt-5 overflow-hidden rounded-lg bg-card shadow-raised">
       <div className="border-b border-border/80 px-4 py-4 sm:px-5">
         <div className="flex items-start gap-3">
           <PdisIcon name={graphIcon(graph.id)} className="mt-0.5 h-5 w-5 text-foreground" />
@@ -325,29 +326,18 @@ export function ArchitectureGraphs({
             </p>
           </div>
         </div>
-        {/* A toggle-button group, not an ARIA tab set: these buttons swap one
-            canvas rather than reveal sibling panels, so `aria-pressed` states
-            what a screen reader can act on without promising a tabpanel. */}
-        <div
-          className="mt-4 flex flex-wrap gap-1 pb-1 sm:flex-nowrap sm:overflow-x-auto"
-          role="group"
+        {/* One canvas, swapped in place: the same control as the Tools page's audience filter. */}
+        <SegmentedControl
+          options={graphs.map((item) => ({
+            value: item.id,
+            label: item.title,
+            icon: <PdisIcon name={graphIcon(item.id)} className="h-3.5 w-3.5" />,
+          }))}
+          value={graph.id}
+          onChange={chooseGraph}
           aria-label="Tool architecture"
-        >
-          {graphs.map((item) => (
-            <Button
-              key={item.id}
-              type="button"
-              size="sm"
-              variant={item.id === graph.id ? "default" : "ghost"}
-              aria-pressed={item.id === graph.id}
-              onClick={() => chooseGraph(item.id)}
-              className="shrink-0 gap-1.5"
-            >
-              <PdisIcon name={graphIcon(item.id)} className="h-3.5 w-3.5" />
-              {item.title}
-            </Button>
-          ))}
-        </div>
+          className="mt-4"
+        />
         <div className="mt-4 hidden items-center justify-between gap-4 xl:flex">
           <p className="text-xs text-muted-foreground">Select a stage for details. Use the diagram for connections or read the stages as a list.</p>
           <Button type="button" size="sm" variant="outline" onClick={() => setReadingStages(!readingStages)}>
@@ -375,13 +365,13 @@ export function ArchitectureGraphs({
               <button
                 type="button"
                 onClick={() => setExpandedNodeId(null)}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card/95 px-2.5 text-[10px] font-medium text-muted-foreground shadow-sm transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-card/95 px-2.5 text-[10px] font-medium text-muted-foreground shadow-floating transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
               >
                 <RotateCcw className="h-3 w-3" aria-hidden="true" />
                 Overview
               </button>
               <ChevronRight className="h-3 w-3 text-muted-foreground/60" aria-hidden="true" />
-              <span className="inline-flex h-7 max-w-[14rem] items-center rounded-md border border-border bg-card/95 px-2.5 text-[10px] font-medium text-foreground shadow-sm">
+              <span className="inline-flex h-7 max-w-[14rem] items-center rounded-md bg-card/95 px-2.5 text-[10px] font-medium text-foreground shadow-floating">
                 <span className="truncate">{expandedNode.title}</span>
               </span>
             </div>

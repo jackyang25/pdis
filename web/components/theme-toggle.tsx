@@ -18,7 +18,8 @@ function applyTheme(dark: boolean) {
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
 }
 
-export function ThemeToggle() {
+/** Drawn by its caller, so it takes the shape of the controls beside it. */
+export function ThemeToggle({ className }: { className?: string }) {
   const [dark, setDark] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -48,7 +49,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label={label}
       title={label}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+      className={className}
     >
       {mounted && dark ? (
         <Sun className="h-3.5 w-3.5" aria-hidden="true" />

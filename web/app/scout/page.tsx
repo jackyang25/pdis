@@ -876,7 +876,7 @@ function DocumentTargetReviewCheckpoint({
     <DocumentSourceProvider blocks={result.blocks ?? []}>
       <section
         className={cn(
-          "overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm",
+          "overflow-hidden rounded-lg bg-card shadow-raised",
           SURFACE_ENTRY_MOTION,
         )}
       >
@@ -1649,7 +1649,7 @@ function QuantitativeReviewCheckpoint({
     <DocumentSourceProvider blocks={result.blocks ?? []}>
       <section
         className={cn(
-          "overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm",
+          "overflow-hidden rounded-lg bg-card shadow-raised",
           SURFACE_ENTRY_MOTION,
         )}
       >

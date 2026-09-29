@@ -458,7 +458,7 @@ export function ScoutEvidenceMap({ result }: { result: ScoutResponse }) {
             <GraphControls fitPadding={FIT_PADDING} />
           </ReactFlow>
           {hasHiddenNodes && (
-            <div className="pointer-events-none absolute bottom-3 left-16 right-3 z-10 mx-auto max-w-fit rounded-md border border-border/80 bg-card/95 px-2.5 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+            <div className="pointer-events-none absolute bottom-3 left-16 right-3 z-10 mx-auto max-w-fit rounded-md bg-card/95 px-2.5 py-1 text-[11px] text-muted-foreground shadow-floating backdrop-blur">
               Focused trace · switch to All evidence for the complete cited graph
             </div>
           )}

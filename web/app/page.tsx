@@ -2,9 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, ExternalLink } from "lucide-react";
+import { ArrowRight, Clock, ExternalLink } from "lucide-react";
 import { CARD_AFFORDANCE_MOTION, CARD_LIFT_MOTION } from "@/lib/motion";
+import { BrandIcon } from "@/components/ui/brand-icon";
+import { Button } from "@/components/ui/button";
 import { PdisIcon } from "@/components/ui/pdis-icon";
+import { SegmentedControl, type SegmentedOption } from "@/components/ui/segmented-control";
 import {
   type ExternalToolDefinition,
   type ToolAudience,
@@ -29,18 +32,18 @@ export default function Home() {
 
   return (
     <div className="pb-10">
-      <header className="mb-6 max-w-2xl">
+      {/* The filter belongs to the title, so it sits directly under it. */}
+      <header className="mb-8 max-w-2xl">
         <h1 className={cn(DISPLAY_HEADING, "text-[32px] font-semibold leading-[1.12] sm:text-[36px]")}>
           Tools
         </h1>
         <p className="mt-3 text-[15px] leading-6 text-muted-foreground">
           Choose a tool for your team and the task at hand.
         </p>
+        <AudienceFilter value={audience} onChange={setAudience} className="mt-4" />
       </header>
 
-      <AudienceFilter value={audience} onChange={setAudience} />
-
-      <div className="mt-8 space-y-10">
+      <div className="space-y-10">
         {visibleSections.map((section) => (
           <section
             key={section.id}
@@ -69,44 +72,38 @@ function isVisibleToAudience(tool: ToolDefinition, audience: AudienceFilter) {
     || tool.audience === "shared";
 }
 
+const AUDIENCE_OPTIONS: readonly SegmentedOption<AudienceFilter>[] = [
+  { value: "all", label: "All" },
+  { value: "pst", label: "PST" },
+  { value: "ghide", label: "GHIDE" },
+];
+
+/**
+ * Boxed rather than underlined, because an underline says "tab" - switch to another view -
+ * and under a page title it read as navigation. This narrows the one view there is.
+ *
+ * It has been three other shapes, and each said something wrong: a bordered box on a grey
+ * track was the heaviest control on the page, loose pills put the chosen one's fill past the
+ * edge the heading and text share, and tabs read as navigation. `SegmentedControl` records
+ * why its own shape answers all three.
+ */
 function AudienceFilter({
   value,
   onChange,
+  className,
 }: {
   value: AudienceFilter;
   onChange: (value: AudienceFilter) => void;
+  className?: string;
 }) {
-  const options: readonly { value: AudienceFilter; label: string }[] = [
-    { value: "all", label: "All" },
-    { value: "pst", label: "PST" },
-    { value: "ghide", label: "GHIDE" },
-  ];
-
   return (
-    <div
-      className="inline-flex rounded-lg border border-border bg-foreground/[0.045] p-1"
-      role="group"
+    <SegmentedControl
+      options={AUDIENCE_OPTIONS}
+      value={value}
+      onChange={onChange}
       aria-label="Filter tools by audience"
-    >
-      {options.map((option) => {
-        const selected = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            aria-pressed={selected}
-            onClick={() => onChange(option.value)}
-            className={`h-8 rounded-md px-3 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 ${
-              selected
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
+      className={className}
+    />
   );
 }
 
@@ -167,7 +164,7 @@ const CARD_UNAVAILABLE = "bg-card/70 opacity-65";
 
 function WorkspaceToolCard({ tool, status }: { tool: WorkspaceToolDefinition; status?: ToolStatus | null }) {
   const comingSoon = tool.availability === "coming_soon";
-  const className = `group flex flex-col rounded-lg border border-border bg-card p-5 ${CARD_FLOOR}`;
+  const className = `group flex flex-col rounded-lg bg-card p-5 shadow-raised ${CARD_FLOOR}`;
   const content = (
     <>
       <CardHeading
@@ -175,19 +172,7 @@ function WorkspaceToolCard({ tool, status }: { tool: WorkspaceToolDefinition; st
         title={tool.title}
         description={tool.description}
         comingSoon={comingSoon}
-        trailing={comingSoon
-          ? undefined
-          : (
-            /*
-              The arrow is what says the card opens something, so it is what moves. Along
-              its own diagonal, a pixel each way: enough to read as a response, not enough
-              to reflow anything around it.
-            */
-            <ArrowUpRight
-              className={`mt-0.5 h-4 w-4 ${CARD_AFFORDANCE_MOTION}`}
-              aria-hidden="true"
-            />
-          )}
+        trailing={comingSoon ? undefined : <OpenArrow className="mt-0.5" />}
       />
       <div className="mt-auto pt-4">
         <CardMeta title={tool.title} estimate={tool.activity} status={comingSoon ? null : status} />
@@ -216,7 +201,7 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
   return (
     <article
       aria-disabled={comingSoon ? "true" : undefined}
-      className={`flex ${SHORTCUT_CARD_FLOOR} flex-col rounded-lg border border-border bg-card p-5 ${comingSoon ? CARD_UNAVAILABLE : ""}`}
+      className={`flex ${SHORTCUT_CARD_FLOOR} flex-col rounded-lg bg-card p-5 shadow-raised ${comingSoon ? CARD_UNAVAILABLE : ""}`}
     >
       <CardHeading
         icon={tool.icon}
@@ -225,22 +210,75 @@ function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
         comingSoon={comingSoon}
       />
       <div className="mt-auto pt-4">
-        <div className="flex min-h-8 flex-wrap gap-2">
-          {tool.shortcuts.map((shortcut) => (
-            <a
-              key={shortcut.label}
-              href={shortcut.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
-            >
-              {`Open in ${shortcut.label}`}
-              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-            </a>
-          ))}
-        </div>
+        <ShortcutLinks shortcuts={tool.shortcuts} className="min-h-8" />
       </div>
     </article>
+  );
+}
+
+/**
+ * What says a card opens something inside PDIS, and the part of it that moves.
+ *
+ * Pointing across rather than up and out: a diagonal arrow conventionally means "leaves this
+ * site", which is what `ShortcutLinks` says with `ExternalLink`, and these stay inside PDIS.
+ */
+function OpenArrow({ className }: { className?: string }) {
+  return (
+    <ArrowRight
+      className={cn("h-4 w-4 text-muted-foreground", CARD_AFFORDANCE_MOTION, className)}
+      aria-hidden="true"
+    />
+  );
+}
+
+/**
+ * The links an external workflow opens in another product, one per destination.
+ *
+ * The app's ghost button, at the weight of the line it replaces. A PST card's footer is a
+ * quiet line - the clock and the run time, in muted text - and its action is only an arrow.
+ * Bordered buttons with dark labels made the GHIDE footers the loudest thing on the page, so
+ * the eye went to the secondary action on every card before the tools themselves. No border
+ * and muted text puts every card's footer at one weight; the button's hover still says each
+ * link is a control. The row is pulled out by the buttons' own padding, so at rest the first
+ * mark lines up with the description above it, the way the clock does.
+ *
+ * Mark, name, then the external-link glyph: the same three parts as the GitHub button on the
+ * Documentation page. The mark says where the link goes and the glyph says it opens a new
+ * tab, which is what that glyph means on every link in the app, so the mark does not replace
+ * it. The visible label is the product; the link names the whole action. A screen reader,
+ * which does not see the mark, hears "Open in ChatGPT" - and the name still contains the
+ * words on screen, so voice control can target it by what it says.
+ */
+function ShortcutLinks({
+  shortcuts,
+  className,
+}: {
+  shortcuts: ExternalToolDefinition["shortcuts"];
+  className?: string;
+}) {
+  return (
+    <div className={cn("-ml-2 flex flex-wrap gap-1", className)}>
+      {shortcuts.map((shortcut) => (
+        <Button
+          key={shortcut.label}
+          asChild
+          size="sm"
+          variant="ghost"
+          className="gap-2 px-2 text-muted-foreground"
+        >
+          <a
+            href={shortcut.url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`Open in ${shortcut.label}`}
+          >
+            <BrandIcon name={shortcut.label} className="h-3.5 w-3.5" />
+            {shortcut.label}
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />
+          </a>
+        </Button>
+      ))}
+    </div>
   );
 }
 
@@ -301,7 +339,7 @@ function CardHeading({
           </h3>
         </span>
         {trailing ? (
-          <span className="shrink-0 transition-colors group-hover:text-foreground motion-reduce:transition-none">{trailing}</span>
+          <span className="shrink-0">{trailing}</span>
         ) : null}
       </div>
       <p className="mt-2 text-[13px] leading-5 text-muted-foreground">{description}</p>
@@ -313,6 +351,11 @@ function CardHeading({
  * One footer slot across workspace tools: the estimate when idle, current status otherwise.
  * Both use COUNT so switching state does not change the type size or line height.
  * Only Running adds motion; queue and review states do not imply processing.
+ *
+ * The estimate carries a clock, because a bare "1 minute" did not say what took a minute.
+ * A mark rather than a label: "Estimated wait time" was the longest line on the card, and
+ * "wait" is what this slot says when a run is queued ("Waiting for capacity"), so it would
+ * have blurred the two. A screen reader hears the words the clock stands for.
  */
 function CardMeta({ title, estimate, status }: {
   title: string;
@@ -320,9 +363,15 @@ function CardMeta({ title, estimate, status }: {
   status?: ToolStatus | null;
 }) {
   return (
-    <span role="status" aria-atomic="true" className="flex items-center gap-2 text-muted-foreground">
-      {status && <span className="sr-only">{title}: </span>}
+    <span role="status" aria-atomic="true" className="flex items-center gap-1.5 text-muted-foreground">
+      {status
+        ? <span className="sr-only">{title}: </span>
+        : estimate ? <span className="sr-only">Run time: </span> : null}
       {status === "Running" && <PixelLoader />}
+      {/* The text's own size, not a grid size: at 12px the clock stood taller than the digits
+          beside it. Half a pixel down, because centring it on the line centred it on the
+          digits, a pixel above the lowercase letters most of the label is set in. */}
+      {!status && estimate && <Clock className="h-[11px] w-[11px] shrink-0 translate-y-[0.5px]" aria-hidden="true" />}
       <span className={COUNT}>{status ?? estimate}</span>
     </span>
   );

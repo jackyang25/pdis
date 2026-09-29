@@ -100,7 +100,7 @@ function ProductHeader({ pathname }: { pathname: string }) {
     <header
       onFocusCapture={reveal}
       className={cn(
-        "sticky top-0 z-50 isolate overflow-hidden border-b border-white/60 bg-background/70 shadow-[0_1px_0_rgba(15,23,42,0.035)] backdrop-blur-2xl supports-[backdrop-filter]:bg-background/60 dark:border-white/10 dark:shadow-black/20",
+        "sticky top-0 z-50 isolate overflow-hidden border-b border-white/60 bg-background/70 backdrop-blur-2xl supports-[backdrop-filter]:bg-background/60 dark:border-white/10",
         HEADER_SLIDE_MOTION,
         // Its own height, so it clears the viewport exactly and leaves no sliver.
         visible ? "translate-y-0" : "-translate-y-full",

@@ -11,6 +11,17 @@ const config: Config = {
         "2xl": "1280px",
       },
     },
+    // Outside `extend`, so it replaces Tailwind's scale: `shadow-sm` and friends stop
+    // compiling, and what is left is four named levels declared per theme in globals.css.
+    // There were seventeen hand-written shadows, most in a fixed slate that ignored the
+    // dark appearance. `none` stays for switching one off.
+    boxShadow: {
+      none: "none",
+      raised: "var(--shadow-raised)",
+      lifted: "var(--shadow-lifted)",
+      floating: "var(--shadow-floating)",
+      overlay: "var(--shadow-overlay)",
+    },
     extend: {
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
@@ -56,6 +67,11 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // The assistant's mark. Named, like `brand`, so a test can say where it may appear.
+        assistant: {
+          DEFAULT: "hsl(var(--assistant))",
+          foreground: "hsl(var(--assistant-foreground))",
+        },
       },
       // One motion vocabulary for the whole app. Components reference these
       // tokens instead of inventing durations, and lib/motion.ts maps each
@@ -74,6 +90,11 @@ const config: Config = {
           "0%, 100%": { opacity: "0.25" },
           "35%": { opacity: "1" },
         },
+        // The assistant closing its eyes once, as a reply starts.
+        blink: {
+          "0%, 100%": { transform: "scaleY(1)" },
+          "50%": { transform: "scaleY(0.1)" },
+        },
         "fade-rise": {
           from: { opacity: "0", transform: "translateY(2px)" },
           to: { opacity: "1", transform: "none" },
@@ -85,12 +106,16 @@ const config: Config = {
       animation: {
         "pixel-wave": "pixel-wave 650ms ease-in-out infinite",
         "fade-rise": "fade-rise 180ms cubic-bezier(0.2, 0, 0, 1)",
+        blink: "blink 240ms ease-in-out 1",
         shimmer: "shimmer 1.6s infinite",
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // Overlays: a dialog, a sheet, the assistant. On the same variable, so the ladder
+        // moves as one when `--radius` does.
+        "2xl": "calc(var(--radius) + 4px)",
       },
     },
   },

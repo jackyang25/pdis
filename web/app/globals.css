@@ -53,7 +53,10 @@
        ground it sits on, while a card is only 1.10:1 against that ground: the border was doing
        nearly all the work of separating the two, at a contrast where it could barely be seen.
        Darker rather than thicker, because a 2px line at 1.28:1 is still 1.28:1 and reads as
-       blurred rather than defined. */
+       blurred rather than defined.
+
+       A card no longer takes this edge: `--shadow-raised` below draws its own. This is the
+       line for dividers, panels nested inside a card, and controls. */
     --border: 0 0% 81%;
     /* gray-20, one step below the border, which is the relationship these two have always
        had: an input is a thing you type into, so its edge reads as more defined than the edge
@@ -74,8 +77,28 @@
     --brand-accent: 52 100% 46%;
     --brand-accent-foreground: 212 16% 23%;
 
-    /* 10px surfaces → 8px controls → 6px menu items. */
-    --radius: 0.625rem;
+    /* 12px surfaces → 10px controls → 8px menu items. Overlays sit one step above at 16px. */
+    --radius: 0.75rem;
+
+    /* Elevation, named by how far a surface sits above the page. Each level carries its own
+       1px edge as the first layer, so a raised surface needs no `border` to be seen: the
+       border was doing the work of separating a white card from parchment on its own, and
+       a line that dark read as a wireframe. Edges tint with the foreground, like
+       `lib/surface.ts`; the drops below them are slate here and black in the dark
+       appearance, where a light-tinted drop would read as a glow.
+
+       raised    a card or panel resting on the page
+       lifted    a raised surface answering the cursor
+       floating  a popover, a menu, a hint laid over content
+       overlay   a dialog, a sheet, the assistant */
+    --shadow-raised: 0 0 0 1px hsl(var(--foreground) / 0.1), 0 1px 2px hsl(var(--foreground) / 0.05),
+      0 2px 8px -2px hsl(var(--foreground) / 0.06);
+    --shadow-lifted: 0 0 0 1px hsl(var(--foreground) / 0.16), 0 2px 4px hsl(var(--foreground) / 0.05),
+      0 12px 28px -6px hsl(var(--foreground) / 0.14);
+    --shadow-floating: 0 0 0 1px hsl(var(--foreground) / 0.1), 0 4px 12px -2px hsl(var(--foreground) / 0.08),
+      0 16px 36px -8px hsl(var(--foreground) / 0.16);
+    --shadow-overlay: 0 0 0 1px hsl(var(--foreground) / 0.1), 0 8px 24px -4px hsl(var(--foreground) / 0.1),
+      0 28px 70px -12px hsl(var(--foreground) / 0.24);
 
     /* Categorical marks for graph nodes, edges, and signal dots. The only place these values
        live. Every tone drawn *as a mark* clears 3:1 against --card in both appearances, so it
@@ -99,6 +122,17 @@
        fill, so "you are here" cannot read as "this is marked". */
     --tone-marked: 45 93% 47%;
     --tone-external: 262 83% 58%;
+
+    /* The assistant's own colour, for its mark and nothing else.
+
+       Teal, because it is the one open hue: every tone above is a reading of a result - red a
+       danger, amber a warning, yellow a citation and the brand, green a success, blue
+       information, violet external evidence - and a mark in any of them would say something
+       about the page it sits on. Teal is 24 degrees or more from all of them and from the
+       brand yellow, and sits opposite parchment and yellow on the wheel, so it reads as its
+       own thing rather than as one more signal. `brand.test.ts` holds it there. */
+    --assistant: 188 62% 36%;
+    --assistant-foreground: 0 0% 100%;
   }
 
   /* Slate's hue family throughout, so the dark appearance is the same colour as their dark
@@ -133,6 +167,18 @@
     --input: 212 12% 31%;
     --ring: 45 20% 88%;
 
+    /* The same four levels. The edge is still a foreground tint, so it reads as a light
+       hairline against the dark card; the drops are black, and heavier, because a dark
+       ground absorbs a shadow that a light one shows. */
+    --shadow-raised: 0 0 0 1px hsl(var(--foreground) / 0.1), 0 1px 2px rgb(0 0 0 / 0.3),
+      0 2px 8px -2px rgb(0 0 0 / 0.3);
+    --shadow-lifted: 0 0 0 1px hsl(var(--foreground) / 0.18), 0 2px 4px rgb(0 0 0 / 0.35),
+      0 12px 28px -6px rgb(0 0 0 / 0.5);
+    --shadow-floating: 0 0 0 1px hsl(var(--foreground) / 0.12), 0 4px 12px -2px rgb(0 0 0 / 0.4),
+      0 16px 36px -8px rgb(0 0 0 / 0.5);
+    --shadow-overlay: 0 0 0 1px hsl(var(--foreground) / 0.12), 0 8px 24px -4px rgb(0 0 0 / 0.45),
+      0 28px 70px -12px rgb(0 0 0 / 0.6);
+
     /* Brighter, because the same yellow on a dark ground reads muddier. Still an interface
        colour only. */
     --brand-accent: 52 96% 55%;
@@ -150,6 +196,10 @@
        about finding a citation gets harder. */
     --tone-marked: 48 96% 48%;
     --tone-external: 255 92% 76%;
+
+    /* Lighter, so it stays a colour rather than a shadow on the dark card. */
+    --assistant: 188 52% 44%;
+    --assistant-foreground: 0 0% 100%;
   }
 }
 

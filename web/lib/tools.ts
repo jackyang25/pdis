@@ -155,7 +155,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Inspector",
     description:
       "An iTPP, cTPP, or IPDP against its authored rubrics: what the document specifies and what each requirement leaves unresolved.",
-    activity: "approx. 1 min",
+    activity: "1 minute",
     icon: "inspector",
     audience: "pst",
     workflow: "document_intelligence",
@@ -168,7 +168,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Scout",
     description:
       "One document’s targets against external evidence: whether its numbers hold up against comparable measurements and development precedent.",
-    activity: "approx. 20 min",
+    activity: "20 minutes",
     icon: "scout",
     audience: "pst",
     workflow: "document_intelligence",
@@ -184,7 +184,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     // Each comparison reads its reference document once, then fans out over
     // the requirements it found. Two
     // documents is one comparison; three is two, run in sequence.
-    activity: "approx. 1 min",
+    activity: "1 minute",
     icon: "aligner",
     audience: "pst",
     workflow: "document_intelligence",
@@ -199,7 +199,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
       "Your documents against a stage gate’s question bank: what is answered, what remains open, and which discipline owns each question.",
     // Observed end-to-end estimate, including document processing and assessment.
     // Actual duration varies with document size, rendering and provider latency.
-    activity: "approx. 5 min",
+    activity: "5 minutes",
     icon: "screener",
     audience: "pst",
     workflow: "stage_gate",
@@ -212,7 +212,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Chunker",
     description:
       "Turn DOCX and PPTX files into ordered, citable text, table, and image blocks.",
-    activity: "approx. 1 min",
+    activity: "1 minute",
     icon: "chunker",
     audience: "shared",
     workflow: "utility",
@@ -225,7 +225,7 @@ export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
     title: "Searcher",
     description:
       "Search selected evidence sources directly and review raw findings without an analysis around them.",
-    activity: "approx. 5 min",
+    activity: "1 minute",
     icon: "searcher",
     audience: "shared",
     workflow: "utility",

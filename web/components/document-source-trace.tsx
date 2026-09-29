@@ -156,7 +156,7 @@ export function DocumentSourceTrace({
                     aria-current={selectedBlockId === blockId ? "true" : undefined}
                     className={`min-w-32 rounded-md px-2.5 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/20 sm:min-w-0 ${
                       selectedBlockId === blockId
-                        ? "bg-card text-foreground shadow-sm ring-1 ring-border"
+                        ? "bg-card text-foreground shadow-raised"
                         : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground"
                     }`}
                   >

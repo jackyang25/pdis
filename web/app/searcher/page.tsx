@@ -175,7 +175,7 @@ export default function SearcherPage() {
       <div className="flex flex-col gap-6">
         <form
           onSubmit={onSubmit}
-          className="rounded-lg border border-border bg-card p-5 sm:p-6"
+          className="rounded-lg bg-card p-5 shadow-raised sm:p-6"
         >
           <h2 className="sr-only">Search configuration</h2>
           <Label htmlFor="search-query" className="mb-1.5 block">Search query</Label>
@@ -478,7 +478,7 @@ function Findings({
       {result.findings.map((finding) => (
         <article
           key={finding.url}
-          className="rounded-lg border border-border bg-card p-4"
+          className="rounded-lg bg-card p-4 shadow-raised"
         >
           <div className="flex items-start gap-3">
             <Badge variant="muted">
@@ -554,7 +554,7 @@ function Lanes({
     else groups.push({ name, lanes: [lane] });
   }
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="rounded-lg bg-card shadow-raised">
       <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
         Sources searched
       </p>

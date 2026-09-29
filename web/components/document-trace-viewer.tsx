@@ -912,14 +912,14 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
                 className={cn(
                   "relative",
                   railMode === "inline"
-                    ? "rounded-lg bg-card px-5 py-8 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_14px_36px_hsl(var(--foreground)/0.035)] sm:px-10 sm:py-12"
+                    ? "rounded-lg bg-card px-5 py-8 shadow-raised sm:px-10 sm:py-12"
                     : "py-12",
                 )}
               >
                 {railMode === "external" && (
                   <div
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-0 left-[7.25rem] right-0 rounded-lg bg-card shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_14px_36px_hsl(var(--foreground)/0.035)]"
+                    className="pointer-events-none absolute inset-y-0 left-[7.25rem] right-0 rounded-lg bg-card shadow-raised"
                   />
                 )}
                 {surface.boundary && (
@@ -1145,7 +1145,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
             role="dialog"
             aria-modal="true"
             aria-label="Trace details"
-            className="absolute inset-x-3 bottom-3 max-h-[min(76vh,42rem)] overflow-y-auto overscroll-contain rounded-xl bg-card shadow-[0_20px_60px_hsl(var(--foreground)/0.22)] outline outline-1 outline-black/10 dark:outline-white/10"
+            className="absolute inset-x-3 bottom-3 max-h-[min(76vh,42rem)] overflow-y-auto overscroll-contain rounded-2xl bg-card shadow-overlay"
           >
             <TracePanelHeader
               eyebrow="Document trace"

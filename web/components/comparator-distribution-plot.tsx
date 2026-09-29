@@ -190,7 +190,7 @@ export function ComparatorDistributionPlot({
             style={{ left: `${model.targetX}%` }}
           />
           <span
-            className={`absolute top-0 z-20 whitespace-nowrap rounded bg-card px-1.5 py-0.5 text-[9px] font-medium text-foreground shadow-sm ${targetLabelAlignment}`}
+            className={`absolute top-0 z-20 whitespace-nowrap rounded bg-card px-1.5 py-0.5 text-[9px] font-medium text-foreground shadow-floating ${targetLabelAlignment}`}
             style={{ left: `${model.targetX}%` }}
           >
             Target · {target}

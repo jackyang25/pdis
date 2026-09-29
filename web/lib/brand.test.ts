@@ -396,3 +396,23 @@ test("every text colour is in one family, and every surface in another", () => {
     );
   }
 });
+
+test("the assistant's teal is its own colour, legible, and no tone's", () => {
+  // A mark in a tone's hue would say something about the page it sits on: amber reads as a
+  // warning and green as a pass. So the assistant's colour keeps its distance from every tone,
+  // from the citation yellow, and from the brand, in both appearances - and is legible as a
+  // mark on the card, with its icon legible on it.
+  const hueOf = (value: string) => Number(value.split(/\s+/)[0]);
+  const apart = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+  for (const appearance of ["light", "dark"] as const) {
+    const assistant = token("assistant", appearance);
+    const onCard = contrast(assistant, token("card", appearance));
+    const icon = contrast(token("assistant-foreground", appearance), assistant);
+    assert.ok(onCard >= 3, `${appearance} --assistant is ${onCard.toFixed(2)}:1 against the card`);
+    assert.ok(icon >= 3, `${appearance} the assistant's icon is ${icon.toFixed(2)}:1 on its mark`);
+    for (const other of ["tone-info", "tone-success", "tone-warning", "tone-danger", "tone-external", "tone-marked", "brand-accent"]) {
+      const gap = apart(hueOf(assistant), hueOf(token(other, appearance)));
+      assert.ok(gap >= 20, `${appearance} --assistant is ${gap} degrees from --${other}`);
+    }
+  }
+});

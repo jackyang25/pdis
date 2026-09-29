@@ -110,7 +110,7 @@ export function GraphControls({ fitPadding = 0.2 }: { fitPadding?: number }) {
     { label: "Fit graph", icon: Maximize2, action: () => void fitView({ padding: fitPadding, maxZoom: 1, duration: 180 }) },
   ];
   return (
-    <Panel position="bottom-left" className="!m-3 overflow-hidden rounded-lg border border-border/90 bg-card/95 shadow-sm backdrop-blur">
+    <Panel position="bottom-left" className="!m-3 overflow-hidden rounded-lg bg-card/95 shadow-floating backdrop-blur">
       <div className="flex flex-col divide-y divide-border/80">
         {controls.map(({ label, icon: Icon, action }) => (
           <button
@@ -141,11 +141,11 @@ export function GraphNodeFrame({
   return (
     <div
       className={cn(
-        // Dark mode needs a black shadow: a slate shadow at 4% is invisible on
-        // a dark surface, leaving nodes with no elevation or hover feedback.
-        "flex h-full w-full cursor-pointer flex-col rounded-lg border border-border/90 bg-card text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow] hover:border-foreground/25 hover:shadow-[0_5px_18px_rgba(15,23,42,0.08)] motion-reduce:transition-none",
-        "dark:shadow-[0_1px_3px_rgba(0,0,0,0.5)] dark:hover:shadow-[0_6px_20px_rgba(0,0,0,0.6)]",
-        selected && "border-foreground/40 ring-2 ring-foreground/10",
+        // The elevation scale swaps its drop to black in dark mode: a slate shadow is
+        // invisible on a dark surface, leaving nodes with no elevation or hover feedback.
+        // Selection is a ring, because it is a state rather than a height.
+        "flex h-full w-full cursor-pointer flex-col rounded-lg bg-card text-left shadow-raised transition-[box-shadow] hover:shadow-lifted motion-reduce:transition-none",
+        selected && "ring-2 ring-foreground/30",
         className,
       )}
     >

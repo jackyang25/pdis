@@ -30,9 +30,9 @@ import {
 } from "@/lib/citation";
 import { BlockCitation } from "./block-citation";
 import { DocumentSourceProvider } from "@/components/document-source-trace";
+import { SURFACE } from "@/lib/surface";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
-import { PdisIcon } from "../ui/pdis-icon";
 import { DISPLAY_HEADING } from "@/lib/typography";
 
 /**
@@ -242,12 +242,12 @@ export function Ask({
         onClick={() => setOpen(true)}
         aria-expanded="false"
         aria-controls="workspace-assistant"
-        className="group fixed bottom-5 right-5 z-50 h-12 gap-2.5 rounded-full border border-foreground/10 bg-foreground px-2.5 pr-4 text-background shadow-[0_12px_36px_rgba(15,23,42,0.24)] transition-[transform,box-shadow] duration-base hover:-translate-y-0.5 hover:bg-foreground hover:shadow-[0_16px_42px_rgba(15,23,42,0.30)] sm:bottom-6 sm:right-6 motion-reduce:transition-none"
+        className="group fixed bottom-5 right-5 z-50 h-12 gap-2.5 rounded-full bg-card px-2 pr-4 text-foreground shadow-overlay transition-[transform] duration-base hover:-translate-y-0.5 hover:bg-card sm:bottom-6 sm:right-6 motion-reduce:transition-none"
       >
-        <AssistantMark compact />
+        <AssistantMark compact working={busy} respondsToHover />
         <span className="text-xs font-semibold">PDIS Assistant</span>
         {resultCount > 0 ? (
-          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-background/15 px-1.5 text-[10px] tabular-nums text-background">
+          <span className={cn("flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] tabular-nums text-foreground", SURFACE.selected)}>
             {resultCount}
           </span>
         ) : null}
@@ -274,14 +274,14 @@ export function Ask({
       id="workspace-assistant"
       className={pageDisplay
         ? "fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_18%,hsl(var(--muted)/0.22),transparent_42%)]"
-        : "fixed bottom-4 right-4 z-50 flex h-[min(42rem,calc(100vh-2rem))] w-[29rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_24px_70px_rgba(15,23,42,0.18)] sm:bottom-6 sm:right-6"}
+        : "fixed bottom-4 right-4 z-50 flex h-[min(42rem,calc(100vh-2rem))] w-[29rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl bg-card shadow-overlay sm:bottom-6 sm:right-6"}
     >
       <div className={pageDisplay
         ? "mx-auto flex w-full max-w-4xl items-center justify-between px-5 py-5 sm:px-8"
         : "flex items-center justify-between border-b border-border px-4 py-3.5"}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <AssistantMark />
+          <AssistantMark working={busy} />
           <div className="min-w-0">
             <span className="block text-sm font-semibold">PDIS Assistant</span>
             <span className="mt-0.5 block truncate text-xs text-muted-foreground">
@@ -356,13 +356,16 @@ export function Ask({
                   ? "Ask about the attached context or explore which PDIS tool should read it."
                   : "Explore what each tool does. Final results will appear here automatically when they are available."}
             </p>
-            <div className={pageDisplay ? "mt-6 grid w-full max-w-xl gap-2.5" : "mt-5 grid w-full gap-2"}>
+            {/* Centred and only as wide as their words, because everything above them is
+                centred. Full-width and tall they read as fields to type into; left-aligned
+                with arrows they broke the column the rest of the empty state stands in. */}
+            <div className={cn("flex flex-col items-center gap-2", pageDisplay ? "mt-6" : "mt-5")}>
               {suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
                   onClick={() => send(suggestion)}
-                  className="rounded-2xl border border-border/80 bg-card/70 px-4 py-3 text-center text-xs font-medium text-muted-foreground shadow-sm transition-[border-color,color,background-color,transform] hover:-translate-y-px hover:border-foreground/15 hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+                  className="rounded-full bg-card px-4 py-2 text-xs font-medium text-muted-foreground shadow-raised transition-[box-shadow,color] hover:text-foreground hover:shadow-lifted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
                 >
                   {suggestion}
                 </button>
@@ -508,7 +511,7 @@ export function Ask({
             event.preventDefault();
             void attachFiles(files);
           }}
-          className="flex items-end gap-2 rounded-2xl border border-input bg-card/95 p-2 shadow-[0_12px_36px_rgba(15,23,42,0.10)] backdrop-blur focus-within:ring-2 focus-within:ring-ring/20"
+          className="flex items-end gap-2 rounded-2xl border border-input bg-card/95 p-2 backdrop-blur focus-within:ring-2 focus-within:ring-ring/20"
         >
           <input
             ref={fileInputRef}
@@ -527,7 +530,7 @@ export function Ask({
             disabled={attaching || attachments.length >= 5}
             aria-label="Attach document or image"
             title="Attach a file, or paste or drop one into the message"
-            className="h-9 w-9 shrink-0 rounded-xl text-muted-foreground"
+            className="h-9 w-9 shrink-0 rounded-sm text-muted-foreground"
           >
             {attaching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
           </Button>
@@ -548,7 +551,7 @@ export function Ask({
             className="max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-base leading-5 outline-none placeholder:text-muted-foreground disabled:opacity-60 sm:text-sm"
           />
           {busy ? (
-            <Button type="button" size="icon" variant="secondary" onClick={stop} aria-label="Stop response" className="h-9 w-9 rounded-xl">
+            <Button type="button" size="icon" variant="secondary" onClick={stop} aria-label="Stop response" className="h-9 w-9 rounded-sm">
               <Square className="h-3.5 w-3.5 fill-current" />
             </Button>
           ) : (
@@ -559,7 +562,7 @@ export function Ask({
               disabled={!input.trim() || !hasResult || attaching}
               aria-label="Send message"
               title="Send message (Enter). Shift+Enter for a new line."
-              className="h-9 w-9 rounded-xl"
+              className="h-9 w-9 rounded-sm"
             >
               <Send className="h-4 w-4" />
             </Button>
@@ -578,22 +581,71 @@ export function Ask({
   );
 }
 
+/**
+ * The mark's three sizes, each with eyes drawn to it.
+ *
+ * Written per size rather than scaled, because at 32px a rounded fraction of a pixel is the
+ * difference between two eyes and two smudges. Each keeps the same proportions: eyes about a
+ * ninth of the diameter wide and a quarter tall, a fifth apart, lifted a sixteenth above the
+ * middle so they sit where eyes sit on a face rather than dead centre.
+ */
+const ASSISTANT_MARK_SIZES = {
+  compact: { mark: "h-8 w-8", eyes: "gap-[6px] -translate-y-[2px]", eye: "h-[8px] w-[3.5px]" },
+  regular: { mark: "h-9 w-9", eyes: "gap-[7px] -translate-y-[2px]", eye: "h-[9px] w-[4px]" },
+  large: { mark: "h-16 w-16", eyes: "gap-[12px] -translate-y-[4px]", eye: "h-[16px] w-[7px]" },
+} as const;
+
 function AssistantMark({
   compact = false,
   large = false,
+  working = false,
+  respondsToHover = false,
 }: {
   compact?: boolean;
   large?: boolean;
+  /** A reply is being prepared or written. */
+  working?: boolean;
+  /**
+   * The mark sits inside the control that opens the assistant, so its eyes squint while that
+   * control is hovered or focused. Only there: anywhere else the mark is not something you can
+   * press, and a response to the cursor would promise a click that does nothing.
+   */
+  respondsToHover?: boolean;
 }) {
-  const size = large ? "h-16 w-16" : compact ? "h-8 w-8" : "h-9 w-9";
-  const iconSize = large ? "h-6 w-6" : "h-4 w-4";
+  const sizes = ASSISTANT_MARK_SIZES[large ? "large" : compact ? "compact" : "regular"];
+  // The assistant's own teal, lit as a sphere: a shine at the top-left and a shade at the
+  // bottom-right. Pure white and pure black for the light, because light and shadow read on
+  // any colour, in either appearance, without a second pair of tokens. It replaces a cyan and
+  // indigo ring that belonged to no palette in the product.
+  //
+  // Eyes rather than an icon, because the sphere is the character: a flat line drawing
+  // printed on a lit surface was two visual languages in one mark, and the headset it carried
+  // said "help desk". Drawn here rather than taken from the Freehand pack for the same reason -
+  // they are part of the sphere, not a picture on it.
+  //
+  // It blinks once as a reply starts, and is otherwise still. Motion as status rather than as
+  // character, so it answers something the reader did; under reduced motion it holds still,
+  // because the message list already says the reply is coming.
   return (
     <span
       aria-hidden="true"
-      className={`relative flex shrink-0 items-center justify-center rounded-full bg-[conic-gradient(from_180deg,rgba(103,232,249,0.9),rgba(165,180,252,0.95),rgba(255,255,255,0.9),rgba(103,232,249,0.9))] p-[1px] shadow-[0_0_24px_rgba(129,140,248,0.18)] ${size}`}
+      className={`flex shrink-0 items-center justify-center rounded-full bg-assistant bg-[radial-gradient(circle_at_30%_25%,rgb(255_255_255/0.22),transparent_50%),radial-gradient(circle_at_70%_85%,rgb(0_0_0/0.25),transparent_60%)] ${sizes.mark}`}
     >
-      <span className="flex h-full w-full items-center justify-center rounded-full bg-foreground text-background">
-        <PdisIcon name="chat" className={iconSize} />
+      {/* The blink is on each eye, not their row: the row is lifted with a transform, and an
+          animated transform on the same element would drop it back to the middle mid-blink. */}
+      <span className={cn("flex", sizes.eyes)}>
+        {[0, 1].map((eye) => (
+          <span
+            key={eye}
+            className={cn(
+              "rounded-full bg-assistant-foreground",
+              sizes.eye,
+              // To 60% of their height: a relaxed squint. Much flatter reads as suspicion.
+              respondsToHover && "transition-transform duration-fast ease-enter group-hover:scale-y-[0.6] group-focus-visible:scale-y-[0.6] motion-reduce:transition-none motion-reduce:group-hover:scale-y-100 motion-reduce:group-focus-visible:scale-y-100",
+              working && "animate-blink motion-reduce:animate-none",
+            )}
+          />
+        ))}
       </span>
     </span>
   );
@@ -637,7 +689,7 @@ function workspaceStatus(
   if (attachmentCount > 0) {
     parts.push(`${attachmentCount} ${attachmentCount === 1 ? "attachment" : "attachments"}`);
   }
-  if (parts.length === 0) return "No results available";
+  if (parts.length === 0) return "No results yet";
   if (hasDocument && attachmentCount === 0) parts.push("source context included");
   return parts.join(" · ");
 }

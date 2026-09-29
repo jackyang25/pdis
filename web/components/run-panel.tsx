@@ -109,7 +109,7 @@ export function RunPanel({
   return (
     <section
       className={cn(
-        "rounded-lg border border-border bg-card p-5 sm:p-6",
+        "rounded-lg bg-card p-5 shadow-raised sm:p-6",
         className,
       )}
     >

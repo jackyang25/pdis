@@ -19,10 +19,9 @@ import { loadComponent } from "../test-support/load-component.ts";
 
 const WEB = path.resolve(import.meta.dirname, "..");
 
-/** Every file that renders a Scout or Archivist result. */
+/** Every file that renders a Scout result. */
 const RESULT_VIEWS = [
   "app/scout/page.tsx",
-  "app/archivist/page.tsx",
   "components/evidence-provenance.tsx",
   "components/excluded-measurements.tsx",
   "components/comparator-cohort.tsx",
@@ -89,8 +88,8 @@ test("no result view writes a quotation by hand", () => {
 
 test("no result view writes a citation highlight by hand", () => {
   // `--tone-marked` already means "a result cites this", and the full-page document trace
-  // already highlights with it. A local `<mark>` is how the popover and Archivist came to use
-  // grey while the trace used yellow.
+  // already highlights with it. A local `<mark>` is how the popover came to use grey while the
+  // trace used yellow.
   const offenders = RESULT_VIEWS.filter((file) => /<mark\b/.test(read(file)));
   assert.deepEqual(
     offenders,

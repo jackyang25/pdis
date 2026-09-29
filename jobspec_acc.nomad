@@ -119,12 +119,13 @@ job "__REPO__NAME__-acc" {
       }
     }
 
-    # Reserve headroom for one active analysis, including LibreOffice child
+    # Reserve headroom for two active analyses, including LibreOffice child
     # processes, retained page images and parallel model request payloads.
     # This is a starting allocation, not a measured worst-case requirement.
     # Reserve the full memory budget rather than relying on oversubscription.
-    # Keep MAX_CONCURRENT_RUNS at one; additional runs queue. Measure peak
-    # memory under image-heavy runs before increasing that cap.
+    # MAX_CONCURRENT_RUNS is two, raised from one when memory went to 6 GiB;
+    # further runs queue. Measure peak memory under two concurrent image-heavy
+    # runs before raising either number again.
     task "api" {
       driver = "docker"
 
@@ -140,7 +141,7 @@ job "__REPO__NAME__-acc" {
 
       env {
         PORT                = "${NOMAD_PORT_http}"
-        MAX_CONCURRENT_RUNS = "1"
+        MAX_CONCURRENT_RUNS = "2"
 
         # Allocation stdout is read by an aggregator, not a person.
         LOG_FORMAT = "json"

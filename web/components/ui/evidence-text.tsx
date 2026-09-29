@@ -120,8 +120,8 @@ export function Quoted({
  * The cited words, marked where they sit in their passage.
  *
  * `--tone-marked` already means "a result cites this" and the full-page document trace
- * already highlights with it, so a grey `bg-secondary` in the popover and in Archivist was
- * two tools disagreeing with a third about what a citation looks like.
+ * already highlights with it, so a grey `bg-secondary` in the popover was a second tool
+ * disagreeing with the trace about what a citation looks like.
  *
  * `box-decoration-clone` is what keeps the rounding and padding on every line of a highlight
  * that wraps, instead of only on the first and last.

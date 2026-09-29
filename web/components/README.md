@@ -29,8 +29,7 @@ implemented configurations. Disease / condition is different: `shared/indication
 supplies one curated context list for every supported class, not a disease-specific
 support matrix. Add MeSH-aligned canonical keys and reviewed citations following
 the [naming guide](../../docs/indication-vocabulary.md); the same key is stored with
-results and converted to words for downstream prompts and searches. Archivist
-continues to offer only diseases and conditions present in its corpus.
+results and converted to words for downstream prompts and searches.
 
 Use `ConfigSectionHeading` for reader-facing sections (Context, Document selection,
 Run options), within the one field grid—not nested layouts or shared/bespoke groups.
@@ -64,11 +63,10 @@ visuals still direct readers to the original file, not to an uncaptured image.
 | Aligner | Context and repeated document types | Document collection and configured comparison preview |
 | Screener | Context | Stage gate and document collection |
 | Searcher | Presentation primitives, wide field grid | Query, search facets, named subjects and sources |
-| Archivist | Existing shared UI primitives | Corpus filters and archive query action |
 | Ask | Workspace conversation controls | Conversation and attached workspace material |
 
-Searcher search terms and Archivist corpus filters are not document configuration
-selectors, even when their labels resemble context fields. Ask is a conversation,
+Searcher search terms are not document configuration selectors, even when their labels
+resemble context fields. Ask is a conversation,
 not a document run form. Their behavior stays with those features.
 
 ## Adding an input

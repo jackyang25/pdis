@@ -47,11 +47,10 @@ test("each tool offers exactly two, so no tool opens narrower than another", () 
 });
 
 test("a tool that renders no verdict is not asked for one", () => {
-  // Chunker parses, Searcher retrieves, and Archivist reports what the archive already
-  // says. None of them judges, so an opener implying otherwise would invite an
-  // assessment the result does not contain.
+  // Chunker parses and Searcher retrieves. Neither judges, so an opener implying otherwise
+  // would invite an assessment the result does not contain.
   const declared = suggestions();
-  for (const tool of ["chunker", "searcher", "archivist"]) {
+  for (const tool of ["chunker", "searcher"]) {
     const text = declared[tool].join(" ").toLowerCase();
     for (const verdict of ["attention", "weakest", "fall short", "conflict"]) {
       assert.ok(

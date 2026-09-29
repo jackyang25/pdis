@@ -318,11 +318,6 @@ test("no card carries a boundary clause", () => {
   // lives on the tool's own page, where a reader who has chosen it has room for it. Six
   // of them on a catalogue of six is a second sentence per card for a distinction that
   // only matters once you are about to run one.
-  //
-  // Archivist is the tempting exception: it is unbuilt, so it has no page, and it is the
-  // one tool that judges nothing - a reader can take "past iTPPs required twelve months"
-  // as advice to require twelve months. Its limit still waits for its page, because one
-  // card carrying a sentence the other five do not is the inconsistency this avoids.
   for (const tool of WORKSPACE_TOOLS) {
     assert.ok(
       !/\b\w+, not \w+/.test(tool.description),
@@ -374,31 +369,15 @@ test("no tool is named for a person, and none for a judgement it does not make",
 });
 
 test("every reading tool's card is one sentence in one grammar", () => {
-  // `<what is read> against|across <the authority>: <what you learn>`
-  //
-  // Archivist's was the odd one - an imperative and a three-item list, "Look up what
-  // past iTPPs and cTPPs required for an attribute, how many said nothing, and the quote
-  // behind each value" - so on a page of five it read as a different kind of thing for
-  // no reason a reader could name.
-  //
-  // The preposition carries the one real difference: you hold a document *against* a
-  // standard, and you look *across* a corpus. Archivist is the tool that judges nothing,
-  // and that shows before the boundary clause on its page ever does.
-  const READING = ["inspector", "scout", "aligner", "screener", "archivist"];
+  // `<what is read> against <the authority>: <what you learn>`
+  const READING = ["inspector", "scout", "aligner", "screener"];
   for (const id of READING) {
     const tool = WORKSPACE_TOOLS.find((entry) => entry.id === id);
     assert.ok(tool, `${id} is no longer catalogued`);
     assert.match(
       tool.description,
-      / (against|across) .+: /,
-      `${tool.title}'s card is not "<what is read> against|across <authority>: <what you learn>"`,
-    );
-    assert.equal(
-      id === "archivist" ? / across /.test(tool.description) : / against /.test(tool.description),
-      true,
-      id === "archivist"
-        ? "Archivist judges nothing, so it looks across a corpus rather than against a standard"
-        : `${tool.title} returns a verdict, so it holds something against an authority`,
+      / against .+: /,
+      `${tool.title}'s card is not "<what is read> against <authority>: <what you learn>"`,
     );
   }
 

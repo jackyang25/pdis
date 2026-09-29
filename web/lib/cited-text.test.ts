@@ -133,12 +133,12 @@ test("the same quote given twice is treated as one", () => {
   assert.deepEqual(result.unplaced, []);
 });
 
-test("both tools locate a cited quote the same way", () => {
-  // Scout's document trace and Archivist's provenance both mark a quote inside its block.
-  // Archivist had its own `indexOf` version, which worked only because its own invariant
-  // guarantees an exact match; Scout's real data showed that 15 of 36 quotes differ from
-  // their block by whitespace alone. One locator, so the two cannot answer differently.
-  const files = ["components/document-source-trace.tsx", "app/archivist/page.tsx"];
+test("the document trace locates a cited quote with the shared locator", () => {
+  // Scout's document trace marks a quote inside its block. Locating it by hand with
+  // `indexOf` works only on an exact match, and Scout's real data showed that 15 of 36
+  // quotes differ from their block by whitespace alone. One locator, used everywhere a
+  // quote is marked, so two views cannot answer differently.
+  const files = ["components/document-source-trace.tsx"];
   for (const file of files) {
     const text = readFileSync(path.resolve(import.meta.dirname, "..", file), "utf8");
     assert.ok(

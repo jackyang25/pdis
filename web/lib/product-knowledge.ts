@@ -34,7 +34,6 @@ export type ArchitectureGraph = {
     | "scout"
     | "chunker"
     | "searcher"
-    | "archivist"
     | "chat";
   title: string;
   summary: string;

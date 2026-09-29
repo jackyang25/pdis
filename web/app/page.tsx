@@ -234,13 +234,12 @@ function OpenArrow({ className }: { className?: string }) {
 /**
  * The links an external workflow opens in another product, one per destination.
  *
- * The app's ghost button, at the weight of the line it replaces. A PST card's footer is a
- * quiet line - the clock and the run time, in muted text - and its action is only an arrow.
- * Bordered buttons with dark labels made the GHIDE footers the loudest thing on the page, so
- * the eye went to the secondary action on every card before the tools themselves. No border
- * and muted text puts every card's footer at one weight; the button's hover still says each
- * link is a control. The row is pulled out by the buttons' own padding, so at rest the first
- * mark lines up with the description above it, the way the clock does.
+ * The app's outline button, with its label in muted text. The border is what groups each
+ * mark, name and glyph into one control: without it the footer read as four loose marks in a
+ * row, and as text rather than two actions. What made the bordered version loud was the dark
+ * label, darker than the description above it, so the eye went to the secondary action on
+ * every card before the tools themselves. Muted, the footer sits at the weight of a PST card's
+ * clock line, and the label darkens on hover.
  *
  * Mark, name, then the external-link glyph: the same three parts as the GitHub button on the
  * Documentation page. The mark says where the link goes and the glyph says it opens a new
@@ -257,14 +256,14 @@ function ShortcutLinks({
   className?: string;
 }) {
   return (
-    <div className={cn("-ml-2 flex flex-wrap gap-1", className)}>
+    <div className={cn("flex flex-wrap gap-2", className)}>
       {shortcuts.map((shortcut) => (
         <Button
           key={shortcut.label}
           asChild
           size="sm"
-          variant="ghost"
-          className="gap-2 px-2 text-muted-foreground"
+          variant="outline"
+          className="gap-2 text-muted-foreground"
         >
           <a
             href={shortcut.url}

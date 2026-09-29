@@ -18,7 +18,6 @@ export const PDIS_ICON_PATHS = {
   screener: "freehand/human-resources-rating-man--Streamline-Freehand.svg",
   chunker: "freehand/data-transfer-document-module--Streamline-Freehand.svg",
   searcher: "freehand/search-magnifier--Streamline-Freehand.svg",
-  archivist: "freehand/archive-drawer-1--Streamline-Freehand.svg",
 
   // External workflow identities
   evaluator: "freehand/business-cash-scale-balance--Streamline-Freehand.svg",
@@ -49,7 +48,6 @@ const GRAPH_ICONS: Record<string, PdisIconName> = {
   scout: "scout",
   chunker: "chunker",
   searcher: "searcher",
-  archivist: "archivist",
   chat: "chat",
 };
 

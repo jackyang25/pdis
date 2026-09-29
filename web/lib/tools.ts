@@ -5,7 +5,6 @@ export type ToolIcon =
   | "screener"
   | "chunker"
   | "searcher"
-  | "archivist"
   | "evaluator"
   | "roadmap"
   | "executive-summary"
@@ -64,12 +63,7 @@ type ToolBase = {
    *
    * One grammar for every tool that reads documents:
    *
-   *     <what is read>  against | across  <the authority>:  <what you learn>
-   *
-   * `against` for the four that judge, `across` for Archivist, which does not. The
-   * preposition is where the difference sits: you hold a document *against* a standard
-   * and you look *across* a corpus, and a reader meets that distinction before reading
-   * a word of the boundary clause on the page.
+   *     <what is read>  against  <the authority>:  <what you learn>
    *
    * Chunker and Searcher are outside it. They are operations rather than readings -
    * they turn a file into blocks, or run a query - so they have no authority to name
@@ -80,13 +74,6 @@ type ToolBase = {
    * where a reader who has chosen it has room to read it. On a catalogue of six, six
    * boundary clauses is a second sentence on every card for a distinction that only
    * matters once you are about to run one.
-   *
-   * No exception for Archivist, though it is the one tool that would need a different
-   * clause: it judges nothing, so it owns no territory to name, and what it needs headed
-   * off instead is a reader taking "past iTPPs required twelve months" as advice to
-   * require twelve months. Its limit arrives with its page, like everyone else's. One
-   * card carrying a sentence the other five do not is the inconsistency it was meant to
-   * fix.
    */
   description: string;
   /* No `capability`. It was a two-word label - "Leadership summary", "Evidence review" - and
@@ -126,29 +113,6 @@ export type ToolDefinition = WorkspaceToolDefinition | ExternalToolDefinition;
  * agreeing so one surface never lists the tools differently from another.
  */
 export const WORKSPACE_TOOLS: readonly WorkspaceToolDefinition[] = [
-  {
-    id: "archivist",
-    // Hidden from the Tools page while coming soon, with no navigation href.
-    // The page under `app/archivist` remains accessible by its URL.
-    title: "Archivist",
-    // Imperative, like Chunker and Searcher, and for the reason the family rule gives:
-    // this performs a lookup rather than judging a document. It names no authority
-    // because it has none - the corpus is its authority, and a corpus is data.
-    description:
-      "One attribute across every past iTPP and cTPP: what each one required, how many never mentioned it, and the line every value was read from.",
-    // No `activity`. It read "approx. 1 min", the floor of the shared scale, chosen so a
-    // corpus query would not sit beside "approx. 20 min" as a second scale. An estimate is
-    // a promise about a run, and there is nothing here to run yet.
-    icon: "archivist",
-    // Owned by the PST team, who write these profiles, rather than shared: no other
-    // tool reads the corpus, which is what makes Chunker and Searcher shared.
-    audience: "pst",
-    // The utility family by this file's own rule - it performs a task rather than
-    // rendering a verdict - which is a different axis from who owns it.
-    workflow: "utility",
-    delivery: "workspace",
-    availability: "coming_soon",
-  },
   {
     id: "inspector",
     href: "/inspector",

@@ -35,11 +35,9 @@ export type ToolSection = {
 export const TOOL_SECTIONS: readonly ToolSection[] = [
   {
     id: "pst-workflows",
-    // Reading order, not alphabetical: look up what has been required before, then
-    // check a document, test what it claims, check the documents against each other,
-    // and take them to the gate. Archivist is first because it is what you consult
-    // before drafting, not a step in reviewing what you drafted.
-    toolIds: ["archivist", "inspector", "scout", "aligner", "screener"],
+    // Reading order, not alphabetical: check a document, test what it claims, check the
+    // documents against each other, and take them to the gate.
+    toolIds: ["inspector", "scout", "aligner", "screener"],
     title: "PST workflows",
     // The only place the cycle is stated. Each card states what its tool is judged
     // against; none of them repeats this. Keep the clauses in the same order as

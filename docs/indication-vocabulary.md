@@ -48,23 +48,20 @@ an explicit scope review.
 
 ## Compatibility and ownership
 
-`legacy_keys` records retired spellings only for validating existing Archivist
-corpus artifacts. They are not new dropdown options and are never used to rewrite
-saved result provenance. Portable tool results already carry their original
-context strings; importing them does not require membership in today's picker.
+Renaming a key never rewrites saved result provenance. Portable tool results carry
+their original context strings; importing them does not require membership in today's picker.
 Old results therefore continue to show their old names.
 
 `shared/vocabulary.py` owns catalog reading and validation. The configuration API
 publishes only canonical keys, retaining its `list[str]` response. Existing
-selectors and service pipelines need no per-indication branches. Archivist filters
-continue to reflect its corpus, including historical keys, rather than this list.
+selectors and service pipelines need no per-indication branches.
 
 ## Updating and verifying
 
 1. Review the concept and scope in the [NLM MeSH Browser](https://meshb.nlm.nih.gov/search).
 2. Add or amend the record once in the shared catalog. Record a narrower mapping
    explicitly if no exact entry term has the required scope.
-3. Keep retired keys for artifact validation; never change old result contents.
+3. Never change old result contents; a renamed key simply stops being offered.
 4. Download the [official 2026 descriptors](https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/xmlmesh/desc2026.gz)
    and run, from the repository root:
 

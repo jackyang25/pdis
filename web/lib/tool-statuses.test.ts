@@ -34,6 +34,5 @@ test("all session-backed tools are connected, with both Scout review checkpoints
     for (const tool of ["inspector", "aligner", "screener", "chunker", "searcher"]) {
       assert.equal(statuses[tool], "Results available");
     }
-    assert.equal(statuses.archivist, undefined);
   }
 });

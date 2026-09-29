@@ -199,15 +199,17 @@ class JobspecParityTests(unittest.TestCase):
                 )
 
     def test_the_gateway_memory_and_run_cap_are_stated_together(self) -> None:
-        """Reserve rendering headroom with one active analysis during sizing.
+        """Reserve rendering headroom for two active analyses at 6 GiB.
 
-        Scope this check to the API: the connector has a separate memory budget.
+        The cap was one until the API's memory was raised to 6 GiB; the two numbers are
+        pinned together so neither is raised without the other. Scope this check to the
+        API: the connector has a separate memory budget.
         """
         for path in (PRODUCTION, ACCEPTANCE):
             with self.subTest(jobspec=path.name):
                 text = path.read_text()
                 api = text.split('task "api" {', 1)[1].split('task "tooluniverse"', 1)[0]
-                self.assertRegex(api, r'\bMAX_CONCURRENT_RUNS\s*=\s*"1"')
+                self.assertRegex(api, r'\bMAX_CONCURRENT_RUNS\s*=\s*"2"')
                 self.assertRegex(api, r"\bcpu\s*=\s*2000\b")
                 self.assertRegex(api, r"\bmemory\s*=\s*6144\b")
                 self.assertNotRegex(api, r"\bmemory_max\s*=")

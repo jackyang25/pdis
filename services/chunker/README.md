@@ -41,7 +41,7 @@ Input capabilities live in `formats.py`. `DOCUMENT_SUFFIXES` is the default:
 DOCX/PPTX declare tables, rows, headings and order. A caller may explicitly pass
 `accepted_suffixes=TEXT_EXTRACTION_SUFFIXES` to `run_pipeline` to also accept
 text-based PDF. Only Screener enables that capability; standalone Chunker,
-Inspector, Aligner, Scout, Archivist builds and Ask attachments keep the default.
+Inspector, Aligner, Scout and Ask attachments keep the default.
 
 PDF uses pypdf for one text block per page and PDFium for one full-page image,
 with stable IDs, a one-based `structural_meta.page`, and

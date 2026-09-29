@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpen, History, MessageSquare } from "lucide-react";
+import { BookOpen, Megaphone, MessageSquare } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { HelpHeading, HelpPopoverContent } from "@/components/ui/help-content";
@@ -24,7 +24,9 @@ export function HeaderUtilities({ pathname }: { pathname: string }) {
         <span className="hidden sm:inline">Documentation</span>
       </Link>
       <Link href="/updates" aria-current={pathname === "/updates" ? "page" : undefined} aria-label={`What’s new — this version v${CURRENT_RELEASE.version}`} className={HEADER_ACTION}>
-        <History className="h-3.5 w-3.5" aria-hidden="true" />
+        {/* An announcement, not a clock: the run-time estimate on every tool card is the
+            clock, so a clock here would have one shape meaning two things. */}
+        <Megaphone className="h-3.5 w-3.5" aria-hidden="true" />
         <span className="hidden sm:inline">What’s new</span>
         {/* A tag rather than more words: set in the same size and colour as its label, the
             version read as part of the phrase - "What's new v0.4.1". */}

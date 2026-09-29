@@ -39,7 +39,6 @@ validate_configuration()
 
 from api.routes import (
     aligner,
-    archivist,
     assistant,
     chunker,
     configs,
@@ -125,7 +124,6 @@ app.include_router(inspector.router, prefix="/api/inspector", tags=["inspector"]
 app.include_router(screener.router, prefix="/api/screener", tags=["screener"])
 app.include_router(searcher.router, prefix="/api/searcher", tags=["searcher"])
 app.include_router(scout.router, prefix="/api/scout", tags=["scout"])
-app.include_router(archivist.router, prefix="/api/archivist", tags=["archivist"])
 app.include_router(assistant.router, prefix="/api/assistant", tags=["assistant"])
 
 

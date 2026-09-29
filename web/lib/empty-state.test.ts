@@ -1,7 +1,8 @@
 /**
  * "Nothing here" is three different answers, and they had four boxes.
  *
- * Inspector, Archivist, the imported-result popover and Scout each grew their own, varying
+ * Several result views - Inspector, the imported-result popover and Scout among them - each
+ * grew their own, varying
  * on three axes at once - dashed or solid border, one line or a heading with a body, an
  * icon or none - none of which marked a difference in what they said. Meanwhile the shared
  * component existed and had a single caller.
@@ -23,7 +24,6 @@ const COMPONENT = readFileSync(path.join(REPO, "components", "empty-state.tsx"),
 /** Files that legitimately say "there is nothing here". */
 const SURFACES = [
   path.join("app", "inspector", "page.tsx"),
-  path.join("app", "archivist", "page.tsx"),
   path.join("app", "scout", "page.tsx"),
   path.join("components", "document-source-trace.tsx"),
 ];

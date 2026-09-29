@@ -401,7 +401,7 @@ def load_attributes(intervention_class: str) -> list[Attribute]:
     `definition_mode` is scout's own distinction and is the reason this wrapper exists:
     the vocabulary supplies a fixed definition, and a dynamic one arrives from an IPDP at
     runtime, but both become the same `Attribute`. The file is read in
-    `shared.vocabulary` so archivist and scout cannot disagree about what it says.
+    `shared.vocabulary`, the one reader of the shared attribute vocabulary.
     """
     return [
         Attribute(

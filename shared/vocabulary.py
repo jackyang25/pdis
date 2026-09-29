@@ -205,7 +205,6 @@ class IndicationDefinition:
     mesh_concept: str
     mesh_term: str
     match: str
-    legacy_keys: tuple[str, ...] = ()
     note: str = ""
 
 
@@ -222,7 +221,6 @@ def indication_definitions(intervention_class: str) -> tuple[IndicationDefinitio
         mesh = item["mesh"]
         key = item.get("key")
         match = item.get("match")
-        legacy = item.get("legacy_keys", [])
         note = item.get("note", "")
         if (
             not isinstance(key, str) or not re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)*", key)
@@ -234,37 +232,24 @@ def indication_definitions(intervention_class: str) -> tuple[IndicationDefinitio
             or not isinstance(match, str) or match not in {"exact", "narrower"}
             or not isinstance(note, str)
             or (match == "narrower" and not note.strip())
-            or not isinstance(legacy, list)
-            or any(not isinstance(alias, str) or not re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)*", alias) for alias in legacy)
         ):
             raise ValueError(f"Invalid indication definition: {key!r}")
-        for value in [key, *legacy]:
-            if value in seen:
-                raise ValueError(f"Duplicate indication key: {value}")
-            seen.add(value)
+        if key in seen:
+            raise ValueError(f"Duplicate indication key: {key}")
+        seen.add(key)
         entries.append(IndicationDefinition(
-            key, mesh["descriptor"], mesh["concept"], mesh["term"], match,
-            tuple(legacy), note,
+            key, mesh["descriptor"], mesh["concept"], mesh["term"], match, note,
         ))
     return tuple(entries)
-
-
-def is_known_indication(intervention_class: str, indication: str) -> bool:
-    """Artifact-boundary membership check. Retain the original spelling, never rewrite it."""
-    return any(
-        indication == entry.key or indication in entry.legacy_keys
-        for entry in indication_definitions(intervention_class)
-    )
 
 
 @dataclass(frozen=True)
 class AttributeDefinition:
     """One attribute exactly as ``shared/attributes.yaml`` declares it.
 
-    The file's own record and nothing more. Services wrap it in whatever shape they
-    need - scout binds a document target and a resolution state onto it, archivist reads
-    only the name and the description - and the fields a service adds stay in that
-    service. Both `evidence_domain` and `supplies_scope` are already shared vocabularies
+    The file's own record and nothing more. A service wraps it in whatever shape it
+    needs - scout binds a document target and a resolution state onto it - and the fields
+    a service adds stay in that service. Both `evidence_domain` and `supplies_scope` are already shared vocabularies
     (`EVIDENCE_DOMAINS`, `SCOPE_DIMENSIONS`), so they belong to the record rather than to
     whoever reads it first.
     """
@@ -278,10 +263,9 @@ class AttributeDefinition:
 def attribute_definitions(intervention_class: str) -> tuple[AttributeDefinition, ...]:
     """Every attribute declared for one intervention class, in file order.
 
-    Here rather than in scout, which read it first, because a second service now needs
-    the same rows: archivist quotes an attribute's description into an extraction prompt
-    and names sibling attributes it must not be confused with. Two readers of one file
-    are two answers that can disagree about what the vocabulary says.
+    Here rather than in scout because `shared/attributes.yaml` is a shared controlled
+    vocabulary, and this module is its one reader: two readers of one file are two answers
+    that can disagree about what the vocabulary says.
     """
     if not ATTRIBUTES_VOCAB.exists():
         raise LookupError(f"Shared attribute vocabulary missing: {ATTRIBUTES_VOCAB}")

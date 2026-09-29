@@ -8,8 +8,6 @@
 # mesh.term is the cited NLM entry term, never an alternate runtime spelling.
 # match=exact means that entry term belongs to the stated descriptor AND concept.
 # match=narrower flags a local qualifier that MeSH does not represent exactly.
-# Legacy keys are recognized only when validating existing corpus artifacts; they
-# never appear as new choices, rewrite saved results, or expand search requests.
 # In particular, never use gbs: it can also mean Guillain-Barre syndrome.
 vaccine: &indication_contexts
   - key: malaria
@@ -25,7 +23,6 @@ vaccine: &indication_contexts
   - key: respiratory_syncytial_virus
     mesh: {descriptor: D012136, concept: M0018912, term: "Respiratory Syncytial Virus"}
     match: exact
-    legacy_keys: [rsv]
     note: Virus group context; does not assert human species or an infection diagnosis.
   - key: influenza
     mesh: {descriptor: D007251, concept: M0011309, term: "Influenza"}
@@ -33,7 +30,6 @@ vaccine: &indication_contexts
   - key: covid_19
     mesh: {descriptor: D000086382, concept: M000732426, term: "COVID-19"}
     match: exact
-    legacy_keys: [covid19]
   - key: dengue
     mesh: {descriptor: D003715, concept: M0005831, term: "Dengue"}
     match: exact
@@ -43,12 +39,10 @@ vaccine: &indication_contexts
   - key: human_papillomavirus
     mesh: {descriptor: D000094302, concept: M000598251, term: "Human Papillomavirus"}
     match: exact
-    legacy_keys: [hpv]
     note: Human virus group context; does not assert infection, genotype or cancer.
   - key: streptococcus_pneumoniae
     mesh: {descriptor: D013296, concept: M0020574, term: "Streptococcus pneumoniae"}
     match: exact
-    legacy_keys: [pneumococcus]
   - key: klebsiella
     mesh: {descriptor: D007709, concept: M0012058, term: "Klebsiella"}
     match: exact
@@ -56,11 +50,9 @@ vaccine: &indication_contexts
   - key: streptococcus_agalactiae
     mesh: {descriptor: D013292, concept: M0020570, term: "Streptococcus agalactiae"}
     match: exact
-    legacy_keys: [group_b_streptococcus]
   - key: poliomyelitis
     mesh: {descriptor: D011051, concept: M0017112, term: "Poliomyelitis"}
     match: exact
-    legacy_keys: [polio]
   - key: hepatitis_a
     mesh: {descriptor: D006506, concept: M0010206, term: "Hepatitis A"}
     match: exact
@@ -106,7 +98,6 @@ vaccine: &indication_contexts
   - key: invasive_nontyphoidal_salmonella_infections
     mesh: {descriptor: D012480, concept: M0019393, term: "Salmonella Infections"}
     match: narrower
-    legacy_keys: [invasive_nontyphoidal_salmonella]
     note: Invasive non-typhoidal infections only; MeSH also includes typhoidal and non-invasive infections.
   - key: meningococcal_disease
     mesh: {descriptor: D008589, concept: M0013373, term: "Meningococcal Disease"}
@@ -117,7 +108,6 @@ vaccine: &indication_contexts
   - key: gonorrhea
     mesh: {descriptor: D006069, concept: M0009553, term: "Gonorrhea"}
     match: exact
-    legacy_keys: [gonorrhoea]
   - key: syphilis
     mesh: {descriptor: D013587, concept: M0020966, term: "Syphilis"}
     match: exact
@@ -149,7 +139,6 @@ vaccine: &indication_contexts
   - key: chikungunya_fever
     mesh: {descriptor: D065632, concept: M0530384, term: "Chikungunya Fever"}
     match: exact
-    legacy_keys: [chikungunya]
   - key: yellow_fever
     mesh: {descriptor: D015004, concept: M0023087, term: "Yellow Fever"}
     match: exact
@@ -224,14 +213,12 @@ vaccine: &indication_contexts
   - key: postpartum_hemorrhage
     mesh: {descriptor: D006473, concept: M0010156, term: "Postpartum Hemorrhage"}
     match: exact
-    legacy_keys: [postpartum_haemorrhage]
   - key: pre_eclampsia
     mesh: {descriptor: D011225, concept: M0017443, term: "Pre-Eclampsia"}
     match: exact
   - key: iron_deficiency_anemia
     mesh: {descriptor: D018798, concept: M0028144, term: "Iron-Deficiency Anemia"}
     match: exact
-    legacy_keys: [iron_deficiency_anaemia]
   - key: acute_malnutrition
     mesh: {descriptor: D044342, concept: M0015121, term: "Malnutrition"}
     match: narrower

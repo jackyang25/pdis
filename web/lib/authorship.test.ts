@@ -393,7 +393,7 @@ test("a page description says what the tool answers, not how it works", () => {
   // Five tools described a question and two described a mechanism, in internal vocabulary:
   // "through one normalized workspace", "for downstream intelligence workflows".
   const mechanical = /Transform source documents|normalized workspace|downstream intelligence/;
-  for (const tool of ["scout", "inspector", "aligner", "screener", "archivist", "searcher", "chunker"]) {
+  for (const tool of ["scout", "inspector", "aligner", "screener", "searcher", "chunker"]) {
     const page = readFileSync(path.join(REPO, "app", tool, "page.tsx"), "utf8");
     assert.ok(!mechanical.test(page), `${tool} describes its mechanism rather than its question`);
   }

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from shared.vocabulary import indication_definitions, is_known_indication, search_term
+from shared.vocabulary import indication_definitions, search_term
 
 
 class CatalogTests(unittest.TestCase):
@@ -23,15 +23,9 @@ class CatalogTests(unittest.TestCase):
                 self.assertEqual(entry.match, "exact")
                 self.assertEqual(search_term(entry.key), "female contraception")
 
-    def test_retired_keys_remain_readable_without_becoming_new_choices(self):
-        entries = indication_definitions("drug")
-        for entry in entries:
-            for old in entry.legacy_keys:
-                self.assertTrue(is_known_indication("drug", old))
-                self.assertNotIn(old, [item.key for item in entries])
-        self.assertFalse(is_known_indication("unsupported", "rsv"))
-        self.assertFalse(is_known_indication("drug", "not_a_context"))
-        # Citation/legacy metadata does not become a runtime synonym expander.
+    def test_citation_metadata_is_not_a_synonym_expander(self):
+        # A key's search text is derived from the key alone; its MeSH citation never
+        # becomes alternate runtime text.
         self.assertEqual(search_term("rsv"), "rsv")
         self.assertEqual(search_term("respiratory_syncytial_virus"), "respiratory syncytial virus")
 
@@ -48,7 +42,6 @@ class CatalogTests(unittest.TestCase):
         good = {"key": "malaria", "mesh": {"descriptor": "D008288", "concept": "M0012910", "term": "Malaria"}, "match": "exact"}
         bad = [
             [good, good],
-            [{**good, "legacy_keys": ["malaria"]}],
             [{**good, "match": "narrower"}],
             [{**good, "mesh": {**good["mesh"], "concept": "wrong"}}],
         ]

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { CONTENT_ARRIVAL_MOTION } from "@/lib/motion";
@@ -136,14 +137,16 @@ export function PromptReference({ tool }: { tool: ToolKey }) {
       ) : null}
 
       {reference === null ? (
-        <button
+        <Button
           type="button"
+          size="sm"
+          variant="outline"
           onClick={() => void load()}
           disabled={status === "loading"}
-          className="mt-4 inline-flex min-h-8 items-center rounded-md border border-border bg-background px-3 text-xs font-medium transition-colors hover:border-foreground/25 disabled:opacity-60 motion-reduce:transition-none"
+          className="mt-4"
         >
           {status === "loading" ? "Loading instructions…" : "Show the instructions"}
-        </button>
+        </Button>
       ) : (
         <div className={cn("mt-4 divide-y divide-border border-y border-border", CONTENT_ARRIVAL_MOTION)}>
           {stages.map((stage) => {
@@ -167,8 +170,8 @@ export function PromptReference({ tool }: { tool: ToolKey }) {
                       </span>
                     )}
                   </span>
-                  <ChevronRight
-                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90 motion-reduce:transition-none"
+                  <ChevronDown
+                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
                     aria-hidden="true"
                   />
                 </summary>
@@ -264,8 +267,8 @@ function Configurations({ entries }: { entries: ConfigurationEntry[] }) {
                   {entry.org} · {entry.source_type} · {entry.intervention_class}
                 </span>
               </span>
-              <ChevronRight
-                className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90 motion-reduce:transition-none"
+              <ChevronDown
+                className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
                 aria-hidden="true"
               />
             </summary>

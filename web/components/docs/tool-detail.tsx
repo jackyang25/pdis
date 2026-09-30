@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import { PromptReference } from "@/components/docs/prompt-reference";
 import { ALIGNER_TOPIC_LIST } from "@/components/aligner-signal-help";
 import { SCREENER_TOPIC_LIST } from "@/components/screener-signal-help";
@@ -73,7 +74,7 @@ export function ToolDetail({ toolId }: { toolId: string }) {
         <details className="group/labels">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-sm text-sm font-semibold focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
             What its labels mean
-            <span aria-hidden="true" className="font-normal group-open/labels:rotate-45">+</span>
+            <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-base motion-reduce:transition-none group-open/labels:rotate-180" />
           </summary>
           <p className="mt-1 max-w-[75ch] text-xs leading-5 text-muted-foreground">
             The same definitions shown by the question mark beside each label in

@@ -147,7 +147,7 @@ export function ResultLayout({
         {notices && <ResultNotices className="px-5 pb-4 sm:px-6">{notices}</ResultNotices>}
         {scopeControl && <div className="px-5 pb-4 sm:px-6">{scopeControl}</div>}
         <div className="overflow-x-auto border-b border-border/60 px-5 pt-1.5 sm:px-6">
-          <TabsList className="min-w-max border-b-0">{tabs}</TabsList>
+          <TabsList className="min-w-max">{tabs}</TabsList>
         </div>
         {/* A band, flush like the tab row above it and the toolbar below it. It used to
             be an inset bordered card between two full-bleed bands, so three consecutive

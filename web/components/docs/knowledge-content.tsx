@@ -1,10 +1,12 @@
 "use client";
 
-import { AlertCircle, ExternalLink } from "lucide-react";
+import { AlertTriangle, ChevronDown, ExternalLink } from "lucide-react";
 
 import { ArchitectureGraphs } from "@/components/docs/architecture-graph";
 import type { KnowledgeBlock } from "@/lib/product-knowledge";
 import { TONE_TEXT } from "@/lib/tone";
+import { EYEBROW } from "@/lib/typography";
+import { cn } from "@/lib/utils";
 import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
 
 /**
@@ -105,7 +107,9 @@ export function KnowledgeContent({ block }: { block: KnowledgeBlock }) {
 function ContentGroup({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
     <div>
-      {title ? <h3 className="mt-8 text-sm font-semibold">{title}</h3> : null}
+      {/* A label over the rows below, not a row: set in the same size and weight as a
+          row's term, "Core design" read as a term whose description was missing. */}
+      {title ? <h3 className={cn("mt-10", EYEBROW)}>{title}</h3> : null}
       {children}
     </div>
   );
@@ -147,10 +151,11 @@ function Note({ title = "Why this matters", children }: { title?: string; childr
 function Warning({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <aside
-      className="mt-6 rounded-lg border border-[hsl(var(--tone-warning))]/30 bg-[hsl(var(--tone-warning))]/[0.05] p-4"
+      // The tool pages' warning in the documentation's type size: same triangle, same tint.
+      className="mt-6 rounded-lg border border-[hsl(var(--tone-warning))]/30 bg-[hsl(var(--tone-warning))]/[0.07] px-4 py-3.5"
     >
       <div className="flex items-start gap-3">
-        <AlertCircle
+        <AlertTriangle
           className={`mt-0.5 h-4 w-4 shrink-0 ${TONE_TEXT.warning}`}
           aria-hidden="true"
         />
@@ -180,7 +185,7 @@ function Faq({ question, children }: { question: string; children: React.ReactNo
     <details className="group/faq border-b border-border py-3.5 last:border-b-0">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-sm text-sm font-medium focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
         {question}
-        <span className="font-mono text-sm font-normal text-muted-foreground transition-transform group-open/faq:rotate-45 motion-reduce:transition-none">+</span>
+        <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-base motion-reduce:transition-none group-open/faq:rotate-180" />
       </summary>
       <p className="mt-3 max-w-[75ch] pe-8 text-sm leading-relaxed text-muted-foreground">{children}</p>
     </details>

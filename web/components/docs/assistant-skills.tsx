@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CONTENT_ARRIVAL_MOTION } from "@/lib/motion";
 import { displayLabel } from "@/lib/display-label";
+import { EYEBROW } from "@/lib/typography";
 
 /**
  * Which skills the assistant declares, read from the published reference.
@@ -71,8 +72,9 @@ export function AssistantSkills() {
   if (failed) return null;
 
   return (
-    <section aria-label="Declared skills" className="mt-6">
-      <h3 className="text-sm font-semibold">
+    <section aria-label="Declared skills" className="mt-10">
+      {/* A label over its rows, like every other group title on this page. */}
+      <h3 className={EYEBROW}>
         Declared skills
       </h3>
       {skills === null ? (

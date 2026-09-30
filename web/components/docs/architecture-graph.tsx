@@ -16,6 +16,7 @@ import {
 import {
   Braces,
   BrainCircuit,
+  ChevronDown,
   ChevronRight,
   Database,
   FileInput,
@@ -441,7 +442,7 @@ export function ArchitectureGraphs({
                   <span className="mt-1 block text-sm font-semibold">{node.title}</span>
                   <span className="mt-1 block text-sm leading-relaxed text-muted-foreground">{node.summary}</span>
                 </span>
-                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
               </summary>
               <div className="ms-10 mt-3 max-w-[75ch] text-sm leading-relaxed text-muted-foreground">
                 {/* The summary already shows in the collapsed row above. */}

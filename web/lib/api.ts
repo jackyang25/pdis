@@ -311,6 +311,8 @@ export type SearcherResponse = {
   findings: Finding[];
   /** Every request every selected lane made, including the ones that returned nothing. */
   lanes: SearchLane[];
+  /** Findings left out by a caller's `max_findings`. The page never sets one, so always 0 here. */
+  omitted_findings: number;
 };
 
 export type SearchSource = {

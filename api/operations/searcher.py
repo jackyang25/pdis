@@ -43,10 +43,12 @@ EntityType = Enum(
 
 
 class SearchEntityInput(BaseModel):
+    """A named subject a structured source can address directly."""
+
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=1, pattern=r"\S")
-    entity_type: EntityType
+    name: str = Field(min_length=1, pattern=r"\S", description="The subject's name, e.g. a gene, protein or compound.")
+    entity_type: EntityType = Field(description="What kind of subject `name` is.")
 
     @field_validator("name")
     @classmethod
@@ -57,19 +59,36 @@ class SearchEntityInput(BaseModel):
         return stripped
 
 
+# Every field is described because the schema is what an agent reads: MCP tool discovery
+# publishes these descriptions and nothing else. They restate `run_pipeline`'s contract.
 class SearchInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    query: str = Field(min_length=1, pattern=r"\S")
-    sources: list[str] = Field(default_factory=list)
-    condition: str = ""
-    intervention: str = ""
-    entities: list[SearchEntityInput] = Field(default_factory=list)
-    product: str = ""
-    population: str = ""
-    outcome: str = ""
-    region: str = ""
-    published_since: str = ""
+    query: str = Field(
+        min_length=1, pattern=r"\S",
+        description="The evidence question in plain words, e.g. 'maternal RSV vaccine efficacy against severe infant LRTI'.",
+    )
+    sources: list[str] = Field(
+        default_factory=list,
+        description="Source keys from searcher_sources. Empty searches the server's default sources.",
+    )
+    condition: str = Field("", description="Disease or condition, e.g. 'respiratory syncytial virus'. Anchors structured sources such as trial registries.")
+    intervention: str = Field("", description="Intervention class, e.g. 'vaccine', 'monoclonal antibody', 'drug'.")
+    entities: list[SearchEntityInput] = Field(
+        default_factory=list,
+        description="Named genes, proteins or compounds. Sources that require an entity type plan nothing without one.",
+    )
+    product: str = Field("", description="One named product, e.g. 'Abrysvo'. Narrows the intervention class; it does not replace it.")
+    population: str = Field("", description="Who the question is about, e.g. 'pregnant women 24-36 weeks'.")
+    outcome: str = Field("", description="What is measured, e.g. 'efficacy against severe LRTI'.")
+    region: str = Field("", description="Countries or WHO regions the question is about, e.g. 'sub-Saharan Africa'.")
+    published_since: str = Field(
+        "", description="ISO date (YYYY-MM-DD). Keeps records published on or after it; records with no stated date are kept.",
+    )
+    max_findings: int | None = Field(
+        None, ge=1, le=500,
+        description="Upper bound on returned findings, taken from each source in turn so no source is crowded out. `omitted_findings` reports what was left out. Empty returns everything.",
+    )
 
 
 @dataclass(frozen=True)
@@ -132,11 +151,36 @@ def execute_search(
         outcome=request.outcome.strip() or None,
         progress_callback=progress_callback,
     )
+    findings = [FindingOut(**item) for item in findings_to_dicts(report.findings)]
+    kept = _balanced(findings, request.max_findings)
     return SearcherRunResponse(
         query=request.query,
-        findings=[FindingOut(**item) for item in findings_to_dicts(report.findings)],
+        findings=kept,
         lanes=[SearchLaneOut(**item) for item in outcomes_to_dicts(report.outcomes)],
+        omitted_findings=len(findings) - len(kept),
     )
+
+
+def _balanced(findings: list[FindingOut], limit: int | None) -> list[FindingOut]:
+    """At most `limit` findings, taken from each source in turn, in their original order.
+
+    Findings arrive grouped by source, so keeping the first `limit` would drop whole sources
+    that happened to run later. Rotating through sources keeps each one represented; within
+    a source the original order is kept, and the result preserves arrival order. This only
+    selects among findings already returned; it judges none of them.
+    """
+    if limit is None or len(findings) <= limit:
+        return findings
+    by_source: dict[str, list[int]] = {}
+    for position, finding in enumerate(findings):
+        by_source.setdefault(finding.source, []).append(position)
+    queues = list(by_source.values())
+    chosen: list[int] = []
+    while len(chosen) < limit:
+        for queue in queues:
+            if queue and len(chosen) < limit:
+                chosen.append(queue.pop(0))
+    return [findings[position] for position in sorted(chosen)]
 
 
 def list_sources() -> list[SearchSourceOut]:

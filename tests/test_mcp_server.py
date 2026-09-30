@@ -108,6 +108,60 @@ class MCPToolsTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(prepare.call_args.args[0].sources, ["pubmed"])
                 execute.assert_called_once()
 
+    async def test_an_agent_is_told_what_every_field_means(self):
+        # The advertised schema is the only documentation an agent receives, so every
+        # input it can send and every result field it reads carries a description.
+        async with Client(create_server()) as client:
+            tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        search = tools["searcher_search"]
+        schema = search.input_schema
+        request = schema["$defs"][schema["properties"]["request"]["$ref"].split("/")[-1]]
+        for name, field in request["properties"].items():
+            self.assertTrue(field.get("description"), f"input field {name} is undescribed")
+        self.assertEqual(request["properties"]["max_findings"]["default"], 30)
+        outputs = search.output_schema["$defs"]
+        for model in ("FindingOut", "SearchLaneOut"):
+            for name, field in outputs[model]["properties"].items():
+                self.assertTrue(field.get("description"), f"{model}.{name} is undescribed")
+        self.assertIn("omitted_findings", search.output_schema["properties"])
+        # The workflow an agent needs: when to ask, how to read absence, what errors mean.
+        # The rules that govern a search live on the tool, since not every client shows
+        # server instructions to the model.
+        for phrase in ("Ask the user one short question", "`lanes`", "not proof that",
+                       "`server_busy`", "untrusted", "`source_attributions`", "paid providers",
+                       "## Before searching", "## Reading the result", "## Answering the user", "## Errors"):
+            self.assertIn(phrase, search.description)
+        self.assertIn("Call once per conversation", tools["searcher_sources"].description)
+
+    def test_source_guidance_names_only_classes_the_registry_declares(self):
+        # The description steers source choice by `evidence_class` rather than by source name,
+        # so a source can be added or removed without the text going stale. The classes it
+        # names must still exist, and no source key is written into it.
+        import re
+        from services.searcher import source_specs
+        from services.searcher.models import EVIDENCE_CLASSES
+        server = create_server()
+        search = next(t for t in asyncio.run(server.list_tools()) if t.name == "searcher_search")
+        guidance = search.description.split("by their `evidence_class`:", 1)[1].split("## Reading", 1)[0]
+        named = set(re.findall(r"`([a-z_]+)`", guidance)) - {"jurisdiction", "entities"}
+        self.assertEqual(named, {"guidance", "registry", "regulatory", "molecular"})
+        self.assertLessEqual(named, EVIDENCE_CLASSES)
+        for spec in source_specs():
+            self.assertNotIn(f"`{spec.key}`", search.description)
+
+    def test_descriptions_reach_the_agent_without_code_indentation(self):
+        # A docstring kept its code indentation, and four leading spaces render as a code
+        # block in a markdown client. Continuation lines indent two, which is list text.
+        for tool in asyncio.run(create_server().list_tools()):
+            self.assertEqual(tool.description, tool.description.strip() + "\n" if tool.description.endswith("\n") else tool.description.strip())
+            for line in tool.description.splitlines():
+                self.assertFalse(line.startswith("    "), f"{tool.name}: {line!r}")
+            self.assertTrue(tool.title)
+
+    def test_instructions_point_to_the_web_app_only_when_it_is_known(self):
+        self.assertNotIn("/searcher", create_server().instructions or "")
+        self.assertIn("https://pdis.example.org/searcher", create_server(web_url="https://pdis.example.org").instructions)
+
     async def test_busy_and_provider_errors_are_not_findings(self):
         with (
             patch.object(execution, "_run_slots", threading.Semaphore(0)),

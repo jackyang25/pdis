@@ -114,7 +114,7 @@ class SearchOperationTests(unittest.TestCase):
         self.assertIsInstance(result, SearcherRunResponse)
         self.assertEqual(
             result.model_dump(),
-            {"query": "  RSV evidence  ", "findings": [], "lanes": []},
+            {"query": "  RSV evidence  ", "findings": [], "lanes": [], "omitted_findings": 0},
         )
         run.assert_called_once_with(
             "  RSV evidence  ",
@@ -132,6 +132,37 @@ class SearchOperationTests(unittest.TestCase):
         )
         entity = run.call_args.kwargs["entities"][0]
         self.assertEqual((entity.name, entity.entity_type), ("RSV F", "protein"))
+
+
+class ResultLimitTests(unittest.TestCase):
+    """A capped result keeps every source represented and says what it left out."""
+
+    @staticmethod
+    def _finding(source: str, n: int):
+        from api.schemas import FindingOut
+        return FindingOut(url=f"https://{source}/{n}", title=f"{source} {n}", query="q",
+                          retrieved_at="2026-01-01", source=source)
+
+    def test_limit_takes_each_source_in_turn_and_keeps_arrival_order(self) -> None:
+        from api.operations.searcher import _balanced
+        findings = ([self._finding("web", n) for n in range(6)]
+                    + [self._finding("pubmed", n) for n in range(2)]
+                    + [self._finding("trials", n) for n in range(2)])
+        kept = _balanced(findings, 5)
+        self.assertEqual(len(kept), 5)
+        # Keeping the first five would have been all web; each source stays represented.
+        self.assertEqual({f.source for f in kept}, {"web", "pubmed", "trials"})
+        self.assertEqual(kept, [f for f in findings if f in kept])
+
+    def test_no_limit_or_a_limit_above_the_count_returns_everything(self) -> None:
+        from api.operations.searcher import _balanced
+        findings = [self._finding("web", n) for n in range(3)]
+        self.assertEqual(_balanced(findings, None), findings)
+        self.assertEqual(_balanced(findings, 10), findings)
+
+    def test_the_web_request_is_uncapped_by_default(self) -> None:
+        from api.operations.searcher import SearchInput
+        self.assertIsNone(SearchInput(query="q").max_findings)
 
 
 class SharedCapacityTests(unittest.TestCase):

@@ -32,11 +32,26 @@ metadata below `/api`, matching the existing ingress rather than adding root rou
 | Name | Input | Structured result |
 | --- | --- | --- |
 | `searcher_sources` | None | `{ "sources": [...] }` with source capabilities and configuration state |
-| `searcher_search` | `{ "request": { "query": "...", ... } }` | Existing `SearcherRunResponse`: `query`, `findings`, `lanes` |
+| `searcher_search` | `{ "request": { "query": "...", ... } }` | Existing `SearcherRunResponse`: `query`, `findings`, `lanes`, `omitted_findings` |
 
 Search fields are the same as the web application: `sources`, `condition`,
 `intervention`, `product`, `population`, `outcome`, `region`, `published_since`,
-and `entities`. MCP represents sources as an array and entities as objects with
+`entities`, and `max_findings`. Every input and result field carries a schema
+description, because tool discovery is the only documentation an agent reads.
+
+Instructions live in two places, and nothing is said in both. Server instructions are
+orientation only: what PDIS is, which tool to call first, and the web page that runs the
+same search. Not every client shows them to the model, so every rule a search depends on is
+in `SEARCH_DESCRIPTION` in `api/mcp/tools/searcher.py`, under four headings: *Before
+searching* (when to ask a follow-up, which field each detail belongs in, choosing sources by
+`evidence_class`), *Reading the result*, *Answering the user* (cite, credit, state coverage,
+offer a next step), and *Errors*. Source choice is described by evidence class rather than
+by source name, so adding or removing a source does not leave the text stale.
+
+`max_findings` bounds the result, taking findings from each source in turn so no source
+is crowded out, and `omitted_findings` reports what was left out. The web page sets none
+and receives every finding; MCP defaults it to 30 so one broad search cannot flood an
+agent's context. That default is the only difference between the two transports. MCP represents sources as an array and entities as objects with
 `name` and `entity_type`; the HTTP adapter alone interprets its comma-separated form
 strings. The service owns source keys and the entity-type vocabulary. Empty sources
 select server defaults. Unknown fields, including caller-selected models/providers,

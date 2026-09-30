@@ -3,7 +3,9 @@
 import { useId, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 
+import { SURFACE } from "@/lib/surface";
 import { cn } from "@/lib/utils";
+import { TEXT_TOGGLE } from "@/lib/typography";
 
 /**
  * Who wrote the text on screen, encoded so a reader can tell without being told.
@@ -109,7 +111,7 @@ export function Quoted({
       </blockquote>
       {canCollapse && <button type="button" aria-expanded={expanded} aria-controls={id}
         onClick={() => setExpanded(!expanded)}
-        className="mt-1 min-h-6 text-[11px] text-muted-foreground underline underline-offset-2 focus-visible:outline-offset-2">
+        className={cn("mt-1 text-[11px]", TEXT_TOGGLE)}>
         {expanded ? "Show less excerpt" : "Read full excerpt"}
       </button>}
     </>
@@ -171,7 +173,12 @@ function ReadingMark() {
       // markers visibly disagreed about where the line was. `align-middle` puts the
       // glyph's midpoint on the text's own x-height centre, which is the thing every
       // other inline marker is aligned to.
-      className="mr-1 inline-block h-[0.85em] w-[0.85em] shrink-0 align-middle fill-current"
+      //
+      // Its box and gap add up to the hanging indent below (0.8em + 0.45em = 1.25em), so the
+      // first line starts exactly where every wrapped line does. The gap was `mr-1`, a fixed
+      // 4px against an indent in em, so wrapped lines sat a few pixels right of the first.
+      // A little quieter than the text: a margin mark, not a word in the sentence.
+      className="mr-[0.45em] inline-block h-[0.8em] w-[0.8em] shrink-0 align-middle fill-current opacity-70"
     >
       <path d="M12 2c.9 5.1 4 8.2 9.1 9.1v1.8c-5.1.9-8.2 4-9.1 9.1h-1.8C9.3 16.9 6.2 13.8 1.1 12.9v-1.8C6.2 10.2 9.3 7.1 10.2 2Z" />
     </svg>
@@ -238,10 +245,10 @@ export function Reading({
         // the mark and every wrapped line fell back to the left of it, so a two-line
         // sentence had its own two left edges - and the `continued` note below, indented
         // to clear the mark, lined up with neither.
-        !continued && !inline && "pl-[1.5em] -indent-[1.5em]",
+        !continued && !inline && "pl-[1.25em] -indent-[1.25em]",
         // The note aligns with the text above it rather than with the mark, so it reads
         // as hanging off that sentence rather than as the next item in a list.
-        continued && "pl-[1.5em]",
+        continued && "pl-[1.25em]",
         className,
       )}
     >
@@ -315,7 +322,10 @@ export function InterfaceNote({
     <div
       className={cn(
         "text-[11px] leading-relaxed text-muted-foreground",
-        variant === "note" && "rounded-md border border-border/60 bg-card px-3 py-2",
+        variant === "note" && "rounded-md border border-border/60 px-3 py-2",
+        // Recessed, not white. A white box with a hairline border is exactly what the
+        // suite's inputs look like, so the note read as a field to type in.
+        variant === "note" && SURFACE.recessed,
         className,
       )}
     >

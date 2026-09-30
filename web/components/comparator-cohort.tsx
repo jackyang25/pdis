@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Scale } from "lucide-react";
+import { Scale } from "lucide-react";
 
 import { ProvenancePanel } from "@/components/ui/provenance-panel";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
@@ -11,6 +11,7 @@ import type { Conformity, Insight, Match, Measurement, QuantitativeTarget } from
 import { sourceIdentityCaveat } from "@/lib/scout-labels";
 import { ScoutComparison } from "@/components/scout-comparison";
 import { calibrationView, formatMeasure } from "@/lib/scout-result-view";
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 
 /**
  * The measurements a target's statistics were computed from.
@@ -129,11 +130,10 @@ function AdmittedMeasurement({
       {identity && <InterfaceNote className="mt-1">{identity}</InterfaceNote>}
       {/* The semantic match is a model's reading too, but per axis and long, so it stays
           collapsed rather than being a fourth line on every entry. */}
-      <details className="group/semantic mt-1" open={open} onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
-        <summary className="inline-flex cursor-pointer select-none items-center gap-1 text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-details-marker]:hidden">
+      <details className="mt-1" open={open} onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
+        <DisclosureSummary className="w-fit select-none rounded-sm text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/20">
           Comparison details
-          <ChevronDown className="h-2.5 w-2.5 transition-transform group-open/semantic:rotate-180 motion-reduce:transition-none" />
-        </summary>
+        </DisclosureSummary>
         <ScoutComparison measurement={measurement} target={target} compact />
       </details>
     </SourceEntry>

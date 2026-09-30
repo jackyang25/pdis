@@ -66,7 +66,7 @@ export function SearchableSelect({
           aria-label={ariaLabel ? `${ariaLabel}: ${selectedLabel}` : undefined}
           aria-labelledby={labelledBy ? `${labelledBy} ${valueId}` : undefined}
           aria-describedby={describedBy}
-          className={cn(SELECT_TRIGGER_CLASS, "min-w-0 gap-2")}
+          className={cn(SELECT_TRIGGER_CLASS, "min-w-0")}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();

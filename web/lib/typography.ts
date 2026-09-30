@@ -75,3 +75,14 @@ export const COUNT = "text-[11px] tabular-nums text-muted-foreground";
  *
  * `brand.test.ts` fails on a negative tracking class anywhere in `app/` or `components/`.
  */
+
+/**
+ * A button that shows more or less of the text it sits under: an excerpt, a summary, a list.
+ *
+ * Four of these had four looks - underlined always or only on hover, offset 2 or 4, a ring
+ * or an outline for focus - including two inside one priority panel. The size is left to
+ * the caller because it follows the text being toggled, which is 11px in a dense list and
+ * 12px under a summary.
+ */
+export const TEXT_TOGGLE =
+  "min-h-6 rounded-sm font-medium text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none";

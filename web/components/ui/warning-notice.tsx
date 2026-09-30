@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
+import { DISCLOSURE_MOTION } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 
 /** Warning presentation only; each caller owns the condition and its meaning. */
 export function WarningNotice({ label, children, summary }: {
@@ -15,8 +17,10 @@ export function WarningNotice({ label, children, summary }: {
       <div className="min-w-0 flex-1 space-y-2">
         {summary ? (
           <details>
-            <summary className="cursor-pointer rounded-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{summary}</summary>
-            <div className="mt-2 space-y-2 break-words">{children}</div>
+            <DisclosureSummary className="w-fit rounded-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {summary}
+            </DisclosureSummary>
+            <div className={cn("mt-2 space-y-2 break-words", DISCLOSURE_MOTION)}>{children}</div>
           </details>
         ) : children}
       </div>

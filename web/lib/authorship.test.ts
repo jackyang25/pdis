@@ -904,12 +904,15 @@ test("a marked sentence has one left edge", () => {
   // every wrapped line fell back to the left of it - one sentence, two left edges - and
   // the `continued` note below, indented to clear the mark, lined up with neither.
   const text = read("components", "ui", "evidence-text.tsx");
-  assert.match(
-    text,
-    /!continued && !inline && "pl-\[1\.5em\] -indent-\[1\.5em\]"/,
-    "a marked sentence wraps back past its own mark",
-  );
-  assert.match(text, /continued && "pl-\[1\.5em\]"/, "the note no longer clears the mark");
+  const indent = text.match(/!continued && !inline && "pl-\[([\d.]+)em\] -indent-\[\1em\]"/);
+  assert.ok(indent, "a marked sentence wraps back past its own mark");
+  assert.match(text, new RegExp(`continued && "pl-\\[${indent[1]}em\\]"`), "the note no longer clears the mark");
+  // The mark and its gap fill the indent exactly, or the first line starts somewhere the
+  // wrapped lines do not: the indent was 1.5em while the mark and a fixed 4px gap were
+  // about 1.1em, so every wrapped line sat a few pixels right of the first.
+  const mark = text.match(/mr-\[([\d.]+)em\] inline-block h-\[([\d.]+)em\] w-\[\2em\]/);
+  assert.ok(mark, "the mark's gap or width is no longer in em");
+  assert.equal(Number(mark[1]) + Number(mark[2]), Number(indent[1]), "the mark and its gap no longer fill the indent");
 });
 
 test("the document's stated target is quoted wherever it is shown", () => {

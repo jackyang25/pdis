@@ -83,6 +83,7 @@ import { usePriorityDigest } from "@/lib/priority-digest";
 import { toolAuthority } from "@/lib/tools";
 import { TONE_TEXT, type Tone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
+import { TRIGGER_AT_LINE_START } from "@/components/ui/provenance";
 
 const INSPECTOR_STEPS = [
   { key: "parse", label: "Parsing document" },
@@ -386,8 +387,11 @@ function InspectionResultView({
               <InspectorSignalHelp />
             </ResultToolbarEnd>
           </ResultToolbar>
-          <div className="px-5 py-5 sm:px-6 sm:py-6">
-            <p className="mb-3 text-xs text-muted-foreground">Document-wide check · shared across rubrics</p>
+          {/* No side padding here: the conflict rows are the same full-width rows as the
+              Sections tab and bring their own inset, so a padded wrapper put them 24px
+              inside everything else on the card. The sentences above them take it instead. */}
+          <div className="py-5 sm:py-6">
+            <p className="mb-3 px-5 text-xs text-muted-foreground sm:px-6">Document-wide check · shared across rubrics</p>
             <ConsistencyView
               findings={inspection.document_findings ?? []}
               status={inspection.consistency_status}
@@ -501,7 +505,9 @@ function AssessmentRow({
     <div className="px-5 py-3.5 sm:px-6">
       {(title !== null || showVerdict) && <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
         {title !== null && <p className="min-w-0 flex-1 basis-48 text-sm font-medium">{title}</p>}
-        {showVerdict && <div className="ml-auto flex shrink-0 items-center gap-2">
+        {/* Right-aligned beside a title; with no title it leads the row, where the sentence
+            under it starts, rather than floating alone at the far end of an empty line. */}
+        {showVerdict && <div className={cn("flex shrink-0 items-center gap-2", title !== null && "ml-auto")}>
           {/* Muted text, not a second pill. `Optional` is the rubric author's decision
               about this unit, not a verdict about the document, and two pills on one row
               read as two judgements. */}
@@ -521,7 +527,7 @@ function AssessmentRow({
       )}
       {requirement && rubric && <InspectorRequirement requirement={requirement} rubric={rubric} />}
       {item.cited_block_ids.length > 0 && (
-        <div className="mt-1.5">
+        <div className={cn("mt-1.5", TRIGGER_AT_LINE_START)}>
           {/* Named, so the trace opens on this unit's own layer rather than on every
               layer the passage carries. */}
           <DocumentSourceTrace
@@ -547,7 +553,7 @@ function SectionCard({ section, rubric }: { section: SectionAssessment; rubric: 
           </div>
         : <ShortfallCounts section={section} />}
       defaultOpen={false}
-      contentClassName="p-0 sm:px-0"
+      flush
     >
       {/* Dividers, not a second bordered box. The card already draws the boundary; a
           rounded border inside a rounded border was the third nesting level on a page
@@ -683,6 +689,7 @@ function ConsistencyView({
     // check that did not finish is a question still open, and a reader who cannot tell
     // them apart cannot tell a clean document from an unread one.
     return (
+      <div className="px-5 sm:px-6">
       <EmptyState
         tone={complete ? "clear" : "unknown"}
         message={
@@ -692,13 +699,14 @@ function ConsistencyView({
         }
         detail={consistencyDescription(status)}
       />
+      </div>
     );
   }
   return (
     <div>
       {/* The count and the name are in the toolbar above; what is left is the one thing a
           reader cannot see, which is how much of the document the pass actually covered. */}
-      <InterfaceNote className="mb-3">
+      <InterfaceNote className="mx-5 mb-3 sm:mx-6">
         {consistencyDescription(status)}
       </InterfaceNote>
       {/* The same rows the Sections tab shows, in the same divided list. A conflict is

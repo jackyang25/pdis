@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Check, Circle, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { QUEUED_STAGE } from "@/lib/api";
@@ -19,6 +19,37 @@ type Props = {
   progress?: { completed: number; total: number } | null;
 };
 
+/** At most this many stages are listed; a longer run shows the ones around its current stage. */
+export const MAX_LISTED_STEPS = 5;
+
+export type ChecklistRow =
+  | { kind: "step"; step: Step; state: "done" | "active" | "pending" }
+  | { kind: "summary"; state: "done" | "pending"; count: number };
+
+/**
+ * The rows a run's checklist shows: every stage when the run has few, otherwise the stage
+ * before the current one, the current one and the next two, with the rest counted.
+ *
+ * Scout runs fifteen stages. Listed in full they made the run panel taller than the form it
+ * belongs to, and the current stage was one line among fifteen.
+ */
+export function checklistRows(steps: Step[], activeIndex: number, queued: boolean): ChecklistRow[] {
+  const stateOf = (index: number): "done" | "active" | "pending" =>
+    queued || index > activeIndex ? "pending" : index < activeIndex ? "done" : "active";
+  if (steps.length <= MAX_LISTED_STEPS) {
+    return steps.map((step, index) => ({ kind: "step", step, state: stateOf(index) }));
+  }
+  const first = Math.max(0, Math.min(activeIndex - 1, steps.length - (MAX_LISTED_STEPS - 1)));
+  const last = Math.min(steps.length, first + MAX_LISTED_STEPS - 1);
+  const rows: ChecklistRow[] = [];
+  if (first > 0) rows.push({ kind: "summary", state: queued ? "pending" : "done", count: first });
+  for (let index = first; index < last; index += 1) {
+    rows.push({ kind: "step", step: steps[index], state: stateOf(index) });
+  }
+  if (last < steps.length) rows.push({ kind: "summary", state: "pending", count: steps.length - last });
+  return rows;
+}
+
 export function ProgressSteps({ steps, busy, startedAt, currentStage, progress }: Props) {
   const elapsed = useElapsedWhile(busy, startedAt);
 
@@ -34,61 +65,60 @@ export function ProgressSteps({ steps, busy, startedAt, currentStage, progress }
   const activeIndex = foundIndex >= 0 ? foundIndex : 0;
   const activeStep = steps[activeIndex];
   const hasCount = !queued && !!progress && progress.total > 0;
+  const status = queued
+    ? "Waiting for capacity"
+    : `${activeStep?.label ?? "Starting analysis"}, step ${activeIndex + 1} of ${steps.length}`
+      + (hasCount ? `, ${progress.completed} of ${progress.total}` : "");
 
-  // A run lasts tens of seconds, so the wait is determinate: stage position
-  // plus the active stage's own count. The bar advances with real work rather
-  // than looping, which a spinner alone cannot express.
-  const withinStage = hasCount ? progress.completed / progress.total : 0;
-  const fraction = queued ? 0 : Math.min(1, (activeIndex + withinStage) / steps.length);
-
+  // Every stage the run passes through, ticked as it finishes: the position in the run is
+  // read off the list rather than off a bar, and the active stage carries its own count.
   return (
     <div className="min-w-0">
-      <div
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        className="flex min-w-0 items-center gap-2 text-xs"
-      >
-      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-      <span className="min-w-0 truncate font-medium text-foreground">
-        {queued ? "Waiting for capacity" : activeStep?.label ?? "Starting analysis"}
-      </span>
-      {!queued && (
-        <span className="shrink-0 tabular-nums text-muted-foreground">
-          {activeIndex + 1} of {steps.length}
-        </span>
-      )}
-        {hasCount && (
-          <span className="shrink-0 tabular-nums text-muted-foreground">
-            · {progress.completed}/{progress.total}
-          </span>
+      <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{status}</p>
+      <ol aria-hidden="true" className="space-y-1 text-xs">
+        {checklistRows(steps, activeIndex, queued).map((row) => (
+          <li
+            key={row.kind === "step" ? row.step.key : `${row.state}-summary`}
+            className={cn(
+              "flex min-w-0 items-center gap-2 transition-colors duration-base motion-reduce:transition-none",
+              row.state === "active" ? "font-medium text-foreground" : row.state === "done" ? "text-muted-foreground" : "text-muted-foreground/70",
+            )}
+          >
+            <StepIcon state={row.state} />
+            <span className="min-w-0 truncate">
+              {row.kind === "step"
+                ? row.step.label
+                : row.state === "done" ? `${row.count} earlier ${row.count === 1 ? "step" : "steps"} done` : `${row.count} more to go`}
+            </span>
+            {row.kind === "step" && row.state === "active" && hasCount && (
+              <span className="shrink-0 font-normal tabular-nums text-muted-foreground">
+                {progress.completed}/{progress.total}
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+      <p aria-hidden="true" className="mt-2 flex items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground">
+        {queued ? (
+          <>
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+            Waiting for capacity
+          </>
+        ) : (
+          `${activeIndex + 1} of ${steps.length}`
         )}
-        {/* Hidden from assistive technology on purpose: a number changing every
-            second inside a live region is announced every second. The stage name
-            beside it already reports what is happening. */}
-        <span
-          aria-hidden="true"
-          className="ml-auto shrink-0 tabular-nums text-muted-foreground"
-        >
-          {formatElapsed(elapsed)}
-        </span>
-      </div>
-      {/* The text above already announces progress, so the bar is decorative
-          to assistive technology rather than a second source of chatter. */}
-      <div
-        aria-hidden="true"
-        className="mt-2 h-0.5 w-full overflow-hidden rounded-full bg-border"
-      >
-        <div
-          className={cn(
-            "h-full rounded-full bg-foreground",
-            "transition-[width] duration-base ease-enter motion-reduce:transition-none",
-          )}
-          style={{ width: `${Math.round(fraction * 100)}%` }}
-        />
-      </div>
+        <span aria-hidden="true">·</span>
+        {formatElapsed(elapsed)}
+      </p>
     </div>
   );
+}
+
+function StepIcon({ state }: { state: "done" | "active" | "pending" }) {
+  if (state === "done") return <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />;
+  // Keeps turning under reduced motion: its movement is the status.
+  if (state === "active") return <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin" />;
+  return <Circle aria-hidden="true" className="h-3 w-3 shrink-0 mx-px text-muted-foreground/40" />;
 }
 
 /**

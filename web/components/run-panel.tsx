@@ -200,7 +200,9 @@ export function RunPanel({
             <p className="text-xs leading-relaxed text-muted-foreground">{documentFormats.note}</p>
           )}
 
-          <div className="mt-2 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
+          {/* While running, the checklist is several lines tall, so the button sits at its
+              foot rather than floating beside its middle. */}
+          <div className={cn("mt-2 flex flex-col items-stretch justify-between gap-3 sm:flex-row", steps && busy ? "sm:items-end" : "sm:items-center")}>
             <div className="flex min-h-9 min-w-0 items-center">
               {steps && busy ? (
                 <ProgressSteps
@@ -221,8 +223,10 @@ export function RunPanel({
             >
               {busy ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {busyLabel}
+                  {/* The checklist beside it already turns on the active stage; a second
+                      spinner here would say the same thing twice. */}
+                  {!steps && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {busyLabel}…
                 </>
               ) : (
                 runLabel

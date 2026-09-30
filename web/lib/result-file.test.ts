@@ -400,5 +400,5 @@ test("single-document run labels retain the source name without using it as a do
     "DRAFT AIV iTPP v1 13July2016",
   );
 
-  assert.equal(runLabel(alignerResult(), "aligner"), "itpp · ctpp · ipdp");
+  assert.equal(runLabel(alignerResult(), "aligner"), "iTPP · cTPP · IPDP");
 });

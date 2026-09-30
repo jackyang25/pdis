@@ -141,7 +141,7 @@ export function ResultLayout({
       // the card's own `Separator` would be a line with only the tabs beneath it, which
       // turns the tab row into a strip of its own. The tab row's edge is the one boundary.
       separated={false}
-      contentClassName="p-0"
+      flush
     >
       <Tabs value={tabValue} onValueChange={onTabChange}>
         {notices && <ResultNotices className="px-5 pb-4 sm:px-6">{notices}</ResultNotices>}

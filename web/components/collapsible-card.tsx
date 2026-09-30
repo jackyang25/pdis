@@ -31,7 +31,14 @@ type Props = {
   defaultOpen?: boolean;
   children: React.ReactNode;
   className?: string;
-  contentClassName?: string;
+  /**
+   * Content that draws its own edges - bands, rows, toolbars - and so takes no padding.
+   *
+   * A switch rather than a class override: an override of `px-5 py-4 sm:px-6` with `p-0`
+   * kept the `sm:` padding, so from tablet width up every flush band sat 24px inside the
+   * title. Two callers were each patching that differently.
+   */
+  flush?: boolean;
 };
 
 /**
@@ -48,7 +55,7 @@ export function CollapsibleCard({
   defaultOpen = true,
   children,
   className,
-  contentClassName,
+  flush = false,
 }: Props) {
   const [open, setOpen] = useState(defaultOpen);
   const contentId = useId();
@@ -94,7 +101,7 @@ export function CollapsibleCard({
       </header>
       <div id={contentId} hidden={!open}>
         {separated && <Separator />}
-        <div className={cn("px-5 py-4 sm:px-6", contentClassName)}>{children}</div>
+        <div className={flush ? undefined : "px-5 py-4 sm:px-6"}>{children}</div>
       </div>
     </section>
   );

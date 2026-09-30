@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
 
 import { Reading } from "@/components/ui/evidence-text";
+import { TONE_TEXT, type Tone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,6 +24,8 @@ import { cn } from "@/lib/utils";
  */
 export function Attributed({
   label,
+  icon: Icon,
+  tone,
   size = "prominent",
   continued = false,
   children,
@@ -30,6 +34,16 @@ export function Attributed({
 }: {
   /** What this sentence is: a document's name, or what it leaves open. */
   label: string;
+  /**
+   * Marks a line that carries more consequence than the lines around it.
+   *
+   * Screener's "Still not stated" is the sentence a PPL takes back to the grantee, and a
+   * muted label left it reading like any other line. The icon is the one the trace panel
+   * already uses for the same sentence, so the row and its panel name it alike.
+   */
+  icon?: LucideIcon;
+  /** The icon's tone, taken from the state the line belongs to. */
+  tone?: Tone;
   /** `prominent` where the sentence is the row's subject, `body` where it follows one. */
   size?: "body" | "prominent";
   /**
@@ -54,7 +68,14 @@ export function Attributed({
 }) {
   return (
     <div className={cn("flex flex-wrap items-baseline gap-x-2", className)}>
-      <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
+      <span className={cn("shrink-0 text-[11px] font-medium", Icon ? "text-foreground" : "text-muted-foreground")}>
+        {/* Inline rather than flex, so the label keeps the text baseline the row aligns on. */}
+        {Icon && (
+          <Icon
+            aria-hidden="true"
+            className={cn("mr-1 inline h-3 w-3 align-[-0.15em]", tone ? TONE_TEXT[tone] : "text-muted-foreground")}
+          />
+        )}
         {label}
       </span>
       <Reading

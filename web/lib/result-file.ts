@@ -194,8 +194,10 @@ function runLabelParts(result: unknown, type: RunKeepingTool): string[] {
       const alignment = (result as AlignerResponse).alignment;
       // The document types, not their names: a three-document run reads as what it
       // compared rather than as two filenames with a third silently dropped.
+      // A type is shown the way the rest of the suite spells it (iTPP, cTPP, IPDP); a
+      // filename standing in for a missing type is shown as written.
       return alignment.documents
-        .map((document) => document.source_type || document.doc_id)
+        .map((document) => document.source_type ? displayLabel(document.source_type) : document.doc_id)
         .filter(Boolean);
     }
     case "chunker": {

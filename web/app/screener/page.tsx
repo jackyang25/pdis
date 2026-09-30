@@ -67,10 +67,12 @@ import {
 import { useScreenerSession } from "@/lib/session";
 import { isContextComplete, useHeaderStore } from "@/lib/store";
 import { displayLabel } from "@/lib/display-label";
-import { EYEBROW } from "@/lib/typography";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { CircleDashed } from "lucide-react";
 import { Reading } from "@/components/ui/evidence-text";
 import { toolAuthority } from "@/lib/tools";
+import { TRIGGER_AT_LINE_START } from "@/components/ui/provenance";
 
 const STEPS = [
   { key: "resolve", label: "Resolving the question bank" },
@@ -706,16 +708,13 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
           >
             {question.text}
           </span>
+          {/* The requirement is a category the bank states, so it takes the suite's
+              category pill; the ID is a reference and recedes behind it. */}
           <span className="flex shrink-0 items-center gap-2">
-            <span
-              className={cn(
-                "rounded border border-border px-1.5 py-px",
-                EYEBROW,
-              )}
-            >
+            <Badge variant="outline">
               {QUESTION_REQUIREMENT_LABEL[question.requirement]}
-            </span>
-            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            </Badge>
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground/80">
               {question.id}
             </span>
           </span>
@@ -743,7 +742,7 @@ function QuestionRow({ question }: { question: QuestionAssessment }) {
         solved for its two parallel sentences.
       */}
       {question.missing && (
-        <Attributed label="Still not stated" continued className="mt-1.5">
+        <Attributed label="Still not stated" icon={CircleDashed} tone="warning" continued className="mt-1.5">
           {question.missing}
         </Attributed>
       )}
@@ -758,7 +757,7 @@ function Provenance({ question }: { question: QuestionAssessment }) {
   // here naming the document such an answer usually lives in, which no source states.
   if (question.state !== "answered" && question.state !== "partly_answered") return null;
   return (
-    <div className="mt-1.5">
+    <div className={cn("mt-1.5", TRIGGER_AT_LINE_START)}>
       <DocumentSourceTrace blockIds={question.cited_block_ids} annotationId={question.id} />
     </div>
   );

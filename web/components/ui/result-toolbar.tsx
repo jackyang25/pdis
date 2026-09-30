@@ -31,7 +31,9 @@ export function ResultToolbar({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 border-b border-border/60 bg-foreground/[0.045] px-5 py-3 sm:flex-row sm:items-center sm:px-6",
+        // No fill: a tinted band made a third surface between the tab row and the card, so
+        // the controls read as a separate strip rather than as the top of their content.
+        "flex flex-col gap-2 border-b border-border/60 px-5 py-3 sm:flex-row sm:items-center sm:px-6",
         className,
       )}
     >

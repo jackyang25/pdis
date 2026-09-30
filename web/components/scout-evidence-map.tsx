@@ -58,6 +58,7 @@ import {
   GraphNodeFrame,
   layoutDirectedGraph,
 } from "@/components/graph/graph-primitives";
+import { TRIGGER_AT_LINE_START } from "@/components/ui/provenance";
 
 type EvidenceFlowNode = Node<EvidenceMapNode, EvidenceMapNodeKind>;
 
@@ -279,7 +280,9 @@ function Inspector({ node }: { node: EvidenceMapNode }) {
 
       {node.blockIds && node.blockIds.length > 0 && (
         <div className="mt-4 border-t border-border/70 pt-4">
-          <DocumentSourceTrace blockIds={node.blockIds} />
+          <div className={TRIGGER_AT_LINE_START}>
+            <DocumentSourceTrace blockIds={node.blockIds} />
+          </div>
         </div>
       )}
 

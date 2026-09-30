@@ -68,7 +68,7 @@ function ScreenerTraceInspector({
         </Reading>
 
         {ref.missing && (
-          <TracePanelSection label="Still not stated" icon={CircleDashed}>
+          <TracePanelSection label="Still not stated" icon={CircleDashed} tone="warning">
             <Reading size="body" className="mt-2">{ref.missing}</Reading>
           </TracePanelSection>
         )}

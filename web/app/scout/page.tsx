@@ -50,7 +50,7 @@ import { EmptyState } from "@/components/empty-state";
 import { SignalChip } from "@/components/ui/signal-chip";
 import { VerdictPill } from "@/components/ui/verdict-pill";
 import { CollapsibleCard } from "@/components/collapsible-card";
-import { FinalResultActions } from "@/components/final-result-actions";
+import { FinalResultActions, NewAnalysisButton } from "@/components/final-result-actions";
 import {
   continueScout,
   runScout,
@@ -200,6 +200,9 @@ import {
   safetyRecordTypeLabel,
   safetySourceSystemLabel,
 } from "@/lib/scout-safety-observations";
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
+import { TRIGGER_AT_LINE_START } from "@/components/ui/provenance";
+import { TEXT_TOGGLE } from "@/lib/typography";
 
 const ScoutEvidenceMap = dynamic(
   () =>
@@ -441,7 +444,7 @@ function SourceList({ findings }: { findings: Finding[] }) {
             type="button"
             aria-expanded={showAll}
             onClick={() => setShowAll((v) => !v)}
-            className="min-h-6 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-offset-2"
+            className={cn("text-[11px]", TEXT_TOGGLE)}
           >
             {showAll ? "Show fewer" : `Show all ${findings.length} sources`}
           </button>
@@ -900,14 +903,7 @@ function DocumentTargetReviewCheckpoint({
           progressLabel="Numeric target review progress"
           actions={
             <>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={onNewAnalysis}
-              >
-                New analysis
-              </Button>
+              <NewAnalysisButton disabled={busy} onClick={onNewAnalysis} />
             </>
           }
         />
@@ -1042,7 +1038,7 @@ function DocumentTargetReviewCheckpoint({
             }
           />
         ) : statement ? (
-          <div className="p-5 sm:p-7">
+          <div className="p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3">
               <SectionLabel>
                 {statement.classification === "partial_target"
@@ -1071,7 +1067,7 @@ function DocumentTargetReviewCheckpoint({
             </InterfaceNote>
           </div>
         ) : (
-          <div className="px-5 py-9 sm:px-7">
+          <div className="px-5 py-9 sm:px-6">
             <p className="text-base font-semibold text-foreground">
               Document targets are resolved
             </p>
@@ -1083,7 +1079,7 @@ function DocumentTargetReviewCheckpoint({
           </div>
         )}
 
-        {target && <div className="border-t border-border/60 px-5 pb-5 sm:px-7">
+        {target && <div className="border-t border-border/60 px-5 pb-5 sm:px-6">
           <ReviewRecommendation
             unavailable={target.ai_recommendation === "unavailable"}
             label={aiRecommendationPresentation(target.ai_recommendation).label}
@@ -1150,7 +1146,7 @@ function ReviewActions({ children, className }: { children: ReactNode; className
 }
 
 function ReviewDecisionFooter({ children }: { children: ReactNode }) {
-  return <footer className="flex flex-col gap-3 border-t border-border/60 bg-foreground/[0.045] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">{children}</footer>;
+  return <footer className={cn("flex flex-col gap-3 border-t border-border/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6", SURFACE.recessed)}>{children}</footer>;
 }
 
 function ReviewCheckpointHeader({
@@ -1175,7 +1171,7 @@ function ReviewCheckpointHeader({
   notices?: ReactNode;
 }) {
   return (
-    <header className="border-b border-border/60 px-5 py-5 sm:px-7">
+    <header className="border-b border-border/60 px-5 py-5 sm:px-6">
       {/* Reserve the actions' width instead of letting the description squeeze them
           into partial rows. Below desktop, place the group under the description. */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
@@ -1200,7 +1196,7 @@ function ReviewCheckpointHeader({
       </div>
       <div className="mt-4 flex items-center gap-3">
         <div
-          className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+          className={cn("h-1.5 min-w-0 flex-1 overflow-hidden rounded-full", SURFACE.fill)}
           role="progressbar"
           aria-label={progressLabel}
           aria-valuemin={0}
@@ -1246,7 +1242,7 @@ function ReviewOverview({
     else if (row.bottom > bounds.bottom) list.scrollTop += row.bottom - bounds.bottom;
   });
   return (
-    <div className="border-b border-border/60 bg-foreground/[0.045] px-5 py-5 sm:px-7">
+    <div className={cn("border-b border-border/60 px-5 py-5 sm:px-6", SURFACE.recessed)}>
       <div className="space-y-4">
         <div>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1292,7 +1288,11 @@ function ReviewListRow({
     <button
       type="button"
       onClick={onSelect}
-      className={`grid w-full gap-2 px-4 py-3 text-left transition-colors hover:bg-foreground/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] sm:items-center ${selected ? "bg-foreground/[0.07]" : "bg-card"}`}
+      className={cn(
+        "grid w-full gap-2 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] sm:items-center",
+        SURFACE.hover,
+        selected ? SURFACE.selected : "bg-card",
+      )}
       aria-current={selected ? "true" : undefined}
     >
       <span className="min-w-0">
@@ -1318,10 +1318,10 @@ function ReviewDetailColumns({
 }) {
   return (
     <div className="grid lg:grid-cols-2">
-      <div className="min-w-0 border-b border-border/60 p-5 sm:p-7 lg:border-b-0 lg:border-r">
+      <div className="min-w-0 border-b border-border/60 p-5 sm:p-6 lg:border-b-0 lg:border-r">
         {left}
       </div>
-      <div className="min-w-0 p-5 sm:p-7">{right}</div>
+      <div className="min-w-0 p-5 sm:p-6">{right}</div>
     </div>
   );
 }
@@ -1338,7 +1338,7 @@ function ReviewRecommendation({
   unavailable?: boolean;
 }) {
   return (
-    <div className="mt-4 rounded-lg border border-border/60 bg-foreground/[0.045] p-3">
+    <div className={cn("mt-4 rounded-lg border border-border/60 p-3", SURFACE.recessed)}>
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold text-foreground">{unavailable ? "Independent AI review unavailable" : "Independent AI recommendation"}</h3>
         <VerdictPill label={label} tone={tone === "positive" ? "success" : tone} />
@@ -1491,7 +1491,7 @@ function ReviewEstimateChoices({ measurements, selectedId, onSelect, pending }: 
           return (
             <label key={item.candidate_id} className={cn(
               "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors focus-within:ring-2 focus-within:ring-ring motion-reduce:transition-none",
-              selectedId === item.candidate_id ? "border-foreground/45 bg-foreground/[0.07]" : "border-border/60 hover:bg-foreground/[0.045]",
+              selectedId === item.candidate_id ? cn("border-foreground/45", SURFACE.selected) : cn("border-border/60", SURFACE.hover),
             )}>
               <input type="radio" name={name} value={item.candidate_id}
                 checked={selectedId === item.candidate_id}
@@ -1672,9 +1672,7 @@ function QuantitativeReviewCheckpoint({
           progressLabel="Quantitative evidence review progress"
           actions={
             <>
-              <Button variant="ghost" size="sm" onClick={onNewAnalysis}>
-                New analysis
-              </Button>
+              <NewAnalysisButton onClick={onNewAnalysis} />
             </>
           }
         />
@@ -1806,7 +1804,7 @@ function QuantitativeReviewCheckpoint({
           }
         />
 
-        <div className="border-t border-border/60 px-5 py-5 sm:px-7">
+        <div className="border-t border-border/60 px-5 py-5 sm:px-6">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <SectionLabel>Comparison check</SectionLabel>
           </div>
@@ -1946,7 +1944,7 @@ function RetrievalWindowNotice({ result }: { result: ScoutResponse }) {
   return (
     <div
       role="status"
-      className="flex items-start gap-2.5 rounded-lg border border-border bg-foreground/[0.045] px-3.5 py-3 text-xs text-foreground"
+      className={cn("flex items-start gap-2.5 rounded-lg border border-border px-3.5 py-3 text-xs text-foreground", SURFACE.recessed)}
     >
       <CalendarRange className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0">
@@ -2162,9 +2160,9 @@ function FieldGrid({
                         report it through Feedback with the downloaded JSON.
                       </p>
                       <details className="mt-1.5">
-                        <summary className="cursor-pointer font-medium text-foreground">
+                        <DisclosureSummary className="w-fit rounded-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">
                           Review unresolved fields
-                        </summary>
+                        </DisclosureSummary>
                         <ul className="mt-1.5 space-y-1 pl-4">
                           {unresolvedFields.map((variable) => (
                             <li key={variable.name} className="list-disc">
@@ -2993,47 +2991,54 @@ function FieldRow({
           DISCLOSURE_MOTION,
         )}
       >
-        {targetNotStated ? (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Not stated in document. Scout did not run evidence analysis for this
-            field.
-          </p>
-        ) : (
-          <TargetRows
-            rows={targetRows}
-            blockIds={assessment?.doc_block_ids ?? []}
-          />
-        )}
-        {!targetResolved && (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            <span className="font-medium text-foreground">
-              Interpretation unresolved.
-            </span>{" "}
-            {targetResolutionReason ||
-              "No validated document-claim decision was returned."}
-          </p>
-        )}
-        {/* How retrieval was aimed, and the record of it.
+        {/* The document's target and how retrieval was aimed at it are one block: the
+            evidence line is that target's footer, so it sits close under it rather than a
+            full section gap away, where it read as a section with no heading. The quote row
+            already ends in padding and the Searches trigger carries its own height, so a
+            small gap here is what reads as attached. */}
+        <div className="space-y-1">
+          {targetNotStated ? (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Not stated in document. Scout did not run evidence analysis for this
+              field.
+            </p>
+          ) : (
+            <TargetRows
+              rows={targetRows}
+              blockIds={assessment?.doc_block_ids ?? []}
+            />
+          )}
+          {!targetResolved && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              <span className="font-medium text-foreground">
+                Interpretation unresolved.
+              </span>{" "}
+              {targetResolutionReason ||
+                "No validated document-claim decision was returned."}
+            </p>
+          )}
+          {/* How retrieval was aimed, and the record of it.
 
-            This replaced a line reading "Searched by pulmonary TB (disease) · Clinical
-            evidence". Its two halves had different conditions and only one gate. The entity
-            was informative on 3 of 28 fields and, measured on a real run, appeared in 4 of
-            the 62 searches for its field, so it claimed the aiming of a search it mostly did
-            not aim. The evidence domain is true of all 28 fields and was visible on 3,
-            because it rode a gate that was not about it.
+              This replaced a line reading "Searched by pulmonary TB (disease) · Clinical
+              evidence". Its two halves had different conditions and only one gate. The entity
+              was informative on 3 of 28 fields and, measured on a real run, appeared in 4 of
+              the 62 searches for its field, so it claimed the aiming of a search it mostly did
+              not aim. The evidence domain is true of all 28 fields and was visible on 3,
+              because it rode a gate that was not about it.
 
-            `definition_mode` is gone from here too: it is `fixed` on every field of every
-            run seen so far, and a dynamic definition now shows itself in the searches. */}
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <p className="text-[11px] text-muted-foreground">
-            {dimensionLabel(evidenceDomain)} evidence
-            {definitionMode === "dynamic" &&
-              " · definition read from the document"}
-          </p>
-          <FieldSearches
-            result={{ search_plan: searchPlan }}
-            attributeRef={name}
-          />
+              `definition_mode` is gone from here too: it is `fixed` on every field of every
+              run seen so far, and a dynamic definition now shows itself in the searches. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <p className="text-[11px] text-muted-foreground">
+              {dimensionLabel(evidenceDomain)} evidence
+              {definitionMode === "dynamic" &&
+                " · definition read from the document"}
+            </p>
+            <FieldSearches
+              result={{ search_plan: searchPlan }}
+              attributeRef={name}
+            />
+          </div>
         </div>
         {/* One section for the numeric targets whether there are any or not. The slot used
             to change shape with its content - a caps heading with rows when targets
@@ -3101,7 +3106,9 @@ function FieldRow({
                           </p>
                           <Quoted collapsible size="prominent">{item.quote}</Quoted>
                           {item.reason && <Reading>{item.reason}</Reading>}
-                          <DocumentSourceTrace blockIds={item.block_ids} />
+                          <div className={TRIGGER_AT_LINE_START}>
+                            <DocumentSourceTrace blockIds={item.block_ids} />
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -3620,16 +3627,20 @@ function CitedInsightIndex({ cited }: { cited: Citation }) {
     <ul className="space-y-1 pt-0.5">
       {cited.resolved.map((match, index) => (
         <li key={match.insight.id || index}>
+          {/* The relation is named, not only coloured: a bare dot left a reader to work out
+              that green meant "Supports" from a section further down. A fixed-width label
+              column, as Aligner's rows lead with their document, keeps every sentence on one
+              edge and matches the "● Supports 9" groups below. */}
           <a
             href={`#${insightAnchor(match) ?? ""}`}
             onClick={() => revealInsight(insightAnchor(match) ?? "")}
-            className="flex items-start gap-2 rounded text-xs leading-relaxed text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+            className="grid grid-cols-[6rem_minmax(0,1fr)] items-baseline gap-x-2 rounded text-xs leading-relaxed text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
           >
-            <ToneDot tone={RELATIONSHIP_TONE[match.relation]} className="mt-1.5" />
-            <Reading inline size="prominent" className="min-w-0">
-              <span className="sr-only">
-                {RELATIONSHIP_LABEL[match.relation]}:{" "}
-              </span>
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+              <ToneDot tone={RELATIONSHIP_TONE[match.relation]} />
+              {RELATIONSHIP_LABEL[match.relation]}
+            </span>
+            <Reading size="prominent" className="mt-0 min-w-0">
               {match.insight.statement}
             </Reading>
           </a>
@@ -3712,7 +3723,7 @@ function InsightGroups({ registry }: { registry: InsightRegistry }) {
                   {/* Both directions of provenance, both behind a click and neither
                       expanded by default. Rendering every source inline put 1,121 finding
                       rows on one run in front of the statements they support. */}
-                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                  <div className={cn("mt-1 flex flex-wrap items-center gap-1", TRIGGER_AT_LINE_START)}>
                     <DocumentSourceTrace blockIds={match.doc_block_ids} />
                     <EvidenceProvenance insight={match.insight} />
                   </div>

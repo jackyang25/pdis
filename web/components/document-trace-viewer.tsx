@@ -10,7 +10,7 @@ import {
 } from "react";
 import { CircleDashed, FileText, Layers3, Link2, X } from "lucide-react";
 import { BlockReferenceId } from "@/components/block-reference";
-import { TracePanelHeader } from "@/components/document-trace-panel";
+import { TracePanelCloseProvider, TracePanelHeader } from "@/components/document-trace-panel";
 import { DocumentVisual } from "@/components/document-visual";
 import type { ContentBlock } from "@/lib/api";
 import { groupDocumentTraceSurfaces } from "@/lib/document-trace-surfaces";
@@ -47,6 +47,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DISPLAY_HEADING, EYEBROW } from "@/lib/typography";
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 
 type LayerOption<TKind extends string> = {
   value: TKind;
@@ -66,9 +67,9 @@ function SourceSurfaceContent({ blocks, children, externalRail }: {
   return <>
     {visuals}
     {text.length > 0 && <details data-source-text="true" className="relative z-10 mt-5">
-      <summary className={cn("cursor-pointer rounded-md py-2 text-xs font-medium text-muted-foreground", externalRail && "ml-[7.25rem] px-10")}>
+      <DisclosureSummary className={cn("w-fit rounded-md py-2 text-xs font-medium text-muted-foreground", externalRail && "ml-[7.25rem] px-10")}>
         Extracted text and source blocks
-      </summary>
+      </DisclosureSummary>
       <div className="mt-4">{text}</div>
     </details>}
   </>;
@@ -440,6 +441,7 @@ function AnnotationInspector<TKind extends string, TRef>({
   passagesFor,
   onReveal,
   renderInspector,
+  closeAction,
 }: {
   annotationIds: string[];
   annotationsById: Map<string, DocumentAnnotation<TKind, TRef>>;
@@ -448,6 +450,8 @@ function AnnotationInspector<TKind extends string, TRef>({
   onSelectId: (id: string) => void;
   passagesFor: (annotationId: string) => DocumentTracePassage[];
   onReveal: (blockId: string) => void;
+  /** The panel's close control, placed on the first row this renders rather than in a bar of its own. */
+  closeAction?: ReactNode;
   renderInspector: (
     annotation: DocumentAnnotation<TKind, TRef>,
     connection: DocumentTraceConnection,
@@ -461,7 +465,8 @@ function AnnotationInspector<TKind extends string, TRef>({
 
   if (!selected) {
     return (
-      <div className="flex min-h-56 flex-col items-center justify-center px-6 text-center">
+      <div className="relative flex min-h-56 flex-col items-center justify-center px-6 text-center">
+        {closeAction && <div className="absolute right-4 top-3.5">{closeAction}</div>}
         <FileText className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
         <p className="mt-3 text-sm font-medium text-foreground">Select a connection</p>
         <p className="mt-1 max-w-56 text-xs leading-5 text-muted-foreground">
@@ -474,38 +479,49 @@ function AnnotationInspector<TKind extends string, TRef>({
   return (
     <div>
       {annotations.length > 1 && (
-        <div className="border-b border-border/80 px-4 py-3">
-          <p className={cn("mb-2", EYEBROW)}>
-            Connected results · {annotations.length}
-          </p>
-          <div className="max-h-60 space-y-1 overflow-y-auto overscroll-contain pr-1">
-            {annotations.map((annotation) => (
-              <button
-                key={annotation.id}
-                type="button"
-                onClick={() => onSelectId(annotation.id)}
-                aria-pressed={annotation.id === selected.id}
-                aria-label={`View ${annotation.layerLabel}: ${annotation.title}`}
-                className={cn(
-                  "grid min-h-11 w-full min-w-0 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none",
-                  annotation.id === selected.id
-                    ? "border-foreground/15 bg-foreground/[0.07] text-foreground"
-                    : "border-border bg-background text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
-                )}
-              >
-                <span className={cn(EYEBROW, "truncate text-foreground")}>
-                  {annotation.layerLabel}
-                </span>
-                <span className="truncate text-xs font-medium">{annotation.title}</span>
-              </button>
-            ))}
+        <>
+          {/* Its own pinned row, a sibling of the list rather than inside it, so the close
+              control it carries stays in reach however far the panel is scrolled. */}
+          <div className={cn("flex items-center justify-between gap-3 px-4 pt-3 pb-2", closeAction && "sticky top-0 z-10 bg-card")}>
+            <p className={EYEBROW}>
+              Connected results · {annotations.length}
+            </p>
+            {closeAction}
           </div>
-        </div>
+          <div className="border-b border-border/80 px-4 pb-3">
+            <div className="max-h-60 space-y-1 overflow-y-auto overscroll-contain pr-1">
+              {annotations.map((annotation) => (
+                <button
+                  key={annotation.id}
+                  type="button"
+                  onClick={() => onSelectId(annotation.id)}
+                  aria-pressed={annotation.id === selected.id}
+                  aria-label={`View ${annotation.layerLabel}: ${annotation.title}`}
+                  className={cn(
+                    "grid min-h-11 w-full min-w-0 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none",
+                    annotation.id === selected.id
+                      ? "border-foreground/15 bg-foreground/[0.07] text-foreground"
+                      : "border-border bg-background text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                  )}
+                >
+                  <span className={cn(EYEBROW, "truncate text-foreground")}>
+                    {annotation.layerLabel}
+                  </span>
+                  <span className="truncate text-xs font-medium">{annotation.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
-      {renderInspector(selected, connection, {
-        passages: passagesFor(selected.id),
-        reveal: onReveal,
-      })}
+      {/* The close control goes to the inspector's own heading only when no list above it
+          has taken it. */}
+      <TracePanelCloseProvider value={annotations.length > 1 ? null : closeAction}>
+        {renderInspector(selected, connection, {
+          passages: passagesFor(selected.id),
+          reveal: onReveal,
+        })}
+      </TracePanelCloseProvider>
     </div>
   );
 }
@@ -800,7 +816,7 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
         <div className={cn("flex gap-2", isNarrow ? "flex-col" : "flex-row")}>
           {trace.documents.length > 1 && (
             <Select value={activeDocumentId} onValueChange={setDocumentId}>
-              <SelectTrigger className={cn("h-8 bg-card text-xs", isNarrow ? "w-full" : "w-52")} aria-label="Source document">
+              <SelectTrigger className={cn("h-8 bg-card text-xs", isNarrow ? "w-full" : "w-52")} aria-label="Source document" title={displayDocumentName(activeDocumentId)}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -830,9 +846,9 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
 
       {unresolvedAnnotations.length > 0 && (
         <details className="border-b border-border/80 bg-card px-5 py-3 sm:px-6">
-          <summary className="cursor-pointer text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
+          <DisclosureSummary className="w-fit rounded-sm text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
             Unavailable source connections · {unresolvedAnnotations.length}
-          </summary>
+          </DisclosureSummary>
           <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
             These saved results cite blocks that are not present in the retained document. They remain inspectable but are not placed in the reconstructed text.
           </p>
@@ -857,9 +873,9 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
 
       {unplacedAnnotations.length > 0 && (
         <details className="border-b border-border/80 bg-card px-5 py-3 sm:px-6">
-          <summary className="cursor-pointer text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
+          <DisclosureSummary className="w-fit rounded-sm text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
             Not located in this document · {unplacedAnnotations.length}
-          </summary>
+          </DisclosureSummary>
           <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
             These results describe content that is absent, so they cite no source
             passage and cannot be placed in the reconstructed text.
@@ -1107,17 +1123,19 @@ export function DocumentTraceViewer<TKind extends string, TRef>({
         {!isNarrow && selectedAnnotationId && (
           <aside className="border-l border-border/80 bg-card" aria-label="Trace details">
             <div className="sticky top-0 max-h-[min(76vh,58rem)] overflow-y-auto overscroll-contain">
-              <div className="flex justify-end border-b border-border/80 px-2 py-2">
-                <button
-                  type="button"
-                  onClick={closeInspector}
-                  aria-label="Close trace details"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
-                >
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </button>
-              </div>
               <AnnotationInspector
+                closeAction={(
+                  <button
+                    type="button"
+                    onClick={closeInspector}
+                    aria-label="Close trace details"
+                    // Pulled out by its own padding so the × sits on the heading's edge and
+                    // centre rather than pushing the row taller.
+                    className="-my-1.5 -mr-2 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none"
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                )}
                 annotationIds={activeAnnotationIds}
                 annotationsById={annotationsById}
                 selectedId={selectedAnnotationId}

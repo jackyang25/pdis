@@ -145,7 +145,9 @@ test("extraction notice names affected documents and is absent for ordinary sour
   const block = { doc_id: "Trial report", structural_meta: { extraction_warnings: ["pdf_limited_structure"] } };
   const html = renderToStaticMarkup(React.createElement(DocumentExtractionNotice, { blocks: [block, block] }));
   assert.match(html, /aria-label="Document extraction limitations"/);
-  assert.match(html, /<summary[^>]*>Document extraction limitations<\/summary>/);
+  // The suite's chevron, then the label, in place of the browser's default marker.
+  assert.match(html, /<summary[^>]*><svg[^>]*lucide-chevron-down[\s\S]*?<\/svg><span[^>]*>Document extraction limitations<\/span><\/summary>/);
+  assert.match(html, /<summary[^>]*\[&amp;::-webkit-details-marker\]:hidden/);
   assert.match(html, /focus-visible:ring-2/);
   assert.doesNotMatch(html.match(/<details[^>]*>/)?.[0] ?? "", /\bopen\b/);
   assert.equal(html.match(/Trial report/g)?.length, 1);

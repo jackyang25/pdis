@@ -1,14 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { ArrowRight, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   displayDocumentName,
   type DocumentTracePassage,
 } from "@/lib/document-trace";
+import { TONE_TEXT, type Tone } from "@/lib/tone";
 import { cn } from "@/lib/utils";
 import { EYEBROW } from "@/lib/typography";
+
+/**
+ * The panel's own close control, offered to the first heading inside it.
+ *
+ * The side panel used to give its close button a bar of its own: a row holding only the ×,
+ * ruled off above the heading that actually says what the panel is. Handing the control to
+ * that heading puts it where the source-passage popover already has it, on the title's row.
+ * A heading given an explicit `action` keeps it.
+ */
+const TracePanelCloseContext = createContext<ReactNode>(null);
+export const TracePanelCloseProvider = TracePanelCloseContext.Provider;
 
 export function TracePanelHeader({
   eyebrow,
@@ -23,8 +35,12 @@ export function TracePanelHeader({
   action?: ReactNode;
   className?: string;
 }) {
+  const close = useContext(TracePanelCloseContext);
+  const trailing = action ?? close;
   return (
-    <header className={cn("border-b border-border/80 px-4 py-3.5", className)}>
+    // Pinned while it holds the panel's close control, so the × stays in reach however far
+    // the panel below it has been scrolled.
+    <header className={cn("border-b border-border/80 px-4 py-3.5", !action && close && "sticky top-0 z-10 bg-card", className)}>
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className={EYEBROW}>
@@ -34,7 +50,7 @@ export function TracePanelHeader({
             {title}
           </h3>
         </div>
-        {action && <div className="shrink-0">{action}</div>}
+        {trailing && <div className="shrink-0">{trailing}</div>}
       </div>
       {description && (
         <div className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
@@ -48,18 +64,21 @@ export function TracePanelHeader({
 export function TracePanelSection({
   label,
   icon: Icon,
+  tone,
   children,
   className,
 }: {
   label: string;
   icon?: LucideIcon;
+  /** The icon's tone, where the row this panel explains already carries one for the same line. */
+  tone?: Tone;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <section className={cn("border-t border-border/70 pt-4", className)}>
       <div className={cn("flex items-center gap-2", EYEBROW)}>
-        {Icon && <Icon className="h-3.5 w-3.5" aria-hidden="true" />}
+        {Icon && <Icon className={cn("h-3.5 w-3.5", tone && TONE_TEXT[tone])} aria-hidden="true" />}
         {label}
       </div>
       {children}

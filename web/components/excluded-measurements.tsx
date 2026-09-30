@@ -11,6 +11,7 @@ import type { Conformity, Match, Measurement, QuantitativeTarget } from "@/lib/a
 import { ScoutComparison } from "@/components/scout-comparison";
 import { SEMANTIC_STATUS_LABEL } from "@/lib/scout-labels";
 import { exclusionReasonLines, formatMeasure } from "@/lib/scout-result-view";
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 
 /**
  * What one numeric target's comparison left out, and why.
@@ -163,7 +164,7 @@ function ExcludedMeasurement({
       )}
       {other.length > 0 && <Reading>{other.join(" · ")}</Reading>}
       <details className="mt-2">
-        <summary className="cursor-pointer rounded text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">Comparison details</summary>
+        <DisclosureSummary className="w-fit rounded text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">Comparison details</DisclosureSummary>
         <ScoutComparison measurement={measurement} target={target} compact />
       </details>
     </SourceEntry>

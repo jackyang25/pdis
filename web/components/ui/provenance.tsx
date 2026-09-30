@@ -23,6 +23,13 @@ import { cn } from "@/lib/utils";
  * Every panel behind one of these uses `TracePanelHeader`, so the eyebrow, title and
  * one-line description are in the same place in all four.
  */
+/**
+ * Pulls a trigger that starts its own line back by its own horizontal padding (`px-2` below),
+ * so its icon sits on the text edge above it instead of 8px inside it. Only for a trigger that
+ * begins a line: at the end of one, or beside text, the padding is the gap it needs.
+ */
+export const TRIGGER_AT_LINE_START = "-ml-2";
+
 export function ProvenanceTrigger({
   icon: Icon,
   label,
@@ -45,6 +52,9 @@ export function ProvenanceTrigger({
         // transition whose reduced-motion companion is a line away is one nobody can audit.
         "text-[10px] font-medium text-muted-foreground transition-colors motion-reduce:transition-none",
         "hover:border-border hover:bg-foreground/[0.045] hover:text-foreground",
+        // Held while its panel is open, so the control that opened it stays identifiable
+        // once the pointer moves into the panel. Radix marks the trigger button it wraps.
+        "[[data-state=open]>&]:border-border [[data-state=open]>&]:bg-foreground/[0.045] [[data-state=open]>&]:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20",
       )}
       aria-label={ariaLabel}

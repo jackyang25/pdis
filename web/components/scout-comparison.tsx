@@ -5,6 +5,7 @@ import { DocumentSourceTrace } from "@/components/document-source-trace";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { semanticSlotLabel, dimensionLabel, comparisonRuleLabel, comparisonDimensions } from "@/lib/scout-comparison";
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 
 export function TargetQualifierSource({ target, dimension }: {
   target?: QuantitativeTarget | null;
@@ -44,7 +45,7 @@ function TargetComparisonRule({ target, dimension }: {
 export function TargetComparisonRules({ target }: { target: QuantitativeTarget }) {
   const dimensions = Object.keys(target.comparison_contract) as Array<keyof QuantitativeSemanticProfile>;
   return <details key={target.id} className="mt-5 rounded-lg border border-border/60">
-    <summary className="cursor-pointer rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">How evidence will be compared</summary>
+    <DisclosureSummary className="rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">How evidence will be compared</DisclosureSummary>
     <div className="space-y-4 px-4 pb-4">
       <p className="text-xs leading-relaxed text-muted-foreground">Scout checks whether evidence measures the same thing under comparable conditions. Its result does not need to meet the target.</p>
       {dimensions.map(dimension => <div key={dimension} className="space-y-1">
@@ -69,7 +70,7 @@ export function ScoutComparison({ target, measurement, compact = false }: {
   const ownership = measurement.semantic_assessment.source_ownership;
   return <div className="space-y-3">
     {measurement.source_passage && measurement.source_passage !== measurement.source_quote && <details className="rounded-lg border border-border/60">
-      <summary className="cursor-pointer rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Retained source context</summary>
+      <DisclosureSummary className="rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Retained source context</DisclosureSummary>
       <div className="px-4 pb-4"><Quoted>{measurement.source_passage}</Quoted></div>
     </details>}
     <div className="mt-3 text-xs leading-relaxed text-muted-foreground">
@@ -78,9 +79,9 @@ export function ScoutComparison({ target, measurement, compact = false }: {
     </div>
     {dimensions.length > 0 && <ReviewComparisonTable target={target ?? undefined} measurement={measurement} dimensions={dimensions} compact={compact} />}
     {unconstrained.length > 0 && <details key={measurement.candidate_id} className="rounded-lg border border-border/60">
-      <summary className="cursor-pointer rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <DisclosureSummary className="rounded-lg px-4 py-3 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         Fields with no matching restriction
-      </summary>
+      </DisclosureSummary>
       <div className="px-4 pb-4">
         <p className="text-xs leading-relaxed text-muted-foreground">These fields are not required to match. Their inclusion here does not establish that they are equivalent.</p>
         <ReviewComparisonTable target={target ?? undefined} measurement={measurement} dimensions={unconstrained} compact={compact} />

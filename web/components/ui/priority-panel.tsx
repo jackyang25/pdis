@@ -10,6 +10,8 @@ import { Quoted } from "@/components/ui/evidence-text";
 import { PRIORITY_LIMIT, type PriorityItem } from "@/lib/priorities";
 import { cn } from "@/lib/utils";
 import { Reading } from "@/components/ui/evidence-text";
+import { TEXT_TOGGLE } from "@/lib/typography";
+import { TRIGGER_AT_LINE_START } from "@/components/ui/provenance";
 
 // Re-exported for the pages that import the panel and its item together.
 export type { PriorityItem } from "@/lib/priorities";
@@ -120,7 +122,6 @@ export function PriorityPanel({
   // priorities at all, and whether eight is enough of them.
   const [showAll, setShowAll] = useState(false);
   const shown = showAll ? items : items.slice(0, PRIORITY_LIMIT);
-  const hidden = items.length - shown.length;
   return (
     // No border and no corners: this is a band in the result layout, between the tab
     // row and the toolbar, and both of those are flush. A card here made the middle
@@ -179,14 +180,13 @@ export function PriorityPanel({
                     •
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="flex flex-wrap items-baseline gap-x-1.5">
-                      <span className="font-medium">{item.label}</span>
-                      {item.qualifier && (
-                        <span className="text-xs text-muted-foreground">
-                          {item.qualifier}
-                        </span>
-                      )}
-                    </p>
+                    {/* The qualifier on its own line, always. Beside the title it stayed there
+                        for a short title and wrapped whole onto the next line for a long one,
+                        so the verdict sat in two places down one list. */}
+                    <p className="font-medium">{item.label}</p>
+                    {item.qualifier && (
+                      <p className="text-xs leading-5 text-muted-foreground">{item.qualifier}</p>
+                    )}
                     {/* The document's words first where there are any, then the model's
                         sentence about them. Every row has the same shape, so a reader is
                         not working out per row which half they are looking at. */}
@@ -208,7 +208,7 @@ export function PriorityPanel({
                       </Reading>
                     )}
                     {item.blockIds && item.blockIds.length > 0 && (
-                      <div className="mt-1.5">
+                      <div className={cn("mt-1.5", TRIGGER_AT_LINE_START)}>
                         <DocumentSourceTrace blockIds={item.blockIds} spans={item.spans} />
                       </div>
                     )}
@@ -230,11 +230,10 @@ export function PriorityPanel({
               type="button"
               onClick={() => setShowAll((current) => !current)}
               aria-expanded={showAll}
-              className="mt-3 rounded-md text-xs font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 motion-reduce:transition-none"
+              className={cn("mt-3 text-xs", TEXT_TOGGLE)}
             >
-              {showAll
-                ? `Show the first ${PRIORITY_LIMIT}`
-                : `Show all ${items.length}, ${hidden} more`}
+              {/* Worded like every other list toggle in the suite. */}
+              {showAll ? "Show fewer" : `Show all ${items.length}`}
             </button>
           )}
           {nominations.length > 0 && (
@@ -255,7 +254,7 @@ export function PriorityPanel({
                     <p className="font-medium">{nomination.label}</p>
                     <Reading size="prominent">{nomination.statement}</Reading>
                     {nomination.cited_block_ids.length > 0 && (
-                      <div className="mt-1.5">
+                      <div className={cn("mt-1.5", TRIGGER_AT_LINE_START)}>
                         <DocumentSourceTrace blockIds={nomination.cited_block_ids} />
                       </div>
                     )}
@@ -296,7 +295,7 @@ function PriorityDigest({ digest }: { digest: string }) {
     </div>
     {(overflows || expanded) && <button type="button" aria-expanded={expanded} aria-controls={id}
       onClick={() => setExpanded(value => !value)}
-      className="mt-2 min-h-6 text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+      className={cn("mt-2 text-xs", TEXT_TOGGLE)}>
       {expanded ? "Show less summary" : "Read full summary"}
     </button>}
   </div>;

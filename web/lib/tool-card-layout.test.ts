@@ -2,19 +2,17 @@
  * A tool card's height and its footer, guarded against drifting apart again.
  *
  * The cards carried three floors: 176px for a PST tool, 150px for a shared utility, 192px for
- * a GHIDE tool. Only the 150 matched its content. The other two were sized when a card's mark
+ * an external workflow. Only the 150 matched its content. The other two were sized when a card's mark
  * had a row to itself and its footer carried a second label beside the duration; both were
  * removed, the floors came down but not to the content, and because `mt-auto` pushes the
  * footer to the bottom, every leftover pixel pooled in one gap. A card sat 25px above what it
  * contained, all of it between the description and the duration.
  *
- * Two floors now, differing only in what the footer holds: a line of text, or a row of 32px
- * chips. That difference is the invariant worth pinning, because it is the only reason for
- * there to be two numbers at all.
+ * One floor now: every card holds the same footer, a single line of text. The external
+ * workflow cards, whose footer was a row of 32px chips and needed a taller floor, were removed.
  *
  * The footers had also drifted to opposite edges of the same slot, a duration pushed right by
- * a `justify-end` that outlived the label it was holding it away from, and shortcut chips left
- * where every other line of the card starts.
+ * a `justify-end` that outlived the label it was holding it away from.
  */
 
 import assert from "node:assert/strict";
@@ -52,9 +50,9 @@ test("a card's height comes from a named floor, never an inline one", () => {
   );
 });
 
-test("the two floors differ only by what the footer holds", () => {
-  // 32px of chips against a 16.5px line of text, rounded up with the card.
-  assert.equal(floor("SHORTCUT_CARD_FLOOR") - floor("CARD_FLOOR"), 16);
+test("every card shares one floor", () => {
+  assert.equal(floor("CARD_FLOOR"), 146);
+  assert.equal([...source.matchAll(/const \w+ = "min-h-\[\d+px\]";/g)].length, 1);
 });
 
 test("every section's cards share one floor", () => {
@@ -66,14 +64,13 @@ test("every section's cards share one floor", () => {
   );
 });
 
-test("both footers start where the rest of the card starts", () => {
+test("the footer starts where the rest of the card starts", () => {
   assert.ok(!/justify-end|text-right|items-end/.test(source), "a footer is aligned to the far edge");
 });
 
-test("both cards hold their footer in the same slot", () => {
+test("the card holds its footer in one slot", () => {
   const footers = [...source.matchAll(/mt-auto pt-(\d+)/g)];
-  assert.equal(footers.length, 2);
-  assert.equal(footers[0][1], footers[1][1]);
+  assert.equal(footers.length, 1);
 });
 
 test("the duration is styled as a count, not as a local size", () => {

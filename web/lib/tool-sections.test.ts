@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "./tools.ts";
+import { WORKSPACE_TOOLS } from "./tools.ts";
 import { ALL_TOOLS, TOOL_SECTIONS, sectionTools } from "./tool-sections.ts";
 
 test("every id a section lists resolves to a defined tool", () => {
@@ -24,7 +24,7 @@ test("every tool appears in exactly one section", () => {
 });
 
 // The anti-drift assertion. The docs tool list and the Ask catalog both walk
-// WORKSPACE_TOOLS then EXTERNAL_TOOLS with no sorting, so a section that ordered
+// WORKSPACE_TOOLS with no sorting, so a section that ordered
 // its ids differently would make one surface list the tools differently from
 // another. Sections may split the catalog; they may not resequence it.
 test("no section reorders the tools relative to the catalog", () => {
@@ -85,7 +85,7 @@ test("a section drops the tools a filter excludes without resorting", () => {
   );
 });
 
-test("no external tool is defined twice or shares an id with a workspace tool", () => {
-  const ids = [...WORKSPACE_TOOLS, ...EXTERNAL_TOOLS].map((tool) => tool.id);
+test("no tool is defined twice", () => {
+  const ids = WORKSPACE_TOOLS.map((tool) => tool.id);
   assert.equal(new Set(ids).size, ids.length);
 });

@@ -1,8 +1,4 @@
-import {
-  EXTERNAL_TOOLS,
-  WORKSPACE_TOOLS,
-  type ToolDefinition,
-} from "./tools.ts";
+import { WORKSPACE_TOOLS, type ToolDefinition } from "./tools.ts";
 
 /**
  * How the landing page groups the catalog, and the order it presents each group in.
@@ -17,13 +13,9 @@ import {
  * resolves, every tool is placed exactly once, and no section reorders the tools
  * relative to the catalog. That last one is what keeps the landing page, the docs
  * tool list, and the Ask catalog from listing the same tools three ways - the
- * other two walk `WORKSPACE_TOOLS` and `EXTERNAL_TOOLS` directly and nothing sorts
- * them.
+ * other two walk `WORKSPACE_TOOLS` directly and nothing sorts it.
  */
-export const ALL_TOOLS: readonly ToolDefinition[] = [
-  ...WORKSPACE_TOOLS,
-  ...EXTERNAL_TOOLS,
-];
+export const ALL_TOOLS: readonly ToolDefinition[] = WORKSPACE_TOOLS;
 
 export type ToolSection = {
   id: string;
@@ -46,22 +38,10 @@ export const TOOL_SECTIONS: readonly ToolSection[] = [
       "Check documents against their rubrics, targets against evidence, and commitments across documents before stage-gate review.",
   },
   {
-    id: "ghide-workflows",
-    toolIds: [
-      "ghide-evaluator",
-      "ghide-roadmap-body-compiler",
-      "ghide-executive-summary-compiler",
-      "ghide-stage-gate-evaluator",
-    ],
-    title: "GHIDE workflows",
-    description:
-      "Evaluate development plans and turn findings into roadmaps, leadership summaries, and stage-gate decisions.",
-  },
-  {
     id: "shared-utilities",
     toolIds: ["chunker", "searcher"],
     // Independent entry points, not another stage of the workflows above.
-    // Named by audience like the two sections above, because that is the axis this file
+    // Named by audience like the section above, because that is the axis this file
     // groups on and both tools carry `audience: "shared"`. The description carries what
     // they are and when to reach for one, which is where a second axis belongs.
     title: "Shared utilities",

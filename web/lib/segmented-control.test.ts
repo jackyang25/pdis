@@ -25,12 +25,12 @@ test("a segmented control presses exactly the chosen option", () => {
   assert.match(html, /aria-pressed="true"[^>]*>B</);
 });
 
-// Two surfaces choose one view among a few - the Tools page's audience, the docs page's
-// diagram - and they were two looks for one control: a segmented track in one, separate
-// buttons with the chosen one filled dark in the other. One component, so a third cannot
-// arrive as a third look.
+// Surfaces that choose one view among a few - the docs page's diagram, and once the Tools
+// page's audience - were two looks for one control: a segmented track in one, separate
+// buttons with the chosen one filled dark in the other. One component, so another cannot
+// arrive as another look.
 test("every one-of-a-few view switch is the shared segmented control", () => {
-  for (const file of ["app/page.tsx", "components/docs/architecture-graph.tsx"]) {
+  for (const file of ["components/docs/architecture-graph.tsx"]) {
     const source = readFileSync(path.join(WEB, file), "utf8");
     assert.match(source, /<SegmentedControl\b/, `${file} no longer uses the shared control`);
     assert.doesNotMatch(source, /aria-pressed=/, `${file} builds its own pressed buttons again`);

@@ -116,9 +116,6 @@ intact. Recovery wording does not change validation or automatic retry counts.
 | [Searcher](services/searcher/README.md)   | Execute normalized retrieval across registered evidence sources.    |
 | [Assistant](services/assistant/README.md) | Navigate available results and cited material across the workspace. |
 
-External GHIDE decision workflows appear as labeled shortcuts in the workspace;
-they are not executed by this repository.
-
 ## Configuration
 
 Document workflows share `org`, `intervention_class`, and `indication`.

@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "./tools.ts";
+import { WORKSPACE_TOOLS } from "./tools.ts";
 
 /**
  * Minutes, rounded up to what a reader should budget, and spelled out.
@@ -24,12 +24,6 @@ import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "./tools.ts";
  * as one scale.
  */
 const DURATION = /^(1 minute|([2-9]|[1-9]\d+) minutes)$/;
-
-test("GHIDE tool titles do not repeat their workflow section's audience", () => {
-  for (const tool of EXTERNAL_TOOLS.filter((tool) => tool.audience === "ghide")) {
-    assert.doesNotMatch(tool.title, /^GHIDE\b/);
-  }
-});
 
 test("every available workspace tool states how long a run takes", () => {
   const available = WORKSPACE_TOOLS.filter((tool) => tool.availability === "available");
@@ -63,47 +57,6 @@ test("the estimate is a budget, so it rounds up rather than to the middle", () =
   // upper ends rather than averages.
   const scout = WORKSPACE_TOOLS.find((tool) => tool.id === "scout");
   assert.equal(scout?.activity, "20 minutes");
-});
-
-test("an available external tool offers somewhere to go", () => {
-  // The stage gate evaluator sat as coming_soon with an empty shortcut list.
-  // Marking one available without a link would render a card that says it is
-  // ready and gives no way to reach it.
-  for (const tool of EXTERNAL_TOOLS) {
-    if (tool.availability !== "available") continue;
-    assert.ok(
-      tool.shortcuts.length > 0,
-      `${tool.id} is available but links nowhere`,
-    );
-  }
-});
-
-test("a tool that is not built yet links nowhere", () => {
-  for (const tool of EXTERNAL_TOOLS) {
-    if (tool.availability === "available") continue;
-    assert.equal(
-      tool.shortcuts.length,
-      0,
-      `${tool.id} is ${tool.availability} but offers a link`,
-    );
-  }
-});
-
-test("every shortcut points at the provider it names", () => {
-  // A mislabelled link sends someone to the wrong assistant, which looks like
-  // the tool being broken rather than the label being wrong.
-  const host: Record<string, string> = {
-    ChatGPT: "chatgpt.com",
-    Claude: "claude.ai",
-  };
-  for (const tool of EXTERNAL_TOOLS) {
-    for (const shortcut of tool.shortcuts) {
-      assert.ok(
-        shortcut.url.includes(host[shortcut.label]),
-        `${tool.id}: a ${shortcut.label} link points at ${shortcut.url}`,
-      );
-    }
-  }
 });
 
 test("a tool's mark is presented the same way wherever it identifies that tool", () => {
@@ -154,10 +107,10 @@ test("a card's mark, title and arrow are one line", () => {
   // with.
   const home = readFileSync(path.resolve(import.meta.dirname, "..", "app", "page.tsx"), "utf8");
 
-  // One component, so the two card kinds cannot lay this out differently.
+  // One component, so a second card kind cannot lay this out differently.
   assert.match(home, /function CardHeading\(/);
   assert.ok(!/function CardHeader\(|function CardBody\(/.test(home), "the two rows are back");
-  assert.equal((home.match(/<CardHeading/g) ?? []).length, 2, "both card kinds use it");
+  assert.equal((home.match(/<CardHeading/g) ?? []).length, 1, "the card uses it");
 
   const heading = home.slice(home.indexOf("function CardHeading"), home.indexOf("function CardMeta"));
   // The mark and the title are one label, so they share a row and the mark does not shrink.
@@ -229,7 +182,7 @@ test("a tool states what it does once", () => {
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   assert.ok(!/\bcapability\b/.test(code), "a second field for what a tool does is back");
 
-  for (const tool of [...WORKSPACE_TOOLS, ...EXTERNAL_TOOLS]) {
+  for (const tool of WORKSPACE_TOOLS) {
     assert.ok(tool.description.trim().length > 20, `${tool.id} states too little`);
   }
 });

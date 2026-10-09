@@ -1,46 +1,31 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Clock, ExternalLink } from "lucide-react";
+import { ArrowRight, Clock } from "lucide-react";
 import { CARD_AFFORDANCE_MOTION, CARD_LIFT_MOTION } from "@/lib/motion";
-import { BrandIcon } from "@/components/ui/brand-icon";
-import { Button } from "@/components/ui/button";
 import { PdisIcon } from "@/components/ui/pdis-icon";
-import { SegmentedControl, type SegmentedOption } from "@/components/ui/segmented-control";
-import {
-  type ExternalToolDefinition,
-  type ToolAudience,
-  type ToolDefinition,
-  type WorkspaceToolDefinition,
-} from "@/lib/tools";
+import { type ToolDefinition, type WorkspaceToolDefinition } from "@/lib/tools";
 import { TOOL_SECTIONS, sectionTools } from "@/lib/tool-sections";
 import { COUNT, DISPLAY_HEADING } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { useToolStatuses, type ToolStatus } from "@/lib/use-tool-statuses";
 
-type AudienceFilter = "all" | Exclude<ToolAudience, "shared">;
-
 export default function Home() {
-  const [audience, setAudience] = useState<AudienceFilter>("all");
   const statuses = useToolStatuses();
   const visibleSections = TOOL_SECTIONS.map((section) => ({
     ...section,
-    tools: sectionTools(section, (tool) =>
-      tool.availability === "available" && isVisibleToAudience(tool, audience)),
+    tools: sectionTools(section, (tool) => tool.availability === "available"),
   })).filter((section) => section.tools.length > 0);
 
   return (
     <div className="pb-10">
-      {/* The filter belongs to the title, so it sits directly under it. */}
       <header className="mb-8 max-w-2xl">
         <h1 className={cn(DISPLAY_HEADING, "text-[32px] font-semibold leading-[1.12] sm:text-[36px]")}>
           Tools
         </h1>
         <p className="mt-3 text-[15px] leading-6 text-muted-foreground">
-          Choose a tool for your team and the task at hand.
+          Choose a tool for the task at hand.
         </p>
-        <AudienceFilter value={audience} onChange={setAudience} className="mt-4" />
       </header>
 
       <div className="space-y-10">
@@ -56,54 +41,13 @@ export default function Home() {
             />
             <div className="grid gap-4 sm:grid-cols-2">
               {section.tools.map((tool) => (
-                <ToolCard key={tool.id} tool={tool} status={statuses[tool.id]} />
+                <WorkspaceToolCard key={tool.id} tool={tool} status={statuses[tool.id]} />
               ))}
             </div>
           </section>
         ))}
       </div>
     </div>
-  );
-}
-
-function isVisibleToAudience(tool: ToolDefinition, audience: AudienceFilter) {
-  return audience === "all"
-    || tool.audience === audience
-    || tool.audience === "shared";
-}
-
-const AUDIENCE_OPTIONS: readonly SegmentedOption<AudienceFilter>[] = [
-  { value: "all", label: "All" },
-  { value: "pst", label: "PST" },
-  { value: "ghide", label: "GHIDE" },
-];
-
-/**
- * Boxed rather than underlined, because an underline says "tab" - switch to another view -
- * and under a page title it read as navigation. This narrows the one view there is.
- *
- * It has been three other shapes, and each said something wrong: a bordered box on a grey
- * track was the heaviest control on the page, loose pills put the chosen one's fill past the
- * edge the heading and text share, and tabs read as navigation. `SegmentedControl` records
- * why its own shape answers all three.
- */
-function AudienceFilter({
-  value,
-  onChange,
-  className,
-}: {
-  value: AudienceFilter;
-  onChange: (value: AudienceFilter) => void;
-  className?: string;
-}) {
-  return (
-    <SegmentedControl
-      options={AUDIENCE_OPTIONS}
-      value={value}
-      onChange={onChange}
-      aria-label="Filter tools by audience"
-      className={className}
-    />
   );
 }
 
@@ -126,19 +70,12 @@ function SectionHeader({
   );
 }
 
-function ToolCard({ tool, status }: { tool: ToolDefinition; status?: ToolStatus | null }) {
-  return tool.delivery === "workspace"
-    ? <WorkspaceToolCard tool={tool} status={status} />
-    : <ExternalToolCard tool={tool} />;
-}
-
 /**
- * How short a card is allowed to be, and why these two numbers.
+ * How short a card is allowed to be, and why this number.
  *
- * Both are the height of a two-line description at natural spacing, added up: 20px of padding
- * either side, a 25.5px heading line, the 8px above the description, two 20px description
- * lines, the 16px above the footer, and the footer itself. That last term is the only
- * difference between them, a 16.5px line of text against a 32px row of chips.
+ * The height of a two-line description at natural spacing, added up: 20px of padding either
+ * side, a 25.5px heading line, the 8px above the description, two 20px description lines, the
+ * 16px above the footer, and the 16.5px footer line itself.
  *
  * A floor rather than a fixed height, because rows are sized independently: without one, a row
  * of one-line cards would come out shorter than the row above it. Sized to the two-line case
@@ -150,7 +87,6 @@ function ToolCard({ tool, status }: { tool: ToolDefinition; status?: ToolStatus 
  * every leftover pixel in one place: the gap above the footer, which read as 45px of nothing.
  */
 const CARD_FLOOR = "min-h-[146px]";
-const SHORTCUT_CARD_FLOOR = "min-h-[162px]";
 
 /**
  * An unavailable card, dimmed as a whole.
@@ -195,32 +131,11 @@ function WorkspaceToolCard({ tool, status }: { tool: WorkspaceToolDefinition; st
   );
 }
 
-function ExternalToolCard({ tool }: { tool: ExternalToolDefinition }) {
-  const comingSoon = tool.availability === "coming_soon";
-
-  return (
-    <article
-      aria-disabled={comingSoon ? "true" : undefined}
-      className={`flex ${SHORTCUT_CARD_FLOOR} flex-col rounded-lg bg-card p-5 shadow-raised ${comingSoon ? CARD_UNAVAILABLE : ""}`}
-    >
-      <CardHeading
-        icon={tool.icon}
-        title={tool.title}
-        description={tool.description}
-        comingSoon={comingSoon}
-      />
-      <div className="mt-auto pt-4">
-        <ShortcutLinks shortcuts={tool.shortcuts} className="min-h-8" />
-      </div>
-    </article>
-  );
-}
-
 /**
  * What says a card opens something inside PDIS, and the part of it that moves.
  *
  * Pointing across rather than up and out: a diagonal arrow conventionally means "leaves this
- * site", which is what `ShortcutLinks` says with `ExternalLink`, and these stay inside PDIS.
+ * site", and these stay inside PDIS.
  */
 function OpenArrow({ className }: { className?: string }) {
   return (
@@ -228,56 +143,6 @@ function OpenArrow({ className }: { className?: string }) {
       className={cn("h-4 w-4 text-muted-foreground", CARD_AFFORDANCE_MOTION, className)}
       aria-hidden="true"
     />
-  );
-}
-
-/**
- * The links an external workflow opens in another product, one per destination.
- *
- * The app's outline button, with its label in muted text. The border is what groups each
- * mark, name and glyph into one control: without it the footer read as four loose marks in a
- * row, and as text rather than two actions. What made the bordered version loud was the dark
- * label, darker than the description above it, so the eye went to the secondary action on
- * every card before the tools themselves. Muted, the footer sits at the weight of a PST card's
- * clock line, and the label darkens on hover.
- *
- * Mark, name, then the external-link glyph: the same three parts as the GitHub button on the
- * Documentation page. The mark says where the link goes and the glyph says it opens a new
- * tab, which is what that glyph means on every link in the app, so the mark does not replace
- * it. The visible label is the product; the link names the whole action. A screen reader,
- * which does not see the mark, hears "Open in ChatGPT" - and the name still contains the
- * words on screen, so voice control can target it by what it says.
- */
-function ShortcutLinks({
-  shortcuts,
-  className,
-}: {
-  shortcuts: ExternalToolDefinition["shortcuts"];
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex flex-wrap gap-2", className)}>
-      {shortcuts.map((shortcut) => (
-        <Button
-          key={shortcut.label}
-          asChild
-          size="sm"
-          variant="outline"
-          className="gap-2 text-muted-foreground"
-        >
-          <a
-            href={shortcut.url}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={`Open in ${shortcut.label}`}
-          >
-            <BrandIcon name={shortcut.label} className="h-3.5 w-3.5" />
-            {shortcut.label}
-            <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          </a>
-        </Button>
-      ))}
-    </div>
   );
 }
 

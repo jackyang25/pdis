@@ -13,17 +13,11 @@
 export const PDIS_ICON_PATHS = {
   // Native workspace tools
   inspector: "freehand/form-edition-clipboard-check--Streamline-Freehand.svg",
-  aligner: "freehand/business-workflow-compare--Streamline-Freehand.svg",
+  aligner: "freehand/strategy-business-success-peak--Streamline-Freehand.svg",
   scout: "freehand/hierarchy-web--Streamline-Freehand.svg",
   screener: "freehand/human-resources-rating-man--Streamline-Freehand.svg",
   chunker: "freehand/data-transfer-document-module--Streamline-Freehand.svg",
   searcher: "freehand/search-magnifier--Streamline-Freehand.svg",
-
-  // External workflow identities
-  evaluator: "freehand/business-cash-scale-balance--Streamline-Freehand.svg",
-  roadmap: "freehand/business-workflow-project-management--Streamline-Freehand.svg",
-  "executive-summary": "freehand/office-file-text--Streamline-Freehand.svg",
-  "stage-gate": "freehand/strategy-business-success-peak--Streamline-Freehand.svg",
 
   // Named workspace agent
   chat: "freehand/help-headphones-customer-support-human--Streamline-Freehand.svg",

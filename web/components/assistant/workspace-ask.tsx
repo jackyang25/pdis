@@ -16,7 +16,7 @@ import {
   useSearcherSession,
   useScoutSession,
 } from "@/lib/session";
-import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
+import { WORKSPACE_TOOLS } from "@/lib/tools";
 import type { ContentBlock, PriorityDigest } from "@/lib/api";
 import { usePriorityDigestStore } from "@/lib/priority-digest";
 import { reviewContextForAssistant, useAssistantReviewContext } from "@/lib/assistant-review-context";
@@ -241,17 +241,13 @@ export function WorkspaceAsk() {
       document_block_ids: (reviewContext.document ?? []).map(block => block.id),
     } : undefined;
 
-    const catalog = [...WORKSPACE_TOOLS, ...EXTERNAL_TOOLS].map((tool) => ({
+    const catalog = WORKSPACE_TOOLS.map((tool) => ({
       id: tool.id,
       title: tool.title,
       description: tool.description,
       audience: tool.audience,
       workflow: tool.workflow,
       availability: tool.availability,
-      delivery: tool.delivery,
-      providers: tool.delivery === "external"
-        ? tool.shortcuts.map((shortcut) => shortcut.label)
-        : [],
     }));
 
     return {

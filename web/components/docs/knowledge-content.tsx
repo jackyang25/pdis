@@ -7,7 +7,7 @@ import type { KnowledgeBlock } from "@/lib/product-knowledge";
 import { TONE_TEXT } from "@/lib/tone";
 import { EYEBROW } from "@/lib/typography";
 import { cn } from "@/lib/utils";
-import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
+import { WORKSPACE_TOOLS } from "@/lib/tools";
 
 /**
  * Renders one documentation block, whatever kind it is.
@@ -28,10 +28,6 @@ import { EXTERNAL_TOOLS, WORKSPACE_TOOLS } from "@/lib/tools";
  */
 const CATALOG: readonly (readonly [string, string])[] = [
   ...WORKSPACE_TOOLS.map((tool) => [
-    tool.title,
-    `${tool.description}${tool.availability === "coming_soon" ? " Coming soon." : ""}`,
-  ] as const),
-  ...EXTERNAL_TOOLS.map((tool) => [
     tool.title,
     `${tool.description}${tool.availability === "coming_soon" ? " Coming soon." : ""}`,
   ] as const),

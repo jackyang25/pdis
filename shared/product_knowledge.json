@@ -35,7 +35,7 @@
     {
       "id": "tools",
       "title": "Tools",
-      "intro": "Tools are grouped by audience and role. Availability belongs to the individual tool, while external provider links appear only where they are required.",
+      "intro": "Tools are grouped by audience and role, and every tool runs inside PDIS. Availability belongs to the individual tool.",
       "content": [
         {
           "type": "tool_catalog"
@@ -233,7 +233,7 @@
             },
             {
               "term": "Tool catalog",
-              "description": "Assistant receives current tool names, responsibilities, audiences, availability, and external-provider labels."
+              "description": "Assistant receives current tool names, responsibilities, audiences, and availability."
             },
             {
               "term": "Skills",

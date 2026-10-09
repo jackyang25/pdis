@@ -16,6 +16,13 @@ type Release = {
 
 export const RELEASES: readonly Release[] = [
   {
+    version: "0.5.1",
+    title: "PDIS tools only",
+    sections: [{ changes: [
+      "The Tools page now lists only PDIS’s own tools; the GHIDE workflow links to ChatGPT and Claude were removed.",
+    ] }],
+  },
+  {
     version: "0.5.0",
     title: "A more focused Assistant and a refreshed workspace",
     sections: [{ changes: [

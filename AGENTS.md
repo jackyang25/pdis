@@ -216,8 +216,8 @@ Those descriptions are read side by side, so they must be comparable as well as
 correct. One sentence, 12–24 words, artifacts named by acronym (iTPP, cTPP, IPDP),
 the clause after the colon saying what you learn rather than what was searched, and
 no domain examples — naming vaccine attributes couples the copy to one of five
-intervention classes. Utility and external tools are a separate family in
-imperative voice; keep each family internally consistent. The rules and their
+intervention classes. Utility tools are a separate family in imperative voice;
+keep each family internally consistent. The rules and their
 reasons live on `description` in `web/lib/tools.ts`.
 
 Where the tools sit in a PPL's process is a separate statement and is made once,
@@ -697,10 +697,7 @@ supplied material answers and which it does not.
   stages report `completed`/`total`; single stages use indeterminate progress.
 - Browser multipart uploads go directly to FastAPI. Keep all secrets server-side.
 - Bespoke identity icons live in `web/public/icons/pdis/` and are mapped through
-  `web/components/ui/pdis-icon.tsx`; use Lucide for generic actions. Marks of products
-  PDIS links out to live unmodified in `web/public/icons/brands/`, mapped through
-  `web/lib/brand-icon-paths.ts` and drawn by `BrandIcon` as each maker presents them: in the
-  file's own colour, or black on light and white on dark where the brand is monochrome.
+  `web/components/ui/pdis-icon.tsx`; use Lucide for generic actions.
 - A negative *result* — a critical gap, a contradiction, an unfavorable
   precedent — uses `--tone-danger`. `--destructive` is reserved for a system
   error. They are different claims and must not be interchanged.

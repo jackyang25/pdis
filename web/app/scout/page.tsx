@@ -148,8 +148,10 @@ import {
   calibrationView,
   citation,
   documentTargetRows,
+  conformityTargetLabel,
   formatMeasure,
   formatMeasurePair,
+  formatNumericExpression,
   insightRegistry,
   needsFindingFallback,
   relationGroups,
@@ -258,20 +260,6 @@ const GROUNDING_ORDER = [
   "unknown",
   "not_stated",
 ] as const;
-
-function formatNumericExpression(expression: NumericExpression): string {
-  const unit = expression.unit ?? "";
-  if (
-    expression.kind === "range" ||
-    expression.kind === "confidence_interval"
-  ) {
-    return expression.lower == null || expression.upper == null
-      ? "Unresolved numeric expression"
-      : formatMeasurePair(expression.lower, expression.upper, unit, "–", expression.display);
-  }
-  if (expression.value == null) return "Unresolved numeric expression";
-  return `${expression.comparator} ${formatMeasure(expression.value, unit, expression.display)}`.trim();
-}
 
 function formatAttributeRefs(
   attributeRefs: string[],
@@ -3264,9 +3252,7 @@ function ConformityBlock({
 }) {
   // The expression alone, not the flattened label: "<= 2 months" rather than 200
   // characters of semantic slots joined by dots. The slots are shown below, named.
-  const targetLabel = target
-    ? formatNumericExpression(target.expression)
-    : `${conformity.comparator} ${formatMeasure(conformity.target_value, conformity.unit)}`;
+  const targetLabel = conformityTargetLabel(conformity, target);
   const dimensions = target ? comparisonDimensions(target) : [];
   const formatBenchmark = (value: number | null) =>
     formatMeasure(value, conformity.unit, target?.expression.display);

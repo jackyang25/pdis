@@ -5,7 +5,7 @@ import { ChevronUp } from "lucide-react";
 
 import { DocumentSourceTrace } from "@/components/document-source-trace";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Quoted, Reading } from "@/components/ui/evidence-text";
+import { Reading } from "@/components/ui/evidence-text";
 import { TRIGGER_AT_LINE_START } from "@/components/ui/provenance";
 import type { PriorityFinding } from "@/lib/priorities";
 import type { ReadingView } from "@/lib/priority-reading";
@@ -136,7 +136,10 @@ function PriorityPointRow({
       <p className="font-medium">{title}</p>
       <Reading size="prominent">{statement}</Reading>
       {/* The findings the point rests on, as the tool's page names them: the tool's words,
-          so full contrast for the name and muted for where it sits and what was decided. */}
+          so full contrast for the name and muted for where it sits and what was decided.
+          Name and verdicts only, the same two lines for every tool. The document's own words
+          are one click away in the source trigger below and on the row itself; quoted here,
+          a raw target ran to several lines and only one tool had any. */}
       <ul className="mt-2 space-y-1.5 border-l border-border pl-3">
         {findings.map((finding) => (
           <li key={finding.id} className="text-xs leading-5">
@@ -144,11 +147,6 @@ function PriorityPointRow({
             <p className="text-muted-foreground">
               {[finding.group, ...finding.verdicts].filter(Boolean).join(" · ")}
             </p>
-            {finding.quote && (
-              <Quoted size="dense" className="mt-0.5">
-                {finding.quote}
-              </Quoted>
-            )}
           </li>
         ))}
       </ul>

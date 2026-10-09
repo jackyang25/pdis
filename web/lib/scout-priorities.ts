@@ -6,8 +6,10 @@ import {
   OUTCOME_LABEL,
   PRECEDENT_LABEL,
   RELATIONSHIP_LABEL,
+  TARGET_ROLE_LABEL,
   displayAttributeLabel,
 } from "./scout-labels.ts";
+import { conformityTargetLabel } from "./scout-result-view.ts";
 import type { PriorityFinding } from "./priorities.ts";
 
 /**
@@ -31,6 +33,7 @@ const PROGRAM_ID = "program";
 
 export function scoutPriorityFindings(result: ScoutResponse): PriorityFinding[] {
   const fields = result.variables ?? [];
+  const ledger = new Map((result.quantitative_ledger?.targets ?? []).map((target) => [target.id, target]));
   const known = new Set(fields.map((field) => field.name));
   const matchesByField = new Map<string, Match[]>();
   for (const match of sortMatchesForReading(result.matches ?? [])) {
@@ -60,12 +63,15 @@ export function scoutPriorityFindings(result: ScoutResponse): PriorityFinding[] 
       ...(precedent
         ? [`${PRECEDENT_LABEL[precedent.precedent]} · ${OUTCOME_LABEL[precedent.outcome]}`]
         : []),
-      // Code's own count, so a verdict line and never a statement.
-      ...scores.map((score) =>
-        score.calibration_status === "insufficient"
-          ? `${score.target_quote || score.target_label}: ${CALIBRATION_BASIS_LABEL.insufficient} comparators to calibrate`
-          : `${score.target_quote || score.target_label}: ${score.verdict} (${score.benchmark_count} measured)`,
-      ),
+      // Code's own count, so a verdict line and never a statement. The target is named as
+      // the Fields tab names it - role and expression, "Threshold >= 80%" - never by its quote
+      // or flattened label, either of which runs to several lines.
+      ...scores.map((score) => {
+        const target = `${TARGET_ROLE_LABEL[score.target_role]} ${conformityTargetLabel(score, ledger.get(score.target_id) ?? null)}`;
+        return score.calibration_status === "insufficient"
+          ? `${target}: ${CALIBRATION_BASIS_LABEL.insufficient} comparators to calibrate`
+          : `${target}: ${score.verdict}`;
+      }),
     ];
     return {
       id: field.name,

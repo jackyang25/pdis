@@ -24,6 +24,8 @@ import type {
   Variable,
   EvidenceStrength,
   NumericDisplay,
+  NumericExpression,
+  QuantitativeTarget,
 } from "./api.ts";
 
 /**
@@ -79,6 +81,35 @@ export function formatMeasurePair(
   }
   const lead = formatMagnitude(first as number, display);
   return `${lead}${separator}${formatMeasure(second, unit, display)}`;
+}
+
+/** A numeric expression in one short line: "≥ 80%", or "2–8 °C" for a range. */
+export function formatNumericExpression(expression: NumericExpression): string {
+  const unit = expression.unit ?? "";
+  if (
+    expression.kind === "range" ||
+    expression.kind === "confidence_interval"
+  ) {
+    return expression.lower == null || expression.upper == null
+      ? "Unresolved numeric expression"
+      : formatMeasurePair(expression.lower, expression.upper, unit, "–", expression.display);
+  }
+  if (expression.value == null) return "Unresolved numeric expression";
+  return `${expression.comparator} ${formatMeasure(expression.value, unit, expression.display)}`.trim();
+}
+
+/**
+ * A calibrated target in one short line: its expression when the ledger still holds it,
+ * otherwise the score's own comparator and value. Never `target_label`, which flattens every
+ * semantic slot into one line two hundred characters long.
+ */
+export function conformityTargetLabel(
+  conformity: Conformity,
+  target: QuantitativeTarget | null,
+): string {
+  return target
+    ? formatNumericExpression(target.expression)
+    : `${conformity.comparator} ${formatMeasure(conformity.target_value, conformity.unit)}`;
 }
 
 /**

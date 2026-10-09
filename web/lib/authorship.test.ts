@@ -853,13 +853,13 @@ test("a priority states who wrote its statement, and the summary says it is a mo
   // Scout's grounding priorities once quoted the document's own target when there was one
   // and fell back to the model's sentence when there was not, so one slot carried two
   // authors. The card keeps every author in its own place: the model's summary and point
-  // statements are marked, the document's words are quoted, and the tool's own names and
-  // verdicts are plain text. Which lens puts code-derived text where is pinned in
+  // statements are marked, and the tool's own names and verdicts are plain text. The
+  // document's words are not drawn on the card at all; they open from the source trigger. Which lens puts code-derived text where is pinned in
   // `priorities.test.ts`.
   const panel = read("components", "ui", "priority-panel.tsx");
   assert.match(panel, /<Reading size="prominent">\{statement\}<\/Reading>/, "a point's statement is unmarked");
   assert.match(panel, /<Reading size="body"[^>]*>\{summary\}<\/Reading>/, "the summary is unmarked again");
-  assert.match(panel, /finding\.quote && \(\s*<Quoted/, "the document's words are not shown as quoted");
+  assert.doesNotMatch(panel, /finding\.quote/, "the card quotes the document again, in one tool only");
   assert.doesNotMatch(panel, /<Reading[^>]*>\{finding\./, "a tool's own words wear the model's mark");
 });
 

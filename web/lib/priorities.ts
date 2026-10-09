@@ -28,7 +28,11 @@ export type PriorityFinding = {
    * same passage. Kept apart from `statements` so nothing code wrote is read as a model's.
    */
   notes?: string[];
-  /** The document's own words, where the finding is about something the document states. */
+  /**
+   * The document's own words, where the finding is about something the document states.
+   * Sent to the model so it can say what a target was; not drawn on the card, where every
+   * tool's finding is the same two lines.
+   */
   quote?: string;
   /** Passages it cites, for the card's source trigger. Never sent to the model. */
   blockIds: string[];

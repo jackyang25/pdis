@@ -36,10 +36,11 @@ test("a ready reading shows its whole summary and each point with the findings i
   assert.match(html, /The final qualification must remain reachable/);
   assert.match(html, /Efficacy is open/);
   assert.match(html, /The target is not supported/);
-  // The finding as the tool names it: subject, where it sits, its verdict, the document's words.
+  // The finding as the tool names it: subject, where it sits, its verdict. The same two lines
+  // in every tool, so the document's words are left to the source trigger.
   assert.match(html, /Efficacy/);
   assert.match(html, /Profile · Insufficient/);
-  assert.match(html, /at least 80%/);
+  assert.doesNotMatch(html, /at least 80%/);
   // Only the findings the point names.
   assert.doesNotMatch(html, /Safety/);
 });

@@ -117,7 +117,8 @@ function scout(): ScoutResponse {
       { relation: "contradicts", reason: "Cost differs.", insight: insight(null, "Program cost is higher.") },
       { relation: "unrelated", reason: "Off topic.", insight: insight("vaccine.dose_volume", "Unrelated.") },
     ],
-    conformity: [{ attribute_refs: ["vaccine.hiv_incidence"], target_id: "t1", target_label: "Constructed summary",
+    conformity: [{ attribute_refs: ["vaccine.hiv_incidence"], target_id: "t1", target_role: "threshold",
+      target_value: 80, comparator: ">=", unit: "%", target_label: "Constructed summary",
       target_quote: "at least 80% reduction", target_meeting_count: 0, target_meeting_rate: 0,
       verdict: "0 of 12 admitted comparators meet the document target", benchmark_count: 12,
       calibration_status: "sufficient", doc_block_ids: [] }],
@@ -231,7 +232,7 @@ test("Scout keeps each axis as its own verdict, and code's counts out of the sta
     "Thinly grounded",
     "Conflicts: 1 insight",
     "Supports: 1 insight",
-    "at least 80% reduction: 0 of 12 admitted comparators meet the document target (12 measured)",
+    "Threshold >= 80%: 0 of 12 admitted comparators meet the document target",
   ]);
   assert.ok(incidence.statements.every((statement) => !statement.includes("comparators meet")));
   assert.deepEqual(incidence.statements, ["One small trial.", "Observed 40%.", "Reported 40%."]);
@@ -240,7 +241,9 @@ test("Scout keeps each axis as its own verdict, and code's counts out of the sta
 test("Scout quotes the document's own words, never a summary it built", () => {
   const [incidence, volume] = scoutPriorityFindings(scout());
   assert.equal(incidence.quote, "at least 80% reduction");
+  // Neither the flattened label nor the raw quote names a calibrated target: both run long.
   assert.ok(!incidence.verdicts.join(" ").includes("Constructed summary"));
+  assert.ok(!incidence.verdicts.join(" ").includes("at least 80% reduction"));
   // An unresolved target has no words of the document's to quote.
   assert.equal(volume.quote, undefined);
 });
